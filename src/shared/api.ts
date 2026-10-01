@@ -99,6 +99,8 @@ export interface AppApi {
   listProviders(): Promise<ProviderConfig[]>
   saveProvider(input: ProviderInput): Promise<ProviderConfig>
   deleteProvider(id: ID): Promise<void>
+  /** Undoes deleteProvider (this session only), with its key and the model choices that used it. */
+  restoreProvider(id: ID): Promise<ProviderConfig>
   testProvider(id: ID, modelId?: string): Promise<{ ok: boolean; message: string; latencyMs: number | null }>
   listModels(providerId: ID): Promise<ModelInfo[]>
 
