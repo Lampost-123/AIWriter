@@ -35,6 +35,9 @@ export const defaultWritingPrefs = (): WritingPrefs => ({
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
+/** Where installers for every version are published. */
+export const RELEASES_URL = 'https://github.com/lampost-123/aiwriter/releases'
+
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],

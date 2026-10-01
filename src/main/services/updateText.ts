@@ -2,8 +2,6 @@ import type { UpdateStatus } from '@shared/types'
 
 // Plain-words text for the updater, kept free of Electron so it can be unit-tested.
 
-export const RELEASES_URL = 'https://github.com/lampost-123/aiwriter/releases'
-
 export const UPDATES_NOT_SET_UP = "Automatic updates aren't set up yet. Download new versions from GitHub."
 export const UPDATES_DEV_ONLY = 'Automatic updates only run in the installed app.'
 const OFFLINE = "Couldn't reach GitHub to check for updates. Check your internet connection, then try again."

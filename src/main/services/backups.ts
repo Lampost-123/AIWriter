@@ -150,7 +150,12 @@ export function backupBeforeMigration(folder: string, db: Database.Database): vo
 export function listBackups(): BackupInfo[] {
   const w = maybeCurrentWorld()
   if (!w) return []
-  return listBackupFiles(backupsFolder(w.folder)).map((b) => toInfo(w.id, b))
+  try {
+    return listBackupFiles(backupsFolder(w.folder)).map((b) => toInfo(w.id, b))
+  } catch (e) {
+    console.warn('Could not list backups:', e instanceof Error ? e.message : e)
+    throw new UserError("Couldn't read this world's backups folder. Check it hasn't been moved or renamed, then try again.")
+  }
 }
 
 export async function backupNow(): Promise<BackupInfo> {
