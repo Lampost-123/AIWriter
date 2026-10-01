@@ -34,22 +34,25 @@ class SceneSession {
   /** The document while the scene isn't on screen any more. */
   private snapshot: PMNode | null = null
   private disposed = false
+  private closing = false
 
   constructor(
     readonly id: ID,
     readonly worldId: ID,
     private wordCount: number,
-    private readonly currentDoc: () => PMNode
+    private readonly currentDoc: () => PMNode,
+    /** Called once a closed session has nothing left to save. */
+    private readonly onGone: (s: SceneSession) => void
   ) {
     this.saver = new Autosaver({
       save: () => this.save(),
       onState: (s) => app().setSaveState(s),
       onSaved: (clean) => {
+        if (!clean) return
         // The file only matters until the text is safely in the database.
-        if (clean) {
-          this.recovery.cancel()
-          void api.clearRecovery(this.id).catch(() => undefined)
-        }
+        this.recovery.cancel()
+        void api.clearRecovery(this.id).catch(() => undefined)
+        if (this.closing) this.finish()
       }
     })
     this.recovery = debounce(() => this.writeRecovery(), 250, 2000)
@@ -70,11 +73,18 @@ class SceneSession {
     this.snapshot = doc
   }
 
-  /** Saves what's pending, then lets go. */
+  /** Saves what's pending, then lets go (a failed save keeps retrying until it lands). */
   async close(): Promise<void> {
+    this.closing = true
     this.recovery.flush()
     await this.saver.flush()
-    if (!this.saver.dirty) this.dispose()
+    if (!this.saver.dirty) this.finish()
+  }
+
+  private finish(): void {
+    if (this.disposed) return
+    this.dispose()
+    this.onGone(this)
   }
 
   dispose(): void {
@@ -90,7 +100,7 @@ class SceneSession {
   private async save(): Promise<void> {
     // After a world switch the old world is closed; its last save ran before switching.
     if (!this.stillInOpenWorld()) {
-      this.dispose()
+      this.finish()
       return
     }
     const doc = this.doc
@@ -206,10 +216,17 @@ export class SceneController {
       memory.set(prev.id, { scrollTop: el?.scrollTop ?? 0, anchor, head })
       prev.leave(this.editor.state.doc)
       this.leaving.add(prev)
-      void prev.close().finally(() => this.leaving.delete(prev))
+      void prev.close()
     }
 
-    const doc = streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text)
+    // Coming back to a scene whose last save hasn't landed yet (saving is failing): the text on
+    // screen when Adam left is newer than the stored copy, so carry it over and let one session own it.
+    const unsaved = [...this.leaving].find((s) => s.id === scene.id && s.saver.dirty)
+    if (unsaved) {
+      unsaved.dispose()
+      this.leaving.delete(unsaved)
+    }
+    const doc = unsaved?.doc ?? streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text)
     const mem = memory.get(scene.id)
     let selection: Selection = Selection.atStart(doc)
     if (mem) {
@@ -222,7 +239,13 @@ export class SceneController {
     }
     const state = EditorState.create({ doc, selection, plugins: this.editor.state.plugins })
 
-    this.session = new SceneSession(scene.id, worldId, scene.wordCount, () => this.editor.state.doc)
+    this.session = new SceneSession(
+      scene.id,
+      worldId,
+      scene.wordCount,
+      () => this.editor.state.doc,
+      (gone) => this.leaving.delete(gone)
+    )
     if (this.wordsTimer) clearTimeout(this.wordsTimer)
     app().setSceneWords(scene.wordCount)
 
@@ -232,6 +255,10 @@ export class SceneController {
     view.updateState(state)
     this.follow.stop()
     if (el) el.scrollTop = mem?.scrollTop ?? 0
+    if (unsaved) {
+      this.session.changed()
+      app().setSceneWords(countWords(streamDoc.sceneText(doc)))
+    }
     if (takeFocusRequest(scene.id)) this.focus()
   }
 

@@ -74,6 +74,7 @@ const dropAnimation = { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
 /** The chapters and scenes of the open story, with drag and drop, inline rename and a context menu. */
 export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
+  const writing = useApp((s) => s.view.kind === 'write')
   const { collapsed, toggle } = useCollapsed()
   const [renaming, setRenaming] = useState<Target | null>(null)
   const [menu, setMenu] = useState<(Target & { x: number; y: number }) | null>(null)
@@ -119,8 +120,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const h = useMemo<RowHandlers>(
     () => ({
       select: (id) => {
-        const { storyId, sceneId: open } = useApp.getState()
-        if (id !== open) useApp.getState().selectScene(id, storyId ?? undefined)
+        const { storyId, sceneId: open, view, navigate, selectScene } = useApp.getState()
+        if (id !== open) selectScene(id, storyId ?? undefined)
+        else if (view.kind !== 'write') navigate({ kind: 'write' })
       },
       toggle: (id) => toggle(id),
       startRename: (kind, id) => setRenaming({ kind, id }),
@@ -384,6 +386,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
                         key={id}
                         scene={scene}
                         selected={id === sceneId}
+                        quiet={!writing}
                         renaming={renaming?.kind === 'scene' && renaming.id === id}
                         tabbable={tabbableId === id}
                         menuOpen={menu?.kind === 'scene' && menu.id === id}

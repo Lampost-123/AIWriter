@@ -52,17 +52,16 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
 
   // One editor for the life of the view; scenes are swapped into it. Typing never re-renders React.
-  const editor = useEditor(
-    {
-      extensions: sceneExtensions(),
-      immediatelyRender: true,
-      shouldRerenderOnTransaction: false,
-      editorProps: {
-        attributes: { class: 'scene-prose', spellcheck: 'true', 'aria-label': 'Scene text', 'aria-multiline': 'true' }
-      }
-    },
-    []
-  )
+  // Options are created once so re-renders never reconfigure the editor.
+  const [options] = useState(() => ({
+    extensions: sceneExtensions(),
+    immediatelyRender: true,
+    shouldRerenderOnTransaction: false,
+    editorProps: {
+      attributes: { class: 'scene-prose', spellcheck: 'true', 'aria-label': 'Scene text', 'aria-multiline': 'true' }
+    }
+  }))
+  const editor = useEditor(options, [])
 
   useEffect(() => {
     const ctrl = new SceneController(editor, () => scrollerRef.current, {
@@ -121,7 +120,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-page">
-      {shown ? (
+      {shown && !error ? (
         <SceneHeader sceneId={shown.id} fallbackTitle={shown.title} fallbackStatus={shown.status} />
       ) : (
         <div className="h-12 shrink-0 border-b border-line/70" />
@@ -182,6 +181,7 @@ function NoScene(): React.JSX.Element {
   const { outline } = useOutline()
   const storyId = useApp((s) => s.storyId)
   const [busy, setBusy] = useState(false)
+  useEffect(() => useApp.getState().setSceneWords(0), [])
   const hasScenes = !!outline && outline.scenes.length > 0
   return (
     <div className="flex h-full items-start justify-center bg-page pt-[16vh]">

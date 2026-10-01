@@ -85,6 +85,8 @@ const menuPoint = (e: React.MouseEvent<HTMLElement>): { x: number; y: number } =
 export interface SceneRowProps {
   scene: SceneMeta
   selected: boolean
+  /** The selected scene isn't on screen (a world page is): show it more quietly. */
+  quiet: boolean
   renaming: boolean
   tabbable: boolean
   menuOpen: boolean
@@ -125,6 +127,7 @@ export function SceneRowContent({
 
 const sameRow = (a: SceneRowProps, b: SceneRowProps): boolean =>
   a.selected === b.selected &&
+  a.quiet === b.quiet &&
   a.renaming === b.renaming &&
   a.tabbable === b.tabbable &&
   a.menuOpen === b.menuOpen &&
@@ -134,7 +137,7 @@ const sameRow = (a: SceneRowProps, b: SceneRowProps): boolean =>
   a.scene.status === b.scene.status &&
   a.scene.wordCount === b.scene.wordCount
 
-export const SceneRow = memo(function SceneRow({ scene, selected, renaming, tabbable, menuOpen, h }: SceneRowProps): React.JSX.Element {
+export const SceneRow = memo(function SceneRow({ scene, selected, quiet, renaming, tabbable, menuOpen, h }: SceneRowProps): React.JSX.Element {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({
     id: sceneDndId(scene.id),
     data: { kind: 'scene' },
@@ -163,7 +166,9 @@ export const SceneRow = memo(function SceneRow({ scene, selected, renaming, tabb
         isDragging
           ? 'z-10 bg-accent-soft ring-1 ring-inset ring-accent/40 [&>*]:opacity-0'
           : selected
-            ? 'bg-accent-soft'
+            ? quiet
+              ? 'bg-surface-3/70'
+              : 'bg-accent-soft'
             : menuOpen
               ? 'bg-surface-2'
               : 'hover:bg-surface-2'
