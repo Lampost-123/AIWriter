@@ -45,7 +45,8 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   layout: { binderWidth: 272, inspectorWidth: 340, binderOpen: true, inspectorOpen: true },
   lastWorldId: null,
   lastStoryId: null,
-  lastSceneId: null
+  lastSceneId: null,
+  backup: { extraFolder: null }
 })
 
 /** Sampling settings for each creativity preset. */

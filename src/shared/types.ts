@@ -223,6 +223,8 @@ export interface Settings {
   lastWorldId: ID | null
   lastStoryId: ID | null
   lastSceneId: ID | null
+  /** Optional second backup folder (e.g. inside Dropbox, OneDrive or iCloud). Copies go to <extraFolder>/<world folder name>/. */
+  backup: { extraFolder: string | null }
 }
 
 export type DeepPartial<T> = {
@@ -316,6 +318,17 @@ export interface BackupInfo {
   createdAt: string
   sizeBytes: number
   reason: 'launch' | 'timer' | 'manual' | 'before-restore' | 'before-migration'
+}
+
+/** The optional second backup folder and whether the last copy to it worked. */
+export interface BackupFolderStatus {
+  folder: string | null
+  /** False when the last copy failed (folder missing, disk full, cloud folder offline...). */
+  ok: boolean
+  /** Plain-words reason the last copy failed, with a next step. */
+  message: string | null
+  /** When a backup was last copied there successfully. */
+  lastCopyAt: string | null
 }
 
 export type UpdateStatus =
