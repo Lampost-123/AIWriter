@@ -1,0 +1,208 @@
+@import 'tailwindcss';
+
+/*
+  AI Write design tokens. Every colour in the app comes from these variables,
+  so the Light, Dark and Sepia themes stay consistent. Use the Tailwind names
+  (bg-surface, text-muted, border-line, bg-accent, text-ai ...) rather than raw colours.
+*/
+
+:root,
+[data-theme='light'] {
+  --bg: #f6f4f0;
+  --surface: #fbfaf8;
+  --surface-2: #f0ede7;
+  --surface-3: #e7e3db;
+  --page: #ffffff;
+  --line: #e2ddd4;
+  --line-strong: #cfc8bc;
+  --fg: #22201c;
+  --muted: #6c665c;
+  --faint: #9a9387;
+  --accent: #3d5a80;
+  --accent-hover: #314a6b;
+  --accent-soft: #e3eaf3;
+  --accent-fg: #ffffff;
+  --ai: #b7791f;
+  --ai-soft: #fbf0d9;
+  --danger: #b42318;
+  --danger-soft: #fdeceb;
+  --success: #2f7d4f;
+  --success-soft: #e5f3ea;
+  --focus: #3d5a80;
+  --shadow: 0 1px 2px rgb(30 25 20 / 0.06), 0 4px 16px rgb(30 25 20 / 0.06);
+  --shadow-lg: 0 8px 32px rgb(30 25 20 / 0.14), 0 2px 6px rgb(30 25 20 / 0.08);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #161514;
+  --surface: #1d1c1a;
+  --surface-2: #252321;
+  --surface-3: #2f2c29;
+  --page: #1f1e1c;
+  --line: #34312d;
+  --line-strong: #46423d;
+  --fg: #ebe6de;
+  --muted: #a69f94;
+  --faint: #7a746a;
+  --accent: #8fb0dc;
+  --accent-hover: #a6c1e6;
+  --accent-soft: #263548;
+  --accent-fg: #10161f;
+  --ai: #e0a84a;
+  --ai-soft: #3a2e19;
+  --danger: #f07a70;
+  --danger-soft: #3d1f1c;
+  --success: #6cc493;
+  --success-soft: #1b3326;
+  --focus: #8fb0dc;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
+  --shadow-lg: 0 8px 32px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.3);
+  color-scheme: dark;
+}
+
+[data-theme='sepia'] {
+  --bg: #ece3cf;
+  --surface: #f4ecd8;
+  --surface-2: #ebe0c8;
+  --surface-3: #e0d3b8;
+  --page: #f8f1e0;
+  --line: #dccfb2;
+  --line-strong: #c9b996;
+  --fg: #3b2f22;
+  --muted: #6f604c;
+  --faint: #9a8a70;
+  --accent: #8a4b2a;
+  --accent-hover: #733e22;
+  --accent-soft: #ecd9c4;
+  --accent-fg: #fff8ec;
+  --ai: #a2650f;
+  --ai-soft: #f3e1bd;
+  --danger: #a3271b;
+  --danger-soft: #f3d9cf;
+  --success: #3f6e3a;
+  --success-soft: #dfe7cc;
+  --focus: #8a4b2a;
+  --shadow: 0 1px 2px rgb(60 40 20 / 0.08), 0 4px 16px rgb(60 40 20 / 0.08);
+  --shadow-lg: 0 8px 32px rgb(60 40 20 / 0.16), 0 2px 6px rgb(60 40 20 / 0.1);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-page: var(--page);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Literata', Georgia, 'Times New Roman', serif;
+  --shadow-soft: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-pop-in: pop-in 160ms ease-out;
+  --animate-slide-up: slide-up 180ms ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable='true'] {
+    user-select: text;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: default;
+  }
+  /* Quiet scrollbars that only show on hover. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
