@@ -87,6 +87,9 @@ export interface AppApi {
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
 
+  /** Undoes a delete (deleted items stay in the trash for 30 days). Used by "Undo" toasts. */
+  restoreDeleted(kind: 'story' | 'chapter' | 'scene' | 'entry', id: ID): Promise<void>
+
   // ----- Crash recovery of unsaved editor text -----
   writeRecovery(item: RecoveryItem): Promise<void>
   listRecovery(): Promise<RecoveryItem[]>

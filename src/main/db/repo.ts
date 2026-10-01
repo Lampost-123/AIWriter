@@ -205,6 +205,21 @@ export function deleteChapter(db: DB, id: ID): void {
   })()
 }
 
+export type Restorable = 'story' | 'chapter' | 'scene' | 'entry'
+
+/** Undoes a delete. A chapter comes back with the scenes that were deleted with it. */
+export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
+  const table = { story: 'stories', chapter: 'chapters', scene: 'scenes', entry: 'entries' }[kind]
+  db.transaction(() => {
+    const row = db.prepare(`SELECT deleted_at FROM ${table} WHERE id = ?`).get(id) as Row | undefined
+    if (!row) throw new UserError('That item could not be found to restore.')
+    if (kind === 'chapter' && row.deleted_at) {
+      db.prepare('UPDATE scenes SET deleted_at = NULL WHERE chapter_id = ? AND deleted_at = ?').run(id, row.deleted_at)
+    }
+    db.prepare(`UPDATE ${table} SET deleted_at = NULL WHERE id = ?`).run(id)
+  })()
+}
+
 export function moveChapter(db: DB, id: ID, index: number): void {
   const c = getChapter(db, id)
   db.transaction(() => {

@@ -23,7 +23,7 @@ src/shared/      Types and the API contract shared by both sides. Only additive 
 src/main/        Electron main process
   index.ts       Window, lifecycle, flush-on-close
   world.ts       The open world (one folder: world.db, images/, backups/)
-  db/            migrations.ts (append-only) and repo.ts (all SQL, no Electron imports)
+  db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
   settings.ts    App settings (userData/settings.json) and writing preferences (library folder)
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
   ipc/           One handler object per area; ipc/index.ts checks every AppApi method is implemented
@@ -40,7 +40,7 @@ src/renderer/src/
 ## Rules
 
 - **Data model.** Change the database only by appending a migration in
-  `src/main/db/migrations.ts`. Never edit a shipped migration. All SQL lives in `repo.ts`.
+  `src/main/db/migrations.ts`. Never edit a shipped migration. All SQL lives in `src/main/db/`.
 - **API.** Add methods to `AppApi` in `src/shared/api.ts`, then implement them in
   the matching `src/main/ipc/*.ts` handler object. Errors meant for Adam are thrown as
   `UserError` with a plain-words message and a next step.
