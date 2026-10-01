@@ -1,0 +1,77 @@
+/* The manuscript page. Colours come from the theme tokens in styles.css. */
+
+.scene-prose {
+  outline: none;
+  min-height: 12em;
+  caret-color: var(--accent);
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-variant-ligatures: common-ligatures;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.scene-prose p {
+  margin: 0 0 0.85em;
+}
+
+.scene-prose strong {
+  font-weight: 700;
+}
+
+.scene-prose em {
+  font-style: italic;
+}
+
+.scene-prose blockquote {
+  margin: 0 0 0.85em;
+  padding: 0 0 0 1.1em;
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+}
+
+.scene-prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* A horizontal rule is a scene break, shown as a quiet centred mark. */
+.scene-prose hr {
+  border: none;
+  height: auto;
+  margin: 1.4em 0 1.55em;
+  text-align: center;
+  line-height: 1;
+  cursor: default;
+}
+
+.scene-prose hr::before {
+  content: '*  *  *';
+  white-space: pre;
+  color: var(--faint);
+  font-size: 0.9em;
+  letter-spacing: 0.2em;
+}
+
+.scene-prose hr.ProseMirror-selectednode::before {
+  color: var(--accent);
+}
+
+.scene-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--faint);
+  pointer-events: none;
+}
+
+.scene-prose ::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.scene-prose .ProseMirror-gapcursor:after {
+  border-top-color: var(--fg);
+}

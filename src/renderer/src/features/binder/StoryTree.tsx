@@ -1,0 +1,464 @@
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  getFirstCollision,
+  MeasuringStrategy,
+  PointerSensor,
+  pointerWithin,
+  rectIntersection,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type Modifier,
+  type UniqueIdentifier
+} from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { FilePlus2, FolderPlus, PenLine, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ID, Outline } from '@shared/types'
+import { Button } from '@/components/ui'
+import { useApp } from '@/lib/store'
+import { requestEditorFocus } from '@/features/editor/focusRequest'
+import * as actions from './actions'
+import { useCollapsed } from './collapsed'
+import {
+  applyTreeOrder,
+  arrayMove,
+  findChapterOf,
+  groupOutline,
+  moveSceneTo,
+  scenePlace,
+  treeOrder,
+  type TreeOrder
+} from './outlineModel'
+import { useOutlineStore } from './outlineStore'
+import { RowMenu, RowMenuItem, RowMenuSeparator } from './RowMenu'
+import {
+  ChapterBlock,
+  ChapterDragPreview,
+  chapterDndId,
+  EmptyChapterRow,
+  parseDndId,
+  SceneDragPreview,
+  sceneDndId,
+  SceneRow,
+  type RowHandlers
+} from './TreeRows'
+
+type Kind = 'scene' | 'chapter'
+interface Target {
+  kind: Kind
+  id: ID
+}
+interface DragState extends Target {
+  order: TreeOrder
+}
+
+/** Only move up and down, and stay inside the binder's scrolling area. */
+const keepInTree: Modifier = ({ transform, draggingNodeRect, scrollableAncestorRects }) => {
+  const t = { ...transform, x: 0 }
+  const bounds = scrollableAncestorRects[0]
+  if (!draggingNodeRect || !bounds) return t
+  if (draggingNodeRect.top + t.y < bounds.top) t.y = bounds.top - draggingNodeRect.top
+  else if (draggingNodeRect.bottom + t.y > bounds.bottom) t.y = bounds.bottom - draggingNodeRect.bottom
+  return t
+}
+
+const measuring = { droppable: { strategy: MeasuringStrategy.Always } }
+const dropAnimation = { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+
+/** The chapters and scenes of the open story, with drag and drop, inline rename and a context menu. */
+export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element {
+  const sceneId = useApp((s) => s.sceneId)
+  const { collapsed, toggle } = useCollapsed()
+  const [renaming, setRenaming] = useState<Target | null>(null)
+  const [menu, setMenu] = useState<(Target & { x: number; y: number }) | null>(null)
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  /** Row to focus once it has rendered (after add/delete/rename). */
+  const focusNext = useRef<ID | null>(null)
+
+  const groups = useMemo(() => groupOutline(outline), [outline])
+  const base = useMemo(() => treeOrder(outline), [outline])
+  const order = drag?.order ?? base
+  const chapterById = useMemo(() => new Map(groups.map((g) => [g.chapter.id, g])), [groups])
+  const sceneById = useMemo(() => new Map(outline.scenes.map((s) => [s.id, s])), [outline])
+
+  // Live values for the drag callbacks, which dnd-kit holds on to.
+  const live = useRef({ order, drag, collapsed })
+  live.current = { order, drag, collapsed }
+  const lastOver = useRef<UniqueIdentifier | null>(null)
+  const movedAcross = useRef(false)
+  useEffect(() => {
+    requestAnimationFrame(() => (movedAcross.current = false))
+  }, [order])
+
+  // ---------- Row handlers (stable) ----------
+
+  const focusRow = useCallback((id: ID | null) => {
+    if (!id) return
+    const el = treeRef.current?.querySelector<HTMLElement>(`[data-row][data-id="${CSS.escape(id)}"]`)
+    if (el) el.focus({ preventScroll: false })
+    else focusNext.current = id
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!focusNext.current) return
+    const id = focusNext.current
+    const el = treeRef.current?.querySelector<HTMLElement>(`[data-row][data-id="${CSS.escape(id)}"]`)
+    if (el && !renaming) {
+      focusNext.current = null
+      el.focus()
+    }
+  })
+
+  const h = useMemo<RowHandlers>(
+    () => ({
+      select: (id) => {
+        const { storyId, sceneId: open } = useApp.getState()
+        if (id !== open) useApp.getState().selectScene(id, storyId ?? undefined)
+      },
+      toggle: (id) => toggle(id),
+      startRename: (kind, id) => setRenaming({ kind, id }),
+      stopRename: () => {
+        setRenaming((r) => {
+          if (r) focusNext.current = r.id
+          return null
+        })
+      },
+      rename: (kind, id, title) => void (kind === 'scene' ? actions.renameScene(id, title) : actions.renameChapter(id, title)),
+      openMenu: (kind, id, at) => setMenu({ kind, id, ...at }),
+      addScene: (chapterId) => {
+        toggle(chapterId, false)
+        void actions.addScene(chapterId).then((id) => id && setRenaming({ kind: 'scene', id }))
+      }
+    }),
+    [toggle]
+  )
+
+  const addChapter = useCallback(
+    (afterId?: ID | null) => {
+      void actions.addChapter(outline.story.id, afterId).then((id) => id && setRenaming({ kind: 'chapter', id }))
+    },
+    [outline.story.id]
+  )
+
+  const remove = useCallback(
+    (t: Target) => {
+      // Keep keyboard focus in the tree: move it to a neighbouring row first.
+      const rows = [...(treeRef.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [])]
+      const i = rows.findIndex((r) => r.dataset.id === t.id)
+      const hadFocus = rows[i] && rows[i].contains(document.activeElement)
+      if (hadFocus) {
+        const skip = t.kind === 'chapter' ? new Set([t.id, ...(base.scenes[t.id] ?? [])]) : new Set([t.id])
+        const neighbour = rows.slice(i + 1).find((r) => !skip.has(r.dataset.id!)) ?? rows.slice(0, i).reverse().find((r) => !skip.has(r.dataset.id!))
+        neighbour?.focus()
+      }
+      void (t.kind === 'scene' ? actions.deleteScene(t.id) : actions.deleteChapter(t.id))
+    },
+    [base]
+  )
+
+  // ---------- Keyboard ----------
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (renaming || drag) return
+    const rows = [...(treeRef.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [])]
+    const current = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-row]')
+    const i = current ? rows.indexOf(current) : -1
+    const kind = current?.dataset.row as Kind | undefined
+    const id = current?.dataset.id
+    const move = (to: number): void => {
+      e.preventDefault()
+      rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus()
+    }
+    switch (e.key) {
+      case 'ArrowDown':
+        return move(i + 1)
+      case 'ArrowUp':
+        return move(i < 0 ? 0 : i - 1)
+      case 'Home':
+        return move(0)
+      case 'End':
+        return move(rows.length - 1)
+      case 'ArrowRight':
+        if (kind === 'chapter' && id && collapsed.has(id)) {
+          e.preventDefault()
+          toggle(id, false)
+        } else if (kind === 'chapter') move(i + 1)
+        return
+      case 'ArrowLeft':
+        if (kind === 'chapter' && id && !collapsed.has(id)) {
+          e.preventDefault()
+          toggle(id, true)
+        } else if (kind === 'scene' && id) {
+          e.preventDefault()
+          const ch = findChapterOf(base.scenes, id)
+          if (ch) focusRow(ch)
+        }
+        return
+      case 'Enter':
+        if (!id) return
+        e.preventDefault()
+        if (kind === 'scene') {
+          h.select(id)
+          requestEditorFocus(id)
+        } else toggle(id)
+        return
+      case 'F2':
+        if (!id || !kind) return
+        e.preventDefault()
+        setRenaming({ kind, id })
+        return
+      case 'Delete':
+        if (!id || !kind) return
+        e.preventDefault()
+        remove({ kind, id })
+        return
+    }
+  }
+
+  // ---------- Drag and drop ----------
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  const collision: CollisionDetection = useCallback((args) => {
+    const { drag: d, order: o, collapsed: c } = live.current
+    if (!d) return closestCenter(args)
+    if (d.kind === 'chapter') {
+      return closestCenter({ ...args, droppableContainers: args.droppableContainers.filter((x) => parseDndId(x.id).kind === 'chapter') })
+    }
+    // A scene: find the row under the pointer; over a chapter, the nearest of its visible scenes.
+    const pointer = pointerWithin(args)
+    const hits = pointer.length > 0 ? pointer : rectIntersection(args)
+    let overId = getFirstCollision(hits, 'id')
+    if (overId != null) {
+      const over = parseDndId(overId)
+      if (over.kind === 'chapter') {
+        const visible = (o.scenes[over.id] ?? []).filter((sid) => !c.has(over.id) || sid === d.id).map(sceneDndId)
+        if (visible.length > 0) {
+          const inner = closestCenter({ ...args, droppableContainers: args.droppableContainers.filter((x) => visible.includes(String(x.id))) })
+          overId = inner[0]?.id ?? overId
+        }
+      }
+      lastOver.current = overId
+      return [{ id: overId }]
+    }
+    if (movedAcross.current) lastOver.current = sceneDndId(d.id)
+    return lastOver.current ? [{ id: lastOver.current }] : []
+  }, [])
+
+  const onDragStart = ({ active }: DragStartEvent): void => {
+    setMenu(null)
+    const t = parseDndId(active.id)
+    lastOver.current = null
+    setDrag({ ...t, order: base })
+  }
+
+  const onDragOver = ({ active, over }: DragOverEvent): void => {
+    if (!over) return
+    const target = parseDndId(over.id)
+    const midY = (() => {
+      const r = active.rect.current.translated
+      return r ? r.top + r.height / 2 : null
+    })()
+    setDrag((d) => {
+      if (!d || d.kind !== 'scene') return d
+      const fromCh = findChapterOf(d.order.scenes, d.id)
+      const toCh = target.kind === 'chapter' ? target.id : findChapterOf(d.order.scenes, target.id)
+      if (!fromCh || !toCh || fromCh === toCh) return d
+      let index: number
+      if (target.kind === 'chapter') {
+        index = live.current.collapsed.has(toCh) ? 0 : d.order.scenes[toCh].length
+      } else {
+        const overIndex = d.order.scenes[toCh].indexOf(target.id)
+        const below = midY != null && midY > over.rect.top + over.rect.height / 2
+        index = overIndex + (below ? 1 : 0)
+      }
+      movedAcross.current = true
+      return { ...d, order: { ...d.order, scenes: moveSceneTo(d.order.scenes, d.id, toCh, index) } }
+    })
+  }
+
+  const finishDrag = (next: TreeOrder | null): void => {
+    const d = live.current.drag
+    setDrag(null)
+    if (!d || !next) return
+    if (d.kind === 'chapter') {
+      const from = base.chapters.indexOf(d.id)
+      const to = next.chapters.indexOf(d.id)
+      if (from === to) return
+      useOutlineStore.getState().patch((o) => applyTreeOrder(o, next))
+      void actions.moveChapter(d.id, to)
+      return
+    }
+    const before = scenePlace(base.scenes, d.id)
+    const after = scenePlace(next.scenes, d.id)
+    if (!after || (before && before.chapterId === after.chapterId && before.index === after.index)) return
+    useOutlineStore.getState().patch((o) => applyTreeOrder(o, next))
+    if (live.current.collapsed.has(after.chapterId)) toggle(after.chapterId, false)
+    void actions.moveScene(d.id, after.chapterId, after.index)
+  }
+
+  const onDragEnd = ({ over }: DragEndEvent): void => {
+    const d = live.current.drag
+    if (!d) return
+    let next = d.order
+    if (over) {
+      const target = parseDndId(over.id)
+      if (d.kind === 'chapter' && target.kind === 'chapter' && target.id !== d.id) {
+        const from = next.chapters.indexOf(d.id)
+        const to = next.chapters.indexOf(target.id)
+        if (from >= 0 && to >= 0) next = { ...next, chapters: arrayMove(next.chapters, from, to) }
+      } else if (d.kind === 'scene' && target.kind === 'scene' && target.id !== d.id) {
+        const ch = findChapterOf(next.scenes, d.id)
+        if (ch && findChapterOf(next.scenes, target.id) === ch) {
+          const list = next.scenes[ch]
+          next = { ...next, scenes: { ...next.scenes, [ch]: arrayMove(list, list.indexOf(d.id), list.indexOf(target.id)) } }
+        }
+      }
+    }
+    finishDrag(next)
+  }
+
+  // ---------- Render ----------
+
+  const tabbableId = sceneId && sceneById.has(sceneId) ? sceneId : (order.chapters[0] ?? null)
+  const activeScene = drag?.kind === 'scene' ? sceneById.get(drag.id) : undefined
+  const activeChapter = drag?.kind === 'chapter' ? chapterById.get(drag.id) : undefined
+
+  if (order.chapters.length === 0) {
+    return (
+      <div className="flex flex-col items-center px-4 py-10 text-center animate-fade-in">
+        <p className="text-[13px] font-medium text-fg">No chapters yet</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">Chapters hold the scenes of this story.</p>
+        <Button size="sm" className="mt-3" icon={<Plus size={14} />} onClick={() => addChapter()}>
+          Add chapter
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={treeRef} role="tree" aria-label="Chapters and scenes" onKeyDown={onKeyDown} className="px-1.5 pb-3 pt-1">
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collision}
+        measuring={measuring}
+        modifiers={[keepInTree]}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => finishDrag(null)}
+      >
+        <SortableContext items={order.chapters.map(chapterDndId)} strategy={verticalListSortingStrategy}>
+          {order.chapters.map((chapterId) => {
+            const g = chapterById.get(chapterId)
+            if (!g) return null
+            const ids = order.scenes[chapterId] ?? []
+            const isCollapsed = collapsed.has(chapterId)
+            const shown = isCollapsed ? ids.filter((id) => drag?.kind === 'scene' && id === drag.id) : ids
+            const words = ids.reduce((n, id) => n + (sceneById.get(id)?.wordCount ?? 0), 0)
+            return (
+              <ChapterBlock
+                key={chapterId}
+                chapter={g.chapter}
+                words={words}
+                sceneCount={ids.length}
+                collapsed={isCollapsed}
+                renaming={renaming?.kind === 'chapter' && renaming.id === chapterId}
+                tabbable={tabbableId === chapterId}
+                menuOpen={menu?.kind === 'chapter' && menu.id === chapterId}
+                lifted={drag?.kind === 'chapter' && drag.id === chapterId}
+                h={h}
+              >
+                <SortableContext items={shown.map(sceneDndId)} strategy={verticalListSortingStrategy}>
+                  {shown.map((id) => {
+                    const scene = sceneById.get(id)
+                    return scene ? (
+                      <SceneRow
+                        key={id}
+                        scene={scene}
+                        selected={id === sceneId}
+                        renaming={renaming?.kind === 'scene' && renaming.id === id}
+                        tabbable={tabbableId === id}
+                        menuOpen={menu?.kind === 'scene' && menu.id === id}
+                        h={h}
+                      />
+                    ) : null
+                  })}
+                </SortableContext>
+                {!isCollapsed && ids.length === 0 ? <EmptyChapterRow chapterId={chapterId} h={h} /> : null}
+              </ChapterBlock>
+            )
+          })}
+        </SortableContext>
+        <DragOverlay dropAnimation={dropAnimation} modifiers={[keepInTree]}>
+          {activeScene ? <SceneDragPreview scene={activeScene} /> : null}
+          {activeChapter ? (
+            <ChapterDragPreview chapter={activeChapter.chapter} words={activeChapter.words} sceneCount={(order.scenes[activeChapter.chapter.id] ?? []).length} />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <button
+        type="button"
+        onClick={() => addChapter()}
+        className="mt-1 flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint hover:bg-surface-2 hover:text-muted"
+      >
+        <Plus size={14} />
+        Add chapter
+      </button>
+
+      <RowMenu
+        at={menu}
+        label={menu?.kind === 'chapter' ? 'Chapter actions' : 'Scene actions'}
+        onClose={() => setMenu(null)}
+        onCloseFocus={() => {
+          if (menu && !renaming) focusRow(menu.id)
+        }}
+      >
+        {menu?.kind === 'scene' ? (
+          <>
+            <RowMenuItem icon={<PenLine size={14} />} hint="F2" onSelect={() => setRenaming({ kind: 'scene', id: menu.id })}>
+              Rename
+            </RowMenuItem>
+            <RowMenuItem
+              icon={<FilePlus2 size={14} />}
+              onSelect={() => {
+                const ch = findChapterOf(base.scenes, menu.id)
+                if (ch) void actions.addScene(ch, menu.id).then((id) => id && setRenaming({ kind: 'scene', id }))
+              }}
+            >
+              Add scene after
+            </RowMenuItem>
+            <RowMenuSeparator />
+            <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'scene', id: menu.id })}>
+              Delete scene
+            </RowMenuItem>
+          </>
+        ) : menu ? (
+          <>
+            <RowMenuItem icon={<PenLine size={14} />} hint="F2" onSelect={() => setRenaming({ kind: 'chapter', id: menu.id })}>
+              Rename
+            </RowMenuItem>
+            <RowMenuItem icon={<FilePlus2 size={14} />} onSelect={() => h.addScene(menu.id)}>
+              Add scene
+            </RowMenuItem>
+            <RowMenuItem icon={<FolderPlus size={14} />} onSelect={() => addChapter(menu.id)}>
+              Add chapter after
+            </RowMenuItem>
+            <RowMenuSeparator />
+            <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'chapter', id: menu.id })}>
+              Delete chapter
+            </RowMenuItem>
+          </>
+        ) : null}
+      </RowMenu>
+    </div>
+  )
+}
