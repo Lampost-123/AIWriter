@@ -13,7 +13,17 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import * as hist from '../db/history'
 import { gatherWorld } from './context'
-import { isRunning, startFleshOut, startInterview, startOptions, startQuickStart, stopJob, stopJobsFor, type Emit, type JobContext } from './jobs'
+import {
+  isRunning,
+  startFleshOut,
+  startInterview,
+  startOptions,
+  startQuickStart,
+  stopJob,
+  stopJobsFor,
+  type Emit,
+  type JobContext
+} from './jobs'
 import type { BuilderModel } from './model'
 import { BUILDER_MARKER, worldText } from './prompts'
 import { createBuilt, keepSuggestions, noteWritten, saveBuilt, type Written } from './save'
@@ -42,7 +52,14 @@ function setup(o: { modelId?: string; fetchImpl?: typeof fetch } = {}) {
   const events: Ev[] = []
   const saved: ID[] = []
   const emit: Emit = (name, payload) => events.push({ name, payload })
-  const ctx: JobContext = { db, model: modelFor(o.modelId), emit, onSaved: (id) => saved.push(id), fetchImpl: o.fetchImpl, retryDelays: [1, 1] }
+  const ctx: JobContext = {
+    db,
+    model: modelFor(o.modelId),
+    emit,
+    onSaved: (id) => saved.push(id),
+    fetchImpl: o.fetchImpl,
+    retryDelays: [1, 1]
+  }
   const storyId = repo.listStories(db)[0].id
   const done = (jobId: ID): Promise<BuilderDone> =>
     new Promise((resolve) => {
@@ -54,10 +71,32 @@ function setup(o: { modelId?: string; fetchImpl?: typeof fetch } = {}) {
       check()
     })
   const progress = (jobId: ID): BuilderProgress[] =>
-    events.filter((e) => e.name === 'builder:progress' && (e.payload as BuilderProgress).jobId === jobId).map((e) => e.payload as BuilderProgress)
+    events
+      .filter((e) => e.name === 'builder:progress' && (e.payload as BuilderProgress).jobId === jobId)
+      .map((e) => e.payload as BuilderProgress)
   const brief = (kind: 'character' | 'place' | 'group' | 'item' = 'character', excludeId: ID | null = null) =>
     gatherWorld(db, { kind, excludeId, storyId, prefs: defaultWritingPrefs() })
   return { db, ctx, events, saved, storyId, done, progress, brief }
+}
+
+/** A fetch that streams one reply a few characters at a time, `ms` apart, like a slow model. */
+function trickle(reply: string, ms: number): typeof fetch {
+  const line = (delta: object, finish: string | null = null): string =>
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+  return (async () => {
+    const enc = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      async start(c) {
+        for (const p of reply.match(/[\s\S]{1,6}/g) ?? []) {
+          c.enqueue(enc.encode(line({ content: p })))
+          await new Promise((r) => setTimeout(r, ms))
+        }
+        c.enqueue(enc.encode(`${line({}, 'stop')}data: [DONE]\n\n`))
+        c.close()
+      }
+    })
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }) as unknown as typeof fetch
 }
 
 /** A fetch that answers each request with the next canned reply, streamed in small pieces. */
@@ -78,8 +117,10 @@ function canned(replies: string[]): typeof fetch & { calls: () => number; bodies
   return f
 }
 
-const builderRecords = (db: Database.Database) =>
-  (db.prepare("SELECT id FROM generations WHERE job = 'builder' ORDER BY rowid").all() as { id: ID }[]).map((r) => gens.getGeneration(db, r.id))
+function builderRecords(db: Database.Database) {
+  const rows = db.prepare("SELECT id FROM generations WHERE job = 'builder' ORDER BY rowid").all() as { id: ID }[]
+  return rows.map((r) => gens.getGeneration(db, r.id))
+}
 
 describe('Quick start', () => {
   it("builds and saves a whole character from a few lines: Adam's words as his, the rest drafted by AI", async () => {
@@ -104,7 +145,8 @@ describe('Quick start', () => {
     expect(e.fields.hair).toBe('Hair of Brann Holt, drafted to fit the world.')
     expect(e.fields.sampleLines).toContain('Pay first')
     expect(e.aliases).toEqual(['Old Brann'])
-    for (const k of ['hair', 'eyes', 'origin', 'wants', 'sampleLines', 'aliases', 'description', 'role', 'pronouns']) expect(e.fieldOrigins[k]).toBe('ai')
+    const drafted = ['hair', 'eyes', 'origin', 'wants', 'sampleLines', 'aliases', 'description', 'role', 'pronouns']
+    for (const k of drafted) expect(e.fieldOrigins[k]).toBe('ai')
     expect(done.fromNotes.sort()).toEqual(['marks', 'name', 'summary', 'traits'])
     expect(w.saved).toContain(e.id)
 
@@ -125,12 +167,13 @@ describe('Quick start', () => {
 
   it('gives a character the AI named itself a name marked as drafted by AI, in its history too', async () => {
     const w = setup()
-    startQuickStart(w.ctx, { jobId: 'q2', kind: 'character', notes: 'a grumpy ex-soldier who runs the ferry and owes the Duke money' }, w.brief())
+    const notes = 'a grumpy ex-soldier who runs the ferry and owes the Duke money'
+    startQuickStart(w.ctx, { jobId: 'q2', kind: 'character', notes }, w.brief())
     const done = await w.done('q2')
     const e = repo.getEntry(w.db, done.entryId!)
     expect(e.name).toBe('Corvin Ashe')
     expect(e.fieldOrigins.name).toBe('ai')
-    expect(e.summary).toBe('a grumpy ex-soldier who runs the ferry and owes the Duke money')
+    expect(e.summary).toBe(notes)
     expect(e.fieldOrigins.summary ?? e.origin).toBe('adam')
     const first = hist.entryHistory(w.db, e.id).find((v) => v.version === 1)!
     expect((first.data as { fieldOrigins: Record<string, string> }).fieldOrigins.name).toBe('ai')
@@ -138,7 +181,8 @@ describe('Quick start', () => {
 
   it('builds places, groups and items the same way', async () => {
     const w = setup()
-    startQuickStart(w.ctx, { jobId: 'p1', kind: 'place', notes: 'Saltmere, a port town where nobody asks questions.\nIt smells of tar and fish.' }, w.brief('place'))
+    const notes = 'Saltmere, a port town where nobody asks questions.\nIt smells of tar and fish.'
+    startQuickStart(w.ctx, { jobId: 'p1', kind: 'place', notes }, w.brief('place'))
     const done = await w.done('p1')
     const e = repo.getEntry(w.db, done.entryId!)
     expect(e).toMatchObject({ kind: 'place', name: 'Saltmere', summary: 'Saltmere, a port town where nobody asks questions.' })
@@ -150,7 +194,8 @@ describe('Quick start', () => {
 
   it('takes a passage from a scene as the notes', async () => {
     const w = setup()
-    startQuickStart(w.ctx, { jobId: 'q3', kind: 'character', notes: 'Tobin was where he had promised to be.', sceneId: 'scene-1' }, w.brief())
+    const notes = 'Tobin was where he had promised to be.'
+    startQuickStart(w.ctx, { jobId: 'q3', kind: 'character', notes, sceneId: 'scene-1' }, w.brief())
     await w.done('q3')
     const [rec] = builderRecords(w.db)
     expect(rec.messages[1].content).toContain('selected this passage from the story')
@@ -249,6 +294,76 @@ describe('Quick start', () => {
     expect(builderRecords(w.db)[0].status).toBe('stopped')
     expect((await w.done('q10')).status).toBe('stopped')
   })
+
+  it('keeps a long line from his notes whole', async () => {
+    const long = `Brann Holt runs the ferry across the Narrows, ${'and has done for longer than anyone can remember, '.repeat(6)}rain or shine.`
+    const w = setup()
+    startQuickStart(w.ctx, { jobId: 'q11', kind: 'character', notes: `${long}\nA grumpy ex-soldier who owes the Duke money.` }, w.brief())
+    const e = repo.getEntry(w.db, (await w.done('q11')).entryId!)
+    expect(long.length).toBeGreaterThan(300)
+    expect(e.summary).toBe(long)
+    expect(e.fieldOrigins.summary ?? e.origin).toBe('adam')
+  })
+
+  it("writes only a few versions of the entry's history, however long the reply takes", async () => {
+    const keys = 'hair eyes build face skin clothing origin wants needs fears flaws habits speech tics'.split(' ')
+    const drafted = Object.fromEntries(keys.map((k) => [k, `The ${k}.`]))
+    const fromNotes = { name: 'Brann Holt', summary: 'Brann Holt runs the ferry across the Narrows.' }
+    const reply = JSON.stringify({ fromNotes, drafted }, null, 1)
+    // About three and a half seconds: saving every second or so would have written a version each time.
+    const w = setup({ fetchImpl: trickle(reply, 40) })
+    startQuickStart(w.ctx, { jobId: 'q12', kind: 'character', notes: NOTES }, w.brief())
+    const done = await w.done('q12')
+    expect(done.status).toBe('complete')
+    const e = repo.getEntry(w.db, done.entryId!)
+    expect(e.fields.speech).toBe('The speech.')
+    // Made with his name, then his words, then the AI's: never one for every second the reply took.
+    expect(hist.entryHistory(w.db, e.id).length).toBeLessThanOrEqual(4)
+  })
+
+  it('finishes a build that stopped part way, filling only the fields still empty', async () => {
+    const w = setup({ modelId: 'fake/midstream-error' })
+    startQuickStart(w.ctx, { jobId: 'q13', kind: 'character', notes: NOTES }, w.brief())
+    const failed = await w.done('q13')
+    expect(failed.status).toBe('error')
+    // The screen says what arrived is saved; the message is only what went wrong, with its next step.
+    expect(failed.error).toMatch(/^Fake is having trouble right now\. Try again in a few minutes/)
+    expect(failed.error).not.toMatch(/saved/)
+    const id = failed.entryId!
+    const part = repo.getEntry(w.db, id)
+    expect(part.fields.marks).toBe('Missing two fingers on his left hand.')
+    expect(part.fields.speech ?? '').toBe('')
+    // Adam typed in one of the empty fields meanwhile.
+    repo.updateEntry(w.db, id, { fields: { hair: 'Black, his own' } })
+
+    w.ctx.model = modelFor('fake/writer')
+    startQuickStart(w.ctx, { jobId: 'q14', kind: 'character', notes: NOTES, entryId: id }, w.brief('character', id))
+    const done = await w.done('q14')
+    expect(done.status).toBe('complete')
+    expect(done.entryId).toBe(id)
+    const e = repo.getEntry(w.db, id)
+    expect(repo.listEntries(w.db, 'character')).toHaveLength(1)
+    expect(e.fields.hair).toBe('Black, his own')
+    expect(e.fields.marks).toBe('Missing two fingers on his left hand.')
+    expect(e.fields.speech).toBe('How they speak of Brann Holt, drafted to fit the world.')
+    expect(e.fieldOrigins.speech).toBe('ai')
+    for (const k of ['name', 'summary', 'traits', 'marks', 'hair']) expect(e.fieldOrigins[k] ?? e.origin).toBe('adam')
+    // Shown whole, with his words marked as his.
+    expect(done.values.marks).toBe('Missing two fingers on his left hand.')
+    expect(done.fromNotes).toEqual(expect.arrayContaining(['name', 'summary', 'traits', 'marks', 'hair']))
+    // The model was told what is saved already, and wasn't told about the character as someone else in the world.
+    const asked = builderRecords(w.db).at(-1)!.messages[1].content
+    expect(asked).toContain('These fields are saved already')
+    expect(asked).toContain('Hair: Black, his own')
+    expect(asked).not.toContain('- Brann Holt')
+  })
+
+  it("says so when there's nothing left to finish", async () => {
+    const w = setup()
+    const e = repo.createEntry(w.db, 'place', { name: 'Saltmere' })
+    const finish = () => startQuickStart(w.ctx, { jobId: 'q15', kind: 'character', notes: NOTES, entryId: e.id }, w.brief())
+    expect(finish).toThrow(/finished here/)
+  })
 })
 
 describe('saving a profile', () => {
@@ -263,6 +378,21 @@ describe('saving a profile', () => {
     const after = saveBuilt(db, 'character', e.id, { ...values, hair: 'Grey and cropped', eyes: 'Pale blue', build: 'Broad' }, [], written)
     expect(after.fields).toMatchObject({ hair: 'Black, his own', eyes: 'Pale blue', build: 'Broad' })
     expect(after.fieldOrigins).toMatchObject({ hair: 'adam', eyes: 'ai', build: 'ai' })
+  })
+
+  it("saves Adam's own words exactly as he typed them when a guided build is first made, however long", () => {
+    const db = memoryWorld()
+    const summary = `${'A ferryman who  never forgets a face, '.repeat(9)}and never forgives a debt. `
+    const hair = `Grey;  cropped close, ${'with a streak of white '.repeat(14)}at the temple`
+    const values = { name: ' Brann Holt ', summary, hair, aliases: 'Old Brann; the "Ferryman", Brann', eyes: 'Pale' }
+    const e = createBuilt(db, 'character', values, ['eyes'], null)
+    expect(summary.length).toBeGreaterThan(300)
+    expect(e.name).toBe('Brann Holt')
+    expect(e.summary).toBe(summary)
+    expect(e.fields.hair).toBe(hair)
+    // Split at commas only, as every later save splits them.
+    expect(e.aliases).toEqual(['Old Brann; the "Ferryman"', 'Brann'])
+    expect(e.fieldOrigins.eyes).toBe('ai')
   })
 
   it("makes a guided build's entry with the suggestions Adam kept marked as drafted by AI", () => {
@@ -297,11 +427,9 @@ describe('Flesh out', () => {
     const w = setup()
     const e = repo.createEntry(w.db, 'character', { name: 'Mara', fields: { hair: 'Black' } })
     const before = repo.getEntry(w.db, e.id)
-    startFleshOut(
-      w.ctx,
-      { jobId: 'f1', kind: 'character', entryId: e.id, values: { name: 'Mara', hair: 'Black', eyes: 'typed, not saved yet' }, keys: ['build', 'face', 'hair', 'eyes'] },
-      w.brief('character', e.id)
-    )
+    const values = { name: 'Mara', hair: 'Black', eyes: 'typed, not saved yet' }
+    const keys = ['build', 'face', 'hair', 'eyes']
+    startFleshOut(w.ctx, { jobId: 'f1', kind: 'character', entryId: e.id, values, keys }, w.brief('character', e.id))
     const done = await w.done('f1')
     expect(done.status).toBe('complete')
     expect(done.values).toEqual({ build: 'Suggested build for Mara.', face: 'Suggested face for Mara.' })
@@ -312,9 +440,9 @@ describe('Flesh out', () => {
 
   it('says so when every field is filled in already', () => {
     const w = setup()
-    expect(() => startFleshOut(w.ctx, { jobId: 'f2', kind: 'character', entryId: null, values: { hair: 'Black' }, keys: ['hair'] }, w.brief())).toThrow(
-      /filled in already/
-    )
+    const input = { jobId: 'f2', kind: 'character' as const, entryId: null, values: { hair: 'Black' }, keys: ['hair'] }
+    const flesh = () => startFleshOut(w.ctx, input, w.brief())
+    expect(flesh).toThrow(/filled in already/)
   })
 })
 
@@ -375,8 +503,10 @@ describe('Interview', () => {
 
   it('needs a name and a question', () => {
     const w = setup()
-    expect(() => startInterview(w.ctx, { jobId: 'i2', entryId: null, values: {}, turns: [], question: 'Hi?' }, w.brief())).toThrow(/name first/)
-    expect(() => startInterview(w.ctx, { jobId: 'i3', entryId: null, values: { name: 'B' }, turns: [], question: ' ' }, w.brief())).toThrow(/question/)
+    const ask = (values: Record<string, string>, question: string) => () =>
+      startInterview(w.ctx, { jobId: 'i2', entryId: null, values, turns: [], question }, w.brief())
+    expect(ask({}, 'Hi?')).toThrow(/name first/)
+    expect(ask({ name: 'B' }, ' ')).toThrow(/question/)
   })
 })
 
@@ -385,7 +515,8 @@ describe("what the builder's model is told about the world", () => {
     const w = setup()
     repo.setMeta(w.db, 'style', JSON.stringify({ spelling: 'US', proseStyle: 'Spare and wry', avoidPhrases: ['suddenly'] }))
     repo.createEntry(w.db, 'lore', { name: 'Old tales', summary: 'Ghost stories' })
-    repo.createEntry(w.db, 'lore', { name: 'The Binding', summary: 'Oaths bind.', hardRule: true, fields: { rules: 'Breaking one kills.' } })
+    const rules = { rules: 'Breaking one kills.' }
+    repo.createEntry(w.db, 'lore', { name: 'The Binding', summary: 'Oaths bind.', hardRule: true, fields: rules })
     repo.createEntry(w.db, 'group', { name: 'The Lantern Guild', summary: 'Smugglers' })
     const mara = repo.createEntry(w.db, 'character', { name: 'Mara', aliases: ['the heir'], summary: 'A smuggler' })
     const me = repo.createEntry(w.db, 'character', { name: 'Brann' })
@@ -401,14 +532,32 @@ describe("what the builder's model is told about the world", () => {
     expect(mara.id).toBeTruthy()
   })
 
-  it('leaves out other lore first when the model can read little', () => {
+  it('leaves out other lore first when the model can read little, the oldest first', () => {
     const w = setup()
     repo.createEntry(w.db, 'lore', { name: 'The Binding', summary: 'Oaths bind.', hardRule: true })
-    for (let i = 0; i < 40; i++) repo.createEntry(w.db, 'lore', { name: `Tale ${i}`, summary: 'A long story about the old days, told and retold.' })
+    for (let i = 0; i < 40; i++) {
+      const e = repo.createEntry(w.db, 'lore', { name: `Tale ${i}`, summary: 'A long story about the old days, told and retold.' })
+      touched(w.db, e.id, i)
+    }
     for (let i = 0; i < 5; i++) repo.createEntry(w.db, 'character', { name: `Person ${i}`, summary: 'Someone' })
-    const text = worldText(w.brief(), 'character', 200).text
+    const text = worldText(w.brief(), 'character', 400).text
     expect(text).toContain('The Binding')
     expect(text).toContain('Person 4')
-    expect(text).not.toContain('Tale 39')
+    expect(text).toContain('Tale 39')
+    expect(text).not.toContain('Tale 0:')
+  })
+
+  it('tells it about everyone when there is room, however many there are', () => {
+    const w = setup()
+    for (let i = 0; i < 130; i++) repo.createEntry(w.db, 'character', { name: `Zed ${String(i).padStart(3, '0')}` })
+    const text = worldText(w.brief(), 'character', 100_000).text
+    expect(text).toContain('- Zed 000')
+    expect(text).toContain('- Zed 129')
   })
 })
+
+/** Makes an entry look as if it was last changed `n` minutes into the day. */
+function touched(db: Database.Database, id: ID, n: number): void {
+  const at = new Date(Date.UTC(2026, 0, 1, 0, n)).toISOString()
+  db.prepare('UPDATE entries SET updated_at = ? WHERE id = ?').run(at, id)
+}

@@ -39,6 +39,11 @@ export interface QuickStartInput {
   storyId?: ID | null
   /** The scene a passage came from: the notes are then that passage. */
   sceneId?: ID | null
+  /**
+   * Finish the rest: the entry an earlier Quick start saved before it stopped part way (the connection
+   * dropped, say). Only its empty fields are filled; what it holds stays as it is.
+   */
+  entryId?: ID | null
 }
 
 export interface FleshOutInput {
@@ -103,7 +108,7 @@ export interface BuilderProgress {
 }
 
 export interface BuilderDone extends BuilderProgress {
-  /** 'stopped' keeps what had fully arrived. */
+  /** 'stopped' keeps what had fully arrived, and so does 'error' once Quick start has saved the entry (`entryId`). */
   status: 'complete' | 'stopped' | 'error'
   /** Plain words with a next step, when status is 'error'. */
   error: string | null
@@ -114,6 +119,7 @@ export interface BuilderApi {
    * Quick start: builds the whole profile from Adam's notes and saves it, made by Adam (so it is never
    * moved to the Trash automatically) as soon as it has a name. Fields that copy his words are his;
    * the rest are marked "drafted by AI" and update themselves if the story later says otherwise.
+   * With `entryId`, finishes one that stopped part way, filling only its empty fields.
    * Uses the writer model; refuses in plain words when there is none (code 'no-writer-model' or 'no-key').
    */
   startQuickStart(input: QuickStartInput): Promise<void>

@@ -3,6 +3,7 @@
 // first line of every system prompt carries a marker and the job, so the fake provider in
 // tests/fake-provider can recognise these requests. Pure.
 
+import type { FieldDef } from '@shared/fields'
 import type { ChatMessage, ID, StyleGuide } from '@shared/types'
 import type { BuilderKind, BuilderValues, InterviewTurn } from '@shared/contracts/builder'
 import { estimateTokens } from '../keeper/text'
@@ -121,12 +122,21 @@ export function worldText(b: WorldBrief, kind: BuilderKind, budget: number): { t
   return { text: parts.join('\n\n') || 'Nothing has been written about the world yet.', entryIds }
 }
 
+const SHORT = 'one short phrase, a few words at most'
+
+/** What a field holds, as the model is told it. One-line fields say they are short, so a reply fits on their one line. */
+function hintOf(f: FieldDef): string | undefined {
+  if (f.key === 'sampleLines') return '3 to 5 lines in their own voice, one per line'
+  if (f.type !== 'line' || f.key === 'name' || f.key === 'aliases' || f.key === 'summary') return f.placeholder
+  return f.placeholder ? `${f.placeholder}; ${SHORT}` : SHORT
+}
+
 /** The fields, with what each holds, for the model's reply. */
 function fieldList(kind: BuilderKind, only?: string[]): string {
   return profileFields(kind)
     .filter((f) => !only || only.includes(f.key))
     .map((f) => {
-      const hint = f.key === 'sampleLines' ? '3 to 5 lines in their own voice, one per line' : f.placeholder
+      const hint = hintOf(f)
       return `- ${f.key}: ${f.label}${hint ? ` (${hint})` : ''}`
     })
     .join('\n')
@@ -166,12 +176,19 @@ Reply with:
 Put "name" first in whichever of the two holds it.`
 }
 
-export function quickStartUser(kind: BuilderKind, notes: string, world: string, passage: boolean): string {
+/**
+ * `sofar`: finishing a profile an earlier reply stopped part way through, the fields it saved (as
+ * profileText gives them), which the model leaves out.
+ */
+export function quickStartUser(kind: BuilderKind, notes: string, world: string, passage: boolean, sofar = ''): string {
   const noun = NOUN[kind]
   const intro = passage
     ? `The author selected this passage from the story. It is about a ${noun} the world doesn't have yet: build the ${noun} from it. The passage counts as the author's notes.`
     : `The author's notes on the ${noun}:`
-  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""\n\nWrite the profile now, as one JSON object.`
+  const saved = sofar.trim()
+    ? `\n\nAn earlier reply stopped part way. These fields are saved already: leave them out, write only the others, and fit them to these:\n${sofar.trim()}`
+    : ''
+  return `${world}\n\n${intro}\n"""\n${notes.trim()}\n"""${saved}\n\nWrite the profile now, as one JSON object.`
 }
 
 // ---------- Flesh out ----------
@@ -211,7 +228,8 @@ Reply with {"options": ["first", "second", "third"]}: exactly three.`
 export function optionsUser(kind: BuilderKind, values: BuilderValues, key: string, world: string): string {
   const def = profileFields(kind).find((f) => f.key === key)
   const now = (values[key] ?? '').trim()
-  const field = `${def?.label ?? key}${def?.placeholder ? ` (${def.placeholder})` : ''}`
+  const hint = def ? hintOf(def) : undefined
+  const field = `${def?.label ?? key}${hint ? ` (${hint})` : ''}`
   const others: BuilderValues = { ...values, [key]: '' }
   return `${world}\n\nThe ${NOUN[kind]}'s profile:\n${profileText(kind, others)}\n\nThe field: ${field}\n${now ? `It says now: ${now}` : 'It is empty.'}\n\nGive three options now, as one JSON object.`
 }

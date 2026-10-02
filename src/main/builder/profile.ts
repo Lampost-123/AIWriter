@@ -31,11 +31,15 @@ const MAX_LINE = 300
 
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
-/** A field's value made tidy: one line for names and short fields, paragraphs kept for long ones. */
-export function cleanValue(kind: BuilderKind, key: string, raw: string): string {
+/**
+ * A field's value made tidy: one line for names and short fields, paragraphs kept for long ones.
+ * `his`: words copied from Adam's notes, which are never cut short (a runaway reply is, at 300
+ * characters for a one-line field).
+ */
+export function cleanValue(kind: BuilderKind, key: string, raw: string, his = false): string {
   const def = profileFields(kind).find((f) => f.key === key)
   if (key === 'aliases') return listText(raw)
-  if (def?.type === 'line' || key === 'name') return squash(raw).slice(0, key === 'name' ? 120 : MAX_LINE).trim()
+  if (def?.type === 'line' || key === 'name') return squash(raw).slice(0, key === 'name' ? 120 : his ? MAX_TEXT : MAX_LINE).trim()
   return raw
     .replace(/\r\n?/g, '\n')
     .split('\n')
@@ -56,6 +60,20 @@ export function splitList(raw: string): string[] {
   const out: string[] = []
   for (const part of raw.split(/[,;\n]/)) {
     const item = squash(part).replace(/^["“']|["”']$/g, '')
+    const key = item.toLocaleLowerCase()
+    if (!item || seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+  }
+  return out
+}
+
+/** Aliases as Adam typed them: split at commas only, as the builder's later saves split them, repeats dropped. */
+export function splitAliases(raw: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const part of raw.split(',')) {
+    const item = part.trim()
     const key = item.toLocaleLowerCase()
     if (!item || seen.has(key)) continue
     seen.add(key)
@@ -89,9 +107,10 @@ export function keyFinder(kind: BuilderKind): (name: string) => string | null {
 
 /**
  * Every known field in a reply object, wherever the model put it (some group fields under headings
- * such as "looks"). Values are tidied; empty ones are left out.
+ * such as "looks"), in the order they come. Values are tidied (`his`: as words from Adam's notes,
+ * never cut short); empty ones are left out.
  */
-export function collectValues(kind: BuilderKind, node: unknown, find = keyFinder(kind)): BuilderValues {
+export function collectValues(kind: BuilderKind, node: unknown, find = keyFinder(kind), his = false): BuilderValues {
   const out: BuilderValues = {}
   const walk = (n: unknown, depth: number): void => {
     if (!n || typeof n !== 'object' || Array.isArray(n) || depth > 3) return
@@ -99,7 +118,7 @@ export function collectValues(kind: BuilderKind, node: unknown, find = keyFinder
       const key = find(name)
       const text = key ? asText(key, v) : null
       if (key && text != null) {
-        const clean = cleanValue(kind, key, text)
+        const clean = cleanValue(kind, key, text, his)
         if (clean && !(key in out)) out[key] = clean
       } else if (v && typeof v === 'object' && !Array.isArray(v)) walk(v, depth + 1)
     }
@@ -145,23 +164,22 @@ export interface QuickStartView {
  * Reads a Quick start reply ({"fromNotes": {...}, "drafted": {...}}). Adam's words win: a field under
  * "fromNotes" that really is copied from his notes is his, whatever "drafted" says for it. One the
  * model put there that isn't in his notes counts as the AI's, and is used only where "drafted" has
- * nothing for it. A reply without the two parts counts as all drafted.
+ * nothing for it. A reply without the two parts counts as all drafted. Fields are in the order they
+ * first came in the reply, so a profile shown as it arrives only ever grows at the end.
  */
 export function quickStartView(kind: BuilderKind, notes: string, parsed: Pick<PartialJson, 'value' | 'open'>): QuickStartView {
   const root = parsed.value ?? {}
   const find = keyFinder(kind)
   const split = 'fromNotes' in root || 'drafted' in root
-  const mine = split ? collectValues(kind, root.fromNotes, find) : {}
+  const mine = split ? collectValues(kind, root.fromNotes, find, true) : {}
   const drafted = collectValues(kind, split ? root.drafted : root, find)
-  const values: BuilderValues = { ...drafted }
-  const fromNotes: string[] = []
-  for (const [key, v] of Object.entries(mine)) {
-    if (fromHisWords(notes, v)) {
-      values[key] = v
-      fromNotes.push(key)
-    } else if (!(key in values)) values[key] = v
-  }
-  return { values, fromNotes, writing: writingField(kind, parsed.open) }
+  const his = new Set(Object.keys(mine).filter((key) => fromHisWords(notes, mine[key])))
+  // The reply's parts in the order they arrived (the partial reader fills objects as members come).
+  const parts = split ? Object.keys(root).map((k) => (k === 'fromNotes' ? mine : k === 'drafted' ? drafted : {})) : [drafted]
+  const values: BuilderValues = {}
+  for (const part of parts) for (const key of Object.keys(part)) values[key] ??= ''
+  for (const key of Object.keys(values)) values[key] = his.has(key) ? mine[key] : (drafted[key] ?? mine[key])
+  return { values, fromNotes: Object.keys(values).filter((k) => his.has(k)), writing: writingField(kind, parsed.open) }
 }
 
 // ---------- Flesh out and options ----------
@@ -257,7 +275,32 @@ export function valuesOf(kind: BuilderKind, e: Entry): BuilderValues {
   return out
 }
 
-/** The entry patch that sets these fields (and nothing else). */
+/** The fields of an entry's profile that hold Adam's own words. */
+export function hisKeys(kind: BuilderKind, e: Entry): string[] {
+  return Object.keys(valuesOf(kind, e)).filter((k) => (e.fieldOrigins?.[k] ?? e.origin) === 'adam')
+}
+
+/**
+ * The entry patch for Adam's own words, saved exactly as he wrote them, as the builder's later saves
+ * are: only the name is trimmed, and aliases are split at commas.
+ */
+export function ownInput(kind: BuilderKind, values: BuilderValues): EntryInput {
+  const input: EntryInput = {}
+  const fields: Record<string, string> = {}
+  const known = new Set(profileKeys(kind))
+  for (const [key, v] of Object.entries(values)) {
+    if (!known.has(key)) continue
+    if (key === 'name') input.name = v.trim()
+    else if (key === 'aliases') input.aliases = splitAliases(v)
+    else if (key === 'summary') input.summary = v
+    else if (key === 'description') input.description = v
+    else fields[key] = v
+  }
+  if (Object.keys(fields).length) input.fields = fields
+  return input
+}
+
+/** The entry patch that sets these fields (and nothing else), for the AI's words. */
 export function toInput(kind: BuilderKind, values: BuilderValues): EntryInput {
   const input: EntryInput = {}
   const fields: Record<string, string> = {}

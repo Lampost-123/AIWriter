@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { parsePartial } from './partial'
 
 describe('reading a reply that is still arriving', () => {
-  const whole = '{"fromNotes": {"name": "Brann"}, "drafted": {"hair": "Grey, \\"cropped\\"", "age": 52, "aliases": ["Old Brann", "the Ferryman"]}}'
+  const whole =
+    '{"fromNotes": {"name": "Brann"}, "drafted": {"hair": "Grey, \\"cropped\\"", "age": 52, "aliases": ["Old Brann", "the Ferryman"]}}'
 
   it('reads a whole object', () => {
     expect(parsePartial(whole)).toEqual({
@@ -38,7 +39,8 @@ describe('reading a reply that is still arriving', () => {
   })
 
   it('forgives words and a code fence before the object, comments, missing commas and line breaks in strings', () => {
-    const p = parsePartial('Here is the profile:\n```json\n{\n  // the basics\n  "name": "Mara"\n  "summary": "Line one\nline two",\n}\n```')
+    const reply = 'Here is the profile:\n```json\n{\n  // the basics\n  "name": "Mara"\n  "summary": "Line one\nline two",\n}\n```'
+    const p = parsePartial(reply)
     expect(p).toEqual({ value: { name: 'Mara', summary: 'Line one\nline two' }, open: null, done: true })
   })
 

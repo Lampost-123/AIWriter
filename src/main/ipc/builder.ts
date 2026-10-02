@@ -47,7 +47,7 @@ export const builderHandlers: Handlers<keyof BuilderApi> = {
   startQuickStart: (input) => {
     const kind = kindOf(input.kind)
     const ctx = jobContext()
-    startQuickStart(ctx, { ...input, kind }, brief(ctx, kind, null, input.storyId))
+    startQuickStart(ctx, { ...input, kind }, brief(ctx, kind, input.entryId ?? null, input.storyId))
   },
   startFleshOut: (input) => {
     const kind = kindOf(input.kind)

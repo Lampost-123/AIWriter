@@ -395,6 +395,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 //                character: summary, traits, marks, secrets; place: summary, atmosphere, history;
 //                group: summary, goals, history; item: summary, powers, origin. Every other field the
 //                prompt lists is under "drafted", as "<Label> of <name>, drafted to fit the world."
+//                Fields listed as saved already (finishing a profile) are left out.
 //   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
 //   options      Three options: "<Label>, first option: ...", "second", "third".
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
@@ -413,13 +414,16 @@ export function fakeBuilderReply(system, messages, model = '') {
     const named = notes[0]?.match(/^([A-Z][\w'’-]*(?: [A-Z][\w'’-]*)?)(?:,| (?:runs|is|was|has)\b)/)?.[1]
     const name = named ?? 'Corvin Ashe'
     const slots = { character: ['summary', 'traits', 'marks', 'secrets'], place: ['summary', 'atmosphere', 'history'], group: ['summary', 'goals', 'history'], item: ['summary', 'powers', 'origin'] }[kind] ?? ['summary']
-    const fromNotes = named ? { name } : {}
+    // Finishing a profile: the fields saved already are listed by label after the notes.
+    const saved = new Set([...(user.split('These fields are saved already')[1] ?? '').matchAll(/^([^:\n]+): /gm)].map((m) => m[1].trim()))
+    const keep = (key) => !saved.has(fields.find((f) => f.key === key)?.label ?? key)
+    const fromNotes = named && keep('name') ? { name } : {}
     notes.forEach((line, i) => {
-      if (slots[i]) fromNotes[slots[i]] = line
+      if (slots[i] && keep(slots[i])) fromNotes[slots[i]] = line
     })
-    const drafted = named ? {} : { name }
+    const drafted = named || !keep('name') ? {} : { name }
     for (const f of fields) {
-      if (f.key in fromNotes || f.key in drafted) continue
+      if (f.key in fromNotes || f.key in drafted || !keep(f.key)) continue
       if (f.key === 'aliases') drafted.aliases = `Old ${name.split(' ')[0]}`
       else if (f.key === 'sampleLines') drafted.sampleLines = '"Pay first, then we talk."\n"The river doesn\'t wait, and neither do I."'
       else if (f.key === 'role') drafted.role = 'supporting'

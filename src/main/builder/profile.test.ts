@@ -10,6 +10,7 @@ import {
   interviewReply,
   optionsFrom,
   optionsFromText,
+  ownInput,
   pickThree,
   profileKeys,
   quickStartView,
@@ -39,7 +40,11 @@ describe("keeping Adam's words", () => {
 
   it("reads a Quick start reply: his words are his, and win over the AI's for the same field", () => {
     const reply = JSON.stringify({
-      fromNotes: { name: 'Brann Holt', summary: 'Brann Holt runs the ferry across the Narrows.', marks: 'Missing two fingers on his left hand.' },
+      fromNotes: {
+        name: 'Brann Holt',
+        summary: 'Brann Holt runs the ferry across the Narrows.',
+        marks: 'Missing two fingers on his left hand.'
+      },
       drafted: { name: 'Someone else', summary: 'A ferryman.', hair: 'Grey and cropped close', age: 52 }
     })
     const v = quickStartView('character', NOTES, parsePartial(reply))
@@ -63,6 +68,29 @@ describe("keeping Adam's words", () => {
     expect(v.values.traits).toBe('Short-tempered, loyal')
     expect(v.values.flaws).toBe('Gambles')
     expect(v.fromNotes).toEqual([])
+  })
+
+  it('lists the fields in the order they first arrived, so a profile shown as it arrives only grows at the end', () => {
+    const cut =
+      '{"fromNotes": {"name": "Brann Holt", "marks": "Missing two fingers on his left hand."}, "drafted": {"aliases": "Old Brann", "summary": "A ferryman.", "hair": "Gr'
+    const v = quickStartView('character', NOTES, parsePartial(cut))
+    expect(Object.keys(v.values)).toEqual(['name', 'marks', 'aliases', 'summary'])
+    expect(v.writing).toEqual({ key: 'hair', text: 'Gr' })
+    // His words win wherever they come, and a field keeps the place where it first came.
+    const late =
+      '{"drafted": {"name": "Someone", "hair": "Grey"}, "fromNotes": {"marks": "Missing two fingers on his left hand.", "name": "Brann Holt"}}'
+    const w = quickStartView('character', NOTES, parsePartial(late))
+    expect(Object.keys(w.values)).toEqual(['name', 'hair', 'marks'])
+    expect(w.values.name).toBe('Brann Holt')
+    expect(w.fromNotes).toEqual(['name', 'marks'])
+  })
+
+  it('never cuts his words short, though a runaway line from the AI is', () => {
+    const long = `Brann Holt runs the ferry, ${'rain or shine, '.repeat(30)}and always has.`
+    expect(cleanValue('character', 'summary', long, true)).toBe(long)
+    expect(cleanValue('character', 'summary', long)).toHaveLength(300)
+    const reply = JSON.stringify({ fromNotes: { name: 'Brann Holt', summary: long } })
+    expect(quickStartView('character', long, parsePartial(reply)).values.summary).toBe(long)
   })
 
   it('reads a reply without the two parts as all drafted, and shows the field being written', () => {
@@ -94,7 +122,7 @@ describe('reading fields from a reply', () => {
 
   it('has only the kind’s own fields', () => {
     expect(collectValues('item', { powers: 'Cuts anything', hair: 'none' })).toEqual({ powers: 'Cuts anything' })
-    expect(profileKeys('group')).toEqual(['name', 'aliases', 'summary', 'description', 'category', 'goals', 'ranks', 'rivals', 'customs', 'history'])
+    expect(profileKeys('group').join(' ')).toBe('name aliases summary description category goals ranks rivals customs history')
   })
 
   it('knows which field is being written', () => {
@@ -131,11 +159,9 @@ describe('Give me options', () => {
   it('reads options from JSON, or from a numbered list', () => {
     expect(optionsFrom('character', 'origin', { options: ['One', 2, null, 'Three'] })).toEqual(['One', '2', 'Three'])
     expect(optionsFrom('character', 'origin', { choices: ['One'] })).toEqual(['One'])
-    expect(optionsFromText('character', 'origin', 'Here you go:\n1. Born on the river.\n2. Raised in the barracks,\nthen sold.\n3) "A foundling."')).toEqual([
-      'Born on the river.',
-      'Raised in the barracks,\nthen sold.',
-      'A foundling.'
-    ])
+    const list = 'Here you go:\n1. Born on the river.\n2. Raised in the barracks,\nthen sold.\n3) "A foundling."'
+    const options = ['Born on the river.', 'Raised in the barracks,\nthen sold.', 'A foundling.']
+    expect(optionsFromText('character', 'origin', list)).toEqual(options)
   })
 })
 
@@ -156,6 +182,23 @@ describe('entries', () => {
     description: '',
     fields: { hair: 'Grey', eyes: '' }
   } as unknown as Entry
+
+  it("saves Adam's own words as he wrote them, and the AI's tidied", () => {
+    const own = {
+      name: ' Brann  Holt ',
+      aliases: 'Old Brann; "the Ferryman", Brann, brann',
+      summary: 'Runs  the ferry ',
+      hair: 'Grey\nand short'
+    }
+    expect(ownInput('character', own)).toEqual({
+      name: 'Brann  Holt',
+      aliases: ['Old Brann; "the Ferryman"', 'Brann'],
+      summary: 'Runs  the ferry ',
+      fields: { hair: 'Grey\nand short' }
+    })
+    const tidied = { name: 'Brann Holt', aliases: ['Old Brann', 'the Ferryman', 'Brann'], summary: 'Runs the ferry' }
+    expect(toInput('character', own)).toMatchObject(tidied)
+  })
 
   it('reads a profile from an entry, and writes only the fields given', () => {
     expect(valuesOf('character', entry)).toEqual({ name: 'Brann', aliases: 'Old Brann', summary: 'A ferryman', hair: 'Grey' })

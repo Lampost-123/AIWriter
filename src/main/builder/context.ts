@@ -12,9 +12,6 @@ import type { BriefEntry, WorldBrief } from './prompts'
 
 type DB = Database.Database
 
-/** The most of each list the model is told about (the prompt is fitted to the model as well). */
-const MAX_LIST = 120
-
 const brief = (e: Entry): BriefEntry => ({
   id: e.id,
   name: e.name,
@@ -26,12 +23,13 @@ const brief = (e: Entry): BriefEntry => ({
 })
 
 export function gatherWorld(db: DB, o: { kind: BuilderKind; excludeId: ID | null; storyId?: ID | null; prefs: WritingPrefs }): WorldBrief {
-  const all = repo.listEntries(db).filter((e) => e.id !== o.excludeId)
-  const of = (kind: Entry['kind']): BriefEntry[] =>
-    all
-      .filter((e) => e.kind === kind)
-      .slice(0, MAX_LIST)
-      .map(brief)
+  // Newest first: when the lists don't all fit the model, worldText leaves out the end of each, so
+  // what Adam has worked on lately is what the model is surest to be told about.
+  const all = repo
+    .listEntries(db)
+    .filter((e) => e.id !== o.excludeId)
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
+  const of = (kind: Entry['kind']): BriefEntry[] => all.filter((e) => e.kind === kind).map(brief)
   let story: Awaited<ReturnType<typeof repo.getStory>> | null = null
   if (o.storyId) {
     try {
@@ -43,7 +41,6 @@ export function gatherWorld(db: DB, o: { kind: BuilderKind; excludeId: ID | null
   const lore = all
     .filter((e) => e.kind === 'lore')
     .sort((a, b) => Number(b.hardRule) - Number(a.hardRule))
-    .slice(0, MAX_LIST)
     .map(brief)
   return {
     world: { themes: repo.getMeta(db, 'themes') ?? '', tone: repo.getMeta(db, 'tone') ?? '' },

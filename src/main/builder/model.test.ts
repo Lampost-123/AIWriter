@@ -3,7 +3,14 @@ import type { ModelChoice, ProviderConfig } from '@shared/types'
 import { UserError } from '../util'
 import { builderTarget, type ModelSources } from './model'
 
-const choice: ModelChoice = { providerId: 'p1', modelId: 'fake/writer', label: 'Fake', contextLength: 32000, promptPrice: null, completionPrice: null }
+const choice: ModelChoice = {
+  providerId: 'p1',
+  modelId: 'fake/writer',
+  label: 'Fake',
+  contextLength: 32000,
+  promptPrice: null,
+  completionPrice: null
+}
 const provider = (over: Partial<ProviderConfig> = {}): ProviderConfig => ({
   id: 'p1',
   name: 'Fake',

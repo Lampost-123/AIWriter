@@ -1,7 +1,7 @@
 // Saving what the builder makes, under the origin rules: an entry Adam makes is his (never moved to the
-// Trash automatically), his own words are his, and what the AI wrote is marked "drafted by AI", so the
-// memory keeper updates it when the story later says otherwise and never touches his. Nothing here
-// writes over words someone else has put in a field. No Electron imports.
+// Trash automatically), his own words are his and saved exactly as he wrote them, and what the AI wrote
+// is marked "drafted by AI", so the memory keeper updates it when the story later says otherwise and
+// never touches his. Nothing here writes over words someone else has put in a field. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID } from '@shared/types'
@@ -9,14 +9,14 @@ import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import * as repo from '../db/repo'
 import { stampOrigins } from '../db/builder'
 import { UserError } from '../util'
-import { cleanValue, entryText, profileKeys, toInput } from './profile'
+import { cleanValue, entryText, ownInput, profileKeys, toInput } from './profile'
 
 type DB = Database.Database
 
 export const BUILDER_KINDS: BuilderKind[] = ['character', 'place', 'group', 'item']
 export const isBuilderKind = (k: string): k is BuilderKind => (BUILDER_KINDS as string[]).includes(k)
 
-/** The profile's own fields, tidied, empty ones left out. */
+/** The profile's own fields, tidied, empty ones left out. For the AI's words. */
 export function cleanValues(kind: BuilderKind, values: BuilderValues): BuilderValues {
   const known = new Set(profileKeys(kind))
   const out: BuilderValues = {}
@@ -28,21 +28,36 @@ export function cleanValues(kind: BuilderKind, values: BuilderValues): BuilderVa
   return out
 }
 
+/**
+ * The profile as it is saved: the AI's words (`aiKeys`) tidied, Adam's exactly as he wrote them.
+ * Other keys and empty fields are left out.
+ */
+export function savedValues(kind: BuilderKind, values: BuilderValues, aiKeys: ReadonlySet<string>): BuilderValues {
+  const known = new Set(profileKeys(kind))
+  const out: BuilderValues = {}
+  for (const [key, raw] of Object.entries(values ?? {})) {
+    if (!known.has(key) || typeof raw !== 'string' || !raw.trim()) continue
+    const v = aiKeys.has(key) ? cleanValue(kind, key, raw) : raw
+    if (v) out[key] = v
+  }
+  return out
+}
+
 const pick = (values: BuilderValues, keep: (key: string) => boolean): BuilderValues =>
   Object.fromEntries(Object.entries(values).filter(([k]) => keep(k)))
 
 /**
  * Makes an entry from a profile: made by Adam, in the story he is working in. Fields in `aiKeys` are
- * marked as drafted by AI (a name included); the rest are his. Needs a name.
+ * marked as drafted by AI (a name included); the rest are his, saved as he wrote them. Needs a name.
  */
 export function createBuilt(db: DB, kind: BuilderKind, values: BuilderValues, aiKeys: Iterable<string>, storyId: ID | null): Entry {
-  const clean = cleanValues(kind, values)
-  if (!clean.name) throw new UserError('Give it a name first. Nothing else is needed.')
   const ai = new Set(aiKeys)
-  const mine = pick(clean, (k) => !ai.has(k) || k === 'name')
-  const drafted = pick(clean, (k) => ai.has(k) && k !== 'name')
+  const all = savedValues(kind, values, ai)
+  if (!all.name?.trim()) throw new UserError('Give it a name first. Nothing else is needed.')
+  const mine = pick(all, (k) => !ai.has(k) || k === 'name')
+  const drafted = pick(all, (k) => ai.has(k) && k !== 'name')
   return db.transaction(() => {
-    let e = repo.createEntry(db, kind, { ...toInput(kind, mine), originStoryId: storyId }, { origin: 'adam' })
+    let e = repo.createEntry(db, kind, { ...ownInput(kind, mine), originStoryId: storyId }, { origin: 'adam' })
     if (ai.has('name')) e = stampOrigins(db, e.id, { name: 'ai' })
     if (Object.keys(drafted).length) e = repo.updateEntry(db, e.id, toInput(kind, drafted), { origin: 'ai' })
     return e
@@ -58,24 +73,27 @@ export function noteWritten(written: Written, e: Entry, values: BuilderValues): 
 }
 
 /**
- * Saves the fields of a profile that is still arriving: Adam's words (`fromNotes`) as his, the rest
- * as drafted by AI. A field already saved with the same value is skipped, and so is one holding words
- * that someone else has put there since (Adam typing on the entry's page meanwhile, say).
+ * Saves the fields of a profile that is still arriving: Adam's words (`fromNotes`) as his, exactly as
+ * he wrote them, the rest as drafted by AI. A field already saved with the same value is skipped, and so
+ * is one holding words that someone else has put there since (Adam typing on the entry's page
+ * meanwhile, say) or that were there before (Finish the rest fills only empty fields).
  */
 export function saveBuilt(db: DB, kind: BuilderKind, entryId: ID, values: BuilderValues, fromNotes: string[], written: Written): Entry {
+  const his = new Set(fromNotes)
+  const all = savedValues(kind, values, new Set(Object.keys(values).filter((k) => !his.has(k))))
   return db.transaction(() => {
     let e = repo.getEntry(db, entryId)
     const mine: BuilderValues = {}
     const drafted: BuilderValues = {}
-    for (const [key, v] of Object.entries(cleanValues(kind, values))) {
+    for (const [key, v] of Object.entries(all)) {
       const w = written[key]
       if (w?.sent === v) continue
       const now = entryText(e, key)
       if (now.trim() && now !== (w?.held ?? '')) continue
-      if (fromNotes.includes(key)) mine[key] = v
+      if (his.has(key)) mine[key] = v
       else drafted[key] = v
     }
-    if (Object.keys(mine).length) e = repo.updateEntry(db, entryId, toInput(kind, mine), { origin: 'adam' })
+    if (Object.keys(mine).length) e = repo.updateEntry(db, entryId, ownInput(kind, mine), { origin: 'adam' })
     if (Object.keys(drafted).length) e = repo.updateEntry(db, entryId, toInput(kind, drafted), { origin: 'ai' })
     noteWritten(written, e, { ...mine, ...drafted })
     return e

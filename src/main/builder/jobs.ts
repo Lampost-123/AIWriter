@@ -2,7 +2,7 @@
 // (job 'builder', with no scene, so no Drafts list shows it), streams in the background, sends what has
 // arrived to the window about every 40 ms, can be stopped (what has fully arrived is kept) and ends
 // with 'builder:done'. A reply that can't be used is asked for once more, saying why. Quick start saves
-// as it goes: the entry once it has a name, then its fields every second or so and at the end.
+// as it goes: the entry once it has a name, then each part of the reply as it completes, and the end.
 // No Electron imports: events go through the `emit` the caller passes in.
 
 import type Database from 'better-sqlite3'
@@ -17,8 +17,9 @@ import type {
   OptionsInput,
   QuickStartInput
 } from '@shared/contracts/builder'
-import type { ChatMessage, ID } from '@shared/types'
+import type { ChatMessage, Entry, ID } from '@shared/types'
 import * as gens from '../db/generations'
+import * as repo from '../db/repo'
 import { knownParams, streamChat, type SentParams, type StreamOutcome } from '../ai/client'
 import { isKeyFailure } from '../ai/errors'
 import { parseLenient } from '../keeper/json'
@@ -26,15 +27,18 @@ import { estimateTokens } from '../keeper/text'
 import { newId, now, UserError } from '../util'
 import { builderFailure, UNUSABLE } from './errors'
 import type { BuilderModel } from './model'
-import { parsePartial } from './partial'
+import { parsePartial, type PartialJson } from './partial'
 import {
   fleshOutTargets,
   fleshOutValues,
+  hisKeys,
   interviewReply,
   optionsFrom,
   optionsFromText,
   pickThree,
+  profileKeys,
   quickStartView,
+  valuesOf,
   writingField,
   type QuickStartView
 } from './profile'
@@ -52,15 +56,13 @@ import {
   worldText,
   type WorldBrief
 } from './prompts'
-import { cleanValues, createBuilt, noteWritten, saveBuilt, type Written } from './save'
+import { cleanValues, createBuilt, noteWritten, saveBuilt, savedValues, type Written } from './save'
 
 type DB = Database.Database
 export type Emit = <E extends keyof AppEvents>(event: E, payload: AppEvents[E]) => void
 
 /** What has arrived goes to the window at most this often. */
 export const PROGRESS_MS = 40
-/** A Quick start profile is saved at most this often while it arrives (and always at the end). */
-export const SAVE_MS = 1500
 /** Context length assumed when the model's is unknown. */
 export const DEFAULT_CONTEXT = 16_000
 /** Room for each job's reply. Generous: a model that thinks first can spend much of it thinking. */
@@ -214,8 +216,8 @@ async function ask(
   )
   run.records.delete(id)
   const status = run.closed ? 'stopped' : outcome.status
-  const error =
-    outcome.status === 'error' ? (outcome.failure ? builderFailure(outcome.failure, model.target, model.choice.modelId) : outcome.error) : null
+  const failed = outcome.status === 'error'
+  const error = !failed ? null : outcome.failure ? builderFailure(outcome.failure, model.target, model.choice.modelId) : outcome.error
   const c = model.choice
   const cost =
     outcome.cost ??
@@ -289,81 +291,120 @@ const QUICK_SHAPE = '{"fromNotes": {"key": "the author\'s words", ...}, "drafted
 export function startQuickStart(ctx: JobContext, input: QuickStartInput, brief: WorldBrief): void {
   const notes = (input.notes ?? '').trim()
   if (!notes) throw new UserError('Type or paste something about them first. One line is enough.')
-  begin(ctx, input.jobId, 'quick-start', (run) => quickStart(ctx, run, input, notes.slice(0, 20_000), brief))
+  // Finish the rest: the entry an earlier build saved before it stopped part way.
+  const existing = input.entryId ? repo.getEntry(ctx.db, input.entryId) : null
+  if (existing && existing.kind !== input.kind) throw new UserError('That page can’t be finished here.')
+  if (existing && !fleshOutTargets(input.kind, profileKeys(input.kind), valuesOf(input.kind, existing)).length) {
+    throw new UserError('Every field is filled in already. Look it over step by step to change any of them.')
+  }
+  begin(ctx, input.jobId, 'quick-start', (run) => quickStart(ctx, run, input, notes.slice(0, 20_000), brief, existing))
 }
 
-async function quickStart(ctx: JobContext, run: Run, input: QuickStartInput, notes: string, brief: WorldBrief): Promise<BuilderDone> {
+async function quickStart(
+  ctx: JobContext,
+  run: Run,
+  input: QuickStartInput,
+  notes: string,
+  brief: WorldBrief,
+  existing: Entry | null
+): Promise<BuilderDone> {
   const { db } = ctx
   const kind = input.kind
   const system = quickStartSystem(kind)
-  const space = room(ctx.model, 'quick-start', estimateTokens(system) + estimateTokens(notes) + 150)
+  // Finishing an entry: what it holds stays as it is, and is shown with what arrives.
+  const before = existing ? valuesOf(kind, existing) : {}
+  const beforeHis = existing ? hisKeys(kind, existing) : []
+  const sofar = existing ? profileText(kind, before) : ''
+  const space = room(ctx.model, 'quick-start', estimateTokens(system) + estimateTokens(notes) + estimateTokens(sofar) + 150)
   const world = worldText(brief, kind, space.world)
   let messages: ChatMessage[] = [
     { role: 'system', content: system },
-    { role: 'user', content: quickStartUser(kind, notes, world.text, !!input.sceneId) }
+    { role: 'user', content: quickStartUser(kind, notes, world.text, !!input.sceneId, sofar) }
   ]
   const entries = versionsOf(brief, world.entryIds)
-  const state = { entryId: null as ID | null, written: {} as Written, lastSave: 0, failed: null as string | null }
+  const state = { entryId: existing?.id ?? null, written: {} as Written, failed: null as string | null }
   let text = ''
-  let view: QuickStartView = { values: {}, fromNotes: [], writing: null }
+  let view: QuickStartView = { values: { ...before }, fromNotes: beforeHis, writing: null }
+  const viewOf = (parsed: Pick<PartialJson, 'value' | 'open'>): QuickStartView => {
+    const v = quickStartView(kind, notes, parsed)
+    if (!existing) return v
+    const values: BuilderValues = { ...before }
+    for (const [k, x] of Object.entries(v.values)) values[k] ??= x
+    const fromNotes = [...beforeHis, ...v.fromNotes.filter((k) => !(k in before))]
+    return { values, fromNotes, writing: v.writing && !(v.writing.key in before) ? v.writing : null }
+  }
   const progress = (): BuilderProgress =>
     progressOf(run, { values: view.values, fromNotes: view.fromNotes, writing: view.writing, entryId: state.entryId })
+  const arrived = (): boolean => (existing ? Object.keys(view.values).some((k) => !(k in before)) : !!view.values.name)
 
-  // Saves the fields that have fully arrived: the entry once there is a name, then every second or so.
-  const save = (force: boolean): void => {
+  // Saves the fields that have fully arrived. Only now and then, since each save writes a version of
+  // the entry's history: once there is a name, as each part of the reply (Adam's words, the AI's) is
+  // complete, and at the end, on Stop or when the world closes.
+  const save = (): void => {
     if (run.closed || !db.open || state.failed || !view.values.name) return
-    if (!force && state.entryId && Date.now() - state.lastSave < SAVE_MS) return
     try {
       if (!state.entryId) {
         const drafted = Object.keys(view.values).filter((k) => !view.fromNotes.includes(k))
         const e = createBuilt(db, kind, view.values, drafted, input.storyId ?? null)
         state.entryId = e.id
-        noteWritten(state.written, e, cleanValues(kind, view.values))
+        noteWritten(state.written, e, savedValues(kind, view.values, new Set(drafted)))
         ctx.onSaved?.(e.id)
       } else saveBuilt(db, kind, state.entryId, view.values, view.fromNotes, state.written)
-      state.lastSave = Date.now()
     } catch (e) {
       state.failed = e instanceof UserError ? e.message : `Something went wrong while saving: ${(e as Error)?.message ?? e}`
       run.controller.abort()
     }
   }
   run.closing = () => {
-    view = quickStartView(kind, notes, { value: parsePartial(text).value, open: null })
-    save(true)
+    view = viewOf({ value: parsePartial(text).value, open: null })
+    save()
   }
 
   for (let attempt = 0; ; attempt++) {
     text = ''
+    let parts = 0
     const tick = ticker(() => {
-      view = quickStartView(kind, notes, parsePartial(text))
-      save(false)
+      const parsed = parsePartial(text)
+      view = viewOf(parsed)
+      // A new part of the reply has begun, so the one before it is complete.
+      const n = Object.keys(parsed.value ?? {}).length
+      if (!state.entryId || n > parts) save()
+      parts = n
       ctx.emit('builder:progress', progress())
     })
-    const asked = await ask(ctx, run, messages, space.reply, (t) => {
-      text += t
-      tick.request()
-    }, { direction: notes, entries })
+    const asked = await ask(
+      ctx,
+      run,
+      messages,
+      space.reply,
+      (t) => {
+        text += t
+        tick.request()
+      },
+      { direction: notes, entries }
+    )
     tick.cancel()
     if (run.closed) return { ...progress(), writing: null, status: 'stopped', error: null }
-    view = quickStartView(kind, notes, { value: finalValue(text), open: null })
+    view = viewOf({ value: finalValue(text), open: null })
     // Nothing usable came back: ask once more, saying why.
-    if (asked.status === 'complete' && !view.values.name && !state.entryId && attempt === 0) {
+    if (asked.status === 'complete' && !arrived() && attempt === 0) {
       messages = [
         ...messages,
         { role: 'assistant', content: text },
-        { role: 'user', content: retryMessage(whyOf(text, 'it had no "name"'), QUICK_SHAPE) }
+        { role: 'user', content: retryMessage(whyOf(text, existing ? 'it had none of the empty fields' : 'it had no "name"'), QUICK_SHAPE) }
       ]
-      view = { values: {}, fromNotes: [], writing: null }
+      view = viewOf({ value: null, open: null })
       ctx.emit('builder:progress', progress())
       continue
     }
-    save(true)
+    save()
     if (state.entryId) ctx.onSaved?.(state.entryId)
     const done = { ...progress(), writing: null }
     if (state.failed) return { ...done, status: 'error', error: state.failed }
-    if (asked.status === 'error') return { ...done, status: 'error', error: `${asked.error}${state.entryId ? ' What arrived is saved.' : ''}` }
+    // What had arrived is saved: the screen says so, and offers to finish the rest.
+    if (asked.status === 'error') return { ...done, status: 'error', error: asked.error }
     if (asked.status === 'stopped') return { ...done, status: 'stopped', error: null }
-    if (!state.entryId) return { ...done, status: 'error', error: UNUSABLE }
+    if (!state.entryId || !arrived()) return { ...done, status: 'error', error: UNUSABLE }
     return { ...done, status: 'complete', error: null }
   }
 }
@@ -404,10 +445,17 @@ async function fleshOut(
       writing = writingField(kind, p.open, targets)
       ctx.emit('builder:progress', progressOf(run, { values: found, writing }))
     })
-    const asked = await ask(ctx, run, messages, space.reply, (t) => {
-      text += t
-      tick.request()
-    }, { direction: '', entries })
+    const asked = await ask(
+      ctx,
+      run,
+      messages,
+      space.reply,
+      (t) => {
+        text += t
+        tick.request()
+      },
+      { direction: '', entries }
+    )
     tick.cancel()
     found = fleshOutValues(kind, finalValue(text), targets)
     if (asked.status === 'complete' && !Object.keys(found).length && attempt === 0) {
@@ -453,10 +501,17 @@ async function options(ctx: JobContext, run: Run, input: OptionsInput, values: B
       const open = p.open && p.open.path.some((x) => typeof x === 'number') ? { key, text: p.open.text } : null
       ctx.emit('builder:progress', progressOf(run, { options: optionsFrom(kind, key, p.value).slice(0, 3), writing: open }))
     })
-    const asked = await ask(ctx, run, messages, space.reply, (t) => {
-      text += t
-      tick.request()
-    }, { direction: '', entries })
+    const asked = await ask(
+      ctx,
+      run,
+      messages,
+      space.reply,
+      (t) => {
+        text += t
+        tick.request()
+      },
+      { direction: '', entries }
+    )
     tick.cancel()
     let list = optionsFrom(kind, key, finalValue(text))
     if (!list.length) list = optionsFromText(kind, key, text)
@@ -512,10 +567,17 @@ async function interview(
   const messages = interviewMessages(interviewSystem(values, world.text), turns, question)
   let text = ''
   const tick = ticker(() => ctx.emit('builder:progress', progressOf(run, { text: interviewReply(text, name, true) })))
-  const asked = await ask(ctx, run, messages, space.reply, (t) => {
-    text += t
-    tick.request()
-  }, { direction: question, entries: versionsOf(brief, world.entryIds) })
+  const asked = await ask(
+    ctx,
+    run,
+    messages,
+    space.reply,
+    (t) => {
+      text += t
+      tick.request()
+    },
+    { direction: question, entries: versionsOf(brief, world.entryIds) }
+  )
   tick.cancel()
   const done = progressOf(run, { text: interviewReply(text, name) })
   if (asked.status === 'error') return { ...done, status: 'error', error: asked.error }
