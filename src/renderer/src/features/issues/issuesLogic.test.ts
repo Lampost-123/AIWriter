@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Issue } from '@shared/contracts/checks'
-import { fieldWords, foundWords, memoryFixWords, openCount, runFor, sentenceAround, splitIssues } from './issuesLogic'
+import { fieldWords, foundWords, memoryFixWords, occurrencesIn, openCount, pickOccurrence, runFor, sentenceAround, splitIssues } from './issuesLogic'
 
 const issue = (over: Partial<Issue> = {}): Issue => ({
   id: 'i',
@@ -67,4 +67,17 @@ describe('the Issues tab’s words', () => {
     expect(sentenceAround(t, whole, end)).toEqual({ from: whole, to: end })
     expect(sentenceAround('no ending here', 3, 6)).toEqual({ from: 0, to: 14 })
   })
+
+  it('finds every place the words are in a paragraph, and picks the one the check meant', () => {
+    const t = 'Mara’s eyes were green. Later, MARA’S  eyes were green again.'
+    const found = occurrencesIn(t, "Mara's eyes were green")
+    expect(found.map((r) => t.slice(r.from, r.to))).toEqual(['Mara’s eyes were green', 'MARA’S  eyes were green'])
+    expect(pickOccurrence(found, 1)).toBe(found[1])
+    // Several, and the check didn't say which: none, so Fix the text asks Rewrite instead of guessing.
+    expect(pickOccurrence(found, undefined)).toBeNull()
+    expect(pickOccurrence(found.slice(0, 1), undefined)).toBe(found[0])
+    expect(pickOccurrence([], 0)).toBeNull()
+    expect(occurrencesIn(t, '')).toEqual([])
+  })
 })
+

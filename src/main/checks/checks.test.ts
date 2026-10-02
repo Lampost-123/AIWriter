@@ -5,7 +5,9 @@ import * as cdb from '../db/checks'
 import * as kdb from '../db/keeper'
 import { dbWorld, pureWorld, ashHairLast } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
-import { issueKey, plainQuote, sceneQuote, stillThere } from './quote'
+import { issueKey, occurrenceAt, plainQuote, sceneQuote, stillThere } from './quote'
+import { memoryFixable } from './memoryFix'
+import { canUpdateField } from './run'
 import { checkOf, fieldOf, foundIssues, readCheckReply, severityOf, type ReadContext } from './parse'
 import { checkRequest, checkSections, gatherSceneCheck, splitScene } from './context'
 import { storyComparisons, storyIssues } from './stories'
@@ -83,18 +85,53 @@ const ctx = (over: Partial<ReadContext> = {}): ReadContext => ({
     ['E2', tobin]
   ]),
   scenes: new Map([['S1', { sceneId: 's0', label: 'Book 1, Ch 1, Sc 1' }]]),
-  isAdams: (id, field) => id === 'm1' && field === 'eyes',
+  canUpdateMemory: (id, field) => id === 'm1' && field === 'eyes',
   ...over
 })
 
 describe('reading a reply', () => {
   it('reads the issues list, fenced or bare, and says why when it can’t', () => {
-    expect(readCheckReply('```json\n{"issues": [{"quote": "a"}]}\n```')).toEqual({ ok: true, items: [{ quote: 'a' }] })
-    expect(readCheckReply('[{"quote": "a"}]')).toEqual({ ok: true, items: [{ quote: 'a' }] })
-    expect(readCheckReply('{"issues": []}')).toEqual({ ok: true, items: [] })
+    expect(readCheckReply('```json\n{"issues": [{"quote": "a"}]}\n```')).toEqual({ ok: true, items: [{ quote: 'a' }], complete: true })
+    expect(readCheckReply('[{"quote": "a"}]')).toEqual({ ok: true, items: [{ quote: 'a' }], complete: true })
+    expect(readCheckReply('{"issues": []}')).toEqual({ ok: true, items: [], complete: true })
     expect(readCheckReply('Nothing to see here.')).toMatchObject({ ok: false })
     expect(readCheckReply('{"found": []}')).toEqual({ ok: false, why: 'it had no "issues" list' })
     expect(readCheckReply('{"issues": [{"quote": "a"')).toMatchObject({ ok: false })
+  })
+
+  it('reads a list after words of its own, fenced or not, whole; one issue found inside something else is read only in part', () => {
+    const two = '[{"quote": "a", "message": "x"}, {"quote": "b", "message": "y",}]'
+    const fence = '```'
+    expect(readCheckReply(`Here is what I found:\n\n${fence}json\n${two}\n${fence}`)).toEqual({
+      ok: true,
+      items: [
+        { quote: 'a', message: 'x' },
+        { quote: 'b', message: 'y' }
+      ],
+      complete: true
+    })
+    expect(readCheckReply(`I found two: ${two} That is all.`)).toMatchObject({ ok: true, complete: true })
+    expect((readCheckReply(`I found two: ${two}`) as { items: unknown[] }).items).toHaveLength(2)
+    // A single issue with no list around it: read, but not as the whole answer.
+    expect(readCheckReply('Something like {"quote": "a", "message": "x"} maybe')).toEqual({
+      ok: true,
+      items: [{ quote: 'a', message: 'x' }],
+      complete: false
+    })
+  })
+
+  it('drops a rewrite of "A ... B" (only A is in the scene), and notes which of the quote’s places it is', () => {
+    const text = 'He waited. Mara turned at the door and looked back. Later, Mara turned at the door and looked back.'
+    const at = foundIssues(
+      [{ check: 'facts', quote: 'Mara turned at the door ... looked back at nobody at all', message: 'M.', fix: 'Mara paused at the door.' }],
+      ctx({ text })
+    )[0]
+    expect(at.quote).toBe('Mara turned at the door')
+    expect(at.payload.fix).toBeNull()
+    expect(at.payload.occurrence).toBe(0)
+    const whole = foundIssues([{ check: 'facts', quote: 'Later, Mara turned at the door', message: 'M.', fix: 'Later, Mara paused.' }], ctx({ text }))[0]
+    expect(whole.payload.fix).toBe('Later, Mara paused.')
+    expect(occurrenceAt(text, 'Mara turned at the door', text.lastIndexOf('Mara turned'))).toBe(1)
   })
 
   it('reads checks, severities and fields as the model may write them', () => {
@@ -155,8 +192,15 @@ describe('reading a reply', () => {
 
   it('offers to update the memory only for a fact about one of Adam’s own fields', () => {
     const item = { check: 'facts', quote: 'Mara’s eyes were green', message: 'Eyes.', conflicts: { entry: 'E1', field: 'eyes' }, text: 'green' }
-    expect(foundIssues([item], ctx({ isAdams: () => false }))[0].payload.memoryFix).toBeNull()
+    expect(foundIssues([item], ctx({ canUpdateMemory: () => false }))[0].payload.memoryFix).toBeNull()
     expect(foundIssues([{ ...item, text: '' }], ctx())[0].payload.memoryFix).toBeNull()
+    // Never a description, a many-line field or a long value: a few words from the text would wipe them out.
+    expect(foundIssues([{ ...item, conflicts: { entry: 'E1', field: 'description' } }], ctx())[0].payload.memoryFix).toBeNull()
+    expect(foundIssues([{ ...item, conflicts: { entry: 'E1', field: 'traits' } }], ctx())[0].payload.memoryFix).toBeNull()
+    expect(foundIssues([{ ...item, text: 'green, though in some lights they look grey and in others almost gold' }], ctx())[0].payload.memoryFix).toBeNull()
+    expect(memoryFixable('character', 'eyes', 'green')).toBe(true)
+    expect(memoryFixable('character', 'summary', 'green')).toBe(false)
+    expect(memoryFixable('character', 'sampleLines', 'Hello')).toBe(false)
     // A fix that changes nothing isn't offered.
     expect(foundIssues([{ ...item, fix: 'Mara’s eyes were green.' }], ctx())[0].payload.fix).toBeNull()
   })
@@ -164,7 +208,7 @@ describe('reading a reply', () => {
 
 describe('issue rows', () => {
   const names = (adams = true): cdb.IssueNames => ({
-    entry: (id) => (id === 'm1' ? { name: 'Mara', isAdams: () => adams } : null),
+    entry: (id) => (id === 'm1' ? { name: 'Mara', kind: 'character', isAdams: () => adams, value: (f) => (f === 'eyes' ? 'blue' : f === 'age' ? '30' : '') } : null),
     sceneLabel: (id) => (id === 's0' ? 'Book 1, Ch 1, Sc 1' : null),
     storyTitle: (id) => (id === 'b2' ? 'Book 2' : null)
   })
@@ -192,6 +236,8 @@ describe('issue rows', () => {
     // A field that isn't his: the text already wins there, so nothing to update.
     expect(cdb.readIssue(row(keeper), names(false)).memoryFix).toBeNull()
     expect(cdb.readIssue(row({ ...keeper, field: null }), names()).memoryFix).toBeNull()
+    // The memory said something else than his note (an earlier scene's change): updating his note wouldn't settle it.
+    expect(cdb.readIssue(row({ ...keeper, memory: 'grey' }), names()).memoryFix).toBeNull()
   })
 
   it('reads the world builder’s as story-wide, and the checks’ with their sources brought up to date', () => {
@@ -320,6 +366,69 @@ describe('keys and ignored issues', () => {
     expect(cdb.sceneIssueRows(db, sceneId).map((r) => cdb.payloadOf(r).key).sort()).toEqual(['k2', 'k3'])
   })
 
+  it('keeps an ignored issue ignored when the model rewords or requotes it, whatever it names', () => {
+    const { db, storyId, sceneId } = sceneWorld()
+    cdb.saveFound(db, [], [found(sceneId, storyId, 'check:facts:m1:a')], () => true)
+    cdb.setIssueStatus(db, cdb.sceneIssueRows(db, sceneId)[0].id as ID, 'ignored')
+    const again = [
+      found(sceneId, storyId, 'check:facts:-:b', { quote: 'Mara’s eyes were green in the lamplight', message: 'Reworded.' }),
+      found(sceneId, storyId, 'check:facts:s0:c', { quote: 'eyes were green', message: 'Requoted, about an earlier scene.' })
+    ]
+    expect(cdb.saveFound(db, cdb.rowsInScenes(db, [sceneId]), again, () => true)).toBe(0)
+    expect(cdb.sceneIssueRows(db, sceneId).map((r) => r.status)).toEqual(['ignored'])
+    // Another kind: a new issue.
+    const other = found(sceneId, storyId, 'check:voice:-:d', { kind: 'voice', quote: 'eyes were green', payload: { by: 'check', check: 'voice' } })
+    expect(cdb.saveFound(db, cdb.rowsInScenes(db, [sceneId]), [other], () => false)).toBe(1)
+  })
+
+  it('the memory keeper doesn’t raise what a check already raised about the same entry and field', () => {
+    const { db, storyId, sceneId, maraId } = sceneWorld()
+    cdb.saveFound(
+      db,
+      [],
+      [found(sceneId, storyId, 'check:facts:x:she did not smile', { quote: 'she did not smile', payload: { by: 'check', check: 'facts', entryId: maraId, field: 'eyes' } })],
+      () => false
+    )
+    const clash = {
+      sceneId,
+      storyId,
+      kind: 'fact',
+      severity: 'warning',
+      quote: 'Mara’s eyes were green',
+      message: 'Clash.',
+      key: `clash:${maraId}:eyes:green`,
+      payload: { entryId: maraId, field: 'eyes', memory: 'blue', text: 'green' }
+    }
+    expect(kdb.raiseIssue(db, clash)).toBe(false)
+    cdb.setIssueStatus(db, cdb.sceneIssueRows(db, sceneId)[0].id as ID, 'ignored')
+    expect(kdb.raiseIssue(db, clash)).toBe(false)
+    expect(kdb.raiseIssue(db, { ...clash, key: 'clash:other', quote: 'Rain came off the river', payload: { entryId: 'someone', field: 'hair' } })).toBe(true)
+  })
+
+  it('never counts a live flag Adam ignored as open, and Reopen takes its row away', () => {
+    const { db, storyId, sceneId } = sceneWorld()
+    const t = new Date().toISOString()
+    const add = (id: string, kind: string, status: string): void =>
+      void db
+        .prepare(
+          'INSERT INTO issues (id, scene_id, story_id, kind, severity, status, quote, message, payload_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(id, sceneId, storyId, kind, 'minor', status, 'suddenly', 'Phrase to avoid.', JSON.stringify({ key: `phrase:${id}` }), t, t)
+    add('live1', 'phrase', 'ignored')
+    add('live2', 'spelling', 'open')
+    cdb.saveFound(db, [], [found(sceneId, storyId, 'k1')], () => false)
+    expect(cdb.openCounts(db, storyId)).toEqual({ [sceneId]: { count: 1, mustFix: 0 } })
+    const listed = cdb.sceneIssueRows(db, sceneId).map((r) => r.id)
+    expect(listed).toContain('live1')
+    expect(listed).not.toContain('live2')
+    expect(listed).toHaveLength(2)
+    expect(cdb.reopenIssue(db, 'live1')).toMatchObject({ id: 'live1', status: 'gone' })
+    expect(cdb.issueRow(db, 'live1')).toBeNull()
+    const k1 = cdb.rowsInScenes(db, [sceneId]).find((r) => cdb.payloadOf(r).key === 'k1')!
+    cdb.setIssueStatus(db, k1.id as ID, 'ignored')
+    expect(cdb.reopenIssue(db, k1.id as ID)).toMatchObject({ status: 'open' })
+  })
+
   it('lists open issues first, must fix first, then in reading order', () => {
     const rows = [
       { id: 'a', status: 'ignored', severity: 'must-fix', scene_id: 's', quote: 'Rain', created_at: '1' },
@@ -354,6 +463,18 @@ describe('what a check of a scene is told', () => {
     // Earlier scenes for the timeline, nearest last, with short ids.
     expect(after.earlier.map((s) => s.code)).toEqual(['S1', 'S2', 'S3'])
     expect(after.earlier[2].sceneId).toBe(w.id('b1.c2.s2'))
+  })
+
+  it('offers to update one of Adam’s notes only while no earlier scene’s change has set that field', () => {
+    const w = dbWorld()
+    repo.saveSceneText(w.db, w.id('b1.c2.s1'), null, 'Mara tied back her hair.')
+    repo.saveSceneText(w.db, w.id('b2.c3.s1'), null, 'Mara tied back her hair.')
+    const mara = (key: string) => gatherSceneCheck(w.db, w.id(key), PREFS).entries.find((c) => c.entry.name === 'Mara')!.entry
+    // Book 1: her hair is his note, as he wrote it.
+    expect(canUpdateField(w.db, mara('b1.c2.s1'), 'hair')).toBe(true)
+    // Book 2, after she cut it: the memory says "cropped short" here, not his note.
+    expect(mara('b2.c3.s1').fields.hair).toBe('cropped short')
+    expect(canUpdateField(w.db, mara('b2.c3.s1'), 'hair')).toBe(false)
   })
 
   it('sees a side story along its own line: the host’s later changes don’t count there', () => {
@@ -402,17 +523,23 @@ describe('checking across stories', () => {
     const asked = sideClashes(loadMemoryData(dw.db), loadShape(dw.db), dw.id('ash'))
     expect(asked.some((a) => a.entryId === dw.id('mara') && a.aspect === 'hair')).toBe(true)
     const marae = { ...mara, id: dw.id('mara') } as EntryState
+    const ctxOf = { storyId: dw.id('ash'), other: { id: dw.id('b2'), title: 'Book 2' }, entries: new Map([['E1', marae]]), quoteFrom: '', quoteScene: null, asked }
     const out = storyIssues(
       [
         { severity: 'warning', message: 'Mara’s hair is shaved in Ash but cropped in Book 2.', entry: 'E1', field: 'hair' },
         { severity: 'must-fix', message: 'E1 is at the ferry in Book 2 but in the hills in Ash.', entry: 'E1' },
         { severity: 'warning', message: 'Someone else entirely.', quote: 'not there' }
       ],
-      { storyId: dw.id('ash'), other: { id: dw.id('b2'), title: 'Book 2' }, entries: new Map([['E1', marae]]), quoteFrom: '', quoteScene: null, asked }
+      ctxOf
     )
     // The hair clash is asked already; Mara's other one names no aspect, so it may be the one asked: it goes too.
     expect(out.map((i) => i.message)).toEqual(['Someone else entirely.'])
     expect(out[0]).toMatchObject({ kind: 'story', sceneId: null, quote: '' })
     expect(out[0].payload.sources).toEqual([{ kind: 'story', storyId: dw.id('b2'), title: 'Book 2' }])
+    // Keyed on the other story, the entry and the field, never on the words: reworded, it is the same issue.
+    const ctx2 = { ...ctxOf, entries: new Map([['E1', { ...marae, id: 'tobin' } as EntryState]]) }
+    const [a] = storyIssues([{ message: 'Tobin is in two places.', entry: 'E1', field: 'age' }], ctx2)
+    const [b] = storyIssues([{ message: 'Tobin can’t be at the ferry and in the hills.', entry: 'E1', field: 'age' }], ctx2)
+    expect(a.key).toBe(b.key)
   })
 })

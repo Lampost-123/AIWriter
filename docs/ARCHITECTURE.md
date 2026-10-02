@@ -611,15 +611,21 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   a reply that can't be read is asked for once more, one cut off is asked again in halves. `checks/parse.ts`
   drops issues whose quote isn't in the scene and keeps the scene's own words; the key is
   `check:<check>:<entry or scene>:<plain quote>`. A whole re-run replaces what the same checks found there;
-  a stopped one only adds. `memoryFix` is offered only for a fact about one of Adam's own fields.
+  a stopped one (or one whose reply could only be read in part) only adds. A rewrite is kept only for the
+  model's whole quote, with which of its places in the scene it is (`occurrence`). `memoryFix` is offered only
+  for a short value of a one-line field of Adam's that no earlier scene's change has set.
 - **Issues** (`db/checks.ts`): the keeper's and the world builder's rows read as the same `Issue`. Anything
-  ignored (by key, or the same entry and field, or the same words) is never raised again, by a check or by the
-  keeper (`raiseIssue` looks at ignored keys too); a check finding what the keeper already raised adds its
+  ignored (by key, the same entry and field, or the same kind with overlapping words: `sameThing`) is never
+  raised again, by a check or by the keeper (`raiseIssue` uses `sameThing` too); story issues are keyed on the
+  other story, the entry and the field. The live checks' ignored rows (`LIVE_KINDS`) are never counted or
+  listed as open, and Reopen deletes them; a check finding what the keeper already raised adds its
   rewrite to the keeper's issue. Open issues whose words have left the scene become `gone` when listed or
   counted. Every change emits `issues:changed` (`onIssuesTouched`, batched after the transaction).
 - **Runs** (`checks/runs.ts`): one at a time; Adam may have one of his own going or waiting. Before each
-  scene the memory catches up (`catchUpBeforeDraft`, then the keeper's `whenRead` for the scene itself, so its
-  clash isn't raised twice). Marking a scene done queues `DONE_CHECKS` quietly (`runId` `done:<scene>:…`,
+  scene the memory catches up (`catchUpBeforeDraft`, then the keeper's `whenRead` for the scene itself, read
+  now if it is still waiting out its quiet time, so its clash isn't raised twice); each run's AbortController
+  ends that wait at once on Stop or when the world closes. A check Adam asks for drops a waiting mark-done check
+  of a scene it covers. Progress names scenes "Ch 3, Sc 2: The ferry". Marking a scene done queues `DONE_CHECKS` quietly (`runId` `done:<scene>:…`,
   `CheckDone.background`); its `found` counts everything raised since, so the window can say "Found 2 things
   to look at in this scene." Checking a story ends with `checks/stories.ts`: a side story against its host over
   `hostSpans`, a prequel's ending against the opening of `leadsIntoBook`, leaving out what "Which happened

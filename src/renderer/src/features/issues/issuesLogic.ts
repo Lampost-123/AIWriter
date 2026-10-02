@@ -82,3 +82,46 @@ export function sentenceAround(text: string, from: number, to: number): { from: 
   const end = ended ? to : after ? to + after[0].length : text.length
   return { from: start, to: Math.max(end, to) }
 }
+
+const QUOTES: Record<string, string> = { '‘': "'", '’': "'", '“': '"', '”': '"', '–': '-', '—': '-' }
+
+/** Lower case, straight quotes, one space for any run of white space; `map[i]` is where each character came from. */
+function normalise(text: string): { norm: string; map: number[] } {
+  let norm = ''
+  const map: number[] = []
+  let space = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (/\s/.test(ch)) {
+      if (!space && norm) {
+        norm += ' '
+        map.push(i)
+      }
+      space = true
+      continue
+    }
+    space = false
+    norm += (QUOTES[ch] ?? ch).toLowerCase()
+    map.push(i)
+  }
+  return { norm, map }
+}
+
+/** Every place the quote appears in one paragraph's text (case, curly quotes and spacing don't matter), in order. */
+export function occurrencesIn(text: string, quote: string): { from: number; to: number }[] {
+  const want = normalise(quote.trim()).norm.trim()
+  if (!want) return []
+  const { norm, map } = normalise(text)
+  const out: { from: number; to: number }[] = []
+  for (let i = norm.indexOf(want); i >= 0; i = norm.indexOf(want, i + 1)) out.push({ from: map[i], to: map[i + want.length - 1] + 1 })
+  return out
+}
+
+/**
+ * Which of the quote's places "Fix the text" works on: the one the check found (its `occurrence`), or the
+ * only one. Null when it can't tell (several, and the check didn't say which), or there is none.
+ */
+export function pickOccurrence<T>(found: T[], occurrence: number | undefined): T | null {
+  if (occurrence !== undefined && found[occurrence]) return found[occurrence]
+  return found.length === 1 ? found[0] : null
+}

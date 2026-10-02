@@ -16,7 +16,6 @@ import { ALL_CHECKS, DONE_CHECKS } from '@shared/contracts/checks'
 import type { ID, WritingPrefs } from '@shared/types'
 import type { JobModel } from '../ai/jobModel'
 import { stopTask, type Emit } from '../ai/tasks'
-import { labeler } from '../memory/line'
 import { loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
 import { newId, now, UserError } from '../util'
@@ -31,8 +30,11 @@ export interface RunDeps {
   model: () => JobModel
   prefs: () => WritingPrefs
   emit: Emit
-  /** Brings the memory up to date for the scene (earlier scenes on its line, and its own queued read). */
-  beforeScene?: (db: DB, sceneId: ID) => Promise<void>
+  /**
+   * Brings the memory up to date for the scene (earlier scenes on its line, and its own queued read).
+   * Resolves at once when `signal` is aborted (Stop, or the world closing).
+   */
+  beforeScene?: (db: DB, sceneId: ID, signal: AbortSignal) => Promise<void>
   onKeyRejected?: (model: JobModel) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -51,6 +53,11 @@ interface Run {
   since: string
   stopped: boolean
   closed: boolean
+  /** Aborted by Stop and by the world closing, so waiting for the memory ends at once. */
+  controller: AbortController
+  /** Scenes checked so far, and the one being checked now. */
+  checked: Set<ID>
+  current: ID | null
   taskId: ID | null
   started: boolean
   finished: boolean
@@ -67,11 +74,19 @@ export function setRunDeps(d: RunDeps | null): void {
   deps = d
 }
 
-/** The live scenes with words in them that a target covers, in story order, with their places in plain words. */
+/**
+ * The live scenes with words in them that a target covers, in story order, with their places in plain words
+ * ("Ch 3, Sc 2: The ferry").
+ */
 export function scenesFor(db: DB, shape: WorldShape, target: CheckTarget): { ids: ID[]; labels: Map<ID, string> } {
-  const label = labeler(shape)
-  const all: { id: ID; storyId: ID; chapterId: ID }[] = []
-  for (const s of shape.stories) for (const c of s.chapters) for (const sc of c.scenes) all.push({ id: sc.id, storyId: s.id, chapterId: c.id })
+  const all: { id: ID; storyId: ID; chapterId: ID; label: string }[] = []
+  for (const s of shape.stories) {
+    s.chapters.forEach((c, ci) =>
+      c.scenes.forEach((sc, si) =>
+        all.push({ id: sc.id, storyId: s.id, chapterId: c.id, label: `Ch ${ci + 1}, Sc ${si + 1}${sc.title.trim() ? `: ${sc.title.trim()}` : ''}` })
+      )
+    )
+  }
   const picked =
     target.scope === 'scene'
       ? all.filter((x) => x.id === target.id)
@@ -88,7 +103,7 @@ export function scenesFor(db: DB, shape: WorldShape, target: CheckTarget): { ids
       : []
   )
   const ids = picked.filter((x) => words.has(x.id)).map((x) => x.id)
-  return { ids, labels: new Map(picked.map((x) => [x.id, label({ storyId: x.storyId, sceneId: x.id })])) }
+  return { ids, labels: new Map(picked.map((x) => [x.id, x.label])) }
 }
 
 /** What a target is called, for "already running" and progress. */
@@ -127,6 +142,9 @@ function newRun(db: DB, input: CheckStart, background: boolean, ids: ID[], label
     since: now(),
     stopped: false,
     closed: false,
+    controller: new AbortController(),
+    checked: new Set(),
+    current: null,
     taskId: null,
     started: false,
     finished: false,
@@ -154,6 +172,16 @@ export function startCheck(db: DB, input: CheckStart): void {
   if (!ids.length && !(input.target.scope === 'story' && storyComparisons(shape, input.target.id).length)) {
     throw new UserError(NOTHING[input.target.scope])
   }
+  // A scene marked done whose check is still waiting is checked by this run instead, not paid for twice.
+  const covered = new Set(ids)
+  for (let i = waiting.length - 1; i >= 0; i--) {
+    const r = waiting[i]
+    if (r.background && r.db === db && covered.has(r.target.id)) {
+      waiting.splice(i, 1)
+      r.stopped = true
+      finish(r, 'stopped', null, 0)
+    }
+  }
   enqueue(newRun(db, input, false, ids, labels))
 }
 
@@ -170,8 +198,12 @@ export function checkWhenDone(db: DB, sceneId: ID): ID | null {
   } catch {
     return null
   }
-  // Already waiting for its turn: that check will read the scene as it is then.
+  // Already waiting for its turn (or a check Adam asked for will get to it): that check reads the scene as it is then.
   if (waiting.some((r) => r.background && r.db === db && r.target.id === sceneId)) return null
+  const mine = [active, ...waiting].find((r) => r && !r.background && !r.finished && r.db === db)
+  if (mine && mine.checks.some((c) => DONE_CHECKS.includes(c)) && mine.sceneIds.includes(sceneId) && !mine.checked.has(sceneId) && mine.current !== sceneId) {
+    return null
+  }
   try {
     const target: CheckTarget = { scope: 'scene', id: sceneId }
     const { ids, labels } = scenesFor(db, loadShape(db), target)
@@ -197,20 +229,24 @@ export async function stopCheck(runId: ID): Promise<void> {
   const r = active
   if (!r || r.id !== runId || r.finished) return
   r.stopped = true
+  r.controller.abort()
   if (r.taskId) await stopTask(r.taskId).catch(() => undefined)
   await r.done
 }
 
-/** The world is closing: its runs stop now, and nothing more is written. */
+/** The world is closing: its runs stop now (each says so), and nothing more is written. */
 export function closeRunsFor(db: DB): void {
   for (const r of waiting.filter((x) => x.db === db)) {
     r.stopped = r.closed = true
     finish(r, 'stopped', null, 0)
   }
   for (let i = waiting.length - 1; i >= 0; i--) if (waiting[i].db === db) waiting.splice(i, 1)
-  if (active && active.db === db) {
-    active.stopped = active.closed = true
-    if (active.taskId) void stopTask(active.taskId).catch(() => undefined)
+  const r = active
+  if (r && r.db === db && !r.finished) {
+    r.stopped = r.closed = true
+    r.controller.abort()
+    if (r.taskId) void stopTask(r.taskId).catch(() => undefined)
+    finish(r, 'stopped', null, 0)
   }
 }
 
@@ -256,7 +292,7 @@ function finish(r: Run, status: CheckDone['status'], error: string | null, found
       console.warn('Could not count what the checks found', e)
     }
   }
-  if (!r.closed) deps?.emit('checks:done', { runId: r.id, target: r.target, status, error, found, background: r.background })
+  deps?.emit('checks:done', { runId: r.id, target: r.target, status, error, found, background: r.background })
   r.resolve()
 }
 
@@ -305,10 +341,11 @@ async function go(r: Run): Promise<void> {
   let n = 0
   for (const sceneId of r.sceneIds) {
     if (o.stopped()) return finish(r, 'stopped', null, found)
+    r.current = sceneId
     progress(r, n, sceneId)
     if (d.beforeScene) {
       try {
-        await d.beforeScene(r.db, sceneId)
+        await d.beforeScene(r.db, sceneId, r.controller.signal)
       } catch (e) {
         console.warn('The memory could not catch up before a check; checking with what it has', e)
       }
@@ -318,6 +355,8 @@ async function go(r: Run): Promise<void> {
     if (out.status !== 'empty') found += out.found
     if (out.status === 'stopped') return finish(r, 'stopped', null, found)
     if (out.status === 'error') return finish(r, 'error', out.error, found)
+    r.checked.add(sceneId)
+    r.current = null
     n++
   }
   progress(r, n, null)

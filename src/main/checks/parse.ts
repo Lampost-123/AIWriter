@@ -15,20 +15,23 @@ import type { FoundIssue } from '../db/checks'
 import { parseLenient, str } from '../keeper/json'
 import { plain } from '../keeper/text'
 import { fieldValue } from '../keeper/facts'
-import { issueKey, KIND_OF_CHECK, plainQuote, sceneQuote } from './quote'
+import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt, plainQuote } from './quote'
+import { memoryFixable } from './memoryFix'
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
-/** The reply's issues (each still to be checked), or why the reply can't be read. */
-export function readCheckReply(text: string): { ok: true; items: Record<string, unknown>[] } | { ok: false; why: string } {
-  // A bare list of issues is fine too.
-  const list = text.trim().match(/^(?:```(?:json)?\s*)?(\[[\s\S]*\])\s*(?:```)?$/)
-  if (list) {
-    try {
-      const v = JSON.parse(list[1]) as unknown
-      if (Array.isArray(v)) return { ok: true, items: v.filter(isObj) }
-    } catch {
-      /* read as an object below */
+/**
+ * The reply's issues (each still to be checked), or why the reply can't be read. `complete` is false when
+ * only part of it could be read (a single issue found inside something else): what such a reply didn't
+ * mention mustn't be taken as gone.
+ */
+export function readCheckReply(text: string): { ok: true; items: Record<string, unknown>[]; complete: boolean } | { ok: false; why: string } {
+  // A bare list of issues is fine too, fenced or not, with words before it or not.
+  const list = topLevelList(text)
+  if (list !== null) {
+    const wrapped = parseLenient(`{"issues": ${list}}`)
+    if (wrapped.ok && isObj(wrapped.value) && Array.isArray(wrapped.value.issues)) {
+      return { ok: true, items: wrapped.value.issues.filter(isObj), complete: true }
     }
   }
   const parsed = parseLenient(text)
@@ -37,12 +40,37 @@ export function readCheckReply(text: string): { ok: true; items: Record<string, 
   if (!isObj(v)) return { ok: false, why: 'it was not a JSON object' }
   const issues = v.issues ?? v.problems ?? v.findings
   if (issues === undefined) {
-    if ('quote' in v && 'message' in v) return { ok: true, items: [v] }
+    if ('quote' in v && 'message' in v) return { ok: true, items: [v], complete: false }
     return { ok: false, why: 'it had no "issues" list' }
   }
-  if (issues === null) return { ok: true, items: [] }
+  if (issues === null) return { ok: true, items: [], complete: true }
   if (!Array.isArray(issues)) return { ok: false, why: 'its "issues" was not a list' }
-  return { ok: true, items: issues.filter(isObj) }
+  return { ok: true, items: issues.filter(isObj), complete: true }
+}
+
+/** A list at the top of the reply (in a code fence, or the first bracket before any brace), as text; null when there is none. */
+function topLevelList(text: string): string | null {
+  const fence = text.match(/```(?:json|JSON)?\s*([\s\S]*?)```/)
+  const body = fence && fence[1].trim().startsWith('[') ? fence[1] : text
+  const open = body.indexOf('[')
+  const brace = body.indexOf('{')
+  if (open < 0 || (brace >= 0 && brace < open)) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = open; i < body.length; i++) {
+    const c = body[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') inString = true
+    else if (c === '[') depth++
+    else if (c === ']' && --depth === 0) return body.slice(open, i + 1)
+  }
+  return null
 }
 
 /** A check's name as the model may write it. */
@@ -106,8 +134,11 @@ export interface ReadContext {
   entries: Map<string, EntryState>
   /** Earlier scenes by their id in the request (S1...). */
   scenes: Map<string, { sceneId: ID; label: string }>
-  /** True when the entry's field is one of Adam's own. */
-  isAdams(entryId: ID, field: string): boolean
+  /**
+   * True when "Update the memory" may set this field: one of Adam's own, not changed by an earlier scene's
+   * change, so his note is what the memory says here.
+   */
+  canUpdateMemory(entryId: ID, field: string): boolean
 }
 
 /** An entry named by its id in the request (E1), or by its name or other name. */
@@ -140,8 +171,9 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
   for (const item of items) {
     const check = checkOf(item.check ?? item.type ?? item.kind, ctx.checks)
     if (!check) continue
-    const quote = sceneQuote(ctx.text, item.quote)
-    if (!quote) continue
+    const found = findSceneQuote(ctx.text, item.quote)
+    if (!found) continue
+    const quote = found.quote
     const message = namedMessage(str(item.message ?? item.problem, 400), ctx)
     if (!message) continue
     const conflicts = isObj(item.conflicts) ? item.conflicts : isObj(item.conflictsWith) ? item.conflictsWith : {}
@@ -153,12 +185,18 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
     if (entry) sources.push(entry.kind === 'thread' ? { kind: 'thread', entryId: entry.id, name: entry.name } : { kind: 'entry', entryId: entry.id, name: entry.name, field })
     if (scene) sources.push({ kind: 'scene', sceneId: scene.sceneId, label: scene.label })
     let fix = str(item.fix ?? item.rewrite, 2000) || null
-    if (fix && plainQuote(fix) === plainQuote(quote)) fix = null
+    // A rewrite of "A ... B" can't take the place of A alone; nor is one that changes nothing a fix.
+    if (fix && (!found.whole || plainQuote(fix) === plainQuote(quote))) fix = null
     const memory = str(item.memory, 200)
     const text = str(item.text, 200)
-    // The text is right and one of Adam's own notes is wrong: offered only for one value of a fact.
+    // The text is right and one of Adam's own notes is wrong: offered only for one short value of a fact.
     const memoryFix =
-      check === 'facts' && entry && field && text && ctx.isAdams(entry.id, field) && plain(text) !== plain(fieldValue(entry, field))
+      check === 'facts' &&
+      entry &&
+      field &&
+      memoryFixable(entry.kind, field, text) &&
+      ctx.canUpdateMemory(entry.id, field) &&
+      plain(text) !== plain(fieldValue(entry, field))
         ? { entryId: entry.id, field, value: text }
         : null
     const key = issueKey(check, entry?.id ?? scene?.sceneId ?? '', quote)
@@ -179,6 +217,7 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
         memoryFix,
         entryId: entry?.id,
         field,
+        occurrence: occurrenceAt(ctx.text, quote, found.start),
         ...(memory ? { memory } : {}),
         ...(text ? { text } : {})
       }

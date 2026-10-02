@@ -21,7 +21,7 @@ import { runTask, type Emit } from '../ai/tasks'
 import { mentions, sceneTail, SHORT_TAIL } from '../ai/context'
 import * as kdb from '../db/keeper'
 import * as cdb from '../db/checks'
-import { estimateTokens, firstWords, plain } from '../keeper/text'
+import { estimateTokens, firstWords } from '../keeper/text'
 import { str } from '../keeper/json'
 import { newId, UserError } from '../util'
 import { entryOf, fieldOf, readCheckReply, severityOf } from './parse'
@@ -172,6 +172,7 @@ export async function compareStories(
     { role: 'user', content: user }
   ]
   let items: Record<string, unknown>[] | null = null
+  let complete = true
   for (let attempt = 0; attempt < 2 && !items; attempt++) {
     if (o.stopped()) return { status: 'stopped', found: 0, error: null }
     const taskId = newId()
@@ -215,7 +216,10 @@ export async function compareStories(
     if (done.status === 'stopped' || o.stopped()) return { status: 'stopped', found: 0, error: null }
     if (done.status === 'error') return { status: 'error', found: 0, error: done.error }
     const reply = readCheckReply(done.text)
-    if (reply.ok) items = reply.items
+    if (reply.ok) {
+      items = reply.items
+      complete = reply.complete
+    }
     else messages = [...messages, { role: 'assistant', content: done.text }, { role: 'user', content: retryMessage(reply.why) }]
   }
   if (!items) {
@@ -237,7 +241,8 @@ export async function compareStories(
     asked
   })
   const existing = cdb.storyKindRows(db, c.storyId).filter((r) => cdb.payloadOf(r).otherStoryId === c.otherId)
-  const raised = cdb.saveFound(db, existing, found, (p) => p.otherStoryId === c.otherId)
+  // A reply read only in part can't say what is no longer there.
+  const raised = cdb.saveFound(db, existing, found, (p) => complete && p.otherStoryId === c.otherId)
   return { status: 'done', found: raised, error: null }
 }
 
@@ -265,7 +270,8 @@ export function storyIssues(
     const quote = ctx.quoteFrom ? (sceneQuote(ctx.quoteFrom, item.quote) ?? '') : ''
     const sources: IssueSource[] = [{ kind: 'story', storyId: ctx.other.id, title: ctx.other.title }]
     if (entry) sources.push({ kind: 'entry', entryId: entry.id, name: entry.name, field })
-    const key = issueKey('story', `${ctx.other.id}:${entry?.id ?? ''}`, quote || plain(message))
+    // On the other story, the entry and its field, never on the words: a reworded finding is the same issue.
+    const key = issueKey('story', `${ctx.other.id}:${entry?.id ?? ''}:${field ?? ''}`, '')
     if (out.has(key)) continue
     out.set(key, {
       sceneId: quote ? ctx.quoteScene : null,

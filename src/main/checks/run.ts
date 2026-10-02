@@ -8,12 +8,13 @@
 
 import type Database from 'better-sqlite3'
 import type { CheckKind } from '@shared/contracts/checks'
-import type { ChatMessage, EntryState, ID, WritingPrefs } from '@shared/types'
+import type { ChatMessage, Entry, EntryState, ID, WritingPrefs } from '@shared/types'
+import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
 import type { JobModel } from '../ai/jobModel'
 import * as cdb from '../db/checks'
 import { CUT_OFF } from '../keeper/json'
-import { estimateTokens } from '../keeper/text'
+import { estimateTokens, plain } from '../keeper/text'
 import { fieldOrigin, fieldValue } from '../keeper/facts'
 import { newId, UserError } from '../util'
 import { checkRequest, checkSections, gatherSceneCheck, splitScene, type SceneCheckContext } from './context'
@@ -59,8 +60,23 @@ export function checkBudget(model: Pick<JobModel, 'choice'>, system: string): { 
 }
 
 /** A field is Adam's when he wrote it (as the memory keeper decides it). */
-export const adamsField = (e: EntryState, field: string): boolean =>
+export const adamsField = (e: Entry, field: string): boolean =>
   e.fieldOrigins?.[field] === 'adam' || (fieldOrigin(e, field) === 'adam' && fieldValue(e, field).trim() !== '')
+
+/**
+ * True when "Update the memory" may set an entry's field from the text: the field is Adam's own, and no
+ * earlier scene's change has set it, so what the memory says at this scene is his note itself.
+ */
+export function canUpdateField(db: DB, state: EntryState, field: string): boolean {
+  if ((state.changed ?? []).includes(field)) return false
+  let base: Entry
+  try {
+    base = repo.getEntry(db, state.id)
+  } catch {
+    return false
+  }
+  return adamsField(base, field) && plain(fieldValue(state, field)) === plain(fieldValue(base, field))
+}
 
 /** Events from the task runner aren't for the window: the check says how it goes itself. */
 const quiet: Emit = () => undefined
@@ -100,9 +116,9 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
     checks,
     entries: new Map(ctx.entries.map((c) => [c.code, c.entry])),
     scenes: new Map(ctx.earlier.map((s) => [s.code, { sceneId: s.sceneId, label: s.label }])),
-    isAdams: (entryId, field) => {
+    canUpdateMemory: (entryId, field) => {
       const e = ctx.entries.find((c) => c.entry.id === entryId)?.entry
-      return !!e && adamsField(e, field)
+      return !!e && canUpdateField(o.db, e, field)
     }
   }
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
@@ -110,6 +126,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   let splits = 0
   let failure: string | null = null
   let stopped = false
+  // A reply read only in part can't say what is no longer there.
+  let partial = false
   const queue = parts.map((text) => ({ text }))
   let number = 0
   const total = (): number => number + queue.length
@@ -166,6 +184,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
       const reply = readCheckReply(done.text)
       if (reply.ok) {
         got = reply.items
+        if (!reply.complete) partial = true
         break
       }
       // A long reply cut off by the reply limit: asking again would be cut off the same way, so the part is checked in halves.
@@ -191,7 +210,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   // The scene may have been deleted while it was checked.
   if (!cdb.sceneTexts(o.db, [sceneId]).has(sceneId)) return { status: 'stopped', found: 0 }
   const found = foundIssues(items, read)
-  const whole = !stopped && !failure
+  const whole = !stopped && !failure && !partial
   // A whole check replaces what the same checks found here before; a check cut short only adds.
   const replaces = whole ? (p: cdb.IssuePayload) => !!p.check && (checks as string[]).includes(p.check) : () => false
   const raised = cdb.saveFound(o.db, cdb.rowsInScenes(o.db, [sceneId]), found, replaces)
