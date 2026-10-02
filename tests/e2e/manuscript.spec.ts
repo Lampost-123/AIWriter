@@ -204,7 +204,8 @@ test('Add to memory and Quick start from selected words', async ({ launch }) => 
   await expect(form.getByRole('textbox', { name: 'What changed' })).toHaveValue(TEXT[3])
   await form.getByRole('textbox', { name: 'What changed' }).fill('Lost her temper with the bellows.')
   await win.keyboard.press(`${mod}+Enter`)
-  await expect(toasts(win)).toContainText('Added to memory for Mara Venn: “Lost her temper with the bellows.”')
+  // Added while the first one's toast still shows: that toast says both (see the next test).
+  await expect(toasts(win)).toContainText('Added 2 things to memory.')
   const changes = await invoke(win, 'listChanges', w.mara)
   expect(changes.find((c) => c.kind === 'update' && c.payload.note === 'Lost her temper with the bellows.')).toMatchObject({
     anchor: 'scene',
@@ -263,6 +264,66 @@ test('Add to memory and Quick start from selected words', async ({ launch }) => 
     .toBe(true)
 })
 
+test('quick adds share one toast: Undo takes them all back, and Open shows the latest, beside the page or on its own page', async ({
+  launch
+}) => {
+  const { win } = await launch()
+  const w = await setUp(win)
+  const bar = win.getByRole('toolbar', { name: 'Selected words' })
+  const form = win.getByRole('form', { name: 'Add to memory' })
+  const undoButtons = toasts(win).getByRole('button', { name: 'Undo' })
+  const addChange = async (note: string): Promise<void> => {
+    await selectParagraph(win, 3)
+    await bar.getByRole('button', { name: 'Add to memory' }).click()
+    await form.getByRole('textbox', { name: 'What changed' }).fill(note)
+    await win.keyboard.press(`${mod}+Enter`)
+    await expect(form).toBeHidden()
+    // Back in the page with the words still selected; the next add selects afresh.
+    await expect(prose(win)).toBeFocused()
+    await win.keyboard.press('ArrowRight')
+  }
+
+  // Something new, shown beside the page from its toast.
+  await selectParagraph(win, 2)
+  await bar.getByRole('button', { name: 'Add to memory' }).click()
+  await form.getByRole('button', { name: 'Add to memory' }).click()
+  await expect(toasts(win)).toContainText('Added Jory Ashdown to your characters.')
+  await toasts(win).getByRole('button', { name: 'Open' }).click()
+  await expect(scenePanel(win).getByRole('region', { name: 'Jory Ashdown' })).toBeVisible()
+
+  // Two more while that toast shows: one toast says all three, so they never pile up over the page.
+  await addChange('Lost her temper with the bellows.')
+  await addChange('Swore never to go back to the mill.')
+  await expect(toasts(win)).toContainText('Added 3 things to memory.')
+  await expect(undoButtons).toHaveCount(1)
+  // Its Open shows the latest.
+  await toasts(win).getByRole('button', { name: 'Open' }).click()
+  await expect(scenePanel(win).getByRole('region', { name: 'Mara Venn' })).toBeVisible()
+  await scenePanel(win).getByRole('button', { name: 'Back to Scene card' }).click()
+  await toasts(win).getByRole('button', { name: 'Open' }).click()
+  await expect(scenePanel(win).getByRole('region', { name: 'Mara Venn' })).toBeVisible()
+  await scenePanel(win).getByRole('button', { name: 'Back to Scene card' }).click()
+
+  // Undo takes all three back. A new entry shown beside the page goes from there quietly, rather than
+  // saying it isn't in the world any more.
+  const jory = (await invoke(win, 'listEntries', 'character')).find((e) => e.name === 'Jory Ashdown')!
+  await names(win, jory.id).click({ modifiers: [mod] })
+  await expect(scenePanel(win).getByRole('region', { name: 'Jory Ashdown' })).toBeVisible()
+  await undoButtons.click()
+  await expect(scenePanel(win).getByRole('tab', { name: 'Scene card', selected: true })).toBeVisible()
+  await expect(scenePanel(win).getByText('Not in your world any more')).toHaveCount(0)
+  await expect.poll(async () => (await invoke(win, 'listEntries', 'character')).map((e) => e.name).sort()).toEqual(['Mara Venn', 'Tobin'])
+  await expect
+    .poll(async () => (await invoke(win, 'listChanges', w.mara)).filter((c) => c.kind === 'update' && c.anchor === 'scene').length)
+    .toBe(1)
+
+  // From another page, Open goes to the entry's own page (the scene panel isn't there to show it).
+  await addChange('Sold the bellows.')
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await toasts(win).getByRole('button', { name: 'Open' }).click()
+  await expect(win.locator('main').getByRole('textbox', { name: 'Name' })).toHaveValue('Mara Venn')
+})
+
 test('words the app selects to show where a fact came from aren’t offered for Add to memory again', async ({ launch }) => {
   const fake = await startFake()
   try {
@@ -318,6 +379,68 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await expect(card(win)).toBeVisible()
     await win.keyboard.press(`${mod}+Enter`)
     await expect.poll(async () => (await invoke(win, 'getScene', w.sceneId)).status).toBe('done')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('with a draft being written, Esc on the Selected words bar or the floating binder closes only that, and Ctrl+G under the Add to memory form does nothing', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { app, win } = await launch()
+    const w = await setUp(win)
+    await useFakeModel(win, fake, 'fake/slow')
+    const bar = win.getByRole('toolbar', { name: 'Selected words' })
+    const form = win.getByRole('form', { name: 'Add to memory' })
+    const stop = win.locator('main header').getByRole('button', { name: 'Stop' })
+    const status = async (): Promise<string | undefined> => (await invoke(win, 'listGenerations', w.sceneId))[0]?.status
+
+    // Ctrl+G with the form open: no draft, no question about the scene's text, and the form keeps what Adam typed.
+    await selectParagraph(win, 3)
+    await bar.getByRole('button', { name: 'Add to memory' }).click()
+    await form.getByRole('textbox', { name: 'What changed' }).fill('She hates the mill')
+    await win.keyboard.press(`${mod}+g`)
+    await win.waitForTimeout(500)
+    await expect(form.getByRole('textbox', { name: 'What changed' })).toHaveValue('She hates the mill')
+    await expect(win.getByRole('button', { name: 'Add below', exact: true })).toHaveCount(0)
+    expect(await invoke(win, 'listGenerations', w.sceneId)).toEqual([])
+    await form.getByRole('button', { name: 'Cancel' }).click()
+    await expect(form).toBeHidden()
+
+    // A draft being written below Adam's text. Esc with the bar showing over his words closes the bar,
+    // and the draft carries on; the next Esc stops it, as Stop says.
+    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: 'Add below', exact: true }).click()
+    await expect(stop).toBeVisible()
+    await selectParagraph(win, 0)
+    await expect(bar).toBeVisible()
+    await win.keyboard.press('Escape')
+    await expect(bar).toBeHidden()
+    await win.waitForTimeout(1000)
+    expect(await status()).toBe('streaming')
+    await expect(stop).toBeVisible()
+    await win.keyboard.press('Escape')
+    await expect.poll(status).toBe('stopped')
+
+    // The same with the binder floating over the page in the smallest window: it opens with the keyboard
+    // on the scene's row, and its Esc closes it while the draft carries on.
+    await resize(app, win, 960, 600)
+    await win.getByRole('button', { name: 'Show or hide the binder' }).click()
+    await expect(binder(win)).toBeVisible()
+    await expect(binder(win).locator('[data-row="scene"]')).toBeFocused()
+    await win.keyboard.press(`${mod}+g`)
+    await win.keyboard.press('Enter')
+    await expect(stop).toBeVisible()
+    await expect(prose(win)).toBeFocused()
+    await expect(binder(win)).toBeVisible()
+    await win.keyboard.press('Escape')
+    await expect(binder(win)).toBeHidden()
+    await win.waitForTimeout(1000)
+    expect((await invoke(win, 'listGenerations', w.sceneId)).map((g) => g.status)).toEqual(['streaming', 'stopped'])
+    await win.keyboard.press('Escape')
+    await expect.poll(status).toBe('stopped')
   } finally {
     await fake.close()
   }
@@ -398,6 +521,10 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   await binderButton.click()
   await expect(binder(win)).toBeVisible()
   await expect(binderButton).toHaveClass(pressed)
+  // The keyboard is on the open scene's row, so the arrows and Enter work straight away.
+  await expect(binder(win).locator('[data-row]', { hasText: 'The Knock at the Door' })).toBeFocused()
+  await win.keyboard.press('ArrowDown')
+  await expect(binder(win).locator('[data-row]', { hasText: 'The Ferry' })).toBeFocused()
   // Over the page: the page doesn't move.
   expect(await charsPerLine(win)).toEqual(lines)
   await win.keyboard.press('Escape')

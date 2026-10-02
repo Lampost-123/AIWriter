@@ -192,7 +192,7 @@ function LanePicker({ timeline, mode, fit }: { timeline: Timeline; mode: LaneMod
               <span className="min-w-0 flex-1 truncate">{entry.name}</span>
               <span
                 className="text-[11.5px] tabular-nums text-faint"
-                title={`In ${count} ${count === 1 ? 'place' : 'places'} on the timeline`}
+                title={`In ${count} ${count === 1 ? 'scene or event' : 'scenes and events'} on the timeline`}
               >
                 {count}
               </span>

@@ -92,6 +92,15 @@ test('a full character is built from a few lines of notes with one click, and su
     await binder(second.win).getByRole('button', { name: 'Characters' }).click()
     await main(second.win).getByRole('listbox', { name: 'Characters' }).getByRole('option', { name: /^Brann Holt/ }).click()
     await expect(main(second.win).getByText('Drafted by AI').first()).toBeVisible()
+    // He made it, but didn't write all of it: the note at the top says so, and never "You wrote this".
+    await expect(main(second.win).getByRole('note')).toHaveText(
+      'You made this. What you wrote stays as you wrote it; fields marked Drafted by AI can change with your story.'
+    )
+    await main(second.win).getByRole('button', { name: 'View as of a scene' }).click()
+    await expect(main(second.win).getByText('Nothing has changed by this point.')).toBeVisible()
+    await expect(main(second.win).getByText(/^You wrote this[,.]/)).toHaveCount(0)
+    // His own words say they are his, beside the AI's.
+    await expect(main(second.win).getByText('You wrote this', { exact: true }).first()).toBeVisible()
   } finally {
     await fake.close()
   }
@@ -219,8 +228,22 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
 
     await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.origin).toBe(second)
     expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('ai')
-    // It replaced his own words, so one click puts them back, as his.
-    await expect(win.getByText('Replaced origin with the option you picked.')).toBeVisible()
+    // It replaced his own words, so one click puts them back, as his. The toast sits above the buttons
+    // along the foot of the step, and above the interview's question box, never over them.
+    const replaced = win.getByText('Replaced origin with the option you picked.')
+    await expect(replaced).toBeVisible()
+    const clear = async (below: ReturnType<Page['locator']>): Promise<boolean> => {
+      const [t, b] = [await replaced.locator('..').boundingBox(), await below.boundingBox()]
+      return !!t && !!b && t.y + t.height <= b.y
+    }
+    await expect.poll(() => clear(main(win).getByRole('button', { name: 'Flesh out with AI' }))).toBe(true)
+    await step(win, 'Voice').click()
+    await main(win).getByRole('button', { name: 'Interview Mara Venn' }).click()
+    const ask = win.getByRole('complementary', { name: 'Interview' }).getByRole('textbox', { name: 'Ask Mara Venn something' })
+    await expect(ask).toBeFocused()
+    await expect.poll(() => clear(ask)).toBe(true)
+    await win.keyboard.press('Escape')
+    await step(win, 'Backstory and secrets').click()
     await win.getByRole('button', { name: 'Undo' }).click()
     await expect(main(win).getByLabel('Origin', { exact: true })).toHaveValue('Born on a barge')
     await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.origin).toBe('Born on a barge')
@@ -270,6 +293,8 @@ test('Interview: the character answers in character, and a reply becomes a sampl
     await expect(panel.getByRole('list', { name: 'Conversation' })).toContainText(reply)
     await panel.getByRole('button', { name: 'Save as a sample line' }).click()
     await expect(panel.getByText('Saved as a sample line')).toBeVisible()
+    // The button gave way to "Saved": the keyboard is back in the question box, ready for the next one.
+    await expect(panel.getByRole('textbox', { name: 'Ask Brann Holt something' })).toBeFocused()
     await expect(main(win).getByLabel('Sample lines of dialogue', { exact: true })).toHaveValue(`"${reply}"`)
 
     await expect.poll(async () => (await entryNamed(win, 'Brann Holt')).fields.sampleLines).toBe(`"${reply}"`)
@@ -337,17 +362,71 @@ test('a place goes through the lighter builder, step by step, to its page', asyn
   }
 })
 
-test('the builder warns about a near-duplicate name', async ({ launch }) => {
+test('the builder warns about a near-duplicate name, in full in the smallest window', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { app, win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+    await invoke(win, 'createEntry', 'character', { name: 'Brann Holt' })
+    await useFakeModel(win, fake)
+    // The smallest window, with the binder showing beside the builder.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 600))
+    await win.reload()
+    await win.getByRole('button', { name: 'Show or hide the binder' }).click()
+    await expect(binder(win)).toBeVisible()
+    /** The warning's words, and whether any of them is cut short. */
+    const warning = async (): Promise<{ text: string | null; cut: boolean }> =>
+      main(win)
+        .getByRole('status')
+        .filter({ hasText: 'Same one?' })
+        .evaluate((el) => ({
+          text: el.textContent,
+          cut: [el, ...el.querySelectorAll('*')].some((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1)
+        }))
+
+    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
+    await main(win).getByRole('button', { name: 'Go step by step instead' }).click()
+    await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra')
+    await expect(main(win).getByRole('status').filter({ hasText: 'Very close to Mara, another character. Same one?' })).toBeVisible()
+    expect(await warning()).toEqual({ text: 'Very close to Mara, another character. Same one? Open Mara', cut: false })
+    // The name's Options stay where they were, on their own line.
+    await expect(main(win).getByRole('button', { name: 'Give me options for Name' })).toBeVisible()
+    await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra Holt')
+    await expect(main(win).getByText('Same one?')).toHaveCount(0)
+
+    // Quick start says it under the profile's name, whole.
+    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
+    await main(win).getByLabel('What you know about them').fill(NOTES)
+    await main(win).getByRole('button', { name: 'Build the character' }).click()
+    await expect(main(win).getByRole('status').filter({ hasText: 'Brann Holt is built and saved.' })).toBeVisible()
+    expect(await warning()).toEqual({
+      text: 'There’s already another character called Brann Holt. Same one? Open Brann Holt',
+      cut: false
+    })
+  } finally {
+    await fake.close()
+  }
+})
+
+test('an entry opened in the builder from its page goes back to it in one click, with what was changed', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Builder')
-  await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+  await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', summary: 'A smuggler' })
   await binder(win).getByRole('button', { name: 'Characters' }).click()
-  await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
-  await main(win).getByRole('button', { name: 'Go step by step instead' }).click()
-  await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra')
-  await expect(main(win).getByRole('status').filter({ hasText: 'Very close to Mara, another character. Same one?' })).toBeVisible()
-  await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra Holt')
-  await expect(main(win).getByText('Same one?')).toHaveCount(0)
+  await main(win)
+    .getByRole('listbox', { name: 'Characters' })
+    .getByRole('option', { name: /^Mara Venn/ })
+    .click()
+  await main(win).getByRole('button', { name: 'Open in the builder' }).click()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Basics' })).toBeVisible()
+  await main(win).getByLabel('Pronouns', { exact: true }).fill('she/her')
+  await main(win).getByRole('button', { name: 'Back to Mara Venn' }).click()
+  await expect(main(win).getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Mara Venn')
+  await expect(main(win).getByRole('button', { name: 'Open in the builder' })).toBeVisible()
+  await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.pronouns).toBe('she/her')
 })
 
 test('Quick start keeps the notes, and a build still running, when Adam leaves and comes back', async ({ launch }) => {
@@ -505,7 +584,7 @@ test('relationships are picked from the characters already in the world', async 
   // Only characters, and nothing new is made here: a group's name finds nobody.
   const picker = main(win).getByRole('combobox', { name: 'Add someone Brann Holt knows' })
   await picker.fill('Ferry Guild')
-  await expect(main(win).getByText('None of your characters is called "Ferry Guild". Add them first, then pick them here.')).toBeVisible()
+  await expect(main(win).getByText('None of your characters is called “Ferry Guild”. Add them first, then pick them here.')).toBeVisible()
   await expect(win.getByRole('option')).toHaveCount(0)
   await picker.fill('Mara')
   await expect(win.getByRole('option')).toHaveCount(1)

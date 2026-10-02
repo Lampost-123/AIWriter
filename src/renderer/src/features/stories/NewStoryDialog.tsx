@@ -12,6 +12,7 @@ import { Button, Dialog, IconButton, Input, Notice, Select } from '@/components/
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { usePreview } from './hooks'
 import { Knows, PlacementEditor, Warnings, type PendingEnd } from './PlacementEditor'
 import { useSeriesList } from './series'
@@ -72,6 +73,8 @@ function NewStoryForm(): React.JSX.Element {
   const [ready, setReady] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
   const pinnedRef = useRef<HTMLDivElement>(null)
+  /** The story was made: its first scene takes the keyboard (see createStory). */
+  const made = useRef(false)
 
   const seriesId = isNew ? null : seriesChoice
 
@@ -224,7 +227,10 @@ function NewStoryForm(): React.JSX.Element {
         timeGap: gapFor ? gap.trim() : '',
         ...(endFirst.length ? { endFirst } : {})
       },
-      () => setOpen(false)
+      () => {
+        made.current = true
+        setOpen(false)
+      }
     )
     if (error) {
       setBusy(false)
@@ -238,6 +244,14 @@ function NewStoryForm(): React.JSX.Element {
     <Dialog
       open={ready}
       onOpenChange={(o) => !o && setOpen(false)}
+      // Closed without making one: the keyboard goes back where Adam was, the page or else the story menu.
+      onCloseAutoFocus={(e) => {
+        if (made.current) return
+        e.preventDefault()
+        const { view, sceneId } = useApp.getState()
+        if (view.kind === 'write' && sceneId) requestEditorFocus(sceneId)
+        else document.querySelector<HTMLElement>('[data-story-menu]')?.focus()
+      }}
       title="New story"
       width={620}
       footer={

@@ -89,7 +89,7 @@ function ExistingBuild({ kind, entryId }: { kind: BuilderKind; entryId: ID }): R
             </Button>
           }
         >
-          Couldn't open it in the builder. {state.error}
+          Couldn’t open it in the builder. {state.error}
         </Notice>
       </div>
     )
@@ -106,5 +106,5 @@ function ExistingBuild({ kind, entryId }: { kind: BuilderKind; entryId: ID }): R
   }
   const e = state.entry
   const entryKind = e.kind === 'character' || e.kind === 'place' || e.kind === 'group' || e.kind === 'item' ? e.kind : kind
-  return <Guided kind={entryKind} initial={e} />
+  return <Guided kind={entryKind} initial={e} fromPage />
 }

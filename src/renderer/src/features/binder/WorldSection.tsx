@@ -4,6 +4,7 @@ import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { watchMoreBelow } from '@/lib/moreBelow'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 
@@ -86,8 +87,13 @@ export function WorldSection(): React.JSX.Element {
   const counts = useEntryCounts()
 
   return (
-    // In a short window the list scrolls rather than squeezing out the chapters above it.
-    <nav aria-label="World" className="max-h-[50%] shrink-0 overflow-y-auto border-t border-line px-1.5 pb-2 pt-2">
+    // All of it shows when the chapters above can keep about six rows; in a shorter window it scrolls
+    // rather than squeezing them out, and its bottom edge fades while more is below.
+    <nav
+      ref={watchMoreBelow}
+      aria-label="World"
+      className="fade-more-below max-h-[max(50%,calc(100%-260px))] shrink-0 overflow-y-auto border-t border-line px-1.5 pb-2 pt-2"
+    >
       <h3 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">World</h3>
       <Link icon={<LayoutGrid size={15} />} label="Codex" active={view.kind === 'codex'} onClick={() => navigate({ kind: 'codex' })} />
       {/* Each kind's list, under the codex: a quiet indented column joined to it by a thin line. */}

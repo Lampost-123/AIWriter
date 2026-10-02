@@ -123,7 +123,7 @@ function Screen({
       onLookOver(await api.getEntry(id))
     } catch (e) {
       setOpening(false)
-      toast(`Couldn't open it. ${(e as Error).message}`, { tone: 'danger' })
+      toast(`Couldn’t open it. ${(e as Error).message}`, { tone: 'danger' })
     }
   }
 
@@ -239,7 +239,8 @@ function Screen({
               </Button>
               <div className="flex-1" />
               <span className="flex items-center gap-1 text-[12px] text-faint" title={`Press ${modKey()}+Enter in the notes to build`}>
-                <Kbd>{modKey()}</Kbd>+<Kbd>Enter</Kbd>
+                <Kbd>{modKey()}</Kbd>
+                <Kbd>Enter</Kbd>
               </span>
             </>
           )}
@@ -310,15 +311,20 @@ function Profile({ kind, s, running }: { kind: BuilderKind; s: QuickSession; run
           </span>
         ) : null}
       </div>
-      {/* Whose the name is, and a warning when it is very like another one: a line kept from the start. */}
-      <div className="flex min-h-[18px] min-w-0 items-center gap-3 text-[12px]">
-        <span className="shrink-0">
-          <MarkLine mark={name ? mark('name') : null} />
-        </span>
-        {name ? (
-          <DuplicateHint kind={kind} entryId={view.entryId} name={name} aliases={view.values.aliases ?? ''} entries={entries} />
-        ) : null}
+      {/* Whose the name is (a line kept from the start), and under it, a warning when it is very like another one. */}
+      <div className="flex min-h-[18px] min-w-0 items-center text-[12px]">
+        <MarkLine mark={name ? mark('name') : null} />
       </div>
+      {name ? (
+        <DuplicateHint
+          kind={kind}
+          entryId={view.entryId}
+          name={name}
+          aliases={view.values.aliases ?? ''}
+          entries={entries}
+          className="mt-1 text-[12px]"
+        />
+      ) : null}
 
       {shown.length ? (
         <dl className="mt-3 flex flex-col gap-2.5 border-t border-line pt-3">

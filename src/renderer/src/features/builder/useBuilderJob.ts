@@ -77,7 +77,7 @@ export function useBuilderJob(handlers: {
     },
     stop: (): void => {
       const id = current.current
-      if (id) void api.stopBuilder(id).catch((e: Error) => void toast(`Couldn't stop it. ${e.message}`, { tone: 'danger' }))
+      if (id) void api.stopBuilder(id).catch((e: Error) => void toast(`Couldn’t stop it. ${e.message}`, { tone: 'danger' }))
     }
   }))
 

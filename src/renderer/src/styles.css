@@ -200,6 +200,12 @@
   }
 }
 
+/* Since scrollbars only show on hover, a list with more below what shows fades at its bottom edge
+   (lib/moreBelow.ts sets data-more-below while there is more). */
+.fade-more-below[data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

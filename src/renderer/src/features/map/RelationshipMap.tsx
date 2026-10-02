@@ -17,7 +17,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { AsOfSlider } from '@/features/views/AsOfSlider'
 import { AsSeenIn } from '@/features/views/AsSeenIn'
-import { hasOtherKinds } from '@/features/views/asOfLogic'
+import { hasOtherKinds, inSentence } from '@/features/views/asOfLogic'
 import { Portrait } from '@/features/views/Portrait'
 import { StoryFilter, useSize, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
 import {
@@ -27,7 +27,6 @@ import {
   countText,
   feelsText,
   fitView,
-  inSentence,
   labelsAt,
   labelWidth,
   LABEL_MAX,
@@ -104,11 +103,12 @@ export function RelationshipMap(): React.JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <ViewHeader title="Relationship map" subtitle="How your characters are tied to each other, and how each feels about it.">
-        <AsSeenIn value={storyId} onChange={pickStory} className="w-[200px]" />
+        {/* Narrow enough to sit beside the title in the smallest window, so the map below keeps its height. */}
+        <AsSeenIn value={storyId} onChange={pickStory} className="w-[180px]" />
         {/* Until a world has a side story, prequel or own version, every story sees the same history: a plain story filter. */}
         {hasOtherKinds(stories) ? null : <StoryFilter value={storyId} onChange={pickStory} />}
         {groupOptions.length ? (
-          <label className="w-[200px]">
+          <label className="w-[180px]">
             <span className="mb-1 block text-[11.5px] font-medium text-muted">Group</span>
             <Select value={groupId} onChange={pickGroup} options={groupOptions} allowNone noneLabel="Everyone" />
           </label>

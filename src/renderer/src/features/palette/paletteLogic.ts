@@ -120,6 +120,8 @@ const toWriting = (c: ActionContext): boolean => c.view !== 'write'
 const newLabel = (kind: EntryKind): string => `New ${KIND_LABELS[kind].one.toLowerCase()}`
 
 export const ACTIONS: ActionDef[] = [
+  // First, so from another page "write" finds the way back before Generate (which would start a draft).
+  { id: 'go-write', label: 'Back to writing', keywords: 'write page scene editor manuscript', away: true, when: (c) => c.view !== 'write' },
   {
     id: 'generate',
     label: 'Generate a draft',
@@ -150,7 +152,6 @@ export const ACTIONS: ActionDef[] = [
   { id: 'new-story', label: 'New story', keywords: 'add book sequel prequel side novella series' },
   // Only with the scene on screen: never a scene Adam isn't looking at.
   { id: 'delete-scene', label: 'Delete this scene', keywords: 'remove trash bin', when: seesScene },
-  { id: 'go-write', label: 'Back to writing', keywords: 'page scene editor manuscript', away: true, when: (c) => c.view !== 'write' },
   { id: 'go-codex', label: 'Codex', keywords: 'entries cards world bible memory everything', away: true },
   ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `go-${kind}`, label: KIND_LABELS[kind].many, keywords: 'list', away: true })),
   { id: 'go-timeline', label: 'Timeline', keywords: 'when dates order events calendar', away: true },

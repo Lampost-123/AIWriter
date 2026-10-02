@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChangeInput, ChangeView, Entry, Outline, SourceLink } from '@shared/types'
 import {
+  allAdams,
   changeWhere,
   createKindsFor,
   describeChange,
@@ -76,6 +77,17 @@ describe('sceneLabels', () => {
     expect(labels.get('s1')).toBe('Book 1, Ch 1, Sc 1')
     expect(labels.get('s2')).toBe('Book 1, Ch 1, Sc 2')
     expect(labels.get('s3')).toBe('Book 1, Ch 2, Sc 1')
+  })
+})
+
+describe('allAdams', () => {
+  it('is true only for an entry Adam made with nothing on it drafted by AI', () => {
+    expect(allAdams({ origin: 'adam', fieldOrigins: {} })).toBe(true)
+    // What the memory keeper read from the story since doesn't stop it being his writing.
+    expect(allAdams({ origin: 'adam', fieldOrigins: { hair: 'text', eyes: 'adam' } })).toBe(true)
+    // A builder's entry: his name and notes, the rest drafted by AI.
+    expect(allAdams({ origin: 'adam', fieldOrigins: { summary: 'adam', description: 'ai' } })).toBe(false)
+    expect(allAdams({ origin: 'text', fieldOrigins: {} })).toBe(false)
   })
 })
 

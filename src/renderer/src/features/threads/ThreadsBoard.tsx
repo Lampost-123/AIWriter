@@ -37,7 +37,7 @@ export function ThreadsBoard(): React.JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title="Plot threads" subtitle="The questions and promises your story opens, and where each is paid off.">
+      <ViewHeader title="Plot threads board" subtitle="The questions and promises your story opens, and where each is paid off.">
         <StoryFilter value={storyId} onChange={setStoryId} />
         {data?.threads.length ? (
           <Button icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>

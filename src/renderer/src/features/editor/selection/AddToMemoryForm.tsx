@@ -1,11 +1,13 @@
 // The small form "Add to memory" opens beside the selected words: a new entry (named after a name in
 // the words, with the words as its description) or a change to one the words name (the words as its
-// note, pinned to this scene). Saving makes it Adam's and offers Open and Undo; nothing asks "are you sure?".
+// note, pinned to this scene). Saving makes it Adam's and offers Open and Undo in one toast that gathers
+// quick adds; nothing asks "are you sure?".
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EntryKind, ID } from '@shared/types'
 import type { SceneNames } from '@shared/contracts/manuscript'
 import { KIND_LABELS } from '@shared/fields'
 import { Button, Field, Input, Select, Textarea, toast } from '@/components/ui'
+import { useToasts } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { Segmented } from '@/features/generate/parts'
@@ -28,16 +30,64 @@ const KIND_OPTIONS = NEW_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k].one
  */
 const BOX = { autoGrow: false, minRows: 2, className: 'min-h-14 flex-1' }
 
-/** A toast for something just added: Undo, and Open, which shows the entry beside the page. */
-function announceAdded(message: string, entryId: ID, undo: () => Promise<unknown>): void {
-  toast(message, {
+/** Something just added to memory: the entry it is (or changed), and how to take it back. */
+interface Added {
+  message: string
+  entryId: ID
+  kind: EntryKind
+  /** A new entry (Undo deletes it), rather than a change to one. */
+  isNew: boolean
+  undo: () => Promise<unknown>
+}
+
+/** Adds made while their toast still shows, which gathers them (as deletes are gathered), so toasts never pile up. */
+let batch: { toastId: number; items: Added[] } | null = null
+
+function liveBatch(): typeof batch {
+  if (batch && !useToasts.getState().items.some((t) => t.id === batch!.toastId)) batch = null
+  return batch
+}
+
+/** Open: the entry beside the page on the writing page; on any other page, the entry's own page. */
+function openEntry(a: Added): void {
+  const app = useApp.getState()
+  if (app.view.kind === 'write') app.peekEntry(a.entryId)
+  else app.navigate({ kind: 'entries', entryKind: a.kind, entryId: a.entryId })
+}
+
+/** Takes the adds back, newest first. A new entry shown beside the page closes there first, quietly. */
+async function undoAll(items: Added[]): Promise<void> {
+  for (const a of [...items].reverse()) {
+    if (a.isNew && useApp.getState().peekEntryId === a.entryId) useApp.getState().peekEntry(null)
+    await a.undo().catch((e: Error) => toast(`Couldn’t undo that. ${e.message}`, { tone: 'danger' }))
+  }
+}
+
+/**
+ * The toast for something just added: Undo, and Open for the entry. Adding more while it shows adds to
+ * it ("Added 3 things to memory."): Undo takes them all back, and Open opens the latest.
+ */
+function announceAdded(a: Added): void {
+  const open = { label: 'Open', run: () => openEntry(a) }
+  const live = liveBatch()
+  if (live) {
+    live.items.push(a)
+    useToasts.getState().update(live.toastId, { message: `Added ${live.items.length} things to memory.`, secondary: open })
+    return
+  }
+  const next = { toastId: 0, items: [a] }
+  next.toastId = toast(a.message, {
     tone: 'success',
     action: {
       label: 'Undo',
-      run: () => void undo().catch((e: Error) => toast(`Couldn’t undo that. ${e.message}`, { tone: 'danger' }))
+      run: () => {
+        if (batch === next) batch = null
+        void undoAll(next.items)
+      }
     },
-    secondary: { label: 'Open', run: () => useApp.getState().peekEntry(entryId) }
+    secondary: open
   })
+  batch = next
 }
 
 export function AddToMemoryForm({
@@ -91,7 +141,7 @@ export function AddToMemoryForm({
         })
         useApp.getState().bumpEntries()
         const undo = (): Promise<void> => api.deleteEntry(e.id).then(() => useApp.getState().bumpEntries())
-        announceAdded(addedEntryMessage(displayName(e), kind), e.id, undo)
+        announceAdded({ message: addedEntryMessage(displayName(e), kind), entryId: e.id, kind, isNew: true, undo })
       } else if (target) {
         const c = await api.createChange({
           kind: 'update',
@@ -101,7 +151,13 @@ export function AddToMemoryForm({
           sceneId: names.sceneId,
           storyId: names.storyId
         })
-        announceAdded(addedChangeMessage(displayName(target), note), target.id, () => api.deleteChange(c.id))
+        announceAdded({
+          message: addedChangeMessage(displayName(target), note),
+          entryId: target.id,
+          kind: target.kind,
+          isNew: false,
+          undo: () => api.deleteChange(c.id)
+        })
       }
       onDone(true)
     } catch (e) {

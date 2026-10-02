@@ -13,6 +13,7 @@ import { CREATIVITY_PRESETS } from '@shared/defaults'
 import { Button, Field, Input, Textarea, toast } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
 import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
+import { escapeTaken } from '@/lib/escape'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
@@ -445,11 +446,15 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       if (useApp.getState().view.kind !== 'write') return
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
+        // Under a dialog, a menu or the Add to memory form it does nothing (it would draft into the scene
+        // behind them); from Generate's own panels (the draft options) it drafts.
+        if (layerOpen() && popoverRef.current === null) return
         if (phaseRef.current === 'idle') void generateRef.current(undefined, true)
         return
       }
-      // The page takes Esc for itself (and marks it handled), but there it stops the draft too, as Stop says.
-      const escape = e.key === 'Escape' && !e.isComposing && phaseRef.current !== 'idle'
+      // The page takes Esc for itself (and marks it handled), but there it stops the draft too, as Stop
+      // says. An Esc that closed the "Selected words" bar or the floating binder did only that.
+      const escape = e.key === 'Escape' && !e.isComposing && phaseRef.current !== 'idle' && !escapeTaken(e)
       if (escape && (!e.defaultPrevented || inPage(e.target)) && !layerOpen()) {
         stopRef.current()
         return

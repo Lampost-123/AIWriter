@@ -59,6 +59,16 @@ export const MADE_YOURS = "Yours now. AI Write won't change what you've written.
 /** The note on an entry Adam made himself. */
 export const YOU_WROTE = "You wrote this. AI Write won't change what you've written."
 
+/** The note on an entry Adam made with fields drafted by AI (as the builders make them). */
+export const YOU_MADE = 'You made this. What you wrote stays as you wrote it; fields marked Drafted by AI can change with your story.'
+
+/**
+ * Whether an entry is all Adam's writing: he made it and none of its fields was drafted by AI. Only
+ * then does it say once, at the top, that he wrote it.
+ */
+export const allAdams = (e: Pick<Entry, 'origin' | 'fieldOrigins'>): boolean =>
+  e.origin === 'adam' && !Object.values(e.fieldOrigins ?? {}).includes('ai')
+
 // ---------- Where a fact came from ----------
 
 export type SourceNote =

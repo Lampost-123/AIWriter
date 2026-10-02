@@ -278,16 +278,19 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
               <Sparkles size={14} />
             </IconButton>
           ) : null}
-          {/* In a narrow list the button just says "New", so it never spills over the form. */}
+          {/* In a narrow list the button just says "New", and in the narrowest it is the plus alone, so it
+              never spills over the form and the heading keeps its room. */}
           <Button
             size="sm"
             variant="primary"
             icon={<Plus size={14} />}
             loading={creating}
             aria-label={`New ${kind === 'lore' ? 'lore' : noun}`}
+            title={`New ${kind === 'lore' ? 'lore' : noun}`}
+            className="@max-[250px]:w-7 @max-[250px]:px-0"
             onClick={() => void create()}
           >
-            <span className="@[272px]:hidden">New</span>
+            <span className="hidden @[250px]:inline @[272px]:hidden">New</span>
             <span className="hidden @[272px]:inline">New {kind === 'lore' ? 'lore' : noun}</span>
           </Button>
         </div>

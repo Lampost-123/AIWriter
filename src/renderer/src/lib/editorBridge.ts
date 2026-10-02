@@ -55,10 +55,11 @@ export interface EditorBridge {
   /** True when the page has any writing on it. */
   hasText(): boolean
   /**
-   * Stops a draft being written into the page (because Adam opened another scene or world),
-   * once its last words are in. Says so in a message. Does nothing when no draft is writing.
+   * Stops a draft being written into the page (because Adam opened another scene or world, or is
+   * deleting the scene), once its last words are in. Says so in a message. Does nothing when no
+   * draft is writing.
    */
-  stopDraft(reason: 'scene' | 'world'): Promise<void>
+  stopDraft(reason: 'scene' | 'world' | 'deleted'): Promise<void>
 
   // ----- Milestone 4 -----
   /** The TipTap editor showing the scene (for the AI tools, reading aloud and dictation), or null once gone. */

@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { takeEscape } from '@/lib/escape'
 import { activeStream } from '../streamDoc'
 import { nameIndex } from '../names/underlines'
 import { useSceneNames } from '../names/sceneNames'
@@ -134,10 +135,11 @@ export function SelectionLayer({
       if (to && (barRef.current?.contains(to) || (to instanceof Element && to.closest('[data-add-to-memory]')))) return
       hide()
     }
-    // Esc closes the bar (and nothing else: a draft being written carries on); the caret stays.
+    // Esc closes the bar (and nothing else: it takes the press, so a draft being written carries on); the caret stays.
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || !barShown.current || formOpen.current || e.defaultPrevented) return
       e.preventDefault()
+      takeEscape(e)
       const sel = editor.state.selection
       closedFor.current = `${sel.from}:${sel.to}`
       const fromBar = !!barRef.current?.contains(document.activeElement)

@@ -98,7 +98,7 @@ describe('What changed before this story starts?', () => {
     const before = kdb.memoryCounts(w.db)
     const readBefore = kdb.scenesToRead(w.db)
     const r = await runTimeGap(opts(w.db), w.storyId)
-    expect(r).toMatchObject({ status: 'done', message: 'Added 2 changes and closed 1 plot thread, listed under What changed' })
+    expect(r).toMatchObject({ status: 'done', message: 'Added 2 changes and closed 1 plot thread, listed under What changed.' })
 
     const changes = fdb.startChanges(w.db, w.storyId)
     expect(changes.map((c) => [c.entryId, c.kind, c.origin])).toEqual([
@@ -164,7 +164,7 @@ describe('What changed before this story starts?', () => {
     await runTimeGap(opts(w.db), w.storyId)
     // The same gap again: nothing new.
     const again = await runTimeGap(opts(w.db), w.storyId)
-    expect(again).toMatchObject({ status: 'done', message: 'Nothing needed changing', runId: null })
+    expect(again).toMatchObject({ status: 'done', message: 'Nothing needed changing.', runId: null })
     expect(fdb.flowRunIds(w.db)).toHaveLength(1)
 
     // Adam edits the mill's change (it becomes his) and adds one of his own.
@@ -189,7 +189,7 @@ describe('What changed before this story starts?', () => {
     // Only three weeks after all: the fake model finds nothing changed in that time.
     repo.updateStory(w.db, w.storyId, { timeGap: '3 weeks' })
     const r = await runTimeGap(opts(w.db), w.storyId)
-    expect(r).toMatchObject({ status: 'done', message: 'Took out 2 earlier changes, listed under What changed' })
+    expect(r).toMatchObject({ status: 'done', message: 'Took out 2 earlier changes, listed under What changed.' })
     expect(live(w.db, mara.id)).toBeNull()
     expect(live(w.db, thread.id)).toBeNull()
     expect(live(w.db, mill.id)?.origin).toBe('adam')
@@ -244,7 +244,7 @@ describe('What changed before this story starts?', () => {
     undoItem(w.db, lineFor(w.db, mara.id).id)
     answerItem(w.db, lineFor(w.db, thread.id).id, 'open')
     const r = await runTimeGap(opts(w.db), w.storyId)
-    expect(r).toMatchObject({ status: 'done', message: 'Nothing needed changing' })
+    expect(r).toMatchObject({ status: 'done', message: 'Nothing needed changing.' })
     expect(fdb.startChanges(w.db, w.storyId).map((c) => c.entryId)).toEqual([w.id('mill')])
   })
 
@@ -326,7 +326,7 @@ describe('Starting cast for a prequel', () => {
     const ym = w.id('ym')
     const original = fdb.startChanges(w.db, ym).find((c) => c.entryId === w.id('mara'))!
     const r = await runStartingCast(opts(w.db), ym, [w.id('mara'), w.id('tobin'), w.id('mill'), w.id('burned')])
-    expect(r).toMatchObject({ status: 'done', message: 'Drafted 3 starting descriptions, listed under What changed' })
+    expect(r).toMatchObject({ status: 'done', message: 'Drafted 3 starting descriptions, listed under What changed.' })
 
     const fulls = fdb.startChanges(w.db, ym).filter((c) => c.kind === 'full')
     expect(fulls.map((c) => [c.entryId, c.origin])).toEqual([
@@ -377,7 +377,7 @@ describe('Starting cast for a prequel', () => {
       origin: 'adam'
     })
     const r = await runStartingCast(opts(w.db), ym, [w.id('tobin'), w.id('mara')])
-    expect(r).toMatchObject({ status: 'done', message: 'Nothing needed drafting' })
+    expect(r).toMatchObject({ status: 'done', message: 'Nothing needed drafting.' })
     expect(live(w.db, tobin.id)).toMatchObject({ origin: 'adam', payload: { description: 'A boy who already keeps the ferry.' } })
 
     // Undo: Mara's earlier description comes back; the mill's draft and its point go.
@@ -517,7 +517,7 @@ describe('When did these happen?', () => {
   it('sorts each change as the model picks, with a question on each line', async () => {
     const w = whenWorld()
     const r = await runWhen(opts(w.db), w.id('qy'), w.id('b2'))
-    expect(r).toMatchObject({ status: 'done', message: 'Sorted 3 changes, listed under What changed' })
+    expect(r).toMatchObject({ status: 'done', message: 'Sorted 3 changes, listed under What changed.' })
     // Adam's own change moves to the new story but stays his.
     expect(live(w.db, w.tobin.id)).toMatchObject({ storyId: w.id('qy'), origin: 'adam' })
     expect(live(w.db, w.mara.id)).toMatchObject({ storyId: w.id('b2'), origin: 'ai' })
@@ -536,7 +536,7 @@ describe('When did these happen?', () => {
     ])
 
     // Sorting again leaves what was sorted alone.
-    expect(await runWhen(opts(w.db), w.id('qy'), w.id('b2'))).toMatchObject({ message: 'Nothing needed sorting' })
+    expect(await runWhen(opts(w.db), w.id('qy'), w.id('b2'))).toMatchObject({ message: 'Nothing needed sorting.' })
   })
 
   it('applies each answer any time, and Undo puts the change back where it was', async () => {
@@ -670,7 +670,7 @@ describe('When did these happen?', () => {
     const w = whenWorld()
     repo.deleteEntry(w.db, w.id('tobin'))
     expect(fdb.startChanges(w.db, w.id('b2')).map((c) => c.id)).toEqual([w.mara.id, w.mill.id])
-    expect(await runWhen(opts(w.db), w.id('qy'), w.id('b2'))).toMatchObject({ message: 'Sorted 2 changes, listed under What changed' })
+    expect(await runWhen(opts(w.db), w.id('qy'), w.id('b2'))).toMatchObject({ message: 'Sorted 2 changes, listed under What changed.' })
     expect(fdb.flowLines(w.db).map((l) => l.entryName)).toEqual(['Mara', 'Harrow Mill'])
   })
 
@@ -819,7 +819,7 @@ describe('Running in the background', () => {
         storyId: w.storyId,
         flow: 'time-gap',
         state: 'done',
-        message: 'Added 2 changes and closed 1 plot thread, listed under What changed'
+        message: 'Added 2 changes and closed 1 plot thread, listed under What changed.'
       }
     ])
     expect(new Set(changed[0])).toEqual(new Set([w.id('mara'), w.id('mill'), w.crownId]))
@@ -841,7 +841,7 @@ describe('Running in the background', () => {
     expect(g.calls()).toBe(2)
     expect(statuses.map((s) => s.state)).toEqual(['running', 'running', 'done'])
     // The second run changed nothing, so the first one's result stays on show.
-    expect(statuses.at(-1)!.message).toBe('Added 2 changes and closed 1 plot thread, listed under What changed')
+    expect(statuses.at(-1)!.message).toBe('Added 2 changes and closed 1 plot thread, listed under What changed.')
     expect(r.list(w.storyId)).toEqual([statuses.at(-1)])
     expect(fdb.flowRunIds(w.db)).toHaveLength(1)
   })
@@ -872,7 +872,10 @@ describe('Running in the background', () => {
     g.release()
     await r.idle()
     expect(g.calls()).toBe(2)
-    expect(statuses.at(-1)).toMatchObject({ state: 'done', message: 'Added 2 changes and closed 1 plot thread, listed under What changed' })
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'done',
+      message: 'Added 2 changes and closed 1 plot thread, listed under What changed.'
+    })
     expect(fdb.flowRunIds(w.db)).toHaveLength(1)
   })
 

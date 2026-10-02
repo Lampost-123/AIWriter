@@ -65,7 +65,7 @@ export function PeekPanel({
             </Button>
           }
         >
-          It was deleted. For 30 days it can be brought back from Settings, under Recently deleted.
+          It was deleted. It can be brought back from Settings › Recently deleted for 30 days.
         </EmptyState>
       )
     } else if (error && !data) {

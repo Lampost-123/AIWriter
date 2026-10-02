@@ -208,6 +208,13 @@ describe('search', () => {
     const smugglers = ix.search('smugglers')
     expect(show(group(smugglers, 'scenes')!.hits[0].snippet)).toBe('Goal: Tobin learns about the [smugglers]')
     expect(group(smugglers, 'scenes')!.hits[0].open).toMatchObject({ card: 'goal', words: null })
+    // A phrase from the goal opens the card even though the text shares a common word ("the") with it;
+    // when the text holds the words as well as the card does, the text opens.
+    const phrase = group(ix.search('about the smugglers'), 'scenes')!.hits[0]
+    expect(show(phrase.snippet)).toBe('Goal: Tobin learns [about] [the] [smugglers]')
+    expect(phrase).toMatchObject({ prose: false, open: { sceneId: w.s2.id, card: 'goal', words: null } })
+    expect(group(ix.search('tobin smugglers'), 'scenes')!.hits[0].open).toMatchObject({ card: 'goal', words: null })
+    expect(group(ix.search('tobin the'), 'scenes')!.hits[0]).toMatchObject({ prose: true, open: { card: null, words: 'Tobin' } })
     expect(group(ix.search('smuggling'), 'stories')!.hits[0]).toMatchObject({
       detail: 'Story',
       open: { kind: 'story', storyId: w.book1.id }

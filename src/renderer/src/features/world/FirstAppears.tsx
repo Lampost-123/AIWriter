@@ -128,7 +128,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
           void api
             .setFirstExists(entryId, asTheyWere(before))
             .then(() => useApp.getState().bumpEntries())
-            .catch((e: Error) => toast(`Couldn't undo that. ${e.message}`, { tone: 'danger' }))
+            .catch((e: Error) => toast(`Couldn’t undo that. ${e.message}`, { tone: 'danger' }))
       }
       const toasts = useToasts.getState()
       const shown = toastId.current !== null && toasts.items.some((t) => t.id === toastId.current)
@@ -157,7 +157,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
             <IconButton
               size="sm"
               label={`Remove ${p.label}`}
-              title={list.length < 2 ? 'Add another place first: it always first appears somewhere.' : undefined}
+              title={list.length < 2 ? 'Add another point first: it always first appears somewhere.' : undefined}
               disabled={list.length < 2 || busy}
               onClick={() => void apply(withoutPoint(list, p.id)).catch(() => undefined)}
             >
@@ -169,7 +169,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
       {adding ? (
         <>
           <label htmlFor={inputId} className="mb-1 mt-3 block text-[12px] font-medium text-muted">
-            Add another place
+            Add another point in the story
           </label>
           <Combobox
             id={inputId}
@@ -177,7 +177,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
             onQuery={setQuery}
             options={options}
             more={choices.more}
-            listLabel="Places"
+            listLabel="Points in the story"
             placeholder="The start of a story, or a scene"
             onPick={(o) => {
               const c = choices.list.find((x) => x.key === o.key)
@@ -187,7 +187,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
         </>
       ) : (
         <Button variant="ghost" size="sm" icon={<Plus size={14} />} className="-ml-2.5 mt-2" onClick={() => setAdding(true)}>
-          Add another place
+          Add another point in the story
         </Button>
       )}
     </div>
