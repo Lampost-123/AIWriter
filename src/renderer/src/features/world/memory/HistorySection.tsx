@@ -1,18 +1,22 @@
 import { ChevronRight } from 'lucide-react'
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, FactVersion, ID } from '@shared/types'
-import { Button, toast } from '@/components/ui'
+import { Button, toast, useToasts } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { entryReplaced } from '../entryDrafts'
-import { earlierVersions, entryDiff, isEntryData, versionLabel, whenLabel, type EntryVersion } from '../historyLogic'
+import { earlierVersions, entryDiff, isEntryData, versionLabel, whenInSentence, whenLabel, type EntryVersion } from '../historyLogic'
+import { upperFirst } from '../memoryLogic'
 import { QuietError } from './QuietError'
 import { useEntryData } from './useEntryData'
 
 /** Shown at first; "Show more" adds this many again. */
 const PAGE = 20
+
+/** The toast offering to undo the last "Bring this back", while it shows. */
+let restoreToast: number | null = null
 
 /** The newest version of the entry itself, as it is saved now. */
 async function latestVersion(entryId: ID): Promise<FactVersion | undefined> {
@@ -61,9 +65,10 @@ export function HistorySection({
     )
   }
 
-  const name = now.name.trim() || 'this page'
-  const restore = async (v: EntryVersion): Promise<void> => {
-    if (busy) return
+  const name = now.name.trim()
+  const page = name ? `${name}'s page` : 'this page'
+  const restore = async (v: EntryVersion): Promise<boolean> => {
+    if (busy) return false
     setBusy(true)
     try {
       await beforeRestore()
@@ -72,23 +77,29 @@ export function HistorySection({
       entryReplaced(restored)
       useApp.getState().bumpEntries()
       setOpenId(null)
-      toast(`Brought back ${name} as it was (${whenLabel(v.createdAt).toLowerCase()}).`, {
+      // Only the newest one offers Undo, so an older Undo can't jump back past what came since.
+      if (restoreToast !== null) useToasts.getState().dismiss(restoreToast)
+      const id = toast(`Brought back ${page} as it was ${whenInSentence(v.createdAt)}.`, {
         action: before
           ? {
               label: 'Undo',
               run: () =>
-                void api
-                  .restoreEntryVersion(entryId, before.id)
+                void beforeRestore()
+                  .then(() => api.restoreEntryVersion(entryId, before.id))
                   .then((e) => {
                     entryReplaced(e)
                     useApp.getState().bumpEntries()
+                    toast(`Undone. ${upperFirst(page)} is back to how it was.`)
                   })
                   .catch((err: Error) => void toast(`Couldn't undo that. ${err.message}`, { tone: 'danger' }))
             }
           : undefined
       })
+      restoreToast = id
+      return true
     } catch (err) {
       toast(`Couldn't bring that back. ${(err as Error).message}`, { tone: 'danger' })
+      return false
     } finally {
       setBusy(false)
     }
@@ -110,7 +121,7 @@ export function HistorySection({
             open={openId === v.id}
             busy={busy}
             onToggle={() => setOpenId((id) => (id === v.id ? null : v.id))}
-            onRestore={() => void restore(v)}
+            onRestore={() => restore(v)}
           />
         ))}
       </ol>
@@ -140,17 +151,21 @@ function VersionRow({
   open: boolean
   busy: boolean
   onToggle: () => void
-  onRestore: () => void
+  onRestore: () => Promise<boolean>
 }): React.JSX.Element {
   const panelId = useId()
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const then = isEntryData(v.data) ? v.data : null
   const rows = useMemo(
     () => (open && then ? entryDiff(then, now, FIELD_GROUPS[now.kind] ?? [], placeName) : []),
     [open, then, now, placeName]
   )
+  // The panel with "Bring this back" closes once it's done: keep the keyboard on this row rather than lose it.
+  const restore = (): void => void onRestore().then((done) => done && toggleRef.current?.focus())
   return (
     <li className="border-t border-line first:border-t-0">
       <button
+        ref={toggleRef}
         type="button"
         aria-expanded={then ? open : undefined}
         aria-controls={then ? panelId : undefined}
@@ -193,7 +208,7 @@ function VersionRow({
             <p className="text-[12.5px] text-muted">This is the same as the page now.</p>
           )}
           <div className="mt-2.5 flex justify-end">
-            <Button size="sm" loading={busy} disabled={!rows.length} onClick={onRestore}>
+            <Button size="sm" loading={busy} disabled={!rows.length} onClick={restore}>
               Bring this back
             </Button>
           </div>
