@@ -52,8 +52,8 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
   models: { writer: null, memory: null, chat: null },
-  // The memory needs no thinking; thinking only slows it down and can use up its room to answer.
-  thinking: { writer: 'auto', memory: 'off', chat: 'auto' },
+  // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
+  thinking: { writer: 'off', memory: 'off', chat: 'off' },
   creativity: 'balanced',
   theme: 'system',
   editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70 },

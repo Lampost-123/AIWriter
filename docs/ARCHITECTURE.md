@@ -170,7 +170,7 @@ approval step and no Review inbox.
 - **The memory model** is chosen in Settings › Models ("Memory model", `settings.models.memory`);
   until Adam picks one, the keeper uses the writer model.
 - **Thinking** is set for each job in Settings › Models (`settings.thinking`: Model decides, Off,
-  Low, Medium, High; the memory starts on Off, the writer on Model decides). `ai/client.ts` sends it
+  Low, Medium, High; every job starts on Off, at Adam's ask). `ai/client.ts` sends it
   as OpenRouter's `reasoning.effort` or, to other servers, `reasoning_effort`, and steps down (Off:
   `none`, then `low`, then nothing) for a model that turns it down. Thinking counts against the reply
   limit, so limits leave room for it (`THINKING_SHARE`), and a call that comes back empty because the

@@ -105,7 +105,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         preview,
         provider: target,
         model: choice,
-        thinking: settings.thinking?.writer ?? 'auto',
+        thinking: settings.thinking?.writer ?? 'off',
         // The version of each entry actually sent, for "What the AI saw".
         entryVersions: sentEntryVersions(input.memory, preview.blocks),
         emit,
