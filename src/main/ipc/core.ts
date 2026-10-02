@@ -9,6 +9,7 @@ import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, upd
 import { userDataDir } from '../paths'
 import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
+import { refreshDefaultExistsPoints } from '../db/memory'
 import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
@@ -114,6 +115,8 @@ export const coreHandlers: Handlers<CoreMethods> = {
   deleteStory: (id) =>
     write(() => {
       repo.deleteStory(world.db(), id)
+      // The world's first story may have changed: entries that exist from its start follow it.
+      refreshDefaultExistsPoints(world.db())
       scenesDeleted(world.db())
     }),
 
@@ -153,7 +156,10 @@ export const coreHandlers: Handlers<CoreMethods> = {
   restoreDeleted: (kind, id) =>
     write(() => {
       repo.restoreDeleted(world.db(), kind, id)
-      if (kind !== 'entry') scenesRestored(world.db())
+      if (kind === 'entry') return
+      // A story brought back (with a chapter or scene of it, too) may be the world's first story again.
+      refreshDefaultExistsPoints(world.db())
+      scenesRestored(world.db())
     }),
   listDeleted: () => repo.listDeleted(world.db()),
 
