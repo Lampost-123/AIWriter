@@ -105,9 +105,9 @@ function startStep(info: StoryInfo, at: StartAt, refId: ID | null): number {
     case 'post':
       return 1
     case 'chapter':
-      return (refId && info.chapterEndStep.get(refId)) ?? 1
+      return (refId ? info.chapterEndStep.get(refId) : undefined) ?? 1
     case 'scene':
-      return (refId && info.sceneStep.get(refId)) ?? 1
+      return (refId ? info.sceneStep.get(refId) : undefined) ?? 1
     case 'end':
     default:
       return last
@@ -116,7 +116,7 @@ function startStep(info: StoryInfo, at: StartAt, refId: ID | null): number {
 
 /** The step a side story's end point sits just after, in its host. */
 function endStep(info: StoryInfo, at: EndAt | null, refId: ID | null): number {
-  if (at === 'chapter') return (refId && info.chapterEndStep.get(refId)) ?? 1
+  if (at === 'chapter') return (refId ? info.chapterEndStep.get(refId) : undefined) ?? 1
   return info.steps.length - 1
 }
 
@@ -378,6 +378,19 @@ export function previousSceneStep(line: Line): Extract<LineStep, { type: 'scene'
     if (s.type === 'scene' && s.via === 'line') return s
   }
   return null
+}
+
+/**
+ * Every scene whose changes count for this scene, in walk order: earlier scenes of its own story, of
+ * the stories it follows on from, and of side stories added whole. The memory keeper brings these up
+ * to date before a draft. Empty when the scene isn't in the world.
+ */
+export function scenesBefore(shape: WorldShape, sceneId: ID): ID[] {
+  const story = storyOfScene(shape, sceneId)
+  if (!story) return []
+  return buildLine(shape, { storyId: story.id, before: sceneId })
+    .steps.filter((s): s is Extract<LineStep, { type: 'scene' }> => s.type === 'scene')
+    .map((s) => s.sceneId)
 }
 
 // ---------- Helpers other parts of the memory core use ----------
