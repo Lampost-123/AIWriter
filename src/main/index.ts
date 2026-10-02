@@ -8,6 +8,7 @@ import { waitForFlush } from './flush'
 import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
 import { initAi } from './ai'
+import { initKeeper } from './keeper'
 import { activeDraftIds, stopDraft } from './ai/drafts'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
@@ -204,6 +205,7 @@ function main(): void {
       registerIpc()
       initBackups()
       initAi()
+      initKeeper()
       // Reopen the last world straight away, so the page is ready as soon as the window shows.
       reopenLastWorld()
       createWindow()

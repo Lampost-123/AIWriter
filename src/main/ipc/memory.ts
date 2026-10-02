@@ -10,6 +10,7 @@ import * as world from '../world'
 import { changeViews } from '../memory/scene'
 import { emit } from '../events'
 import { UserError } from '../util'
+import { suppressFact } from '../db/keeper'
 
 // prettier-ignore
 type MemoryMethods =
@@ -79,7 +80,10 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
     } catch {
       return // already gone
     }
-    write(() => mem.deleteChange(db, id, { origin: 'adam' }))
+    write(() => {
+      suppressFact(db, 'change', id) // the memory keeper won't add it again from the same words
+      mem.deleteChange(db, id, { origin: 'adam' })
+    })
     changed(old.sceneId, mem.entriesTouched(old))
   },
   restoreChange: (id) => {

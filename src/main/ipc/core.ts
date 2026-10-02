@@ -9,6 +9,7 @@ import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, upd
 import { userDataDir } from '../paths'
 import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
+import { sceneSaved } from '../keeper'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -115,7 +116,7 @@ export const coreHandlers: Handlers<CoreMethods> = {
   createScene: (chapterId, input) => write(() => repo.createScene(world.db(), chapterId, input)),
   getScene: (id) => repo.getScene(world.db(), id),
   updateScene: (id, patch) => write(() => repo.updateScene(world.db(), id, patch)),
-  saveSceneText: (id, doc, text) => write(() => repo.saveSceneText(world.db(), id, doc, text)),
+  saveSceneText: (id, doc, text) => write(() => sceneSaved(id, repo.saveSceneText(world.db(), id, doc, text))),
   updateSceneCard: (id, card) => write(() => repo.updateSceneCard(world.db(), id, card)),
   deleteScene: (id) => write(() => repo.deleteScene(world.db(), id)),
   moveScene: (id, chapterId, index) => write(() => repo.moveScene(world.db(), id, chapterId, index)),
