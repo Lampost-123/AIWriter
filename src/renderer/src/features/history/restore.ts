@@ -4,12 +4,15 @@
 // it then (memoryFollows), as it does after a switch of drafts.
 import type { ID } from '@shared/types'
 import type { Snapshot } from '@shared/contracts/history'
-import { toast } from '@/components/ui'
+import { toast, useToasts } from '@/components/ui'
 import { api, modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { snapshotBefore } from './snapshot'
+
+/** The last restore's message: a new restore takes its place, so two never show at once. */
+let restoreToast: number | null = null
 
 /**
  * Another version of the scene went into the page (a restore, another draft): it is saved now, and the
@@ -49,7 +52,8 @@ export async function restoreSnapshot(snap: Snapshot, when: string): Promise<boo
   // Back to the writing page, with the keyboard in the page so Ctrl+Z takes the restore back.
   requestEditorFocus(sceneId)
   useApp.getState().selectScene(sceneId)
-  toast(`The version from ${when} is back in the scene. ${modKey()}+Z takes it out again.`, {
+  if (restoreToast != null) useToasts.getState().dismiss(restoreToast)
+  restoreToast = toast(`The version from ${when} is back in the scene. ${modKey()}+Z takes it out again.`, {
     action: {
       label: 'Undo',
       run: () => {
