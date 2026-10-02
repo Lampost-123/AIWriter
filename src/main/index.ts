@@ -1,5 +1,6 @@
-import { app, BrowserWindow, shell, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, shell, type ContextMenuParams, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
+import type { PaintedTheme } from '@shared/api'
 import { registerIpc } from './ipc'
 import { closeWorld, openWorld } from './world'
 import { getSettings } from './settings'
@@ -7,101 +8,237 @@ import { waitForFlush } from './flush'
 import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
 import { initAi } from './ai'
+import { activeDraftIds, stopDraft } from './ai/drafts'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
+let mainWindow: BrowserWindow | null = null
+/** True while pending saves are being flushed before quitting. */
+let flushing = false
+/** True once they are flushed and the world is closed: from then on the app may quit. */
+let flushed = false
+
+/** The theme the window opens in, so its very first frame is already the right colour. */
+function startTheme(): PaintedTheme {
+  let theme = 'system'
+  try {
+    theme = getSettings().theme
+  } catch {
+    /* fall back to the system's choice */
+  }
+  if (theme === 'light' || theme === 'dark' || theme === 'sepia') return theme
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
-let mainWindow: BrowserWindow | null = null
-let quitting = false
+/** Each theme's --bg colour in styles.css. */
+const BACKGROUND: Record<PaintedTheme, string> = { light: '#f6f4f0', dark: '#161514', sepia: '#ece3cf' }
 
-function backgroundFor(): string {
-  const theme = getSettings().theme
-  if (theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)) return '#1b1a19'
-  if (theme === 'sepia') return '#f4ecd8'
-  return '#fbfaf8'
+/** Shows the window if it is still hidden (the fallback when the interface never asks). */
+function showMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) mainWindow.show()
+}
+
+/** Keys that would reload the page (losing unsaved work and any draft being written) or open the developer tools. */
+function isReloadOrDevToolsKey(input: Electron.Input): boolean {
+  if (input.type !== 'keyDown') return false
+  const key = input.key.toLowerCase()
+  const mod = input.control || input.meta
+  return key === 'f5' || key === 'f12' || (mod && key === 'r') || (mod && input.shift && (key === 'i' || key === 'j'))
+}
+
+/** The right-click menu for text: spelling suggestions, Add to dictionary, and Cut, Copy, Paste. */
+function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): MenuItemConstructorOptions[] {
+  const wc = win.webContents
+  const items: MenuItemConstructorOptions[] = []
+  if (p.misspelledWord) {
+    for (const s of p.dictionarySuggestions.slice(0, 5)) items.push({ label: s, click: () => wc.replaceMisspelling(s) })
+    if (p.dictionarySuggestions.length === 0) items.push({ label: 'No suggestions', enabled: false })
+    items.push({ label: 'Add to dictionary', click: () => wc.session.addWordToSpellCheckerDictionary(p.misspelledWord) })
+    items.push({ type: 'separator' })
+  }
+  if (p.isEditable) {
+    items.push(
+      { role: 'cut', label: 'Cut', enabled: p.editFlags.canCut },
+      { role: 'copy', label: 'Copy', enabled: p.editFlags.canCopy },
+      { role: 'paste', label: 'Paste', enabled: p.editFlags.canPaste },
+      { type: 'separator' },
+      { role: 'selectAll', label: 'Select all', enabled: p.editFlags.canSelectAll }
+    )
+  } else if (p.selectionText.trim()) {
+    items.push({ role: 'copy', label: 'Copy' })
+  }
+  return items
+}
+
+/** A reload or a crash starts the interface afresh with nothing listening to a draft being written: stop it (its text is kept). */
+function stopRunningDrafts(): void {
+  for (const id of activeDraftIds()) void stopDraft(id).catch((e) => console.warn('Could not stop a draft', e))
 }
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
+  const theme = startTheme()
+  const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 960,
     minHeight: 600,
     show: false,
     title: 'AI Write',
-    backgroundColor: backgroundFor(),
-    autoHideMenuBar: true,
+    backgroundColor: BACKGROUND[theme],
     icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
-      spellcheck: true
+      spellcheck: true,
+      additionalArguments: [`--aiwrite-theme=${theme}`]
     }
   })
+  mainWindow = win
+  // No menu bar on Windows and Linux (Alt would otherwise show File / Edit / View with Reload).
+  if (process.platform !== 'darwin') win.removeMenu()
 
-  // Show only once the first frame is painted, so there's no white flash.
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  // The interface shows the window once its first frame is painted in the right theme (the
+  // showWindow call), so nothing flashes. This is only the fallback, in case that never comes.
+  win.once('ready-to-show', () => setTimeout(showMainWindow, 3000))
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
-
-  // Before closing, let the interface save anything still pending.
-  mainWindow.on('close', (e) => {
-    if (quitting || !mainWindow) return
+  // The window never leaves the app's own page (a file dropped on it would otherwise replace it).
+  win.webContents.on('will-navigate', (e, url) => {
     e.preventDefault()
-    quitting = true
-    mainWindow.webContents.send('event:app:flush', {})
-    void waitForFlush(2000).then(() => {
-      closeWorld()
-      mainWindow?.destroy()
-      app.quit()
-    })
+    if (/^https?:/.test(url)) void shell.openExternal(url)
+  })
+  win.webContents.on('before-input-event', (e, input) => {
+    if (!isReloadOrDevToolsKey(input)) return
+    e.preventDefault()
+    // Developers running from source can still open the developer tools.
+    if (!app.isPackaged && input.key.toLowerCase() !== 'r' && input.key !== 'F5') win.webContents.toggleDevTools()
+  })
+  win.webContents.on('context-menu', (_e, p) => {
+    const items = contextMenuFor(win, p)
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: win })
+  })
+
+  let loaded = false
+  win.webContents.once('did-finish-load', () => (loaded = true))
+  win.webContents.on('did-start-navigation', (d) => {
+    if (loaded && d.isMainFrame && !d.isSameDocument) stopRunningDrafts()
+  })
+  win.webContents.on('render-process-gone', stopRunningDrafts)
+
+  // Every way of closing (the window's X, the Mac's Quit, an update restart) saves first.
+  win.on('close', (e) => {
+    if (flushed) return
+    e.preventDefault()
+    flushThenQuit()
+  })
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
 
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  }
-})
-
-app.whenReady().then(() => {
-  app.setAppUserModelId('com.lampost.aiwrite')
-  registerIpc()
-  initBackups()
-  initAi()
-  // Reopen the last world straight away, so the page is ready as soon as the window shows.
-  const last = getSettings().lastWorldId
-  if (last) {
+/** Lets the interface save anything still pending, closes the world, then quits. */
+function flushThenQuit(): void {
+  if (flushing) return
+  flushing = true
+  const win = mainWindow
+  const finish = (): void => {
+    flushed = true
     try {
-      openWorld(last)
+      closeWorld()
     } catch (e) {
-      console.warn('Could not reopen the last world', e)
+      console.error('Could not close the world cleanly', e)
     }
+    if (win && !win.isDestroyed()) win.destroy()
+    app.quit()
   }
-  createWindow()
-  initUpdater()
-})
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return finish()
+  win.webContents.send('event:app:flush', {})
+  void waitForFlush(2000).then(finish)
+}
 
-app.on('before-quit', () => {
-  quitting = true
-})
+function setAppMenu(): void {
+  if (process.platform === 'darwin') {
+    // The Mac needs a menu for Quit, Cut, Copy and Paste; there is no View menu (no Reload).
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
+}
 
-app.on('window-all-closed', () => {
-  closeWorld()
-  app.quit()
-})
+function reopenLastWorld(): void {
+  try {
+    const last = getSettings().lastWorldId
+    if (last) openWorld(last)
+  } catch (e) {
+    console.warn('Could not reopen the last world', e)
+  }
+}
+
+function main(): void {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    } else if (app.isReady() && !flushing) {
+      createWindow()
+    }
+  })
+
+  app
+    .whenReady()
+    .then(() => {
+      app.setAppUserModelId('com.lampost.aiwrite')
+      setAppMenu()
+      registerIpc()
+      initBackups()
+      initAi()
+      // Reopen the last world straight away, so the page is ready as soon as the window shows.
+      reopenLastWorld()
+      createWindow()
+      initUpdater()
+    })
+    .catch((e: unknown) => {
+      // Never leave an invisible AI Write running (it would block opening it again).
+      console.error('AI Write could not start', e)
+      dialog.showErrorBox(
+        'AI Write could not start',
+        `${e instanceof Error ? e.message : String(e)}\n\nTry opening AI Write again. If this keeps happening, restart your computer.`
+      )
+      try {
+        closeWorld()
+      } catch {
+        /* already closed */
+      }
+      app.exit(1)
+    })
+
+  // Quit from a menu, Cmd+Q or an update restart: save first, then quit for real.
+  app.on('before-quit', (e) => {
+    if (flushed) return
+    e.preventDefault()
+    flushThenQuit()
+  })
+
+  app.on('window-all-closed', () => {
+    closeWorld()
+    app.quit()
+  })
+}
+
+// Only one AI Write runs at a time. A second copy hands over to the first (its 'second-instance'
+// handler brings the window forward) and exits at once: app.quit() is not enough before 'ready',
+// as the startup work (opening the world, tidying drafts) would still run.
+if (app.requestSingleInstanceLock()) main()
+else app.exit(0)

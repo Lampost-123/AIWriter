@@ -227,6 +227,8 @@ export interface Settings {
   lastWorldId: ID | null
   lastStoryId: ID | null
   lastSceneId: ID | null
+  /** Where Adam was in each world (by world id), so switching back reopens that story and scene. */
+  lastPlaces: Record<ID, { storyId: ID | null; sceneId: ID | null }>
   /** Optional second backup folder (e.g. inside Dropbox, OneDrive or iCloud). Copies go to <extraFolder>/<world folder name>/. */
   backup: { extraFolder: string | null }
 }
@@ -360,6 +362,8 @@ export interface AppInfo {
   platform: string
   libraryPath: string
   dataPath: string
+  /** False when the library folder can't be reached or made (e.g. it is on a drive that isn't plugged in). */
+  libraryReachable: boolean
 }
 
 export interface RecoveryItem {

@@ -334,20 +334,23 @@ function OtherProviders({
             />
           ) : (
             <Card key={p.id} className="px-4 py-3">
-              <div className="flex items-center gap-3">
+              {/* In a narrow window the buttons move under the name rather than squeezing it. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <IconTile tone="neutral">
                   <Server size={16} />
                 </IconTile>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[200px] flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-[14px] font-medium text-fg">{p.name}</span>
+                    <span className="truncate text-[14px] font-medium text-fg" title={p.name}>
+                      {p.name}
+                    </span>
                     <Badge className="shrink-0">
                       {p.hasKey ? 'Key saved' : 'No key'}
                     </Badge>
                   </div>
-                  <div className="mt-0.5 truncate font-mono text-[12px] text-faint">{p.baseUrl}</div>
+                  <div className="mt-0.5 break-all font-mono text-[12px] text-faint">{p.baseUrl}</div>
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className="ml-auto flex shrink-0 gap-1">
                   <Button size="sm" onClick={() => onTest(p.id)} loading={results[p.id]?.state === 'testing'}>
                     Test
                   </Button>

@@ -8,6 +8,9 @@ import '@fontsource/literata/700.css'
 import './styles.css'
 import { App } from './App'
 
+// Paint the very first frame in the theme the window opened in (settings arrive a moment later).
+document.documentElement.dataset.theme = window.aiwrite.initialTheme
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

@@ -49,6 +49,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   lastWorldId: null,
   lastStoryId: null,
   lastSceneId: null,
+  lastPlaces: {},
   backup: { extraFolder: null }
 })
 

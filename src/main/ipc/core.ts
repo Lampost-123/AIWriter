@@ -5,16 +5,16 @@ import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import * as repo from '../db/repo'
 import * as world from '../world'
-import { getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
+import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
 import { userDataDir } from '../paths'
-import { readJson, writeFileAtomic } from '../util'
+import { readJson, UserError, writeFileAtomic } from '../util'
 import { resolveFlush } from '../flush'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 
 type CoreMethods =
   | 'getAppInfo' | 'getSettings' | 'updateSettings' | 'getWritingPrefs' | 'setWritingPrefs' | 'chooseLibraryFolder'
-  | 'showInFolder' | 'flushDone'
+  | 'showInFolder' | 'flushDone' | 'showWindow'
   | 'listWorlds' | 'createWorld' | 'openWorld' | 'getWorld' | 'updateWorld'
   | 'listSeries' | 'listStories' | 'createStory' | 'updateStory' | 'deleteStory'
   | 'getOutline' | 'createChapter' | 'updateChapter' | 'deleteChapter' | 'moveChapter'
@@ -35,7 +35,8 @@ export const coreHandlers: Handlers<CoreMethods> = {
     version: app.getVersion(),
     platform: process.platform,
     libraryPath: getSettings().libraryPath,
-    dataPath: userDataDir()
+    dataPath: userDataDir(),
+    libraryReachable: ensureLibraryFolder()
   }),
   getSettings: () => getSettings(),
   updateSettings: (patch) => updateSettings(patch),
@@ -55,10 +56,23 @@ export const coreHandlers: Handlers<CoreMethods> = {
     await shell.openPath(path)
   },
   flushDone: () => resolveFlush(),
+  showWindow: () => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && !w.isVisible()) w.show()
+  },
 
   listWorlds: () => world.listWorlds(),
   createWorld: (name) => world.createWorld(name),
-  openWorld: (id) => world.openWorld(id),
+  openWorld: (id) => {
+    try {
+      return world.openWorld(id)
+    } catch (e) {
+      if (e instanceof UserError) throw e
+      console.warn('Could not open a world:', e)
+      throw new UserError(
+        "AI Write couldn't open that world. Its folder may be damaged, or another program may be using it (often a cloud sync app or antivirus). Wait a moment, then try again."
+      )
+    }
+  },
   getWorld: () => world.getWorld(),
   updateWorld: (patch) => world.updateWorld(patch),
 

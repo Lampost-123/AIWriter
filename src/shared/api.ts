@@ -29,6 +29,7 @@ import type {
   Series,
   Settings,
   Story,
+  ThemeName,
   UpdateStatus,
   World,
   WorldSummary,
@@ -48,6 +49,8 @@ export interface AppApi {
   showInFolder(path: string): Promise<void>
   /** Called by the renderer once pending saves are flushed after an 'app:flush' event. */
   flushDone(): Promise<void>
+  /** Called once the interface has painted its first frame, so the window appears fully drawn in the right theme. */
+  showWindow(): Promise<void>
 
   // ----- Worlds -----
   listWorlds(): Promise<WorldSummary[]>
@@ -159,9 +162,14 @@ export type AppEventName = keyof AppEvents
 /** Shape of every IPC reply, so errors keep their plain-words message across the bridge. */
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: { message: string; code?: string } }
 
+/** A theme as painted ('system' resolved to light or dark). */
+export type PaintedTheme = Exclude<ThemeName, 'system'>
+
 /** What the preload script exposes on window.aiwrite. */
 export interface Bridge {
   invoke(method: ApiMethod, ...args: unknown[]): Promise<IpcResult<unknown>>
   on<E extends AppEventName>(event: E, listener: (payload: AppEvents[E]) => void): () => void
   platform: string
+  /** The theme the window opened in, applied before the first frame so nothing flashes. */
+  initialTheme: PaintedTheme
 }

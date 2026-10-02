@@ -32,12 +32,18 @@ export function readJson<T>(path: string, fallback: T): T {
   }
 }
 
+/** Names Windows reserves for devices: a folder called "Con" or "Nul" can't be opened, synced or copied. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i
+
+/** A safe folder name for a world on Windows, macOS and cloud-sync folders. Keeps letters in any language. */
 export function slugify(name: string): string {
-  const s = name
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
+  let s = name
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, '') // drops punctuation and characters Windows forbids; keeps é, Æ, ø, Мир, 日本
     .replace(/\s+/g, ' ')
+    .trim()
     .slice(0, 60)
+    .replace(/\s+$/, '') // Windows and OneDrive reject a name ending in a space
+  if (WINDOWS_RESERVED.test(s)) s += ' world'
   return s || 'World'
 }

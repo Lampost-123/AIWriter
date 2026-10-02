@@ -230,19 +230,18 @@ function LibraryFolder({ info, onChanged }: { info: AppInfo | null; onChanged: (
           Where your worlds are kept. Each world is a folder you can copy to move it to another computer or keep a copy by hand. Your API keys are never
           stored here.
         </p>
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-8 min-w-0 flex-1 items-center rounded-md border border-line bg-page px-2.5 text-[13px] text-fg"
-            title={info?.libraryPath}
-          >
-            <span className="truncate">{info?.libraryPath ?? ' '}</span>
+        <div className="flex flex-col gap-2">
+          <div className="flex min-h-8 items-center rounded-md border border-line bg-page px-2.5 py-1.5 text-[13px] text-fg" title={info?.libraryPath}>
+            <span className="break-all">{info?.libraryPath ?? ' '}</span>
           </div>
-          <Button icon={<FolderOpen size={13} />} disabled={!info} onClick={() => info && void api.showInFolder(info.libraryPath)}>
-            Open folder
-          </Button>
-          <Button loading={changing} onClick={() => void change()}>
-            Change folder…
-          </Button>
+          <div className="flex gap-2">
+            <Button icon={<FolderOpen size={13} />} disabled={!info} onClick={() => info && void api.showInFolder(info.libraryPath)}>
+              Open folder
+            </Button>
+            <Button loading={changing} onClick={() => void change()}>
+              Change folder…
+            </Button>
+          </div>
         </div>
       </Card>
     </section>

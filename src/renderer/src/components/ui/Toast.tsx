@@ -13,6 +13,8 @@ interface ToastState {
   items: ToastItem[]
   push: (t: Omit<ToastItem, 'id'>) => void
   dismiss: (id: number) => void
+  /** Removes every toast with a button (e.g. Undo); plain messages stay. */
+  clearActions: () => void
 }
 
 let seq = 0
@@ -24,7 +26,8 @@ export const useToasts = create<ToastState>((set, get) => ({
     set({ items: [...get().items.slice(-2), { ...t, id }] })
     setTimeout(() => get().dismiss(id), t.tone === 'danger' ? 9000 : 5000)
   },
-  dismiss: (id) => set({ items: get().items.filter((i) => i.id !== id) })
+  dismiss: (id) => set({ items: get().items.filter((i) => i.id !== id) }),
+  clearActions: () => set({ items: get().items.filter((i) => !i.action) })
 }))
 
 /** Shows a short message in the corner. Use for undoable actions ("Scene deleted · Undo") and errors. */

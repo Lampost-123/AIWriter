@@ -15,7 +15,14 @@ export async function flushAll(): Promise<void> {
 }
 
 export function installFlushOnClose(): () => void {
-  return onEvent('app:flush', () => {
+  const off = onEvent('app:flush', () => {
     void flushAll().finally(() => api.flushDone())
   })
+  // If the page is ever reloaded (only possible while developing), save what we can first.
+  const onPageHide = (): void => void flushAll()
+  window.addEventListener('pagehide', onPageHide)
+  return () => {
+    off()
+    window.removeEventListener('pagehide', onPageHide)
+  }
 }

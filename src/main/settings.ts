@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, statSync } from 'node:fs'
 import type { DeepPartial, Settings, WritingPrefs } from '@shared/types'
 import { defaultSettings, defaultWritingPrefs } from '@shared/defaults'
 import { defaultLibraryDir, userDataDir } from './paths'
@@ -24,9 +24,22 @@ export function getSettings(): Settings {
   if (!cached) {
     const stored = readJson<Partial<Settings>>(settingsFile(), {})
     cached = merge(defaultSettings(defaultLibraryDir()), stored)
-    mkdirSync(cached.libraryPath, { recursive: true })
+    // A library on a drive that isn't plugged in must not stop AI Write starting:
+    // the welcome screen says so and offers to try again or choose another folder.
+    ensureLibraryFolder(cached.libraryPath)
   }
   return cached
+}
+
+/** Makes sure the library folder exists. False when it can't be reached or made. */
+export function ensureLibraryFolder(path = getSettings().libraryPath): boolean {
+  try {
+    mkdirSync(path, { recursive: true })
+    return statSync(path).isDirectory()
+  } catch (e) {
+    console.warn('The library folder cannot be reached:', path, e instanceof Error ? e.message : e)
+    return false
+  }
 }
 
 export function updateSettings(patch: DeepPartial<Settings>): Settings {

@@ -12,5 +12,11 @@ export function userDataDir(): string {
 
 export function defaultLibraryDir(): string {
   const override = process.env.AIWRITE_DATA_DIR
-  return override ? join(override, 'library') : join(app.getPath('documents'), 'AI Write')
+  if (override) return join(override, 'library')
+  try {
+    return join(app.getPath('documents'), 'AI Write')
+  } catch {
+    // Windows can fail to report Documents (e.g. a redirected folder that is offline).
+    return join(app.getPath('home'), 'AI Write')
+  }
 }

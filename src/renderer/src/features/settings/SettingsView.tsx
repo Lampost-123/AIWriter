@@ -20,7 +20,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
   const current = TABS.find((t) => t.id === tab) ?? TABS[0]
   return (
     <div className="flex h-full min-h-0">
-      <nav className="w-[220px] shrink-0 border-r border-line bg-surface px-2 py-4">
+      <nav className="w-[200px] shrink-0 border-r border-line bg-surface px-2 py-4 xl:w-[220px]">
         <h2 className="px-2 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Settings</h2>
         {TABS.map((t) => (
           <button
@@ -36,7 +36,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
         ))}
       </nav>
       <div className="min-w-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-        <div className="mx-auto max-w-[760px] px-8 py-8">
+        <div className="mx-auto max-w-[760px] px-6 py-8 xl:px-8">
           <h1 className="text-[20px] font-semibold text-fg">{current.label}</h1>
           <p className="mb-6 mt-1 text-[13px] text-muted">{current.blurb}</p>
           {current.id === 'models' && <ModelsSettings />}

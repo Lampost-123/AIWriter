@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Toaster } from '@/components/ui'
+import { api } from '@/lib/api'
 import { installFlushOnClose } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { useTheme } from '@/lib/theme'
@@ -27,8 +28,15 @@ export function App(): React.JSX.Element | null {
     return installFlushOnClose()
   }, [init])
 
-  // The window only shows once React has painted, so render nothing until ready.
-  if (!ready || !settings) return null
+  // The window stays hidden until the first real frame (in the right theme) is painted, so
+  // nothing flashes. requestAnimationFrame then setTimeout lands just after that paint.
+  const loaded = ready && !!settings
+  useEffect(() => {
+    if (!loaded) return
+    requestAnimationFrame(() => setTimeout(() => void api.showWindow().catch(() => undefined), 0))
+  }, [loaded])
+
+  if (!loaded) return null
 
   return (
     <div className="flex h-full flex-col">

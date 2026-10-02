@@ -156,21 +156,31 @@ export function closeWorld(): void {
   current = null
 }
 
+/**
+ * Opens the world in `folder` and makes it the open world. The new database is opened and
+ * brought up to date before the current world is let go, so if anything fails (a damaged
+ * world, a full disk, a folder in use) the current world stays open and keeps saving.
+ */
 function activate(folder: string): World {
+  const d = openDatabase(worldDbPath(folder))
+  let id: ID | null
+  try {
+    if (pendingMigrations(d) > 0 && (d.pragma('user_version', { simple: true }) as number) > 0) {
+      backupBeforeMigration(folder, d)
+    }
+    migrate(d)
+    id = repo.getMeta(d, 'id')
+    if (!id) throw new UserError('This folder does not hold an AI Write world.')
+    mkdirSync(join(folder, 'images'), { recursive: true })
+    mkdirSync(join(folder, 'backups'), { recursive: true })
+  } catch (e) {
+    if (d.open) d.close()
+    // A restore closes the open world's database itself before reopening it: if that reopen
+    // fails, nothing usable is left open, so say so rather than keep a closed database.
+    if (current && !current.db.open) closeWorld()
+    throw e
+  }
   closeWorld()
-  const file = worldDbPath(folder)
-  const d = openDatabase(file)
-  if (pendingMigrations(d) > 0 && (d.pragma('user_version', { simple: true }) as number) > 0) {
-    backupBeforeMigration(folder, d)
-  }
-  migrate(d)
-  const id = repo.getMeta(d, 'id')
-  if (!id) {
-    d.close()
-    throw new UserError('This folder does not hold an AI Write world.')
-  }
-  mkdirSync(join(folder, 'images'), { recursive: true })
-  mkdirSync(join(folder, 'backups'), { recursive: true })
   current = { id, folder, db: d }
   updateSettings({ lastWorldId: id })
   for (const fn of openedListeners) {
@@ -186,11 +196,21 @@ function activate(folder: string): World {
 export function createWorld(name: string): World {
   const clean = name.trim() || 'My world'
   const folder = uniqueFolder(clean)
-  mkdirSync(folder, { recursive: true })
+  try {
+    mkdirSync(folder, { recursive: true })
+  } catch (e) {
+    console.warn('Could not make a world folder', folder, e instanceof Error ? e.message : e)
+    throw new UserError(
+      `AI Write can't make a world in your library folder (${getSettings().libraryPath}). Check the drive is connected, or choose another library folder.`
+    )
+  }
   const d = openDatabase(worldDbPath(folder))
-  migrate(d)
-  repo.initWorld(d, newId(), clean)
-  d.close()
+  try {
+    migrate(d)
+    repo.initWorld(d, newId(), clean)
+  } finally {
+    d.close()
+  }
   return activate(folder)
 }
 
