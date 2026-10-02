@@ -300,8 +300,10 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await useFakeModel(win, fake, 'fake/slow')
     await expect(names(win, w.tobin)).toHaveCount(1)
 
-    // Esc stops a draft being written, with a card open over a name above it.
+    // Esc stops a draft being written, with a card open over a name above it. The scene has text, so
+    // Generate asks where the draft goes: below it.
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(win.locator('main header').getByRole('button', { name: 'Stop' })).toBeVisible()
     await expect(prose(win).locator('hr')).toHaveCount(1)
     await names(win, w.tobin).hover()
@@ -390,12 +392,17 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   expect(await notCutShort()).toBe(true)
 
   const binderButton = win.getByRole('button', { name: 'Show or hide the binder' })
+  // The button looks pressed only while the floating binder shows.
+  const pressed = /(^|\s)bg-surface-2(\s|$)/
+  await expect(binderButton).not.toHaveClass(pressed)
   await binderButton.click()
   await expect(binder(win)).toBeVisible()
+  await expect(binderButton).toHaveClass(pressed)
   // Over the page: the page doesn't move.
   expect(await charsPerLine(win)).toEqual(lines)
   await win.keyboard.press('Escape')
   await expect(binder(win)).toBeHidden()
+  await expect(binderButton).not.toHaveClass(pressed)
   await expect(binderButton).toBeFocused()
   // Picking a scene in it closes it.
   await binderButton.click()

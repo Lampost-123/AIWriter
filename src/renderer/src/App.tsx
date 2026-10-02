@@ -131,7 +131,7 @@ function Workspace(): React.JSX.Element {
   const pageMin = pageMinFor(settings.editor.fontSize, settings.editor.pageWidth)
   const right = { open: scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
   const floats = binderFloats(win.width, BINDER.floor, right, pageMin)
-  const floating = useFloatingPane(floats, BINDER_BUTTON)
+  const floating = useFloatingPane(floats)
   const left = { open: layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
   const fit = fitPanels(win.width, left, right, pageMin)
   // A panel squeezed narrower than its own minimum is dragged from where it shows, and the width

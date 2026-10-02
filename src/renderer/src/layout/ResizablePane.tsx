@@ -177,35 +177,26 @@ export function toggleFloatingBinder(): void {
 
 /**
  * Whether the binder floating over the page shows (see ResizablePane's `floating`). While `active`,
- * the button named `toggle` shows and hides it instead of changing the saved layout; picking a scene
- * or another page closes it. It starts closed whenever the binder starts floating.
+ * the top bar's binder button and the palette's "Show or hide the binder" show and hide it with
+ * toggleFloatingBinder() instead of changing the saved layout; picking a scene or another page
+ * closes it. It starts closed whenever the binder starts floating.
  */
-export function useFloatingPane(active: boolean, toggle: string): { open: boolean; close: () => void } {
+export function useFloatingPane(active: boolean): { open: boolean; close: () => void } {
   const open = useFloatingBinder((s) => s.open)
   const close = useCallback(() => useFloatingBinder.setState({ open: false }), [])
 
   useEffect(() => {
     useFloatingBinder.setState({ floating: active, open: false })
     if (!active) return
-    // Ahead of the button's own click, which would change the saved layout. (Once the top bar calls
-    // toggleFloatingBinder itself, this is no longer needed; it does no harm meanwhile.)
-    const onClick = (e: MouseEvent): void => {
-      if (!(e.target instanceof Element) || !e.target.closest(`[aria-label="${toggle}"]`)) return
-      e.preventDefault()
-      e.stopPropagation()
-      toggleFloatingBinder()
-    }
-    document.addEventListener('click', onClick, true)
     // Picking something in it (a scene, a page) is what it was opened for.
     const off = useApp.subscribe((s, prev) => {
       if (s.sceneId !== prev.sceneId || s.view !== prev.view || s.storyId !== prev.storyId) close()
     })
     return () => {
-      document.removeEventListener('click', onClick, true)
       off()
       useFloatingBinder.setState({ floating: false, open: false })
     }
-  }, [active, toggle, close])
+  }, [active, close])
 
   return { open: active && open, close }
 }

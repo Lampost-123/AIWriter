@@ -461,7 +461,7 @@ export const EntryForm = memo(function EntryForm({
 
   return (
     // Leaving any field writes straight away, so nothing waits on the timer.
-    <div className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
+    <div data-entry-page className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
       {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a
           line of its own (kept free while it loads). */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">

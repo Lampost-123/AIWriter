@@ -495,10 +495,14 @@ test('in a small window the as-of bar and the page’s buttons keep their room, 
     leadsIntoId: null
   })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 600))
-  await reload(win)
+  await win.reload()
+  // On the writing page a window this small floats the binder over the page; the top bar's button shows it.
+  await win.getByRole('button', { name: 'Show or hide the binder' }).click()
+  await expect(binder(win)).toBeVisible()
 
   // The binder, the list of characters and Mara's page side by side.
   await openEntry(win, 'Characters', 'Mara')
+  await expect(binder(win)).toBeVisible()
   await expect(entryRows(win).filter({ hasText: 'Mara' })).toBeVisible()
   const builder = main(win).getByRole('button', { name: 'Open in the builder' })
   // The buttons under the name can be clicked: when they take two rows, their row grows to hold them.
