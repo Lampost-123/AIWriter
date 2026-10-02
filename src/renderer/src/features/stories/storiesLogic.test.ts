@@ -240,8 +240,8 @@ describe('the story flows’ quiet line', () => {
     expect(flowLine({ flow: 'when', state: 'running', message: null }, 'Book 2')).toBe(
       'Working out when the changes at the start of Book 2 happened…'
     )
-    expect(flowLine({ flow: 'when', state: 'done', message: 'Added 4 changes, listed under What changed' })).toBe(
-      'Added 4 changes, listed under What changed'
+    expect(flowLine({ flow: 'when', state: 'done', message: 'Added 4 changes, listed under What changed.' })).toBe(
+      'Added 4 changes, listed under What changed.'
     )
     expect(flowLine({ flow: 'when', state: 'failed', message: 'This isn’t ready yet.' })).toBe('This isn’t ready yet.')
     expect(flowLine({ flow: 'when', state: 'failed', message: null })).toMatch(/Try again/)
@@ -262,7 +262,7 @@ describe('the story flows’ quiet line', () => {
   it('knows a flow Adam stopped, which gets no tick', () => {
     expect(flowStopped({ state: 'done', message: 'Stopped. Nothing was changed.' })).toBe(true)
     expect(flowStopped({ state: 'done', message: 'Stopped. Nothing more was changed.' })).toBe(true)
-    expect(flowStopped({ state: 'done', message: 'Added 4 changes, listed under What changed' })).toBe(false)
+    expect(flowStopped({ state: 'done', message: 'Added 4 changes, listed under What changed.' })).toBe(false)
     expect(flowStopped({ state: 'running', message: null })).toBe(false)
   })
 })

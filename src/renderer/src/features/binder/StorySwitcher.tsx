@@ -50,7 +50,10 @@ export function StorySwitcher(): React.JSX.Element {
         </div>
       ) : (
         <M.Root modal={false}>
-          <M.Trigger className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2">
+          <M.Trigger
+            data-story-menu
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2"
+          >
             <BookOpen size={14} className="shrink-0 text-muted" />
             <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-semibold', story ? 'text-fg' : 'text-faint')}>
               {story?.title ?? 'No story yet'}

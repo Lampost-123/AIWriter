@@ -16,6 +16,9 @@ import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { openStyleTab } from '@/features/style/StyleView'
 import { runFlow } from './flows'
+import { openStorySettings } from './sectionRequest'
+
+export { openStorySettings, useSectionRequest } from './sectionRequest'
 
 const app = useApp.getState
 
@@ -43,12 +46,6 @@ function afterToast(toastId: number, then: () => void): void {
 }
 
 /**
- * A section of a story's settings to open at ("Choose cast" in a toast): that story's page brings it
- * into view and takes it, whether it opens now or is already open.
- */
-export const useSectionRequest = create<{ request: { storyId: ID; section: string } | null }>(() => ({ request: null }))
-
-/**
  * Stories whose yes to "Should Book 2 now continue after it?" can still be undone. Story settings doesn't
  * offer "When did these happen?" for them meanwhile: the sort starts by itself once Undo has gone.
  */
@@ -58,12 +55,6 @@ const holdSort = (storyId: ID, on: boolean): void =>
     const i = s.storyIds.indexOf(storyId)
     return { storyIds: on ? [...s.storyIds, storyId] : s.storyIds.filter((_, j) => j !== i) }
   })
-
-/** Opens a story's settings, at a section if given. */
-export function openStorySettings(storyId: ID, section?: string): void {
-  useSectionRequest.setState({ request: section ? { storyId, section } : null })
-  app().navigate({ kind: 'story', storyId })
-}
 
 /** Opens a story at the scene last open in it, else its first scene. */
 export async function openStory(storyId: ID): Promise<void> {
@@ -277,11 +268,13 @@ export async function endFirst(storyId: ID, endRefId: ID, chapter: string): Prom
 /**
  * Deletes a story with Undo (and keeps it in Recently deleted for 30 days). Stories that start in it
  * take over its start point; a backup is made first when there are any. If it was open, the first other
- * story opens.
+ * story opens, and Undo opens it again (unless Adam has gone to another story meanwhile).
  */
 export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStartHere: boolean): Promise<void> {
   const wasOpen = app().storyId === story.id
   try {
+    // A draft being written into it stops first, and its last words are saved before it goes.
+    if (wasOpen) await editorBridge()?.stopDraft('deleted')
     await editorBridge()?.flush()
     if (othersStartHere) await api.backupNow().catch(() => undefined)
     await api.deleteStory(story.id)
@@ -296,6 +289,7 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
     else app().selectStory(null)
   } else app().navigate({ kind: 'write' })
   await refresh()
+  const leftIn = app().storyId
   announceDelete({
     message: `“${story.title || 'Untitled story'}” deleted.`,
     noun: ['story', 'stories'],
@@ -303,6 +297,7 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
       api
         .restoreDeleted('story', story.id)
         .then(() => app().refreshStories())
+        .then(() => (wasOpen && app().storyId === leftIn ? openStory(story.id) : undefined))
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
 }
