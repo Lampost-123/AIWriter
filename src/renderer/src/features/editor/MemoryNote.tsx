@@ -59,8 +59,9 @@ export function MemoryNote({ sceneId }: { sceneId: ID }): React.JSX.Element {
         className="ml-1 flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:bg-surface-2 animate-fade-in"
       >
         <CircleAlert size={13} className="shrink-0 text-ai" aria-hidden />
-        <span className="hidden whitespace-nowrap @min-[600px]:inline">Memory not updated</span>
-        <span className="sr-only @min-[600px]:hidden">Memory not updated</span>
+        {/* The words when the header has room for them beside the title; the amber mark alone otherwise. */}
+        <span className="hidden whitespace-nowrap @min-[760px]:inline">Memory not updated</span>
+        <span className="sr-only @min-[760px]:hidden">Memory not updated</span>
       </P.Trigger>
       <PopoverPanel className="w-[320px]" align="start">
         <h3 className="text-[13.5px] font-semibold text-fg">Memory not updated</h3>
