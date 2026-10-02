@@ -15,7 +15,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
-import { PopoverPanel, Segmented } from './parts'
+import { PopoverPanel, Segmented, useDelayed } from './parts'
 
 interface Session {
   sceneId: ID
@@ -338,18 +338,39 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // ---------- View ----------
 
   const busy = phase !== 'idle'
+  // Before a draft starts, the memory first reads any earlier scenes it hasn't caught up with, which
+  // can take a little while; Generate then rests (it can't be stopped until the draft has begun) and
+  // says why. A quick start shows nothing at all.
+  const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
+  const startingSlow = useDelayed(phase === 'starting', 700)
+  const showStatus = phase === 'streaming' || phase === 'stopping' || startingSlow
   const afterText = `This scene already has text. The new draft goes after it, below a scene break. ${modKey()}+Z removes it.`
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
-  const status = retrying ? 'Retrying…' : phase === 'stopping' ? 'Stopping…' : 'Writing…'
+  const status =
+    phase === 'starting'
+      ? memoryReading
+        ? 'Updating memory first…'
+        : 'Getting ready…'
+      : retrying
+        ? 'Retrying…'
+        : phase === 'stopping'
+          ? 'Stopping…'
+          : 'Writing…'
+  const statusTitle =
+    phase === 'starting'
+      ? memoryReading
+        ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
+        : 'Getting the draft ready.'
+      : (retrying ?? undefined)
 
   return (
     <div ref={rootRef} className="flex items-center gap-1.5">
       {compact ? (
         // Narrow header: only the amber light while writing (its slot is always kept, so nothing moves).
-        <span role="status" title={busy ? (retrying ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
-          {busy ? (
+        <span role="status" title={showStatus ? (statusTitle ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
+          {showStatus ? (
             <>
               <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
               <span className="sr-only">{status}</span>
@@ -361,11 +382,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           <button
             type="button"
             onClick={openSettings}
-            tabIndex={busy ? -1 : 0}
+            tabIndex={showStatus ? -1 : 0}
             title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings > Models.` : 'Choose a writer model in Settings > Models.'}
             className={cn(
               'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-              busy && 'invisible'
+              showStatus && 'invisible'
             )}
           >
             <span className="truncate">{modelName ?? 'No writer model'}</span>
@@ -375,11 +396,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               </span>
             ) : null}
           </button>
-          {busy ? (
+          {showStatus ? (
             <span
               role="status"
-              title={retrying ?? undefined}
-              className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
+              title={statusTitle}
+              className="absolute inset-y-0 right-0 flex items-center gap-2 whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
             >
               <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
               {status}
@@ -391,7 +412,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       <P.Root open={popover !== null} onOpenChange={(o) => !o && setPopover(null)}>
         <P.Anchor asChild>
           <div className="flex w-[132px] shrink-0">
-            {busy ? (
+            {phase === 'starting' ? (
+              // Waiting for the draft to begin (perhaps for the memory to catch up first): it can't be stopped yet.
+              <Button variant="primary" className="w-full" loading title={statusTitle}>
+                Generate
+              </Button>
+            ) : busy ? (
               <Button
                 variant="secondary"
                 className="w-full"
