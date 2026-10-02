@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { slugify } from '../../src/main/util'
+import { describe, expect, it, vi } from 'vitest'
+import { now, slugify } from '../../src/main/util'
 
 describe('slugify (world folder names)', () => {
   it('never gives a name Windows reserves for a device', () => {
@@ -29,5 +29,22 @@ describe('slugify (world folder names)', () => {
     expect(slugify('  Two   spaces  ')).toBe('Two spaces')
     expect(slugify('!!!')).toBe('World')
     expect(slugify('')).toBe('World')
+  })
+})
+
+describe('now (the time saves are stamped with)', () => {
+  it('never gives the same instant twice, even within one millisecond', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-02T12:00:00.000Z') })
+    try {
+      expect([now(), now(), now()]).toEqual(['2026-10-02T12:00:00.000Z', '2026-10-02T12:00:00.001Z', '2026-10-02T12:00:00.002Z'])
+      // The clock catching up takes over again.
+      vi.setSystemTime(new Date('2026-10-02T12:00:05.000Z'))
+      expect(now()).toBe('2026-10-02T12:00:05.000Z')
+      // A clock set back by more than a second is followed.
+      vi.setSystemTime(new Date('2026-10-02T11:00:00.000Z'))
+      expect(now()).toBe('2026-10-02T11:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
