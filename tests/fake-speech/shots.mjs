@@ -8,7 +8,7 @@
 // The first run goes from Not running through each download to everything ready (the voices' licence and a
 // key Hugging Face turns down on the way, the voices and Whisper failing to load and downloaded again), More,
 // a speech engine with a part missing, and Remove downloads.
-// The second ("python") starts without Python, installs it, and uses a copy of MCreader v2's voices.
+// The second ("python") starts without Python and installs it.
 import { _electron as electron } from '@playwright/test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,24 +26,6 @@ setControl({})
 /** Makes the fake server say a model couldn't be loaded, with the reason the real one gives (engine.mjs, damaged.txt). */
 const damage = (folder, reason) => writeFileSync(join(dir, 'app', 'speech', ...folder, 'damaged.txt'), reason)
 
-/** A folder with what MCreader v2's tts folder has once its voices are downloaded (empty files, all the weights). */
-function fakeMCreader() {
-  const tts = join(dir, 'mcreader-v2', 'tts')
-  const touch = (text, ...parts) => {
-    mkdirSync(join(tts, ...parts.slice(0, -1)), { recursive: true })
-    writeFileSync(join(tts, ...parts), text)
-  }
-  touch('', 'venvs', 'breeze', ...(process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']))
-  touch('', 'models', 'breeze', 'code', 'breeze_infer', '__init__.py')
-  const snapshot = ['models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2', 'snapshots', 'fake']
-  for (const f of ['config.json', 'tokenizer.json', 'tokenizer_config.json']) touch('{}', ...snapshot, f)
-  touch('', ...snapshot, 'audio_tokenizer', 'model.safetensors')
-  const shards = ['model-00001-of-00002.safetensors', 'model-00002-of-00002.safetensors']
-  touch(JSON.stringify({ weight_map: { a: shards[0], b: shards[1] } }), ...snapshot, 'model.safetensors.index.json')
-  for (const f of shards) touch('', ...snapshot, f)
-  return tts
-}
-
 const app = await electron.launch({
   args: ['.', '--no-sandbox'],
   cwd: resolve(here, '..', '..'),
@@ -54,8 +36,7 @@ const app = await electron.launch({
     AIWRITE_FAKE_SPEECH_RUN: join(here, 'server.mjs'),
     AIWRITE_FAKE_SPEECH_CONTROL: controlFile,
     AIWRITE_FAKE_SPEECH_PYTHON: flow === 'python' ? 'missing' : '',
-    AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090',
-    MCREADER_TTS_DIR: flow === 'python' ? fakeMCreader() : join(dir, 'no-mcreader')
+    AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090'
   }
 })
 const win = await app.firstWindow()
@@ -368,7 +349,7 @@ async function main() {
 
 async function python() {
   await scrollTo('Speech engine')
-  await shot('50-mcreader-found-light-1280')
+  await shot('50-not-running-light-1280')
   await win.getByRole('switch').first().click()
   await win.waitForSelector('text=Install Python', { timeout: 15000 })
   await shot('51-python-missing-light-1280')
@@ -388,16 +369,8 @@ async function python() {
   await win.getByRole('button', { name: 'Install Python' }).click()
   await win.waitForSelector('text=Connected', { timeout: 30000 })
   await toasts()
-  await win.getByRole('button', { name: 'Use MCreader’s copy' }).click()
-  await win.waitForSelector('text=From ', { timeout: 15000 })
-  await win.waitForTimeout(2500)
   await scrollTo('Speech engine')
-  await shot('54-mcreader-copy-light-1280')
-  await size(960, 600)
-  await theme('dark')
-  await scrollTo('Voices')
-  await shot('55-mcreader-copy-dark-960')
-  await theme('light')
+  await shot('54-python-installed-light-1280')
 }
 
 try {

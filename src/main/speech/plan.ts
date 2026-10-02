@@ -169,7 +169,7 @@ function serverPlan(i: PlanInput): Step[] {
 
 /**
  * Breeze TTS 2 in its own environment, its code and its weights: about 12 GB in all. Always into AI
- * Write's own speech folder: MCreader's copy is only ever used as it is, never downloaded into.
+ * Write's own speech folder.
  */
 function voicesPlan(i: PlanInput): Step[] {
   const { paths } = i

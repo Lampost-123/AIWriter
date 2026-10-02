@@ -124,19 +124,9 @@ def touch(*parts, text=''):
 out = {}
 snap = ('models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2', 'snapshots', 'abc')
 touch(*snap, 'config.json')
-out['own, config only'] = d.breeze_complete(root, own=True)
+out['voices, config only'] = d.breeze_complete(root)
 touch('models', 'breeze', '.ready')
-out['own, with its mark'] = d.breeze_complete(root, own=True)
-out['mcreader, config only'] = d.breeze_complete(root, own=False)
-for f in d.BREEZE_NEEDS:
-    touch(*snap, *f.split('/'))
-touch(*snap, d.BREEZE_INDEX, text=json.dumps({'weight_map': {'a': 'one.safetensors', 'b': 'two.safetensors'}}))
-touch(*snap, 'one.safetensors')
-out['mcreader, a shard missing'] = d.breeze_complete(root, own=False)
-touch(*snap, 'two.safetensors')
-out['mcreader, whole'] = d.breeze_complete(root, own=False)
-touch('models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2', 'blobs', 'x.incomplete')
-out['mcreader, a file half-fetched'] = d.breeze_complete(root, own=False)
+out['voices, with their mark'] = d.breeze_complete(root)
 p = root / 'parakeet'
 for f in d.PARAKEET_FILES:
     touch('parakeet', '.unpack', 'model', f)
@@ -153,22 +143,16 @@ for f in d.WHISPER_FILES:
 out['whisper, all'] = d.whisper_dir(root / 'whisper') is not None
 touch(*w, 'blobs', 'y.incomplete')
 out['whisper, a file half-fetched'] = d.whisper_dir(root / 'whisper') is not None
-out['same folder'] = d.same_folder(root / 'a' / '..' / 'b', root / 'b')
 print(json.dumps(out))
 `
     expect(py(code, dir)).toEqual({
-      'own, config only': false,
-      'own, with its mark': true,
-      'mcreader, config only': false,
-      'mcreader, a shard missing': false,
-      'mcreader, whole': true,
-      'mcreader, a file half-fetched': false,
+      'voices, config only': false,
+      'voices, with their mark': true,
       'parakeet, unpacking': false,
       'parakeet, in place': true,
       'whisper, part': false,
       'whisper, all': true,
-      'whisper, a file half-fetched': false,
-      'same folder': true
+      'whisper, a file half-fetched': false
     })
   })
 

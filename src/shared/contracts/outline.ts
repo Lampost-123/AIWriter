@@ -84,6 +84,8 @@ export interface KeptItem {
   key: string
   kind: 'act' | 'chapter' | 'scene'
   id: ID
+  /** It took the place of the story's untouched first chapter or scene: its Undo puts that back, never removes it. */
+  reused?: boolean
 }
 
 export interface OutlineApi {

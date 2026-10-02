@@ -569,7 +569,8 @@ test('after a Replace, the old text can be copied or put back from the Drafts ta
 
     await win.getByRole('button', { name: 'Copy', exact: true }).click()
     await expect(toasts(win).getByText('Copied the text this draft replaced.')).toBeVisible()
-    expect(await second.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(OLD.join('\n\n'))
+    // Windows' clipboard hands text back with \r\n line ends.
+    expect((await second.app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n')).toBe(OLD.join('\n\n'))
 
     await win.getByRole('button', { name: 'Put it back', exact: true }).click()
     await expect(prose(win).locator('p')).toHaveText(OLD)

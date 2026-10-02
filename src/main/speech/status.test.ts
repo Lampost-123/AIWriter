@@ -34,7 +34,6 @@ function parts(over: Partial<StatusParts> = {}): StatusParts {
     picked: 'none',
     installed: { server: false, voices: null, parakeet: false, whisper: false },
     nvidia: null,
-    mcreader: null,
     download: null,
     queued: [],
     hfKey: false,
@@ -107,7 +106,7 @@ describe('what the server says about itself', () => {
     expect(await fetchHealth(`http://127.0.0.1:${port}/v1`, 500)).toBeNull()
     expect(readHealth({ ok: false })).toBeNull()
     expect(readHealth('hello')).toBeNull()
-    // MCreader's own server: voices, no dictation.
+    // Another speech server at the address in Settings: voices, no dictation.
     expect(readHealth({ ok: true, device: 'CPU', engines: [{ id: 'breeze', ready: true, loaded: true }] })).toEqual({
       service: '',
       device: 'CPU',
@@ -245,10 +244,6 @@ describe('the status Settings shows', () => {
       repair: false
     })
     expect(voicesLoadProblem('RuntimeError: Found no NVIDIA driver on your system.', 'own').text).toMatch(/Update its NVIDIA driver/)
-    expect(voicesLoadProblem('it stopped while loading.', 'mcreader')).toEqual({
-      text: 'MCreader v2’s copy of the voices couldn’t be loaded. Try again; if it keeps happening, download AI Write’s own copy below.',
-      repair: false
-    })
     expect(voicesLoadProblem('KeyError', null).repair).toBe(false)
     expect(dictationLoadProblem('MemoryError: std::bad_alloc', 'whisper', true)).toEqual({
       text: 'The computer ran out of memory loading Whisper. Close other programs, then try again.',

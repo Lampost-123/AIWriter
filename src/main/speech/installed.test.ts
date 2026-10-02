@@ -3,18 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
-  BREEZE_NEEDS,
   breezeComplete,
-  breezeWeightsWhole,
   installedNow,
   PARAKEET_FILES,
   parakeetFiles,
   readManifest,
+  snapshotWith,
   WHISPER_FILES,
   whisperFiles,
   writeManifest
 } from './installed'
-import { findMCreader, mcreaderCandidates, mcreaderVoicesIn } from './mcreader'
 import { breezeCodeDir, breezeMark, breezeWeightsDir, speechPaths, venvPython } from './paths'
 
 let dir = ''
@@ -28,6 +26,8 @@ function touch(file: string, text = ''): void {
   writeFileSync(file, text)
 }
 
+/** What Breeze reads to speak besides its shards (its tokenizer and the audio codec). */
+const BREEZE_NEEDS = ['config.json', 'tokenizer.json', 'tokenizer_config.json', join('audio_tokenizer', 'model.safetensors')]
 const SHARDS = ['model-00001-of-00002.safetensors', 'model-00002-of-00002.safetensors']
 
 /** Breeze's weights as Hugging Face keeps them, in snapshot `rev`: what speaking needs, the index, and `shards` of its two shards. */
@@ -40,15 +40,12 @@ function weightsIn(root: string, rev = 'a1b2c3', shards = SHARDS): string {
   return snapshot
 }
 
-/**
- * What a finished voices download leaves under `root`: AI Write's own copy (with the mark its last step leaves),
- * or MCreader's tts folder (no mark: all of its weights).
- */
-function voicesIn(root: string, own = true): void {
+/** What a finished voices download leaves under `root`, with the mark its last step leaves. */
+function voicesIn(root: string): void {
   touch(venvPython(join(root, 'venvs', 'breeze')))
   touch(join(breezeCodeDir(root), 'breeze_infer', '__init__.py'))
   weightsIn(root)
-  if (own) touch(breezeMark(root))
+  touch(breezeMark(root))
 }
 
 /** All of a dictation model's files: Parakeet unpacked into its folder, Whisper in its snapshot. */
@@ -61,11 +58,11 @@ function whisperIn(dir: string): void {
 
 describe('the speech folder', () => {
   it('is in AI Write’s user data, with each part in its place', () => {
-    const p = speechPaths(join('/data', 'app'), join('/res', 'speech-server'), null, 'linux')
+    const p = speechPaths(join('/data', 'app'), join('/res', 'speech-server'), 'linux')
     expect(p.home).toBe(join('/data', 'app', 'speech'))
     expect(p.python).toBe(join(p.home, 'venv', 'bin', 'python'))
     expect(p.serve).toBe(p.python)
-    expect(p.breezeRoot).toBe(p.home)
+    expect(p.breezePython).toBe(join(p.home, 'venvs', 'breeze', 'bin', 'python'))
     expect(p.logs).toBe(join(p.home, 'logs'))
     expect(p.manifest).toBe(join(p.home, 'installed.json'))
     expect(p.parakeet).toBe(join(p.home, 'models', 'parakeet'))
@@ -73,21 +70,9 @@ describe('the speech folder', () => {
   })
 
   it('runs the server with pythonw on Windows, so no console window opens', () => {
-    const p = speechPaths(
-      'C:\\Users\\Adam\\AppData\\Roaming\\AI Write',
-      'C:\\Program Files\\AI Write\\resources\\speech-server',
-      null,
-      'win32'
-    )
+    const p = speechPaths('C:\\Users\\Adam\\AppData\\Roaming\\AI Write', 'C:\\Program Files\\AI Write\\resources\\speech-server', 'win32')
     expect(p.python).toMatch(/Scripts[\\/]python\.exe$/)
     expect(p.serve).toMatch(/Scripts[\\/]pythonw\.exe$/)
-  })
-
-  it('runs Breeze from MCreader’s tts folder when its copy is used', () => {
-    const p = speechPaths(dir, '/src', join(dir, 'mcreader', 'tts'), 'linux')
-    expect(p.breezeRoot).toBe(join(dir, 'mcreader', 'tts'))
-    expect(p.breezePython).toBe(join(dir, 'mcreader', 'tts', 'venvs', 'breeze', 'bin', 'python'))
-    expect(p.home).toBe(join(dir, 'speech'))
   })
 })
 
@@ -124,6 +109,16 @@ describe('what is downloaded', () => {
     expect(installedNow(p, manifest).voices).toBeNull()
   })
 
+  it('is only ever AI Write’s own copy of the voices, never another app’s folder', () => {
+    const p = speechPaths(dir, '/src')
+    const other = join(dir, 'mcreader-v2', 'tts')
+    voicesIn(other)
+    // A test build of 0.4.0 could record MCreader's folder here: it doesn't count, so Settings offers the download.
+    const manifest = JSON.parse(JSON.stringify({ voices: { at: 'now', from: 'mcreader', root: other, gpu: '' } }))
+    expect(installedNow(p, manifest).voices).toBeNull()
+    expect(installedNow(p, { voices: { at: 'now', from: 'own', root: other, gpu: '' } }).voices).toBeNull()
+  })
+
   it('needs all of Breeze: its environment, its code and its weights', () => {
     expect(breezeComplete(dir)).toBe(false)
     touch(venvPython(join(dir, 'venvs', 'breeze')))
@@ -149,29 +144,13 @@ describe('what is downloaded', () => {
     expect(breezeComplete(dir)).toBe(false)
   })
 
-  it('counts MCreader’s copy, which has no mark, only when all of its weights are there', () => {
-    const tts = join(dir, 'tts')
-    touch(venvPython(join(tts, 'venvs', 'breeze')))
-    touch(join(breezeCodeDir(tts), 'breeze_infer', '__init__.py'))
-    touch(join(breezeWeightsDir(tts), 'snapshots', 'abc', 'config.json'))
-    expect(breezeComplete(tts, process.platform, false)).toBe(false)
-    // One of the two shards its index names is missing.
-    weightsIn(tts, 'abc', [SHARDS[0]])
-    expect(breezeWeightsWhole(tts)).toBe(false)
-    touch(join(breezeWeightsDir(tts), 'snapshots', 'abc', SHARDS[1]))
-    expect(breezeComplete(tts, process.platform, false)).toBe(true)
-    // A file Hugging Face was still fetching when it stopped.
-    touch(join(breezeWeightsDir(tts), 'blobs', '9f8e7d.incomplete'))
-    expect(breezeComplete(tts, process.platform, false)).toBe(false)
-  })
-
   it('reads the snapshot the server loads: the one refs/main names', () => {
     weightsIn(dir, 'old')
     weightsIn(dir, 'new', [SHARDS[0]])
     touch(join(breezeWeightsDir(dir), 'refs', 'main'), 'new\n')
-    expect(breezeWeightsWhole(dir)).toBe(false)
+    expect(snapshotWith(breezeWeightsDir(dir), SHARDS)).toBeNull()
     touch(join(breezeWeightsDir(dir), 'refs', 'main'), 'old')
-    expect(breezeWeightsWhole(dir)).toBe(true)
+    expect(snapshotWith(breezeWeightsDir(dir), SHARDS)).toBe(join(breezeWeightsDir(dir), 'snapshots', 'old'))
   })
 
   it('finds Parakeet only with all four of its files in one folder, never one being unpacked', () => {
@@ -206,41 +185,5 @@ describe('what is downloaded', () => {
     expect(readManifest(join(dir, 'none.json'))).toEqual({})
     writeFileSync(join(dir, 'bad.json'), '{ not json')
     expect(readManifest(join(dir, 'bad.json'))).toEqual({})
-  })
-})
-
-describe('MCreader v2’s copy of the voices', () => {
-  it('is looked for where MCREADER_TTS_DIR says first, then where code is usually kept', () => {
-    const c = mcreaderCandidates({ MCREADER_TTS_DIR: '/x/tts' }, '/home/adam', 'linux')
-    expect(c[0]).toBe('/x/tts')
-    expect(c).toContain(join('/home/adam', 'mcreader-v2', 'tts'))
-    expect(c).toContain(join('/home/adam', 'Documents', 'GitHub', 'mcreader-v2', 'tts'))
-    expect(c.some((p) => p.startsWith('C:\\'))).toBe(false)
-    // A drive's own folder too, on Windows (C:\mcreader-v2\tts).
-    expect(mcreaderCandidates({}, 'C:\\Users\\Adam', 'win32').some((p) => /^C:\\[\\/]?mcreader-v2[\\/]tts$/.test(p))).toBe(true)
-    expect(mcreaderCandidates({ MCREADER_TTS_DIR: '/x/tts' }, '/home/adam', 'linux', false)).toEqual(['/x/tts'])
-  })
-
-  it('is used only when its voices are complete', () => {
-    const home = join(dir, 'home')
-    const tts = join(home, 'Documents', 'GitHub', 'mcreader-v2', 'tts')
-    touch(join(tts, 'requirements.txt'))
-    expect(findMCreader({}, home, 'linux')).toBeNull()
-    // Its voices downloading (or stopped part way): not offered.
-    touch(venvPython(join(tts, 'venvs', 'breeze'), 'linux'))
-    touch(join(breezeCodeDir(tts), 'breeze_infer', '__init__.py'))
-    touch(join(breezeWeightsDir(tts), 'snapshots', 'abc', 'config.json'))
-    expect(findMCreader({}, home, 'linux')).toBeNull()
-    voicesIn(tts, false)
-    expect(findMCreader({}, home, 'linux')).toBe(tts)
-    expect(findMCreader({}, home, 'linux', false)).toBeNull()
-  })
-
-  it('can be found from MCreader’s own folder or its tts folder', () => {
-    const app = join(dir, 'MCreader')
-    voicesIn(join(app, 'tts'), false)
-    expect(mcreaderVoicesIn(app)).toBe(join(app, 'tts'))
-    expect(mcreaderVoicesIn(join(app, 'tts'))).toBe(join(app, 'tts'))
-    expect(mcreaderVoicesIn(dir)).toBeNull()
   })
 })

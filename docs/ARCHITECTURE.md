@@ -462,7 +462,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   else from either repo, and never keys, tokens or voice clips. Helpers they lean on are written fresh.
   One local speech server (Python) speaks and listens: its source ships with the app; its Python
   environments and models download into the user data folder (`speech/`), never into the app, git, a world
-  folder or a backup. It listens on 127.0.0.1:8766; Settings may point at another server on this
+  folder or a backup. AI Write always installs and uses its own copy there, never another app's (Adam,
+  2 October 2026: no MCreader install is looked for or reused). It listens on 127.0.0.1:8766; Settings may point at another server on this
   computer, loopback only (`speech/url.ts`). It starts hidden with the app when "Start with AI Write" is
   on and stops as the app quits. Its routes are reached through IPC (the window never calls it directly).
   The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the

@@ -8,10 +8,9 @@
 // For the app's tests, AIWRITE_FAKE_SPEECH_INSTALL names a script run in place of every download step,
 // AIWRITE_FAKE_SPEECH_RUN one run in place of the server (tests/fake-speech/), AIWRITE_FAKE_SPEECH_PYTHON
 // ('missing' or 'manual') pretends Python isn't here, and AIWRITE_FAKE_SPEECH_GPU names the graphics card.
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, shell } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { lstat, readdir, rm } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { DictationModel, SpeechDownloadKind, SpeechStatus, SpeechStorage } from '@shared/contracts/speech'
 import { emit } from '../events'
@@ -21,8 +20,7 @@ import { getSettings, updateSettings } from '../settings'
 import { renameRetry, UserError } from '../util'
 import { speechFetch } from './client'
 import { Downloads } from './downloads'
-import { breezeComplete, installedNow, readManifest, writeManifest, type SpeechManifest } from './installed'
-import { findMCreader, mcreaderVoicesIn } from './mcreader'
+import { installedNow, readManifest, writeManifest } from './installed'
 import { PYTHON_PAGE, type Failure } from './output'
 import { breezeMark, speechPaths, venvPython, type SpeechPaths } from './paths'
 import { DROP_ENV, planFor, pythonStep, stepEnv, type Step } from './plan'
@@ -61,9 +59,8 @@ const sourceDir = (): string => (app.isPackaged ? join(process.resourcesPath, 's
 
 const manifestFile = (): string => join(userDataDir(), 'speech', 'installed.json')
 
-function paths(manifest: SpeechManifest = readManifest(manifestFile())): SpeechPaths {
-  return speechPaths(userDataDir(), sourceDir(), manifest.voices?.from === 'mcreader' ? manifest.voices.root : null)
-}
+/** Always AI Write's own speech folder: it never uses another app's copy of the speech engine or its voices. */
+const paths = (): SpeechPaths => speechPaths(userDataDir(), sourceDir())
 
 const speechSettings = () => getSettings().speech
 
@@ -90,7 +87,6 @@ let problemRepair = false
 let checked = false
 let nvidia: string | null = null
 let lookingForCard: Promise<void> | null = null
-let mcreader: string | null | undefined
 let poll: ReturnType<typeof setInterval> | null = null
 /** Environments to set up afresh at their next download: the speech engine asked for again (the repair), or a check step that failed. */
 const rebuild = new Set<'server' | 'voices'>()
@@ -108,7 +104,7 @@ function setProblem(text = '', repair = false): void {
 function status(): SpeechStatus {
   const s = speechSettings()
   const manifest = readManifest(manifestFile())
-  const p = paths(manifest)
+  const p = paths()
   return buildStatus({
     managed: !!s?.runServer,
     starting: !!starting || (!!s?.runServer && downloads.pending('server')),
@@ -118,7 +114,6 @@ function status(): SpeechStatus {
     picked: s?.dictationEngine ?? 'none',
     installed: installedNow(p, manifest),
     nvidia,
-    mcreader: mcreader ?? null,
     download: downloads.current,
     queued: [...downloads.queue],
     hfKey: hasSecret(HF_KEY),
@@ -167,15 +162,6 @@ function lookForCard(again = false): void {
   })().finally(() => {
     lookingForCard = null
   })
-}
-
-function lookForMCreader(): void {
-  const s = realSystem()
-  // The copy in use is remembered (installed.json), wherever it was found: by the search or by hand ("Find its folder…").
-  const v = readManifest(manifestFile()).voices
-  const inUse = v?.from === 'mcreader' && breezeComplete(v.root, s.platform, false) ? v.root : null
-  // The app's tests only look where MCREADER_TTS_DIR says, never in the real home folder.
-  mcreader = inUse ?? findMCreader(s.env, homedir(), s.platform, !fake.install())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -234,7 +220,7 @@ let usedPython = ''
 
 async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { failure: Failure }> {
   const manifest = readManifest(manifestFile())
-  const p = paths(manifest)
+  const p = paths()
   const fresh = (kind === 'server' || kind === 'voices') && rebuild.has(kind)
   // The server runs from its environment, so it stops while that is set up afresh (it starts again after).
   if (kind === 'server' && fresh) await stopServer()
@@ -242,7 +228,7 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
     // AI Write's own copy counts as downloaded again only once this download's last step has checked it.
     rmSync(breezeMark(p.home), { force: true })
     // The voices' worker runs from their environment: the server lets go of it first.
-    if (fresh && p.breezeRoot === p.home && health) {
+    if (fresh && health) {
       await speechFetch('/unload', { method: 'POST', timeoutMs: 15_000 }).catch(() => undefined)
     }
   }
@@ -323,7 +309,7 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   const file = manifestFile()
   const manifest = readManifest(file)
   const at = new Date().toISOString()
-  const before = paths(manifest)
+  const before = paths()
   if (kind === 'server') manifest.server = { at, python: usedPython || manifest.server?.python || '' }
   else if (kind === 'voices') manifest.voices = { at, from: 'own', root: before.home, gpu: result.gpu ?? '' }
   else manifest[kind] = { at }
@@ -340,9 +326,9 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
     if (s.runServer) void ensureRunning()
     else void refresh()
   }
-  // The server was running MCreader's copy: it runs AI Write's own from now on. Or their environment was set up
-  // afresh: it starts afresh too, rather than going on saying why the old one couldn't load them.
-  else if (kind === 'voices' && (before.breezeRoot !== before.home || afresh)) void restart()
+  // Their environment was set up afresh: the server starts afresh too, rather than going on saying why the old
+  // one couldn't load them.
+  else if (kind === 'voices' && afresh) void restart()
   else if ((kind === 'parakeet' || kind === 'whisper') && s.dictationEngine === kind && health) void useDictation(kind)
   // The server sees new files as they arrive: ask it again now rather than at the next check.
   else void refresh()
@@ -366,7 +352,6 @@ function launch(p: SpeechPaths, host: string, port: number) {
     PYTHONNOUSERSITE: '1',
     PYTHONPYCACHEPREFIX: join(p.cache, 'pycache'),
     AIWRITE_SPEECH_HOME: p.home,
-    AIWRITE_BREEZE_ROOT: p.breezeRoot,
     AIWRITE_DICTATION: speechSettings().dictationEngine,
     AIWRITE_PARENT_PID: String(process.pid),
     AIWRITE_APP_VERSION: app.getVersion(),
@@ -566,7 +551,6 @@ function deleteLater(dir: string): ReturnType<typeof setTimeout> {
 /** Called once at startup (src/main/index.ts): starts the speech server when "Start with AI Write" is on. */
 export function initSpeech(): void {
   deleteRemoved()
-  lookForMCreader()
   startPolling()
   if (speechSettings().runServer) void ensureRunning()
   else void refresh()
@@ -592,7 +576,6 @@ export async function getSpeechStatus(): Promise<SpeechStatus> {
 }
 
 export async function checkSpeech(): Promise<SpeechStatus> {
-  lookForMCreader()
   lookForCard(true)
   if (starting) return status()
   const h = await refresh(3000)
@@ -701,41 +684,6 @@ export async function installPython(): Promise<SpeechStatus> {
     downloads.start('server')
   })
   return status()
-}
-
-async function useVoicesFrom(tts: string): Promise<SpeechStatus> {
-  const file = manifestFile()
-  const manifest = readManifest(file)
-  manifest.voices = { at: new Date().toISOString(), from: 'mcreader', root: tts, gpu: manifest.voices?.gpu ?? '' }
-  mkdirSync(join(userDataDir(), 'speech'), { recursive: true })
-  writeManifest(file, manifest)
-  // The server reads where Breeze is as it starts.
-  if (server.running) void restart()
-  changed()
-  return status()
-}
-
-export async function useMCreaderVoices(): Promise<SpeechStatus> {
-  if (mcreader === undefined) lookForMCreader()
-  if (!mcreader)
-    throw new UserError('MCreader v2’s voices weren’t found on this computer. Find its folder in More, or download the voices.')
-  return useVoicesFrom(mcreader)
-}
-
-export async function findMCreaderVoices(): Promise<SpeechStatus> {
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  const opts = { title: 'Find MCreader v2’s folder', properties: ['openDirectory' as const] }
-  const picked = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
-  if (picked.canceled || !picked.filePaths[0]) return status()
-  const tts = mcreaderVoicesIn(picked.filePaths[0])
-  if (!tts) {
-    throw new UserError(
-      'MCreader v2’s voices aren’t complete in that folder. Pick MCreader v2’s own folder (the one with “tts” inside), after its voices have downloaded there.'
-    )
-  }
-  // Remembered as the copy in use (installed.json), so Check and the next start find it again.
-  mcreader = tts
-  return useVoicesFrom(tts)
 }
 
 export async function setHuggingFaceKey(input: string | null): Promise<SpeechStatus> {

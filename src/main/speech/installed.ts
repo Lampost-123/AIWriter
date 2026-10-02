@@ -11,8 +11,8 @@ import { breezeCodeDir, breezeMark, breezeWeightsDir, venvPython, type SpeechPat
 export interface SpeechManifest {
   /** The server's environment, made with this Python. */
   server?: { at: string; python: string }
-  /** The voices: AI Write's own copy (in the speech folder) or MCreader's (its tts folder), and the graphics card seen. */
-  voices?: { at: string; from: 'own' | 'mcreader'; root: string; gpu: string }
+  /** The voices: AI Write's own copy (in the speech folder), and the graphics card seen. Only `own` counts. */
+  voices?: { at: string; from: 'own'; root: string; gpu: string }
   parakeet?: { at: string }
   whisper?: { at: string }
 }
@@ -37,9 +37,6 @@ const isFile = (path: string): boolean => {
   }
 }
 
-/** Besides the shards its index names: what Breeze reads to speak (its tokenizer and the audio codec). */
-export const BREEZE_NEEDS = ['config.json', 'tokenizer.json', 'tokenizer_config.json', join('audio_tokenizer', 'model.safetensors')]
-const BREEZE_INDEX = 'model.safetensors.index.json'
 /** Whisper's English model (Systran/faster-whisper-base.en): every file faster-whisper reads. */
 export const WHISPER_FILES = ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']
 export const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
@@ -76,31 +73,14 @@ export function snapshotWith(cache: string, needs: readonly string[]): string | 
   return null
 }
 
-/** Breeze's weights at `root` look whole (a copy without AI Write's mark): every shard its index names and what speaking needs, nothing half-downloaded. */
-export function breezeWeightsWhole(root: string): boolean {
-  const cache = breezeWeightsDir(root)
-  if (halfDownloaded(cache)) return false
-  const snapshot = snapshotWith(cache, [...BREEZE_NEEDS, BREEZE_INDEX])
-  if (!snapshot) return false
-  try {
-    const index = JSON.parse(readFileSync(join(snapshot, BREEZE_INDEX), 'utf8')) as { weight_map?: Record<string, unknown> }
-    const shards = [...new Set(Object.values(index.weight_map ?? {}).map(String))]
-    return shards.length > 0 && shards.every((f) => isFile(join(snapshot, f)))
-  } catch {
-    return false
-  }
-}
-
 /**
- * Breeze can run from `root`: its environment, its code and all of its weights are there. AI Write's own copy
- * (`own`) counts once its last download step checked it and left its mark; MCreader v2's copy, which has no
- * mark, when its weights look whole.
+ * Breeze can run from `root`: its environment, its code and its weights are there, and the voices' last download
+ * step checked them and left its mark. AI Write only ever uses its own copy, in its speech folder.
  */
-export function breezeComplete(root: string, platform: NodeJS.Platform = process.platform, own = true): boolean {
+export function breezeComplete(root: string, platform: NodeJS.Platform = process.platform): boolean {
   if (!existsSync(venvPython(join(root, 'venvs', 'breeze'), platform))) return false
   if (!isDir(join(breezeCodeDir(root), 'breeze_infer'))) return false
-  if (own) return isFile(breezeMark(root)) && snapshotWith(breezeWeightsDir(root), ['config.json']) !== null
-  return breezeWeightsWhole(root)
+  return isFile(breezeMark(root)) && snapshotWith(breezeWeightsDir(root), ['config.json']) !== null
 }
 
 /** All four of Parakeet's files are in one folder under `dir` (itself, or one folder down as its archive unpacks). */
@@ -129,7 +109,8 @@ export function installedNow(
 ): SpeechStatus['installed'] {
   const server = !!manifest.server && existsSync(paths.python)
   const v = manifest.voices
-  const voices = v && breezeComplete(v.root, platform, v.from === 'own') ? v.from : null
+  // Only AI Write's own copy in its own speech folder: a test build once recorded MCreader's folder here.
+  const voices = v?.from === 'own' && breezeComplete(paths.home, platform) ? 'own' : null
   return {
     server,
     voices,

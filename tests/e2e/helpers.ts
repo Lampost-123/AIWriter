@@ -84,7 +84,7 @@ export async function openSettings(win: Page, tab: string): Promise<void> {
 
 /**
  * The test fixture: `launch()` starts the app; every app is closed afterwards, with a
- * screenshot of its window attached when the test failed, and temp data folders removed.
+ * screenshot of its window attached when the test failed, and their data folders removed.
  */
 export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<LaunchedApp> }>({
   // eslint-disable-next-line no-empty-pattern
@@ -93,7 +93,8 @@ export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<Laun
     const made = new Set<string>()
     await use(async (opts = {}) => {
       const a = await launchApp(opts)
-      if (!opts.dataDir) made.add(a.dataDir)
+      // Removed once the apps have closed: Windows won't delete files an app still has open.
+      made.add(a.dataDir)
       apps.push(a)
       return a
     })
@@ -107,7 +108,13 @@ export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<Laun
       }
       await a.close()
     }
-    for (const dir of made) rmSync(dir, { recursive: true, force: true })
+    for (const dir of made) {
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      } catch {
+        /* a file still held open on Windows: the temp folder is left for the system to clear */
+      }
+    }
   }
 })
 
