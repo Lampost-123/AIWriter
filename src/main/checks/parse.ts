@@ -15,36 +15,34 @@ import type { FoundIssue } from '../db/checks'
 import { parseLenient, str } from '../keeper/json'
 import { plain } from '../keeper/text'
 import { fieldValue } from '../keeper/facts'
-import { issueKey, KIND_OF_CHECK, sceneQuote } from './quote'
+import { issueKey, KIND_OF_CHECK, plainQuote, sceneQuote } from './quote'
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
 /** The reply's issues (each still to be checked), or why the reply can't be read. */
 export function readCheckReply(text: string): { ok: true; items: Record<string, unknown>[] } | { ok: false; why: string } {
-  const parsed = parseLenient(text)
-  if (!parsed.ok) {
-    // A bare list of issues is fine too.
-    const list = text.trim().match(/^\s*(?:```(?:json)?\s*)?(\[[\s\S]*\])/)
-    if (list) {
-      try {
-        const v = JSON.parse(list[1]) as unknown
-        if (Array.isArray(v)) return { ok: true, items: v.filter(isObj) }
-      } catch {
-        /* the reason below */
-      }
+  // A bare list of issues is fine too.
+  const list = text.trim().match(/^(?:```(?:json)?\s*)?(\[[\s\S]*\])\s*(?:```)?$/)
+  if (list) {
+    try {
+      const v = JSON.parse(list[1]) as unknown
+      if (Array.isArray(v)) return { ok: true, items: v.filter(isObj) }
+    } catch {
+      /* read as an object below */
     }
-    return parsed
   }
+  const parsed = parseLenient(text)
+  if (!parsed.ok) return parsed
   const v = parsed.value
   if (!isObj(v)) return { ok: false, why: 'it was not a JSON object' }
-  const list = v.issues ?? v.problems ?? v.findings
-  if (list === undefined) {
+  const issues = v.issues ?? v.problems ?? v.findings
+  if (issues === undefined) {
     if ('quote' in v && 'message' in v) return { ok: true, items: [v] }
     return { ok: false, why: 'it had no "issues" list' }
   }
-  if (list === null) return { ok: true, items: [] }
-  if (!Array.isArray(list)) return { ok: false, why: 'its "issues" was not a list' }
-  return { ok: true, items: list.filter(isObj) }
+  if (issues === null) return { ok: true, items: [] }
+  if (!Array.isArray(issues)) return { ok: false, why: 'its "issues" was not a list' }
+  return { ok: true, items: issues.filter(isObj) }
 }
 
 /** A check's name as the model may write it. */
@@ -155,7 +153,7 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
     if (entry) sources.push(entry.kind === 'thread' ? { kind: 'thread', entryId: entry.id, name: entry.name } : { kind: 'entry', entryId: entry.id, name: entry.name, field })
     if (scene) sources.push({ kind: 'scene', sceneId: scene.sceneId, label: scene.label })
     let fix = str(item.fix ?? item.rewrite, 2000) || null
-    if (fix && plain(fix) === plain(quote)) fix = null
+    if (fix && plainQuote(fix) === plainQuote(quote)) fix = null
     const memory = str(item.memory, 200)
     const text = str(item.text, 200)
     // The text is right and one of Adam's own notes is wrong: offered only for one value of a fact.
