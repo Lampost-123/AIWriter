@@ -39,6 +39,43 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
   return <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11.5px] font-medium', tones[tone], className)}>{children}</span>
 }
 
+/**
+ * One section of a Settings page (Models, Backups, About...). Every page uses it, so headings
+ * have one size, weight and spacing throughout Settings. `actions` sit to the right of the heading.
+ */
+export function SettingsSection({
+  title,
+  description,
+  badge,
+  actions,
+  children,
+  className
+}: {
+  title: ReactNode
+  description?: ReactNode
+  badge?: ReactNode
+  actions?: ReactNode
+  children?: ReactNode
+  className?: string
+}): React.JSX.Element {
+  return (
+    <section className={className}>
+      <div className="mb-3 flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg">{title}</h2>
+            {badge}
+          </div>
+          {description ? <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p> : null}
+        </div>
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/** A small label inside a card or panel (not a page section: use SettingsSection for those). */
 export function SectionTitle({ children, actions }: { children: ReactNode; actions?: ReactNode }): React.JSX.Element {
   return (
     <div className="mb-2 flex items-center justify-between">

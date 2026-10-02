@@ -9,6 +9,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
+import { UpdateBanner } from './UpdateBanner'
 
 function SaveIndicator(): React.JSX.Element {
   const state = useApp((s) => s.saveState)
@@ -163,7 +164,10 @@ export function TopBar(): React.JSX.Element {
         <PanelLeft size={16} />
       </IconButton>
       <WorldMenu />
-      <div className="flex-1" />
+      {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it. */}
+      <div className="flex min-w-0 flex-1 justify-center px-3">
+        <UpdateBanner />
+      </div>
       {view.kind === 'write' ? (
         <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
       ) : drafting ? (

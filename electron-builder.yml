@@ -9,18 +9,16 @@ directories:
   output: release
   buildResources: build
 
-# Only the built app goes in: electron-vite bundles everything except the runtime
-# dependencies (better-sqlite3, electron-updater, js-tiktoken), which electron-builder adds
-# from node_modules on its own.
-files:
-  - out/**
-  - package.json
-  - resources/**
-  - '!**/*.map'
-  - '!**/*.{test,spec}.{ts,js,mjs,cjs}'
-  # better-sqlite3 ships ready-made native builds in prebuilds/; its C sources aren't needed.
-  - '!node_modules/better-sqlite3/{deps,src,build}/**'
-  - '!node_modules/better-sqlite3/binding.gyp'
+# What goes into the app: only the built app (out/), package.json and resources/. electron-vite
+# bundles everything except the runtime dependencies (better-sqlite3, electron-updater,
+# js-tiktoken), which electron-builder adds from node_modules on its own.
+#
+# The list is in each platform block below (win, mac, linux) and not here: a platform's own
+# `files` REPLACES a top-level list instead of adding to it, so a block holding only exclusions
+# would let the whole project folder (src, tests, docs...) into the installer. Each block therefore
+# holds the full list, plus the exclusions for its own build of better-sqlite3. Never use a
+# ${platform} macro there: it means the machine building, not the one the installer is for.
+# better-sqlite3 ships ready-made native builds in prebuilds/; its C sources aren't needed.
 
 # better-sqlite3's native code can't load from inside the asar archive.
 asarUnpack:
@@ -41,11 +39,19 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
-  # Only the Windows build of the database engine goes into the Windows installer.
+  # The built app, and only the Windows build of the database engine (see the note at the top).
   files:
+    - out/**
+    - package.json
+    - resources/**
+    - '!**/*.map'
+    - '!**/*.{test,spec}.{ts,js,mjs,cjs}'
+    - '!node_modules/better-sqlite3/{deps,src,build}/**'
+    - '!node_modules/better-sqlite3/binding.gyp'
     - '!node_modules/better-sqlite3/prebuilds/{darwin,linux,linuxmusl}-*.node'
     - '!node_modules/better-sqlite3/prebuilds/win32-arm64.node'
     - '!node_modules/better-sqlite3/lib/{darwin,linux,linuxmusl}-*.js'
+    - '!node_modules/better-sqlite3/lib/win32-arm64.js'
 
 nsis:
   # One click: no wizard, no admin prompt, installs for Adam only and opens straight away.
@@ -67,7 +73,15 @@ mac:
   icon: build/icon.png
   category: public.app-category.productivity
   files:
+    - out/**
+    - package.json
+    - resources/**
+    - '!**/*.map'
+    - '!**/*.{test,spec}.{ts,js,mjs,cjs}'
+    - '!node_modules/better-sqlite3/{deps,src,build}/**'
+    - '!node_modules/better-sqlite3/binding.gyp'
     - '!node_modules/better-sqlite3/prebuilds/{win32,linux,linuxmusl}-*.node'
+    - '!node_modules/better-sqlite3/lib/{win32,linux,linuxmusl}-*.js'
 dmg:
   artifactName: AI-Write-${version}-${arch}.dmg
 
@@ -77,7 +91,15 @@ linux:
   icon: build/icon.png
   category: Office
   files:
+    - out/**
+    - package.json
+    - resources/**
+    - '!**/*.map'
+    - '!**/*.{test,spec}.{ts,js,mjs,cjs}'
+    - '!node_modules/better-sqlite3/{deps,src,build}/**'
+    - '!node_modules/better-sqlite3/binding.gyp'
     - '!node_modules/better-sqlite3/prebuilds/{win32,darwin}-*.node'
+    - '!node_modules/better-sqlite3/lib/{win32,darwin}-*.js'
 
 publish:
   provider: github

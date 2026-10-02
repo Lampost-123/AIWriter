@@ -6,6 +6,7 @@ import type { Story, StyleGuide, World, WritingPrefs } from '@shared/types'
 import { Button, EmptyState, Field, Input, Notice, Spinner, Tabs, TabsContent, TabsList } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
+import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { createDraftCache } from '@/features/world/parts/draftCache'
 import { SaveNote } from '@/features/world/parts/SaveNote'
@@ -183,6 +184,11 @@ interface StoryDraft {
   style: StyleGuide
 }
 const storyDrafts = createDraftCache<StoryDraft>()
+// After a backup is restored these copies are from the world before it: never write them back.
+registerDiscarder(() => {
+  worldDrafts.clear()
+  storyDrafts.clear()
+})
 
 function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; prefs: WritingPrefs }): React.JSX.Element {
   const [draft, setDraftState] = useState<StoryDraft>(

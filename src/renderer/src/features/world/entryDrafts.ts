@@ -4,8 +4,11 @@
 // back) older text.
 
 import type { Entry, ID } from '@shared/types'
+import { registerDiscarder } from '@/lib/flush'
 
 const drafts = new Map<ID, Entry>()
+// After a backup is restored these copies are from the world before it: never write them back.
+registerDiscarder(() => drafts.clear())
 
 export const getDraft = (id: ID): Entry | undefined => drafts.get(id)
 

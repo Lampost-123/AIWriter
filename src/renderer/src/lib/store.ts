@@ -37,6 +37,8 @@ interface AppState {
   activeGeneration: { id: ID; sceneId: ID } | null
   /** The scene panel's open tab, kept while moving between pages. */
   inspectorTab: InspectorTab
+  /** A backup is being restored: the workspace takes no input until the world has reloaded. */
+  restoring: boolean
 
   init(): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
@@ -112,6 +114,7 @@ export const useApp = create<AppState>((set, get) => ({
   entriesRev: 0,
   activeGeneration: null,
   inspectorTab: 'card',
+  restoring: false,
 
   async init() {
     const settings = await api.getSettings()

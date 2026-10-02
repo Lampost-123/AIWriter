@@ -72,6 +72,9 @@ jobs:
       - name: Build the installer
         run: npm run dist:win
 
+      - name: Check the installer holds only the app
+        run: node build/check-package.mjs release/win-unpacked/resources/app.asar --native win32-x64
+
       - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:

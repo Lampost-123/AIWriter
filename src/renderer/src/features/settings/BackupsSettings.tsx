@@ -2,11 +2,12 @@ import { Archive, Clock, DoorOpen, Folder, FolderOpen, Hand, History, RotateCcw,
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import type { BackupFolderStatus, BackupInfo } from '@shared/types'
-import { Button, Card, EmptyState, Notice, SectionTitle, toast } from '@/components/ui'
+import { Button, Card, EmptyState, Notice, SettingsSection, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
-import { flushAll } from '@/lib/flush'
+import { discardAll, flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
 
 const REASON_ICONS: Record<BackupInfo['reason'], ReactNode> = {
@@ -34,20 +35,26 @@ function useDelayed(on: boolean, ms = 200): boolean {
 }
 
 /** Reloads everything after the world's database was swapped for a backup. */
-async function reloadAfterRestore(): Promise<void> {
-  const before = useApp.getState().outlineRev
-  await useApp.getState().init()
-  // init() starts the outline count again from 0, so a plain bump could land back on the old
-  // value and views watching it would never reload. Move it strictly past where it was.
-  useApp.setState((s) => ({ outlineRev: Math.max(s.outlineRev, before) + 1 }))
-  useApp.getState().bumpEntries()
-  // Undo runs while the scene is open, and init() hands back the same scene id, so the editor
-  // would keep showing (and later save) the text from before. Mount it afresh so it loads the
-  // restored text. Both changes land in the same task, so nothing flashes.
-  const { sceneId } = useApp.getState()
-  if (sceneId) {
-    flushSync(() => useApp.setState({ sceneId: null }))
-    useApp.setState({ sceneId })
+async function reloadAfterRestore(refocus: boolean): Promise<void> {
+  // Whatever the open views still hold is from before the restore: drop it, never save it.
+  discardAll()
+  try {
+    const before = useApp.getState().outlineRev
+    await useApp.getState().init()
+    // init() starts the outline count again from 0, so a plain bump could land back on the old
+    // value and views watching it would never reload. Move it strictly past where it was.
+    useApp.setState((s) => ({ outlineRev: Math.max(s.outlineRev, before) + 1 }))
+    useApp.getState().bumpEntries()
+  } finally {
+    // The editor on screen was let go of above, and init() hands back the same scene id, so it
+    // would keep showing the text from before. Mount it afresh (even if reloading failed) so it
+    // loads the restored text. Both changes land in the same task, so nothing flashes.
+    const { sceneId } = useApp.getState()
+    if (sceneId) {
+      if (refocus) requestEditorFocus(sceneId)
+      flushSync(() => useApp.setState({ sceneId: null }))
+      useApp.setState({ sceneId })
+    }
   }
 }
 
@@ -59,16 +66,38 @@ async function recheckWorld(): Promise<void> {
 
 const DRAFT_RUNNING = 'A draft is being written. Stop it or let it finish, then restore.'
 
-async function restore(id: string, when: string): Promise<void> {
+/** Keys pressed while the world's file is being swapped go nowhere (no shortcut, no typing). */
+const swallowKey = (e: KeyboardEvent): void => {
+  e.preventDefault()
+  e.stopImmediatePropagation()
+}
+
+/**
+ * Swaps the world's file for a backup with the workspace closed to input, so nothing typed
+ * meanwhile can be saved into the wrong copy of the world. Everything is saved first.
+ */
+async function restoreAndReload(id: string): Promise<void> {
   if (useApp.getState().activeGeneration) throw new Error(DRAFT_RUNNING)
-  await flushAll()
-  await api.restoreBackup(id)
+  const refocus = !!(document.activeElement as HTMLElement | null)?.closest?.('.scene-prose')
+  flushSync(() => useApp.setState({ restoring: true }))
+  window.addEventListener('keydown', swallowKey, true)
+  try {
+    await flushAll()
+    await api.restoreBackup(id)
+    await reloadAfterRestore(refocus)
+  } finally {
+    window.removeEventListener('keydown', swallowKey, true)
+    useApp.setState({ restoring: false })
+  }
+}
+
+async function restore(id: string, when: string): Promise<void> {
+  await restoreAndReload(id)
   // The restore has happened: from here on nothing may turn it into an error.
   const safety = await api
     .listBackups()
     .then((list) => list.find((b) => b.reason === 'before-restore'))
     .catch(() => undefined)
-  await reloadAfterRestore()
   toast(`Restored the backup from ${inSentence(when)}. Your work from before is saved as a backup too.`, {
     tone: 'success',
     action: safety
@@ -77,10 +106,7 @@ async function restore(id: string, when: string): Promise<void> {
           run: () => {
             void (async () => {
               try {
-                if (useApp.getState().activeGeneration) throw new Error(DRAFT_RUNNING)
-                await flushAll()
-                await api.restoreBackup(safety.id)
-                await reloadAfterRestore()
+                await restoreAndReload(safety.id)
                 toast('Undone. Your world is back to how it was before the restore.', { tone: 'success' })
               } catch (e) {
                 toast((e as Error).message, { tone: 'danger' })
@@ -111,7 +137,7 @@ export function BackupsSettings(): React.JSX.Element {
     )
   }
   return (
-    <div className={cn('flex flex-col gap-8', !settled && !late && 'invisible')}>
+    <div className={cn('flex flex-col gap-9', !settled && !late && 'invisible')}>
       <BackupList worldId={world.id} worldName={world.name} onSettled={() => setListReady(true)} />
       <SecondFolder onSettled={() => setFolderReady(true)} />
     </div>
@@ -190,18 +216,15 @@ function BackupList({ worldId, worldName, onSettled }: { worldId: string; worldN
   }
 
   return (
-    <section>
-      <div className="mb-3 flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="truncate text-[14.5px] font-semibold text-fg">Backups of {worldName}</h2>
-          <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-            Made when you open the world and every 30 minutes while you write. The last 20 are kept, plus one a day for 30 days.
-          </p>
-        </div>
+    <SettingsSection
+      title={`Backups of ${worldName}`}
+      description="Made when you open the world and every 30 minutes while you write. The last 20 are kept, plus one a day for 30 days."
+      actions={
         <Button icon={<Archive size={14} />} loading={busy} disabled={!!restoringId} onClick={() => void backUpNow()}>
           Back up now
         </Button>
-      </div>
+      }
+    >
 
       {error ? (
         <Notice
@@ -259,7 +282,7 @@ function BackupList({ worldId, worldName, onSettled }: { worldId: string; worldN
           </ul>
         </Card>
       )}
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -427,8 +450,7 @@ function SecondFolder({ onSettled }: { onSettled: () => void }): React.JSX.Eleme
   }
 
   return (
-    <section>
-      <SectionTitle>Second backup folder</SectionTitle>
+    <SettingsSection title="Second backup folder">
       <Card className="p-4">
         {status === null ? (
           <div className="h-[60px]" />
@@ -482,6 +504,6 @@ function SecondFolder({ onSettled }: { onSettled: () => void }): React.JSX.Eleme
           </div>
         ) : null}
       </Card>
-    </section>
+    </SettingsSection>
   )
 }

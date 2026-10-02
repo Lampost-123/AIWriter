@@ -16,6 +16,27 @@ export async function flushAll(): Promise<void> {
   await Promise.allSettled([...flushers].map((fn) => fn()))
 }
 
+// After a backup is restored, the world's file has been swapped underneath the open
+// views. Anything still holding changes from before must drop them rather than save
+// them into the restored world. Discarders run just before those views reload.
+
+const discarders = new Set<() => void>()
+
+export function registerDiscarder(fn: () => void): () => void {
+  discarders.add(fn)
+  return () => discarders.delete(fn)
+}
+
+export function discardAll(): void {
+  for (const fn of [...discarders]) {
+    try {
+      fn()
+    } catch {
+      /* one view failing to let go must not stop the others */
+    }
+  }
+}
+
 /**
  * Before the open world changes: stops a draft that is still being written, so its last
  * words are in the page (and saved) before the world closes, then saves everything.

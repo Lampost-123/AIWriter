@@ -6,7 +6,7 @@ import type { ID, SceneStatus } from '@shared/types'
 import { Button, EmptyState, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge, setEditorBridge } from '@/lib/editorBridge'
-import { registerFlusher } from '@/lib/flush'
+import { registerDiscarder, registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
@@ -79,6 +79,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     ctrlRef.current = ctrl
     setEditorBridge(ctrl.bridge)
     const offFlush = registerFlusher(() => ctrl.flush())
+    const offDiscard = registerDiscarder(() => ctrl.discard())
     const offFocus = onFocusRequest(() => {
       // While another page covers the writing view, the request waits for it to come back.
       if (useApp.getState().view.kind !== 'write') return
@@ -86,6 +87,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     })
     return () => {
       offFocus()
+      offDiscard()
       if (editorBridge() === ctrl.bridge) setEditorBridge(null)
       ctrl.destroy()
       ctrlRef.current = null

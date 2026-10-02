@@ -498,6 +498,35 @@ export class SceneController {
       void s.close()
     }
   }
+
+  /**
+   * Lets go of the editor without saving anything: a backup was just restored, so whatever
+   * the sessions hold is from before it and must not be written over the restored world
+   * (now, or later from a recovery file). The view reloads the restored text afterwards.
+   */
+  discard(): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.editor.off('update', this.onUpdate)
+    this.words.cancel()
+    this.follow.stop()
+    if (this.stream) {
+      const id = this.stream.generationId
+      this.stream = null
+      void api.stopGeneration(id).catch(() => undefined)
+    }
+    const sessions = [...this.leaving, ...(this.session ? [this.session] : [])]
+    this.session = null
+    this.leaving.clear()
+    for (const s of sessions) {
+      s.dispose()
+      void api.clearRecovery(s.id).catch(() => undefined)
+    }
+    this.reportSaveState()
+    const waiters = this.idleWaiters
+    this.idleWaiters = []
+    waiters.forEach((fn) => fn())
+  }
 }
 
 /** Puts back writing that was typed but not saved before the app last closed unexpectedly. */

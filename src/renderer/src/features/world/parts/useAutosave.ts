@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { toast } from '@/components/ui'
-import { registerFlusher } from '@/lib/flush'
+import { registerDiscarder, registerFlusher } from '@/lib/flush'
 import { Saver, type SaveStatus } from './saver'
 
 export interface Autosave<T> {
@@ -49,9 +49,12 @@ export function useAutosave<T>(save: (value: T) => Promise<unknown>, opts: { del
     // Waits a moment first, so other flushers that hand this form a last change
     // (a phrase typed but not yet added) are written in the same flush.
     const unregister = registerFlusher(() => Promise.resolve().then(() => saver.flush()))
+    // A backup was restored: a change from before must not be written into the restored world.
+    const unregisterDiscard = registerDiscarder(() => saver.cancel())
     return () => {
       mounted.current = false
       unregister()
+      unregisterDiscard()
       void saver.flush()
     }
   }, [saver])

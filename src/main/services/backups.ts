@@ -13,7 +13,7 @@ import * as repo from '../db/repo'
 import { purgeTrash } from '../db/trash'
 import { emit } from '../events'
 import { getSettings, updateSettings } from '../settings'
-import { now, UserError } from '../util'
+import { now, renameRetrySync, UserError } from '../util'
 import { currentWorld, maybeCurrentWorld, onWorldOpened, openWorld, reopenCurrent, worldDbPath, type OpenWorld } from '../world'
 import {
   checkBackupFile,
@@ -22,7 +22,6 @@ import {
   listBackupFiles,
   pruneBackups,
   removeStalePartials,
-  renameRetrySync,
   writeBackup,
   writeBackupSync,
   type BackupFile,

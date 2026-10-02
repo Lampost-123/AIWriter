@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import type { Creativity, ID, ModelChoice, ModelInfo, ProviderConfig } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
 import { isLocalUrl } from '@shared/urls'
-import { Badge, Button, Card, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
+import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
@@ -94,18 +94,6 @@ export function ModelsSettings(): React.JSX.Element {
 }
 
 // ---------- Pieces ----------
-
-function SectionHead({ title, children, badge }: { title: string; children?: ReactNode; badge?: ReactNode }): React.JSX.Element {
-  return (
-    <div className="mb-3">
-      <div className="flex items-center gap-2">
-        <h2 className="text-[15px] font-semibold text-fg">{title}</h2>
-        {badge}
-      </div>
-      {children ? <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{children}</p> : null}
-    </div>
-  )
-}
 
 function ResultNotice({ result }: { result: TestResult | undefined }): React.JSX.Element | null {
   if (!result) return null
@@ -339,10 +327,10 @@ function OtherProviders({
   }
 
   return (
-    <section>
-      <SectionHead title="Other providers">
-        Any service that works like OpenAI's: OpenAI, DeepSeek, Mistral, Groq and others, or models running on this computer through LM Studio or Ollama.
-      </SectionHead>
+    <SettingsSection
+      title="Other providers"
+      description="Any service that works like OpenAI's: OpenAI, DeepSeek, Mistral, Groq and others, or models running on this computer through LM Studio or Ollama."
+    >
       <div className="flex flex-col gap-2">
         {providers.map((p) =>
           editing === p.id ? (
@@ -415,7 +403,7 @@ function OtherProviders({
           </div>
         )}
       </div>
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -590,8 +578,7 @@ function WriterModel({
   }
 
   return (
-    <section>
-      <SectionHead title="Writer model">The model that drafts your scenes. Pick one with the best prose you can afford; you can switch any time.</SectionHead>
+    <SettingsSection title="Writer model" description="The model that drafts your scenes. Pick one with the best prose you can afford; you can switch any time.">
       {!providers.length ? (
         <Notice>Connect OpenRouter or add a provider above, then pick the model that writes your scenes here.</Notice>
       ) : writer && writerProvider && !picking ? (
@@ -640,7 +627,7 @@ function WriterModel({
           onCancel={writer && writerProvider ? () => setPicking(false) : undefined}
         />
       )}
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -898,10 +885,12 @@ function DefaultCreativity(): React.JSX.Element {
   const creativity = useApp((s) => s.settings?.creativity ?? 'balanced')
   const update = useApp((s) => s.updateSettings)
   return (
-    <section>
-      <SectionHead title="Default creativity">How freely the writer model plays with words and ideas. You can change it for any draft from the Generate options.</SectionHead>
+    <SettingsSection
+      title="Default creativity"
+      description="How freely the writer model plays with words and ideas. You can change it for any draft from the Generate options."
+    >
       <Segmented label="Default creativity" value={creativity} onChange={(c) => void update({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-[360px]" />
       <p className="mt-2 text-[12.5px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
-    </section>
+    </SettingsSection>
   )
 }

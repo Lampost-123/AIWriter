@@ -27,7 +27,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-const { renameRetry, renameRetrySync } = await import('../../src/main/services/backupFiles')
+const { renameRetry, renameRetrySync } = await import('../../src/main/util')
 const { existsSync, mkdtempSync, writeFileSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join } = await import('node:path')

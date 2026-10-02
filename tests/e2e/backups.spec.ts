@@ -89,6 +89,64 @@ test('a restore reopens this very world, and a locked file leaves it open and un
   expect(readdirSync(world.folder).filter((f) => f.includes('.restoring') || f.includes('.putback'))).toEqual([])
 })
 
+test('typing while a restore is undone never writes the old page over the restored world', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Undo Race')
+  const story = (await invoke(win, 'listStories'))[0]!
+  const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0]!.id
+  const prose = win.locator('.scene-prose')
+  const saved = async (): Promise<string> => (await invoke(win, 'getScene', sceneId)).text
+
+  await prose.click()
+  await win.keyboard.type('Version A.')
+  await expect.poll(saved).toBe('Version A.')
+  const backupA = await invoke(win, 'backupNow')
+  await prose.click()
+  await win.keyboard.press('End')
+  await win.keyboard.type(' Version B.')
+  await expect.poll(saved).toBe('Version A. Version B.')
+
+  await openSettings(win, 'Backups')
+  const row = win.locator(`li[data-backup-id="${backupA.id}"]`)
+  await row.getByRole('button', { name: /^Restore the backup from/ }).click()
+  await row.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(win.getByText(/Restored the backup from/)).toBeVisible()
+  await expect(prose).toHaveText('Version A.')
+
+  // A restore takes a while on a big world (here: reading the backup is held up for a moment).
+  await app.evaluate(() => {
+    const fsp = (process as unknown as { mainModule: NodeJS.Module }).mainModule.require('node:fs/promises') as typeof import('node:fs/promises')
+    const real = fsp.copyFile
+    ;(globalThis as Record<string, unknown>).__realCopy = real
+    fsp.copyFile = (async (from: string, to: string) => {
+      if (String(to).endsWith('.restoring')) await new Promise((r) => setTimeout(r, 300))
+      return real(from, to)
+    }) as typeof fsp.copyFile
+  })
+  // Adam clicks Undo and goes straight back to typing in the page.
+  await win.evaluate(`(() => {
+    ;[...document.querySelectorAll('button')].find((b) => b.textContent === 'Undo').click()
+    document.querySelector('.scene-prose').focus()
+  })()`)
+  await win.keyboard.type(' xyz', { delay: 30 })
+  await expect(win.getByText(/^Undone/)).toBeVisible()
+  await app.evaluate(() => {
+    const fsp = (process as unknown as { mainModule: NodeJS.Module }).mainModule.require('node:fs/promises') as typeof import('node:fs/promises')
+    fsp.copyFile = (globalThis as Record<string, unknown>).__realCopy as typeof fsp.copyFile
+  })
+
+  // The world is back to how it was before the restore, and stays so: nothing typed during the
+  // swap was saved over it, and the page shows it.
+  await expect(prose).toHaveText('Version A. Version B.')
+  await win.waitForTimeout(1500)
+  expect(await saved()).toBe('Version A. Version B.')
+  // The page has the keyboard again, so writing carries on.
+  await expect(prose).toBeFocused()
+  await win.keyboard.press('End')
+  await win.keyboard.type(' C.')
+  await expect.poll(saved).toBe('Version A. Version B. C.')
+})
+
 test('reopening backs up a world that changed, and leaves an unchanged one alone', async ({ launch }) => {
   const first = await launch()
   await createWorldFromWelcome(first.win, 'Changes')

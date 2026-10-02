@@ -2,7 +2,7 @@ import { BookOpen, CircleCheck, Download, ExternalLink, FolderOpen, Info, Refres
 import { useEffect, useState } from 'react'
 import type { AppInfo, UpdateStatus } from '@shared/types'
 import { RELEASES_URL } from '@shared/defaults'
-import { Button, Card, SectionTitle, Spinner, toast } from '@/components/ui'
+import { Button, Card, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
@@ -23,7 +23,7 @@ export function AboutSettings(): React.JSX.Element {
   }, [])
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-9">
       <Card className="flex items-center gap-4 p-5">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-fg shadow-soft">
           <BookOpen size={24} />
@@ -89,8 +89,7 @@ function Updates(): React.JSX.Element {
   const busy = status?.state === 'checking' || status?.state === 'downloading'
 
   return (
-    <section>
-      <SectionTitle>Updates</SectionTitle>
+    <SettingsSection title="Updates">
       <Card className="p-4">
         <div className="flex min-h-[40px] items-center gap-3">
           <StatusIcon status={status} />
@@ -120,7 +119,7 @@ function Updates(): React.JSX.Element {
           </div>
         ) : null}
       </Card>
-    </section>
+    </SettingsSection>
   )
 }
 
@@ -228,13 +227,11 @@ function LibraryFolder({ info, onChanged }: { info: AppInfo | null; onChanged: (
   }
 
   return (
-    <section>
-      <SectionTitle>Library folder</SectionTitle>
+    <SettingsSection
+      title="Library folder"
+      description="Where your worlds are kept. Each world is a folder you can copy to move it to another computer or keep a copy by hand. Your API keys are never stored here."
+    >
       <Card className="p-4">
-        <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
-          Where your worlds are kept. Each world is a folder you can copy to move it to another computer or keep a copy by hand. Your API keys are never
-          stored here.
-        </p>
         <div className="flex flex-col gap-2">
           <div className="flex min-h-8 items-center rounded-md border border-line bg-page px-2.5 py-1.5 text-[13px] text-fg" title={info?.libraryPath}>
             <span className="break-all">{info?.libraryPath ?? ' '}</span>
@@ -249,6 +246,6 @@ function LibraryFolder({ info, onChanged }: { info: AppInfo | null; onChanged: (
           </div>
         </div>
       </Card>
-    </section>
+    </SettingsSection>
   )
 }

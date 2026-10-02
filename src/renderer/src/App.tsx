@@ -8,7 +8,6 @@ import { useTheme } from '@/lib/theme'
 import { ResizablePane } from '@/layout/ResizablePane'
 import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
-import { UpdateBanner } from '@/layout/UpdateBanner'
 import { Welcome } from '@/features/welcome/Welcome'
 import { Binder } from '@/features/binder/Binder'
 import { SceneView } from '@/features/editor/SceneView'
@@ -22,6 +21,8 @@ export function App(): React.JSX.Element | null {
   const init = useApp((s) => s.init)
   const settings = useApp((s) => s.settings)
   const world = useApp((s) => s.world)
+  // While a backup is being restored nothing can be clicked, focused or typed into (see BackupsSettings).
+  const restoring = useApp((s) => s.restoring)
 
   useTheme(settings?.theme)
   useEffect(() => {
@@ -40,7 +41,7 @@ export function App(): React.JSX.Element | null {
   if (!loaded) return null
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
       {world ? <Workspace /> : <NoWorld />}
       <Toaster />
     </div>
@@ -73,7 +74,6 @@ function Workspace(): React.JSX.Element {
   return (
     <>
       <TopBar />
-      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         <ResizablePane
           side="left"

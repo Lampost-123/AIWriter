@@ -10,9 +10,12 @@ import { cn } from '@/lib/cn'
 /** The version Adam said "Later" to, remembered for this run of the app. */
 let laterFor: string | null = null
 
+const pillButton = 'h-7 rounded-full hover:bg-accent/10'
+
 /**
- * A slim bar under the top bar, shown only when an update has downloaded. It opens and closes
- * smoothly, and never restarts the app by itself.
+ * A small note in the top bar's free middle, shown only when an update has downloaded. It sits in
+ * space that is always there and only fades in and out, so nothing on the page ever moves for it.
+ * It never restarts the app by itself.
  */
 export function UpdateBanner(): React.JSX.Element | null {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
@@ -51,49 +54,53 @@ export function UpdateBanner(): React.JSX.Element | null {
     setLater(laterFor)
   }
 
-  const firstLine = ready?.notes.split('\n')[0]?.replace(/^•\s*/, '') ?? ''
+  if (!ready) return null
+  const sentence = `A new version of AI Write is ready (${ready.version}).`
 
   return (
     <div
-      className={cn('grid shrink-0 transition-[grid-template-rows] duration-200 ease-out', show ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}
+      role="status"
       aria-hidden={!show}
       inert={!show}
+      className={cn(
+        'flex h-8 min-w-0 max-w-full items-center gap-0.5 rounded-full border border-accent/25 bg-accent-soft pl-3 pr-0.5 text-[12.5px]',
+        'transition-[opacity,visibility] duration-200 ease-out',
+        show ? 'opacity-100 animate-fade-in' : 'invisible opacity-0'
+      )}
     >
-      {/* visibility flips only after the collapse has finished, so it closes smoothly. */}
-      <div className={cn('min-h-0 overflow-hidden transition-[visibility] duration-200', !show && 'invisible')}>
-        <div role="status" className="flex h-10 items-center gap-3 border-b border-line bg-accent-soft px-4 text-[13px]">
-          <Sparkles size={15} className="shrink-0 text-accent" />
-          <p className="flex min-w-0 flex-1 items-baseline gap-2">
-            <span className="shrink-0 font-medium text-fg">A new version of AI Write is ready{ready ? ` (${ready.version})` : ''}.</span>
-            {firstLine ? <span className="truncate text-muted">{firstLine}</span> : null}
-          </p>
-          {ready?.notes ? (
-            <P.Root>
-              <P.Trigger asChild>
-                <Button size="sm" variant="ghost">
-                  What's new
-                </Button>
-              </P.Trigger>
-              <P.Portal>
-                <P.Content
-                  align="end"
-                  sideOffset={6}
-                  className="z-50 w-[360px] rounded-lg border border-line bg-surface p-3.5 shadow-pop data-[state=open]:animate-pop-in"
-                >
-                  <p className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">What's new in {ready.version}</p>
-                  <p className="max-h-64 overflow-auto whitespace-pre-line text-[13px] leading-relaxed text-fg">{ready.notes}</p>
-                </P.Content>
-              </P.Portal>
-            </P.Root>
-          ) : null}
-          <Button size="sm" variant="ghost" onClick={dismiss}>
-            Later
-          </Button>
-          <Button size="sm" variant="primary" loading={restarting} onClick={() => void restart()}>
-            Restart to update
-          </Button>
-        </div>
-      </div>
+      <Sparkles size={14} className="shrink-0 text-accent" aria-hidden />
+      <span className="ml-1.5 mr-1 min-w-0 truncate font-medium text-fg" title={sentence}>
+        <span className="hidden xl:inline">{sentence}</span>
+        <span className="xl:hidden">Update ready</span>
+      </span>
+      {ready.notes ? (
+        // On a narrow window the notes stay on Settings › About and updates.
+        <span className="hidden lg:contents">
+          <P.Root>
+            <P.Trigger asChild>
+              <Button size="sm" variant="ghost" className={pillButton}>
+                What's new
+              </Button>
+            </P.Trigger>
+            <P.Portal>
+              <P.Content
+                align="center"
+                sideOffset={8}
+                className="z-50 w-[360px] rounded-lg border border-line bg-surface p-3.5 shadow-pop data-[state=open]:animate-pop-in"
+              >
+                <p className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">What's new in {ready.version}</p>
+                <p className="max-h-64 overflow-auto whitespace-pre-line text-[13px] leading-relaxed text-fg">{ready.notes}</p>
+              </P.Content>
+            </P.Portal>
+          </P.Root>
+        </span>
+      ) : null}
+      <Button size="sm" variant="ghost" className={pillButton} onClick={dismiss}>
+        Later
+      </Button>
+      <Button size="sm" variant="primary" className="h-7 rounded-full" loading={restarting} onClick={() => void restart()}>
+        Restart to update
+      </Button>
     </div>
   )
 }

@@ -59,6 +59,23 @@ src/renderer/src/
 - **Never lose a keystroke.** Anything holding unsaved work registers with
   `registerFlusher` (`lib/flush.ts`); it runs before the window closes and before switching worlds.
 
+## Releases and updates
+
+- `.github/workflows/release.yml` publishes the installer to GitHub Releases of
+  Lampost-123/AIWriter when a tag `vX.Y.Z` matching `version` in package.json is pushed.
+  CI also builds one on every push (the run's Artifacts) and checks it holds only the app
+  (`build/check-package.mjs`).
+- Installed copies look for updates there (electron-updater, `publish` in electron-builder.yml)
+  **without a token**, so the releases must be readable by anyone: the repository has to be
+  public, or the installers published to a separate public releases repository (point `publish`
+  at it and give the release workflow a token that can write there; never put a token in
+  electron-builder.yml, it would ship inside the app). While the releases can't be read,
+  installed copies say "Automatic updates aren't set up yet".
+- In electron-builder.yml each platform's `files` list is complete: a platform list replaces the
+  top-level one rather than adding to it.
+- The installer isn't code-signed yet, so Windows shows "Windows protected your PC" when it is
+  first run; the README says what to click.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

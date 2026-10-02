@@ -1,16 +1,41 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
 import { join } from 'node:path'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import * as repo from '../db/repo'
 import * as world from '../world'
 import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
 import { userDataDir } from '../paths'
-import { readJson, UserError, writeFileAtomic } from '../util'
+import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
+const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
+
+/** Writes and clears of one recovery file run one at a time, in the order they were asked for. */
+const recoveryQueue = new Map<string, Promise<void>>()
+function inOrder(file: string, fn: () => Promise<void> | void): Promise<void> {
+  const run = (recoveryQueue.get(file) ?? Promise.resolve()).then(fn)
+  const settled = run.catch(() => undefined)
+  recoveryQueue.set(file, settled)
+  void settled.then(() => {
+    if (recoveryQueue.get(file) === settled) recoveryQueue.delete(file)
+  })
+  return run
+}
+
+/** Removes temp files left by a recovery write the app quit or crashed in the middle of. */
+function removeStaleTemps(dir: string): void {
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.tmp')) continue
+    try {
+      if (Date.now() - statSync(join(dir, f)).mtimeMs > 60_000) rmSync(join(dir, f), { force: true })
+    } catch {
+      /* gone already, or in use: try again next time */
+    }
+  }
+}
 
 type CoreMethods =
   | 'getAppInfo' | 'getSettings' | 'updateSettings' | 'getWritingPrefs' | 'setWritingPrefs' | 'chooseLibraryFolder'
@@ -103,17 +128,19 @@ export const coreHandlers: Handlers<CoreMethods> = {
   restoreDeleted: (kind, id) => write(() => repo.restoreDeleted(world.db(), kind, id)),
   listDeleted: () => repo.listDeleted(world.db()),
 
-  writeRecovery: (item) => {
-    writeFileAtomic(join(recoveryDir(), `${item.sceneId}.json`), JSON.stringify(item))
-  },
+  // Rewritten every half second or so while Adam types, so it never blocks the app: a file
+  // held by antivirus is waited for in the background.
+  writeRecovery: (item) => inOrder(recoveryFile(item.sceneId), () => writeFileAtomicAsync(recoveryFile(item.sceneId), JSON.stringify(item))),
   listRecovery: () => {
     mkdirSync(recoveryDir(), { recursive: true })
+    removeStaleTemps(recoveryDir())
     return readdirSync(recoveryDir())
       .filter((f) => f.endsWith('.json'))
       .map((f) => readJson<RecoveryItem | null>(join(recoveryDir(), f), null))
       .filter((x): x is RecoveryItem => !!x)
   },
-  clearRecovery: (sceneId) => {
-    rmSync(join(recoveryDir(), `${sceneId}.json`), { force: true })
-  }
+  clearRecovery: (sceneId) =>
+    inOrder(recoveryFile(sceneId), () => {
+      rmSync(recoveryFile(sceneId), { force: true })
+    })
 }

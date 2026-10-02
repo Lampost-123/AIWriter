@@ -43,9 +43,13 @@ export function ensureLibraryFolder(path = getSettings().libraryPath): boolean {
 }
 
 export function updateSettings(patch: DeepPartial<Settings>): Settings {
-  const next = merge(getSettings(), patch)
+  const current = getSettings()
+  const next = merge(current, patch)
+  const text = JSON.stringify(next, null, 2)
+  // Opening a scene or a panel often changes nothing that is stored: don't rewrite the file then.
+  if (text === JSON.stringify(current, null, 2)) return current
+  writeFileAtomic(settingsFile(), text)
   cached = next
-  writeFileAtomic(settingsFile(), JSON.stringify(next, null, 2))
   return next
 }
 

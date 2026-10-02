@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
-import { copyFile, rename } from 'node:fs/promises'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { copyFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join, posix, win32 } from 'node:path'
 import type { BackupInfo } from '@shared/types'
+import { renameRetry, renameRetrySync } from '../util'
 
 // Backup files on disk, with no Electron imports so it can be unit-tested in plain Node.
 // A backup is a complete, self-contained copy of world.db named so the files sort by time
@@ -117,40 +118,6 @@ export function removeStalePartials(folder: string, nowMs: number = Date.now()):
       if (nowMs - statSync(file).mtimeMs > 60 * 60 * 1000) rmSync(file, { force: true })
     } catch {
       /* ignore */
-    }
-  }
-}
-
-// On Windows a file that was just written is often held open for a moment by antivirus or a
-// cloud sync app (OneDrive, Dropbox), and renaming it fails with EPERM/EBUSY/EACCES. Try again
-// briefly before giving up.
-const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES'])
-const RENAME_TRIES = 8
-const RENAME_WAIT_MS = 125
-const isLocked = (e: unknown): boolean => LOCKED.has((e as { code?: string })?.code ?? '')
-
-/** renameSync, retried for up to about a second while the file is locked by another program. */
-export function renameRetrySync(from: string, to: string, tries = RENAME_TRIES, waitMs = RENAME_WAIT_MS): void {
-  for (let i = 1; ; i++) {
-    try {
-      renameSync(from, to)
-      return
-    } catch (e) {
-      if (i >= tries || !isLocked(e)) throw e
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs)
-    }
-  }
-}
-
-/** The same without blocking: used for backups made while Adam writes. */
-export async function renameRetry(from: string, to: string, tries = RENAME_TRIES, waitMs = RENAME_WAIT_MS): Promise<void> {
-  for (let i = 1; ; i++) {
-    try {
-      await rename(from, to)
-      return
-    } catch (e) {
-      if (i >= tries || !isLocked(e)) throw e
-      await new Promise((r) => setTimeout(r, waitMs))
     }
   }
 }

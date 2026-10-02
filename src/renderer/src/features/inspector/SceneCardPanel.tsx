@@ -4,6 +4,7 @@ import type { Entry, ID, SceneCard } from '@shared/types'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
+import { registerDiscarder } from '@/lib/flush'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { placeOptions, type PlaceOption } from '@/features/world/entryLogic'
@@ -21,6 +22,8 @@ const LENGTH_PRESETS = [800, 1500, 2500, 4000]
 // re-opens before then (switching tab or scene and straight back) starts from
 // what Adam typed, never from the older copy on disk.
 const cardDrafts = createDraftCache<SceneCard>()
+// After a backup is restored these copies are from the world before it: never write them back.
+registerDiscarder(() => cardDrafts.clear())
 
 /**
  * The scene card in the right-hand panel: who is in the scene, where and when,

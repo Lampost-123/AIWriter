@@ -7,6 +7,8 @@ export function createDraftCache<T>(): {
   get(key: string): T | undefined
   set(key: string, value: T): void
   confirm(key: string, value: T): void
+  /** Forgets every copy (after a backup is restored, they belong to the world from before). */
+  clear(): void
 } {
   const m = new Map<string, T>()
   return {
@@ -14,6 +16,7 @@ export function createDraftCache<T>(): {
     set: (key, value) => void m.set(key, value),
     confirm: (key, value) => {
       if (m.get(key) === value) m.delete(key)
-    }
+    },
+    clear: () => m.clear()
   }
 }
