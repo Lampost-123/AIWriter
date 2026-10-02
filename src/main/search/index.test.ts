@@ -191,8 +191,27 @@ describe('keeping up with changes', () => {
     expect(queries(w.db, () => expect(titles(group(ix.search('lighthouse'), 'scenes'))).toEqual(['Storm']))).toBe(1)
     expect(group(ix.search('elodie'), 'scenes')).toBeUndefined()
 
+    // An entry is read again with its changes over the story: two statements.
     repo.updateEntry(w.db, w.tobin.id, { aliases: ['Tob the Quiet'] })
-    expect(queries(w.db, () => expect(titles(group(ix.search('quiet tob'), 'character'))).toEqual(['[Tob]in']))).toBe(1)
+    expect(queries(w.db, () => expect(titles(group(ix.search('quiet tob'), 'character'))).toEqual(['[Tob]in']))).toBe(2)
+  })
+
+  it('finds an entry by what the memory has about it over the story, and keeps up as that changes', () => {
+    const w = world()
+    const ix = searchIndex(w.db)
+    expect(group(ix.search('left hand'), 'character')).toBeUndefined()
+    const c = mem.insertChange(w.db, { entryId: w.mara.id, anchor: 'scene', sceneId: w.s3.id, kind: 'update', payload: { note: 'Lost her left hand' }, origin: 'text' })
+    mem.insertChange(w.db, { entryId: w.mara.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: 'f1', fact: 'The harbourmaster is her uncle' }, origin: 'adam' })
+    const mara = group(ix.search('left hand'), 'character')!.hits[0]
+    expect(show(mara.title)).toBe('Mara Ashford')
+    expect(show(mara.snippet)).toBe('Changes over time: Lost her [left] [hand]')
+    expect(show(group(ix.search('harbourmaster uncle'), 'character')!.hits[0].snippet)).toBe('Changes over time: The [harbourmaster] is her [uncle]')
+
+    mem.replaceChange(w.db, c.id, { entryId: w.mara.id, anchor: 'scene', sceneId: w.s3.id, kind: 'update', payload: { note: 'Lost her right hand' }, origin: 'adam' })
+    expect(group(ix.search('left hand'), 'character')).toBeUndefined()
+    expect(group(ix.search('right hand'), 'character')!.hits[0].open).toEqual({ kind: 'entry', entryId: w.mara.id, entryKind: 'character' })
+    mem.deleteChange(w.db, c.id)
+    expect(group(ix.search('right hand'), 'character')).toBeUndefined()
   })
 
   it('follows scenes moved, deleted and brought back, and entries deleted and brought back', () => {

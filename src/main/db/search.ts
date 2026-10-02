@@ -45,6 +45,11 @@ const TRIGGERS: [string, string, string, ChangeKind, string][] = [
   ['entries_new', 'entries', 'AFTER INSERT', 'entry', 'NEW.id'],
   ['entries_change', 'entries', 'AFTER UPDATE', 'entry', 'NEW.id'],
   ['entries_gone', 'entries', 'AFTER DELETE', 'entry', 'OLD.id'],
+  // What the memory knows about an entry over the story is found with the entry.
+  ['changes_new', 'changes', 'AFTER INSERT', 'entry', 'NEW.entry_id'],
+  ['changes_change', 'changes', 'AFTER UPDATE', 'entry', 'NEW.entry_id'],
+  ['changes_moved', 'changes', 'AFTER UPDATE OF entry_id', 'entry', 'OLD.entry_id'],
+  ['changes_gone', 'changes', 'AFTER DELETE', 'entry', 'OLD.entry_id'],
   ['summaries_new', 'summaries', 'AFTER INSERT', 'summary', "NEW.level || ':' || NEW.target_id"],
   ['summaries_change', 'summaries', 'AFTER UPDATE', 'summary', "NEW.level || ':' || NEW.target_id"],
   ['summaries_gone', 'summaries', 'AFTER DELETE', 'summary', "OLD.level || ':' || OLD.target_id"],
@@ -142,6 +147,8 @@ export interface EntryWords {
   tags: string[]
   fields: Record<string, string>
   notes: string
+  /** What the memory has about it over the story, labelled as its page labels them. */
+  changes: { label: string; text: string }[]
 }
 
 const ENTRY_WORDS = 'id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json'
@@ -157,16 +164,61 @@ function toEntryWords(r: Row): EntryWords {
     description: r.description as string,
     tags: json<unknown[]>(r.tags_json, []).filter((t): t is string => typeof t === 'string'),
     fields: Object.fromEntries(Object.entries(fields).filter((f): f is [string, string] => typeof f[1] === 'string' && f[1].trim() !== '')),
-    notes: r.notes as string
+    notes: r.notes as string,
+    changes: []
   }
 }
 
-/** Live entries' words: every one, or only these. */
+const CHANGES = 'Changes over time'
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+const strings = (v: unknown): string[] => (v && typeof v === 'object' ? Object.values(v).filter((x): x is string => typeof x === 'string') : [])
+
+/** The words of one change (shared/types.ts ChangeData), labelled. */
+function changeWords(kind: string, p: Record<string, unknown>): { label: string; text: string }[] {
+  const out: { label: string; text: string }[] = []
+  const add = (label: string, text: string): void => {
+    if (text.trim()) out.push({ label, text })
+  }
+  const state = (): void => {
+    add(CHANGES, str(p.summary))
+    add(CHANGES, str(p.description))
+    for (const v of strings(p.fields)) add(CHANGES, v)
+  }
+  switch (kind) {
+    case 'update':
+      add(CHANGES, str(p.note))
+      state()
+      break
+    case 'full':
+      state()
+      for (const k of Array.isArray(p.knows) ? p.knows : []) add('Knows at the start', str((k as Record<string, unknown> | null)?.fact))
+      break
+    case 'relationship':
+      add(CHANGES, [p.type, p.feels, p.otherFeels].map(str).filter(Boolean).join(' · '))
+      break
+    case 'knowledge':
+    case 'thread':
+      add(CHANGES, str(kind === 'knowledge' ? p.fact : p.note))
+      break
+  }
+  return out
+}
+
+/** Live entries' words, with their changes over the story: every entry, or only these. Two statements. */
 export function entryWords(db: DB, ids?: ID[]): EntryWords[] {
-  const rows = ids
-    ? db.prepare(`SELECT ${ENTRY_WORDS} FROM entries WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`).all(JSON.stringify(ids))
+  const only = ids ? JSON.stringify(ids) : null
+  const rows = only
+    ? db.prepare(`SELECT ${ENTRY_WORDS} FROM entries WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL`).all(only)
     : db.prepare(`SELECT ${ENTRY_WORDS} FROM entries WHERE deleted_at IS NULL`).all()
-  return (rows as Row[]).map(toEntryWords)
+  const entries = new Map((rows as Row[]).map((r) => [r.id as string, toEntryWords(r)]))
+  if (!entries.size) return []
+  const changes = only
+    ? db
+        .prepare('SELECT entry_id, kind, payload_json FROM changes WHERE entry_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL ORDER BY position')
+        .all(only)
+    : db.prepare('SELECT entry_id, kind, payload_json FROM changes WHERE deleted_at IS NULL ORDER BY position').all()
+  for (const c of changes as Row[]) entries.get(c.entry_id as string)?.changes.push(...changeWords(c.kind as string, json<Record<string, unknown>>(c.payload_json, {})))
+  return [...entries.values()]
 }
 
 export interface SummaryWords {

@@ -53,7 +53,7 @@ interface EntryDoc {
   nameF: string
   aliases: Field[]
   summary: Field
-  /** Description, tags and the kind's fields, each labelled. */
+  /** Description, tags, the kind's fields and what the memory has about it over the story, each labelled. */
   more: Field[]
   notes: Field
   /** Name and aliases; with the summary; with everything else. */
@@ -326,7 +326,8 @@ export class SearchIndex {
     const more = [
       field('', e.description),
       ...(e.tags.length ? [field('Tags', e.tags.join(', '))] : []),
-      ...Object.entries(e.fields).map(([k, v]) => field(fieldLabel(e.kind, k), v))
+      ...Object.entries(e.fields).map(([k, v]) => field(fieldLabel(e.kind, k), v)),
+      ...e.changes.map((c) => field(c.label, c.text))
     ].filter((f) => f.text.trim() !== '')
     const names = [nameF, ...aliases.map((a) => a.f)]
     const short = [...names, summary.f]
