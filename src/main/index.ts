@@ -10,8 +10,10 @@ import { initUpdater } from './services/updater'
 import { initAi } from './ai'
 import { initKeeper } from './keeper'
 import { activeDraftIds, stopDraft } from './ai/drafts'
+import { registerPortraitScheme, servePortraits } from './portraits'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
+registerPortraitScheme()
 
 let mainWindow: BrowserWindow | null = null
 /** True while pending saves are being flushed before quitting. */
@@ -203,6 +205,7 @@ function main(): void {
       app.setAppUserModelId('com.lampost.aiwrite')
       setAppMenu()
       registerIpc()
+      servePortraits()
       initBackups()
       initAi()
       initKeeper()

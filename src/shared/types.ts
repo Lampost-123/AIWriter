@@ -221,6 +221,11 @@ export interface Entry {
   originStart: boolean
   /** True once Adam has edited any of it himself: the memory keeper never removes it after that. */
   byHand: boolean
+  /**
+   * Its portrait, as an address the interface can show (`aiwrite-image://entry/<id>?v=<version>`), or
+   * null when it has none (milestone 3). Set with AppApi.setEntryImage; lists never carry the image itself.
+   */
+  image?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -236,7 +241,9 @@ export type Origin = 'adam' | 'text' | 'ai'
 /** @deprecated use Origin */
 export type EntryOrigin = Origin
 
-export type EntryInput = Partial<Omit<Entry, 'id' | 'kind' | 'createdAt' | 'updatedAt' | 'origin' | 'fieldOrigins' | 'originSceneId' | 'originStart' | 'byHand'>>
+export type EntryInput = Partial<
+  Omit<Entry, 'id' | 'kind' | 'createdAt' | 'updatedAt' | 'origin' | 'fieldOrigins' | 'originSceneId' | 'originStart' | 'byHand' | 'image'>
+>
 
 // ---------- Settings, providers, models ----------
 
@@ -396,8 +403,13 @@ export interface DraftOptions {
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
 
-/** What an AI call was for: a scene draft, a memory update from a scene's text, or a summary roll-up. */
-export type GenerationJob = 'draft' | 'memory' | 'summary'
+/**
+ * What an AI call was for: a scene draft, a memory update from a scene's text, or a summary roll-up;
+ * from milestone 3 also the character builder ('builder': Quick start, Flesh out, options, Interview)
+ * and the story flows ('story': what changed in a time gap, a prequel's starting cast, "When did these
+ * happen?"). Records for calls that belong to no scene have an empty sceneId, so no Drafts list shows them.
+ */
+export type GenerationJob = 'draft' | 'memory' | 'summary' | 'builder' | 'story'
 
 export interface GenerationSummary {
   id: ID
@@ -791,3 +803,50 @@ export interface MemoryStatus {
 
 /** Where a scene's memory stands: up to date, waiting to be read, or "Memory not updated". */
 export type SceneMemoryState = 'current' | 'pending' | 'failed'
+
+// ---------- As of a point in the series (milestone 3) ----------
+// Entry pages, the relationship map, hover cards and the Cast tab show the memory "as of" a point.
+// The same line decides it as for drafting (spec, Multi-story rules: "every as-of view uses it too").
+
+/**
+ * A point to look at the memory from:
+ * - 'start': a story's start, after its start-of-story changes, before its first scene
+ * - 'scene': the end of a scene, with its own changes (what is true once it has happened)
+ * - 'end': a story's end, every scene included
+ *
+ * `seenIn` is the story whose line the point is seen along (the "As seen in" picker): an earlier
+ * book's scene seen in Book 3 includes the side stories Book 3 knows of by then. Without it, the
+ * point's own story is used.
+ */
+export type AsOf = ({ kind: 'start'; storyId: ID } | { kind: 'scene'; storyId: ID; sceneId: ID } | { kind: 'end'; storyId: ID }) & {
+  seenIn?: ID | null
+}
+
+/** One stop on an as-of slider: a story's start or one scene, in reading order along a story's line. */
+export interface AsOfStop {
+  at: AsOf
+  /** Plain words: "Start of Book 2", "Book 1, Ch 12, Sc 3". */
+  label: string
+  /** The story the stop is in (an earlier book on the line, a side story added whole, or the story itself). */
+  storyId: ID
+  sceneId: ID | null
+  /** How many changes to the entry asked about happen at this stop (0 when no entry was asked about). */
+  changes: number
+}
+
+/** An entry as it is at a point. */
+export interface EntryAsOf {
+  at: AsOf
+  /** Plain words for the point: "Book 1, Ch 12, Sc 3", "Start of Book 2", "End of Book 2". */
+  label: string
+  /** The entry as it is there; null when it doesn't exist there yet. */
+  state: EntryState | null
+  /** Why it isn't there, in plain words ("Not in the story yet at this point"), when state is null. */
+  absent: string | null
+  /** Its relationships there (from either side). */
+  relationships: RelationshipState[]
+  /** For a character: the facts it knows there. */
+  knows: FactState[]
+  /** For a plot thread: open or resolved there, and where it was set up and paid off. */
+  thread: ThreadState | null
+}

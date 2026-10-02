@@ -69,6 +69,8 @@ export interface WorldShape {
 export type LineTarget =
   /** Just before this scene (what counts for drafting it). */
   | { storyId: ID; before: ID }
+  /** Just after this scene, its own changes included (what is true once it has happened; as-of views). */
+  | { storyId: ID; after: ID }
   /** The whole story, start-of-story changes and every scene (what later stories see of it). */
   | { storyId: ID; through: 'end' }
   /** The story's start, after its start-of-story changes and before its first scene. */
