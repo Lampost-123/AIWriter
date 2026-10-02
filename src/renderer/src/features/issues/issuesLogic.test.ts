@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest'
+import type { Issue } from '@shared/contracts/checks'
+import { fieldWords, foundWords, memoryFixWords, openCount, runFor, sentenceAround, splitIssues } from './issuesLogic'
+
+const issue = (over: Partial<Issue> = {}): Issue => ({
+  id: 'i',
+  sceneId: 's1',
+  storyId: 'b1',
+  kind: 'fact',
+  severity: 'warning',
+  status: 'open',
+  quote: 'q',
+  message: 'm',
+  sources: [],
+  fix: null,
+  memoryFix: null,
+  createdAt: '',
+  updatedAt: '',
+  ...over
+})
+
+describe('the Issues tab’s words', () => {
+  it('says what marking done found, here or in the scene named', () => {
+    expect(foundWords(1, null)).toBe('Found 1 thing to look at in this scene.')
+    expect(foundWords(2, 'Book 1, Ch 1, Sc 2')).toBe('Found 2 things to look at in Book 1, Ch 1, Sc 2.')
+  })
+
+  it('counts open issues and must-fix ones, and keeps ignored ones apart', () => {
+    const list = [issue({ id: 'a', severity: 'must-fix' }), issue({ id: 'b' }), issue({ id: 'c', status: 'ignored' }), issue({ id: 'd', status: 'fixed' })]
+    expect(openCount(list)).toEqual({ count: 2, mustFix: 1 })
+    expect(openCount(null)).toEqual({ count: 0, mustFix: 0 })
+    expect(splitIssues(list).ignored.map((i) => i.id)).toEqual(['c'])
+  })
+
+  it('names what Update the memory sets', () => {
+    expect(fieldWords('eyes')).toBe('eyes')
+    expect(fieldWords('marks')).toBe('distinguishing marks')
+    const i = issue({
+      memoryFix: { entryId: 'm', field: 'eyes', value: 'green' },
+      sources: [{ kind: 'entry', entryId: 'm', name: 'Mara', field: 'eyes' }]
+    })
+    expect(memoryFixWords(i)).toBe('Set Mara’s eyes to “green” in the memory')
+    expect(memoryFixWords(issue())).toBeNull()
+  })
+
+  it('finds the run covering a scene, Adam’s own before a background one', () => {
+    const p = (runId: string, sceneIds: string[], background = false) => ({
+      runId,
+      target: { scope: 'story' as const, id: 'b1' },
+      done: 0,
+      total: sceneIds.length,
+      current: null,
+      sceneIds,
+      background
+    })
+    expect(runFor({ a: p('a', ['s1'], true), b: p('b', ['s1', 's2']) }, 's1')?.runId).toBe('b')
+    expect(runFor({ a: p('a', ['s1'], true) }, 's1')?.runId).toBe('a')
+    expect(runFor({ a: p('a', ['s2']) }, 's1')).toBeNull()
+  })
+
+  it('widens words to the sentence they are in for Rewrite', () => {
+    const t = 'She ran. Mara’s eyes were green, and she smiled. Then it rained.'
+    const at = t.indexOf('eyes were green')
+    expect(t.slice(...Object.values(sentenceAround(t, at, at + 'eyes were green'.length)))).toBe('Mara’s eyes were green, and she smiled.')
+    const whole = t.indexOf('Mara')
+    const end = t.indexOf('smiled.') + 'smiled.'.length
+    expect(sentenceAround(t, whole, end)).toEqual({ from: whole, to: end })
+    expect(sentenceAround('no ending here', 3, 6)).toEqual({ from: 0, to: 14 })
+  })
+})

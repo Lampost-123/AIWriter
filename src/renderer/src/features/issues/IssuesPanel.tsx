@@ -159,6 +159,9 @@ function CheckBar({ sceneId, issues, run }: { sceneId: ID; issues: Issue[] | nul
   )
 }
 
+/** The words in quotation marks, unless they start or end with their own (dialogue). */
+const quoted = (q: string): string => (/^["“‘']|["”’']$/.test(q) ? q : `“${q}”`)
+
 function SeverityMark({ issue }: { issue: Issue }): React.JSX.Element {
   if (issue.severity === 'must-fix') return <Badge tone="danger">{SEVERITY_WORDS['must-fix']}</Badge>
   return <Badge className={issue.severity === 'minor' ? 'text-faint' : undefined}>{SEVERITY_WORDS[issue.severity]}</Badge>
@@ -194,7 +197,7 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
           title="Show these words in the page"
           className="-mx-1 mt-1.5 block w-[calc(100%+0.5rem)] rounded px-1 py-0.5 text-left font-serif text-[14px] leading-[21px] text-fg hover:bg-surface-2"
         >
-          <span className="line-clamp-3">“{issue.quote.trim()}”</span>
+          <span className="line-clamp-3">{quoted(issue.quote.trim())}</span>
         </button>
       ) : null}
       <p className="mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
