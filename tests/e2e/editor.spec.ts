@@ -85,6 +85,50 @@ test('a scene title being typed is kept when the window closes before Enter', as
   await expect(row(second.win, 'The Knock at the Door')).toBeVisible()
 })
 
+test('a scene added from a row menu keeps its name box, even if it opens before the menu has finished closing', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  for (const item of ['Add scene after', 'Rename']) {
+    await row(win, 'Scene 1').click({ button: 'right' })
+    // The menu hands focus back a moment after it closes. Usually the new scene's name box opens
+    // later than that, but not always: make that moment come late every time.
+    await win.evaluate(() => {
+      const w = globalThis as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      const plain = (w.plainTimeout = w.setTimeout)
+      w.setTimeout = ((fn: () => void, ms?: number) => plain(fn, ms || 300)) as typeof setTimeout
+    })
+    await win.getByRole('menuitem', { name: item }).click()
+    const box = binder(win).getByRole('textbox', { name: 'Scene title' })
+    await expect(box).toBeFocused()
+    await win.waitForTimeout(500)
+    await win.evaluate(() => {
+      const w = globalThis as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      w.setTimeout = w.plainTimeout!
+    })
+    await expect(box).toBeFocused()
+    await win.keyboard.press('Control+A')
+    await win.keyboard.type(`From ${item}`)
+    await win.keyboard.press('Enter')
+    await expect(row(win, `From ${item}`)).toBeVisible()
+  }
+})
+
+test("the top bar's Saved is the scene's, so it shows only on the writing page", async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  const note = win.locator('header').first().locator('[aria-live]', { hasText: /^Sav/ })
+  await win.keyboard.type('A few words.')
+  await expect(note).toHaveText('Saved')
+  await expect(note).toHaveCSS('opacity', '1')
+  // An entry page has its own save note: the bar's goes quiet, and screen readers aren't told "Saved".
+  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
+  await expect(note).toHaveCSS('opacity', '0')
+  await expect(note.locator('[aria-hidden="true"]')).toHaveText('Saved')
+  await row(win, 'Scene 1').click()
+  await expect(note).toHaveCSS('opacity', '1')
+})
+
 test('emptying a drafted scene puts it back to planned', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')

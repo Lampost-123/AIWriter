@@ -102,7 +102,7 @@ describe('streamChat', () => {
     expect(credit.retries).toEqual([])
 
     const key = await run('fake/badkey')
-    expect(key.outcome.error).toBe("Fake didn't accept your API key. Check it in Settings > Models.")
+    expect(key.outcome.error).toBe("Fake didn't accept your API key. Check it in Settings › Models.")
 
     const missing = await run('fake/missing')
     expect(missing.outcome.error).toContain('doesn\'t have a model called “fake/missing”')
@@ -218,7 +218,7 @@ describe('streamChat', () => {
   it('reports a refusal', async () => {
     const { outcome } = await run('fake/refuse')
     expect(outcome.status).toBe('error')
-    expect(outcome.error).toBe('This model refused the scene. Try another model in Settings > Models.')
+    expect(outcome.error).toBe('This model refused the scene. Try another model in Settings › Models.')
   })
 
   it('reports an empty reply', async () => {

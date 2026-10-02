@@ -9,17 +9,22 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
+import { KeeperStatus } from '@/features/memory/KeeperStatus'
+import { saveNote } from './saveNote'
 import { UpdateBanner } from './UpdateBanner'
 
+/** How the open scene is saving. Its slot stays when there is nothing to say, so the bar never moves. */
 function SaveIndicator(): React.JSX.Element {
   const state = useApp((s) => s.saveState)
-  const label = state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : state === 'error' ? 'Not saved, retrying' : ''
+  const writing = useApp((s) => s.view.kind === 'write')
+  const label = saveNote(state, writing)
   return (
     <span
       aria-live="polite"
       className={cn('min-w-[110px] text-right text-[12px] transition-opacity duration-300', state === 'error' ? 'text-danger' : 'text-faint', !label && 'opacity-0')}
     >
-      {label || 'Saved'}
+      {/* With nothing to say, a hidden "Saved" fades out, unread by screen readers. */}
+      {label || <span aria-hidden>Saved</span>}
     </span>
   )
 }
@@ -142,6 +147,7 @@ export function TopBar(): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
   const drafting = useApp((s) => s.activeGeneration !== null)
+  const hasWorld = useApp((s) => s.world !== null)
   const layout = settings?.layout
   // The scene panel belongs to an open scene in the writing view; elsewhere the button rests.
   const panelAvailable = view.kind === 'write' && !!sceneId
@@ -168,6 +174,8 @@ export function TopBar(): React.JSX.Element {
       <div className="flex min-w-0 flex-1 justify-center px-3">
         <UpdateBanner />
       </div>
+      {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
+      {hasWorld ? <KeeperStatus /> : null}
       {view.kind === 'write' ? (
         <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
       ) : drafting ? (

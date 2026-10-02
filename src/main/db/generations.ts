@@ -4,7 +4,17 @@
 // Pure functions over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { ChatMessage, ContextBlock, ContextBudget, EntryKind, GenerationRecord, GenerationStatus, GenerationSummary, ID } from '@shared/types'
+import type {
+  ChatMessage,
+  ContextBlock,
+  ContextBudget,
+  EntryKind,
+  GenerationJob,
+  GenerationRecord,
+  GenerationStatus,
+  GenerationSummary,
+  ID
+} from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { UserError } from '../util'
 import { touchWorld } from './repo'
@@ -24,7 +34,8 @@ const json = <T>(s: unknown, fallback: T): T => {
 export interface NewGeneration {
   id: ID
   sceneId: ID
-  job: 'draft'
+  /** 'draft' for scene drafts; 'memory' and 'summary' for the memory keeper's calls (scene_id is then the scene, or the chapter, story or series a summary is for). */
+  job: GenerationJob
   providerId: ID
   providerName: string
   modelId: string
@@ -99,7 +110,7 @@ export function stopInterrupted(db: DB, at: string): number {
 const toSummary = (r: Row): GenerationSummary => ({
   id: r.id as string,
   sceneId: r.scene_id as string,
-  job: 'draft',
+  job: ((r.job as GenerationJob | undefined) ?? 'draft') as GenerationJob,
   status: r.status as GenerationStatus,
   modelId: r.model_id as string,
   providerName: r.provider_name as string,
@@ -109,12 +120,12 @@ const toSummary = (r: Row): GenerationSummary => ({
   createdAt: r.created_at as string
 })
 
-/** This scene's drafts, newest first. */
+/** This scene's drafts, newest first (the memory keeper's calls are left out). */
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(
-      `SELECT id, scene_id, status, model_id, provider_name, response, cost, prompt_tokens, created_at
-       FROM generations WHERE scene_id = ? ORDER BY created_at DESC, rowid DESC`
+      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at
+       FROM generations WHERE scene_id = ? AND job = 'draft' ORDER BY created_at DESC, rowid DESC`
     )
     .all(sceneId) as Row[]
   return rows.map(toSummary)
@@ -127,11 +138,12 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
   // Entries are listed even if deleted since, so the record still says who was in the briefing.
   const rows = db
     .prepare(
-      `SELECT ge.entry_id, ge.entry_version, e.name, e.kind, e.deleted_at, e.updated_at
+      `SELECT ge.entry_id, ge.entry_version, e.name, e.kind, e.deleted_at, e.updated_at,
+         EXISTS (SELECT 1 FROM fact_versions v WHERE v.entry_id = ge.entry_id AND v.created_at > ?) AS changed_later
        FROM generation_entries ge LEFT JOIN entries e ON e.id = ge.entry_id
        WHERE ge.generation_id = ?`
     )
-    .all(id) as Row[]
+    .all(r.created_at, id) as Row[]
   const order = new Map<ID, number>()
   blocks.forEach((b) => b.entryIds.forEach((eid) => order.has(eid) || order.set(eid, order.size)))
   const entries: GenerationRecord['entries'] = rows
@@ -141,7 +153,8 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
       kind: ((e.kind as EntryKind | null) ?? 'lore') as EntryKind,
       version: e.entry_version as string,
       deleted: e.name == null || e.deleted_at != null,
-      changedSince: e.updated_at != null && e.updated_at !== e.entry_version
+      // Edited since, or its memory changed since (a change over time added, edited or removed).
+      changedSince: (e.updated_at != null && e.updated_at !== e.entry_version) || e.changed_later === 1
     }))
     .sort((a, b) => (order.get(a.entryId) ?? 1e9) - (order.get(b.entryId) ?? 1e9))
   return {

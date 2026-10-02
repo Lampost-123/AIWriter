@@ -21,4 +21,8 @@ export interface FakeProvider {
 
 export const FAKE_MODELS: { id: string; name: string; context_length: number; pricing: { prompt: string; completion: string } }[]
 export function fakeProse(words: number): string
+/** A deterministic reply to a memory keeper reading request (its user message). */
+export function fakeMemoryReply(user: string): string
+/** A deterministic summary of a summary request (its user message). */
+export function fakeSummary(user: string): string
 export function startFakeProvider(options?: FakeProviderOptions): Promise<FakeProvider>

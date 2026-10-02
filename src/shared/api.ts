@@ -4,6 +4,19 @@
 
 import type {
   AppInfo,
+  BlockMode,
+  ChangeInput,
+  ChangeView,
+  EndAt,
+  ExistsPoint,
+  FactVersion,
+  MemoryLogItem,
+  SourceLink,
+  MemoryStatus,
+  PinScope,
+  StartAt,
+  Summary,
+  SummaryLevel,
   BackupFolderStatus,
   BackupInfo,
   Chapter,
@@ -65,8 +78,13 @@ export interface AppApi {
   listSeries(): Promise<Series[]>
   listStories(): Promise<Story[]>
   createStory(input: { title: string; seriesId?: ID | null; startStoryId?: ID | null }): Promise<Story>
-  updateStory(id: ID, patch: Partial<Pick<Story, 'title' | 'premise' | 'themes' | 'tone' | 'style' | 'seriesId'>>): Promise<Story>
+  updateStory(id: ID, patch: Partial<Pick<Story, 'title' | 'premise' | 'themes' | 'tone' | 'style' | 'seriesId' | 'timeGap'>>): Promise<Story>
   deleteStory(id: ID): Promise<void>
+  /**
+   * Sets what a story is and where it starts (and ends, for a side story). Refuses, in plain words,
+   * any start or end that would make a story follow on from itself. Screens arrive in milestone 3.
+   */
+  setStoryPlacement(id: ID, placement: StoryPlacement): Promise<Story>
 
   // ----- Chapters and scenes -----
   getOutline(storyId: ID): Promise<Outline>
@@ -84,6 +102,12 @@ export interface AppApi {
   deleteScene(id: ID): Promise<void>
   /** Moves a scene to `index` within `chapterId` (which may be a different chapter). */
   moveScene(id: ID, chapterId: ID, index: number): Promise<void>
+  /** Marks a scene done (Ctrl+Enter): sets its status, and the memory and its summary catch up with it now. */
+  markSceneDone(id: ID): Promise<SceneMeta>
+  /** Opens a scene marked done for more work (status back to revised). */
+  reopenScene(id: ID): Promise<SceneMeta>
+  /** Adam left this scene (opened another, or another page): the memory keeper reads it if it changed. */
+  sceneLeft(id: ID): Promise<void>
 
   // ----- World bible entries -----
   listEntries(kind?: EntryKind): Promise<Entry[]>
@@ -91,6 +115,53 @@ export interface AppApi {
   createEntry(kind: EntryKind, input?: EntryInput): Promise<Entry>
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
+
+  // ----- Memory over time (milestone 2) -----
+  /** Every change to an entry (baseline relationships and knowledge, start-of-story and scene changes), in story order. */
+  listChanges(entryId: ID): Promise<ChangeView[]>
+  /** A change Adam makes himself (source 'hand'). The memory keeper never overwrites or removes these. */
+  createChange(input: ChangeInput): Promise<ChangeView>
+  updateChange(id: ID, input: ChangeInput): Promise<ChangeView>
+  deleteChange(id: ID): Promise<void>
+  /** Undoes deleteChange (for the Undo toast). */
+  restoreChange(id: ID): Promise<void>
+  /** Every fact any character knows, for picking the same fact again. */
+  listFacts(): Promise<{ factId: ID; fact: string }[]>
+  /** Where an entry first exists (shown on its page). */
+  listExistsPoints(entryId: ID): Promise<ExistsPoint[]>
+  /** Changes pinned to this scene: on a redraft the scene card shows them as "what this scene should bring about". */
+  listSceneChanges(sceneId: ID): Promise<ChangeView[]>
+
+  // ----- The memory keeper (milestone 2) -----
+  /** What the memory keeper is doing: shown quietly in the top bar. */
+  getMemoryStatus(): Promise<MemoryStatus>
+  /** The quiet "What changed" list, newest first. */
+  listMemoryLog(options?: { sceneId?: ID; entryId?: ID; limit?: number }): Promise<MemoryLogItem[]>
+  /** Undoes one thing the memory keeper did (restores the previous version); it won't do that again from the same words. */
+  undoMemoryItem(id: ID): Promise<void>
+  /** Answers a question-marked line (a judgement call made with a default). Optional, any time. */
+  answerMemoryQuestion(id: ID, optionId: string): Promise<void>
+  /** An entry's memory history: every version of it and of its changes, newest first. */
+  listEntryHistory(entryId: ID): Promise<FactVersion[]>
+  /** Restores an entry (its own fields) to an earlier version; this writes a new version, so it can be undone too. */
+  restoreEntryVersion(entryId: ID, versionId: ID): Promise<Entry>
+  /** The words each of an entry's facts came from (the entry itself and its fields). */
+  listEntryLinks(entryId: ID): Promise<SourceLink[]>
+  /** Brings the memory up to date with a scene now (or every scene that is behind), e.g. after an error. */
+  updateMemoryNow(sceneId?: ID): Promise<void>
+
+  // ----- Summaries (milestone 2) -----
+  getSummary(level: SummaryLevel, targetId: ID): Promise<Summary | null>
+  /** Adam's own words for a summary: kept from then on, never replaced automatically. */
+  setSummary(level: SummaryLevel, targetId: ID, text: string): Promise<Summary>
+  /** A story's scene and chapter summaries and its own summary. */
+  listStorySummaries(storyId: ID): Promise<Summary[]>
+
+  // ----- Briefing choices, from the Context tab (milestone 2) -----
+  /** Pins an entry to briefings for a scene, a story or the world ('pin'), keeps it out ('hide'), or clears that (null). */
+  setPin(entryId: ID, scope: PinScope, scopeId: ID | null, action: 'pin' | 'hide' | null): Promise<void>
+  /** Sends a block of this scene's briefing in full, short, or as the budget decides. */
+  setBlockMode(sceneId: ID, blockId: string, mode: BlockMode): Promise<void>
 
   /** Undoes a delete (deleted items stay in the trash for 30 days). Used by "Undo" toasts and Recently deleted. */
   restoreDeleted(kind: 'story' | 'chapter' | 'scene' | 'entry', id: ID): Promise<void>
@@ -116,6 +187,12 @@ export interface AppApi {
   /** Starts a streamed draft. Text arrives as 'generation:chunk' events. */
   startDraft(sceneId: ID, options: DraftOptions): Promise<{ generationId: ID }>
   stopGeneration(generationId: ID): Promise<void>
+  /**
+   * Stops a draft of this scene that hasn't begun yet (the memory may still be catching up with
+   * earlier scenes first). Nothing is sent to the model, and that startDraft fails with the code
+   * 'cancelled'. Does nothing when no draft of the scene is starting.
+   */
+  cancelDraftStart(sceneId: ID): Promise<void>
   listGenerations(sceneId: ID): Promise<GenerationSummary[]>
   getGeneration(id: ID): Promise<GenerationRecord>
 
@@ -135,6 +212,17 @@ export interface AppApi {
   checkForUpdates(): Promise<UpdateStatus>
   /** Restarts the app to install a downloaded update. */
   installUpdate(): Promise<void>
+}
+
+/** What a story is and where it starts (see Story). */
+export interface StoryPlacement {
+  kind: Story['kind']
+  startStoryId: ID | null
+  startAt: StartAt
+  startRefId: ID | null
+  endAt: EndAt | null
+  endRefId: ID | null
+  leadsIntoId: ID | null
 }
 
 export type ApiMethod = keyof AppApi
@@ -158,6 +246,10 @@ export interface AppEvents {
   'generation:retrying': { generationId: ID; attempt: number; waitMs: number; reason: string }
   'update:status': UpdateStatus
   'backup:done': BackupInfo
+  /** The memory changed (by the memory keeper, an undo or Adam): lists, the scene card and the Context tab reload. */
+  'memory:changed': { sceneId: ID | null; entryIds: ID[] }
+  /** The memory keeper's status changed. */
+  'memory:status': MemoryStatus
   /** The window is closing: save anything pending, then call api.flushDone(). */
   'app:flush': Record<string, never>
 }

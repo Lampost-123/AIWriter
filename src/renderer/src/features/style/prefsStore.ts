@@ -3,7 +3,7 @@ import type { WritingPrefs } from '@shared/types'
 import { api } from '@/lib/api'
 
 /**
- * Adam's own writing preferences (Settings > My writing preferences), shared by
+ * Adam's own writing preferences (Settings › My writing preferences), shared by
  * every world. The style guide shows them underneath the world's choices.
  */
 interface PrefsState {

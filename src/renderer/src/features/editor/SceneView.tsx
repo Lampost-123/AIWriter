@@ -3,7 +3,7 @@ import { ArrowDown, FilePlus2, Feather, RotateCcw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
-import { Button, EmptyState, Spinner } from '@/components/ui'
+import { Button, EmptyState, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge, setEditorBridge } from '@/lib/editorBridge'
 import { registerDiscarder, registerFlusher } from '@/lib/flush'
@@ -13,6 +13,7 @@ import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { SceneController } from './controller'
 import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
+import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import './editor.css'
 
@@ -122,6 +123,22 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       if (ctrl && (takeFocusRequest(ctrl.sceneId) || idle)) ctrl.focus()
     }
   }, [writing, editor])
+
+  // "What changed" asked to show the words a fact came from: once the scene is on screen, select them.
+  useEffect(() => {
+    const tryReveal = (): void => {
+      const ctrl = ctrlRef.current
+      if (!ctrl || !shown || shown.id !== ctrl.sceneId || useApp.getState().view.kind !== 'write') return
+      const quote = takeReveal(ctrl.sceneId)
+      if (!quote) return
+      // After this frame's focus and scroll restore, so they don't undo it.
+      requestAnimationFrame(() => {
+        if (!ctrl.revealWords(quote)) toast("Those words aren't in the scene any more.")
+      })
+    }
+    tryReveal()
+    return onRevealRequest(tryReveal)
+  }, [shown, writing])
 
   // Ctrl+S saves straight away (it already saves on its own; this is for peace of mind).
   useEffect(() => {

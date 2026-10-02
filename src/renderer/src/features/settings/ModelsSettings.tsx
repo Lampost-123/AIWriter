@@ -1,8 +1,8 @@
-// Settings > Models: connect OpenRouter or another provider, test it, and pick
-// the writer model. Keys are sent to the main process once and never come back.
-import { Check, KeyRound, PenLine, Plus, Search, Server } from 'lucide-react'
+// Settings › Models: connect OpenRouter or another provider, test it, and pick the writer model
+// and, if Adam wants another, the memory model. Keys are sent to the main process once and never come back.
+import { Check, KeyRound, NotebookText, PenLine, Plus, Search, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import type { Creativity, ID, ModelChoice, ModelInfo, ProviderConfig } from '@shared/types'
+import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
 import { isLocalUrl } from '@shared/urls'
 import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
@@ -87,6 +87,13 @@ export function ModelsSettings(): React.JSX.Element {
         providerResults={results}
         onTest={(pid, mid) => void test('writer', pid, mid)}
         onClearResult={() => clearResult('writer')}
+      />
+      <MemoryModel
+        providers={providers}
+        result={results.memory}
+        providerResults={results}
+        onTest={(pid, mid) => void test('memory', pid, mid)}
+        onClearResult={() => clearResult('memory')}
       />
       <DefaultCreativity />
     </div>
@@ -546,7 +553,12 @@ function ProviderForm({
   )
 }
 
-// ---------- Writer model ----------
+// ---------- Writer and memory models ----------
+
+/** The jobs chosen on this page: the model that drafts scenes, and the one that keeps the memory up to date. */
+type ModelJob = 'writer' | 'memory'
+
+const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: job === 'writer' ? { writer: choice } : { memory: choice } })
 
 function WriterModel({
   providers,
@@ -569,7 +581,7 @@ function WriterModel({
 
   const choose = async (choice: ModelChoice): Promise<void> => {
     try {
-      await update({ models: { writer: choice } })
+      await update(setModel('writer', choice))
       setPicking(false)
       onClearResult()
     } catch (e) {
@@ -582,41 +594,15 @@ function WriterModel({
       {!providers.length ? (
         <Notice>Connect OpenRouter or add a provider above, then pick the model that writes your scenes here.</Notice>
       ) : writer && writerProvider && !picking ? (
-        <Card className="p-4">
-          <div className="flex items-start gap-3">
-            <IconTile>
-              <PenLine size={16} />
-            </IconTile>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[14px] font-medium text-fg" title={writer.modelId}>
-                {writer.label || writer.modelId}
-              </div>
-              <div className="mt-0.5 text-[12.5px] text-muted">
-                {writerProvider.name}
-                {writer.contextLength ? ` · reads up to ${formatContext(writer.contextLength)} tokens` : ''}
-                {writer.promptPrice != null && writer.completionPrice != null
-                  ? ` · ${pricePerMillion(writer.promptPrice)} in, ${pricePerMillion(writer.completionPrice)} out per million tokens`
-                  : ''}
-              </div>
-            </div>
-            <div className="flex shrink-0 gap-1">
-              <Button size="sm" onClick={() => onTest(writer.providerId, writer.modelId)} loading={result?.state === 'testing'}>
-                Test this model
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPicking(true)}>
-                Change
-              </Button>
-            </div>
-          </div>
-          {writerProvider.kind === 'custom' || writer.contextLength == null ? (
-            <ContextLengthField key={`${writer.providerId}/${writer.modelId}`} writer={writer} />
-          ) : null}
-          {result ? (
-            <div className="mt-3 pl-12">
-              <ResultNotice result={result} />
-            </div>
-          ) : null}
-        </Card>
+        <ChosenModel
+          job="writer"
+          choice={writer}
+          provider={writerProvider}
+          icon={<PenLine size={16} />}
+          result={result}
+          onTest={() => onTest(writer.providerId, writer.modelId)}
+          onChange={() => setPicking(true)}
+        />
       ) : (
         <ModelPicker
           providers={providers}
@@ -631,16 +617,150 @@ function WriterModel({
   )
 }
 
-function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Element {
+/** The memory model: the writer model unless Adam chooses another (a faster, cheaper one is fine for this job). */
+function MemoryModel({
+  providers,
+  result,
+  providerResults,
+  onTest,
+  onClearResult
+}: {
+  providers: ProviderConfig[]
+  result: TestResult | undefined
+  providerResults: Record<string, TestResult>
+  onTest: (providerId: ID, modelId: string) => void
+  onClearResult: () => void
+}): React.JSX.Element {
+  const memory = useApp((s) => s.settings?.models.memory ?? null)
+  const writer = useApp((s) => s.settings?.models.writer ?? null)
   const update = useApp((s) => s.updateSettings)
-  const [text, setText] = useState(writer.contextLength != null ? String(writer.contextLength) : '')
+  const [picking, setPicking] = useState(false)
+  // A model whose provider has gone isn't used: the memory goes back to the writer model.
+  const memoryProvider = memory ? providers.find((p) => p.id === memory.providerId) ?? null : null
+  const own = memory && memoryProvider ? memory : null
+
+  const save = async (choice: ModelChoice | null): Promise<void> => {
+    try {
+      await update(setModel('memory', choice))
+      setPicking(false)
+      onClearResult()
+    } catch (e) {
+      toast((e as Error).message, { tone: 'danger' })
+    }
+  }
+
+  return (
+    <SettingsSection title="Memory model" description="Reads your scenes to keep the memory up to date. A fast, cheaper model is fine.">
+      {!providers.length ? (
+        <Notice>Once a provider is connected above, the memory uses the writer model, or one you choose here.</Notice>
+      ) : picking ? (
+        <ModelPicker providers={providers} providerResults={providerResults} current={own} autoFocus onChoose={(c) => void save(c)} onCancel={() => setPicking(false)} />
+      ) : own && memoryProvider ? (
+        <ChosenModel
+          job="memory"
+          choice={own}
+          provider={memoryProvider}
+          icon={<NotebookText size={16} />}
+          result={result}
+          onTest={() => onTest(own.providerId, own.modelId)}
+          onChange={() => setPicking(true)}
+          extra={
+            <button type="button" onClick={() => void save(null)} className="mt-1.5 text-[12.5px] text-accent hover:underline">
+              Use the writer model
+            </button>
+          }
+        />
+      ) : (
+        <Card className="p-4">
+          <div className="flex items-start gap-3">
+            <IconTile tone="neutral">
+              <NotebookText size={16} />
+            </IconTile>
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-medium text-fg">Same as the writer model</div>
+              <div className="mt-0.5 truncate text-[12.5px] text-muted" title={writer?.modelId}>
+                {writer ? writer.label || writer.modelId : 'Choose a writer model above, or a model just for the memory here.'}
+              </div>
+            </div>
+            <Button size="sm" className="shrink-0" onClick={() => setPicking(true)}>
+              Choose another model
+            </Button>
+          </div>
+        </Card>
+      )}
+    </SettingsSection>
+  )
+}
+
+/** A chosen model: its name, provider, how much it reads and its price, with Test and Change. */
+function ChosenModel({
+  job,
+  choice,
+  provider,
+  icon,
+  result,
+  onTest,
+  onChange,
+  extra
+}: {
+  job: ModelJob
+  choice: ModelChoice
+  provider: ProviderConfig
+  icon: ReactNode
+  result: TestResult | undefined
+  onTest: () => void
+  onChange: () => void
+  /** Shown under the model's details. */
+  extra?: ReactNode
+}): React.JSX.Element {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start gap-3">
+        <IconTile>{icon}</IconTile>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-medium text-fg" title={choice.modelId}>
+            {choice.label || choice.modelId}
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-muted">
+            {provider.name}
+            {choice.contextLength ? ` · reads up to ${formatContext(choice.contextLength)} tokens` : ''}
+            {choice.promptPrice != null && choice.completionPrice != null
+              ? ` · ${pricePerMillion(choice.promptPrice)} in, ${pricePerMillion(choice.completionPrice)} out per million tokens`
+              : ''}
+          </div>
+          {extra}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Button size="sm" onClick={onTest} loading={result?.state === 'testing'}>
+            Test this model
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onChange}>
+            Change
+          </Button>
+        </div>
+      </div>
+      {provider.kind === 'custom' || choice.contextLength == null ? (
+        <ContextLengthField key={`${choice.providerId}/${choice.modelId}`} job={job} choice={choice} />
+      ) : null}
+      {result ? (
+        <div className="mt-3 pl-12">
+          <ResultNotice result={result} />
+        </div>
+      ) : null}
+    </Card>
+  )
+}
+
+function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoice }): React.JSX.Element {
+  const update = useApp((s) => s.updateSettings)
+  const [text, setText] = useState(choice.contextLength != null ? String(choice.contextLength) : '')
   const [error, setError] = useState<string | null>(null)
   const commit = (): void => {
     const digits = text.replace(/[^\d]/g, '')
     if (!digits) {
       // Cleared: back to "not known", which AI Write treats as 16,000.
       setError(null)
-      if (writer.contextLength != null) void update({ models: { writer: { ...writer, contextLength: null } } }).catch(() => undefined)
+      if (choice.contextLength != null) void update(setModel(job, { ...choice, contextLength: null })).catch(() => undefined)
       return
     }
     const n = parseInt(digits, 10)
@@ -651,7 +771,7 @@ function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Elem
     setError(null)
     const value = Math.min(n, 10_000_000)
     setText(String(value))
-    if (value !== writer.contextLength) void update({ models: { writer: { ...writer, contextLength: value } } }).catch(() => undefined)
+    if (value !== choice.contextLength) void update(setModel(job, { ...choice, contextLength: value })).catch(() => undefined)
   }
   return (
     <div className="mt-4 border-t border-line pt-4 pl-12">
@@ -659,9 +779,11 @@ function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Elem
         label="How much can this model read at once?"
         error={error}
         hint={
-          writer.contextLength == null
+          choice.contextLength == null
             ? "This provider doesn't say. Check the model's page; if you're not sure, leave it and AI Write will assume 16,000 tokens."
-            : "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
+            : job === 'writer'
+              ? "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
+              : "AI Write fits how much of a scene it reads at once to this. Change it if the model's page says it can read more or less."
         }
       >
         {(id) => (

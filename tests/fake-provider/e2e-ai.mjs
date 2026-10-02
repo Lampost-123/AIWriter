@@ -6,7 +6,7 @@
 //                             npx electron-vite build --config tests/fake-provider/harness/harness.config.mjs)
 //   xvfb-run -a -s "-screen 0 1440x900x24" node tests/fake-provider/e2e-ai.mjs /tmp/shots
 //
-// It drives Settings > Models through the interface, sets up a world through
+// It drives Settings › Models through the interface, sets up a world through
 // the API, presses Generate, stops a draft, and opens "What the AI saw".
 import { _electron as electron } from '@playwright/test'
 import { mkdirSync, mkdtempSync } from 'node:fs'
@@ -51,7 +51,7 @@ try {
   await win.click('button:has-text("Create world")')
   await win.waitForTimeout(800)
 
-  // ----- Settings > Models, through the interface -----
+  // ----- Settings › Models, through the interface -----
   await win.click('button[aria-label="Settings"]')
   await win.waitForSelector('h2:has-text("Writer model")')
   await shot('01-models-empty-light')

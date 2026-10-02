@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import type { EntryKind } from '@shared/types'
+import type { Entry, EntryKind } from '@shared/types'
 import {
+  entryInitial,
   filledCount,
   filterEntries,
   keepRowOrder,
   findNearDuplicates,
   isPlaceholderName,
+  kindNounMany,
+  mergeEntry,
   normalizeName,
   parentPlaceOptions,
   parseList,
   placeAndDescendants,
+  saveOverNewer,
   placePath,
+  withArticle,
   withinOneEdit
 } from './entryLogic'
 
@@ -52,7 +57,9 @@ describe('findNearDuplicates', () => {
   })
 
   it('warns when an alias is shared, either way round', () => {
-    expect(findNearDuplicates(named('x', 'Old Tobin', ['The Ferryman']), others).map((d) => [d.entry.id, d.reason])).toEqual([['2', 'alias']])
+    expect(findNearDuplicates(named('x', 'Old Tobin', ['The Ferryman']), others).map((d) => [d.entry.id, d.reason])).toEqual([
+      ['2', 'alias']
+    ])
     expect(findNearDuplicates(named('x', 'Ferrier', ['tobin']), others).map((d) => d.entry.id)).toEqual(['2'])
   })
 
@@ -93,6 +100,9 @@ describe('isPlaceholderName', () => {
     expect(isPlaceholderName('new place')).toBe(true)
     expect(isPlaceholderName('Unnamed')).toBe(true)
     expect(isPlaceholderName('New Tobin')).toBe(false)
+    expect(isPlaceholderName('New plot thread')).toBe(true)
+    expect(isPlaceholderName('New term')).toBe(true)
+    expect(isPlaceholderName('New group')).toBe(true)
   })
 })
 
@@ -210,5 +220,119 @@ describe('keepRowOrder', () => {
     expect(ids(keepRowOrder(rows('a', 'b', 'd'), rows('a', 'b', 'c', 'd'), removed))).toEqual(['a', 'b', 'c', 'd'])
     expect(ids(keepRowOrder(rows('b', 'c', 'd'), rows('a', 'b', 'c', 'd'), new Map([['a', 0]])))).toEqual(['a', 'b', 'c', 'd'])
     expect(ids(keepRowOrder(rows('a', 'b', 'c'), rows('a', 'b', 'c', 'd'), new Map([['d', 3]])))).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+describe('nouns for every kind', () => {
+  it('uses the right article and plural', () => {
+    expect(withArticle('item')).toBe('an item')
+    expect(withArticle('event')).toBe('an event')
+    expect(withArticle('plot thread')).toBe('a plot thread')
+    expect(kindNounMany('glossary')).toBe('terms')
+    expect(kindNounMany('lore')).toBe('lore')
+    expect(kindNounMany('group')).toBe('groups')
+  })
+
+  it('gives a list badge the first letter that matters', () => {
+    expect(entryInitial('The Lantern Guild')).toBe('L')
+    expect(entryInitial('an Old Debt')).toBe('O')
+    expect(entryInitial('mara')).toBe('M')
+    expect(entryInitial('The')).toBe('T')
+    expect(entryInitial('Élodie')).toBe('É')
+  })
+})
+
+describe('mergeEntry', () => {
+  const entry = (patch: Partial<Entry>): Entry =>
+    ({
+      id: 'mara',
+      kind: 'character',
+      name: 'Mara',
+      aliases: [],
+      summary: '',
+      description: '',
+      tags: [],
+      notes: '',
+      fields: {},
+      parentId: null,
+      hardRule: false,
+      updatedAt: '1',
+      ...patch
+    }) as Entry
+
+  it('keeps what Adam changed and takes everything else from the newer copy', () => {
+    const base = entry({ summary: 'A ferrywoman', fields: { hair: 'long', eyes: 'grey' } })
+    const mine = entry({ summary: 'A ferrywoman who owes the Duke', fields: { hair: 'long', eyes: 'grey', fears: 'deep water' } })
+    const theirs = entry({
+      summary: 'A ferrywoman',
+      description: 'Older now.',
+      fields: { hair: 'cropped short', eyes: 'grey' },
+      updatedAt: '2'
+    })
+    const merged = mergeEntry(base, mine, theirs)
+    expect(merged.summary).toBe('A ferrywoman who owes the Duke')
+    expect(merged.description).toBe('Older now.')
+    expect(merged.fields).toEqual({ hair: 'cropped short', eyes: 'grey', fears: 'deep water' })
+    expect(merged.updatedAt).toBe('2')
+  })
+
+  it('keeps a field the memory filled in that Adam never touched', () => {
+    const base = entry({ fields: { hair: 'long' } })
+    const mine = entry({ fields: { hair: 'long, greying' } })
+    const theirs = entry({ fields: { hair: 'long', eyes: 'grey' }, updatedAt: '2' })
+    expect(mergeEntry(base, mine, theirs).fields).toEqual({ hair: 'long, greying', eyes: 'grey' })
+  })
+})
+
+describe('saveOverNewer', () => {
+  const entry = (patch: Partial<Entry>): Entry =>
+    ({
+      id: 'mara',
+      kind: 'character',
+      name: 'Mara',
+      aliases: [],
+      summary: '',
+      description: '',
+      tags: [],
+      notes: '',
+      fields: {},
+      ...patch
+    }) as Entry
+
+  /** A database of one entry, where someone else's writes (the memory keeper) can land between Adam's. */
+  function db(start: Entry): { row: () => Entry; others: (e: Entry) => Entry; io: Parameters<typeof saveOverNewer>[2] } {
+    let row = start
+    let clock = Number(start.updatedAt)
+    const write = (e: Entry): Entry => (row = { ...e, fields: { ...e.fields }, updatedAt: String(++clock) })
+    return { row: () => row, others: write, io: { get: async () => row, put: async (e) => write(e) } }
+  }
+
+  it("doesn't write over a field the memory filled in while Adam typed in another", async () => {
+    const base = entry({ fields: { hair: 'long' }, updatedAt: '1' })
+    const d = db(base)
+    d.others({ ...base, fields: { hair: 'long', eyes: 'grey' } })
+    const mine = { ...base, fields: { hair: 'long, greying' } }
+    const { sent, saved } = await saveOverNewer(mine, base, d.io)
+    expect(d.row().fields).toEqual({ hair: 'long, greying', eyes: 'grey' })
+    expect(sent).not.toBe(mine)
+    expect(saved).toBe(d.row())
+  })
+
+  it("writes Adam's copy as it is when nothing newer was saved", async () => {
+    const base = entry({ fields: { hair: 'long' }, updatedAt: '1' })
+    const d = db(base)
+    const mine = { ...base, summary: 'A ferrywoman', fields: { hair: '' } }
+    const { sent } = await saveOverNewer(mine, base, d.io)
+    expect(sent).toBe(mine)
+    expect(d.row().summary).toBe('A ferrywoman')
+    expect(d.row().fields).toEqual({ hair: '' })
+  })
+
+  it('keeps what Adam typed in a field the memory changed at the same time', async () => {
+    const base = entry({ summary: 'A ferrywoman', updatedAt: '1' })
+    const d = db(base)
+    d.others({ ...base, summary: 'A ferrywoman from the north' })
+    await saveOverNewer({ ...base, summary: 'A ferrywoman who owes the Duke' }, base, d.io)
+    expect(d.row().summary).toBe('A ferrywoman who owes the Duke')
   })
 })

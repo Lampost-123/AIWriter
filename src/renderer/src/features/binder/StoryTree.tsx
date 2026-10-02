@@ -82,6 +82,10 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const writing = useApp((s) => s.view.kind === 'write')
   const { collapsed, toggle } = useCollapsed()
   const [renaming, setRenaming] = useState<Target | null>(null)
+  // The row menu hands focus back a moment after it has closed, from a render before it closed: by
+  // then a scene or chapter it added may already have its name box open, so it reads this instead.
+  const renamingRef = useRef(renaming)
+  renamingRef.current = renaming
   const [menu, setMenu] = useState<(Target & { x: number; y: number }) | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
@@ -455,7 +459,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         label={menu?.kind === 'chapter' ? 'Chapter actions' : 'Scene actions'}
         onClose={() => setMenu(null)}
         onCloseFocus={() => {
-          if (menu && !renaming) focusRow(menu.id)
+          if (menu && !renamingRef.current) focusRow(menu.id)
         }}
       >
         {menu?.kind === 'scene' ? (

@@ -1,0 +1,113 @@
+// Pure helpers for the memory keeper's status and the "What changed" list. No React, no window,
+// so they are unit-tested.
+
+import type { ID, MemoryLogItem, MemoryStatus } from '@shared/types'
+
+export type KeeperState = 'idle' | 'reading' | 'error'
+
+/**
+ * What the top bar shows. Reading wins over an older error (the memory is trying again); scenes
+ * waiting their turn show nothing, so writing never makes the bar busy.
+ */
+export function keeperState(status: MemoryStatus | null): KeeperState {
+  if (!status) return 'idle'
+  if (status.reading) return 'reading'
+  if (status.error) return 'error'
+  return 'idle'
+}
+
+/** The tooltip while the memory reads: "Reading “The ferry”, then 2 more scenes." */
+export function readingNote(status: MemoryStatus): string {
+  const title = status.reading?.title.trim() || 'Untitled scene'
+  const more = Math.max(0, status.behind - 1)
+  const then = more === 0 ? '' : more === 1 ? ', then 1 more scene' : `, then ${more} more scenes`
+  return `Reading “${title}”${then}. Click to see what the memory has changed.`
+}
+
+/**
+ * The run behind a "Memory updated" note, or null: one that changed something since `sinceMs` (when
+ * the world was opened), so an update from an earlier session never shows, and not one Adam has
+ * already seen (`seen`).
+ */
+export function freshUpdate(status: MemoryStatus | null, seen: ID | null, sinceMs: number): { runId: ID; changes: number } | null {
+  const u = status?.lastUpdate
+  if (!u || u.changes <= 0 || u.runId === seen) return null
+  const at = Date.parse(u.at)
+  if (Number.isNaN(at) || at < sinceMs) return null
+  return { runId: u.runId, changes: u.changes }
+}
+
+/** "1 change to the memory", "3 changes to the memory". */
+export const changesNote = (n: number): string => `${n === 1 ? '1 change' : `${n.toLocaleString('en-GB')} changes`} to the memory`
+
+/** True when a message's next step is in Settings, so a button can go there. */
+export const pointsToSettings = (message: string): boolean => /\bSettings\b/.test(message)
+
+export interface LogGroup {
+  /** Stable key for the list. */
+  key: string
+  runId: ID
+  /** The scene the run read, when it was one scene. */
+  sceneId: ID | null
+  /** "Book 1, Ch 2, Sc 3": where the run's changes come from. */
+  where: string
+  /** When the run happened (its newest line). */
+  at: string
+  items: MemoryLogItem[]
+}
+
+/**
+ * The list grouped by run, keeping its order (newest first). Lines next to each other from the same
+ * run share one heading. A run's lines all come from one scene; if a run ever spans several, the
+ * group takes the first line's scene and place.
+ */
+export function groupLog(items: MemoryLogItem[]): LogGroup[] {
+  const groups: LogGroup[] = []
+  for (const item of items) {
+    const last = groups[groups.length - 1]
+    if (last && last.runId === item.runId) {
+      last.items.push(item)
+      continue
+    }
+    groups.push({
+      key: `${item.runId}:${item.id}`,
+      runId: item.runId,
+      sceneId: item.sceneId,
+      where: item.where.trim(),
+      at: item.createdAt,
+      items: [item]
+    })
+  }
+  return groups
+}
+
+/** The heading for a group: where its changes came from, or a plain fallback when that isn't known. */
+export const groupHeading = (g: LogGroup): string => g.where || (g.sceneId ? 'A scene' : 'Across the story')
+
+/** How a line shows its change: what it was (struck through) and what it is now. Either may be missing. */
+export function beforeAfter(item: MemoryLogItem): { before: string | null; after: string | null } {
+  const before = item.before.trim() || null
+  const after = item.after.trim() || null
+  // Nothing to compare: the line's own words say it.
+  if (before === after) return { before: null, after: null }
+  return { before, after }
+}
+
+/**
+ * True when a line's quoted words are no longer in its scene, so there is nothing there to show:
+ * a fact taken away because its words were deleted or changed (and an entry gone to the Trash
+ * because no scene mentions it), or Adam's own fact whose words in the scene were deleted.
+ */
+export const wordsGone = (item: Pick<MemoryLogItem, 'action' | 'text'>): boolean =>
+  item.action === 'removed' || (item.action === 'updated' && /the scene['’]s words for it were deleted$/.test(item.text))
+
+/** Marks one line undone, leaving the rest (and their order) alone. */
+export const markUndone = (items: MemoryLogItem[], id: ID, undone = true): MemoryLogItem[] =>
+  items.map((i) => (i.id === id ? { ...i, undone } : i))
+
+/** Records Adam's answer to a question-marked line. */
+export const markAnswered = (items: MemoryLogItem[], id: ID, answer: string | null): MemoryLogItem[] =>
+  items.map((i) => (i.id === id && i.question ? { ...i, question: { ...i.question, answer } } : i))
+
+/** Lines that can be undone: not failures, and not undone already. */
+export const canUndo = (item: MemoryLogItem): boolean => item.action !== 'failed' && !item.undone

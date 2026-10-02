@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { DeepPartial, EntryKind, ID, Settings, Story, World } from '@shared/types'
+import type { DeepPartial, EntryKind, ID, MemoryStatus, Settings, Story, World } from '@shared/types'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
+import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'backups' | 'trash' | 'about'
@@ -14,6 +15,8 @@ export type View =
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
   | { kind: 'generation'; generationId: ID }
+  /** The "What changed" list: what the memory keeper did, for the whole world or (sceneId) one scene. */
+  | { kind: 'memory'; sceneId: ID | null }
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -39,6 +42,14 @@ interface AppState {
   inspectorTab: InspectorTab
   /** A backup is being restored: the workspace takes no input until the world has reloaded. */
   restoring: boolean
+  /** Each scene's draft options (direction, length, creativity), kept while the app is open. Generate and the Context tab share them. */
+  draftOptions: Record<ID, SceneDraftOptions>
+  /** What the memory keeper is doing, shown quietly in the top bar. Null until known. */
+  memoryStatus: MemoryStatus | null
+  /** Bumped whenever the memory changes (the memory keeper, an undo), so summaries, the scene's changes and the Context tab reload. */
+  memoryRev: number
+  /** Bumped whenever something the open scene's briefing is built from changes (its card, pins, block choices, summaries). */
+  briefingRev: number
 
   init(): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
@@ -57,9 +68,13 @@ interface AppState {
   bumpEntries(): void
   setActiveGeneration(g: { id: ID; sceneId: ID } | null): void
   setInspectorTab(tab: InspectorTab): void
+  setDraftOptions(sceneId: ID, patch: Partial<SceneDraftOptions>): void
+  setMemoryStatus(status: MemoryStatus | null): void
+  bumpMemory(): void
+  bumpBriefing(): void
 }
 
-export type InspectorTab = 'card' | 'drafts'
+export type InspectorTab = 'card' | 'context' | 'drafts'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)
@@ -90,7 +105,8 @@ const NO_WORLD: Partial<AppState> = {
   outlineRev: 0,
   sceneWords: 0,
   saveState: 'idle',
-  activeGeneration: null
+  activeGeneration: null,
+  memoryStatus: null
 }
 
 /** The settings patch remembering where Adam is in this world. */
@@ -115,6 +131,10 @@ export const useApp = create<AppState>((set, get) => ({
   activeGeneration: null,
   inspectorTab: 'card',
   restoring: false,
+  draftOptions: {},
+  memoryStatus: null,
+  memoryRev: 0,
+  briefingRev: 0,
 
   async init() {
     const settings = await api.getSettings()
@@ -187,5 +207,9 @@ export const useApp = create<AppState>((set, get) => ({
   bumpOutline: () => set({ outlineRev: get().outlineRev + 1 }),
   bumpEntries: () => set({ entriesRev: get().entriesRev + 1 }),
   setActiveGeneration: (activeGeneration) => set({ activeGeneration }),
-  setInspectorTab: (inspectorTab) => set({ inspectorTab })
+  setInspectorTab: (inspectorTab) => set({ inspectorTab }),
+  setDraftOptions: (sceneId, patch) => set({ draftOptions: patchDraftOptions(get().draftOptions, sceneId, patch) }),
+  setMemoryStatus: (memoryStatus) => set({ memoryStatus }),
+  bumpMemory: () => set({ memoryRev: get().memoryRev + 1 }),
+  bumpBriefing: () => set({ briefingRev: get().briefingRev + 1 })
 }))
