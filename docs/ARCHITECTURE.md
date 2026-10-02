@@ -539,7 +539,7 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 - **Issues** are rows of `issues` (migration 2). Everything beyond its columns goes in `payload_json`
   (`key`, `sources`, `fix`, `memoryFix`). An issue's `key` stops it being raised twice; an ignored key is
   never raised again. Severity is `must-fix` (red), `warning` ("Worth a look") or `minor`. The contract is
-  `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks.ts`.
+  `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks*.ts`.
 - **The model.** AI checks are the job `check`: "Consistency check model" in Settings › Models
   (`settings.models.check`, the memory model until Adam picks one, then the writer model), with its own
   Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; prompts start with
@@ -553,9 +553,9 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 
 | Part | Owns |
 |---|---|
-| Live checks | `src/shared/liveChecks.ts` (pure), `features/liveChecks/` (TipTap decorations, the hover card), the live handlers in `ipc/checks.ts`, `src/main/checks/live.ts` |
-| AI checks | `src/main/checks/` (but `live.ts`, `reports.ts`), `db/checks.ts`, the issue and run handlers in `ipc/checks.ts`, the `check` job (types, defaults, `jobModel`, `providers`, Settings › Models), `features/issues/`, `tests/fake-provider/m5/` |
-| Reports | `src/main/checks/reports.ts`, the report handlers in `ipc/checks.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
+| Live checks | `src/shared/liveChecks.ts` (pure), `features/liveChecks/` (TipTap decorations, the hover card), `ipc/checksLive.ts`, `src/main/checks/live.ts` |
+| AI checks | `src/main/checks/` (but `live.ts`, `reports.ts`), `db/checks.ts`, `ipc/checksIssues.ts`, the `check` job (types, defaults, `jobModel`, `providers`, Settings › Models), `features/issues/`, `tests/fake-provider/m5/` |
+| Reports | `src/main/checks/reports.ts`, `ipc/checksReports.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
 | Briefing | `ai/context.ts` block 11 |
 
 ## Milestone 1 scope
