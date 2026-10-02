@@ -11,6 +11,7 @@ import { registerDiscarder, registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
+import { widePageFrom } from '@/layout/fitPanels'
 import { SceneController } from './controller'
 import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
@@ -161,6 +162,20 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const lineHeight = prefs?.lineHeight ?? 1.7
   const pageWidth = prefs?.pageWidth ?? 70
 
+  // The page's padding is 40 px either side, or 24 on a narrow page (a small window, or large text
+  // squeezing the words), leaving the room to the words. Decided before the page is drawn, so the
+  // words never show re-wrapped for a moment.
+  const wideFrom = widePageFrom(fontSize, pageWidth)
+  const [wide, setWide] = useState(true)
+  useLayoutEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    setWide(el.offsetWidth >= wideFrom)
+    const ro = new ResizeObserver(() => flushSync(() => setWide(el.offsetWidth >= wideFrom)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [wideFrom])
+
   /**
    * Clicking the empty page below the text puts the cursor at the end. Only presses on the page itself:
    * pop-ups opened from the page (a name's card, the Add to memory form) reach here through React too.
@@ -188,12 +203,11 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           if (draftBelow) ctrlRef.current?.updateDraftBelow()
         }}
         onMouseDown={onPageMouseDown}
-        // Sized by its own width: a narrow page (a small window) has less padding, leaving the room to the words.
-        className="@container relative min-h-0 flex-1 overflow-y-auto"
+        className="relative min-h-0 flex-1 overflow-y-auto"
       >
         <div
           ref={columnRef}
-          className={cn('mx-auto px-6 pb-[38vh] pt-12 font-serif @min-[700px]:px-10', !(shown && !error) && 'invisible')}
+          className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', !(shown && !error) && 'invisible')}
           style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
         >
           <EditorContent editor={editor} />

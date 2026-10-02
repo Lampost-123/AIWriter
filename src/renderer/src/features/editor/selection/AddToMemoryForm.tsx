@@ -23,6 +23,12 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
 const KIND_OPTIONS = NEW_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k].one }))
 
 /**
+ * The box to type in: as tall as the form leaves it (never shorter than two lines), scrolling inside
+ * rather than growing, so the form stays the same size and in the same place while Adam types.
+ */
+const BOX = { autoGrow: false, minRows: 2, className: 'min-h-14 flex-1' }
+
+/**
  * A toast for something just added: Undo, and Open, which shows the entry beside the page. Open is the
  * toast's second button (`secondary`), which the shared toast gains with this milestone; until it
  * does, the toast shows Undo alone.
@@ -109,10 +115,15 @@ export function AddToMemoryForm({
     }
   }
 
+  // One line under the heading in either kind of form, so switching between them never changes its height.
+  const help = mode === 'new' ? 'The selected words become its description.' : `Pinned to this scene (${names.label}).`
+
   return (
+    // The form fills its pop-up, which is as tall as the window has room for (see SelectionLayer): the
+    // heading and the buttons always show, and the box to type in takes the height in between.
     <form
       aria-label="Add to memory"
-      className="flex flex-col gap-3"
+      className="flex min-h-0 flex-1 flex-col"
       onSubmit={(e) => {
         e.preventDefault()
         void save()
@@ -125,49 +136,57 @@ export function AddToMemoryForm({
         }
       }}
     >
-      <div>
+      <div className="shrink-0 px-4 pt-4">
         <h3 className="truncate text-[13.5px] font-semibold text-fg">
           {mode === 'new' ? `New ${KIND_LABELS[kind].one.toLowerCase()}` : target ? `A change to ${displayName(target)}` : 'A change'}
         </h3>
-        <p className="mt-0.5 text-[12px] text-faint">
-          {mode === 'new' ? 'The words become its description; fill in the rest on its page.' : `Pinned to this scene (${names.label}).`}
+        <p className="mt-0.5 truncate text-[12px] text-faint" title={help}>
+          {help}
         </p>
       </div>
-      <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} label="What to add" className="w-full" />
-      {mode === 'new' ? (
-        <>
-          <div className="grid grid-cols-[1fr_1.6fr] gap-2">
-            <Field label="Kind">
-              {(id) => <Select id={id} value={kind} onChange={(v) => v && setKind(v as EntryKind)} options={KIND_OPTIONS} />}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
+        <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} label="What to add" className="w-full shrink-0" />
+        {mode === 'new' ? (
+          <>
+            <div className="grid shrink-0 grid-cols-[1fr_1.6fr] gap-2">
+              <Field label="Kind">
+                {(id) => <Select id={id} value={kind} onChange={(v) => v && setKind(v as EntryKind)} options={KIND_OPTIONS} />}
+              </Field>
+              <Field label="Name">
+                {(id) => (
+                  <Input id={id} ref={firstRef} value={name} placeholder={newEntryName(kind)} onChange={(e) => setName(e.target.value)} />
+                )}
+              </Field>
+            </div>
+            <Field label="Description" className="flex-1">
+              {(id) => <Textarea id={id} {...BOX} value={description} onChange={(e) => setDescription(e.target.value)} />}
             </Field>
-            <Field label="Name">
-              {(id) => (
-                <Input id={id} ref={firstRef} value={name} placeholder={newEntryName(kind)} onChange={(e) => setName(e.target.value)} />
-              )}
+          </>
+        ) : (
+          <>
+            <Field label="Who or what changed" className="shrink-0">
+              {(id) => <Select id={id} value={entryId} onChange={setEntryId} options={options} placeholder="Choose…" />}
             </Field>
-          </div>
-          <Field label="Description">
-            {(id) => <Textarea id={id} value={description} minRows={3} maxRows={8} onChange={(e) => setDescription(e.target.value)} />}
-          </Field>
-        </>
-      ) : (
-        <>
-          <Field label="Who or what changed">
-            {(id) => <Select id={id} value={entryId} onChange={setEntryId} options={options} placeholder="Choose…" />}
-          </Field>
-          <Field label="What changed">
-            {(id) => <Textarea id={id} ref={noteRef} value={note} minRows={3} maxRows={8} onChange={(e) => setNote(e.target.value)} />}
-          </Field>
-        </>
-      )}
-      {error ? <p className="text-[12.5px] text-danger">{error}</p> : null}
-      <div className="flex items-center justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={() => onDone(false)}>
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" size="sm" loading={busy}>
-          Add to memory
-        </Button>
+            <Field label="What changed" className="flex-1">
+              {(id) => <Textarea id={id} ref={noteRef} {...BOX} value={note} onChange={(e) => setNote(e.target.value)} />}
+            </Field>
+          </>
+        )}
+      </div>
+      <div className="shrink-0 px-4 pb-4">
+        {error ? (
+          <p role="alert" className="mb-2 text-[12.5px] text-danger">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={() => onDone(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="sm" loading={busy}>
+            Add to memory
+          </Button>
+        </div>
       </div>
     </form>
   )

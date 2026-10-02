@@ -6,6 +6,7 @@
 // selection or the caret from the page.
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
+import type { Transaction } from '@tiptap/pm/state'
 import { BookmarkPlus, UserPlus } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
@@ -14,8 +15,9 @@ import { cn } from '@/lib/cn'
 import { activeStream } from '../streamDoc'
 import { nameIndex } from '../names/underlines'
 import { useSceneNames } from '../names/sceneNames'
+import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
-import { prefill, tidySelection, type AddPrefill } from './addToMemoryLogic'
+import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
 
 /** How long the selection must stay still before the bar shows: after the mouse is let go, and after keys. */
 const AFTER_MOUSE = 200
@@ -47,6 +49,8 @@ export function SelectionLayer({
   const { data: names } = useSceneNames(sceneId, writing)
   const [bar, setBar] = useState<Bar | null>(null)
   const [form, setForm] = useState<AddPrefill | null>(null)
+  // Where the form shows, chosen as it opens and kept while it is open.
+  const [place, setPlace] = useState<FormPlace>({ side: 'bottom', sideOffset: FORM_GAP, alignOffset: 0, room: FORM_SIZE.height })
   const barRef = useRef<HTMLDivElement>(null)
   const formOpen = useRef(false)
   formOpen.current = !!form
@@ -104,11 +108,18 @@ export function SelectionLayer({
       mouseDown = false
       settle(AFTER_MOUSE)
     }
-    const onSelection = (): void => {
+    const onSelection = ({ transaction }: { transaction: Transaction }): void => {
       if (mouseDown || formOpen.current) return
       const sel = editor.state.selection
       if (sel.empty) return hide()
       if (barShown.current) setBar(null)
+      // Words the app selected to show them (where a fact came from, a search match) aren't offered:
+      // the bar waits for a selection Adam makes himself.
+      if (transaction.getMeta(REVEALED)) {
+        clearTimeout(timer)
+        closedFor.current = `${sel.from}:${sel.to}`
+        return
+      }
       settle(AFTER_KEYS)
     }
     const onUpdate = (): void => {
@@ -184,59 +195,74 @@ export function SelectionLayer({
     }
   }
 
+  const openForm = (): void => {
+    const el = barRef.current
+    if (!names || !el) return
+    setPlace(formPlace(el.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }))
+    setForm(prefill(bar.text, nameIndex(), new Map(names.entries.map((e) => [e.id, e]))))
+  }
+
   const quickStart = (): void => {
     const start = { notes: bar.text, sceneId, mode: 'quick' as const }
     useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start })
   }
 
-  const kinds = new Map((names?.entries ?? []).map((e) => [e.id, e]))
-
   return (
     <P.Root open={!!form} onOpenChange={(open) => !open && closeForm(false)}>
-      <div
-        ref={barRef}
-        role="toolbar"
-        aria-label="Selected words"
-        // Pressing a button keeps the words selected and the caret in the page (and never reaches the page below).
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-        }}
-        // Tabbing on past it (not back to the page or into the form) closes it.
-        onBlur={(e) => {
-          const to = e.relatedTarget as Node | null
-          const toForm = to instanceof Element && !!to.closest('[data-add-to-memory]')
-          const staying = !!to && (e.currentTarget.contains(to) || editor.view.dom.contains(to) || toForm)
-          if (!staying && !form) setBar(null)
-        }}
-        style={{ top: bar.top, left, height: BAR_HEIGHT }}
-        className={cn(
-          'absolute z-20 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 font-sans shadow-pop animate-fade-in',
-          'select-none whitespace-nowrap'
-        )}
-      >
-        <P.Anchor asChild>
+      {/* The form opens beside the bar, lined up with its edge (or over it, in a short window). */}
+      <P.Anchor asChild>
+        <div
+          ref={barRef}
+          role="toolbar"
+          aria-label="Selected words"
+          // Pressing a button keeps the words selected and the caret in the page (and never reaches the page below).
+          onMouseDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          // Tabbing on past it (not back to the page or into the form) closes it.
+          onBlur={(e) => {
+            const to = e.relatedTarget as Node | null
+            const toForm = to instanceof Element && !!to.closest('[data-add-to-memory]')
+            const staying = !!to && (e.currentTarget.contains(to) || editor.view.dom.contains(to) || toForm)
+            if (!staying && !form) setBar(null)
+          }}
+          style={{ top: bar.top, left, height: BAR_HEIGHT }}
+          className={cn(
+            'absolute z-20 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 font-sans shadow-pop animate-fade-in',
+            'select-none whitespace-nowrap'
+          )}
+        >
           <BarButton
             icon={<BookmarkPlus size={14} />}
             pressed={!!form}
-            onClick={() => (form ? closeForm(false) : names && setForm(prefill(bar.text, nameIndex(), kinds)))}
+            onClick={() => (form ? closeForm(false) : openForm())}
             disabled={!names}
           >
             Add to memory
           </BarButton>
-        </P.Anchor>
-        <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
-        <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
-          Quick start a character
-        </BarButton>
-      </div>
+          <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
+          <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
+            Quick start a character
+          </BarButton>
+        </div>
+      </P.Anchor>
       <P.Portal>
         <P.Content
           data-add-to-memory=""
-          side="bottom"
+          // On the side chosen as it opened (formPlace), never flipping while in use, and only as tall as
+          // the room there: in a short window the box to type in gives up height first, then the form
+          // covers the bar rather than hide any of its parts.
+          side={place.side}
           align="start"
-          sideOffset={6}
-          collisionPadding={12}
+          alignOffset={place.alignOffset}
+          sideOffset={place.sideOffset}
+          avoidCollisions={false}
+          collisionPadding={FORM_EDGE}
+          style={{
+            width: FORM_SIZE.width,
+            height: `min(${FORM_SIZE.height}px, var(--radix-popover-content-available-height, ${place.room}px))`
+          }}
           onOpenAutoFocus={(e) => e.preventDefault()}
           // A press in the form (or its lists) belongs to the form, never to the page it was opened from.
           onMouseDown={(e) => e.stopPropagation()}
@@ -249,7 +275,10 @@ export function SelectionLayer({
             e.preventDefault()
             closeForm(false)
           }}
-          className="z-50 w-[340px] rounded-xl border border-line bg-surface p-4 shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className={cn(
+            'z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+            'focus:outline-none data-[state=open]:animate-pop-in'
+          )}
         >
           {form && names ? <AddToMemoryForm start={form} names={names} onDone={(added) => closeForm(added)} /> : null}
         </P.Content>
@@ -266,7 +295,6 @@ const BarButton = ({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   icon: React.ReactNode
   pressed?: boolean
-  ref?: React.Ref<HTMLButtonElement>
 }): React.JSX.Element => (
   <button
     type="button"

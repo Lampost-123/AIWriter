@@ -3,6 +3,9 @@ import type { ID } from '@shared/types'
 // Lets "What changed" open a scene at the words a fact came from: the request waits until the
 // scene is on screen, then the editor selects those words and scrolls them into view.
 
+/** Marks the transaction that selects the words being shown, so the page doesn't offer to add them to memory. */
+export const REVEALED = 'aiwriteRevealed'
+
 let pending: { sceneId: ID; quote: string } | null = null
 const listeners = new Set<() => void>()
 

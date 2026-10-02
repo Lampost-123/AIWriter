@@ -133,6 +133,46 @@ export function prefill(selection: string, index: NameIndex, entries: Map<ID, Pi
   }
 }
 
+/**
+ * The form's size: its width, its height where the window has room for it (both kinds of form are
+ * this tall), and the least it needs to show all its parts with a two-line box to type in.
+ */
+export const FORM_SIZE = { width: 340, height: 336, least: 320 }
+/** The gap between the bar and the form, and the room the form leaves at the window's edges. */
+export const FORM_GAP = 6
+export const FORM_EDGE = 12
+
+export interface FormPlace {
+  side: 'top' | 'bottom'
+  /** How far the form sits from the bar: the gap, or less (over the bar) when room is short. */
+  sideOffset: number
+  /** How far the form moves sideways from the bar's start, to stay inside the window. */
+  alignOffset: number
+  /** The height there is room for on that side. */
+  room: number
+}
+
+/**
+ * Where the form opens beside the bar (`anchor`, in the window's coordinates): below it when the whole
+ * form fits there, else above when it fits there, else on the side with more room, fitting itself to
+ * that room. When even that is too short for all its parts (a bar in the middle of a short window),
+ * the form covers the bar rather than hide its parts. Chosen once as it opens, so the form never
+ * jumps while Adam uses it.
+ */
+export function formPlace(
+  anchor: { top: number; bottom: number; left: number },
+  view: { width: number; height: number },
+  form = FORM_SIZE
+): FormPlace {
+  const below = Math.floor(view.height - anchor.bottom - FORM_GAP - FORM_EDGE)
+  const above = Math.floor(anchor.top - FORM_GAP - FORM_EDGE)
+  const side = below >= form.height || (above < form.height && below >= above) ? 'bottom' : 'top'
+  const room = Math.max(0, side === 'bottom' ? below : above)
+  const over = Math.max(0, form.least - room)
+  const left = Math.max(FORM_EDGE, Math.min(anchor.left, view.width - FORM_EDGE - form.width))
+  return { side, sideOffset: FORM_GAP - over, alignOffset: Math.round(left - anchor.left), room: room + over }
+}
+
 /** "Added Jory to your characters." */
 export const addedEntryMessage = (name: string, kind: EntryKind): string => `Added ${name} to your ${KIND_LABELS[kind].many.toLowerCase()}.`
 

@@ -9,7 +9,8 @@ import {
   dragMax,
   fitPanels,
   pageMinFor,
-  proseMinFor
+  proseMinFor,
+  widePageFrom
 } from './fitPanels'
 
 const binder = (width = 272, open = true) => ({ open, width, floor: 200 })
@@ -74,15 +75,32 @@ describe('pageMinFor', () => {
   })
 
   it('leaves the words their room with whichever padding the page has at that width', () => {
-    // The page has 40 px either side from 700 px (24 below), so large text needs room for that too.
     for (let size = 15; size <= 24; size++) {
       const min = pageMinFor(size)
-      const padding = min >= WIDE_PAGE ? WIDE_PAGE_PADDING : PAGE_PADDING
-      expect(min - padding).toBe(proseMinFor(size))
+      const wideFrom = widePageFrom(size)
+      // At its narrowest the page has the narrow padding (24 px either side), and the words their room.
+      expect(min - PAGE_PADDING).toBe(proseMinFor(size))
+      expect(wideFrom).toBeGreaterThan(min)
+      // The wide padding (40 px) only from 700 px, and only once the words keep their room beside it.
+      expect(wideFrom).toBeGreaterThanOrEqual(WIDE_PAGE)
+      for (let page = min; page <= min + 200; page++) {
+        const padding = page >= wideFrom ? WIDE_PAGE_PADDING : PAGE_PADDING
+        expect(page - padding).toBeGreaterThanOrEqual(proseMinFor(size))
+      }
     }
-    expect(pageMinFor(19)).toBe(proseMinFor(19) + PAGE_PADDING)
-    expect(pageMinFor(22)).toBe(proseMinFor(22) + WIDE_PAGE_PADDING)
-    expect(pageMinFor(24)).toBe(proseMinFor(24) + WIDE_PAGE_PADDING)
+    expect(widePageFrom(19)).toBe(WIDE_PAGE)
+    expect(widePageFrom(22)).toBe(proseMinFor(22) + WIDE_PAGE_PADDING)
+  })
+
+  it('large text in the smallest window: a page squeezed below its minimum keeps the narrow padding', () => {
+    // 22 px text at 960 px: the binder floats and the scene panel is at its narrowest, so the page is 700 px.
+    const pageMin = pageMinFor(22)
+    expect(binderFloats(960, 200, scenePanel(), pageMin)).toBe(true)
+    const page = 960 - fitPanels(960, binder(272, false), scenePanel(), pageMin).right
+    expect(page).toBe(700)
+    expect(page).toBeLessThan(widePageFrom(22))
+    // So the words get 642 px, about as much as they need (644), not 610.
+    expect(page - PAGE_PADDING).toBeGreaterThanOrEqual(proseMinFor(22) - 2)
   })
 })
 

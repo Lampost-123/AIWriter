@@ -259,6 +259,35 @@ test('Add to memory and Quick start from selected words', async ({ launch }) => 
     .toBe(true)
 })
 
+test('words the app selects to show where a fact came from aren’t offered for Add to memory again', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '700' } })
+    await createWorldFromWelcome(win, 'Alpha')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The ferry was late. Mara lost her left hand.')
+    // The memory reads the words, and What changed shows where the fact came from.
+    const quoted = async () => (await invoke(win, 'listMemoryLog', {})).find((l) => l.what === 'change' && l.quote)?.quote ?? ''
+    await expect.poll(quoted, { timeout: 30_000 }).toContain('left hand')
+    const quote = (await quoted()).trim()
+    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await win.locator('main').getByTitle('Show these words in the scene').filter({ hasText: 'left hand' }).click()
+
+    // The scene opens with those words selected, and no bar offers to add them to memory.
+    await expect(prose(win)).toBeFocused()
+    await expect.poll(() => win.evaluate('window.getSelection().toString()')).toBe(quote)
+    const bar = win.getByRole('toolbar', { name: 'Selected words' })
+    await win.waitForTimeout(1000)
+    await expect(bar).toBeHidden()
+    // A selection Adam makes himself is offered as usual.
+    await win.keyboard.press('Shift+ArrowLeft')
+    await expect(bar).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) => {
   const fake = await startFake()
   try {
@@ -381,6 +410,110 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   await resize(app, win, 1440, 900)
   await expect(binder(win)).toBeVisible()
   expect(await pagePadding(win)).toBe('40px')
+
+  // Large text in the smallest window: the page can't be given its full minimum, so it keeps the
+  // narrow padding and leaves that room to the words.
+  await binder(win).locator('[data-row]', { hasText: 'The Knock at the Door' }).click()
+  await invoke(win, 'updateSettings', { editor: { ...(await invoke(win, 'getSettings')).editor, fontSize: 22 } })
+  await win.reload()
+  await expect(prose(win)).toContainText('The harbour lamps')
+  await resize(app, win, 960, 600)
+  expect(await pagePadding(win)).toBe('24px')
+  expect(Math.min(...(await charsPerLine(win)))).toBeGreaterThanOrEqual(55)
+})
+
+const MANY = Array.from({ length: 13 }, (_, i) =>
+  i % 3 === 1
+    ? `Mara walked the long road past the mill again, counting the stones and saying nothing to anyone (${i + 1}).`
+    : `The rain kept on over the valley while the river rose against the old stone banks, and nobody slept (${i + 1}).`
+)
+
+test('the Add to memory form fits the smallest window, and stays where it opened while in use', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  const [story] = await invoke(win, 'listStories')
+  const { scenes } = await invoke(win, 'getOutline', story.id)
+  await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', aliases: ['Mara'], originStoryId: story.id })
+  await invoke(win, 'saveSceneText', scenes[0].id, null, MANY.join('\n\n'))
+  await win.reload()
+  await expect(prose(win)).toContainText('(13)')
+  await resize(app, win, 960, 600)
+  const bar = win.getByRole('toolbar', { name: 'Selected words' })
+  const form = win.getByRole('form', { name: 'Add to memory' })
+  const popUp = win.locator('[data-add-to-memory]')
+  const top = async () => (await popUp.boundingBox())!.y
+  // The form grows in from slightly smaller as it opens: it is measured once it rests.
+  const grownIn = `Promise.all(document.querySelector('[data-add-to-memory]').getAnimations().map((a) => a.finished)).then(() => true)`
+
+  /** Selects paragraph i with its top `y` px down the window (or the page scrolled to its end), and opens the form for it. */
+  async function openFrom(i: number, y: number | 'end'): Promise<void> {
+    await win.evaluate(`(() => {
+      const scroller = document.querySelector('.scene-prose').closest('.overflow-y-auto')
+      const top = document.querySelectorAll('.scene-prose p')[${i}].getBoundingClientRect().top
+      scroller.scrollTop = ${y === 'end' ? 'scroller.scrollHeight' : `Math.round(scroller.scrollTop + top - ${y})`}
+    })()`)
+    await selectParagraph(win, i)
+    expect(await win.evaluate('window.getSelection().toString()')).toBe(MANY[i])
+    await bar.getByRole('button', { name: 'Add to memory' }).click()
+    await expect(form).toBeVisible()
+    await win.evaluate(grownIn)
+  }
+
+  /** The form lies inside the window, its heading, box to type in and buttons all in view, the box at least two lines tall. */
+  async function inView(box: string): Promise<void> {
+    const outer = (await popUp.boundingBox())!
+    expect(outer.y).toBeGreaterThanOrEqual(0)
+    expect(outer.y + outer.height).toBeLessThanOrEqual(600)
+    expect(outer.x).toBeGreaterThanOrEqual(0)
+    expect(outer.x + outer.width).toBeLessThanOrEqual(960)
+    const heading = (await form.getByRole('heading').boundingBox())!
+    const text = (await form.getByRole('textbox', { name: box }).boundingBox())!
+    const save = (await form.getByRole('button', { name: 'Add to memory' }).boundingBox())!
+    expect(heading.y).toBeGreaterThanOrEqual(outer.y)
+    expect(text.y).toBeGreaterThan(heading.y + heading.height)
+    expect(text.height).toBeGreaterThanOrEqual(50)
+    expect(save.y).toBeGreaterThan(text.y + text.height)
+    expect(save.y + save.height).toBeLessThanOrEqual(outer.y + outer.height)
+  }
+
+  // Words in the middle of the page: there's room for the form on neither side of the bar, so it
+  // takes the side with more room and covers the bar rather than leave the window or hide its parts.
+  await openFrom(7, 300)
+  await expect(form.getByRole('heading', { name: 'A change to Mara Venn' })).toBeVisible()
+  await inView('What changed')
+  const [barBox, formBox] = [(await bar.boundingBox())!, (await popUp.boundingBox())!]
+  expect(formBox.y < barBox.y + barBox.height && formBox.y + formBox.height > barBox.y).toBe(true)
+  // Switching between the two kinds of form, and typing, never move it.
+  const at = await top()
+  await form.getByRole('radio', { name: 'Something new' }).click()
+  await expect(form.getByRole('heading', { name: 'New character' })).toBeVisible()
+  await inView('Description')
+  expect(await top()).toBe(at)
+  await form.getByRole('radio', { name: 'A change' }).click()
+  await form.getByRole('textbox', { name: 'What changed' }).click()
+  await win.keyboard.press(mod === 'Meta' ? 'Meta+ArrowDown' : 'Control+End')
+  for (const line of [' and on,', 'and on,', 'and on.']) {
+    await win.keyboard.type(line)
+    await win.keyboard.press('Enter')
+  }
+  await expect(form.getByRole('textbox', { name: 'What changed' })).toHaveValue(`${MANY[7]} and on,\nand on,\nand on.\n`)
+  expect(await top()).toBe(at)
+  await inView('What changed')
+  await win.keyboard.press('Escape')
+  await expect(form).toBeHidden()
+  await win.keyboard.press('Escape')
+  await expect(bar).toBeHidden()
+
+  // The last words of the scene, in both kinds of form.
+  await openFrom(12, 'end')
+  await expect(form.getByRole('heading', { name: 'New character' })).toBeVisible()
+  await inView('Description')
+  await form.getByRole('radio', { name: 'A change' }).click()
+  await inView('What changed')
+  await win.keyboard.press('Escape')
+  await expect(form).toBeHidden()
+  // Nothing was added, and the scene's words are as they were.
+  expect((await invoke(win, 'getScene', scenes[0].id)).text).toBe(MANY.join('\n\n'))
 })
 
 test('a squeezed panel is dragged from where it shows, and stays where it is let go', async ({ launch }) => {

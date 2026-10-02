@@ -10,6 +10,8 @@ import type { SceneNames } from '@shared/contracts/manuscript'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { useOutlineStore } from '@/features/binder/outlineStore'
+import { outlineOrder } from './outlineOrder'
 
 interface Loaded {
   data: SceneNames | null
@@ -41,12 +43,16 @@ function storyTitles(stories: Story[]): string {
 }
 
 /**
- * What a scene's names depend on: the world, its entries, the memory and the scene card; the outline,
- * as moving a scene or chapter renumbers the places ("Book 1, Ch 2, Sc 3") and changes what came
- * before; and the stories' titles, which those places are named after.
+ * What a scene's names depend on: the world, its entries, the memory and the scene card; the stories'
+ * titles, which places are named after ("Book 1, Ch 2, Sc 3"); and the order of the open story's
+ * chapters and scenes, as moving one renumbers the places and changes what came before. Not the
+ * outline's revision: that moves with nearly every pause in the writing (word counts), and asking
+ * for the names again each time would cost a big world's main process for nothing.
  */
-const revision = (s: ReturnType<typeof useApp.getState>): string =>
-  `${s.world?.id ?? ''}:${s.entriesRev}:${s.memoryRev}:${s.briefingRev}:${s.outlineRev}:${storyTitles(s.stories)}`
+const worldRevision = (s: ReturnType<typeof useApp.getState>): string =>
+  `${s.world?.id ?? ''}:${s.entriesRev}:${s.memoryRev}:${s.briefingRev}:${storyTitles(s.stories)}`
+const orderRevision = (s: ReturnType<typeof useOutlineStore.getState>): string => outlineOrder(s.outline)
+const revision = (): string => `${worldRevision(useApp.getState())}:${orderRevision(useOutlineStore.getState())}`
 
 /** The revision each scene was last asked for: only the newest answer is kept. */
 const asked = new Map<ID, string>()
@@ -69,7 +75,7 @@ function put(sceneId: ID, loaded: Loaded): void {
 
 /** Loads a scene's names now. */
 export async function loadSceneNames(sceneId: ID): Promise<void> {
-  const rev = revision(useApp.getState())
+  const rev = revision()
   if (asked.get(sceneId) === rev) return
   asked.set(sceneId, rev)
   try {
@@ -101,7 +107,7 @@ export interface SceneNamesResult {
  * false holds that off, while the writing page is hidden). The last answer stays while a newer loads.
  */
 export function useSceneNames(sceneId: ID | null, active = true): SceneNamesResult {
-  const rev = useApp(revision)
+  const rev = `${useApp(worldRevision)}:${useOutlineStore(orderRevision)}`
   const loaded = useNamesStore((s) => (sceneId ? s.scenes[sceneId] : undefined))
   useEffect(() => {
     if (!sceneId || !active) return

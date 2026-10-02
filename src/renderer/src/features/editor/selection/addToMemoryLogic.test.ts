@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryKind } from '@shared/types'
 import { buildNameIndex } from '../names/nameMatch'
-import { addedChangeMessage, addedEntryMessage, newName, prefill, tidySelection } from './addToMemoryLogic'
+import {
+  FORM_EDGE,
+  FORM_GAP,
+  FORM_SIZE,
+  addedChangeMessage,
+  addedEntryMessage,
+  formPlace,
+  newName,
+  prefill,
+  tidySelection
+} from './addToMemoryLogic'
 
 const world: { id: string; kind: EntryKind; name: string; aliases: string[]; absent?: string }[] = [
   { id: 'mara', kind: 'character', name: 'Mara Venn', aliases: ['Mara'] },
@@ -60,6 +70,53 @@ describe('the name a new entry starts with', () => {
 
   it('names that are already entries are left for a change', () => {
     expect(name('Mara Venn waited at the Gilded Eel.')).toBe('')
+  })
+})
+
+describe('where the form opens', () => {
+  const view = { width: 960, height: 600 }
+  /** The bar over the selected words (34 px tall). */
+  const bar = (top: number, left = 300) => ({ top, bottom: top + 34, left })
+
+  /** Where the form's top and bottom are in the window, and how tall it is. */
+  const placed = (top: number) => {
+    const p = formPlace(bar(top), view)
+    const height = Math.min(FORM_SIZE.height, p.room)
+    const from = p.side === 'bottom' ? top + 34 + p.sideOffset : top - p.sideOffset - height
+    return { ...p, from, to: from + height, height }
+  }
+
+  it('below the bar when the whole form fits there, above it when only that side has room', () => {
+    expect(formPlace(bar(100), { width: 1280, height: 800 })).toMatchObject({ side: 'bottom', sideOffset: FORM_GAP, alignOffset: 0 })
+    expect(formPlace(bar(500), { width: 1280, height: 800 })).toMatchObject({ side: 'top', sideOffset: FORM_GAP, alignOffset: 0 })
+  })
+
+  it('in a short window, on the side with more room, and only as tall as that room', () => {
+    // 328 px below the bar, 202 above.
+    expect(placed(220)).toMatchObject({ side: 'bottom', sideOffset: FORM_GAP, room: 328, height: 328 })
+    // 327 px above the bar, 203 below.
+    expect(placed(345)).toMatchObject({ side: 'top', sideOffset: FORM_GAP, room: 327, height: 327 })
+  })
+
+  it('with too little room on either side for all its parts, over the bar rather than cut short', () => {
+    // A bar in the middle of a 600 px window: 282 px above it, 248 below.
+    const mid = placed(300)
+    expect(mid).toMatchObject({ side: 'top', height: FORM_SIZE.least, sideOffset: FORM_GAP - (FORM_SIZE.least - 282) })
+    expect(mid.to).toBe(300 - FORM_GAP + (FORM_SIZE.least - 282))
+  })
+
+  it('always inside the window, never shorter than its parts need', () => {
+    for (let top = 60; top <= 560; top += 4) {
+      const p = placed(top)
+      expect(p.from).toBeGreaterThanOrEqual(FORM_EDGE)
+      expect(p.to).toBeLessThanOrEqual(600 - FORM_EDGE)
+      expect(p.height).toBeGreaterThanOrEqual(FORM_SIZE.least)
+    }
+  })
+
+  it('moves along to stay inside the window’s width', () => {
+    expect(formPlace(bar(100, 800), view).alignOffset).toBe(960 - FORM_EDGE - FORM_SIZE.width - 800)
+    expect(formPlace(bar(100, 4), view).alignOffset).toBe(FORM_EDGE - 4)
   })
 })
 
