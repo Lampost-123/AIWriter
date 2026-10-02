@@ -47,4 +47,17 @@ describe('now (the time saves are stamped with)', () => {
       vi.useRealTimers()
     }
   })
+
+  it('stays in order through a burst of thousands of saves in one tick of the clock', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-02T12:00:00.000Z') })
+    try {
+      const times = Array.from({ length: 3000 }, () => now())
+      expect(times.every((t, i) => i === 0 || t > times[i - 1])).toBe(true)
+      // Once the clock moves on, it carries on from where the burst got to.
+      vi.advanceTimersByTime(10)
+      expect(now() > times[times.length - 1]).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
