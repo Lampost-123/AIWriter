@@ -238,6 +238,60 @@ export function placeChapter(db: DB, chapterId: ID, place: ChapterPlace): void {
   db.transaction(() => settle(db, storyId, { ...place, chapterId }))()
 }
 
+/** A story's chapters as runs: those with no act (key null), then each act's, each in the story's order. */
+function chapterRunsOf(db: DB, storyId: ID): Map<ID | null, ID[]> {
+  const acts = listActs(db, storyId)
+  const live = new Set(acts.map((a) => a.id))
+  const runs = new Map<ID | null, ID[]>([[null, []], ...acts.map((a): [ID, ID[]] => [a.id, []])])
+  const rows = db
+    .prepare('SELECT id, act_id FROM chapters WHERE story_id = ? AND deleted_at IS NULL ORDER BY position')
+    .all(storyId) as Row[]
+  for (const r of rows) {
+    const actId = r.act_id as string | null
+    runs.get(actId && live.has(actId) ? actId : null)!.push(r.id as string)
+  }
+  return runs
+}
+
+/**
+ * A new act (titled "Act N") starting at this chapter. It takes the chapter and the ones after it in its
+ * act, or, for a chapter with no act, the ones after it with none; it goes just after that act, or before
+ * every act. So the story reads in the same order, and a story written without acts can be given them.
+ * Says which chapters it took. Undone by joinActBack.
+ */
+export function startActAt(db: DB, chapterId: ID): { act: Act; chapterIds: ID[] } {
+  const storyId = storyOfChapter(db, chapterId)
+  return db.transaction(() => {
+    const from = actOfChapter(db, chapterId)
+    const run = chapterRunsOf(db, storyId).get(from) ?? []
+    const at = run.indexOf(chapterId)
+    if (at < 0 || (from && at === 0)) throw new UserError('That chapter already starts its act.')
+    const first = listActs(db, storyId)[0]?.id ?? null
+    const act = createAct(db, storyId, from ? { afterId: from } : { beforeId: first })
+    const chapterIds = run.slice(at)
+    const stmt = db.prepare('UPDATE chapters SET act_id = ? WHERE id = ?')
+    for (const id of chapterIds) stmt.run(act.id, id)
+    settle(db, storyId)
+    return { act: getAct(db, act.id), chapterIds }
+  })()
+}
+
+/**
+ * Undo for startActAt: the act's chapters go back to the end of the act before it (or, for the first
+ * act, among the chapters with no act), so the story reads in the same order, and the act goes for good.
+ */
+export function joinActBack(db: DB, id: ID): void {
+  const act = getAct(db, id)
+  db.transaction(() => {
+    const order = listActs(db, act.storyId)
+    const before = order[order.findIndex((a) => a.id === id) - 1]?.id ?? null
+    db.prepare('UPDATE chapters SET act_id = ? WHERE act_id = ? AND story_id = ?').run(before, id, act.storyId)
+    db.prepare('DELETE FROM acts WHERE id = ?').run(id)
+    renumberActs(db, act.storyId)
+    settle(db, act.storyId)
+  })()
+}
+
 /** The act a chapter is in; null when it has none (or its act is deleted). */
 export function actOfChapter(db: DB, chapterId: ID): ID | null {
   const r = db
@@ -335,9 +389,16 @@ export function markMade(db: DB, kind: KeptItem['kind'], id: ID): void {
 /** Whether a row was changed after the outline helper made it (see markMade). */
 const changedSince = (r: Row): boolean => (r.updated_at as string) >= (r.created_at as string)
 
+/**
+ * Another story starts or ends at this scene or chapter. Taken back, it waits in Recently deleted, where
+ * that story's start still finds its place (the scene or chapter before it), rather than going for good.
+ */
+const storyPoint = (db: DB, id: ID): boolean =>
+  !!db.prepare('SELECT 1 FROM stories WHERE start_ref_id = ? OR end_ref_id = ? LIMIT 1').get(id, id)
+
 /** Whether a scene has anything in it beyond what the outline helper made: words, a draft, or something the memory or Adam tied to it. */
 function sceneUsed(db: DB, id: ID, r: Row): boolean {
-  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || changedSince(r)) return true
+  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || changedSince(r) || storyPoint(db, id)) return true
   const any = (sql: string): boolean => !!db.prepare(sql).get(id)
   return (
     any('SELECT 1 FROM generations WHERE scene_id = ? LIMIT 1') ||
@@ -379,7 +440,7 @@ export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id'>[]): { s
       if (!r || r.deleted_at) continue
       stories.add(r.story_id as string)
       const left = ids(db, 'SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL', id)
-      if (left.length || changed(r) || db.prepare('SELECT 1 FROM scenes WHERE chapter_id = ? LIMIT 1').get(id)) {
+      if (left.length || changed(r) || storyPoint(db, id) || db.prepare('SELECT 1 FROM scenes WHERE chapter_id = ? LIMIT 1').get(id)) {
         gone.push(...left)
         db.prepare('UPDATE scenes SET deleted_at = ? WHERE chapter_id = ? AND deleted_at IS NULL').run(t, id)
         db.prepare('UPDATE chapters SET deleted_at = ? WHERE id = ?').run(t, id)

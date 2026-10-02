@@ -17,7 +17,17 @@ import {
   type UniqueIdentifier
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { FilePlus2, FolderInput, FolderPlus, ListTree, PenLine, Plus, Target as TargetIcon, Trash2 } from 'lucide-react'
+import {
+  BetweenHorizontalStart,
+  FilePlus2,
+  FolderInput,
+  FolderPlus,
+  ListTree,
+  PenLine,
+  Plus,
+  Target as TargetIcon,
+  Trash2
+} from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID, Outline } from '@shared/types'
 import { Button } from '@/components/ui'
@@ -31,6 +41,7 @@ import {
   actOf,
   applyTreeOrder,
   arrayMove,
+  canStartActAt,
   chapterRuns,
   findChapterOf,
   groupOutline,
@@ -216,6 +227,11 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
     },
     [outline.story.id]
   )
+
+  /** A new act from this chapter on, named straight away. */
+  const startAct = useCallback((chapterId: ID) => {
+    void actions.startActAt(chapterId).then((id) => id && setRenaming({ kind: 'act', id }))
+  }, [])
 
   const moveToAct = useCallback(
     (chapterId: ID, actId: ID) => {
@@ -629,6 +645,11 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             <RowMenuItem icon={<FolderPlus size={14} />} onSelect={() => addChapter(menu.id)}>
               Add chapter after
             </RowMenuItem>
+            {canStartActAt(outline, menu.id) ? (
+              <RowMenuItem icon={<BetweenHorizontalStart size={14} />} onSelect={() => startAct(menu.id)}>
+                Start a new act here
+              </RowMenuItem>
+            ) : null}
             {otherActs.length > 0 ? (
               <RowMenuSub icon={<FolderInput size={14} />} label="Move to act">
                 {otherActs.map((a) => (

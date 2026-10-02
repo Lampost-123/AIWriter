@@ -161,6 +161,44 @@ describe('acts', () => {
     expectInOrder(db)
   })
 
+  it('start at a chapter, taking the chapters after it, so a story written without acts can be given them in the same order', () => {
+    const db = memoryWorld()
+    const id = book(db)
+    for (const t of ['Chapter 2', 'Chapter 3', 'Chapter 4']) repo.createChapter(db, id, { title: t })
+    const before = order(db)
+    // A story without acts: the first act takes the chapter and every one after it.
+    const one = acts.startActAt(db, chapterId(db, 'Chapter 2'))
+    expect(one.act.title).toBe('Act 1')
+    expect(one.chapterIds).toEqual(['Chapter 2', 'Chapter 3', 'Chapter 4'].map((t) => chapterId(db, t)))
+    expect(shape(db)).toEqual(['-: Chapter 1', 'Act 1: Chapter 2, Chapter 3, Chapter 4'])
+    // Within an act: a new act just after it, with the chapters from there on.
+    acts.startActAt(db, chapterId(db, 'Chapter 4'))
+    expect(shape(db)).toEqual(['-: Chapter 1', 'Act 1: Chapter 2, Chapter 3', 'Act 2: Chapter 4'])
+    // A chapter with no act, in a story with acts: a new act before them all.
+    acts.startActAt(db, chapterId(db, 'Chapter 1'))
+    expect(shape(db)).toEqual(['Act 3: Chapter 1', 'Act 1: Chapter 2, Chapter 3', 'Act 2: Chapter 4'])
+    expect(order(db)).toEqual(before)
+    expectInOrder(db)
+    // The first chapter of an act starts it already.
+    expect(() => acts.startActAt(db, chapterId(db, 'Chapter 2'))).toThrow('That chapter already starts its act.')
+  })
+
+  it('join back into the act before them (or the chapters with no act) as Undo, in the same order, and go for good', () => {
+    const db = memoryWorld()
+    const id = book(db)
+    for (const t of ['Chapter 2', 'Chapter 3']) repo.createChapter(db, id, { title: t })
+    const first = acts.startActAt(db, chapterId(db, 'Chapter 2')).act
+    const second = acts.startActAt(db, chapterId(db, 'Chapter 3')).act
+    acts.joinActBack(db, second.id)
+    expect(shape(db)).toEqual(['-: Chapter 1', 'Act 1: Chapter 2, Chapter 3'])
+    acts.joinActBack(db, first.id)
+    expect(shape(db)).toEqual(['-: Chapter 1, Chapter 2, Chapter 3'])
+    expect(acts.listActs(db, id)).toEqual([])
+    expect(repo.listDeleted(db)).toEqual([])
+    expectInOrder(db)
+    expect(() => acts.joinActBack(db, first.id)).toThrow('That act no longer exists.')
+  })
+
   it('say which act a chapter is in, and read every card’s goal and beats in one go', () => {
     const db = memoryWorld()
     const id = book(db)
@@ -368,6 +406,21 @@ describe('taking back what the outline helper kept', () => {
     repo.updateChapter(db, chapter.id, { title: 'Renamed' })
     acts.takeBackKept(db, items)
     expect(repo.listDeleted(db).map((t) => [t.kind, t.title, t.chapterCount])).toEqual([['act', 'Kept act', 1]])
+  })
+
+  it('sends a scene or chapter another story starts or ends at to Recently deleted, so that story keeps its place', () => {
+    const db = memoryWorld()
+    const { id, items, s2, chapter } = kept(db)
+    const side = repo.createStory(db, { title: 'The Ferry', startStoryId: id })
+    db.prepare("UPDATE stories SET start_at = 'scene', start_ref_id = ?, end_at = 'chapter', end_ref_id = ? WHERE id = ?").run(
+      s2.id,
+      chapter.id,
+      side.id
+    )
+    acts.takeBackKept(db, items)
+    expect(db.prepare('SELECT deleted_at FROM scenes WHERE id = ?').get(s2.id)).toEqual({ deleted_at: expect.any(String) })
+    expect(db.prepare('SELECT deleted_at FROM chapters WHERE id = ?').get(chapter.id)).toEqual({ deleted_at: expect.any(String) })
+    expect(repo.listDeleted(db).map((t) => [t.kind, t.title, t.chapterCount, t.sceneCount])).toEqual([['act', 'Kept act', 1, 1]])
   })
 
   it('skips what is already gone', () => {

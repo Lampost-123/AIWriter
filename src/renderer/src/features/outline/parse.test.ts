@@ -195,6 +195,62 @@ describe('reading an outline', () => {
     expect(show(o)).toEqual(['a0 The Arrival | Mara reaches the city.', '  a0c0 Rain | She finds her footing.', '    a0c0s0 Docks |  | '])
   })
 
+  it('reads dotted and long numbers, a prologue and an epilogue, and titles on a line of their own', () => {
+    const o = parseOutline(
+      [
+        '## Prologue',
+        'Title: The Drowned Bell',
+        'Goal: The bell is lost.',
+        '### Scene 0.1: The river takes it',
+        '- The bell falls',
+        '# Act One',
+        '**Title:** The Arrival',
+        '**Purpose:** Mara reaches the city.',
+        '## Chapter Twenty-One',
+        '**Rain on the Narrows**',
+        '**Goal**',
+        'Mara finds her footing.',
+        '### Scene 1.1 – Arrival at the docks',
+        '**Summary:** Mara lands.',
+        '**Beats:**',
+        '- She lands',
+        '### Scene 1.2',
+        'Title: A bargain',
+        'Tobin offers a deal.',
+        '## Epilogue: After the Thaw',
+        '### Scene: Spring'
+      ].join('\n'),
+      true
+    )
+    expect(show(o)).toEqual([
+      'c0 Prologue: The Drowned Bell | The bell is lost.',
+      '  c0s0 The river takes it |  | The bell falls',
+      'a0 The Arrival | Mara reaches the city.',
+      '  a0c0 Rain on the Narrows | Mara finds her footing.',
+      '    a0c0s0 Arrival at the docks | Mara lands. | She lands',
+      '    a0c0s1 A bargain | Tobin offers a deal. | ',
+      '  a0c1 Epilogue: After the Thaw | ',
+      '    a0c1s0 Spring |  | '
+    ])
+  })
+
+  it('names an untitled heading by its number, and takes a "Prologue" in a list only in bold, so a beat may start with one', () => {
+    expect(show(parseOutline('## Chapter Twenty-One\n### Scene 2.3\n- Beat', true))).toEqual([
+      'c0 Chapter Twenty-one | ',
+      '  c0s0 Scene 2.3 |  | Beat'
+    ])
+    const o = parseOutline(
+      ['- **Prologue** — The bell is lost.', '  - **Scene 1: The river**', '    - Interlude: a quiet moment on the water'].join('\n'),
+      true
+    )
+    expect(show(o)).toEqual(['c0 Prologue | The bell is lost.', '  c0s0 The river |  | Interlude: a quiet moment on the water'])
+  })
+
+  it('reads a line starting "Act fast:" as what happens, not as an act', () => {
+    const o = parseOutline('### Scene: The ledger\nAct fast: she grabs the ledger and runs.\n- She runs', true)
+    expect(show(o)).toEqual(['c0 Chapter 1 | ', '  c0s0 The ledger | Act fast: she grabs the ledger and runs. | She runs'])
+  })
+
   it('gives a scene with no chapter heading a chapter of its own', () => {
     const o = parseOutline('### Scene: Alone\n- Beat', true)
     expect(show(o)).toEqual(['c0 Chapter 1 | ', '  c0s0 Alone |  | Beat'])
@@ -313,6 +369,34 @@ A child brings a message.
     expect(parseIdeas(cut, false).map((i) => [i.title, i.beats.length, i.complete])).toEqual([
       ['The door left open', 2, true],
       ['A debt called in', 1, false]
+    ])
+  })
+
+  it('reads ideas whose titles are on a line of their own, and labels in bold as labels', () => {
+    const text = [
+      '### Idea 1',
+      '**Title:** The door left open',
+      '**Summary:** Mara finds the guild house unguarded.',
+      '**Beats:**',
+      '- The side door is unlatched',
+      '### Option 2',
+      '**A debt called in**',
+      '**What happens**',
+      'Tobin calls in the favour.',
+      '- Tobin waits at the ferry',
+      'Title: The wrong messenger',
+      'Summary: A child brings a message.',
+      'Beats: A note; A raid'
+    ].join('\n')
+    expect(parseIdeas(text, true)).toEqual([
+      {
+        title: 'The door left open',
+        summary: 'Mara finds the guild house unguarded.',
+        beats: ['The side door is unlatched'],
+        complete: true
+      },
+      { title: 'A debt called in', summary: 'Tobin calls in the favour.', beats: ['Tobin waits at the ferry'], complete: true },
+      { title: 'The wrong messenger', summary: 'A child brings a message.', beats: ['A note', 'A raid'], complete: true }
     ])
   })
 

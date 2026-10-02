@@ -101,6 +101,14 @@ export interface OutlineApi {
   createChapterAt(storyId: ID, place: ChapterPlace & { title?: string }): Promise<Chapter>
   /** Moves a chapter within its act or into another one (see ChapterPlace). */
   placeChapter(chapterId: ID, place: ChapterPlace): Promise<void>
+  /**
+   * A new act (titled "Act N") starting at this chapter: it takes the chapter and those after it in its
+   * act (or, for a chapter with no act, those after it with none), so the story reads in the same order.
+   * Says which chapters it took.
+   */
+  startActAt(chapterId: ID): Promise<{ act: Act; chapterIds: ID[] }>
+  /** Undo for startActAt: the act's chapters go back to the end of the act before it (or to no act), and the act goes. */
+  joinActBack(id: ID): Promise<void>
 
   // ----- The outline helper -----
   /**

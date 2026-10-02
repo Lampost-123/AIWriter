@@ -151,6 +151,34 @@ export function moveToActPlace(outline: Outline, chapterId: ID, actId: ID): Chap
 }
 
 /**
+ * Whether "Start a new act here" does anything for this chapter: it has no act, or it comes after the
+ * first chapter of its act (the first one starts its act already).
+ */
+export function canStartActAt(outline: Outline, chapterId: ID): boolean {
+  const from = actOf(outline, chapterId)
+  const ids = outline.chapters.map((c) => c.id)
+  if (!from) return ids.includes(chapterId)
+  const run = chapterRuns(outline, ids).find((r) => r.act?.id === from)
+  return !!run && run.chapters.indexOf(chapterId) > 0
+}
+
+/**
+ * The outline with a new act starting at a chapter, as the server makes it (startActAt), before the
+ * reload: the act just after the chapter's own act (or before every act), holding `chapterIds`.
+ */
+export function withActStartedAt(outline: Outline, act: Act, chapterIds: ID[]): Outline {
+  const acts = (outline.acts ?? []).filter((a) => a.id !== act.id)
+  const from = chapterIds.length ? actOf(outline, chapterIds[0]) : null
+  acts.splice(from ? acts.findIndex((a) => a.id === from) + 1 : 0, 0, act)
+  const moving = new Set(chapterIds)
+  return {
+    ...outline,
+    acts: acts.map((a, position) => ({ ...a, position })),
+    chapters: outline.chapters.map((c) => (moving.has(c.id) ? { ...c, actId: act.id } : c))
+  }
+}
+
+/**
  * The outline with a chapter moved as the server will move it (an optimistic update before the reload):
  * into `place.actId` just after `afterId`, else just before `beforeId`, else at `index` among that act's
  * chapters, else at its end; with every act's chapters together and fresh positions.

@@ -8,15 +8,17 @@
 //     scene, discards a chapter (Undo brings it back), keeps one scene (its chapter and act come with
 //     it; Undo takes them out again), then keeps all that's left. What he kept is in the binder under
 //     its acts, in order, each scene's card filled in. From the first Keep, the empty Chapter 1 the
-//     story was made with is one click from gone; What the AI saw and back; Start writing. Asked again,
-//     it carries on from what the story has.
+//     story was made with is one click from gone; What the AI saw and back; Start writing. A kept scene
+//     deleted while the helper isn't showing waits for a decision again when it opens. Asked again, it
+//     carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
 //     kept. One that fails says why in plain words, and Undo brings back the suggestions it replaced.
 //     What was kept and is then deleted in the binder waits for a decision again. Replaced suggestions
 //     can be brought back until one of the new ones is kept.
-//  3. Acts in the binder: a story without acts looks as it always has; acts fold and unfold, are
-//     renamed and given a purpose, get a new chapter, take a chapter moved from another act (with
-//     Undo), and are deleted with their chapters (with Undo, and from Recently deleted).
+//  3. Acts in the binder: a story without acts looks as it always has, and is given one from a
+//     chapter's menu (with Undo); acts fold and unfold, are renamed and given a purpose, get a new
+//     chapter, take a chapter moved from another act (with Undo), and are deleted with their chapters
+//     (with Undo, and from Recently deleted).
 //  4. Next scene ideas: an empty scene card offers three directions; Use this fills the card and names
 //     a scene still called "Scene 1", with Undo; other ideas that fail leave the ones on screen; Stop
 //     keeps what arrived; the button stays put while the card is filled in; from the palette too, where
@@ -269,11 +271,30 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(sceneCard(win).getByRole('textbox', { name: 'Beat 3', exact: true })).toHaveValue('She slips away')
     await expect(sceneCard(win).getByRole('button', { name: 'Ideas for this scene' })).toHaveCount(0)
 
+    // ----- A kept scene deleted while the helper isn't showing waits for a decision again, from the first frame -----
+    // (Once the toasts have gone, so nothing looks at what was kept until the helper opens.)
+    const dismiss = toasts(win).getByRole('button', { name: 'Dismiss' })
+    while ((await dismiss.count()) > 0) await dismiss.first().click()
+    await sceneRow(win, 'A bargain at the market').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Delete scene' }).click()
+    await expect(sceneRow(win, 'A bargain at the market')).toHaveCount(0)
+    // Anything drawn showing it as kept, even for a moment, is noted.
+    await win.evaluate(`(() => {
+      window.sawKept = false
+      const look = () => {
+        if (document.querySelector('[data-state="kept"][aria-label="Scene: A bargain at the market"]')) window.sawKept = true
+      }
+      new MutationObserver(look).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state'] })
+    })()`)
+
     // ----- From the palette, asked again: it carries on from what the story has, in its last act -----
     await win.keyboard.press('Control+K')
     await win.keyboard.type('Outline helper')
     await palette(win).getByRole('option', { name: 'Outline helper' }).click()
     await expect(heading(win)).toHaveText('Plan what comes next')
+    await expect(suggestion(win, 'Scene', 'A bargain at the market')).toHaveAttribute('data-state', 'open')
+    await expect(suggestion(win, 'Scene', 'Arrival at the market')).toHaveAttribute('data-state', 'kept')
+    expect(await win.evaluate('window.sawKept')).toBe(false)
     await expect(main(win).getByText('New acts go after the story’s acts.')).toBeVisible()
     await choose(win, 'Acts', 'No new acts')
     await expect(main(win).getByText('The chapters go in the story’s last act, “The Turning”.')).toBeVisible()
@@ -382,6 +403,27 @@ test('acts in the binder fold, are renamed and given a purpose, take chapters, a
   await expect(actRows(win)).toHaveCount(0)
   await expect(chapterRow(win, 'Chapter 1')).toHaveAttribute('aria-level', '1')
 
+  // ----- A story written without acts is given one from a chapter's menu, reading in the same order; Undo joins it back -----
+  await invoke(win, 'createChapter', story.id, { title: 'Chapter 2' })
+  await win.reload()
+  await chapterRow(win, 'Chapter 1').click({ button: 'right' })
+  await win.getByRole('menuitem', { name: 'Start a new act here' }).click()
+  const started = 'Started a new act at “Chapter 1”.'
+  await expect(toastWith(win, started)).toBeVisible()
+  const newAct = binder(win).getByRole('textbox', { name: 'Act title' })
+  await expect(newAct).toBeFocused()
+  await expect(newAct).toHaveValue('Act 1')
+  await newAct.fill('Beginnings')
+  await newAct.press('Enter')
+  await expect(actBlock(win, 'Beginnings').locator('[data-row="chapter"]')).toContainText(['Chapter 1', 'Chapter 2'])
+  await expect(chapterRow(win, 'Chapter 1')).toHaveAttribute('aria-level', '2')
+  expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1', 'Chapter 2'])
+  await undoIn(win, started).click()
+  await expect(actRows(win)).toHaveCount(0)
+  await expect(chapterRow(win, 'Chapter 1')).toHaveAttribute('aria-level', '1')
+  await expect(chapterRow(win, 'Chapter 2')).toHaveAttribute('aria-level', '1')
+  await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).acts).toEqual([])
+
   const one = await invoke(win, 'createAct', story.id, { title: 'Act One' })
   const two = await invoke(win, 'createAct', story.id, { title: 'Act Two' })
   const docks = await invoke(win, 'createChapterAt', story.id, { actId: one.id, title: 'The Docks' })
@@ -451,9 +493,11 @@ test('acts in the binder fold, are renamed and given a purpose, take chapters, a
 
   // ----- A chapter moves to another act from its menu; Undo puts it back -----
   await chapterRow(win, 'The Docks').click({ button: 'right' })
+  // The first chapter of an act starts it already.
+  await expect(win.getByRole('menuitem', { name: 'Start a new act here' })).toHaveCount(0)
   await win.getByRole('menuitem', { name: 'Move to act' }).click()
   await win.getByRole('menuitem', { name: 'Act Two', exact: true }).click()
-  const moved = 'Moved “The Docks” to Act Two.'
+  const moved = 'Moved “The Docks” to “Act Two”.'
   await expect(toastWith(win, moved)).toBeVisible()
   await expect(actBlock(win, 'Act Two').locator('[data-row="chapter"]')).toHaveCount(2)
   await expect(actBlock(win, 'Act Two').locator('[data-row="chapter"]')).toContainText(['The Docks', 'The Tower'])

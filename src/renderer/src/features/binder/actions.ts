@@ -10,7 +10,16 @@ import { editorBridge } from '@/lib/editorBridge'
 import type { Noun } from '@/lib/deleteWords'
 import { announceDelete, type Deletion } from '@/lib/undoDelete'
 import { useApp } from '@/lib/store'
-import { actOf, chapterRuns, moveToActPlace, neighbourAfterRemoval, placeChapterIn, readingOrder, shownOrder } from './outlineModel'
+import {
+  actOf,
+  chapterRuns,
+  moveToActPlace,
+  neighbourAfterRemoval,
+  placeChapterIn,
+  readingOrder,
+  shownOrder,
+  withActStartedAt
+} from './outlineModel'
 import { useOutlineStore } from './outlineStore'
 
 const app = useApp.getState
@@ -352,7 +361,8 @@ export async function moveChapterToAct(chapterId: ID, actId: ID): Promise<void> 
     return
   }
   app().bumpOutline()
-  const message = `Moved “${chapter?.title || 'Untitled chapter'}” to ${act?.title.trim() || 'the act'}.`
+  const actName = act?.title.trim() ? `“${act.title.trim()}”` : 'the act'
+  const message = `Moved “${chapter?.title || 'Untitled chapter'}” to ${actName}.`
   toast([message, ...notes].join(' '), {
     action: {
       label: 'Undo',
@@ -363,6 +373,35 @@ export async function moveChapterToAct(chapterId: ID, actId: ID): Promise<void> 
           .catch(failed)
     }
   })
+}
+
+/**
+ * A new act starting at this chapter, with the chapters after it in its act (or those after it with no
+ * act, so a story written without acts can be given them): the story reads in the same order. Undo in
+ * the toast joins it back. Resolves with the act's id.
+ */
+export async function startActAt(chapterId: ID): Promise<ID | null> {
+  const title = outlineStore().outline?.chapters.find((c) => c.id === chapterId)?.title || 'Untitled chapter'
+  let made: Awaited<ReturnType<typeof api.startActAt>>
+  try {
+    made = await api.startActAt(chapterId)
+  } catch (e) {
+    failed(e)
+    return null
+  }
+  outlineStore().patch((o) => (o.story.id === made.act.storyId ? withActStartedAt(o, made.act, made.chapterIds) : o))
+  app().bumpOutline()
+  toast(`Started a new act at “${title}”.`, {
+    action: {
+      label: 'Undo',
+      run: () =>
+        void api
+          .joinActBack(made.act.id)
+          .then(() => app().bumpOutline())
+          .catch(failed)
+    }
+  })
+  return made.act.id
 }
 
 /** Deletes an act with its chapters and their scenes; Undo in the toast brings them all back. */

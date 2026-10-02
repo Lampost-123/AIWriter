@@ -54,6 +54,8 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
   },
   createChapterAt: (storyId, place) => write(() => createChapterAt(world.db(), storyId, place ?? { actId: null })),
   placeChapter: (chapterId, place) => write(() => acts.placeChapter(world.db(), chapterId, place ?? { actId: null })),
+  startActAt: (chapterId) => write(() => acts.startActAt(world.db(), chapterId)),
+  joinActBack: (id) => write(() => acts.joinActBack(world.db(), id)),
 
   outlineBlank: (storyId) => isBlankPlan(storyPlan(world.db(), storyId)),
   startOutline: (input) => startOutlineJob(jobDeps(), input),

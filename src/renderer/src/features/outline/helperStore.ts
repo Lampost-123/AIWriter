@@ -121,17 +121,27 @@ function listen(): void {
     if (d.status === 'error')
       put(key, { problem: { message: d.error ?? 'Something went wrong while the outline was suggested. Please try again.' } })
   })
-  // Whenever the binder changes (a delete, its Undo), what was kept is looked for again, so the page
-  // never says "Kept" for something the story no longer has, even when it wasn't showing at the time.
-  // Whether the story has anything planned yet is asked again too.
+  // Whenever the story changes (a delete in the binder, its Undo, words written), the page showing asks
+  // again whether the story has anything planned yet, and looks for what was kept, so it never says
+  // "Kept" for something the story no longer has. So does a Keep's toast, wherever Adam is, so its Undo
+  // never takes back what has gone. Other stories' pages ask when they next open (see checkBlank), so
+  // typing in a scene, which saves every few seconds, asks nothing for them.
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
+    const showing = now.view.kind === 'outline' ? now.view.storyId : null
     for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
       if (!key.startsWith(prefix)) continue
       const storyId = key.slice(prefix.length)
-      if (s.gone.length || hasKept(s.run)) void checkKept(storyId)
-      void checkBlank(storyId)
+      const toastShows = keepBatch?.key === key && liveToast(keepBatch.toastId)
+      if ((storyId === showing || toastShows) && (s.gone.length || hasKept(s.run))) void checkKept(storyId)
+      if (storyId === showing) {
+        void checkBlank(storyId)
+      } else {
+        // Not known now, and an answer on its way is out of date: the page asks when it opens.
+        blankChecks.set(key, (blankChecks.get(key) ?? 0) + 1)
+        if (s.blank !== null) put(key, { blank: null })
+      }
     }
   })
 }
@@ -139,12 +149,17 @@ function listen(): void {
 /** How many asks each session has started, so only the latest one's answer counts. */
 const blankChecks = new Map<string, number>()
 
-/** Asks whether the story has anything planned or written yet (see HelperSession.blank). */
+/**
+ * Asks whether the story has anything planned or written yet (see HelperSession.blank). When that isn't
+ * known (the page draws nothing until it is), what was kept is looked for too, so the page's first frame
+ * never shows "Kept" for something deleted from the story while it wasn't showing.
+ */
 export async function checkBlank(storyId: ID): Promise<void> {
   listen()
   const key = keyOf(storyId)
   const turn = (blankChecks.get(key) ?? 0) + 1
   blankChecks.set(key, turn)
+  const looking = get(key).blank === null ? checkKept(storyId) : null
   let blank: boolean
   try {
     blank = await api.outlineBlank(storyId)
@@ -152,6 +167,7 @@ export async function checkBlank(storyId: ID): Promise<void> {
     // The story may have gone (the page says so); otherwise the page carries on from what it knew.
     blank = get(key).blank ?? false
   }
+  await looking
   if (blankChecks.get(key) === turn && get(key).blank !== blank) put(key, { blank })
 }
 

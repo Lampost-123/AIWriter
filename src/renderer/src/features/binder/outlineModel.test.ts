@@ -4,6 +4,7 @@ import {
   actOf,
   applyTreeOrder,
   arrayMove,
+  canStartActAt,
   chapterRuns,
   findChapterOf,
   formatWords,
@@ -16,7 +17,8 @@ import {
   scenePlace,
   shownOrder,
   siblings,
-  treeOrder
+  treeOrder,
+  withActStartedAt
 } from './outlineModel'
 
 const story = { id: 'st', title: 'Book 1' } as Story
@@ -171,5 +173,20 @@ describe('acts', () => {
     expect(show(placeChapterIn({ ...withActs, chapters: withActs.chapters.slice(1) }, 'd', { actId: null }))).toBe('d0@- b1@one c2@one')
     expect(placeChapterIn(withActs, 'd', { actId: 'gone' })).toBe(withActs)
     expect(placeChapterIn(withActs, 'missing', { actId: 'one' })).toBe(withActs)
+  })
+
+  it('starts a new act at a chapter with no act, or after the first chapter of its act, as the server will', () => {
+    expect(['a', 'b', 'c', 'd', 'missing'].map((id) => canStartActAt(withActs, id))).toEqual([true, false, true, false, false])
+    expect(canStartActAt(outline, 'b')).toBe(true)
+    const runsAfter = (o: Outline, chapterIds: string[]): string[] => runs(withActStartedAt(o, act('new', 9), chapterIds))
+    expect(runsAfter(withActs, ['c'])).toEqual(['-: a', 'one: b', 'new: c', 'two: d', 'three: '])
+    expect(runsAfter(withActs, ['a'])).toEqual(['new: a', 'one: b c', 'two: d', 'three: '])
+    expect(runsAfter(outline, ['b', 'c'])).toEqual(['-: a', 'new: b c'])
+    expect(withActStartedAt(withActs, act('new', 9), ['c']).acts!.map((a) => `${a.id}${a.position}`)).toEqual([
+      'one0',
+      'new1',
+      'two2',
+      'three3'
+    ])
   })
 })
