@@ -4,8 +4,9 @@
 
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
+import type { EditorState } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
-import type { EditInput } from '@shared/contracts/edits'
+import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import type { TaskDone } from '@shared/contracts/tasks'
 import type { EditTool, ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
@@ -28,31 +29,8 @@ import {
   type GoneReason,
   type Suggestion
 } from './suggestions'
-import { cleanReply, continuePlace, parseAlternatives, selectedWords, textOf, type Target } from './text'
-
-/** Each tool's name, as the menu and History show it. */
-export const TOOL_NAMES: Record<EditTool, string> = {
-  rewrite: 'Rewrite',
-  expand: 'Expand',
-  condense: 'Condense',
-  vivid: 'More vivid',
-  tone: 'Change tone',
-  voice: 'Fix voice',
-  alternatives: 'Three versions',
-  continue: 'Continue'
-}
-
-/** What shows while each tool writes. */
-export const TOOL_WORKING: Record<EditTool, string> = {
-  rewrite: 'Rewriting',
-  expand: 'Expanding',
-  condense: 'Condensing',
-  vivid: 'Making it more vivid',
-  tone: 'Changing the tone',
-  voice: 'Fixing the voices',
-  alternatives: 'Writing three versions',
-  continue: 'Writing on'
-}
+import { TOOL_NAMES } from './names'
+import { cleanReply, continuePlace, parseAlternatives, selectedWords, textOf, wordsIn, type Target } from './text'
 
 /** Why a suggestion went without Adam accepting or rejecting it, in plain words. */
 const DROPPED: Partial<Record<GoneReason | 'scene', string>> = {
@@ -305,9 +283,17 @@ function retryAction(l: Pick<Live, 'sceneId' | 'tool' | 'direction' | 'from' | '
   }
 }
 
+/** Where Continue carries on from: the cursor, or the end of the selected words (not the paragraph end a selection may reach). */
+function continueFrom(state: EditorState): number {
+  const sel = state.selection
+  if (sel.empty) return sel.head
+  return wordsIn(state.doc, sel.from, sel.to)?.to ?? sel.to
+}
+
 /**
- * Starts an AI tool on the selected words (or `range`), or Continue at the cursor (or `at`). The words
- * stream into a tracked change in place; nothing in the scene changes until Accept.
+ * Starts an AI tool on the selected words (or `range`), or Continue at the cursor or after the selected
+ * words (or at `at`). The words stream into a tracked change in place; nothing in the scene changes until
+ * Accept.
  */
 export async function startTool(tool: EditTool, o: { direction?: string; range?: Target; at?: number } = {}): Promise<void> {
   const v = view()
@@ -331,7 +317,7 @@ export async function startTool(tool: EditTool, o: { direction?: string; range?:
   let mode: Suggestion['mode'] = 'replace'
   let continueAs: EditInput['continueAs']
   if (tool === 'continue') {
-    const place = continuePlace(doc, o.at ?? state.selection.to)
+    const place = continuePlace(doc, o.at ?? continueFrom(state))
     if ('problem' in place) {
       toast(place.problem)
       return
@@ -339,6 +325,7 @@ export async function startTool(tool: EditTool, o: { direction?: string; range?:
     from = to = place.at
     mode = place.mode
     const $at = doc.resolve(place.at)
+    // Carrying on a paragraph's words, or (after a finished one, ahead of one, or in an empty one) new paragraphs.
     continueAs = place.mode === 'inline' && $at.parent.textBetween(0, $at.parentOffset).trim() ? 'inline' : 'paragraph'
   } else {
     const r = o.range ?? selectedWords(state)
@@ -362,7 +349,7 @@ export async function startTool(tool: EditTool, o: { direction?: string; range?:
   }
   const taskId = input.taskId
   live = { taskId, sceneId, tool, direction, selection: input.selection, from, to, raw: '', note: null, ended: false, stopTimer: null }
-  v.dispatch(showSuggestion(v.state, { id: taskId, sceneId, tool, direction, from, to, mode }))
+  v.dispatch(showSuggestion(v.state, { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }))
   dropRejectedToast()
   known = taskId
   if (useApp.getState().view.kind === 'write') v.focus()

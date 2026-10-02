@@ -1,6 +1,6 @@
 // AI edits of selected words (milestone 4): the tools in the bar over selected words, the tracked change
 // they write into the page (the old words struck through, the new ones marked), Accept, Reject, Stop, Ctrl+Z
-// and Ctrl+Y, Three versions, Fix voice, and Continue from the cursor. Against the fake AI server, whose
+// and Ctrl+Y, Alternatives, Fix voice, and Continue from the cursor. Against the fake AI server, whose
 // replies for these are worked out from the selected words (tests/fake-provider/m4/edits.mjs).
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
@@ -110,10 +110,20 @@ async function runTool(win: Page, name: string): Promise<void> {
   await expect(tools(win)).toBeHidden()
 }
 
-/** Puts the caret at the end of paragraph `i`. */
-async function caretAtEnd(win: Page, i: number): Promise<void> {
+/**
+ * True once the page has the caret at the start or end of paragraph `i`. The browser tells the page where a
+ * click or a key put the caret a moment later, and a key pressed before then would act where it was.
+ */
+const CARET = `(i, end) => {
+  const { $head, empty } = document.querySelector('.scene-prose').editor.state.selection
+  return empty && $head.index(0) === i && $head.parentOffset === (end ? $head.parent.content.size : 0)
+}`
+
+/** Puts the caret at the end of paragraph `i` (or its start). */
+async function caretAt(win: Page, i: number, where: 'end' | 'start' = 'end'): Promise<void> {
   await paras(win).nth(i).click()
-  await win.keyboard.press('End')
+  await win.keyboard.press(where === 'end' ? 'End' : 'Home')
+  await expect.poll(() => win.evaluate(`(${CARET})(${i}, ${where === 'end'})`)).toBe(true)
 }
 
 test('Condense shows a tracked change; the scene stays as it was until Accept; Accept puts it in, one Ctrl+Z takes it out, Ctrl+Y puts it back', async ({
@@ -142,7 +152,7 @@ test('Condense shows a tracked change; the scene stays as it was until Accept; A
     await expect(paras(win)).toHaveCount(2)
 
     // Typing elsewhere keeps the change, and only the typing is saved.
-    await caretAtEnd(win, 1)
+    await caretAt(win, 1)
     await win.keyboard.type(' Still raining.')
     const typed = [P1, `${P2} Still raining.`]
     await expect.poll(() => savedText(win, sceneId)).toBe(typed.join('\n\n'))
@@ -229,7 +239,9 @@ test('Reject leaves the words as they were; Undo in its message, Esc, Ctrl+Z and
   }
 })
 
-test('Rewrite with an instruction; What the AI saw shows it, and the change is still there after; Tab accepts', async ({ launch }) => {
+test('Rewrite with an instruction; What the AI saw shows it, and the change is still there after; Tab accepts; line breaks stay', async ({
+  launch
+}) => {
   const fake = await startFake()
   try {
     const { win } = await launch(QUIET)
@@ -249,13 +261,17 @@ test('Rewrite with an instruction; What the AI saw shows it, and the change is s
     // What the AI saw: the record of this change, with the instruction.
     await change(win).getByRole('button', { name: 'What the AI saw' }).click()
     await expect(win.getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
+    // It is called a change, named for its tool, not a draft.
+    await expect(win.getByText(/^The exact briefing for this change \(Rewrite\) to “.+”, written /)).toBeVisible()
+    await expect(win.getByText('Your instruction', { exact: true })).toBeVisible()
+    await expect(win.locator('main')).not.toContainText('this draft')
     await expect(win.getByText('Start with the rain', { exact: true })).toBeVisible()
     await win.getByRole('button', { name: /^Back to/ }).click()
     await expect(newWords(win)).toHaveText(rewritten)
     await expect(acceptButton(win)).toBeVisible()
 
     // Tab in the page accepts it.
-    await caretAtEnd(win, 1)
+    await caretAt(win, 1)
     await win.keyboard.press('Tab')
     await expect(change(win)).toBeHidden()
     await expect(paras(win)).toHaveText([rewritten, P2])
@@ -263,19 +279,43 @@ test('Rewrite with an instruction; What the AI saw shows it, and the change is s
     // Tab with no change waiting does what it always did: nothing in the text.
     await win.keyboard.press('Tab')
     await expect(paras(win)).toHaveText([rewritten, P2])
+
+    // A line break inside a paragraph (Shift+Enter) stays a line break in the new words, and once accepted.
+    await caretAt(win, 1)
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Roses are red,')
+    await win.keyboard.press('Shift+Enter')
+    await win.keyboard.type('violets are blue.')
+    await selectWords(win, 'Roses are red,', 'violets are blue.')
+    await openTools(win)
+    await how.fill('Say it plainer')
+    await how.press('Enter')
+    await expect(newWords(win)).toContainText('In the end, roses are red,')
+    await expect(newWords(win).locator('br')).toHaveCount(1)
+    await acceptButton(win).click()
+    await expect(paras(win)).toHaveCount(3)
+    await expect(paras(win).nth(2).locator('br')).toHaveCount(1)
+    await expect.poll(() => savedText(win, sceneId)).toBe([rewritten, P2, 'In the end, roses are red,\nviolets are blue.'].join('\n\n'))
   } finally {
     await fake.close()
   }
 })
 
-test('Three versions: pick one, look at the others again, pick with the keyboard, then accept', async ({ launch }) => {
+test('Alternatives: pick one, look at the others again, pick with the keyboard, then accept; italics show as italics', async ({
+  launch
+}) => {
   const fake = await startFake()
   try {
     const { win } = await launch(QUIET)
     const { sceneId } = await setUp(win, fake)
 
     await selectWords(win, P1)
-    await runTool(win, 'Three versions')
+    await openTools(win)
+    await expect(tools(win).getByRole('button', { name: /^Alternatives/ })).toContainText('Three versions to pick from')
+    await tools(win)
+      .getByRole('button', { name: /^Alternatives/ })
+      .click()
+    await expect(tools(win)).toBeHidden()
     const V1 = 'Quietly, the tavern was warm and loud. Rain hammered the shutters.'
     const V2 = 'The tavern was warm and loud. Rain hammered the shutters, and nobody noticed.'
     const V3 = 'Even then, the tavern was warm and loud. Rain hammered the shutters.'
@@ -308,19 +348,37 @@ test('Three versions: pick one, look at the others again, pick with the keyboard
     await expect.poll(() => savedText(win, sceneId)).toBe([V3, P2].join('\n\n'))
     await win.keyboard.press('Control+z')
     await expect(paras(win)).toHaveText(TEXT)
+
+    // Italics in the words come back as italics in the versions, not as asterisks.
+    await selectWords(win, 'warm')
+    await win.keyboard.press('Control+i')
+    await expect(prose(win).locator('p').first().locator('em')).toHaveText('warm')
+    await selectWords(win, P1)
+    await runTool(win, 'Alternatives')
+    await expect(versions(win)).toHaveCount(3)
+    for (let i = 0; i < 3; i++) {
+      await expect(versions(win).nth(i).locator('em')).toHaveText('warm')
+      await expect(versions(win).nth(i)).not.toContainText('*')
+    }
+    await versions(win).nth(0).click()
+    await expect(newWords(win).locator('em')).toHaveText('warm')
+    await rejectButton(win).click()
+    await expect(change(win)).toBeHidden()
   } finally {
     await fake.close()
   }
 })
 
-test('Continue from the cursor writes the next paragraphs; part-way through one, it carries the sentence on', async ({ launch }) => {
+test('Continue from the cursor writes the next paragraphs; at the start of one, the paragraphs before it; part-way through one, it carries the sentence on', async ({
+  launch
+}) => {
   const fake = await startFake()
   try {
     const { win } = await launch(QUIET)
     const { sceneId } = await setUp(win, fake)
 
     // At the end of the scene, from the command palette.
-    await caretAtEnd(win, 1)
+    await caretAt(win, 1)
     await win.keyboard.press('Control+k')
     await win.getByRole('combobox', { name: 'Search, or find an action' }).fill('Continue from the cursor')
     await win.getByRole('option', { name: /Continue from the cursor/ }).click()
@@ -345,9 +403,46 @@ test('Continue from the cursor writes the next paragraphs; part-way through one,
     expect(new Set(ids).size).toBe(4)
     await win.keyboard.press('Control+z')
     await expect(paras(win)).toHaveText(TEXT)
+    const twoIds = await paragraphIds(win)
+
+    // At the start of a paragraph: the new paragraphs go ahead of it, and it stays a paragraph of its own.
+    await caretAt(win, 1, 'start')
+    await win.keyboard.press('Control+k')
+    await win.getByRole('combobox', { name: 'Search, or find an action' }).fill('Continue from the cursor')
+    await win.getByRole('option', { name: /Continue from the cursor/ }).click()
+    await expect(newWords(win)).toHaveText(next)
+    await expect(acceptButton(win)).toBeVisible()
+    await expect(paras(win)).toHaveText(TEXT)
+    expect(await savedText(win, sceneId)).toBe(TEXT.join('\n\n'))
+    await acceptButton(win).click()
+    await expect(change(win)).toBeHidden()
+    await expect(paras(win)).toHaveCount(4)
+    await expect(paras(win)).toHaveText([P1, ...next, P2])
+    await expect.poll(() => savedText(win, sceneId)).toBe([P1, ...next, P2].join('\n\n'))
+    const ahead = await paragraphIds(win)
+    expect(ahead[0]).toBe(twoIds[0])
+    expect(ahead[3]).toBe(twoIds[1])
+    expect(new Set(ahead).size).toBe(4)
+    await win.keyboard.press('Control+z')
+    await expect(paras(win)).toHaveText(TEXT)
+
+    // Words selected up to the start of the next paragraph (as a drag a little past them makes): it carries
+    // on after the words, not at the start of the next paragraph.
+    await prose(win).focus()
+    await win.evaluate(`(() => {
+      const ps = document.querySelectorAll('.scene-prose p')
+      document.getSelection().setBaseAndExtent(ps[0].firstChild, 0, ps[1].firstChild, 0)
+    })()`)
+    await expect(selectionBar(win)).toBeVisible()
+    await runTool(win, 'Continue after these words')
+    await expect(newWords(win)).toHaveText(next)
+    await acceptButton(win).click()
+    await expect(paras(win)).toHaveText([P1, ...next, P2])
+    await win.keyboard.press('Control+z')
+    await expect(paras(win)).toHaveText(TEXT)
 
     // Part-way through a paragraph, from the AI tools over the words before: it carries on the sentence.
-    await caretAtEnd(win, 1)
+    await caretAt(win, 1)
     await win.keyboard.press('Enter')
     await win.keyboard.type('She waited')
     await selectWords(win, 'She waited')
@@ -417,6 +512,11 @@ test('one change at a time; editing its words, opening another scene or a new dr
     await runTool(win, 'Condense')
     await expect(acceptButton(win)).toBeVisible()
     await selectWords(win, P2)
+    // The bar over the words below the change keeps clear of its buttons, which still take a click.
+    const bar = (await selectionBar(win).boundingBox())!
+    const buttons = (await change(win).boundingBox())!
+    expect(bar.y >= buttons.y + buttons.height || bar.y + bar.height <= buttons.y).toBe(true)
+    await acceptButton(win).click({ trial: true, timeout: 2000 })
     await openTools(win)
     await expect(tools(win)).toContainText('Accept or reject the AI’s waiting change first.')
     await expect(tools(win).getByRole('button', { name: /^Expand/ })).toBeDisabled()

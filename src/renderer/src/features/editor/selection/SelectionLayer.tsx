@@ -20,6 +20,7 @@ import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
 import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
 import { AiTools } from '@/features/edits/AiTools'
+import { suggestionsOf } from '@/features/edits/suggestions'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
 
 /** How long the selection must stay still before the bar shows: after the mouse is let go, and after keys. */
@@ -61,6 +62,8 @@ export function SelectionLayer({
   const toolsOpen = useRef(false)
   const barShown = useRef(false)
   barShown.current = !!bar
+  const barNow = useRef<Bar | null>(null)
+  barNow.current = bar
   // The selection the bar was closed for (Esc, or after adding): it stays closed until another is made.
   const closedFor = useRef<string | null>(null)
 
@@ -72,6 +75,24 @@ export function SelectionLayer({
     const hide = (): void => {
       clearTimeout(timer)
       if (!formOpen.current && !toolsOpen.current) setBar(null)
+    }
+
+    /** Where the bar goes over the words from `from` to `to`. */
+    const placeFor = (from: number, to: number, text: string, scroller: HTMLElement): Bar => {
+      const box = scroller.getBoundingClientRect()
+      const start = editor.view.coordsAtPos(from, 1)
+      const end = editor.view.coordsAtPos(to, -1)
+      // Above the first line when there's room in view, else below the last; and not over the buttons of the
+      // AI's change waiting in the page (milestone 4, and the room it makes for them) when the other side is clear.
+      const buttons = ['[data-ai-change]', '.aw-sugg-room'].map((q) => scroller.querySelector(q)?.getBoundingClientRect())
+      const clear = (top: number): boolean => buttons.every((r) => !r || !r.height || top + BAR_HEIGHT <= r.top || top >= r.bottom)
+      const aboveTop = start.top - BAR_HEIGHT - GAP
+      const belowTop = end.bottom + GAP
+      const above = start.top - box.top >= BAR_HEIGHT + GAP + EDGE && (clear(aboveTop) || !clear(belowTop))
+      const top = (above ? aboveTop : belowTop) - box.top + scroller.scrollTop
+      const oneLine = Math.abs(start.top - end.top) < 4
+      const x = (oneLine ? (start.left + end.right) / 2 : start.left) - box.left
+      return { from, to, text, top, x, align: oneLine ? 'centre' : 'start' }
     }
 
     const show = (): void => {
@@ -86,15 +107,22 @@ export function SelectionLayer({
       if (closedFor.current === `${sel.from}:${sel.to}`) return
       const text = tidySelection(state.doc.textBetween(sel.from, sel.to, '\n\n', '\n'))
       if (!text) return hide()
-      const box = scroller.getBoundingClientRect()
-      const start = view.coordsAtPos(sel.from, 1)
-      const end = view.coordsAtPos(sel.to, -1)
-      // Above the first line when there's room in view, else below the last.
-      const above = start.top - box.top >= BAR_HEIGHT + GAP + EDGE
-      const top = (above ? start.top - BAR_HEIGHT - GAP : end.bottom + GAP) - box.top + scroller.scrollTop
-      const oneLine = Math.abs(start.top - end.top) < 4
-      const x = (oneLine ? (start.left + end.right) / 2 : start.left) - box.left
-      setBar({ from: sel.from, to: sel.to, text, top, x, align: oneLine ? 'centre' : 'start' })
+      setBar(placeFor(sel.from, sel.to, text, scroller))
+    }
+
+    // The AI's change in the page grows, goes or comes back (its words arriving, Accept, Reject): the words
+    // after it move, and the bar moves with them.
+    let lastChange = suggestionsOf(editor.state)
+    const onTransaction = (): void => {
+      const now = suggestionsOf(editor.state)
+      if (now === lastChange) return
+      lastChange = now
+      const b = barNow.current
+      const scroller = scrollerRef.current
+      const sel = editor.state.selection
+      if (!b || !scroller || editor.isDestroyed || mouseDown || formOpen.current || toolsOpen.current || sel.empty) return
+      const next = placeFor(sel.from, sel.to, b.text, scroller)
+      if (next.top !== b.top || next.x !== b.x || next.from !== b.from || next.to !== b.to) setBar(next)
     }
 
     const settle = (ms: number): void => {
@@ -155,6 +183,7 @@ export function SelectionLayer({
     editor.on('selectionUpdate', onSelection)
     editor.on('update', onUpdate)
     editor.on('blur', onBlur)
+    editor.on('transaction', onTransaction)
     return () => {
       clearTimeout(timer)
       dom.removeEventListener('mousedown', onMouseDown)
@@ -163,6 +192,7 @@ export function SelectionLayer({
       editor.off('selectionUpdate', onSelection)
       editor.off('update', onUpdate)
       editor.off('blur', onBlur)
+      editor.off('transaction', onTransaction)
     }
   }, [editor, scrollerRef])
 

@@ -12,6 +12,7 @@ import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
+import { editRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
@@ -143,6 +144,8 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
+  const edit = editRecordWords(rec, sceneTitle)
 
   const toggle = (id: string): void =>
     setOpen((s) => {
@@ -156,22 +159,33 @@ function DraftRecord({
     <div className="animate-fade-in">
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
       <p className="mt-1 text-[13px] text-muted">
-        The exact briefing for this draft{sceneTitle ? ` of “${sceneTitle}”` : ''}, written {fullDate(rec.createdAt)}.
+        {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`}, written {fullDate(rec.createdAt)}.
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
-        {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
-        {rec.status === 'stopped' ? <Notice>This draft was stopped before it finished. The text that arrived is kept in the scene.</Notice> : null}
+        {rec.status === 'streaming' ? (
+          <Notice tone="ai">{edit?.streaming ?? 'This draft is still being written. Its text appears below as it arrives.'}</Notice>
+        ) : null}
+        {rec.status === 'stopped' ? (
+          <Notice>{edit?.stopped ?? 'This draft was stopped before it finished. The text that arrived is kept in the scene.'}</Notice>
+        ) : null}
         {rec.status === 'complete' && rec.params.cutOff ? (
           <Notice>
-            The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
-            stops part-way. Try a shorter length, or a writer model that can write more in one go.
+            {edit?.cutOff ?? (
+              <>
+                The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the
+                draft stops part-way. Try a shorter length, or a writer model that can write more in one go.
+              </>
+            )}
           </Notice>
         ) : null}
-        {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? 'Something went wrong while this draft was written.'}</Notice> : null}
+        {rec.status === 'error' ? (
+          <Notice tone="danger">{rec.error ?? edit?.error ?? 'Something went wrong while this draft was written.'}</Notice>
+        ) : null}
         {changed ? (
           <Notice tone="ai">
-            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since this draft, so the AI saw an older version. They're marked below.
+            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since {edit?.since ?? 'this draft'}, so the AI saw an older
+            version. They're marked below.
           </Notice>
         ) : null}
       </div>
@@ -225,7 +239,7 @@ function DraftRecord({
 
       {rec.direction ? (
         <section className="mt-6">
-          <SectionTitle>Your direction for this draft</SectionTitle>
+          <SectionTitle>{edit?.direction ?? 'Your direction for this draft'}</SectionTitle>
           <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
         </section>
       ) : null}
@@ -270,6 +284,7 @@ function DraftRecord({
                   onToggle={() => toggle(b.id)}
                   entries={entries}
                   generationId={rec.id}
+                  since={edit?.since}
                 />
               ))}
             </div>
@@ -444,7 +459,8 @@ function BlockRow({
   open,
   onToggle,
   entries,
-  generationId
+  generationId,
+  since = 'this draft'
 }: {
   block: ContextBlock
   /** Its place in the order sent; null when it was left out. */
@@ -453,6 +469,8 @@ function BlockRow({
   onToggle: () => void
   entries: Map<ID, Entry>
   generationId: ID
+  /** What the record is, after "since": "this draft", or "this change" for an AI edit. */
+  since?: string
 }): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
@@ -490,6 +508,7 @@ function BlockRow({
                 <EntryChip
                   key={e.entryId}
                   entry={e}
+                  since={since}
                   onOpen={() => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.entryId, from: { generationId } })}
                 />
               ))}
@@ -502,11 +521,11 @@ function BlockRow({
   )
 }
 
-function EntryChip({ entry, onOpen }: { entry: Entry; onOpen: () => void }): React.JSX.Element {
+function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void; since: string }): React.JSX.Element {
   const kind = KIND_LABELS[entry.kind]?.one.toLowerCase() ?? 'entry'
   if (entry.deleted) {
     return (
-      <span className="inline-flex h-6 items-center rounded-full border border-line px-2 text-[12px] text-faint line-through" title="Deleted since this draft">
+      <span className="inline-flex h-6 items-center rounded-full border border-line px-2 text-[12px] text-faint line-through" title={`Deleted since ${since}`}>
         {entry.name}
       </span>
     )
@@ -515,7 +534,7 @@ function EntryChip({ entry, onOpen }: { entry: Entry; onOpen: () => void }): Rea
     <button
       type="button"
       onClick={onOpen}
-      title={entry.changedSince ? `Open ${entry.name}. Edited since this draft: the AI saw an older version.` : `Open ${entry.name}`}
+      title={entry.changedSince ? `Open ${entry.name}. Edited since ${since}: the AI saw an older version.` : `Open ${entry.name}`}
       className={cn(
         'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[12px] transition-colors duration-150',
         entry.changedSince ? 'border-ai/40 bg-ai-soft text-fg hover:border-ai' : 'border-line bg-page text-fg hover:border-accent hover:text-accent'

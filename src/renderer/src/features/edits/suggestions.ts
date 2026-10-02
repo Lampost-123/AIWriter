@@ -12,7 +12,10 @@
 //    interface says so. Opening another scene builds a new editor state, so it goes then too.
 //  - Accept puts the new words in place of the old as ONE undo step (Ctrl+Z puts the old words back,
 //    Ctrl+Y the new ones again). The first new paragraph keeps the paragraph id of the one it starts in,
-//    the last takes the id of the one it ends in, and the ones between reuse the old ones' ids.
+//    the last takes the id of the one it ends in, and the ones between reuse the old ones' ids. New
+//    paragraphs ahead of a paragraph (Continue from its start) go in whole, and it keeps its own id.
+//  - The new words show inline, each new paragraph after the first below a gap like a paragraph's, so
+//    the last line of them is the paragraph's last line too (no empty line opens below the change).
 //  - Reject changes nothing in the text. Ctrl+Z while a suggestion waits (and nothing was typed since it
 //    showed) rejects it, and Ctrl+Y then brings it back, so undo and redo cover AI changes as they do
 //    typing.
@@ -51,11 +54,13 @@ export interface Suggestion {
   to: number
   /**
    * 'replace': the selected words. Continue: 'inline' carries on the paragraph at `from`; 'paragraph'
-   * adds paragraphs after the one `from` ends.
+   * adds paragraphs after the one `from` ends; 'before' adds paragraphs ahead of the one `from` starts.
    */
-  mode: 'replace' | 'inline' | 'paragraph'
+  mode: 'replace' | 'inline' | 'paragraph' | 'before'
   /** The new words so far: paragraphs on their own lines, *italics* and **bold**. For Alternatives, the picked version's. */
   text: string
+  /** A single newline in the new words is a line break inside a paragraph (the words sent had one), not a new paragraph. */
+  lineBreaks: boolean
   /** Alternatives: the versions so far, how many are complete, and the one Adam picked (null while he picks). */
   versions: string[] | null
   versionsDone: number
@@ -105,6 +110,13 @@ const EMPTY: SuggestionsState = { active: null, rejected: null, gone: null, targ
 let goneSeq = 0
 
 // ---------- Where it is ----------
+
+/** New paragraphs ahead of a paragraph need it to start where they were asked for. */
+function stillFits(doc: PMNode, s: Pick<Suggestion, 'mode' | 'from'>): boolean {
+  if (s.mode !== 'before') return true
+  const $from = doc.resolve(s.from)
+  return $from.parent.isTextblock && $from.parentOffset === 0
+}
 
 /**
  * A range mapped through a transaction, or why it can't be: a change inside it ('edited'), or the whole
@@ -185,12 +197,13 @@ function apply(tr: Transaction, value: SuggestionsState): SuggestionsState {
     if (active) {
       const m = mapRange(active, tr)
       if (typeof m === 'string') went(m)
+      else if (!stillFits(tr.doc, { mode: active.mode, from: m.from })) went('edited')
       else if (m.from !== active.from || m.to !== active.to) active = { ...active, from: m.from, to: m.to }
     }
     if (rejected) {
       const m = mapRange(rejected.s, tr)
       rejected =
-        typeof m === 'string'
+        typeof m === 'string' || !stillFits(tr.doc, { mode: rejected.s.mode, from: m.from })
           ? null
           : m.from === rejected.s.from && m.to === rejected.s.to
             ? rejected
@@ -218,6 +231,7 @@ export const picking = (s: Suggestion): boolean => s.tool === 'alternatives' && 
 export function showSuggestion(state: EditorState, s: NewSuggestion): Transaction {
   const full: Suggestion = {
     text: '',
+    lineBreaks: false,
     versions: null,
     versionsDone: 0,
     chosen: null,
@@ -273,8 +287,8 @@ export function suggestionUndo(state: EditorState, action: 'undo' | 'redo'): 're
 
 /** The new words as they show and go in: paragraphs, with the spaces a continuation needs where it joins. */
 export function shownParagraphs(doc: PMNode, s: Suggestion): { paras: string[]; firstInline: boolean } {
-  const paras = newParagraphs(s.text)
-  if (s.mode === 'paragraph') return { paras, firstInline: false }
+  const paras = newParagraphs(s.text, s.lineBreaks)
+  if (s.mode === 'paragraph' || s.mode === 'before') return { paras, firstInline: false }
   const $from = doc.resolve(s.from)
   const $to = doc.resolve(s.to)
   if (s.mode === 'inline') {
@@ -293,13 +307,17 @@ export function shownParagraphs(doc: PMNode, s: Suggestion): { paras: string[]; 
   return { paras, firstInline: !whole }
 }
 
-/** One paragraph's words, with italics and bold. */
+/** One paragraph's words, with italics and bold, and a line break for each single newline in it. */
 function inlineNodes(schema: Schema, text: string): PMNode[] {
   const italic = schema.marks.italic
   const bold = schema.marks.bold
-  return parseEmphasis(text)
-    .filter((p) => p.text)
-    .map((p) => schema.text(p.text, [...(p.bold && bold ? [bold.create()] : []), ...(p.italic && italic ? [italic.create()] : [])]))
+  const lineBreak = schema.nodes.hardBreak
+  return text.split('\n').flatMap((line, i) => [
+    ...(i > 0 ? [lineBreak ? lineBreak.create() : schema.text(' ')] : []),
+    ...parseEmphasis(line)
+      .filter((p) => p.text)
+      .map((p) => schema.text(p.text, [...(p.bold && bold ? [bold.create()] : []), ...(p.italic && italic ? [italic.create()] : [])]))
+  ])
 }
 
 /**
@@ -332,13 +350,22 @@ export function acceptSuggestion(state: EditorState, id: ID): Transaction | null
     const pid = i === 0 ? null : i === paras.length - 1 ? lastPid : (middle.shift() ?? null)
     return schema.nodes.paragraph.create({ pid }, inlineNodes(schema, p))
   })
+  const tr = closeHistory(state.tr)
+  const sel = state.selection
+  const caretHere = sel.from >= s.from && sel.to <= s.to
+  if (s.mode === 'before') {
+    // Whole paragraphs ahead of the one Continue started at, which stays as it was (with its id); the
+    // caret, if it was at the change, goes to the end of the new words.
+    const at = $from.before()
+    tr.insert(at, nodes)
+    if (caretHere) tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(at, 1)), -1))
+    return tr.setMeta(suggestionsKey, { type: 'accept', id } satisfies Meta)
+  }
   // The next paragraphs, after the one Continue carried on from: an empty first one joins that paragraph.
   if (s.mode === 'paragraph') nodes.unshift(schema.nodes.paragraph.create())
-  const tr = closeHistory(state.tr)
   tr.replace(s.from, s.to, new Slice(Fragment.fromArray(nodes), 1, 1))
   // The caret, if it was at the change, goes to the end of the new words.
-  const sel = state.selection
-  if (sel.from >= s.from && sel.to <= s.to) tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(s.to, 1)), -1))
+  if (caretHere) tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(s.to, 1)), -1))
   return tr.setMeta(suggestionsKey, { type: 'accept', id } satisfies Meta)
 }
 
@@ -346,27 +373,38 @@ export function acceptSuggestion(state: EditorState, id: ID): Transaction | null
 
 const BLOCK_ROOM_CLASS = 'aw-sugg-room'
 
-/** The new words, after the old ones (or where Continue carries on). */
+/**
+ * The new words: after the old ones (or where Continue carries on), or, for new paragraphs ahead of a
+ * paragraph, a block of their own just before it. Each new paragraph after the first starts below a gap
+ * like a paragraph's while its words stay inline, so the last line of the new words is also the line the
+ * page's own end-of-paragraph marker sits on, and no empty line opens below the change.
+ */
 function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLElement {
   const writing = s.status === 'starting' || s.status === 'writing' || s.status === 'stopping'
-  const root = document.createElement('span')
-  root.className = ['aw-sugg-new', s.to > s.from && firstInline ? 'after-old' : ''].filter(Boolean).join(' ')
+  const own = s.mode === 'before'
+  const root = document.createElement(own ? 'div' : 'span')
+  root.className = ['aw-sugg-new', own ? 'on-its-own' : '', s.to > s.from && firstInline ? 'after-old' : ''].filter(Boolean).join(' ')
   root.spellcheck = false
   root.setAttribute('data-suggestion', s.id)
+  const add = (className: string): HTMLElement => {
+    const el = document.createElement('span')
+    el.className = className
+    root.appendChild(el)
+    return el
+  }
   let last: HTMLElement | null = null
   paras.forEach((p, i) => {
-    const block = !(i === 0 && firstInline)
     if (p === BREAK) {
-      const el = document.createElement('span')
-      el.className = 'aw-sugg-break'
-      el.textContent = '*  *  *'
-      root.appendChild(el)
+      add('aw-sugg-break').textContent = '*  *  *'
       return
     }
-    const words = document.createElement('span')
-    words.className = 'aw-sugg-words'
+    // A new paragraph (not the first, when it carries on a line) starts below a gap, unless a scene break
+    // or the start of a block of their own already parts it from what is above.
+    const newLine = !(i === 0 && firstInline)
+    if (newLine && !(i === 0 && own) && paras[i - 1] !== BREAK) add('aw-sugg-gap')
+    const words = add('aw-sugg-words')
     for (const piece of parseEmphasis(p)) {
-      let node: Node = document.createTextNode(piece.text)
+      let node: Node = withBreaks(piece.text)
       if (piece.italic) {
         const em = document.createElement('em')
         em.appendChild(node)
@@ -379,27 +417,31 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
       }
       words.appendChild(node)
     }
-    if (block) {
-      const para = document.createElement('span')
-      para.className = 'aw-sugg-para'
-      para.appendChild(words)
-      root.appendChild(para)
-    } else root.appendChild(words)
     last = words
   })
   if (writing) {
     const caret = document.createElement('span')
     caret.className = 'aw-sugg-caret'
     if (last) (last as HTMLElement).appendChild(caret)
-    else if (firstInline) root.appendChild(caret)
     else {
-      const para = document.createElement('span')
-      para.className = 'aw-sugg-para'
-      para.appendChild(caret)
-      root.appendChild(para)
+      if (!firstInline && !own) add('aw-sugg-gap')
+      root.appendChild(caret)
     }
   }
   return root
+}
+
+/**
+ * Words with their line breaks (a newline inside a paragraph, when the words had them) as breaks: in the page,
+ * a widget's text doesn't keep newlines (ProseMirror sets `white-space: normal` on it).
+ */
+function withBreaks(text: string): DocumentFragment {
+  const out = document.createDocumentFragment()
+  text.split('\n').forEach((line, i) => {
+    if (i) out.appendChild(document.createElement('br'))
+    if (line) out.appendChild(document.createTextNode(line))
+  })
+  return out
 }
 
 function renderRoom(): HTMLElement {
@@ -409,9 +451,13 @@ function renderRoom(): HTMLElement {
   return el
 }
 
-/** Just after the top-level block a position is in: where the room for the buttons goes. */
-function roomPos(doc: PMNode, pos: number): number {
-  const $pos = doc.resolve(pos)
+/** Where the new words show: after the old ones, or (new paragraphs ahead of a paragraph) just before it. */
+const newWordsPos = (doc: PMNode, s: Suggestion): number => (s.mode === 'before' ? doc.resolve(s.from).before() : s.to)
+
+/** Where the room for the buttons goes: just after the top-level block the change ends in, or just after new paragraphs of their own. */
+function roomPos(doc: PMNode, s: Suggestion): number {
+  if (s.mode === 'before') return newWordsPos(doc, s)
+  const $pos = doc.resolve(s.to)
   return $pos.depth >= 1 ? $pos.after(1) : doc.content.size
 }
 
@@ -429,10 +475,17 @@ function decorations(state: EditorState): DecorationSet | null {
   if (!picking(s)) {
     const { paras, firstInline } = shownParagraphs(state.doc, s)
     const key = `aw-new:${s.id}:${s.rev}:${firstInline ? 'i' : 'b'}:${paras[0]?.[0] === ' ' ? 's' : ''}:${paras.length}`
-    out.push(Decoration.widget(s.to, () => renderNew(s, paras, firstInline), { side: -1, marks: [], ignoreSelection: true, key }))
+    out.push(
+      Decoration.widget(newWordsPos(state.doc, s), () => renderNew(s, paras, firstInline), {
+        side: -1,
+        marks: [],
+        ignoreSelection: true,
+        key
+      })
+    )
   }
   out.push(
-    Decoration.widget(roomPos(state.doc, s.to), renderRoom, {
+    Decoration.widget(roomPos(state.doc, s), renderRoom, {
       side: 1,
       ignoreSelection: true,
       stopEvent: () => true,

@@ -4,7 +4,8 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { docFromText } from '@/features/editor/streamDoc'
-import { BREAK, cleanReply, continuePlace, joinSpaces, newParagraphs, parseAlternatives, selectedWords, textOf } from './text'
+import { keepsLineBreaks } from '@shared/contracts/edits'
+import { BREAK, cleanReply, continuePlace, joinSpaces, newParagraphs, parseAlternatives, selectedWords, textOf, wordsIn } from './text'
 
 const schema = getSchema(sceneExtensions())
 const { paragraph: p, horizontalRule: hr, hardBreak } = schema.nodes
@@ -95,6 +96,28 @@ describe('where Continue carries on', () => {
     expect(continuePlace(doc, said.to)).toEqual({ at: said.to, mode: 'paragraph' })
   })
 
+  it('puts new paragraphs ahead of a paragraph when the cursor is at its start (after a scene break too)', () => {
+    const doc = docFromText(schema, 'Mara pushed the door open.\n\nNobody looked up.')
+    const start = rangeOf(doc, 'Nobody').from
+    expect(continuePlace(doc, start)).toEqual({ at: start, mode: 'before' })
+    // Only spaces before the cursor count as its start.
+    const spaced = docOf(p.create(null, t('She waited.')), p.create(null, t('  Nobody looked up.')))
+    const at = rangeOf(spaced, '  Nobody').from
+    expect(continuePlace(spaced, at + 2)).toEqual({ at, mode: 'before' })
+    const broken = docOf(p.create(null, t('She waited.')), hr.create(), p.create(null, t('Morning came.')))
+    const morning = rangeOf(broken, 'Morning').from
+    expect(continuePlace(broken, morning)).toEqual({ at: morning, mode: 'before' })
+  })
+
+  it('carries on after the last selected word, not where a selection dragged on to the next paragraph ends', () => {
+    const doc = docFromText(schema, 'She waited.\n\nHe came.')
+    const end = rangeOf(doc, 'He came.').from
+    const words = wordsIn(doc, rangeOf(doc, 'She waited.').from, end)
+    expect(words).toEqual(rangeOf(doc, 'She waited.'))
+    expect(continuePlace(doc, words!.to)).toEqual({ at: words!.to, mode: 'paragraph' })
+    expect(wordsIn(doc, end - 1, end)).toBeNull()
+  })
+
   it('needs words before the cursor', () => {
     const doc = docFromText(schema, '')
     expect(continuePlace(doc, 1)).toEqual({
@@ -130,11 +153,25 @@ describe('the AI’s reply', () => {
     expect(cleanReply('Warm.', true)).toBe('Warm.')
   })
 
-  it('takes away quotation marks around the whole reply when the words had none', () => {
+  it('takes away quotation marks around the whole reply when the words had none, once it has all arrived', () => {
     expect(cleanReply('"The tavern was warm."', true, { selection: 'The tavern was hot.' })).toBe('The tavern was warm.')
-    expect(cleanReply('“The tavern was', false, { selection: 'The tavern was hot.' })).toBe('The tavern was')
+    expect(cleanReply('“The tavern was warm.”', false, { selection: 'The tavern was hot.' })).toBe('“The tavern was warm.”')
     expect(cleanReply('“Go,” she said.', true, { selection: '“Leave,” she said.' })).toBe('“Go,” she said.')
     expect(cleanReply('“Go,” she said. “Now.”', true, { selection: 'She told him to go.' })).toBe('“Go,” she said. “Now.”')
+  })
+
+  it('never takes the first quotation mark of a reply that starts with dialogue away while it arrives', () => {
+    const reply = '“Go now and never come back,” she said, and turned back to the fire.'
+    const sel = { selection: 'She told him to leave.' }
+    let shown = ''
+    for (let n = 1; n <= reply.length; n++) {
+      const next = cleanReply(reply.slice(0, n), false, sel)
+      // The words only ever grow: nothing shown goes again.
+      expect(next.startsWith(shown)).toBe(true)
+      if (next) expect(next.startsWith('“Go')).toBe(true)
+      shown = next
+    }
+    expect(cleanReply(reply, true, sel)).toBe(reply)
   })
 
   it('reads Alternatives’ three versions, in the asked-for shape or close to it, as they arrive', () => {
@@ -176,5 +213,23 @@ describe('the AI’s reply', () => {
     expect(newParagraphs('One.\nTwo.\n\n* * *\n\nThree.')).toEqual(['One.', 'Two.', BREAK, 'Three.'])
     expect(newParagraphs('***\n\nOne.\n\n***')).toEqual(['One.'])
     expect(newParagraphs('')).toEqual([])
+  })
+
+  it('keeps line breaks inside a paragraph when the words sent had them', () => {
+    const verse = 'Roses are red,  \nviolets are blue.\n\n* * *\n\nThe end.'
+    expect(newParagraphs(verse, true)).toEqual(['Roses are red,\nviolets are blue.', BREAK, 'The end.'])
+    expect(newParagraphs(verse, false)).toEqual(['Roses are red,', 'violets are blue.', BREAK, 'The end.'])
+    // A newline still arriving at the end shows nothing yet.
+    expect(newParagraphs('Roses are red,\n', true)).toEqual(['Roses are red,'])
+    expect(newParagraphs('\n\nOne.\n\n\n\nTwo.\n\n', true)).toEqual(['One.', 'Two.'])
+  })
+
+  it('tells words with a line break inside a paragraph (the selection, or for Continue the paragraph it carries on)', () => {
+    const doc = docOf(p.create(null, [t('Dear Tobin,'), hardBreak.create(), t('I am well.')]), p.create(null, t('She sealed it.')))
+    const letter = textOf(doc, 0, doc.content.size)
+    expect(keepsLineBreaks({ tool: 'condense', selection: letter, before: '', after: '' })).toBe(true)
+    expect(keepsLineBreaks({ tool: 'condense', selection: 'One.\n\nTwo.', before: letter, after: '' })).toBe(false)
+    expect(keepsLineBreaks({ tool: 'continue', selection: '', before: 'Dear Tobin,\nI am', after: ' well.\n\nShe sealed it.' })).toBe(true)
+    expect(keepsLineBreaks({ tool: 'continue', selection: '', before: `${letter}\n\n`, after: 'Rain.' })).toBe(false)
   })
 })

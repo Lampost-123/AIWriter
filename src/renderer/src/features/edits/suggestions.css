@@ -44,10 +44,16 @@
   box-shadow: 0 0 0 1.5px var(--ai-soft);
 }
 
-/* A new paragraph among them. */
-.scene-prose .aw-sugg-para {
+/* The gap before a new paragraph among them, as between the page's own (their words stay inline). */
+.scene-prose .aw-sugg-gap {
   display: block;
-  margin-top: 0.85em;
+  height: 0.85em;
+}
+
+/* New paragraphs ahead of a paragraph (Continue from its start): a block of their own, spaced like one. */
+.scene-prose .aw-sugg-new.on-its-own {
+  display: block;
+  margin: 0 0 0.85em;
 }
 
 /* A scene break among them. */
@@ -90,9 +96,11 @@
   }
 }
 
-/* The room below the change for its buttons (SuggestionLayer.tsx sets its height). */
+/* The room below the change for its buttons (SuggestionLayer.tsx sets its height). It starts closer to the
+   change than a paragraph's gap, so the buttons read as the change's, not the next paragraph's. */
 .scene-prose .aw-sugg-room {
   height: var(--aw-sugg-room, 58px);
+  margin-top: -0.45em;
   pointer-events: none;
   user-select: none;
 }

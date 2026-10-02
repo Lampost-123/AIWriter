@@ -124,6 +124,17 @@ describe('a suggestion in the page', () => {
     expect(suggestionsOf(across).gone?.reason).toBe('edited')
   })
 
+  it('keeps new paragraphs ahead of a paragraph while it starts where they go, and drops them when it is joined to the one before', () => {
+    const s0 = stateFrom('Mara pushed the door open.\n\nNobody looked up.')
+    const at = rangeOf(s0.doc, 'Nobody').from
+    const s1 = apply(s0, showSuggestion(s0, { id: 't1', sceneId: 's1', tool: 'continue', direction: '', from: at, to: at, mode: 'before' }))
+    expect(activeSuggestion(typeAt(s1, at, 'Still, '))).toMatchObject({ from: at, to: at })
+    expect(activeSuggestion(typeAt(s1, 1, 'Grey. '))).toMatchObject({ from: at + 6, to: at + 6 })
+    const joined = apply(s1, s1.tr.join(at - 1))
+    expect(activeSuggestion(joined)).toBeNull()
+    expect(suggestionsOf(joined).gone?.reason).toBe('edited')
+  })
+
   it('maps a range through each step in turn', () => {
     const s0 = stateFrom(TEXT)
     const r = rangeOf(s0.doc, 'warm and loud')
@@ -231,6 +242,48 @@ describe('Accept', () => {
     expect(ps[0].pid).toBe(paragraphs(s0.doc)[0].pid)
     expect(new Set(ps.map((p) => p.pid)).size).toBe(4)
     expect(ps.every((p) => !!p.pid)).toBe(true)
+  })
+
+  it('puts new paragraphs ahead of a paragraph Continue started at, as one undo step, keeping every paragraph’s id', () => {
+    const s0 = stateFrom('Mara pushed the door open.\n\nNobody looked up.')
+    const before = paragraphs(s0.doc)
+    const at = rangeOf(s0.doc, 'Nobody').from
+    let s1 = apply(s0, showSuggestion(s0, { id: 't1', sceneId: 's1', tool: 'continue', direction: '', from: at, to: at, mode: 'before' }))
+    s1 = apply(s1, updateSuggestion(s1, 't1', { text: 'The rain kept on.\n\nShe sat down.', status: 'ready' }))
+    expect(shownParagraphs(s1.doc, activeSuggestion(s1)!)).toEqual({ paras: ['The rain kept on.', 'She sat down.'], firstInline: false })
+    const s2 = apply(s1, acceptSuggestion(s1, 't1'))
+    const ps = paragraphs(s2.doc)
+    expect(ps.map((p) => p.text)).toEqual(['Mara pushed the door open.', 'The rain kept on.', 'She sat down.', 'Nobody looked up.'])
+    expect(ps[0].pid).toBe(before[0].pid)
+    expect(ps[3].pid).toBe(before[1].pid)
+    expect(new Set(ps.map((p) => p.pid)).size).toBe(4)
+    expect(ps.every((p) => !!p.pid)).toBe(true)
+    // The caret goes to the end of the new words.
+    expect(s2.selection.head).toBe(rangeOf(s2.doc, 'She sat down.').to)
+    let back: EditorState = s2
+    undo(s2, (tr) => (back = s2.apply(tr)))
+    expect(back.doc.eq(s0.doc)).toBe(true)
+  })
+
+  it('keeps the line breaks inside a paragraph when the words had them', () => {
+    const s0 = stateFrom('The note said nothing.\n\nNobody looked up.')
+    const r = rangeOf(s0.doc, 'The note said nothing.')
+    const lines = (lineBreaks: boolean): EditorState => {
+      const s1 = apply(
+        s0,
+        showSuggestion(s0, { id: 't1', sceneId: 's1', tool: 'rewrite', direction: 'x', mode: 'replace', ...r, lineBreaks })
+      )
+      const s2 = ready(s1, 'Roses are *red*,\nviolets are blue.')
+      return apply(s2, acceptSuggestion(s2, 't1'))
+    }
+    const kept = lines(true)
+    expect(sceneText(kept.doc)).toBe('Roses are red,\nviolets are blue.\n\nNobody looked up.')
+    // "Roses are ", italic "red", ",", the line break, "violets are blue."
+    expect(kept.doc.firstChild!.childCount).toBe(5)
+    expect(kept.doc.firstChild!.child(3).type.name).toBe('hardBreak')
+    expect(kept.doc.rangeHasMark(rangeOf(kept.doc, 'red').from, rangeOf(kept.doc, 'red').to, schema.marks.italic)).toBe(true)
+    // Words without line breaks: each line of the reply is a paragraph.
+    expect(paragraphs(lines(false).doc).map((p) => p.text)).toEqual(['Roses are red,', 'violets are blue.', 'Nobody looked up.'])
   })
 
   it('puts nothing in when there are no new words', () => {

@@ -1,6 +1,6 @@
 // The AI tools in the bar over selected words (features/editor/selection/SelectionLayer.tsx): one
 // "Rewrite" button that opens a small menu with a box to say how, the quick tools (Expand, Condense, More
-// vivid, Change tone, Fix voice when the words have dialogue, Three versions) and Continue after the
+// vivid, Change tone, Fix voice when the words have dialogue, Alternatives) and Continue after the
 // words. Each starts a tracked change in the page (session.ts). Owned by the AI edits part.
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
@@ -84,11 +84,13 @@ export function AiTools({
     } else markWords(null)
   }
 
-  /** Runs a tool on the selected words (the menu closes first, and the page has the keyboard again). */
+  /**
+   * Runs a tool on the selected words (the menu closes first, and the page has the keyboard again).
+   * Continue carries on after their last word.
+   */
   const run = (tool: EditTool, direction?: string): void => {
     change(false)
-    if (tool === 'continue') void startTool('continue', { at: editor.state.selection.to })
-    else void startTool(tool, { direction })
+    void startTool(tool, { direction })
   }
 
   /** Up and down move through the menu, as in any menu. */
@@ -210,15 +212,15 @@ export function AiTools({
                 <Tool
                   icon={<MessageSquareQuote size={15} />}
                   label="Fix voice"
-                  hint="Each speaker sounds like themselves"
+                  hint="Match each speaker’s voice"
                   disabled={off}
                   onClick={() => run('voice')}
                 />
               ) : null}
               <Tool
                 icon={<Layers size={15} />}
-                label="Three versions"
-                hint="Pick the one you like"
+                label="Alternatives"
+                hint="Three versions to pick from"
                 disabled={off}
                 onClick={() => run('alternatives')}
               />

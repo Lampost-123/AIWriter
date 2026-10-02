@@ -22,6 +22,8 @@ export interface PromptOptions {
   continueAs: 'inline' | 'paragraph'
   /** Continue: there is text after the cursor to lead into. */
   hasAfter: boolean
+  /** The words have a line break inside a paragraph (a letter, a verse): the new words keep theirs. */
+  lineBreaks: boolean
 }
 
 const ROLE = `You are a skilled fiction editor working on a novel with its author. The author has selected some words in a scene and asked for one change to them.`
@@ -80,9 +82,12 @@ const ALTERNATIVES_REPLY = `How to reply
 - Keep to the point of view, tense and spelling of the scene, and keep every name exactly as written. Don't add new events or facts.
 - Avoid clichés and stock phrases.`
 
+const LINE_BREAKS = `- The text has line breaks inside paragraphs (as in a letter or a verse): write them as single line breaks too, with a blank line only between paragraphs.`
+
 /** The system prompt: the marker line, the job, how to reply, and the style guide. */
 export function systemPrompt(tool: EditTool, style: StyleGuide, o: PromptOptions): string {
-  const reply = tool === 'continue' ? CONTINUE_REPLY : tool === 'alternatives' ? ALTERNATIVES_REPLY : REPLY
+  const rules = tool === 'continue' ? CONTINUE_REPLY : tool === 'alternatives' ? ALTERNATIVES_REPLY : REPLY
+  const reply = o.lineBreaks ? `${rules}\n${LINE_BREAKS}` : rules
   const role = tool === 'continue' ? 'You are a skilled novelist writing a novel with its author.' : ROLE
   const guide = instructionsText(style, { intro: '', trimSample: true })
   return [`${EDIT_MARKER} ${tool}`, role, task(tool, o), reply, guide].filter(Boolean).join('\n\n')

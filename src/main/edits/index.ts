@@ -5,9 +5,7 @@
 // words reach the window as task events; the interface shows them as a tracked change.
 
 import type { EditInput, EditStart } from '@shared/contracts/edits'
-import type { EditTool } from '@shared/types'
 import { effectiveStyle } from '@shared/style'
-import { UserError } from '../util'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import { emit } from '../events'
@@ -18,31 +16,12 @@ import { providerNotes } from '../ai/draftFlow'
 import { startTask } from '../ai/tasks'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing } from './briefing'
-
-const TOOLS: EditTool[] = ['rewrite', 'expand', 'condense', 'vivid', 'tone', 'voice', 'alternatives', 'continue']
-
-/** Longest text taken from the window for each part (a whole scene is far smaller). */
-const MAX_CHARS = 400_000
-
-const text = (v: unknown): string => (typeof v === 'string' ? v.slice(0, MAX_CHARS) : '')
+import { editInput } from './input'
 
 /** Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. */
 export function startEdit(raw: EditInput): EditStart {
-  const tool = raw?.tool
-  if (!TOOLS.includes(tool)) throw new UserError('Something went wrong starting that. Try again.')
-  const input: EditInput = {
-    taskId: String(raw.taskId ?? ''),
-    sceneId: String(raw.sceneId ?? ''),
-    tool,
-    direction: text(raw.direction).trim().slice(0, 2000),
-    selection: text(raw.selection),
-    before: text(raw.before),
-    after: text(raw.after),
-    continueAs: raw.continueAs === 'inline' ? 'inline' : 'paragraph'
-  }
-  if ((tool === 'rewrite' || tool === 'tone') && !input.direction) {
-    throw new UserError(tool === 'rewrite' ? 'Say how to rewrite the words first.' : 'Pick a tone first.')
-  }
+  const input = editInput(raw)
+  const tool = input.tool
 
   const settings = getSettings()
   const model = jobModel('writer', { settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget })

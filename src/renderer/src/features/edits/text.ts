@@ -76,16 +76,11 @@ export interface Target {
   to: number
 }
 
-/**
- * The words an AI tool works on: the selection without the spaces and paragraph ends at its edges.
- * A problem in plain words when there are no words in it, or it runs across a scene break.
- */
-export function selectedWords(state: EditorState): Target | { problem: string } {
-  const { from, to, empty } = state.selection
-  if (empty) return { problem: 'Select some words first.' }
+/** The words between two positions, without the spaces and paragraph ends at their edges; null when there are none. */
+export function wordsIn(doc: PMNode, from: number, to: number): Target | null {
   let first = -1
   let last = -1
-  state.doc.nodesBetween(from, to, (node, pos) => {
+  doc.nodesBetween(from, to, (node, pos) => {
     if (!node.isText) return true
     const a = Math.max(from, pos)
     const piece = (node.text ?? '').slice(a - pos, Math.min(to, pos + node.nodeSize) - pos)
@@ -95,11 +90,21 @@ export function selectedWords(state: EditorState): Target | { problem: string } 
     last = a + piece.replace(/\s+$/, '').length
     return false
   })
-  if (first < 0) return { problem: 'Select some words first.' }
-  if (hasBreakBetween(state.doc, first, last)) {
+  return first < 0 ? null : { from: first, to: last }
+}
+
+/**
+ * The words an AI tool works on: the selection without the spaces and paragraph ends at its edges.
+ * A problem in plain words when there are no words in it, or it runs across a scene break.
+ */
+export function selectedWords(state: EditorState): Target | { problem: string } {
+  const { from, to, empty } = state.selection
+  const words = empty ? null : wordsIn(state.doc, from, to)
+  if (!words) return { problem: 'Select some words first.' }
+  if (hasBreakBetween(state.doc, words.from, words.to)) {
     return { problem: 'Select words on one side of the scene break: the AI tools work on one part of a scene at a time.' }
   }
-  return { from: first, to: last }
+  return words
 }
 
 /** True when a scene break lies between two positions. */
@@ -120,8 +125,10 @@ export interface ContinuePlace {
   /**
    * 'inline': they carry on the paragraph at `at` (it stops mid-sentence, has words after the cursor, or
    * is empty). 'paragraph': they are the next paragraphs, after the one at `at` (`at` is its end).
+   * 'before': they are new paragraphs ahead of the one at `at` (`at` is its start: the cursor was at the
+   * start of a paragraph with words in it).
    */
-  mode: 'inline' | 'paragraph'
+  mode: 'inline' | 'paragraph' | 'before'
 }
 
 /** A paragraph that ends a sentence: its last words end with . ! ? or … (and maybe a closing quotation mark or bracket). */
@@ -140,6 +147,9 @@ export function continuePlace(doc: PMNode, pos: number): ContinuePlace | { probl
   const para = $pos.parent
   const before = para.textBetween(0, $pos.parentOffset, undefined, '\n')
   const after = para.textBetween($pos.parentOffset, para.content.size, undefined, '\n')
+  // At the start of a paragraph with words: the text before ends with the paragraph (or scene break) before
+  // it, so the AI writes new paragraphs, and they go in ahead of this one, which stays as it is.
+  if (!before.trim() && after.trim()) return { at: $pos.start(), mode: 'before' }
   if (after.trim() || !before.trim() || !endsSentence(before)) return { at: pos, mode: 'inline' }
   return { at: $pos.end(), mode: 'paragraph' }
 }
@@ -177,7 +187,9 @@ const QUOTES = /["“”]/g
 /**
  * The reply as it should show in the page: without a lead-in line ("Here's the rewrite:"), a heading, or
  * fences around it, and (for words that weren't in quotation marks) without quotation marks around the
- * whole of it. While it is still arriving (`done` false), a first line that may be a lead-in waits.
+ * whole of it. While it is still arriving (`done` false), a first line that may be a lead-in waits; its
+ * quotation marks are only looked at once it has all arrived, so words that start with a line of dialogue
+ * never lose and regain their first mark as they come.
  */
 export function cleanReply(raw: string, done: boolean, o: { selection?: string } = {}): string {
   let t = raw.replace(/\r\n?/g, '\n').replace(/^\s+/, '')
@@ -197,15 +209,15 @@ export function cleanReply(raw: string, done: boolean, o: { selection?: string }
   }
   // A closing fence.
   t = t.replace(/\n\s*(```|""")\s*$/, '').replace(/(```|""")\s*$/, '')
+  if (!done) return t
   // Quotation marks around the whole reply, when the words sent had none at their start.
   const sel = o.selection
+  t = t.trim()
   if (sel !== undefined && sel.trim() && !/^\s*["“‘']/.test(sel) && /^["“]/.test(t)) {
     const count = (t.match(QUOTES) ?? []).length
-    const closed = count === 2 && /["”]\s*$/.test(t)
-    if (closed) t = t.slice(1).replace(/["”]\s*$/, '')
-    else if (!done && count === 1) t = t.slice(1)
+    if (count === 2 && /["”]$/.test(t)) t = t.slice(1, -1).trim()
   }
-  return done ? t.trim() : t
+  return t
 }
 
 /** A line that starts one of Alternatives' versions: "=== Version 2 ===", "### Version 2", "**Version 2**", "Version 2:". */
@@ -267,11 +279,31 @@ export function parseAlternatives(raw: string, done: boolean): Versions {
 export const BREAK = '\u0000break'
 
 /**
- * The new words as paragraphs (a scene break line becomes BREAK, but never first or last: the words join
- * the text around them there).
+ * Paragraphs separated by blank lines, each keeping its single newlines (line breaks inside it), without
+ * spaces at the ends of its lines. A newline still arriving at the end of the text isn't shown yet.
  */
-export function newParagraphs(text: string): string[] {
-  const paras = splitParagraphs(text).map((p) => (isSceneBreakLine(p) ? BREAK : p))
+function linesParagraphs(text: string): string[] {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split(/\n[ \t]*\n\s*/)
+    .map((p) =>
+      p
+        .split('\n')
+        .map((line) => line.replace(/[ \t]+$/, ''))
+        .join('\n')
+        .replace(/^\s+|\s+$/g, '')
+    )
+    .filter(Boolean)
+}
+
+/**
+ * The new words as paragraphs (a scene break line becomes BREAK, but never first or last: the words join
+ * the text around them there). With `lineBreaks` (the words sent had a line break inside a paragraph), a
+ * single newline is a line break and only a blank line starts a new paragraph; otherwise every line is a
+ * paragraph of its own, as in a draft.
+ */
+export function newParagraphs(text: string, lineBreaks = false): string[] {
+  const paras = (lineBreaks ? linesParagraphs(text) : splitParagraphs(text)).map((p) => (isSceneBreakLine(p) ? BREAK : p))
   while (paras.length && paras[0] === BREAK) paras.shift()
   while (paras.length && paras[paras.length - 1] === BREAK) paras.pop()
   // Two breaks in a row are one.

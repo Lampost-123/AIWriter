@@ -6,7 +6,7 @@
 // Pure (no database), so it can be tested.
 
 import type { ChatMessage, ContextBlock, Creativity, EntryState, ID, SceneCard, StyleGuide } from '@shared/types'
-import type { EditInput } from '@shared/contracts/edits'
+import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
@@ -223,7 +223,12 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const keys = tool === 'voice' ? KEYS.voice : isContinue ? KEYS.continue : KEYS.other
   const people = order.slice(0, tool === 'voice' ? MAX_CHARACTERS.voice : MAX_CHARACTERS.other).map((id) => byId.get(id)!)
 
-  const o: PromptOptions = { direction, continueAs: input.continueAs ?? 'paragraph', hasAfter: !!input.after.trim() }
+  const o: PromptOptions = {
+    direction,
+    continueAs: input.continueAs ?? 'paragraph',
+    hasAfter: !!input.after.trim(),
+    lineBreaks: keepsLineBreaks(input)
+  }
   const system = systemPrompt(tool, world.style, o)
   const reply = replyRoom(tool, words)
   const contextLength = world.contextLength && world.contextLength > 0 ? world.contextLength : DEFAULT_CONTEXT

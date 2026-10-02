@@ -10,20 +10,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore }
 import type { ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { parseEmphasis } from '@/features/editor/streamText'
+import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
-import {
-  accept,
-  attachEditor,
-  openRecord,
-  pick,
-  reject,
-  sceneShown,
-  setLayerHooks,
-  stop,
-  TOOL_NAMES,
-  TOOL_WORKING,
-  unpick
-} from './session'
+import { accept, attachEditor, openRecord, pick, reject, sceneShown, setLayerHooks, stop, unpick } from './session'
+import { BREAK, newParagraphs } from './text'
 import './suggestions.css'
 
 /** Room left below the buttons, before the next paragraph. */
@@ -98,8 +89,12 @@ export function SuggestionLayer({
     } catch {
       // The position is being redrawn; keep to the buttons.
     }
+    // New paragraphs ahead of a paragraph show above the place the change is at.
+    const own = scroller.querySelector<HTMLElement>('.aw-sugg-new.on-its-own')
+    if (own) start = Math.min(start, own.getBoundingClientRect().top - box.top + scroller.scrollTop - START_MARGIN)
     let want = scroller.scrollTop
-    if (bottom > want + view) want = bottom - view
+    // Below the window's bottom edge, or above its top (the window was made smaller, say): just in view at the bottom.
+    if (bottom > want + view || top < want) want = bottom - view
     if (start < want && bottom - start <= view) want = start
     want = Math.max(0, Math.round(want))
     if (want !== scroller.scrollTop) scroller.scrollTop = want
@@ -250,7 +245,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
               onClick={() => stop(s.id)}
               disabled={s.status === 'stopping'}
             >
-              <Square size={12} aria-hidden />
+              <Square size={11} fill="currentColor" aria-hidden />
               Stop <span className={KEY}>Esc</span>
             </button>
           </>
@@ -339,7 +334,7 @@ function Picker({ s, pickerRef }: { s: Suggestion; pickerRef: React.RefObject<HT
             onClick={() => stop(s.id)}
             disabled={s.status === 'stopping'}
           >
-            <Square size={12} aria-hidden />
+            <Square size={11} fill="currentColor" aria-hidden />
             Stop <span className={KEY}>Esc</span>
           </button>
         ) : (
@@ -374,7 +369,7 @@ function Picker({ s, pickerRef }: { s: Suggestion; pickerRef: React.RefObject<HT
         }}
       >
         {Array.from({ length: Math.max(1, slots) }, (_, i) => {
-          const text = versions[i]
+          const paras = newParagraphs(versions[i] ?? '', s.lineBreaks)
           const done = i < s.versionsDone
           return (
             <button
@@ -399,11 +394,8 @@ function Picker({ s, pickerRef }: { s: Suggestion; pickerRef: React.RefObject<HT
                 {i + 1}
               </span>
               <span className="min-w-0 flex-1">
-                {text ? (
-                  <span className="block whitespace-pre-wrap font-serif text-[14px] leading-relaxed text-fg">
-                    {text}
-                    {!done && writing ? <span className="aw-sugg-caret" aria-hidden /> : null}
-                  </span>
+                {paras.length ? (
+                  <VersionText paras={paras} caret={!done && writing} />
                 ) : (
                   <span className="flex flex-col gap-1.5 pt-1" aria-hidden>
                     <span className="h-2.5 w-[92%] rounded bg-surface-2" />
@@ -424,5 +416,28 @@ function Picker({ s, pickerRef }: { s: Suggestion; pickerRef: React.RefObject<HT
         })}
       </div>
     </div>
+  )
+}
+
+/** A version's words as they will read in the page: its paragraphs, italics and bold, and line breaks. */
+function VersionText({ paras, caret }: { paras: string[]; caret: boolean }): React.JSX.Element {
+  return (
+    <span className="flex flex-col gap-1.5 font-serif text-[14px] leading-relaxed text-fg">
+      {paras.map((p, i) =>
+        p === BREAK ? (
+          <span key={i} className="text-center text-[12px] tracking-[0.2em] text-faint">
+            * * *
+          </span>
+        ) : (
+          <span key={i} className="block whitespace-pre-wrap">
+            {parseEmphasis(p).map((piece, j) => {
+              const words = piece.italic ? <em>{piece.text}</em> : piece.text
+              return <span key={j}>{piece.bold ? <strong>{words}</strong> : words}</span>
+            })}
+            {caret && i === paras.length - 1 ? <span className="aw-sugg-caret" aria-hidden /> : null}
+          </span>
+        )
+      )}
+    </span>
   )
 }

@@ -116,3 +116,18 @@ export function quoteSpans(paragraph: string): QuoteSpan[] {
 
 /** True when the text has a line of dialogue in it. */
 export const hasDialogue = (text: string): boolean => text.split(/\n/).some((p) => quoteSpans(p).length > 0)
+
+// ---------- Line breaks ----------
+// A line break inside a paragraph (in a letter or a verse) is sent as a single newline; paragraphs are
+// separated by a blank line. When the words an edit works on have one, the new words keep theirs: the main
+// process asks the AI to, and the interface reads a single newline in the reply as a line break, not as a
+// new paragraph.
+
+/** True when the words an edit works on (for Continue, the paragraph it carries on from) have a line break inside a paragraph. */
+export function keepsLineBreaks(input: Pick<EditInput, 'tool' | 'selection' | 'before' | 'after'>): boolean {
+  const words =
+    input.tool === 'continue'
+      ? `${input.before.split(/\n[ \t]*\n/).pop() ?? ''}${input.after.split(/\n[ \t]*\n/)[0] ?? ''}`
+      : input.selection
+  return /[^\n]\n[^\n]/.test(words.trim())
+}

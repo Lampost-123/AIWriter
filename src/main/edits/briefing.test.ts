@@ -151,6 +151,19 @@ describe('what each tool sends', () => {
     )
   })
 
+  it('asks for line breaks inside a paragraph to stay line breaks, when the words have them', () => {
+    const verse = 'Roses are red,\nviolets are blue.\n\nThe end.'
+    const rule = 'The text has line breaks inside paragraphs (as in a letter or a verse): write them as single line breaks too'
+    expect(system(ok(editBriefing(input('condense', { selection: verse }), world())))).toContain(rule)
+    expect(system(ok(editBriefing(input('alternatives', { selection: verse }), world())))).toContain(rule)
+    expect(system(ok(editBriefing(input('condense'), world())))).not.toContain(rule)
+    // Continue: the paragraph it carries on from.
+    const letter = input('continue', { selection: '', before: 'Rain.\n\nDear Tobin,\nI am well', after: '', continueAs: 'inline' })
+    expect(system(ok(editBriefing(letter, world())))).toContain(rule)
+    const plain = input('continue', { selection: '', before: 'Dear Tobin,\nI am well.\n\nShe sealed it', after: '', continueAs: 'inline' })
+    expect(system(ok(editBriefing(plain, world())))).not.toContain(rule)
+  })
+
   it('asks Alternatives for three versions in a shape the interface can read', () => {
     const b = ok(editBriefing(input('alternatives'), world()))
     expect(system(b)).toContain('=== Version 1 ===, === Version 2 === and === Version 3 ===')
