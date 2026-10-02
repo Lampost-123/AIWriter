@@ -245,6 +245,75 @@ export const MIGRATIONS: string[] = [
     updated_at TEXT NOT NULL
   );
   CREATE INDEX issues_scene ON issues(scene_id);
+
+  -- ---------- The memory keeper (src/main/keeper) ----------
+  -- What it last read of each scene, so it reads only what changed and resumes after a restart.
+  --   read_text: the scene text it last read    summary_source: the text the scene summary was written from
+  --   error: why the last attempt failed, in plain words (cleared when a read works)
+  CREATE TABLE keeper_scenes (
+    scene_id TEXT PRIMARY KEY,
+    read_text TEXT NOT NULL DEFAULT '',
+    read_at TEXT,
+    summary_source TEXT,
+    error TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  -- Facts the keeper found that aren't rows in changes: entries it made, entries from elsewhere in
+  -- the world it found here (exists point), and voice sample lines it added. Each rests on its quote.
+  --   kind: entry | exists | voice    ref_id: the exists point (exists)    line: the sample line (voice)
+  CREATE TABLE keeper_facts (
+    id TEXT PRIMARY KEY,
+    scene_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    ref_id TEXT,
+    line TEXT NOT NULL DEFAULT '',
+    quote TEXT NOT NULL DEFAULT '',
+    run_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX keeper_facts_scene ON keeper_facts(scene_id);
+  CREATE INDEX keeper_facts_entry ON keeper_facts(entry_id);
+
+  -- The quiet "What changed" list: everything the keeper did, and what an undo puts back.
+  --   action: added | updated | removed    what: entry | change | summary
+  --   detail: entry | exists | voice | change | summary    before_json: the fact as it was (for undo)
+  --   bundle_json: changes made along with an entry (a plot thread's opening, an event's people)
+  --   guess_json: the guess, so an undone one is never made again for the same words
+  CREATE TABLE keeper_log (
+    id TEXT PRIMARY KEY,
+    run_id TEXT,
+    scene_id TEXT,
+    action TEXT NOT NULL,
+    what TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    entry_id TEXT,
+    change_id TEXT,
+    fact_id TEXT,
+    summary_level TEXT,
+    summary_target TEXT,
+    text TEXT NOT NULL,
+    quote TEXT NOT NULL DEFAULT '',
+    before_json TEXT,
+    bundle_json TEXT NOT NULL DEFAULT '[]',
+    guess_json TEXT,
+    undone_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX keeper_log_time ON keeper_log(created_at);
+  CREATE INDEX keeper_log_scene ON keeper_log(scene_id, created_at);
+  CREATE INDEX keeper_log_entry ON keeper_log(entry_id, created_at);
+
+  -- Guesses Adam undid: never made again for the same words in that scene.
+  CREATE TABLE keeper_rejected (
+    id TEXT PRIMARY KEY,
+    scene_id TEXT,
+    guess_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX keeper_rejected_scene ON keeper_rejected(scene_id);
   `
 ]
 
