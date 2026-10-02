@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type {
   Chapter,
+  DeletedItem,
   Entry,
   EntryInput,
   EntryKind,
@@ -205,6 +206,73 @@ export function deleteChapter(db: DB, id: ID): void {
   })()
 }
 
+export type Restorable = 'story' | 'chapter' | 'scene' | 'entry'
+
+/**
+ * Undoes a delete. A chapter comes back with the scenes that were deleted with it. A scene or
+ * chapter whose chapter or story is also deleted brings that back too (just that one row, none of
+ * its other scenes), or it would be restored somewhere nobody can see it.
+ */
+export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
+  const table = { story: 'stories', chapter: 'chapters', scene: 'scenes', entry: 'entries' }[kind]
+  db.transaction(() => {
+    const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Row | undefined
+    if (!row) throw new UserError('That item could not be found to restore.')
+    if (kind === 'chapter' && row.deleted_at) {
+      db.prepare('UPDATE scenes SET deleted_at = NULL WHERE chapter_id = ? AND deleted_at = ?').run(id, row.deleted_at)
+    }
+    db.prepare(`UPDATE ${table} SET deleted_at = NULL WHERE id = ?`).run(id)
+    const chapterId = kind === 'scene' ? (row.chapter_id as string) : kind === 'chapter' ? id : null
+    if (chapterId) {
+      const chapterBack = db.prepare('UPDATE chapters SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL').run(chapterId).changes > 0
+      db.prepare(
+        'UPDATE stories SET deleted_at = NULL WHERE id = (SELECT story_id FROM chapters WHERE id = ?) AND deleted_at IS NOT NULL'
+      ).run(chapterId)
+      // Things added since may have taken its place number: number them again so the order stays clear.
+      if (kind === 'scene') renumber(db, 'scenes', sceneIds(db, chapterId))
+      if (kind === 'chapter' || chapterBack) {
+        const storyId = (db.prepare('SELECT story_id FROM chapters WHERE id = ?').get(chapterId) as Row).story_id as string
+        renumber(db, 'chapters', chapterIds(db, storyId))
+      }
+    }
+  })()
+}
+
+/** What is in the trash, newest first. Scenes deleted along with their chapter are counted in it, not listed. */
+export function listDeleted(db: DB): DeletedItem[] {
+  const item = (r: Row, kind: DeletedItem['kind']): DeletedItem => ({
+    kind,
+    id: r.id as string,
+    title: (r.title as string) ?? '',
+    deletedAt: r.deleted_at as string,
+    entryKind: (r.entry_kind as EntryKind | undefined) ?? null,
+    storyId: (r.story_id as string | undefined) ?? null,
+    storyTitle: (r.story_title as string | undefined) ?? null,
+    chapterTitle: (r.chapter_title as string | undefined) ?? null,
+    sceneCount: (r.scene_count as number | undefined) ?? 0
+  })
+  const all = (sql: string): Row[] => db.prepare(sql).all() as Row[]
+  const stories = all('SELECT id, title, deleted_at, id AS story_id, title AS story_title FROM stories WHERE deleted_at IS NOT NULL')
+  const chapters = all(
+    `SELECT c.id, c.title, c.deleted_at, c.story_id, st.title AS story_title,
+       (SELECT COUNT(*) FROM scenes s WHERE s.chapter_id = c.id AND s.deleted_at = c.deleted_at) AS scene_count
+     FROM chapters c JOIN stories st ON st.id = c.story_id
+     WHERE c.deleted_at IS NOT NULL`
+  )
+  const scenes = all(
+    `SELECT s.id, s.title, s.deleted_at, c.story_id, st.title AS story_title, c.title AS chapter_title
+     FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+     WHERE s.deleted_at IS NOT NULL AND (c.deleted_at IS NULL OR c.deleted_at <> s.deleted_at)`
+  )
+  const entries = all('SELECT id, name AS title, kind AS entry_kind, deleted_at FROM entries WHERE deleted_at IS NOT NULL')
+  return [
+    ...stories.map((r) => item(r, 'story')),
+    ...chapters.map((r) => item(r, 'chapter')),
+    ...scenes.map((r) => item(r, 'scene')),
+    ...entries.map((r) => item(r, 'entry'))
+  ].sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : a.deletedAt > b.deletedAt ? -1 : 0))
+}
+
 export function moveChapter(db: DB, id: ID, index: number): void {
   const c = getChapter(db, id)
   db.transaction(() => {
@@ -282,12 +350,14 @@ export function updateScene(db: DB, id: ID, patch: { title?: string; status?: Sc
   return getSceneMeta(db, id)
 }
 
-export function saveSceneText(db: DB, id: ID, doc: unknown, text: string): { wordCount: number; updatedAt: string } {
+export function saveSceneText(db: DB, id: ID, doc: unknown, text: string): { wordCount: number; updatedAt: string; status: SceneStatus } {
   const meta = getSceneMeta(db, id)
   const wordCount = countWords(text)
   const t = now()
-  // A planned scene with text in it counts as drafted.
-  const status = meta.status === 'planned' && wordCount > 0 ? 'drafted' : meta.status
+  // A planned scene with text in it counts as drafted; a drafted scene emptied of text goes back to
+  // planned. Revised and done are Adam's own say, so they stay as they are.
+  const status: SceneStatus =
+    meta.status === 'planned' && wordCount > 0 ? 'drafted' : meta.status === 'drafted' && wordCount === 0 ? 'planned' : meta.status
   db.prepare('UPDATE scenes SET doc_json = ?, text = ?, word_count = ?, status = ?, updated_at = ? WHERE id = ?').run(
     doc == null ? null : JSON.stringify(doc),
     text,
@@ -296,7 +366,7 @@ export function saveSceneText(db: DB, id: ID, doc: unknown, text: string): { wor
     t,
     id
   )
-  return { wordCount, updatedAt: t }
+  return { wordCount, updatedAt: t, status }
 }
 
 export function updateSceneCard(db: DB, id: ID, card: SceneCard): SceneCard {

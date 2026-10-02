@@ -1,25 +1,51 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
 import { join } from 'node:path'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import * as repo from '../db/repo'
 import * as world from '../world'
-import { getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
+import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, updateSettings } from '../settings'
 import { userDataDir } from '../paths'
-import { readJson, writeFileAtomic } from '../util'
+import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
+const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
+
+/** Writes and clears of one recovery file run one at a time, in the order they were asked for. */
+const recoveryQueue = new Map<string, Promise<void>>()
+function inOrder(file: string, fn: () => Promise<void> | void): Promise<void> {
+  const run = (recoveryQueue.get(file) ?? Promise.resolve()).then(fn)
+  const settled = run.catch(() => undefined)
+  recoveryQueue.set(file, settled)
+  void settled.then(() => {
+    if (recoveryQueue.get(file) === settled) recoveryQueue.delete(file)
+  })
+  return run
+}
+
+/** Removes temp files left by a recovery write the app quit or crashed in the middle of. */
+function removeStaleTemps(dir: string): void {
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.tmp')) continue
+    try {
+      if (Date.now() - statSync(join(dir, f)).mtimeMs > 60_000) rmSync(join(dir, f), { force: true })
+    } catch {
+      /* gone already, or in use: try again next time */
+    }
+  }
+}
 
 type CoreMethods =
   | 'getAppInfo' | 'getSettings' | 'updateSettings' | 'getWritingPrefs' | 'setWritingPrefs' | 'chooseLibraryFolder'
-  | 'showInFolder' | 'flushDone'
+  | 'showInFolder' | 'flushDone' | 'showWindow'
   | 'listWorlds' | 'createWorld' | 'openWorld' | 'getWorld' | 'updateWorld'
   | 'listSeries' | 'listStories' | 'createStory' | 'updateStory' | 'deleteStory'
   | 'getOutline' | 'createChapter' | 'updateChapter' | 'deleteChapter' | 'moveChapter'
   | 'createScene' | 'getScene' | 'updateScene' | 'saveSceneText' | 'updateSceneCard' | 'deleteScene' | 'moveScene'
   | 'listEntries' | 'getEntry' | 'createEntry' | 'updateEntry' | 'deleteEntry'
+  | 'restoreDeleted' | 'listDeleted'
   | 'writeRecovery' | 'listRecovery' | 'clearRecovery'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
@@ -34,7 +60,8 @@ export const coreHandlers: Handlers<CoreMethods> = {
     version: app.getVersion(),
     platform: process.platform,
     libraryPath: getSettings().libraryPath,
-    dataPath: userDataDir()
+    dataPath: userDataDir(),
+    libraryReachable: ensureLibraryFolder()
   }),
   getSettings: () => getSettings(),
   updateSettings: (patch) => updateSettings(patch),
@@ -54,10 +81,23 @@ export const coreHandlers: Handlers<CoreMethods> = {
     await shell.openPath(path)
   },
   flushDone: () => resolveFlush(),
+  showWindow: () => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && !w.isVisible()) w.show()
+  },
 
   listWorlds: () => world.listWorlds(),
   createWorld: (name) => world.createWorld(name),
-  openWorld: (id) => world.openWorld(id),
+  openWorld: (id) => {
+    try {
+      return world.openWorld(id)
+    } catch (e) {
+      if (e instanceof UserError) throw e
+      console.warn('Could not open a world:', e)
+      throw new UserError(
+        "AI Write couldn't open that world. Its folder may be damaged, or another program may be using it (often a cloud sync app or antivirus). Wait a moment, then try again."
+      )
+    }
+  },
   getWorld: () => world.getWorld(),
   updateWorld: (patch) => world.updateWorld(patch),
 
@@ -85,18 +125,22 @@ export const coreHandlers: Handlers<CoreMethods> = {
   createEntry: (kind, input) => write(() => repo.createEntry(world.db(), kind, input)),
   updateEntry: (id, patch) => write(() => repo.updateEntry(world.db(), id, patch)),
   deleteEntry: (id) => write(() => repo.deleteEntry(world.db(), id)),
+  restoreDeleted: (kind, id) => write(() => repo.restoreDeleted(world.db(), kind, id)),
+  listDeleted: () => repo.listDeleted(world.db()),
 
-  writeRecovery: (item) => {
-    writeFileAtomic(join(recoveryDir(), `${item.sceneId}.json`), JSON.stringify(item))
-  },
+  // Rewritten every half second or so while Adam types, so it never blocks the app: a file
+  // held by antivirus is waited for in the background.
+  writeRecovery: (item) => inOrder(recoveryFile(item.sceneId), () => writeFileAtomicAsync(recoveryFile(item.sceneId), JSON.stringify(item))),
   listRecovery: () => {
     mkdirSync(recoveryDir(), { recursive: true })
+    removeStaleTemps(recoveryDir())
     return readdirSync(recoveryDir())
       .filter((f) => f.endsWith('.json'))
       .map((f) => readJson<RecoveryItem | null>(join(recoveryDir(), f), null))
       .filter((x): x is RecoveryItem => !!x)
   },
-  clearRecovery: (sceneId) => {
-    rmSync(join(recoveryDir(), `${sceneId}.json`), { force: true })
-  }
+  clearRecovery: (sceneId) =>
+    inOrder(recoveryFile(sceneId), () => {
+      rmSync(recoveryFile(sceneId), { force: true })
+    })
 }

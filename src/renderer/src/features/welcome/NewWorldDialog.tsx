@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Dialog, Field, Input, toast } from '@/components/ui'
-import { flushAll } from '@/lib/flush'
+import { flushBeforeWorldChange } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 
 export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }): React.JSX.Element {
@@ -9,9 +9,10 @@ export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [busy, setBusy] = useState(false)
 
   const submit = async (): Promise<void> => {
+    if (!name.trim() || busy) return
     setBusy(true)
     try {
-      await flushAll()
+      await flushBeforeWorldChange()
       await createWorld(name)
       setName('')
       onOpenChange(false)
@@ -33,7 +34,7 @@ export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" loading={busy} onClick={() => void submit()}>
+          <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={() => void submit()}>
             Create world
           </Button>
         </>
@@ -45,7 +46,7 @@ export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           void submit()
         }}
       >
-        <Field label="World name">{(id) => <Input id={id} autoFocus value={name} placeholder="The Northern Reaches" onChange={(e) => setName(e.target.value)} />}</Field>
+        <Field label="World name">{(id) => <Input id={id} autoFocus value={name} placeholder="For example, The Northern Reaches" onChange={(e) => setName(e.target.value)} />}</Field>
       </form>
     </Dialog>
   )

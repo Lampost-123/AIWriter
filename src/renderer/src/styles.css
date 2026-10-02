@@ -4,6 +4,8 @@
   AI Write design tokens. Every colour in the app comes from these variables,
   so the Light, Dark and Sepia themes stay consistent. Use the Tailwind names
   (bg-surface, text-muted, border-line, bg-accent, text-ai ...) rather than raw colours.
+  Text colours (fg, muted, faint, ai) keep at least 4.5:1 contrast on the backgrounds:
+  tests/unit/contrast.test.ts checks it.
 */
 
 :root,
@@ -16,13 +18,13 @@
   --line: #e2ddd4;
   --line-strong: #cfc8bc;
   --fg: #22201c;
-  --muted: #6c665c;
-  --faint: #9a9387;
+  --muted: #5f5a51;
+  --faint: #706b63;
   --accent: #3d5a80;
   --accent-hover: #314a6b;
   --accent-soft: #e3eaf3;
   --accent-fg: #ffffff;
-  --ai: #b7791f;
+  --ai: #946219;
   --ai-soft: #fbf0d9;
   --danger: #b42318;
   --danger-soft: #fdeceb;
@@ -44,7 +46,7 @@
   --line-strong: #46423d;
   --fg: #ebe6de;
   --muted: #a69f94;
-  --faint: #7a746a;
+  --faint: #8f8a81;
   --accent: #8fb0dc;
   --accent-hover: #a6c1e6;
   --accent-soft: #263548;
@@ -70,13 +72,13 @@
   --line: #dccfb2;
   --line-strong: #c9b996;
   --fg: #3b2f22;
-  --muted: #6f604c;
-  --faint: #9a8a70;
+  --muted: #5f5241;
+  --faint: #6d6250;
   --accent: #8a4b2a;
   --accent-hover: #733e22;
   --accent-soft: #ecd9c4;
   --accent-fg: #fff8ec;
-  --ai: #a2650f;
+  --ai: #8d580d;
   --ai-soft: #f3e1bd;
   --danger: #a3271b;
   --danger-soft: #f3d9cf;

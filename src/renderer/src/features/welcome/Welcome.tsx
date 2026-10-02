@@ -1,6 +1,6 @@
-import { BookOpen, Globe2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import type { WorldSummary } from '@shared/types'
+import { BookOpen, FolderX, Globe2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import type { AppInfo, WorldSummary } from '@shared/types'
 import { Button, Card, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -10,14 +10,23 @@ export function Welcome(): React.JSX.Element {
   const createWorld = useApp((s) => s.createWorld)
   const openWorld = useApp((s) => s.openWorld)
   const [worlds, setWorlds] = useState<WorldSummary[] | null>(null)
+  const [info, setInfo] = useState<AppInfo | null>(null)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    void api.listWorlds().then(setWorlds)
+  const load = useCallback(async (): Promise<{ info: AppInfo; worlds: WorldSummary[] }> => {
+    const [i, w] = await Promise.all([api.getAppInfo(), api.listWorlds()])
+    setInfo(i)
+    setWorlds(w)
+    return { info: i, worlds: w }
   }, [])
 
+  useEffect(() => {
+    void load().catch((e: Error) => toast(e.message, { tone: 'danger' }))
+  }, [load])
+
   const create = async (): Promise<void> => {
+    if (!name.trim() || busy) return
     setBusy(true)
     try {
       await createWorld(name)
@@ -26,6 +35,9 @@ export function Welcome(): React.JSX.Element {
       setBusy(false)
     }
   }
+
+  // Shown optimistically until the check comes back (it almost always passes).
+  const reachable = info?.libraryReachable ?? true
 
   return (
     <div className="flex h-full items-start justify-center overflow-auto bg-bg px-6 pt-[12vh]">
@@ -39,25 +51,31 @@ export function Welcome(): React.JSX.Element {
             <p className="text-[13px] text-muted">Long stories that stay consistent.</p>
           </div>
         </div>
-        <Card className="p-5">
-          <h2 className="text-[15px] font-semibold text-fg">Create a world</h2>
-          <p className="mb-4 mt-1 text-[13px] leading-relaxed text-muted">
-            A world holds the characters, places and lore shared by every story set in it. You can add books, chapters and scenes once it's made.
-          </p>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void create()
-            }}
-          >
-            <Field label="World name">{(id) => <Input id={id} autoFocus value={name} placeholder="The Northern Reaches" onChange={(e) => setName(e.target.value)} />}</Field>
-            <Button variant="primary" size="lg" type="submit" loading={busy}>
-              Create world
-            </Button>
-          </form>
-        </Card>
-        {worlds && worlds.length > 0 ? (
+        {reachable ? (
+          <Card className="p-5">
+            <h2 className="text-[15px] font-semibold text-fg">Create a world</h2>
+            <p className="mb-4 mt-1 text-[13px] leading-relaxed text-muted">
+              A world holds the characters, places and lore shared by every story set in it. You can add books, chapters and scenes once it's made.
+            </p>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void create()
+              }}
+            >
+              <Field label="World name">
+                {(id) => <Input id={id} autoFocus value={name} placeholder="For example, The Northern Reaches" onChange={(e) => setName(e.target.value)} />}
+              </Field>
+              <Button variant="primary" size="lg" type="submit" loading={busy} disabled={!name.trim()}>
+                Create world
+              </Button>
+            </form>
+          </Card>
+        ) : (
+          <MissingLibrary path={info?.libraryPath ?? ''} reload={load} />
+        )}
+        {reachable && worlds && worlds.length > 0 ? (
           <div className="mt-6">
             <h3 className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Open a world</h3>
             <div className="flex flex-col gap-1">
@@ -76,5 +94,71 @@ export function Welcome(): React.JSX.Element {
         ) : null}
       </div>
     </div>
+  )
+}
+
+/** The library folder is on a drive that isn't connected (or can't be made): say so, and offer a way on. */
+function MissingLibrary({
+  path,
+  reload
+}: {
+  path: string
+  reload: () => Promise<{ info: AppInfo; worlds: WorldSummary[] }>
+}): React.JSX.Element {
+  const [checking, setChecking] = useState(false)
+  const [choosing, setChoosing] = useState(false)
+
+  const retry = async (): Promise<void> => {
+    setChecking(true)
+    try {
+      const { info, worlds } = await reload()
+      if (!info.libraryReachable) {
+        toast("AI Write still can't reach that folder.")
+        return
+      }
+      // Back where Adam left off, if his last world is there.
+      const last = useApp.getState().settings?.lastWorldId
+      if (last && worlds.some((w) => w.id === last)) await useApp.getState().openWorld(last)
+    } catch (e) {
+      toast((e as Error).message, { tone: 'danger' })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const choose = async (): Promise<void> => {
+    setChoosing(true)
+    try {
+      const chosen = await api.chooseLibraryFolder()
+      if (!chosen) return
+      await useApp.getState().init()
+      await reload()
+    } catch (e) {
+      toast((e as Error).message, { tone: 'danger' })
+    } finally {
+      setChoosing(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2">
+        <FolderX size={16} className="shrink-0 text-muted" />
+        <h2 className="text-[15px] font-semibold text-fg">AI Write can't find your library folder</h2>
+      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted">Your worlds are kept in this folder:</p>
+      <p className="mt-1 break-all rounded-md border border-line bg-page px-2.5 py-1.5 text-[13px] text-fg">{path}</p>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted">
+        If it's on a drive that isn't plugged in, plug it in and choose Try again. Or choose another folder.
+      </p>
+      <div className="mt-4 flex gap-2">
+        <Button variant="primary" loading={checking} onClick={() => void retry()}>
+          Try again
+        </Button>
+        <Button loading={choosing} onClick={() => void choose()}>
+          Choose another folder…
+        </Button>
+      </div>
+    </Card>
   )
 }

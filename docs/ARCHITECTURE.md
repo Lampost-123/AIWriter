@@ -23,7 +23,7 @@ src/shared/      Types and the API contract shared by both sides. Only additive 
 src/main/        Electron main process
   index.ts       Window, lifecycle, flush-on-close
   world.ts       The open world (one folder: world.db, images/, backups/)
-  db/            migrations.ts (append-only) and repo.ts (all SQL, no Electron imports)
+  db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
   settings.ts    App settings (userData/settings.json) and writing preferences (library folder)
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
   ipc/           One handler object per area; ipc/index.ts checks every AppApi method is implemented
@@ -40,7 +40,7 @@ src/renderer/src/
 ## Rules
 
 - **Data model.** Change the database only by appending a migration in
-  `src/main/db/migrations.ts`. Never edit a shipped migration. All SQL lives in `repo.ts`.
+  `src/main/db/migrations.ts`. Never edit a shipped migration. All SQL lives in `src/main/db/`.
 - **API.** Add methods to `AppApi` in `src/shared/api.ts`, then implement them in
   the matching `src/main/ipc/*.ts` handler object. Errors meant for Adam are thrown as
   `UserError` with a plain-words message and a next step.
@@ -52,10 +52,31 @@ src/renderer/src/
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
+  Deletes are announced with `announceDelete` (`lib/undoDelete.ts`): one Undo toast that
+  gathers deletes made while it shows, and Settings › Recently deleted for 30 days after.
 - **Words.** On screen, use Adam's words: world, story, chapter, scene, character, place,
   lore, draft. Never "line", "main history", "entity", "generation" or "LLM".
 - **Never lose a keystroke.** Anything holding unsaved work registers with
   `registerFlusher` (`lib/flush.ts`); it runs before the window closes and before switching worlds.
+
+## Releases and updates
+
+- `.github/workflows/release.yml` publishes the installer to GitHub Releases of
+  Lampost-123/AIWriter when a tag `vX.Y.Z` matching `version` in package.json is pushed.
+  CI also builds one on every push (the run's Artifacts) and checks it holds only the app
+  (`build/check-package.mjs`).
+- Installed copies look for updates there (electron-updater, `publish` in electron-builder.yml)
+  **without a token**, so the releases must be readable by anyone: the repository has to be
+  public, or the installers published to a separate public releases repository (point `publish`
+  at it and give the release workflow a token that can write there; never put a token in
+  electron-builder.yml, it would ship inside the app). While the releases can't be read,
+  installed copies say "Automatic updates aren't set up yet".
+- `AUTO_UPDATES` in src/shared/defaults.ts turns the checks off entirely (Adam then updates by
+  hand; Settings › About links to the Releases page). It is on: Adam wants automatic updates.
+- In electron-builder.yml each platform's `files` list is complete: a platform list replaces the
+  top-level one rather than adding to it.
+- The installer isn't code-signed yet, so Windows shows "Windows protected your PC" when it is
+  first run; the README says what to click.
 
 ## Milestone 1 scope
 

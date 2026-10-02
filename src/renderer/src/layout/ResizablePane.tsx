@@ -1,9 +1,14 @@
 import { useCallback, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 
+/** The panel's 1px edge line, which sits inside its width. */
+const BORDER = 1
+
 /**
  * A side panel with a drag handle. Width changes are applied directly to the
  * element while dragging (no React re-render per pixel) and saved on release.
+ * The contents keep their full width while the panel slides open or shut (the
+ * panel clips them), so the text never re-wraps frame by frame.
  */
 export function ResizablePane({
   side,
@@ -27,6 +32,7 @@ export function ResizablePane({
   label: string
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -41,6 +47,7 @@ export function ResizablePane({
         const dx = ev.clientX - startX
         w = Math.round(Math.min(max, Math.max(min, side === 'left' ? startW + dx : startW - dx)))
         el.style.width = `${w}px`
+        if (innerRef.current) innerRef.current.style.width = `${w - BORDER}px`
       }
       const up = (): void => {
         window.removeEventListener('pointermove', move)
@@ -68,7 +75,7 @@ export function ResizablePane({
         className
       )}
     >
-      <div className="flex h-full flex-col" style={{ width: open ? undefined : width, minWidth: min }}>
+      <div ref={innerRef} className={cn('flex h-full flex-col', side === 'right' && 'self-end')} style={{ width: width - BORDER }}>
         {children}
       </div>
       {open ? (

@@ -35,6 +35,16 @@ export const defaultWritingPrefs = (): WritingPrefs => ({
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
+/** Where installers for every version are published. */
+export const RELEASES_URL = 'https://github.com/lampost-123/aiwriter/releases'
+
+/**
+ * Whether the installed app looks for new versions by itself. Installed copies can only read
+ * public releases (see "Releases and updates" in docs/ARCHITECTURE.md); while they can't, the app
+ * says updates aren't set up and links to GitHub. Off means Adam updates by hand.
+ */
+export const AUTO_UPDATES = true
+
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
@@ -45,7 +55,9 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   layout: { binderWidth: 272, inspectorWidth: 340, binderOpen: true, inspectorOpen: true },
   lastWorldId: null,
   lastStoryId: null,
-  lastSceneId: null
+  lastSceneId: null,
+  lastPlaces: {},
+  backup: { extraFolder: null }
 })
 
 /** Sampling settings for each creativity preset. */

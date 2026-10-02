@@ -9,14 +9,26 @@ export const TabsContent = ({ value, className, children }: { value: string; cla
   </T.Content>
 )
 
-export function TabsList({ items, className }: { items: { value: string; label: ReactNode; badge?: ReactNode }[]; className?: string }): React.JSX.Element {
+export function TabsList({
+  items,
+  className,
+  tall
+}: {
+  items: { value: string; label: ReactNode; badge?: ReactNode }[]
+  className?: string
+  /** 48px tall, to line up with the binder and scene headers. */
+  tall?: boolean
+}): React.JSX.Element {
   return (
     <T.List className={cn('flex shrink-0 items-center gap-0.5 border-b border-line px-2', className)}>
       {items.map((it) => (
         <T.Trigger
           key={it.value}
           value={it.value}
-          className="relative -mb-px inline-flex h-9 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-[13px] font-medium text-muted transition-colors hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg"
+          className={cn(
+            'relative -mb-px inline-flex items-center gap-1.5 border-b-2 border-transparent px-2.5 text-[13px] font-medium text-muted transition-colors hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg',
+            tall ? 'h-12' : 'h-9'
+          )}
         >
           {it.label}
           {it.badge}

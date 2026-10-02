@@ -177,6 +177,8 @@ export interface ProviderConfig {
   baseUrl: string
   /** True when an API key is stored (keys never reach the interface). */
   hasKey: boolean
+  /** The last connection test (or a key the provider turned down since). Cleared when the key or address changes. */
+  lastCheck?: { ok: boolean; at: string }
 }
 
 export interface ProviderInput {
@@ -195,6 +197,10 @@ export interface ModelInfo {
   /** USD per token, when known. */
   promptPrice: number | null
   completionPrice: number | null
+  /** The most the model will write in one reply (tokens), when the provider says. */
+  maxOutput?: number | null
+  /** False when the provider says the model sets its own creativity (takes no temperature). */
+  sampling?: boolean
 }
 
 export interface ModelChoice {
@@ -204,6 +210,10 @@ export interface ModelChoice {
   contextLength: number | null
   promptPrice: number | null
   completionPrice: number | null
+  /** The most the model will write in one reply (tokens), when the provider says. */
+  maxOutput?: number | null
+  /** False when the provider says the model sets its own creativity (takes no temperature); null when not known. */
+  sampling?: boolean | null
 }
 
 export type Job = 'writer' | 'memory' | 'chat'
@@ -223,6 +233,10 @@ export interface Settings {
   lastWorldId: ID | null
   lastStoryId: ID | null
   lastSceneId: ID | null
+  /** Where Adam was in each world (by world id), so switching back reopens that story and scene. */
+  lastPlaces: Record<ID, { storyId: ID | null; sceneId: ID | null }>
+  /** Optional second backup folder (e.g. inside Dropbox, OneDrive or iCloud). Copies go to <extraFolder>/<world folder name>/. */
+  backup: { extraFolder: string | null }
 }
 
 export type DeepPartial<T> = {
@@ -236,7 +250,7 @@ export type DeepPartial<T> = {
 // ---------- Generation ----------
 
 export interface ContextBlock {
-  /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'story-so-far', 'mentioned', 'themes'. */
+  /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'world-rules', 'story-so-far', 'mentioned', 'themes'. */
   id: string
   /** 1 (most important) to 10. */
   priority: number
@@ -288,13 +302,27 @@ export interface GenerationSummary {
   providerName: string
   words: number
   cost: number | null
+  /** True when the provider didn't report usage and `cost` is AI Write's own estimate. */
+  costEstimated?: boolean
   createdAt: string
 }
 
 export interface GenerationRecord extends GenerationSummary {
   error: string | null
   providerId: ID
-  params: { temperature: number; top_p: number; max_tokens: number }
+  params: {
+    temperature: number
+    top_p: number
+    max_tokens: number
+    creativity?: Creativity
+    targetWords?: number
+    /** Set when the model wanted the reply limit sent as max_completion_tokens. */
+    tokenParam?: 'max_tokens' | 'max_completion_tokens'
+    /** False when the model sets its own creativity, so temperature and top_p weren't sent. */
+    sampling?: boolean
+    /** The reply reached the limit, so the scene stops before its end. */
+    cutOff?: boolean
+  }
   direction: string
   blocks: ContextBlock[]
   messages: ChatMessage[]
@@ -303,7 +331,16 @@ export interface GenerationRecord extends GenerationSummary {
   promptTokens: number | null
   completionTokens: number | null
   /** Each memory entry included, with the version (updatedAt) that was sent. */
-  entries: { entryId: ID; name: string; kind: EntryKind; version: string }[]
+  entries: {
+    entryId: ID
+    name: string
+    kind: EntryKind
+    version: string
+    /** The entry has been deleted since (it may be in the trash). */
+    deleted?: boolean
+    /** The entry has been edited since this draft, so the AI saw an older version. */
+    changedSince?: boolean
+  }[]
   finishedAt: string | null
 }
 
@@ -316,6 +353,17 @@ export interface BackupInfo {
   createdAt: string
   sizeBytes: number
   reason: 'launch' | 'timer' | 'manual' | 'before-restore' | 'before-migration'
+}
+
+/** The optional second backup folder and whether the last copy to it worked. */
+export interface BackupFolderStatus {
+  folder: string | null
+  /** False when the last copy failed (folder missing, disk full, cloud folder offline...). */
+  ok: boolean
+  /** Plain-words reason the last copy failed, with a next step. */
+  message: string | null
+  /** When a backup was last copied there successfully. */
+  lastCopyAt: string | null
 }
 
 export type UpdateStatus =
@@ -332,6 +380,8 @@ export interface AppInfo {
   platform: string
   libraryPath: string
   dataPath: string
+  /** False when the library folder can't be reached or made (e.g. it is on a drive that isn't plugged in). */
+  libraryReachable: boolean
 }
 
 export interface RecoveryItem {
@@ -340,4 +390,21 @@ export interface RecoveryItem {
   doc: unknown
   text: string
   savedAt: string
+}
+
+/** Something in the Trash (Recently deleted): kept for 30 days, then removed for good. */
+export interface DeletedItem {
+  kind: 'story' | 'chapter' | 'scene' | 'entry'
+  id: ID
+  /** Its title or name, as it was. */
+  title: string
+  deletedAt: string
+  /** For an entry: character, place, lore... */
+  entryKind: EntryKind | null
+  /** The story a chapter or scene was in, and the chapter a scene was in. */
+  storyId: ID | null
+  storyTitle: string | null
+  chapterTitle: string | null
+  /** For a chapter: the scenes deleted along with it (they come back with it). */
+  sceneCount: number
 }

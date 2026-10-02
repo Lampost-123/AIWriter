@@ -20,6 +20,13 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-fade-in" />
         <D.Content
+          // Start in the first text box, never on the close button (typing a space there would close the dialog).
+          onOpenAutoFocus={(e) => {
+            e.preventDefault()
+            const content = e.currentTarget as HTMLElement
+            const field = content.querySelector<HTMLElement>('[data-autofocus], input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])')
+            ;(field ?? content).focus()
+          }}
           style={{ width }}
           className="fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
         >
