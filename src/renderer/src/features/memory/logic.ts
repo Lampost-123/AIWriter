@@ -93,6 +93,14 @@ export function beforeAfter(item: MemoryLogItem): { before: string | null; after
   return { before, after }
 }
 
+/**
+ * True when a line's quoted words are no longer in its scene, so there is nothing there to show:
+ * a fact taken away because its words were deleted or changed (and an entry gone to the Trash
+ * because no scene mentions it), or Adam's own fact whose words in the scene were deleted.
+ */
+export const wordsGone = (item: Pick<MemoryLogItem, 'action' | 'text'>): boolean =>
+  item.action === 'removed' || (item.action === 'updated' && /the scene['’]s words for it were deleted$/.test(item.text))
+
 /** Marks one line undone, leaving the rest (and their order) alone. */
 export const markUndone = (items: MemoryLogItem[], id: ID, undone = true): MemoryLogItem[] =>
   items.map((i) => (i.id === id ? { ...i, undone } : i))

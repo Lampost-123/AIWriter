@@ -11,7 +11,8 @@ import {
   markAnswered,
   markUndone,
   pointsToSettings,
-  readingNote
+  readingNote,
+  wordsGone
 } from './logic'
 
 const status = (s: Partial<MemoryStatus>): MemoryStatus => ({ behind: 0, failed: 0, reading: null, error: null, lastUpdate: null, ...s })
@@ -133,6 +134,21 @@ describe('beforeAfter', () => {
   it('shows nothing when there is nothing to compare', () => {
     expect(beforeAfter(item('r', 'a', ''))).toEqual({ before: null, after: null })
     expect(beforeAfter(item('r', 'a', '', { before: 'Same', after: 'Same' }))).toEqual({ before: null, after: null })
+  })
+})
+
+describe('wordsGone', () => {
+  it('lines about words that were deleted or changed have nothing left in the scene to show', () => {
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'removed', text: 'Lost her right hand: those words were deleted' }))).toBe(true)
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'removed', text: 'Eyes: the scene no longer says this' }))).toBe(true)
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'removed', what: 'entry', entryName: 'Kell', text: 'Moved to Trash: no scene mentions it any more' }))).toBe(true)
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'updated', text: "Eyes: your words are kept, but the scene's words for it were deleted" }))).toBe(true)
+  })
+
+  it('lines whose words are in the scene still point to them', () => {
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'added' }))).toBe(false)
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'updated', text: 'Eyes', before: 'grey', after: 'green' }))).toBe(false)
+    expect(wordsGone(item('r1', 's1', 'Sc 1', { action: 'updated', text: 'Lost her left hand: your words are kept, but the scene now says otherwise' }))).toBe(false)
   })
 })
 

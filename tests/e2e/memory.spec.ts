@@ -63,6 +63,12 @@ test('typing a sentence adds a fact; editing it changes the fact; deleting it ta
     const log = await invoke(win, 'listMemoryLog', {})
     expect(log.map((l) => l.text)).toContain('Lost her right hand: those words were deleted')
     expect(log.every((l) => l.where === 'Book 1, Ch 1, Sc 1')).toBe(true)
+
+    // Words that were deleted are shown quietly, not as a way to words that aren't there.
+    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    const gone = list.getByRole('listitem').filter({ hasText: 'Lost her right hand: those words were deleted' })
+    await expect(gone.getByTitle('These words are no longer in the scene')).toContainText('right hand')
+    await expect(gone.getByTitle('Show these words in the scene')).toHaveCount(0)
   } finally {
     await fake.close()
   }
