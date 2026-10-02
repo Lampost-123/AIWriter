@@ -519,7 +519,10 @@ function EntryRow({
             </>
           ) : null}
         </div>
-        <div className="truncate text-[12px] text-faint" title={entryDetail(entry, kindWord(entry), leftOutForRoom)}>
+        <div
+          className="line-clamp-2 break-words text-[12px] leading-snug text-faint"
+          title={entryDetail(entry, kindWord(entry), leftOutForRoom)}
+        >
           {entryDetail(entry, kindWord(entry), leftOutForRoom)}
         </div>
       </div>

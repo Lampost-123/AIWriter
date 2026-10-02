@@ -114,7 +114,11 @@ export function withPin(entries: ContextEntry[], entryId: ID, scope: PinScope, a
   return entries.map((e) => {
     if (e.entryId !== entryId) return e
     if (action === 'hide') return { ...e, hidden: true, blockId: null, pinned: null, why: `Kept out of ${PIN_WORDS[scope]}` }
-    if (action === 'pin') return { ...e, hidden: false, pinned: scope, why: `Pinned for ${PIN_WORDS[scope]}` }
+    if (action === 'pin') {
+      // An entry already there for another reason keeps it (the pin shows beside it); one there only for a pin, or kept out, is pinned now.
+      const why = e.hidden || /^pinned/i.test(e.why) ? `Pinned for ${PIN_WORDS[scope]}` : e.why
+      return { ...e, hidden: false, pinned: scope, why }
+    }
     // Cleared: the next briefing says why it is (or isn't) there now.
     return e.hidden ? { ...e, hidden: false } : { ...e, pinned: null }
   })
@@ -147,8 +151,10 @@ export function pinCalls(current: PinScope | null, scope: PinScope): PinCall[] {
 }
 
 /** What one entry row says under its name: its kind, why it is there, and anything to know. */
-export function entryDetail(entry: Pick<ContextEntry, 'why' | 'label'>, kindWord: string, leftOutForRoom: boolean): string {
+export function entryDetail(entry: Pick<ContextEntry, 'why' | 'label' | 'pinned'>, kindWord: string, leftOutForRoom: boolean): string {
   const parts = [kindWord, entry.why]
+  // In for another reason as well (named in the beats, say): the pin still shows.
+  if (entry.pinned && !/^pinned/i.test(entry.why)) parts.push(`pinned for ${PIN_WORDS[entry.pinned]}`)
   if (entry.label) parts.push(entry.label)
   if (leftOutForRoom) parts.push("left out: there wasn't room")
   return parts.filter(Boolean).join(' · ')

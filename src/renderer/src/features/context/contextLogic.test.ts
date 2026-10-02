@@ -138,8 +138,10 @@ describe('pins', () => {
   it('shows a pin or a removal straight away', () => {
     const list = [entry('mara'), entry('tobin')]
     const pinned = withPin(list, 'mara', 'story', 'pin')
-    expect(pinned[0]).toMatchObject({ pinned: 'story', hidden: false, why: 'Pinned for this story' })
+    expect(pinned[0]).toMatchObject({ pinned: 'story', hidden: false, why: 'On the scene card' })
     expect(pinned[1]).toBe(list[1])
+    const moved = withPin([entry('ring', { why: 'Pinned for this scene', pinned: 'scene' })], 'ring', 'world', 'pin')
+    expect(moved[0]).toMatchObject({ pinned: 'world', why: 'Pinned for every scene' })
     const hidden = withPin(list, 'tobin', 'scene', 'hide')
     expect(hidden[1]).toMatchObject({ hidden: true, blockId: null, pinned: null, why: 'Kept out of this scene' })
     expect(withPin(hidden, 'tobin', 'scene', null)[1].hidden).toBe(false)
@@ -168,8 +170,11 @@ describe('pinning', () => {
 
 describe('entryDetail', () => {
   it('says what the entry is and why it is there', () => {
-    expect(entryDetail({ why: 'On the scene card', label: null }, 'Character', false)).toBe('Character · On the scene card')
-    expect(entryDetail({ why: 'Pinned for this story', label: 'not in the story yet at this point' }, 'Item', true)).toBe(
+    expect(entryDetail({ why: 'On the scene card', label: null, pinned: null }, 'Character', false)).toBe('Character · On the scene card')
+    expect(entryDetail({ why: 'Named in the beats', label: null, pinned: 'story' }, 'Item', false)).toBe(
+      'Item · Named in the beats · pinned for this story'
+    )
+    expect(entryDetail({ why: 'Pinned for this story', label: 'not in the story yet at this point', pinned: 'story' }, 'Item', true)).toBe(
       "Item · Pinned for this story · not in the story yet at this point · left out: there wasn't room"
     )
   })
