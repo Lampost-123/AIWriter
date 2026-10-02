@@ -351,11 +351,11 @@ describe('failures', () => {
     const scene = kdb.keeperScene(w.db, w.sceneId)!
     expect(scene.memoryState).toBe('failed')
     expect(scene.memoryError).toBe(
-      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings › Models."
+      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings › Models."
     )
     // The line in What changed (shown as the scene's "Memory not updated" reason) is one plain sentence.
     expect(lines(w.db)[0].text).toBe(
-      "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings › Models."
+      "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings › Models."
     )
     expect(repo.listEntries(w.db)).toHaveLength(0)
     expect(lines(w.db).map((l) => l.action)).toEqual(['failed'])

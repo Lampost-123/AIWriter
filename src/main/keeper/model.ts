@@ -62,9 +62,9 @@ export function memoryFailure(f: Failure, target: ChatTarget, modelId: string): 
   const who = providerWho(target)
   switch (f.type) {
     case 'refused':
-      return 'The memory model turned the scene down. Pick another model for the memory keeper in Settings › Models.'
+      return 'The memory model turned the scene down. Pick another memory model in Settings › Models.'
     case 'empty':
-      return `${who} sent back an empty reply. Try again later, or pick another model for the memory keeper in Settings › Models.`
+      return `${who} sent back an empty reply. Try again later, or pick another memory model in Settings › Models.`
     case 'dropped':
       return `The connection to ${who} dropped before the memory model had finished. It will try again.`
     default:

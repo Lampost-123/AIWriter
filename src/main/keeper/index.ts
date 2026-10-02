@@ -29,7 +29,7 @@ export function memoryModel(): MemoryModel | { error: string } {
   if (!provider) {
     return {
       error: s.models.memory
-        ? "The memory keeper's model came from a provider that has been removed. Pick another model for the memory keeper in Settings › Models."
+        ? "The memory model came from a provider that has been removed. Pick another memory model in Settings › Models."
         : "The writer model's provider has been removed. Choose a writer model in Settings › Models to keep the memory up to date."
     }
   }

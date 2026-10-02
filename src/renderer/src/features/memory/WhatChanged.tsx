@@ -14,7 +14,7 @@ import { useApp } from '@/lib/store'
 import { requestReveal } from '@/features/editor/reveal'
 import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
-import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings } from './logic'
+import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings, wordsGone } from './logic'
 import { openScene } from './openScene'
 
 const PAGE = 100
@@ -268,6 +268,8 @@ function LogRow({
   const Icon = ACTION_ICONS[item.action] ?? PenLine
   const failed = item.action === 'failed'
   const { before, after } = beforeAfter(item)
+  // Words deleted from the scene (or changed) are shown quietly, not as a way to words that aren't there.
+  const gone = wordsGone(item)
   // Undo turns into "Undone": keyboard focus moves onto it rather than being lost.
   const undoneRef = useRef<HTMLSpanElement>(null)
   const focusUndone = useRef(false)
@@ -339,7 +341,7 @@ function LogRow({
         ) : null}
 
         {item.quote.trim() ? (
-          item.sceneId ? (
+          item.sceneId && !gone ? (
             <button
               type="button"
               onClick={onShowWords}
@@ -349,8 +351,11 @@ function LogRow({
               “{item.quote.trim()}”
             </button>
           ) : (
-            <blockquote className="mt-1.5 select-text border-l-2 border-line pl-2.5 font-serif text-[13.5px] leading-relaxed text-muted">
-              “{item.quote.trim()}”
+            <blockquote
+              title={gone ? 'These words are no longer in the scene' : undefined}
+              className={cn('mt-1.5 select-text border-l-2 border-line pl-2.5 font-serif text-[13.5px] leading-relaxed', gone ? 'text-faint' : 'text-muted')}
+            >
+              {gone ? <span className="sr-only">No longer in the scene: </span> : null}“{item.quote.trim()}”
             </blockquote>
           )
         ) : null}

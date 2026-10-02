@@ -3,7 +3,7 @@
 // adds a fact, editing it changes the fact, deleting it takes the fact away, with no clicks.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
@@ -63,6 +63,49 @@ test('typing a sentence adds a fact; editing it changes the fact; deleting it ta
     const log = await invoke(win, 'listMemoryLog', {})
     expect(log.map((l) => l.text)).toContain('Lost her right hand: those words were deleted')
     expect(log.every((l) => l.where === 'Book 1, Ch 1, Sc 1')).toBe(true)
+
+    // Words that were deleted are shown quietly, not as a way to words that aren't there.
+    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    const gone = list.getByRole('listitem').filter({ hasText: 'Lost her right hand: those words were deleted' })
+    await expect(gone.getByTitle('These words are no longer in the scene')).toContainText('right hand')
+    await expect(gone.getByTitle('Show these words in the scene')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Settings › Models: the memory can have a model of its own, and go back to the writer model', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '500' } })
+    await createWorldFromWelcome(win, 'Alpha')
+    await useModel(win, fake)
+    await openSettings(win, 'Models')
+    const section = win.locator('section').filter({ has: win.getByRole('heading', { name: 'Memory model' }) })
+    await expect(section.getByText('Same as the writer model')).toBeVisible()
+
+    await section.getByRole('button', { name: 'Choose another model' }).click()
+    await section
+      .getByRole('listbox', { name: 'Models' })
+      .getByRole('option', { name: /^fake\/free\b/ })
+      .click()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).models.memory?.modelId).toBe('fake/free')
+    await expect(section.getByRole('button', { name: 'Test this model' })).toHaveCount(1)
+    await section.getByRole('button', { name: 'Test this model' }).click()
+    await expect(section.getByText(/The model answered in/)).toBeVisible()
+
+    // The memory reads with it; the writer model isn't asked.
+    fake.reset()
+    await row(win, 'Scene 1').click()
+    await prose(win).click()
+    await win.keyboard.type('Mara lost her left hand.')
+    await expect.poll(() => notes(win), { timeout: 30_000 }).toEqual(['lost her left hand'])
+    expect(Object.keys(fake.requestCounts())).toEqual(['fake/free'])
+
+    await openSettings(win, 'Models')
+    await section.getByRole('button', { name: 'Use the writer model' }).click()
+    await expect(section.getByText('Same as the writer model')).toBeVisible()
+    expect((await invoke(win, 'getSettings')).models.memory).toBeNull()
   } finally {
     await fake.close()
   }
