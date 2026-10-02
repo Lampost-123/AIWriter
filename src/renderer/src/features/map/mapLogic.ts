@@ -34,8 +34,10 @@ export const FIT_PAD = { x: 72, top: 36, bottom: 96 }
  */
 export const portraitScale = (k: number): number => Math.max(k, Math.min(0.6, (0.9 * MAP_GAP * k) / PORTRAIT))
 
-/** The zoom a map too big to read when it all fits opens at, so names and the words on the lines show. */
+/** The least zoom a map is opened fitted to everyone at: below it, too few names and words have room. */
 export const READABLE_ZOOM = 0.5
+/** The zoom a cast too big to fit readably opens at: from here on most names and many words have room. */
+export const OPENING_ZOOM = 0.6
 
 const clampZoom = (k: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))
 
@@ -94,7 +96,7 @@ export function fitView(points: Pick<MapNode, 'x' | 'y'>[], width: number, heigh
 
 /**
  * The view the map opens at: fitted to `points` (as fitView) when they can still be read that way. A cast
- * too big for that opens at READABLE_ZOOM with its best-connected character in the middle, moved only as
+ * too big for that opens at OPENING_ZOOM with its best-connected character in the middle, moved only as
  * far as keeps empty space past the cast's edges out of the window. "Fit the map to the window" still
  * shows everyone.
  */
@@ -109,7 +111,7 @@ export function openingView(
   const fit = fitView(points, width, height, pad)
   const best = byConnections(nodes, ties)[0]
   if (fit.k >= READABLE_ZOOM || !best) return fit
-  const k = READABLE_ZOOM
+  const k = OPENING_ZOOM
   let [minX, minY, maxX, maxY] = [best.x, best.y, best.x, best.y]
   for (const p of points) {
     minX = Math.min(minX, p.x)

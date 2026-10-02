@@ -13,6 +13,7 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   openingView,
+  OPENING_ZOOM,
   PORTRAIT,
   portraitScale,
   READABLE_ZOOM,
@@ -237,18 +238,22 @@ describe('a big cast', () => {
     it(`opens where names and words can be read, around the best-connected character, at ${width} by ${height}`, () => {
       expect(fitView(nodes, width, height).k).toBeLessThan(READABLE_ZOOM)
       const v = openingView(nodes, nodes, ties, width, height)
-      expect(v.k).toBe(READABLE_ZOOM)
+      expect(v.k).toBe(OPENING_ZOOM)
       const inWindow = (p: { x: number; y: number }): boolean => {
         const [x, y] = [p.x * v.k + v.tx, p.y * v.k + v.ty]
         return x >= 0 && x <= width && y >= 0 && y <= height - FIT_PAD.bottom / 2
       }
-      // A head of a family, tied to the most characters, is in the window.
-      expect(inWindow(nodes.find((n) => n.id === '6.0')!)).toBe(true)
+      // The best-connected character is in the window: a head of a family inside the chain, the first by name.
+      const degree = (id: string): number => ties.filter((t) => t.a.id === id || t.b.id === id).length
+      const best = [...nodes].sort((a, b) => degree(b.id) - degree(a.id) || a.name.localeCompare(b.name))[0]
+      expect(best.name).toBe('Ash Blythe')
+      expect(inWindow(best)).toBe(true)
       const shown = labelsAt(nodes, ties, v.k)
       const names = nodes.filter((n) => shown.names.has(n.id) && inWindow(n)).length
       const words = ties.filter((t) => shown.ties.has(t.key) && inWindow(along(t, shown.ties.get(t.key)!))).length
-      expect(names).toBeGreaterThanOrEqual(width > 900 ? 18 : 8)
-      expect(words).toBeGreaterThanOrEqual(width > 900 ? 12 : 5)
+      // Fitted to everyone, only 13 names and 7 words show at 1008 by 560, and 5 names and no words at 688 by 378.
+      expect(names).toBeGreaterThanOrEqual(width > 900 ? 40 : 20)
+      expect(words).toBeGreaterThanOrEqual(width > 900 ? 15 : 6)
       // No empty space past the cast's edges where the cast is bigger than the window.
       const left = Math.min(...nodes.map((n) => n.x * v.k + v.tx))
       const right = Math.max(...nodes.map((n) => n.x * v.k + v.tx))
