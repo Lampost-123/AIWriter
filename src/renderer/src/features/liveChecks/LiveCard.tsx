@@ -102,7 +102,14 @@ export const LiveCard = forwardRef<HTMLDivElement, Props>(function LiveCard(
             Rewrite
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" onClick={onIgnore} title="Mark it as intended: it won’t be flagged again">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onIgnore}
+          // On its own, it lines up with the words above.
+          className={cn(flag.kind === 'repetition' && '-ml-2.5')}
+          title="Mark it as intended: it won’t be flagged again"
+        >
           Ignore
         </Button>
       </div>

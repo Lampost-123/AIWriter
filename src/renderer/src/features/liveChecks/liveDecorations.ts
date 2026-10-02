@@ -186,6 +186,10 @@ class LiveRunner {
     const st = liveChecksKey.getState(state)
     if (!st?.ran) {
       // Another scene's state: check it as soon as its words are known.
+      if (prev.doc !== state.doc) {
+        this.edited = false
+        this.held = null
+      }
       if (prev.doc !== state.doc || !this.timer) this.runSoon(0)
       return
     }

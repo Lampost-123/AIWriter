@@ -35,7 +35,12 @@
   text-decoration-color: var(--muted);
 }
 
-/* The same underline beside the kind's name in the card. */
+/* The same underline beside the kind's name in the card, lifted to sit under the middle of the words. */
+.aw-live-swatch {
+  position: relative;
+  top: -3px;
+}
+
 .aw-live-swatch::before {
   content: '\00a0\00a0\00a0\00a0';
   text-decoration-line: underline;
