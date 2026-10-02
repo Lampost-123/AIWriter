@@ -565,6 +565,15 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   line, where the relationship stands, and the events and changes that name both, newest first. Closest
   and most recent ties first. It is the first block shortened (names and relationship only) and dropped.
 
+- **Reports** (`checks/reports.ts`, SQL in `db/checksReports.ts`): repetition skips common words and the names
+  and aliases of characters, places, groups, items and glossary terms (names also end a phrase); its thresholds
+  are the constants at the top of the file. Plot threads reuse the board (`threadsBoardOf`, `LONG_OPEN_CHAPTERS`)
+  for "open too long"; "no setup" walks the story's line through its end. Both are kept per world until
+  `changesMade` moves, like the world views.
+- **Badges and runs** (`features/consistency/checkStore.ts`): counts reload on `issues:changed`, the story and the
+  world, never on `outlineRev`. One check runs at a time in the interface; it shows in the binder (`CheckLine`) and
+  on the Consistency page, and ends in a toast.
+
 ### Who builds what (parallel build, milestone 5)
 
 | Part | Owns |

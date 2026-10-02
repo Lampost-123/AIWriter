@@ -1,12 +1,9 @@
-// Milestone 5, Reports part: the repetition and plot threads reports. Groundwork stubs.
+// Milestone 5, Reports part: the repetition and plot threads reports. The work is in src/main/checks/reports.ts.
 import type { Handlers } from './index'
-import { UserError } from '../util'
-
-const notYet = (): never => {
-  throw new UserError('The consistency reports are still being built.')
-}
+import * as world from '../world'
+import { repetitionReportOf, threadsReportOf } from '../checks/reports'
 
 export const reportsHandlers: Handlers<'getRepetitionReport' | 'getThreadsReport'> = {
-  getRepetitionReport: notYet,
-  getThreadsReport: notYet
+  getRepetitionReport: (storyId) => repetitionReportOf(world.db(), storyId),
+  getThreadsReport: (storyId) => threadsReportOf(world.db(), storyId)
 }

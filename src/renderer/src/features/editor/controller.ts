@@ -20,7 +20,7 @@ import * as streamDoc from './streamDoc'
 import { newSplitState, splitChunk, type SplitState } from './streamText'
 import { requestEditorFocus, takeFocusRequest } from './focusRequest'
 import { withParagraphIds } from './paragraphIds'
-import { findTextRange } from './findText'
+import { findTextRange, type FindOptions } from './findText'
 import { REVEALED } from './reveal'
 import { requestPutBack } from './putBack'
 
@@ -366,10 +366,10 @@ export class SceneController {
    * Selects the first place these words appear and brings it into view, a third of the way down
    * the page (from "What changed"). Returns false when the words aren't in the scene any more.
    */
-  revealWords(quote: string): boolean {
+  revealWords(quote: string, opts: FindOptions = {}): boolean {
     if (this.destroyed) return false
     const view = this.editor.view
-    const range = findTextRange(view.state.doc, quote)
+    const range = findTextRange(view.state.doc, quote, opts)
     if (!range) return false
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)).setMeta(REVEALED, true))
     view.focus()

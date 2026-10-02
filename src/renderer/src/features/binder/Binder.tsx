@@ -2,6 +2,7 @@ import { RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
+import { CheckLine } from '@/features/consistency/CheckLine'
 import { rememberScene } from './lastScene'
 import { useOutline } from './outlineStore'
 import { StorySwitcher } from './StorySwitcher'
@@ -67,6 +68,8 @@ export function Binder(): React.JSX.Element {
           <TreeSkeleton />
         ) : null}
       </div>
+      {/* Milestone 5: a check running, quietly, with Stop. */}
+      <CheckLine />
       <WorldSection />
     </div>
   )

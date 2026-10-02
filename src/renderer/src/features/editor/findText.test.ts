@@ -46,3 +46,16 @@ describe('findTextRange', () => {
     expect(at('   ')).toBeNull()
   })
 })
+
+describe('findTextRange with whole words', () => {
+  const words = schema.nodes.doc.create(null, [p('Her brain ached in the rain.')])
+  const find = (quote: string, wholeWord: boolean): string | null => {
+    const r = findTextRange(words, quote, { wholeWord })
+    return r ? `${r.from}:${words.textBetween(r.from, r.to)}` : null
+  }
+  it('skips a match inside a longer word only when asked', () => {
+    expect(find('rain', false)).toBe('6:rain')
+    expect(find('rain', true)).toBe('24:rain')
+    expect(find('ache', true)).toBeNull()
+  })
+})
