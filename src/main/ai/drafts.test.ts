@@ -182,6 +182,21 @@ describe('catching the memory up before a draft', () => {
     expect(await catchUpBeforeDraft(db, 's1', 20)).toBe('timed-out')
     setBeforeDraft(null)
   })
+
+  it('stops waiting at once when Adam stops the draft before it begins', async () => {
+    setBeforeDraft(() => new Promise(() => undefined))
+    const stop = new AbortController()
+    const started = Date.now()
+    setTimeout(() => stop.abort(), 10)
+    expect(await catchUpBeforeDraft(db, 's1', 60_000, stop.signal)).toBe('cancelled')
+    expect(Date.now() - started).toBeLessThan(1000)
+    // Already stopped: the catch-up isn't even asked for.
+    const asked = vi.fn()
+    setBeforeDraft(asked)
+    expect(await catchUpBeforeDraft(db, 's1', 60_000, stop.signal)).toBe('cancelled')
+    expect(asked).not.toHaveBeenCalled()
+    setBeforeDraft(null)
+  })
 })
 
 describe('gatherContextInput, options', () => {
