@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { cn } from '@/lib/cn'
+import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
 
 /** The panel's 1px edge line, which sits inside its width. */
@@ -86,14 +87,19 @@ export function ResizablePane({
     [max, min, onResize, side]
   )
 
-  // Floating and open: the keyboard goes into it; Esc or a click outside closes it.
+  // Floating and open: the keyboard goes into it (onto the tree's current row, so the arrows and Enter
+  // work at once); Esc or a click outside closes it.
   const floatOpen = !!floating && open
   const floatingRef = useRef(floating)
   floatingRef.current = floating
   useEffect(() => {
     if (!floatOpen) return
     const inner = innerRef.current
-    if (inner && !inner.contains(document.activeElement)) inner.focus({ preventScroll: true })
+    if (inner && !inner.contains(document.activeElement)) {
+      const row = inner.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')
+      ;(row ?? inner).focus({ preventScroll: true })
+      row?.scrollIntoView({ block: 'nearest' })
+    }
     const toggleButton = (): HTMLElement | null =>
       document.querySelector<HTMLElement>(`[aria-label="${floatingRef.current?.toggle ?? ''}"]`)
     const onKey = (e: KeyboardEvent): void => {
@@ -102,6 +108,8 @@ export function ResizablePane({
       // Esc in a menu or a text box (renaming a scene) belongs to that first.
       if (target && (target.closest(LAYERS) || (inner?.contains(target) && isTextBox(target)))) return
       e.preventDefault()
+      // Closing it is all this Esc does (a draft being written carries on).
+      takeEscape(e)
       const wasInside = !!inner?.contains(document.activeElement)
       floatingRef.current?.onClose()
       if (wasInside) toggleButton()?.focus()

@@ -287,10 +287,12 @@ is built on migrations 1 and 2.
 - Code that selects words to show Adam where something is sets the `REVEALED` meta
   (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
 - The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
-  through; the bar's Esc calls `preventDefault` so a draft carries on; the Add to memory form is a
-  Radix Popover (so `layerOpen()` is true), placed once as it opens (`formPlace()`,
-  `avoidCollisions={false}`) so it never moves while in use. Pop-ups rendered inside the page's scroll
-  area stop `mousedown`, and `SceneView`'s `onPageMouseDown` ignores presses outside its own DOM.
+  through; the bar's Esc (like the floating binder's) is marked taken (`takeEscape`, `lib/escape.ts`),
+  so a draft carries on and the next Esc stops it; Ctrl+G does nothing while a layer other than
+  Generate's own panels is open; the Add to memory form is a Radix Popover (so `layerOpen()` is true),
+  placed once as it opens (`formPlace()`, `avoidCollisions={false}`) so it never moves while in use.
+  Pop-ups rendered inside the page's scroll area stop `mousedown`, and `SceneView`'s `onPageMouseDown`
+  ignores presses outside its own DOM.
 - The scene panel's tabs are Scene card, Context, Cast and Drafts; an entry shown beside the page
   (`peekEntryId`) covers them until Back.
 - Narrow page: the workspace keeps `pageMinFor(fontSize, pageWidth)` for the page (about 55 characters
@@ -299,7 +301,9 @@ is built on migrations 1 and 2.
   the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
   palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata
   measurements are `PROSE_CHAR_EM` and `PROSE_CH_EM` in `fitPanels.ts`; re-measure if the font changes.
-- The shared toast takes a second button (`secondary`, "Open" beside "Undo").
+- The shared toast takes a second button (`secondary`, "Open" beside "Undo"). Add to memory gathers adds
+  made while its toast shows into that toast (as `announceDelete` does): Undo takes them all back, and Open
+  opens the latest, beside the page on the writing page, else on the entry's own page.
 
 **Search and the command palette** (`src/main/search/`, `db/search.ts`, `features/palette/`)
 - `main/search/index.ts` keeps an in-memory index per world database, built once (about 70 ms for
@@ -326,10 +330,13 @@ is built on migrations 1 and 2.
 - Editing or undoing a placement always starts from the one the memory has (`StoryDetails.placement`).
   The shelf order comes from `listShelf().order`, for display only (`stories.position` is never
   written for it).
-- `storyActions.ts`: `openStorySettings(storyId, section?)` (through `useSectionRequest`); after a Yes
-  whose Undo has gone, `moveToFollow` starts `sortStartChanges` only if the same world is still open.
-- `flows.ts` is the flows' quiet line for the open world only (cleared when the world changes), with
-  `runFlow`, `retryFlow`, `stopFlow` and `loadFlows` (`listStoryFlows`).
+- `storyActions.ts`: `openStorySettings(storyId, section?)` (through `useSectionRequest`, both in
+  `sectionRequest.ts`); after a Yes whose Undo has gone, `moveToFollow` starts `sortStartChanges` only if
+  the same world is still open.
+- `flows.ts` is the flows' quiet line for the open world only (cleared when the world changes and when a
+  backup is restored, through `registerDiscarder`), with `runFlow`, `retryFlow`, `stopFlow` and
+  `loadFlows` (`listStoryFlows`). A flow that fails while its story's settings aren't showing also says so
+  in a toast, with "Story settings" opening the page at its line.
 - A scroll area holding `sr-only` inputs must be `relative`.
 
 **Story flows** (`src/main/storyFlows/`)

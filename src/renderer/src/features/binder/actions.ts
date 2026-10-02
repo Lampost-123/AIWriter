@@ -21,10 +21,15 @@ function failed(e: unknown): void {
   app().bumpOutline()
 }
 
-/** Saves the open scene first if it's about to disappear, so no typing is lost. */
+/**
+ * Saves the open scene first if it's about to disappear, so no typing is lost. A draft being written
+ * into it stops first and its last words are saved too, so nothing is ever written into a deleted scene.
+ */
 async function saveIfOpen(sceneIds: ID[]): Promise<void> {
   const bridge = editorBridge()
-  if (bridge?.sceneId && sceneIds.includes(bridge.sceneId)) await bridge.flush()
+  if (!bridge?.sceneId || !sceneIds.includes(bridge.sceneId)) return
+  await bridge.stopDraft('deleted')
+  await bridge.flush()
 }
 
 export async function addChapter(storyId: ID, afterId?: ID | null): Promise<ID | null> {

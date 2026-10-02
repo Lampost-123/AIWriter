@@ -7,7 +7,7 @@
 import type { Locator, Page } from '@playwright/test'
 import type { StoryPlacement } from '../../src/shared/api'
 import type { Story } from '../../src/shared/types'
-import { binder, closeWindow, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, closeWindow, createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
 
 const crumbs = (win: Page) => win.locator('main header').first()
 const switcher = (win: Page, title: string) => binder(win).getByRole('button', { name: title, exact: true })
@@ -412,6 +412,84 @@ test('deleting a story names the stories that start in it, and Undo brings it ba
   await expect(switcher(win, 'Book 1')).toBeVisible()
   await expect(crumbs(win)).toContainText('Scene 1')
   expect(await win.evaluate(() => (globalThis as unknown as { goneShown: boolean }).goneShown)).toBe(false)
+  // Undo brings it back and opens it again, where he was.
+  await toastWith(win, '“Book 2” deleted.').getByRole('button', { name: 'Undo' }).click()
+  await expect(switcher(win, 'Book 2')).toBeVisible()
+  await expect(crumbs(win)).toContainText('Book 2')
+})
+
+test('a time gap typed in the New story dialog that can’t be filled in says so, and Story settings goes to it', async ({ launch }) => {
+  const { win } = await launch()
+  await world(win)
+
+  const dialog = await openNewStory(win, 'Book 1')
+  await dialog.getByRole('textbox', { name: 'Time since Book 1 ended' }).fill('200 years')
+  await dialog.getByRole('button', { name: 'Create' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(crumbs(win)).toContainText('Book 2')
+  // No memory model is chosen in this world, so the AI can't fill it in; he is told, where he is.
+  const failure = 'Couldn’t fill in what changed before Book 2 starts. Choose a memory model in Settings › Models, then try again.'
+  await expect(win.getByText(failure, { exact: true })).toBeVisible()
+  await toastWith(win, failure).getByRole('button', { name: 'Story settings' }).click()
+  await expect(win.getByRole('heading', { level: 1, name: 'Book 2' })).toBeVisible()
+  const gap = win.getByRole('textbox', { name: 'Time since Book 1 ended' })
+  await expect(gap).toBeFocused()
+  await expect(gap).toHaveValue('200 years')
+  await expect(win.getByRole('status').filter({ hasText: 'Choose a memory model' })).toBeVisible()
+
+  // With its settings showing, the quiet line says it, and no toast does as well.
+  await win.getByRole('button', { name: 'What changed before this story starts?' }).click()
+  await win.waitForTimeout(800)
+  await expect(win.getByRole('status').filter({ hasText: 'Choose a memory model' })).toBeVisible()
+  await expect(win.getByText(failure, { exact: true })).toHaveCount(0)
+})
+
+test('the New story dialog keeps Ctrl+G to itself, and closed without a story the keyboard goes back where he was', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch()
+    const b1 = await world(win)
+    const { scenes } = await invoke(win, 'getOutline', b1.id)
+    // A writer model, so a Ctrl+G that reached the page would start a draft there.
+    const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
+    const writer = {
+      providerId: p.id,
+      modelId: 'fake/writer',
+      label: 'fake/writer',
+      contextLength: 32000,
+      promptPrice: null,
+      completionPrice: null
+    }
+    await invoke(win, 'updateSettings', { models: { writer } })
+    await win.reload()
+    const prose = win.locator('.scene-prose')
+    await expect(prose).toBeVisible()
+
+    let dialog = await openNewStory(win, 'Book 1')
+    const title = dialog.getByRole('textbox', { name: 'Title' })
+    await title.click()
+    await win.keyboard.press('Control+g')
+    await win.waitForTimeout(800)
+    await expect(dialog).toBeVisible()
+    await expect(title).toBeFocused()
+    expect(await invoke(win, 'listGenerations', scenes[0].id)).toEqual([])
+
+    // Esc closes it, and he can type on the page straight away.
+    await win.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(prose).toBeFocused()
+    await win.keyboard.type('Back to it.')
+    await expect.poll(async () => (await invoke(win, 'getScene', scenes[0].id)).text).toBe('Back to it.')
+
+    // From another page, Cancel puts the keyboard back on the story menu.
+    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    dialog = await openNewStory(win, 'Book 1')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(switcher(win, 'Book 1')).toBeFocused()
+  } finally {
+    await fake.close()
+  }
 })
 
 test('deleting the scene a story starts after moves its start back and says so in the same toast, with Undo', async ({ launch }) => {

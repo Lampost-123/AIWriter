@@ -7,10 +7,10 @@ import type { Page } from '@playwright/test'
 import type { ID, StoryKind } from '@shared/types'
 import type { StoryFlowKind, StoryFlowStatus } from '@shared/contracts/storyFlows'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test } from './helpers'
 
 /** Connects the fake server as both the writer model and the memory model. */
-async function useFake(win: Page, fake: FakeProvider): Promise<void> {
+async function useFake(win: Page, fake: FakeProvider, memory = 'fake/memory'): Promise<void> {
   const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
   const model = (modelId: string) => ({
     providerId: p.id,
@@ -20,7 +20,7 @@ async function useFake(win: Page, fake: FakeProvider): Promise<void> {
     promptPrice: null,
     completionPrice: null
   })
-  await invoke(win, 'updateSettings', { models: { writer: model('fake/writer'), memory: model('fake/memory') } })
+  await invoke(win, 'updateSettings', { models: { writer: model('fake/writer'), memory: model(memory) } })
   await win.reload()
   await expect(win.locator('.scene-prose')).toBeVisible()
 }
@@ -99,7 +99,7 @@ test('a time gap fills in what changed, listed under What changed with Undo and 
       storyId: dark.id,
       flow: 'time-gap',
       state: 'done',
-      message: 'Added 2 changes and closed 1 plot thread, listed under What changed'
+      message: 'Added 2 changes and closed 1 plot thread, listed under What changed.'
     })
     expect(await notes(win, mara.id)).toEqual(['died long ago'])
     const story = (await invoke(win, 'listChanges', mara.id))[0]
@@ -155,7 +155,7 @@ test("a prequel's starting cast is drafted by AI, and each exists from the prequ
     await invoke(win, 'draftStartingCast', young.id, [mara.id, tobin.id])
     expect(await finished(win, young.id, 'starting-cast')).toMatchObject({
       state: 'done',
-      message: 'Drafted 2 starting descriptions, listed under What changed'
+      message: 'Drafted 2 starting descriptions, listed under What changed.'
     })
     const [start] = await invoke(win, 'listChanges', mara.id)
     expect([start.kind, start.anchor, start.storyId, start.origin]).toEqual(['full', 'story-start', young.id, 'ai'])
@@ -210,7 +210,7 @@ test('"When did these happen?" sorts a book\'s changes when a story is set befor
     await invoke(win, 'saveSceneText', scene.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }, text)
     await place(win, book2.id, 'continues', quiet.id)
     await invoke(win, 'sortStartChanges', quiet.id, book2.id)
-    expect(await finished(win, quiet.id, 'when')).toMatchObject({ state: 'done', message: 'Sorted 3 changes, listed under What changed' })
+    expect(await finished(win, quiet.id, 'when')).toMatchObject({ state: 'done', message: 'Sorted 3 changes, listed under What changed.' })
 
     // Mara's death moved before The Quiet Year; the mill's ruin happens in it (removed); Tobin's stays on Book 2.
     const startOf = async (entryId: ID): Promise<ID[]> =>
@@ -253,6 +253,54 @@ test('"When did these happen?" sorts a book\'s changes when a story is set befor
     await expect(line('Died long ago').getByRole('group', { name: 'When did this happen?' })).toHaveCount(0)
     await expect(line('Died long ago').getByRole('button', { name: /^Undo/ })).toHaveCount(0)
     expect(await startOf(mara.id)).toEqual([])
+  } finally {
+    await fake.close()
+  }
+})
+
+test('restoring a backup while a flow is working leaves no line saying it still is', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  // The memory model holds its reply back for a minute, so the flow is still working at the restore.
+  const fake = await startFakeProvider({ delayMs: 2, waitMs: 60_000 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'The Reach')
+    const [book1] = await invoke(win, 'listStories')
+    // Someone for the time to change, so the AI is asked.
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: "A smith's daughter." })
+    const book2 = await invoke(win, 'createStory', { title: 'Book 2', startStoryId: book1.id })
+    await invoke(win, 'updateStory', book2.id, { timeGap: '200 years' })
+    await useFake(win, fake, 'fake/wait')
+    // The backup made as the world opened is in (so the one made now is the newest), then Back up now.
+    await expect.poll(async () => (await invoke(win, 'listBackups')).length).toBe(1)
+    await openSettings(win, 'Backups')
+    const rows = win.getByRole('list', { name: 'Backups' }).getByRole('listitem')
+    await expect(rows).toHaveCount(1)
+    await win.getByRole('button', { name: 'Back up now' }).click()
+    await expect(rows).toHaveCount(2)
+    await expect(rows.first()).toContainText('Made by you')
+
+    const openBook2 = async (): Promise<void> => {
+      await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+      await win.getByRole('menuitem', { name: 'Settings for Book 2' }).click()
+      await expect(win.getByRole('heading', { level: 1, name: 'Book 2' })).toBeVisible()
+    }
+    await openBook2()
+    const fill = win.getByRole('button', { name: 'What changed before this story starts?' })
+    const working = win.getByRole('status').filter({ hasText: /Working/ })
+    await fill.click()
+    await expect(working).toContainText('Working out what changed in the 200 years')
+    await expect(fill).toBeDisabled()
+
+    // The restore reopens the world, which stops the flow without a word.
+    await openSettings(win, 'Backups')
+    await rows.first().getByRole('button', { name: /^Restore the backup from/ }).click()
+    await rows.first().getByRole('button', { name: 'Restore', exact: true }).click()
+    await expect(win.getByText(/Restored the backup from/)).toBeVisible()
+    await openBook2()
+    await expect(fill).toBeEnabled()
+    await expect(working).toHaveCount(0)
+    expect(await invoke(win, 'listStoryFlows', book2.id)).toEqual([])
   } finally {
     await fake.close()
   }

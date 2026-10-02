@@ -3,7 +3,7 @@ import { deletedSummary, type Noun } from './deleteWords'
 
 // Deletes happen straight away and are undone from one toast. Deleting more while that toast
 // is showing adds to it ("3 scenes deleted · Undo"), so an earlier Undo is never pushed away.
-// Whatever the toast no longer offers stays in Recently deleted (Settings) for 30 days.
+// Whatever the toast no longer offers stays in Settings › Recently deleted for 30 days.
 
 export interface Deletion {
   /** The toast when this is the only thing in it: "“Scene 3” deleted." */

@@ -95,7 +95,7 @@ export function StorySettings({ storyId }: { storyId: ID }): React.JSX.Element {
         className="pt-24"
         actions={<Button onClick={() => useApp.getState().navigate({ kind: 'write' })}>Back to writing</Button>}
       >
-        It may have been deleted. Deleted stories stay in Recently deleted (Settings) for 30 days.
+        It may have been deleted. Deleted stories stay in Settings › Recently deleted for 30 days.
       </EmptyState>
     )
   }
@@ -843,7 +843,7 @@ function DeletePart({ story, startingHere }: { story: Story; startingHere: Story
   // Every story that starts in this one takes over where this one starts, so they all start at the same place.
   const [one] = startingHere
   return (
-    <Part title="Delete this story" description="It stays in Recently deleted (Settings) for 30 days, and Undo brings it straight back.">
+    <Part title="Delete this story" description="It stays in Settings › Recently deleted for 30 days, and Undo brings it straight back.">
       {startingHere.length === 1 ? (
         <Notice>
           {one.title} starts in {title}. If you delete {title}, {one.title} will start {one.wouldStart} instead. A backup is made first.

@@ -111,11 +111,11 @@ export function runningMessage(db: DB, args: FlowArgs): string {
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
-/** "Added 4 changes and closed 1 plot thread, listed under What changed". */
+/** "Added 4 changes and closed 1 plot thread, listed under What changed." */
 function doneMessage(parts: string[], none: string): string {
   if (!parts.length) return none
   const said = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
-  return `${said[0].toUpperCase()}${said.slice(1)}, listed under What changed`
+  return `${said[0].toUpperCase()}${said.slice(1)}, listed under What changed.`
 }
 
 const nothingDone: Applied = { runId: null, lines: 0, entryIds: [], added: 0, removed: 0, closed: 0, moved: 0, left: 0, carried: 0 }
@@ -125,14 +125,14 @@ function gapDone(a: Applied): string {
   if (a.added) parts.push(`added ${plural(a.added, 'change', 'changes')}`)
   if (a.closed) parts.push(`closed ${plural(a.closed, 'plot thread', 'plot threads')}`)
   if (a.removed) parts.push(`took out ${plural(a.removed, 'earlier change', 'earlier changes')}`)
-  return doneMessage(parts, 'Nothing needed changing')
+  return doneMessage(parts, 'Nothing needed changing.')
 }
 
 const castDone = (a: Applied): string =>
-  doneMessage(a.lines ? [`drafted ${plural(a.lines, 'starting description', 'starting descriptions')}`] : [], 'Nothing needed drafting')
+  doneMessage(a.lines ? [`drafted ${plural(a.lines, 'starting description', 'starting descriptions')}`] : [], 'Nothing needed drafting.')
 
 const whenDone = (a: Applied): string =>
-  doneMessage(a.lines ? [`sorted ${plural(a.lines, 'change', 'changes')}`] : [], 'Nothing needed sorting')
+  doneMessage(a.lines ? [`sorted ${plural(a.lines, 'change', 'changes')}`] : [], 'Nothing needed sorting.')
 
 function totalsFor(model: FlowModel, calls: CallTotals[]): RunTotals {
   const sum = (k: 'promptTokens' | 'completionTokens' | 'cost'): number | null =>

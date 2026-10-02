@@ -112,6 +112,39 @@ describe('Autosaver', () => {
     expect(saver.dirty).toBe(false)
   })
 
+  it('stops trying and lets go of the changes, saying so once, when what it saves into has gone', async () => {
+    const timers = new FakeTimers()
+    const saves: number[] = []
+    const states: AutosaveState[] = []
+    let gone = 0
+    let message = 'disk full'
+    const saver = new Autosaver({
+      timers,
+      save: () => {
+        saves.push(timers.time)
+        return Promise.reject(new Error(message))
+      },
+      onState: (s) => states.push(s),
+      isGone: (e) => (e as Error).message === 'That scene no longer exists.',
+      onGone: () => gone++
+    })
+    // Any other failure is tried again.
+    saver.changed()
+    await timers.advance(1500)
+    expect(saves).toEqual([500, 1500])
+    expect(gone).toBe(0)
+    message = 'That scene no longer exists.'
+    expect(await saver.flush()).toBe(false)
+    await timers.advance(60000)
+    expect(saves).toEqual([500, 1500, 1500])
+    expect(states).toEqual(['error', 'saving', 'error', 'saving'])
+    expect(gone).toBe(1)
+    // Nothing typed afterwards is saved either.
+    saver.changed()
+    await timers.advance(6000)
+    expect(saves.length).toBe(3)
+  })
+
   it('flush saves immediately and waits for it', async () => {
     const { saves, saver } = setup()
     saver.changed()

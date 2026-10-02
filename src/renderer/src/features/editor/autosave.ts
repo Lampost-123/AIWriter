@@ -1,7 +1,7 @@
 // When to save the open scene. Saves half a second after typing pauses, and at
 // least every five seconds while typing continues. One save runs at a time; a
-// failed save retries with backoff until it succeeds. Timers are injectable so
-// the schedule is unit-tested.
+// failed save retries with backoff until it succeeds (unless what it saves into
+// has gone). Timers are injectable so the schedule is unit-tested.
 
 export type AutosaveState = 'saving' | 'saved' | 'error'
 
@@ -28,6 +28,12 @@ export interface AutosaverOptions {
   maxWait?: number
   /** Waits before each retry after a failure; the last value repeats. */
   retryDelays?: number[]
+  /**
+   * A failure that saving again can't put right (what it saves into has gone): there are no more tries,
+   * the unsaved changes are let go, and `onGone` is called. Every other failure is retried.
+   */
+  isGone?: (error: unknown) => boolean
+  onGone?: () => void
   /** "Saving…" only shows if a save takes longer than this, so quick saves don't flicker. */
   showSavingAfter?: number
   timers?: Timers
@@ -112,6 +118,7 @@ export class Autosaver {
     if (this.inFlight) return this.inFlight
     if (!this.dirty || this.disposed) return Promise.resolve(true)
     const v = this.version
+    let gone = false
     this.firstUnsavedAt = null
     this.clearTimer()
     if (this.failures > 0) this.opts.onState?.('saving')
@@ -124,8 +131,9 @@ export class Autosaver {
           this.failures = 0
           return true
         },
-        () => {
+        (e: unknown) => {
           this.failures++
+          gone = !!this.opts.isGone?.(e)
           return false
         }
       )
@@ -142,6 +150,10 @@ export class Autosaver {
             if (this.firstUnsavedAt === null) this.firstUnsavedAt = this.t.now()
             this.schedule(this.delay)
           }
+        } else if (gone) {
+          this.failures = 0
+          this.dispose()
+          this.opts.onGone?.()
         } else {
           this.opts.onState?.('error')
           const wait = this.retryDelays[Math.min(this.failures - 1, this.retryDelays.length - 1)]
