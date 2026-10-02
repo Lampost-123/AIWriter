@@ -149,7 +149,7 @@ export function notesSource(prev: Entry, saved: Entry, keys: string[]): Entry {
 
 // ---------- Relationships ----------
 
-type RelationshipChange = Extract<ChangeView, { kind: 'relationship' }>
+export type RelationshipChange = Extract<ChangeView, { kind: 'relationship' }>
 
 /** A relationship as one entry's page shows it, whichever side it was written from. */
 export interface RelationView {
@@ -194,8 +194,34 @@ export function orientRelationship(c: RelationshipChange, selfId: ID): RelationV
   return null
 }
 
+/** What a relationship row on an entry's page edits, read from that entry's side. */
+export interface RelationEdit {
+  type: string
+  selfFeels: string
+  otherFeels: string
+}
+
+/** A copy of a relationship read from the same side as `view` (a newer copy of the same one, say). */
+export function relationEditOf(view: Pick<RelationView, 'mine'>, c: RelationshipChange): RelationEdit {
+  const p = c.payload
+  return {
+    type: p.type ?? '',
+    selfFeels: (view.mine ? p.feels : p.otherFeels) ?? '',
+    otherFeels: (view.mine ? p.otherFeels : p.feels) ?? ''
+  }
+}
+
+/**
+ * Adam's edit laid over a newer copy: each box he changed since `base` (the copy his edit started
+ * from) keeps his words; every other box takes what `fresh` has, such as a feeling the memory filled in.
+ */
+export function mergeRelationEdit(base: RelationEdit, mine: RelationEdit, fresh: RelationEdit): RelationEdit {
+  const pick = (k: keyof RelationEdit): string => (mine[k] !== base[k] ? mine[k] : fresh[k])
+  return { type: pick('type'), selfFeels: pick('selfFeels'), otherFeels: pick('otherFeels') }
+}
+
 /** The change to save after editing a relationship on this entry's page: still written from the side it was written from. */
-export function relationshipInput(view: RelationView, edit: { type: string; selfFeels: string; otherFeels: string }): ChangeInput {
+export function relationshipInput(view: RelationView, edit: RelationEdit): ChangeInput {
   const c = view.change
   const payload: RelationshipPayload = {
     ...c.payload,
@@ -204,6 +230,24 @@ export function relationshipInput(view: RelationView, edit: { type: string; self
     otherFeels: view.mine ? edit.otherFeels : edit.selfFeels
   }
   return { entryId: c.entryId, anchor: c.anchor, storyId: c.storyId, sceneId: c.sceneId, kind: 'relationship', payload }
+}
+
+/**
+ * Saves Adam's edit to a relationship without writing over what changed since his edit started.
+ * The memory can fill in how the other one feels while he types the type: the newest copy is read
+ * first, and only the boxes he changed since `base` replace what it has. Returns the copy saved and
+ * the relationship as saved, read from this page's side (the next save's `base`).
+ */
+export async function saveRelationOverNewer(
+  view: RelationView,
+  mine: RelationEdit,
+  base: RelationEdit,
+  io: { get: (c: RelationshipChange) => Promise<RelationshipChange | null>; put: (id: ID, input: ChangeInput) => Promise<ChangeView> }
+): Promise<{ saved: ChangeView; now: RelationEdit }> {
+  const fresh = (await io.get(view.change)) ?? view.change
+  const sent = mergeRelationEdit(base, mine, relationEditOf(view, fresh))
+  const saved = await io.put(fresh.id, relationshipInput({ ...view, change: fresh }, sent))
+  return { saved, now: saved.kind === 'relationship' ? relationEditOf(view, saved) : sent }
 }
 
 const PREPOSITIONS = new Set(

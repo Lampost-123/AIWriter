@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import type { ChangeView, Entry, ExistsPoint, Outline, SourceLink } from '@shared/types'
+import type { ChangeInput, ChangeView, Entry, ExistsPoint, Outline, SourceLink } from '@shared/types'
 import {
   changeWhere,
   createKindsFor,
   describeChange,
   existsLine,
   madeByNote,
+  mergeRelationEdit,
   notesSource,
   orientRelationship,
+  relationEditOf,
   relationPhrase,
   relationshipInput,
+  saveRelationOverNewer,
   sceneLabels,
   sourceNote,
-  splitChanges
+  splitChanges,
+  type RelationshipChange
 } from './memoryLogic'
 
 const base = {
@@ -211,6 +215,77 @@ describe('relationships from either side', () => {
   it('ignores a relationship that does not involve the entry', () => {
     const c = rel('r1', 'mara', 'tobin') as Extract<ChangeView, { kind: 'relationship' }>
     expect(orientRelationship(c, 'guild')).toBeNull()
+  })
+})
+
+describe('saving a relationship over a newer copy', () => {
+  type R = RelationshipChange
+  // One relationship in a fake world. `others` are writes from elsewhere (the memory keeper) that land
+  // after the page loaded it; `puts` records what the page sent.
+  const world = (start: R) => {
+    let row = start
+    const puts: ChangeInput[] = []
+    return {
+      others: (payload: Partial<R['payload']>) => {
+        row = { ...row, payload: { ...row.payload, ...payload }, updatedAt: '2026-10-02T10:05:00.000Z' }
+      },
+      puts,
+      row: () => row,
+      io: {
+        get: async (c: R) => (c.id === row.id ? row : null),
+        put: async (id: string, input: ChangeInput) => {
+          puts.push(input)
+          row = { ...row, id, payload: input.payload as R['payload'], updatedAt: '2026-10-02T10:06:00.000Z' }
+          return row
+        }
+      }
+    }
+  }
+  const start = rel('r1', 'mara', 'tobin', { type: 'sister', feels: 'protective', otherFeels: '' }) as R
+
+  it('keeps how the other one feels when the memory filled it in while Adam typed the type', async () => {
+    const w = world(start)
+    const fromMara = orientRelationship(start, 'mara')!
+    const base = relationEditOf(fromMara, start)
+    w.others({ otherFeels: 'resentful' })
+    const { now } = await saveRelationOverNewer(fromMara, { ...base, type: 'older sister' }, base, w.io)
+    expect(w.row().payload).toEqual({ otherId: 'tobin', type: 'older sister', feels: 'protective', otherFeels: 'resentful' })
+    expect(now).toEqual({ type: 'older sister', selfFeels: 'protective', otherFeels: 'resentful' })
+  })
+
+  it('works the same from the other entry’s page, where the sides are swapped', async () => {
+    const w = world(start)
+    const fromTobin = orientRelationship(start, 'tobin')!
+    const base = relationEditOf(fromTobin, start)
+    expect(base).toEqual({ type: 'sister', selfFeels: '', otherFeels: 'protective' })
+    // The memory changes how Mara feels; Adam, on Tobin's page, types how Tobin feels.
+    w.others({ feels: 'guilty', ended: true })
+    const { now } = await saveRelationOverNewer(fromTobin, { ...base, selfFeels: 'grateful' }, base, w.io)
+    expect(w.row().payload).toEqual({ otherId: 'tobin', type: 'sister', feels: 'guilty', otherFeels: 'grateful', ended: true })
+    expect(now).toEqual({ type: 'sister', selfFeels: 'grateful', otherFeels: 'guilty' })
+  })
+
+  it('lets what Adam typed win in a box both changed, and sends his edit as it is when nothing changed', async () => {
+    const w = world(start)
+    const fromMara = orientRelationship(start, 'mara')!
+    const base = relationEditOf(fromMara, start)
+    w.others({ feels: 'wary' })
+    await saveRelationOverNewer(fromMara, { ...base, selfFeels: 'fiercely protective' }, base, w.io)
+    expect(w.row().payload.feels).toBe('fiercely protective')
+
+    const quiet = world(start)
+    const mine = { type: 'twin', selfFeels: 'fond', otherFeels: 'jealous' }
+    await saveRelationOverNewer(fromMara, mine, base, quiet.io)
+    expect(quiet.puts[0]).toEqual(relationshipInput(fromMara, mine))
+  })
+
+  it('merges box by box', () => {
+    const base = { type: 'sister', selfFeels: 'a', otherFeels: 'b' }
+    expect(mergeRelationEdit(base, { ...base, type: 'twin' }, { type: 'sister', selfFeels: 'A', otherFeels: 'B' })).toEqual({
+      type: 'twin',
+      selfFeels: 'A',
+      otherFeels: 'B'
+    })
   })
 })
 
