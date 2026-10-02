@@ -6,7 +6,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startFakeSpeech, type FakeSpeech, type FakeSpeechOptions } from '../../../tests/fake-speech/server.mjs'
 import { askToShutDown, fetchHealth, freePort, listenOn, logTail, pickDictation, portFree, rootOf } from './server'
-import { buildStatus, deviceName, readHealth, startProblem, type StatusParts } from './status'
+import {
+  buildStatus,
+  deviceName,
+  dictationLoadProblem,
+  readHealth,
+  startProblem,
+  voicesLoadProblem,
+  type Health,
+  type StatusParts
+} from './status'
 
 let fake: FakeSpeech | null = null
 const start = async (options: FakeSpeechOptions = {}): Promise<FakeSpeech> => (fake = await startFakeSpeech(options))
@@ -42,9 +51,31 @@ describe('what the server says about itself', () => {
     expect(h).toEqual({
       service: 'aiwrite-speech',
       device: 'CUDA · NVIDIA GeForce RTX 4090',
-      voices: { ready: true, loaded: false },
-      dictation: { engine: 'whisper', loaded: null, parakeet: true, whisper: true }
+      voices: { ready: true, loaded: false, loadError: '' },
+      dictation: { engine: 'whisper', loaded: null, parakeet: true, whisper: true, loadErrors: { parakeet: '', whisper: '' } }
     })
+  })
+
+  it('reads why the voices or a dictation model couldn’t be loaded the last time', async () => {
+    const options: FakeSpeechOptions = {
+      voicesLoadError: 'OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB',
+      dictationLoadError: { parakeet: 'RuntimeError: Load model from encoder.int8.onnx failed: Protobuf parsing failed.' }
+    }
+    const f = await start(options)
+    expect(await fetchHealth(f.url)).toMatchObject({
+      voices: { ready: true, loaded: false, loadError: 'OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB' },
+      dictation: {
+        loadErrors: { parakeet: 'RuntimeError: Load model from encoder.int8.onnx failed: Protobuf parsing failed.', whisper: '' }
+      }
+    })
+    // Picking it again tries again; the pick is kept, as the real server keeps it.
+    const picked = await pickDictation(f.url, 'parakeet')
+    expect(picked).toMatchObject({ ok: false, detail: expect.stringMatching(/couldn’t be loaded/) })
+    expect((await fetchHealth(f.url))?.dictation).toMatchObject({ engine: 'parakeet', loaded: null })
+    // Once it loads, the reason goes.
+    options.dictationLoadError = {}
+    expect(await pickDictation(f.url, 'parakeet')).toEqual({ ok: true, detail: '' })
+    expect((await fetchHealth(f.url))?.dictation).toMatchObject({ loaded: 'parakeet', loadErrors: { parakeet: '' } })
   })
 
   it('follows what is downloaded there and what is loaded', async () => {
@@ -80,7 +111,7 @@ describe('what the server says about itself', () => {
     expect(readHealth({ ok: true, device: 'CPU', engines: [{ id: 'breeze', ready: true, loaded: true }] })).toEqual({
       service: '',
       device: 'CPU',
-      voices: { ready: true, loaded: true },
+      voices: { ready: true, loaded: true, loadError: '' },
       dictation: null
     })
   })
@@ -174,6 +205,63 @@ describe('the status Settings shows', () => {
     expect(buildStatus(parts({ health: health('none', true) })).dictationReady).toBe(false)
     expect(buildStatus(parts({ health: health('whisper', true) })).dictationReady).toBe(false)
     expect(buildStatus(parts()).dictationReady).toBe(false)
+  })
+
+  it('says why the voices or the dictation model in use couldn’t be loaded, in plain words, while they stay ready', () => {
+    const health = (voices: string, parakeet: string, loaded = false): Health => ({
+      service: 'aiwrite-speech',
+      device: 'CUDA · NVIDIA GeForce RTX 4090',
+      voices: { ready: true, loaded, loadError: voices },
+      dictation: { engine: 'parakeet', loaded: null, parakeet: true, whisper: true, loadErrors: { parakeet, whisper: '' } }
+    })
+    const installed = { server: true, voices: 'own' as const, parakeet: true, whisper: true }
+    const oom = buildStatus(parts({ picked: 'parakeet', installed, health: health('OutOfMemoryError: CUDA out of memory.', '') }))
+    expect(oom).toMatchObject({ voicesReady: true, dictationReady: true, loadProblems: { dictation: null } })
+    expect(oom.loadProblems.voices).toEqual({
+      text: 'The graphics card ran out of memory loading the voices. Close other programs that use it (MCreader v2, games or other AI apps), then try again.',
+      repair: false
+    })
+    const broken = buildStatus(
+      parts({ picked: 'parakeet', installed, health: health("ModuleNotFoundError: No module named 'qwen_tts'", 'RuntimeError: x') })
+    )
+    expect(broken.loadProblems.voices).toEqual({
+      text: 'The voice engine couldn’t load the voices. Download it again below to set it up afresh (about 4 GB); the voices already downloaded are kept.',
+      repair: true
+    })
+    expect(broken.loadProblems.dictation).toEqual({
+      text: 'Parakeet couldn’t be loaded. Download it again below to repair it, or pick Whisper.',
+      repair: true
+    })
+    expect(broken.dictationReady).toBe(true)
+    // Loaded since, or not the model picked: nothing to say.
+    expect(buildStatus(parts({ picked: 'parakeet', installed, health: health('MemoryError', '', true) })).loadProblems.voices).toBeNull()
+    expect(buildStatus(parts({ picked: 'whisper', installed, health: health('', 'RuntimeError: x') })).loadProblems.dictation).toBeNull()
+    expect(buildStatus(parts({ installed, health: null })).loadProblems).toEqual({ voices: null, dictation: null })
+  })
+
+  it('offers downloading again only where it repairs what couldn’t be loaded', () => {
+    expect(voicesLoadProblem('CUDA error: no kernel image is available for execution on the device', 'own')).toEqual({
+      text: 'This graphics card is too old for the voices: they need an NVIDIA RTX card (the 20 series or newer).',
+      repair: false
+    })
+    expect(voicesLoadProblem('RuntimeError: Found no NVIDIA driver on your system.', 'own').text).toMatch(/Update its NVIDIA driver/)
+    expect(voicesLoadProblem('it stopped while loading.', 'mcreader')).toEqual({
+      text: 'MCreader v2’s copy of the voices couldn’t be loaded. Try again; if it keeps happening, download AI Write’s own copy below.',
+      repair: false
+    })
+    expect(voicesLoadProblem('KeyError', null).repair).toBe(false)
+    expect(dictationLoadProblem('MemoryError: std::bad_alloc', 'whisper', true)).toEqual({
+      text: 'The computer ran out of memory loading Whisper. Close other programs, then try again.',
+      repair: false
+    })
+    // A server AI Write didn't download it for.
+    expect(dictationLoadProblem('RuntimeError: x', 'whisper', false)).toEqual({
+      text: 'The speech server couldn’t load Whisper. Pick Parakeet, or restart the speech server.',
+      repair: false
+    })
+    // Plain words only: never the server's own reason.
+    for (const reason of ['OutOfMemoryError: CUDA out of memory.', "ModuleNotFoundError: No module named 'qwen_tts'", 'KeyError'])
+      expect(voicesLoadProblem(reason, 'own').text).not.toMatch(/Error|CUDA|module/)
   })
 
   it('shows a problem only while nothing is running or starting', () => {

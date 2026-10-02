@@ -135,6 +135,9 @@ class Engine:
             "ready": ok,
             "loaded": self.loaded,
             "detail": detail,
+            # Why it couldn't be loaded the last time it was asked for ("" since it last loaded): AI Write's
+            # Settings says so in plain words, with the fix.
+            "loadError": self._load_error,
             "voices": count,
             "loadSeconds": round(self._load_seconds, 2) if self.loaded else 0,
             "requests": self._requests,

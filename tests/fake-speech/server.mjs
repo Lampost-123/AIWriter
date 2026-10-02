@@ -10,8 +10,9 @@
 // The routes, as the real server (speech-server/app/server.py) has them. AI Write's main process calls
 // them through speechFetch, with the address in Settings (it ends in /v1):
 //   GET  /v1/health                {ok, service: 'aiwrite-speech', version, device ('CUDA · <card>' or 'CPU'),
-//                                   default, engines: [{id: 'breeze', name, ready, loaded, detail, voices}],
-//                                   ready, dictation: {engine, loaded, models: [{id, name, ready, loaded, detail}]}}
+//                                   default, engines: [{id: 'breeze', name, ready, loaded, detail, loadError, voices}],
+//                                   ready, dictation: {engine, loaded, models: [{id, name, ready, loaded, detail, loadError}]}}
+//                                   (loadError: why it couldn't be loaded the last time it was asked for; '' once it loads)
 //   GET  /v1/voices                [{id, name, engine, lang, gender, traits, recommended}]          (Read aloud)
 //   GET  /v1/models                {object: 'list', data: [{id: 'breeze', object: 'model', name}]}
 //   POST /v1/audio/speech          {input, voice, model, speed, instruct?, delivery?, voice_design?...} → a WAV (Read aloud)

@@ -69,6 +69,39 @@ describe.skipIf(!python)('dictation’s clean-up of what was said', () => {
   it('types nothing for nothing but a filler', () => {
     expect(clean(['Ummm.', 'uh', ''])).toEqual(['', '', ''])
   })
+
+  it('says why a model couldn’t be loaded until it loads, and never for one that isn’t downloaded', () => {
+    const code = [
+      'import json',
+      'from app import stt',
+      'tries = []',
+      'def load():',
+      '    tries.append(1)',
+      '    if len(tries) == 1: raise RuntimeError("Protobuf parsing failed.")',
+      '    return object()',
+      'def missing(): raise stt.DictationError("Whisper is not installed.")',
+      'stt._load_parakeet, stt._load_whisper = load, missing',
+      'errors = lambda: {m["id"]: m["loadError"] for m in stt.statuses()}',
+      'out = []',
+      'try: stt.use("parakeet")',
+      'except RuntimeError: pass',
+      'out += [errors(), stt.choice(), stt.loaded()]',
+      'stt.use("parakeet")',
+      'out += [errors(), stt.loaded()]',
+      'try: stt.use("whisper")',
+      'except stt.DictationError: pass',
+      'out.append(errors())',
+      'print(json.dumps(out))'
+    ].join('\n')
+    expect(py(code)).toEqual([
+      { parakeet: 'RuntimeError: Protobuf parsing failed.', whisper: '' },
+      'parakeet',
+      null,
+      { parakeet: '', whisper: '' },
+      'parakeet',
+      { parakeet: '', whisper: '' }
+    ])
+  })
 })
 
 describe.skipIf(!python)('what the server counts as downloaded (app/downloaded.py, the same rules as installed.ts)', () => {

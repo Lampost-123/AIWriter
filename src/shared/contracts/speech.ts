@@ -45,6 +45,14 @@ export interface SpeechDownload {
   link: string
 }
 
+/** Why the voices, or a dictation model, couldn't be loaded the last time they were asked for. */
+export interface SpeechLoadProblem {
+  /** What went wrong and the fix, in plain words. */
+  text: string
+  /** Downloading it again is the fix: Settings offers it with one click (what is already downloaded is kept). */
+  repair: boolean
+}
+
 /** What Settings shows about the speech engine, and whether reading aloud and dictation can be used now. */
 export interface SpeechStatus {
   /** The server answers ('connected'), is being started ('starting'), or isn't running ('not-running'). */
@@ -69,6 +77,11 @@ export interface SpeechStatus {
   installed: { server: boolean; voices: 'own' | 'mcreader' | null; parakeet: boolean; whisper: boolean }
   /** What the server holds in memory now (a model unused for five minutes is let go). */
   loaded: { voices: boolean; dictation: DictationModel | null }
+  /**
+   * The voices, or the dictation model in use, failed to load the last time they were asked for (out of
+   * memory, say), and why; null once they load. They stay ready: the next use tries again.
+   */
+  loadProblems: { voices: SpeechLoadProblem | null; dictation: SpeechLoadProblem | null }
   /** What the voices run on: the graphics card's name, or 'Processor'; '' while the server isn't answering. */
   device: string
   /** The NVIDIA graphics card on this computer ('' when there is none); null until it has been looked for. */
@@ -111,6 +124,9 @@ export interface SpeechApi {
    * asked for before the speech engine is downloaded download it first (and turn "Start with AI Write" on
    * when no other speech server answers). The speech engine asked for once it is downloaded is downloaded
    * again: its environment is set up afresh (the repair Settings offers), the voices and models are kept.
+   * The same goes for the voices (AI Write's own copy: their environment is set up afresh, the voices
+   * themselves kept) and a dictation model (fetched again, with the speech engine's environment set up
+   * afresh), which Settings offers again when they couldn't be loaded (loadProblems).
    */
   downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechStatus>
   /** Cancel: stops the download running (nothing half-made is kept as done) and the ones queued. */

@@ -147,6 +147,24 @@ test('shows Not running, then what is ready once the address is a speech server�
     const status = await invoke(win, 'getSpeechStatus')
     expect(status).toMatchObject({ server: 'connected', voicesReady: true, dictationReady: false, device: 'Processor', managed: false })
 
+    // The voices couldn't be loaded (the graphics card's memory was full): why, and what to do, in plain words.
+    options.voicesLoadError = 'OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB'
+    await section.getByRole('button', { name: 'Check', exact: true }).click()
+    await expect(fact(win, 'Voices')).toHaveText('Couldn’t load')
+    await expect(
+      section.getByText(
+        'The graphics card ran out of memory loading the voices. Close other programs that use it (MCreader v2, games or other AI apps), then try again.',
+        { exact: true }
+      )
+    ).toBeVisible()
+    await expect(section.getByText(/OutOfMemoryError|CUDA/)).toHaveCount(0)
+    // They stay ready: reading aloud tries again.
+    expect((await invoke(win, 'getSpeechStatus')).voicesReady).toBe(true)
+    options.voicesLoadError = undefined
+    await section.getByRole('button', { name: 'Check', exact: true }).click()
+    await expect(fact(win, 'Voices')).toHaveText('Ready')
+    await expect(section.getByText('The graphics card ran out of memory', { exact: false })).toHaveCount(0)
+
     // Check asks the server again.
     options.voices = false
     await section.getByRole('button', { name: 'Check', exact: true }).click()
@@ -196,9 +214,14 @@ test('downloads the speech engine step by step: Cancel stops it, Try again carri
   await expect(section.getByText('Couldn’t reach the internet to download it. Check the connection, then Try again.')).toBeVisible()
   await expect(section.getByText(/Traceback|ERROR:/)).toHaveCount(0)
 
+  // Dismissed, the download is still one click away.
+  await section.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(section.getByText('Couldn’t reach the internet', { exact: false })).toHaveCount(0)
+  await expect(section.getByText('It starts once the speech engine is downloaded.')).toBeVisible()
+
   // And then it works, and the server starts.
   fake.set({})
-  await section.getByRole('button', { name: 'Try again' }).click()
+  await section.getByRole('button', { name: 'Download the speech engine (about 150 MB)' }).click()
   await expect(win.getByText('The speech engine is downloaded.')).toBeVisible()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
   await expect(fact(win, 'Runs on')).toHaveText('NVIDIA GeForce RTX 4090')
@@ -249,7 +272,7 @@ test('downloads the speech engine step by step: Cancel stops it, Try again carri
 test('picking a dictation model first downloads the engine, and turns Start with AI Write on so it runs', async ({ launch }, testInfo) => {
   const fake = fakes(testInfo)
   fake.set({ 'server:packages': 'slow' })
-  const { win } = await launch({ env: fake.env })
+  const { win, dataDir } = await launch({ env: fake.env })
   await openSpeech(win)
   const section = engine(win)
   const start = section.getByRole('switch', { name: 'Start with AI Write' })
@@ -275,6 +298,28 @@ test('picking a dictation model first downloads the engine, and turns Start with
   await expect(win.getByText('Parakeet is downloaded.')).toBeVisible()
   await expect(fact(win, 'Dictation')).toHaveText(/^Parakeet, (ready|loaded)$/)
   await expect.poll(async () => (await invoke(win, 'getSpeechStatus')).dictationReady).toBe(true)
+
+  // Parakeet stops loading (a damaged file): it says so in plain words, with one click to download it again.
+  const speech = join(dataDir, 'app', 'speech')
+  const damaged = join(speech, 'models', 'parakeet', 'damaged.txt')
+  writeFileSync(damaged, 'RuntimeError: Load model from encoder.int8.onnx failed: Protobuf parsing failed.')
+  await section.getByRole('button', { name: 'Check', exact: true }).click()
+  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, couldn’t load')
+  await expect(
+    section.getByText('Parakeet couldn’t be loaded. Download it again below to repair it, or pick Whisper.', { exact: true })
+  ).toBeVisible()
+  await expect(section.getByText(/RuntimeError|Protobuf/)).toHaveCount(0)
+  await section.getByRole('button', { name: 'Download Parakeet again' }).click()
+  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, downloading')
+  await expect(section.getByText('Parakeet couldn’t be loaded.', { exact: false })).toHaveCount(0)
+  await expect(fact(win, 'Dictation')).toHaveText(/^Parakeet, (ready|loaded)$/)
+  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
+  await expect(section.getByText('Parakeet couldn’t be loaded.', { exact: false })).toHaveCount(0)
+  expect(existsSync(damaged)).toBe(false)
+  // Its engine came back too, with the speech engine's environment set up afresh.
+  const log = readFileSync(join(speech, 'logs', 'install.log'), 'utf8')
+  expect(log.match(/Setting up Python for the speech engine \(venv\)/g)).toHaveLength(2)
+  expect(log.match(/Downloading Parakeet’s English model \(model\)/g)).toHaveLength(2)
 })
 
 test('offers to download the speech engine again when part of it is missing, keeping the rest; a slow start never holds up Stop', async ({
@@ -351,9 +396,9 @@ test('installs Python with one click when it isn’t on the computer', async ({ 
   await expect(win.getByText('The speech engine is downloaded.')).toBeVisible()
 })
 
-test('never counts voices stopped part way as downloaded', async ({ launch }, testInfo) => {
+test('never counts voices stopped part way as downloaded, and repairs them when they can’t be loaded', async ({ launch }, testInfo) => {
   const fake = fakes(testInfo)
-  const { win } = await launch({ env: fake.env })
+  const { win, dataDir } = await launch({ env: fake.env })
   await openSpeech(win)
   const section = engine(win)
   await section.getByRole('switch', { name: 'Start with AI Write' }).click()
@@ -375,6 +420,27 @@ test('never counts voices stopped part way as downloaded', async ({ launch }, te
   await expect(win.getByText('The voices are downloaded.')).toBeVisible()
   await expect(fact(win, 'Voices')).toHaveText(/^Ready/)
   expect(await invoke(win, 'getSpeechStatus')).toMatchObject({ voicesReady: true, installed: { voices: 'own' } })
+
+  // Part of the voice engine goes missing (antivirus): it says so, and downloading it again sets it up afresh.
+  const speech = join(dataDir, 'app', 'speech')
+  const damaged = join(speech, 'venvs', 'breeze', 'damaged.txt')
+  writeFileSync(damaged, "ModuleNotFoundError: No module named 'qwen_tts'")
+  await section.getByRole('button', { name: 'Check', exact: true }).click()
+  await expect(fact(win, 'Voices')).toHaveText('Couldn’t load')
+  await expect(
+    section.getByText(
+      'The voice engine couldn’t load the voices. Download it again below to set it up afresh (about 4 GB); the voices already downloaded are kept.',
+      { exact: true }
+    )
+  ).toBeVisible()
+  await section.getByRole('button', { name: 'Download the voice engine again' }).click()
+  await expect(fact(win, 'Voices')).toHaveText('Downloading')
+  await expect(fact(win, 'Voices')).toHaveText(/^Ready/)
+  await expect(section.getByText('Connected', { exact: true })).toBeVisible()
+  await expect(section.getByText('The voice engine couldn’t load the voices.', { exact: false })).toHaveCount(0)
+  expect(existsSync(damaged)).toBe(false)
+  const log = readFileSync(join(speech, 'logs', 'install.log'), 'utf8')
+  expect(log.match(/Setting up Python for the voices \(venv\)/g)).toHaveLength(2)
 })
 
 test('uses MCreader’s copy of the voices once it is complete, so the 12 GB isn’t downloaded twice', async ({ launch }, testInfo) => {
@@ -484,6 +550,10 @@ test('asks for the voices’ licence with a link and a key box; the key is kept 
   await section.getByRole('button', { name: 'Save key and try again' }).click()
   await expect(section.getByText('Hugging Face asks for the voices’ licence to be accepted before they can download.')).toBeVisible()
   await expect(section.getByText('A Hugging Face key is saved on this computer, encrypted.')).toBeVisible()
+  await expect(
+    section.getByText('Then Try again. The key saved below has to be from the account that accepted the licence.', { exact: true })
+  ).toBeVisible()
+  await expect(section.getByRole('link', { name: 'Make a key on Hugging Face' })).toHaveCount(0)
   fake.set({})
   await section.getByRole('button', { name: 'Try again', exact: true }).click()
   await expect(win.getByText('The voices are downloaded.')).toBeVisible()

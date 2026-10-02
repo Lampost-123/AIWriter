@@ -91,7 +91,6 @@ let checked = false
 let nvidia: string | null = null
 let lookingForCard: Promise<void> | null = null
 let mcreader: string | null | undefined
-let pythons: FoundPython[] | null = null
 let poll: ReturnType<typeof setInterval> | null = null
 /** Environments to set up afresh at their next download: the speech engine asked for again (the repair), or a check step that failed. */
 const rebuild = new Set<'server' | 'voices'>()
@@ -201,20 +200,23 @@ const pythonMissing = (): Failure => {
   }
 }
 
+/** The Pythons on this computer, looked for afresh each time an environment is made (one may have been installed or removed since). */
 async function detectPythons(): Promise<FoundPython[]> {
   if (fake.install()) {
     const installed = existsSync(join(userDataDir(), 'fake-python'))
     return fake.python() && !installed ? [] : [{ path: process.execPath, version: [3, 13, 0] }]
   }
-  if (!pythons || pythons.length === 0) pythons = await findPythons(realSystem())
-  return pythons
+  return findPythons(realSystem())
 }
 
-/** An environment that is there and whose Python runs. */
+/**
+ * An environment that is there, whose Python runs and has its package installer: one stopped while it was
+ * being made has none, and is then made afresh rather than failing at "Updating Python’s package installer".
+ */
 async function venvWorks(python: string): Promise<boolean> {
   if (!existsSync(python)) return false
   if (fake.install()) return true
-  const { code } = await realSystem().run(python, ['-c', 'import sys'], 30_000)
+  const { code } = await realSystem().run(python, ['-I', '-m', 'pip', '--version'], 60_000)
   return code === 0
 }
 
@@ -261,6 +263,18 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
         need: null,
         link: ''
       }
+    }
+  }
+  if ((kind === 'parakeet' || kind === 'whisper') && installedNow(p, manifest)[kind]) {
+    // Downloaded already: this is the repair Settings offers when it couldn't be loaded. The server (starting
+    // again after its own environment was set up afresh) lets go of it, and its files are fetched afresh.
+    if (starting) await starting
+    if (health?.dictation?.engine === kind) await pickDictation(address(), 'none', 15_000)
+    try {
+      await rm(kind === 'parakeet' ? p.parakeet : p.whisper, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 })
+    } catch {
+      const name = kind === 'parakeet' ? 'Parakeet' : 'Whisper'
+      return { failure: { error: `Some of ${name}’s files are still in use. Wait a moment, then Try again.`, need: null, link: '' } }
     }
   }
   const installed = installedNow(p, manifest)
@@ -314,11 +328,11 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   else if (kind === 'voices') manifest.voices = { at, from: 'own', root: before.home, gpu: result.gpu ?? '' }
   else manifest[kind] = { at }
   writeManifest(file, manifest)
-  if (kind === 'server' || kind === 'voices') rebuild.delete(kind)
+  // Set up afresh: the repair, or Try again after its check failed.
+  const afresh = (kind === 'server' || kind === 'voices') && rebuild.delete(kind)
   if (kind === 'voices' && result.gpu !== null && !nvidia) nvidia = result.gpu
-  // pip's downloads and the steps' leftovers aren't needed once it worked.
-  void rm(join(before.cache, 'pip'), { recursive: true, force: true }).catch(() => undefined)
-  void rm(join(before.cache, 'tmp'), { recursive: true, force: true }).catch(() => undefined)
+  // pip's and Hugging Face's downloads and the steps' leftovers aren't needed once it worked.
+  for (const dir of ['pip', 'hf', 'tmp']) void rm(join(before.cache, dir), { recursive: true, force: true }).catch(() => undefined)
 
   const s = speechSettings()
   // The speech engine is (again) ready to start; or it was stopped while its environment was set up afresh.
@@ -326,8 +340,9 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
     if (s.runServer) void ensureRunning()
     else void refresh()
   }
-  // The server was running MCreader's copy: it runs AI Write's own from now on.
-  else if (kind === 'voices' && before.breezeRoot !== before.home) void restart()
+  // The server was running MCreader's copy: it runs AI Write's own from now on. Or their environment was set up
+  // afresh: it starts afresh too, rather than going on saying why the old one couldn't load them.
+  else if (kind === 'voices' && (before.breezeRoot !== before.home || afresh)) void restart()
   else if ((kind === 'parakeet' || kind === 'whisper') && s.dictationEngine === kind && health) void useDictation(kind)
   // The server sees new files as they arrive: ask it again now rather than at the next check.
   else void refresh()
@@ -650,6 +665,15 @@ export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechSt
     // speech server already answers here.
     if (!speechSettings().runServer && !health) updateSettings({ speech: { runServer: true } })
     downloads.start('server')
+  } else if (!downloads.pending(kind)) {
+    // Downloaded already: the repair Settings offers when it couldn't be loaded. The voices' environment is set
+    // up afresh (the voices themselves are kept). A dictation model's engine comes back with the speech engine's
+    // environment set up afresh (the server stops meanwhile), then the model is fetched again (plan()).
+    if (kind === 'voices' && installed.voices === 'own') rebuild.add('voices')
+    if ((kind === 'parakeet' || kind === 'whisper') && installed[kind] && !downloads.pending('server')) {
+      rebuild.add('server')
+      downloads.start('server')
+    }
   }
   downloads.start(kind)
   return status()
@@ -673,7 +697,6 @@ export async function installPython(): Promise<SpeechStatus> {
     throw new UserError('Windows’ installer isn’t available here. Install Python 3.13 from python.org, then Try again.', 'python-manual')
   const steps = fakeWinget ? fakeSteps('python', [pythonStep(winget)]) : [pythonStep(winget)]
   downloads.startWith('server', steps, () => {
-    pythons = null
     if (fakeWinget) writeFileSync(join(userDataDir(), 'fake-python'), '')
     downloads.start('server')
   })

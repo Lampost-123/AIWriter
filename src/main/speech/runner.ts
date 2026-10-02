@@ -120,7 +120,7 @@ export class StepRunner {
         })
       } catch (e) {
         opts.log(`Could not start ${step.command}: ${e instanceof Error ? e.message : String(e)}\n`)
-        resolve({ failure: { error: cantStart(step), need: null, link: '' }, gpu })
+        resolve({ failure: orByHand(step, { error: cantStart(step), need: null, link: '' }), gpu })
         return
       }
       this.child = child
@@ -141,11 +141,11 @@ export class StepRunner {
         if (this.cancelled) return resolve({ failure: null, gpu })
         if (spawnError) {
           opts.log(`Could not start ${step.command}: ${spawnError.message}\n`)
-          return resolve({ failure: { error: cantStart(step), need: null, link: '' }, gpu })
+          return resolve({ failure: orByHand(step, { error: cantStart(step), need: null, link: '' }), gpu })
         }
         opts.log(`(exit ${code})\n`)
         if (code === 0) return resolve({ failure: null, gpu })
-        resolve({ failure: explainFailure(recent, step.fails, this.platform), gpu })
+        resolve({ failure: orByHand(step, explainFailure(recent, step.fails, this.platform)), gpu })
       }
       child.on('error', (e) => finish(null, e))
       child.on('close', (code) => finish(code))
@@ -161,6 +161,11 @@ function forExplaining(ev: OutputEvent): string | null {
   if (ev.kind === 'licence') return `@@licence ${ev.url}`
   if (ev.kind === 'key') return '@@key'
   return null
+}
+
+/** A failed step that can be done by hand instead (Python, from python.org) links where, unless its problem has a fix of its own. */
+function orByHand(step: Step, failure: Failure): Failure {
+  return step.byHand && !failure.need ? { ...failure, need: 'python-manual', link: step.byHand } : failure
 }
 
 /** A step whose program couldn't even start. */

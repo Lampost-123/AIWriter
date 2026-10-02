@@ -26,6 +26,9 @@ _choice = "none"
 _whisper = None
 _parakeet = None
 _last_used = 0.0
+# Why each model couldn't be loaded the last time it was asked for (gone once it loads): /v1/health says
+# so, and AI Write's Settings explains it in plain words, with the fix.
+_load_errors: dict[str, str] = {}
 
 # Only sounds that are never words ("um", "umm", "uh", "er", "erm"). "Ah", "hmm" and "mm" stay: in a
 # story they are often meant, and so are "uh-huh" and "uh-oh" (hyphen or not).
@@ -103,6 +106,7 @@ def statuses() -> list[dict]:
             "loaded": _parakeet is not None and picked == "parakeet",
             "voices": 0,
             "detail": "tdt-0.6b · int8" if _parakeet_ready() else "Not installed. Download it in AI Write's Settings, Read aloud and dictation.",
+            "loadError": _load_errors.get("parakeet", ""),
         },
         {
             "id": "whisper",
@@ -112,6 +116,7 @@ def statuses() -> list[dict]:
             "loaded": _whisper is not None and picked == "whisper",
             "voices": 0,
             "detail": WHISPER_MODEL if _whisper_ready() else "Not installed. Download it in AI Write's Settings, Read aloud and dictation.",
+            "loadError": _load_errors.get("whisper", ""),
         },
     ]
 
@@ -160,6 +165,19 @@ def _load_parakeet():
     )
 
 
+def _load(engine: str):
+    """Load `engine`'s model, remembering why when it can't be (one that isn't downloaded just says so)."""
+    try:
+        model = _load_whisper() if engine == "whisper" else _load_parakeet()
+    except DictationError:
+        raise
+    except Exception as exc:
+        _load_errors[engine] = f"{exc.__class__.__name__}: {exc}"
+        raise
+    _load_errors.pop(engine, None)
+    return model
+
+
 def _drop() -> None:
     global _whisper, _parakeet
     _whisper = None
@@ -177,9 +195,9 @@ def use(engine: str) -> str:
         _drop()
         _choice = engine
         if engine == "whisper":
-            _whisper = _load_whisper()
+            _whisper = _load("whisper")
         elif engine == "parakeet":
-            _parakeet = _load_parakeet()
+            _parakeet = _load("parakeet")
         _last_used = time.time()
     return engine
 
@@ -227,9 +245,9 @@ def transcribe(path: str | Path) -> str:
     with _lock:
         # Let go after a quiet spell: load the chosen model again.
         if _choice == "whisper" and _whisper is None:
-            _whisper = _load_whisper()
+            _whisper = _load("whisper")
         elif _choice == "parakeet" and _parakeet is None:
-            _parakeet = _load_parakeet()
+            _parakeet = _load("parakeet")
         _last_used = time.time()
         if _choice == "whisper":
             raw = _hear_whisper(path)

@@ -14,6 +14,10 @@
 //   dictationEngine   the dictation model it starts with: 'parakeet' (default), 'whisper' or 'none'
 //   device            what the voices run on (default 'CUDA · NVIDIA GeForce RTX 4090'; 'CPU' for the processor)
 //   healthDelayMs     how long /health takes to answer (default 0)
+//   voicesLoadError   why the voices fail to load, as the real server reports it (loadError, and warm-up's answer);
+//                     in AI Write's speech folder (home), the words in venvs/breeze/damaged.txt say the same, until
+//                     a download sets that environment up afresh
+//   dictationLoadError { parakeet?, whisper? }: the same for a dictation model; in home, models/<model>/damaged.txt
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -94,18 +98,37 @@ function ready(state, id) {
   return options.home ? onDisk(options, id) : true
 }
 
+/** Why a downloaded model fails to load (the real server's loadError): from the options, or the damaged.txt a test left. */
+function loadError(state, id) {
+  const options = state.options ?? {}
+  const given = id === 'voices' ? options.voicesLoadError : options.dictationLoadError?.[id]
+  if (given) return String(given)
+  if (!options.home) return ''
+  const dir = id === 'voices' ? join(options.breezeRoot || options.home, 'venvs', 'breeze') : join(options.home, 'models', id)
+  try {
+    return readFileSync(join(dir, 'damaged.txt'), 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+
 function health(state) {
   const engine = engineOf(state)
   const voices = ready(state, 'voices')
-  const model = (id, name) => ({
-    id,
-    name,
-    blurb: '',
-    ready: ready(state, id),
-    loaded: state.loaded.has(id) && engine === id,
-    voices: 0,
-    detail: ready(state, id) ? '' : 'Not installed. Download it in AI Write’s Settings, Read aloud and dictation.'
-  })
+  const voicesError = voices ? loadError(state, 'voices') : ''
+  const model = (id, name) => {
+    const error = ready(state, id) ? loadError(state, id) : ''
+    return {
+      id,
+      name,
+      blurb: '',
+      ready: ready(state, id),
+      loaded: state.loaded.has(id) && engine === id && !error,
+      voices: 0,
+      detail: ready(state, id) ? '' : 'Not installed. Download it in AI Write’s Settings, Read aloud and dictation.',
+      loadError: error
+    }
+  }
   return {
     ok: true,
     service: 'aiwrite-speech',
@@ -121,8 +144,9 @@ function health(state) {
         name: 'Breeze TTS 2',
         blurb: '',
         ready: voices,
-        loaded: voices && state.loaded.has('breeze'),
-        detail: voices ? '' : 'Not downloaded yet. Download the voices in AI Write’s Settings, Read aloud and dictation.',
+        loaded: voices && !voicesError && state.loaded.has('breeze'),
+        detail: voices ? voicesError : 'Not downloaded yet. Download the voices in AI Write’s Settings, Read aloud and dictation.',
+        loadError: voicesError,
         voices: voices ? 8 : 0,
         loadSeconds: 0,
         requests: 0
@@ -131,7 +155,7 @@ function health(state) {
     ready: voices,
     dictation: {
       engine,
-      loaded: engine !== 'none' && state.loaded.has(engine) ? engine : null,
+      loaded: engine !== 'none' && state.loaded.has(engine) && !loadError(state, engine) ? engine : null,
       models: [model('parakeet', 'Parakeet'), model('whisper', 'Whisper')]
     }
   }
@@ -167,6 +191,7 @@ const warmup = (_req, body, state) => {
   for (const name of names) {
     if (name !== 'breeze') engines[name] = `Unknown engine “${name}”. Try one of: breeze.`
     else if (!ready(state, 'voices')) engines.breeze = 'Breeze TTS 2 could not start: Not downloaded yet.'
+    else if (loadError(state, 'voices')) engines.breeze = `Breeze TTS 2 could not start: ${loadError(state, 'voices')}`
     else {
       state.loaded.add('breeze')
       engines.breeze = 'ready'
@@ -196,6 +221,15 @@ const pickDictation = (_req, body, state) => {
       return json(
         {
           detail: `${engine === 'parakeet' ? 'Parakeet' : 'Whisper'} is not installed. Download it in Settings, Read aloud and dictation.`
+        },
+        503
+      )
+    // As the real server: the pick is kept, and the reason it didn't load shows in /health.
+    if (loadError(state, engine))
+      return json(
+        {
+          detail:
+            'That dictation model couldn’t be loaded. Download it again in Settings › Read aloud and dictation, or pick the other one.'
         },
         503
       )

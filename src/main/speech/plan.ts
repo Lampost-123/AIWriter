@@ -6,6 +6,7 @@
 // is safe to run again, so Try again simply starts the download over. Pure: tests read the plans.
 import type { DictationModel, SpeechDownloadKind } from '@shared/contracts/speech'
 import { join } from 'node:path'
+import { PYTHON_PAGE } from './output'
 import { venvPython, type SpeechPaths } from './paths'
 import { wingetArgs } from './system'
 
@@ -24,6 +25,8 @@ export interface Step {
   expect?: number
   /** What Adam reads if it fails without saying why. */
   fails: string
+  /** Where to get it by hand instead, linked when the step fails (python.org, for Python's installer). */
+  byHand?: string
 }
 
 export interface PlanInput {
@@ -56,7 +59,10 @@ const PIP = ['-m', 'pip', 'install', '--no-input', '--disable-pip-version-check'
 
 const TRY_AGAIN = 'Check the internet connection, then Try again.'
 
-/** The variables every step runs with: unbuffered UTF-8 output, and pip's and Python's own files kept in the speech folder's cache. */
+/**
+ * The variables every step runs with: unbuffered UTF-8 output, and pip's, Python's and Hugging Face's own files
+ * kept in the speech folder's cache (never a key saved elsewhere on this computer: only the weights step gets one).
+ */
 export function stepEnv(paths: SpeechPaths): Record<string, string> {
   const tmp = join(paths.cache, 'tmp')
   return {
@@ -68,6 +74,8 @@ export function stepEnv(paths: SpeechPaths): Record<string, string> {
     PIP_CACHE_DIR: join(paths.cache, 'pip'),
     PIP_NO_INPUT: '1',
     PIP_DISABLE_PIP_VERSION_CHECK: '1',
+    // The voices' weights step has its own (models/hf, where the server reads them).
+    HF_HOME: join(paths.cache, 'hf'),
     HF_HUB_DISABLE_TELEMETRY: '1',
     HF_HUB_DISABLE_PROGRESS_BARS: '1',
     // Hugging Face's newer downloader keeps a chunk cache of its own; the files are only fetched once.
@@ -78,14 +86,27 @@ export function stepEnv(paths: SpeechPaths): Record<string, string> {
   }
 }
 
-/** The variables a step must never inherit from AI Write's own environment. */
+/**
+ * The variables a step (or the server) must never inherit from AI Write's own environment: they would point
+ * Python, pip or Hugging Face somewhere else (the weights into another folder, say), or keep it offline.
+ */
 export const DROP_ENV = [
   'PYTHONHOME',
   'PYTHONPATH',
   'PYTHONSTARTUP',
   'VIRTUAL_ENV',
+  'PIP_USER',
+  'PIP_TARGET',
+  'PIP_PREFIX',
   'HF_TOKEN',
   'HUGGING_FACE_HUB_TOKEN',
+  'HF_TOKEN_PATH',
+  'HF_HOME',
+  'HF_HUB_CACHE',
+  'HUGGINGFACE_HUB_CACHE',
+  'TRANSFORMERS_CACHE',
+  'HF_HUB_OFFLINE',
+  'TRANSFORMERS_OFFLINE',
   'ELECTRON_RUN_AS_NODE'
 ]
 
@@ -260,7 +281,8 @@ export function pythonStep(winget: string): Step {
     command: winget,
     args: wingetArgs(),
     progress: 'whole',
-    fails: 'Windows’ installer couldn’t install Python. Try again, or install Python 3.13 from python.org.'
+    fails: 'Windows’ installer couldn’t install Python. Try again, or install Python 3.13 from python.org.',
+    byHand: PYTHON_PAGE
   }
 }
 

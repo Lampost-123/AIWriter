@@ -114,6 +114,23 @@ describe('running a download’s steps', () => {
     expect(log.join('')).toContain('Could not start /no/such/python')
   })
 
+  it('links where to get it by hand when a step that can be done by hand fails (Python, from python.org)', async () => {
+    const byHand = 'https://www.python.org/downloads/'
+    const failed = await runner([nodeStep('python', `process.exit(1)`, { byHand })]).r.run()
+    expect(failed).toEqual({
+      outcome: 'failed',
+      failure: { error: 'Step python didn’t finish. Try again.', need: 'python-manual', link: byHand }
+    })
+    const missing = await runner([{ ...nodeStep('python', '', { byHand }), command: '/no/such/winget' }]).r.run()
+    expect(missing).toMatchObject({ outcome: 'failed', failure: { need: 'python-manual', link: byHand } })
+    expect(missing.outcome === 'failed' && missing.failure.error).toMatch(/Windows’ installer couldn’t be started/)
+    // A problem with a fix of its own keeps it.
+    const licence = await runner([
+      nodeStep('python', `console.log('@@licence https://huggingface.co/x'); process.exit(3)`, { byHand })
+    ]).r.run()
+    expect(licence).toMatchObject({ outcome: 'failed', failure: { need: 'licence', link: 'https://huggingface.co/x' } })
+  })
+
   it('ends a step at Cancel, with everything it started', async () => {
     const { r, updates } = runner([
       nodeStep(

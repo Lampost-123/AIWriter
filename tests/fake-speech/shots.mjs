@@ -6,7 +6,8 @@
 //   xvfb-run -a -s "-screen 0 1440x900x24" node tests/fake-speech/shots.mjs /tmp/m4-shots/speech python
 //
 // The first run goes from Not running through each download to everything ready (the voices' licence and a
-// key Hugging Face turns down on the way), More, a speech engine with a part missing, and Remove downloads.
+// key Hugging Face turns down on the way, the voices and Whisper failing to load and downloaded again), More,
+// a speech engine with a part missing, and Remove downloads.
 // The second ("python") starts without Python, installs it, and uses a copy of MCreader v2's voices.
 import { _electron as electron } from '@playwright/test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -22,6 +23,8 @@ const dir = mkdtempSync(join(tmpdir(), 'aiwrite-speech-'))
 const controlFile = join(dir, 'control.json')
 const setControl = (c) => writeFileSync(controlFile, JSON.stringify(c))
 setControl({})
+/** Makes the fake server say a model couldn't be loaded, with the reason the real one gives (engine.mjs, damaged.txt). */
+const damage = (folder, reason) => writeFileSync(join(dir, 'app', 'speech', ...folder, 'damaged.txt'), reason)
 
 /** A folder with what MCreader v2's tts folder has once its voices are downloaded (empty files, all the weights). */
 function fakeMCreader() {
@@ -126,8 +129,15 @@ async function main() {
   await theme('dark')
   await shot('08-server-failed-dark-1280')
   await theme('light')
+  // Dismissed: the download is still one click away.
+  await win.getByRole('button', { name: 'Dismiss' }).click()
+  await win.waitForSelector('text=Download the speech engine (about 150 MB)', { timeout: 10000 })
+  await shot('08a-server-dismissed-light-1280')
+  await theme('dark')
+  await shot('08b-server-dismissed-dark-1280')
+  await theme('light')
   setControl({})
-  await win.getByRole('button', { name: 'Try again' }).click()
+  await win.getByRole('button', { name: 'Download the speech engine (about 150 MB)' }).click()
   await win.waitForSelector('text=Connected', { timeout: 30000 })
   await win.waitForTimeout(800)
   await shot('09-connected-light-1280')
@@ -181,6 +191,29 @@ async function main() {
   await shot('18-voices-downloaded-toast-light-1280')
   await toasts()
 
+  // The voices couldn't be loaded: out of the graphics card's memory, then part of their engine missing.
+  damage(['venvs', 'breeze'], 'OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB')
+  await win.getByRole('button', { name: 'Check', exact: true }).click()
+  await win.waitForSelector('text=The graphics card ran out of memory', { timeout: 15000 })
+  await scrollTo('Speech engine')
+  await shot('18a-voices-out-of-memory-light-1280')
+  damage(['venvs', 'breeze'], "ModuleNotFoundError: No module named 'qwen_tts'")
+  await win.getByRole('button', { name: 'Check', exact: true }).click()
+  await win.waitForSelector('text=The voice engine couldn’t load the voices', { timeout: 15000 })
+  await scrollTo('Voices')
+  await shot('18b-voices-cant-load-light-1280')
+  await theme('dark')
+  await shot('18c-voices-cant-load-dark-1280')
+  await theme('light')
+  await size(960, 600)
+  await scrollTo('Voices')
+  await shot('18d-voices-cant-load-light-960')
+  await size(1280, 800)
+  await win.getByRole('button', { name: 'Download the voice engine again' }).click()
+  await win.waitForSelector('text=The voices are downloaded', { timeout: 30000 })
+  await win.waitForSelector('text=Connected', { timeout: 30000 })
+  await toasts()
+
   // Dictation: Whisper, picked and downloaded.
   setControl({ 'whisper:model': 'slow' })
   await win.getByRole('radio', { name: /Whisper/ }).click()
@@ -208,6 +241,21 @@ async function main() {
   await theme('sepia')
   await shot('24-all-ready-sepia-960')
   await theme('light')
+
+  // Whisper couldn't be loaded (a damaged file): one click downloads it again.
+  damage(['models', 'whisper'], 'RuntimeError: Unable to open file model.bin in model models/whisper')
+  await win.getByRole('button', { name: 'Check', exact: true }).click()
+  await win.waitForSelector('text=Whisper couldn’t be loaded', { timeout: 15000 })
+  await scrollTo('Speech engine')
+  await shot('24a-whisper-cant-load-light-960')
+  await theme('dark')
+  await scrollTo('Dictation')
+  await shot('24b-whisper-cant-load-dark-960')
+  await theme('light')
+  await win.getByRole('button', { name: 'Download Whisper again' }).click()
+  await win.waitForSelector('text=Whisper is downloaded', { timeout: 30000 })
+  await toasts()
+  await win.waitForTimeout(1500)
 
   // Parakeet picked while Whisper runs: the fact is about Parakeet until it is all there.
   setControl({ 'parakeet:model': 'slow' })

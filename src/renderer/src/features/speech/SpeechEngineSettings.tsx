@@ -3,7 +3,14 @@
 // Face key, where things are kept and removing them (More). Owned by the Speech engine part.
 import { AudioLines, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
-import type { DictationModel, SpeechDownload, SpeechDownloadKind, SpeechStatus, SpeechStorage } from '@shared/contracts/speech'
+import type {
+  DictationModel,
+  SpeechDownload,
+  SpeechDownloadKind,
+  SpeechLoadProblem,
+  SpeechStatus,
+  SpeechStorage
+} from '@shared/contracts/speech'
 import { SPEECH_SERVER_URL } from '@shared/defaults'
 import { Badge, Button, Card, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
@@ -67,6 +74,7 @@ function standIn(runServer: boolean): SpeechStatus {
     repair: false,
     installed: { server: runServer, voices: null, parakeet: false, whisper: false },
     loaded: { voices: false, dictation: null },
+    loadProblems: { voices: null, dictation: null },
     device: '',
     nvidia: null,
     mcreader: null,
@@ -152,6 +160,8 @@ function Fact({
 function voicesFact(s: SpeechStatus): { value: string; ready: boolean } {
   if (isPending(s, 'voices')) return { value: 'Downloading', ready: false }
   if (s.server === 'connected') {
+    // Ready, but they failed to load the last time: the Voices row below says why.
+    if (s.voicesReady && s.loadProblems.voices) return { value: 'Couldn’t load', ready: false }
     if (s.voicesReady) return { value: s.loaded.voices ? 'Ready, loaded' : 'Ready', ready: true }
     return { value: s.installed.voices ? 'Not ready' : 'Not downloaded', ready: false }
   }
@@ -175,6 +185,7 @@ function dictationFact(s: SpeechStatus, picked: 'none' | DictationModel): { valu
   const name = modelName(picked)
   if (isPending(s, picked)) return { value: `${name}, downloading`, ready: false }
   if (s.server === 'connected') {
+    if (s.dictationReady && s.loadProblems.dictation) return { value: `${name}, couldn’t load`, ready: false }
     if (s.dictationReady) return { value: s.loaded.dictation === picked ? `${name}, loaded` : `${name}, ready`, ready: true }
     return { value: s.installed[picked] ? `${name}, not ready` : `${name}, not downloaded`, ready: false }
   }
@@ -226,10 +237,31 @@ function StatusLine({ status }: { status: SpeechStatus }): React.JSX.Element | n
       </div>
     )
   }
+  if (status.managed && !status.installed.server && status.download?.kind !== 'server') {
+    // Its download stopped and was dismissed (or never began): the way to carry on is here.
+    return (
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-[12.5px] leading-5 text-muted">It starts once the speech engine is downloaded.</span>
+        <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => void download('server')}>
+          Download the speech engine ({KINDS.server.size})
+        </Button>
+      </div>
+    )
+  }
   let text = 'Turn on “Start with AI Write” below to run it whenever AI Write is open.'
   if (status.managed) text = status.installed.server ? 'Press Check to start it.' : 'It starts once the speech engine is downloaded.'
   else if (custom) text = `Nothing answers at ${status.address}. Start that speech server, or turn on “Start with AI Write” below.`
   return <p className={cn(line, 'text-muted')}>{text}</p>
+}
+
+/** Why the voices or a dictation model couldn't be loaded, in plain words, and the download that repairs it. */
+function LoadProblem({ problem, repair }: { problem: SpeechLoadProblem; repair: ReactNode }): React.JSX.Element {
+  return (
+    <div className="mt-3">
+      <p className="text-[12.5px] leading-5 text-danger">{problem.text}</p>
+      {problem.repair ? <div className="mt-2.5">{repair}</div> : null}
+    </div>
+  )
 }
 
 function Row({
@@ -297,6 +329,7 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
   // A download that stopped has its own Try again.
   const stopped = status.download?.kind === 'voices' && status.download.state !== 'done'
   const noCard = status.nvidia === ''
+  const problem = pending || stopped ? null : status.loadProblems.voices
   return (
     <Row
       icon={<AudioLines size={16} />}
@@ -323,6 +356,16 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
           No NVIDIA graphics card was found on this computer, so the voices would be far too slow here.
         </p>
+      ) : null}
+      {problem ? (
+        <LoadProblem
+          problem={problem}
+          repair={
+            <Button size="sm" icon={<Download size={13} />} onClick={() => void download('voices')}>
+              Download the voice engine again
+            </Button>
+          }
+        />
       ) : null}
       {!installed && !pending && (!stopped || status.mcreader) ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -372,6 +415,7 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   const missing = chosen && !status.installed[chosen] && !isPending(status, chosen) && status.download?.kind !== chosen
   // Only the model picked, or one still downloading: a download stopped for a model Adam moved away from isn't offered again.
   const shows = (m: DictationModel): boolean => m === chosen || isPending(status, m)
+  const problem = chosen && !isPending(status, chosen) && status.download?.kind !== chosen ? status.loadProblems.dictation : null
   return (
     <Row icon={<Mic size={16} />} title="Dictation">
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
@@ -392,6 +436,16 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
             Download {modelName(chosen)} ({KINDS[chosen].size})
           </Button>
         </div>
+      ) : null}
+      {problem && chosen ? (
+        <LoadProblem
+          problem={problem}
+          repair={
+            <Button size="sm" icon={<Download size={13} />} onClick={() => void download(chosen)}>
+              Download {modelName(chosen)} again
+            </Button>
+          }
+        />
       ) : null}
       {shows('parakeet') ? <DownloadFor kind="parakeet" status={status} /> : null}
       {shows('whisper') ? <DownloadFor kind="whisper" status={status} /> : null}
@@ -596,9 +650,13 @@ function Licence({ download: d, retry, dismiss }: { download: SpeechDownload; re
           </a>
           , sign in, and accept the licence.
         </li>
-        <li>
-          <KeysPageLink>Make a key on Hugging Face</KeysPageLink> (read access is enough) and paste it below.
-        </li>
+        {saved ? (
+          <li>Then Try again. The key saved below has to be from the account that accepted the licence.</li>
+        ) : (
+          <li>
+            <KeysPageLink>Make a key on Hugging Face</KeysPageLink> (read access is enough) and paste it below.
+          </li>
+        )}
       </ol>
       <div className="mt-3">
         <HuggingFaceKey compact onSaved={() => void download(d.kind)} />

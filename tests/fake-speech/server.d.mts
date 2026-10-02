@@ -19,6 +19,10 @@ export interface FakeSpeechOptions {
   device?: string
   /** How long /health takes to answer, in ms. */
   healthDelayMs?: number
+  /** Why the voices fail to load, as the real server reports it ('OutOfMemoryError: CUDA out of memory...'). */
+  voicesLoadError?: string
+  /** The same for a dictation model. */
+  dictationLoadError?: { parakeet?: string; whisper?: string }
   /** Refuse what the real server refuses (speech-server/app/guard.py): another Host than this computer, or a request that changes something without AI Write's header or a JSON or audio body. */
   guard?: boolean
   /** Called once the server has stopped after /shutdown. */

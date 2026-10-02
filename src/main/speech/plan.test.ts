@@ -136,16 +136,23 @@ describe('the download steps', () => {
     expect(step.args).toEqual(
       expect.arrayContaining(['--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'])
     )
+    // If it fails, python.org is linked as the way to do it by hand.
+    expect(step.byHand).toBe('https://www.python.org/downloads/')
   })
 
-  it('keep pip’s and Python’s own files in the speech folder’s cache, and never inherit a key', () => {
+  it('keep pip’s, Python’s and Hugging Face’s own files in the speech folder’s cache, and never inherit a key', () => {
     const p = speechPaths(userData, source, null, 'linux')
     const env = stepEnv(p)
     expect(env.PIP_CACHE_DIR).toBe(join(userData, 'speech', 'cache', 'pip'))
     expect(env.TMPDIR).toBe(join(userData, 'speech', 'cache', 'tmp'))
+    // Not ~/.cache/huggingface, where a key saved for another app would be found and used.
+    expect(env.HF_HOME).toBe(join(userData, 'speech', 'cache', 'hf'))
     expect(env.PYTHONUNBUFFERED).toBe('1')
     expect(env).not.toHaveProperty('HF_TOKEN')
     expect(DROP_ENV).toEqual(expect.arrayContaining(['HF_TOKEN', 'HUGGING_FACE_HUB_TOKEN', 'PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV']))
+    // Nor anything that would put the downloads somewhere else, or keep them offline.
+    expect(DROP_ENV).toEqual(expect.arrayContaining(['HF_HOME', 'HF_HUB_CACHE', 'HUGGINGFACE_HUB_CACHE', 'HF_HUB_OFFLINE', 'PIP_USER']))
+    expect(DROP_ENV.every((name) => name === name.toUpperCase())).toBe(true)
   })
 })
 

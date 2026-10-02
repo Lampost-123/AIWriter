@@ -3,10 +3,11 @@
 // tool's "@@progress", "@@error", "@@licence", "@@key" and "@@gpu" lines), and leaves (empty) files in the
 // speech folder (AIWRITE_SPEECH_HOME) where and when the real steps do, so a download stopped part way
 // leaves what a real one would:
-//   the server     its environment's Python (the 'venv' step)
-//   the voices     their environment ('venv'), Breeze's code ('code'), the weights ('weights': the small files
-//                  first, the shards last), and the mark that says they are downloaded (only 'check' leaves
-//                  it; 'weights' removes it, as the real steps do)
+//   the server     its environment's Python (the 'venv' step, which empties the environment first, as the
+//                  real one's --clear does)
+//   the voices     their environment ('venv', made afresh the same way), Breeze's code ('code'), the weights
+//                  ('weights': the small files first, the shards last), and the mark that says they are
+//                  downloaded (only 'check' leaves it; 'weights' removes it, as the real steps do)
 //   Parakeet       unpacked aside (models/parakeet/.unpack) and moved into place once all four files are there
 //   Whisper        its snapshot, with a half-downloaded file until the step ends
 //
@@ -54,6 +55,8 @@ const WHISPER = ['models', 'whisper', 'models--Systran--faster-whisper-base.en']
 
 /** What a step leaves as it starts (what the real one fetches first). */
 function begin() {
+  // As `python -m venv --clear`: whatever was in the environment goes.
+  if (step === 'venv') rmSync(join(home, ...(kind === 'voices' ? ['venvs', 'breeze'] : ['venv'])), { recursive: true, force: true })
   if (kind === 'voices' && step === 'weights') {
     // The voices may change from here on: they count as downloaded again only once checked.
     rmSync(join(home, ...MARK), { force: true })
