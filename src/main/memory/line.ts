@@ -440,6 +440,26 @@ export function storyOrder(shape: WorldShape): (place: { storyId: ID | null; sce
   }
 }
 
+/**
+ * For the clash rule: a side story's host, and the host's own places between the side story's start
+ * and the point it is added (its start-of-story changes count when the side story starts before them).
+ */
+export function hostSpans(shape: WorldShape): (sideId: ID) => { hostId: ID; startChanges: boolean; sceneIds: ID[] } | null {
+  const ix = indexWorld(shape)
+  return (sideId) => {
+    const side = ix.stories.get(sideId)?.node
+    const host = side?.kind === 'side' && side.startStoryId ? ix.stories.get(side.startStoryId) : undefined
+    if (!side || !host) return null
+    const span = { hostId: host.node.id, startChanges: false, sceneIds: [] as ID[] }
+    for (let i = startStep(host, side.startAt, side.startRefId) + 1; i <= sideAddStep(host, side); i++) {
+      const s = host.steps[i]
+      if (s.type === 'start-changes') span.startChanges = true
+      else if (s.type === 'scene') span.sceneIds.push(s.sceneId)
+    }
+    return span
+  }
+}
+
 /** Compares two keys from storyOrder. */
 export function compareOrder(a: number[], b: number[]): number {
   for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1

@@ -1,7 +1,8 @@
 // All SQL for memory over time (milestone 2): changes, first-exists points, summaries, pins,
-// per-scene block modes and Adam's answers. Pure functions over a better-sqlite3 handle, no
-// Electron imports, so they can be unit-tested in plain Node. Which changes count where is
-// worked out in src/main/memory (the line and state), never here.
+// per-scene block modes, Adam's answers, story placement and the shape of a world's stories.
+// Pure functions over a better-sqlite3 handle, no Electron imports, so they can be unit-tested in
+// plain Node. Which changes count where is worked out in src/main/memory (the line and state),
+// never here.
 
 import type Database from 'better-sqlite3'
 import type {
@@ -22,8 +23,11 @@ import type {
   Summary,
   SummaryLevel
 } from '@shared/types'
+import type { StoryPlacement } from '@shared/api'
 import { newId, now, UserError } from '../util'
 import { recordVersion } from './history'
+import type { StoryNode, WorldShape } from '../memory/types'
+import { placementProblem } from '../memory/line'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -39,6 +43,14 @@ const json = <T>(s: unknown, fallback: T): T => {
 
 // ---------- Changes ----------
 
+/** A payload as stored, with the lists a kind always has filled in (so a damaged row can't break the memory). */
+function cleanPayload(kind: ChangeData['kind'], raw: unknown): ChangeData['payload'] {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (kind === 'full') return { ...p, description: p.description ?? '', knows: Array.isArray(p.knows) ? p.knows : [], relationships: Array.isArray(p.relationships) ? p.relationships : [] } as ChangeData['payload']
+  if (kind === 'update') return { ...p, note: p.note ?? '' } as ChangeData['payload']
+  return p as unknown as ChangeData['payload']
+}
+
 const toChange = (r: Row): Change =>
   ({
     id: r.id as string,
@@ -47,7 +59,7 @@ const toChange = (r: Row): Change =>
     storyId: (r.story_id as string) ?? null,
     sceneId: (r.scene_id as string) ?? null,
     kind: r.kind as ChangeData['kind'],
-    payload: json<ChangeData['payload']>(r.payload_json, {} as ChangeData['payload']),
+    payload: cleanPayload(r.kind as ChangeData['kind'], json<unknown>(r.payload_json, {})),
     position: r.position as number,
     origin: r.origin as Origin,
     runId: (r.run_id as string) ?? null,
@@ -76,6 +88,9 @@ function anchorFor(
   if (input.anchor === 'baseline') return { storyId: null, sceneId: null }
   if (input.anchor === 'story-start') {
     if (!input.storyId) throw new UserError('A change at the start of a story needs its story.')
+    if (!db.prepare('SELECT 1 FROM stories WHERE id = ? AND deleted_at IS NULL').get(input.storyId)) {
+      throw new UserError('That story no longer exists.')
+    }
     return { storyId: input.storyId, sceneId: null }
   }
   if (!input.sceneId) throw new UserError('A change in a scene needs its scene.')
@@ -92,6 +107,18 @@ export type NewChange = ChangeInput & {
   position?: number
 }
 
+/** After the other changes at the same place (each query uses the place's index). */
+function nextPosition(db: DB, anchor: ChangeAnchor, storyId: ID | null, sceneId: ID | null): number {
+  const r =
+    anchor === 'scene'
+      ? db.prepare("SELECT MAX(position) AS p FROM changes WHERE scene_id = ? AND anchor = 'scene' AND deleted_at IS NULL").get(sceneId)
+      : anchor === 'story-start'
+        ? db.prepare("SELECT MAX(position) AS p FROM changes WHERE story_id = ? AND anchor = 'story-start' AND deleted_at IS NULL").get(storyId)
+        : db.prepare("SELECT MAX(position) AS p FROM changes WHERE anchor = 'baseline' AND deleted_at IS NULL").get()
+  const p = (r as Row | undefined)?.p
+  return typeof p === 'number' ? p + 1 : 0
+}
+
 export function getChange(db: DB, id: ID): Change {
   const r = db.prepare('SELECT * FROM changes WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
   if (!r) throw new UserError('That change no longer exists.')
@@ -102,16 +129,7 @@ export function insertChange(db: DB, c: NewChange): Change {
   const { storyId, sceneId } = anchorFor(db, c)
   const t = now()
   const id = newId()
-  const position =
-    c.position ??
-    ((
-      db
-        .prepare(
-          `SELECT COALESCE(MAX(position), -1) AS p FROM changes
-           WHERE anchor = ? AND COALESCE(story_id, '') = COALESCE(?, '') AND COALESCE(scene_id, '') = COALESCE(?, '') AND deleted_at IS NULL`
-        )
-        .get(c.anchor, storyId, sceneId) as Row
-    ).p as number) + 1
+  const position = c.position ?? nextPosition(db, c.anchor, storyId, sceneId)
   db.prepare(
     `INSERT INTO changes (id, entry_id, anchor, story_id, scene_id, kind, payload_json, position, origin, run_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -141,8 +159,10 @@ export function insertChange(db: DB, c: NewChange): Change {
 export function replaceChange(db: DB, id: ID, c: ChangeInput & { origin: Origin; runId?: ID | null }): Change {
   const old = getChange(db, id)
   const { storyId, sceneId } = anchorFor(db, c)
+  // Moved to another place: it goes after the changes already there.
+  const moved = old.anchor !== c.anchor || old.storyId !== storyId || old.sceneId !== sceneId
   db.prepare(
-    `UPDATE changes SET entry_id = ?, anchor = ?, story_id = ?, scene_id = ?, kind = ?, payload_json = ?, run_id = ?, origin = ?, updated_at = ?
+    `UPDATE changes SET entry_id = ?, anchor = ?, story_id = ?, scene_id = ?, kind = ?, payload_json = ?, position = ?, run_id = ?, origin = ?, updated_at = ?
      WHERE id = ?`
   ).run(
     c.entryId,
@@ -151,6 +171,7 @@ export function replaceChange(db: DB, id: ID, c: ChangeInput & { origin: Origin;
     sceneId,
     c.kind,
     JSON.stringify(c.payload ?? {}),
+    moved ? nextPosition(db, c.anchor, storyId, sceneId) : old.position,
     c.runId !== undefined ? c.runId : old.runId,
     c.origin,
     now(),
@@ -211,8 +232,12 @@ export function changesInScene(db: DB, sceneId: ID): Change[] {
 /** Every fact any character knows (or knew), once each, for picking the same fact again. */
 export function listFacts(db: DB): { factId: ID; fact: string }[] {
   const out = new Map<ID, string>()
+  // Oldest first, so a fact's latest wording wins; facts only deleted entries knew are left out.
   for (const c of db
-    .prepare("SELECT kind, payload_json FROM changes WHERE deleted_at IS NULL AND kind IN ('knowledge', 'full')")
+    .prepare(
+      `SELECT c.kind, c.payload_json FROM changes c JOIN entries e ON e.id = c.entry_id AND e.deleted_at IS NULL
+       WHERE c.deleted_at IS NULL AND c.kind IN ('knowledge', 'full') ORDER BY c.updated_at, c.rowid`
+    )
     .all() as Row[]) {
     if (c.kind === 'knowledge') {
       const p = json<{ factId?: ID; fact?: string }>(c.payload_json, {})
@@ -265,37 +290,255 @@ export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsP
   })()
 }
 
-/** The world's first story (by creation order): entries made by hand in it exist from the beginning of the world. */
+/**
+ * The world's first story: entries Adam makes in it exist from the beginning of the world. It is the
+ * earliest-made story that starts at the beginning of the world and isn't its own version of events
+ * (an own version shares nothing with the rest, and a story placed during another can't be first).
+ * So it can change when a story's kind or start changes, and defaults are then worked out again.
+ */
 export function firstStoryId(db: DB): ID | null {
-  const r = db.prepare('SELECT id FROM stories WHERE deleted_at IS NULL ORDER BY created_order, created_at LIMIT 1').get() as
-    | Row
-    | undefined
+  const r = db
+    .prepare(
+      `SELECT id FROM stories WHERE deleted_at IS NULL AND start_story_id IS NULL AND kind <> 'own'
+       ORDER BY created_order, created_at LIMIT 1`
+    )
+    .get() as Row | undefined
   return r ? (r.id as string) : null
 }
 
+/** Kinds of entry found in a scene's text that first exist at that scene (the rest exist from that story's start). */
+const FOUND_AT_SCENE: Entry['kind'][] = ['character', 'item', 'event', 'thread']
+
 /**
- * Where an entry first exists by default (spec, Multi-story rules: "Where entries first exist").
- * The memory core may refine this; it is used when an entry is made.
+ * Where an entry first exists by default (spec, Multi-story rules: "Where entries first exist"):
+ * - made by a start-of-story change: that story's start, after its start-of-story changes;
+ * - read from a scene's text: characters and items at that scene (events and plot threads too, so
+ *   earlier scenes never hear of them), places, groups, lore and glossary terms at that story's start;
+ * - made by Adam (or drafted by the AI from his page) outside any story or in the world's first story:
+ *   the beginning of the world; in any other story: that story's start.
+ * "A story's start" is before its start-of-story changes, so a prequel to that story sees the entry too.
+ * `firstId` saves a query when working out many entries at once.
  */
 export function defaultExistsPoint(
   db: DB,
-  e: Pick<Entry, 'kind' | 'origin' | 'originStoryId' | 'originSceneId' | 'originStart'>
+  e: Pick<Entry, 'kind' | 'origin' | 'originStoryId' | 'originSceneId' | 'originStart'>,
+  firstId: ID | null | undefined = undefined
 ): Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'> {
   const world = { kind: 'world' as const, storyId: null, sceneId: null }
   if (e.originStart && e.originStoryId) return { kind: 'story-post', storyId: e.originStoryId, sceneId: null }
   if (e.origin === 'text') {
-    if ((e.kind === 'character' || e.kind === 'item' || e.kind === 'event') && e.originSceneId) {
-      return {
-        kind: 'scene',
-        storyId: e.originStoryId ?? sceneStory(db, e.originSceneId),
-        sceneId: e.originSceneId
-      }
+    if (FOUND_AT_SCENE.includes(e.kind) && e.originSceneId) {
+      return { kind: 'scene', storyId: e.originStoryId ?? sceneStory(db, e.originSceneId), sceneId: e.originSceneId }
     }
     const storyId = e.originStoryId ?? (e.originSceneId ? sceneStory(db, e.originSceneId) : null)
-    return storyId && storyId !== firstStoryId(db) ? { kind: 'story-pre', storyId, sceneId: null } : world
+    return storyId ? { kind: 'story-pre', storyId, sceneId: null } : world
   }
-  if (!e.originStoryId || e.originStoryId === firstStoryId(db)) return world
+  const first = firstId === undefined ? firstStoryId(db) : firstId
+  if (!e.originStoryId || e.originStoryId === first) return world
   return { kind: 'story-pre', storyId: e.originStoryId, sceneId: null }
+}
+
+/**
+ * Works out every entry's default first-exists point again (after a story's kind or start changed).
+ * Points Adam set by hand are kept, and an entry with only his points is left alone. Returns the
+ * entries whose points changed.
+ */
+export function refreshDefaultExistsPoints(db: DB): ID[] {
+  const first = firstStoryId(db)
+  const points = new Map<ID, ExistsPoint[]>()
+  for (const p of listExistsPoints(db)) points.set(p.entryId, [...(points.get(p.entryId) ?? []), p])
+  const rows = db
+    .prepare('SELECT id, kind, origin, origin_story_id, origin_scene_id, origin_start FROM entries WHERE deleted_at IS NULL')
+    .all() as Row[]
+  const same = (a: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>, b: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>): boolean =>
+    a.kind === b.kind && (a.storyId ?? null) === (b.storyId ?? null) && (a.sceneId ?? null) === (b.sceneId ?? null)
+  const changed: ID[] = []
+  db.transaction(() => {
+    for (const r of rows) {
+      const id = r.id as string
+      const mine = points.get(id) ?? []
+      const defaults = mine.filter((p) => !p.byHand)
+      if (mine.length && !defaults.length) continue
+      const want = defaultExistsPoint(
+        db,
+        {
+          kind: r.kind as Entry['kind'],
+          origin: ((r.origin as string) ?? 'adam') as Origin,
+          originStoryId: (r.origin_story_id as string) ?? null,
+          originSceneId: (r.origin_scene_id as string) ?? null,
+          originStart: !!r.origin_start
+        },
+        first
+      )
+      if (defaults.length === 1 && same(defaults[0], want)) continue
+      setDefaultExistsPoints(db, id, [want])
+      changed.push(id)
+    }
+  })()
+  return changed
+}
+
+// ---------- Story placement and the shape of a world's stories ----------
+
+/**
+ * Sets what a story is and where it starts (and ends, for a side story), after checking the rules
+ * (placementProblem: never a story following on from itself, an end before its start, and so on).
+ * A prequel with no book named leads into the book it comes before. Then works out the default
+ * first-exists points again. Returns the entries whose points changed.
+ */
+export function setStoryPlacement(db: DB, id: ID, placement: StoryPlacement): ID[] {
+  const problem = placementProblem(loadShape(db), id, placement)
+  if (problem) throw new UserError(problem)
+  const start = placement.startStoryId ?? null
+  const startAt = start ? placement.startAt : 'end'
+  const startRefId = start && (startAt === 'chapter' || startAt === 'scene') ? placement.startRefId : null
+  const endAt = placement.kind === 'side' ? (placement.endAt ?? 'end') : null
+  const endRefId = endAt === 'chapter' ? placement.endRefId : null
+  const leadsIntoId = placement.leadsIntoId ?? (placement.kind === 'prequel' ? start : null)
+  return db.transaction(() => {
+    db.prepare(
+      `UPDATE stories SET kind = ?, start_story_id = ?, start_at = ?, start_ref_id = ?, end_at = ?, end_ref_id = ?, leads_into_id = ?,
+         updated_at = ? WHERE id = ?`
+    ).run(placement.kind, start, startAt, startRefId, endAt, endRefId, leadsIntoId, now(), id)
+    return refreshDefaultExistsPoints(db)
+  })()
+}
+
+/**
+ * Every live story with its live chapters and scenes (no text), and Adam's answers: the shape the
+ * line is built over. A handful of queries however big the world. Start and end points are made
+ * safe here: a story whose start story was deleted takes over that story's start point, and a
+ * chapter or scene a story starts or ends after that was deleted moves to the one before it (the
+ * previous scene, or the previous chapter's end; with none, the story's start after its
+ * start-of-story changes). A side story whose host was deleted ends where it now starts.
+ */
+export function loadShape(db: DB): WorldShape {
+  const storyRows = db
+    .prepare(
+      `SELECT id, title, kind, series_id, start_story_id, start_at, start_ref_id, end_at, end_ref_id, leads_into_id, leads_in,
+         position, created_order, deleted_at FROM stories`
+    )
+    .all() as Row[]
+  const chapterRows = db.prepare('SELECT id, story_id, title, position, deleted_at FROM chapters ORDER BY story_id, position, created_at').all() as Row[]
+  const sceneRows = db.prepare('SELECT id, chapter_id, title, position, deleted_at FROM scenes ORDER BY chapter_id, position, created_at').all() as Row[]
+
+  const rowOf = new Map(storyRows.map((r) => [r.id as string, r]))
+  const live = (r: Row | undefined): boolean => !!r && !r.deleted_at
+  const nodes = new Map<ID, StoryNode>()
+  for (const r of storyRows) {
+    if (!live(r)) continue
+    nodes.set(r.id as string, {
+      id: r.id as string,
+      title: r.title as string,
+      kind: r.kind as StoryNode['kind'],
+      seriesId: (r.series_id as string) ?? null,
+      startStoryId: (r.start_story_id as string) ?? null,
+      startAt: ((r.start_at as string) ?? 'end') as StoryNode['startAt'],
+      startRefId: (r.start_ref_id as string) ?? null,
+      endAt: ((r.end_at as string) ?? null) as StoryNode['endAt'],
+      endRefId: (r.end_ref_id as string) ?? null,
+      leadsIntoId: (r.leads_into_id as string) ?? null,
+      leadsIn: !!r.leads_in,
+      position: r.position as number,
+      createdOrder: r.created_order as number,
+      chapters: []
+    })
+  }
+
+  // Live chapters and scenes in order; every row is kept for moving refs to deleted ones.
+  const chapterRow = new Map(chapterRows.map((r) => [r.id as string, r]))
+  const sceneRow = new Map(sceneRows.map((r) => [r.id as string, r]))
+  const chaptersOf = new Map<ID, Row[]>()
+  for (const r of chapterRows) {
+    const storyId = r.story_id as string
+    if (live(r) && nodes.has(storyId)) chaptersOf.set(storyId, [...(chaptersOf.get(storyId) ?? []), r])
+  }
+  const scenesOf = new Map<ID, Row[]>()
+  for (const r of sceneRows) if (live(r)) scenesOf.set(r.chapter_id as string, [...(scenesOf.get(r.chapter_id as string) ?? []), r])
+  for (const [storyId, rows] of chaptersOf) {
+    nodes.get(storyId)!.chapters = rows.map((c) => ({
+      id: c.id as string,
+      title: c.title as string,
+      scenes: (scenesOf.get(c.id as string) ?? []).map((s) => ({ id: s.id as string, title: s.title as string }))
+    }))
+  }
+
+  /** The live chapter before a position in a story, or null. */
+  const chapterBefore = (storyId: ID, position: number): ID | null => {
+    const before = (chaptersOf.get(storyId) ?? []).filter((c) => (c.position as number) < position)
+    return before.length ? (before[before.length - 1].id as string) : null
+  }
+  type Point = { at: StoryNode['startAt']; refId: ID | null }
+  /** A point in a story, made safe: a deleted chapter or scene moves to the one before it. */
+  const safePoint = (storyId: ID, at: StoryNode['startAt'], refId: ID | null): Point => {
+    if (at !== 'chapter' && at !== 'scene') return { at, refId: null }
+    const node = nodes.get(storyId)!
+    const atStart: Point = { at: 'post', refId: null }
+    if (at === 'chapter') {
+      if (refId && node.chapters.some((c) => c.id === refId)) return { at, refId }
+      const row = refId ? chapterRow.get(refId) : undefined
+      const prev = row && row.story_id === storyId ? chapterBefore(storyId, row.position as number) : null
+      return prev ? { at: 'chapter', refId: prev } : atStart
+    }
+    if (refId && node.chapters.some((c) => c.scenes.some((s) => s.id === refId))) return { at, refId }
+    const row = refId ? sceneRow.get(refId) : undefined
+    const chapter = row ? chapterRow.get(row.chapter_id as string) : undefined
+    if (!row || !chapter || chapter.story_id !== storyId) return atStart
+    if (live(chapter)) {
+      const earlier = (scenesOf.get(chapter.id as string) ?? []).filter((s) => (s.position as number) < (row.position as number))
+      if (earlier.length) return { at: 'scene', refId: earlier[earlier.length - 1].id as string }
+    }
+    const prev = chapterBefore(storyId, chapter.position as number)
+    return prev ? { at: 'chapter', refId: prev } : atStart
+  }
+
+  for (const node of nodes.values()) {
+    // A deleted start story: take over its start point (and its start story's, if that is gone too).
+    let start = node.startStoryId
+    let point: Point = { at: node.startAt, refId: node.startRefId }
+    let tookOver = false
+    const seen = new Set<ID>([node.id])
+    while (start && !nodes.has(start) && !seen.has(start)) {
+      seen.add(start)
+      const gone = rowOf.get(start)
+      if (!gone) break
+      tookOver = true
+      start = (gone.start_story_id as string) ?? null
+      point = { at: ((gone.start_at as string) ?? 'end') as StoryNode['startAt'], refId: (gone.start_ref_id as string) ?? null }
+    }
+    if (start && !nodes.has(start)) start = null
+    node.startStoryId = start
+    const safe = start ? safePoint(start, point.at, point.refId) : { at: 'end' as const, refId: null }
+    node.startAt = safe.at
+    node.startRefId = safe.refId
+    if (node.kind !== 'side' || !start) {
+      node.endAt = node.kind === 'side' ? 'end' : null
+      node.endRefId = null
+    } else if (tookOver) {
+      const chapterOf = (sceneId: ID | null): ID | null =>
+        nodes.get(start!)!.chapters.find((c) => c.scenes.some((s) => s.id === sceneId))?.id ?? null
+      node.endAt = safe.at === 'end' ? 'end' : 'chapter'
+      node.endRefId = safe.at === 'chapter' ? safe.refId : safe.at === 'scene' ? chapterOf(safe.refId) : null
+    } else if (node.endAt === 'chapter') {
+      const end = safePoint(start, 'chapter', node.endRefId)
+      node.endRefId = end.at === 'chapter' ? end.refId : null
+    } else node.endAt = 'end'
+    if (node.leadsIntoId && !nodes.has(node.leadsIntoId)) node.leadsIntoId = null
+  }
+
+  const stories = [...nodes.values()].sort((a, b) => a.position - b.position || a.createdOrder - b.createdOrder)
+  return { stories, answers: listAnswers(db) }
+}
+
+/** A scene's title and text, for block 3 (null when it no longer exists). */
+export function sceneText(db: DB, sceneId: ID): { title: string; text: string } | null {
+  const r = db.prepare('SELECT title, text FROM scenes WHERE id = ? AND deleted_at IS NULL').get(sceneId) as Row | undefined
+  return r ? { title: r.title as string, text: r.text as string } : null
+}
+
+/** Every series, for story-so-far roll-ups. */
+export function seriesNames(db: DB): Map<ID, string> {
+  return new Map((db.prepare('SELECT id, name FROM series').all() as Row[]).map((r) => [r.id as string, r.name as string]))
 }
 
 // ---------- Summaries ----------
