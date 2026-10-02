@@ -8,9 +8,11 @@
 //          three beats). "Suggest 3 chapters with 2 scenes in each ... No acts." gives no act headings.
 //          Titles come from fixed lists: acts "The Arrival", "The Turning", "The Reckoning"...;
 //          chapters "Rain on the Narrows", "The Ferryman's Price", "Lanterns at Low Tide"...; scenes
-//          "Arrival at the docks", "A bargain at the docks"... (the place changes with the chapter, so
-//          every title is different). The first chapter's goal names the story's first open plot thread
-//          when the briefing has one ("... and “Who burned the mill?” comes back to haunt her.").
+//          "Arrival at the docks", "A bargain at the docks"... (each chapter has its own place, so
+//          every title is different). Act and chapter titles the briefing already names (the story's
+//          own) are passed over, so asking again after keeping carries on with new ones. The first
+//          chapter's goal names the story's first open plot thread when the briefing has one
+//          ("... and “Who burned the mill?” comes back to haunt her.").
 //          "[[fake: messy]]" in the briefing wraps the same plan in a chatty reply: an introduction,
 //          numbered and bold headings ("**Act 1: The Arrival**"), "*" bullets and a closing note.
 // ideas    Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
@@ -110,22 +112,33 @@ A child brings Mara a message meant for the guild, and she reads it.
 
 const ordinal = (n) => ['', ' again', ' once more', ' at last'][Math.min(3, Math.floor(n))]
 
-function plan(size, thread) {
+/** The indexes of the titles in `list` that the briefing doesn't name yet (all of them when it names every one). */
+function unused(list, titleOf, briefing) {
+  const left = list.map((_, k) => k).filter((k) => !briefing.includes(titleOf(list[k])))
+  return left.length ? left : list.map((_, k) => k)
+}
+
+function plan(size, thread, briefing) {
   const out = []
   const acts = size.acts
   const per =
     acts > 0
       ? Array.from({ length: acts }, (_, i) => Math.floor(size.chapters / acts) + (i < size.chapters % acts ? 1 : 0))
       : [size.chapters]
+  const actsLeft = unused(ACTS, (a) => a[0], briefing)
+  const chaptersLeft = unused(CHAPTERS, (t) => t, briefing)
   let c = 0
   per.forEach((count, a) => {
     if (acts > 0) {
-      const [title, purpose] = ACTS[a % ACTS.length]
+      const [title, purpose] = ACTS[actsLeft[a % actsLeft.length]]
       out.push({ kind: 'act', title, purpose })
     }
     for (let i = 0; i < count; i++, c++) {
-      const title = `${CHAPTERS[c % CHAPTERS.length]}${ordinal(c / CHAPTERS.length)}`
-      const place = PLACES[c % PLACES.length]
+      // Each chapter title has its own place, so the scene titles don't repeat either.
+      const k = chaptersLeft[c % chaptersLeft.length]
+      const round = c / chaptersLeft.length
+      const title = `${CHAPTERS[k]}${ordinal(round)}`
+      const place = PLACES[k % PLACES.length]
       const goal =
         c === 0 && thread
           ? `Mara finds her footing in the city, and “${thread}” comes back to haunt her.`
@@ -134,7 +147,7 @@ function plan(size, thread) {
       for (let s = 0; s < size.scenes; s++) {
         const [opener, summary, beats] = SCENES[s % SCENES.length]
         const again = s >= SCENES.length ? ' again' : ''
-        const at = `${place}${ordinal(c / PLACES.length)}`
+        const at = `${place}${ordinal(round)}`
         out.push({ kind: 'scene', title: `${opener} ${at}${again}`, summary: summary.replace('{place}', at), beats })
       }
     }
@@ -195,7 +208,7 @@ export function outlineReply(system, messages, _model) {
     .join('\n')
   if (job === 'ideas') return IDEAS
   if (job === 'outline') {
-    const items = plan(sizeOf(user), firstThread(user))
+    const items = plan(sizeOf(user), firstThread(user), user)
     return user.includes('[[fake: messy]]') ? messy(items) : tidy(items)
   }
   return null

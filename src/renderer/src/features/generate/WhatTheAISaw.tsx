@@ -28,6 +28,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   const [sceneGone, setSceneGone] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
+  // Opened from a page other than the draft's scene (milestone 4: the outline helper, say).
+  const from = useApp((s) => (s.view.kind === 'generation' ? s.view.back : undefined))
 
   useEffect(() => {
     let live = true
@@ -39,6 +41,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
       .then((r) => {
         if (!live) return
         setRec(r)
+        // A record for the whole story (an outline) has no scene.
+        if (!r.sceneId) return
         api
           .getScene(r.sceneId)
           .then((s) => live && setSceneTitle(s.title || 'Untitled scene'))
@@ -79,7 +83,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   const slow = useDelayed(!rec && !error)
 
   const back = (): void => {
-    if (rec) selectScene(rec.sceneId)
+    if (from) useApp.getState().navigate(from.view)
+    else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
   }
 
@@ -87,7 +92,7 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
+          {from ? from.label : rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
         </Button>
 
         {error ? (
@@ -109,6 +114,7 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
             sceneTitle={sceneTitle}
             sceneGone={sceneGone}
             modelLabel={writer?.modelId === rec.modelId ? writer.label : null}
+            what={from?.what}
           />
         )}
       </div>
@@ -120,12 +126,15 @@ function DraftRecord({
   rec,
   sceneTitle,
   sceneGone,
-  modelLabel
+  modelLabel,
+  what
 }: {
   rec: GenerationRecord
   sceneTitle: string | null
   sceneGone: boolean
   modelLabel: string | null
+  /** What the record is of, when it isn't a draft ("this outline"). */
+  what?: string
 }): React.JSX.Element {
   const [open, setOpenState] = useState<Set<string>>(() => openParts.get(rec.id) ?? new Set(['scene-card']))
   const setOpen = (next: Set<string> | ((s: Set<string>) => Set<string>)): void =>
@@ -143,6 +152,8 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // A record that isn't a scene's draft (an outline, say) is named for what it is.
+  const noun = what ? 'This' : 'This draft'
 
   const toggle = (id: string): void =>
     setOpen((s) => {
@@ -156,22 +167,29 @@ function DraftRecord({
     <div className="animate-fade-in">
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
       <p className="mt-1 text-[13px] text-muted">
-        The exact briefing for this draft{sceneTitle ? ` of “${sceneTitle}”` : ''}, written {fullDate(rec.createdAt)}.
+        The exact briefing for {what ?? `this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`}, written {fullDate(rec.createdAt)}.
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
-        {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
-        {rec.status === 'stopped' ? <Notice>This draft was stopped before it finished. The text that arrived is kept in the scene.</Notice> : null}
-        {rec.status === 'complete' && rec.params.cutOff ? (
+        {rec.status === 'streaming' ? <Notice tone="ai">{noun} is still being written. Its text appears below as it arrives.</Notice> : null}
+        {rec.status === 'stopped' ? (
+          <Notice>
+            {noun} was stopped before it finished. {what ? 'The text that arrived is below.' : 'The text that arrived is kept in the scene.'}
+          </Notice>
+        ) : null}
+        {rec.status === 'complete' && rec.params.cutOff && what ? (
+          <Notice>The model ran out of room before the end: it reached its reply limit, so the answer stops part-way.</Notice>
+        ) : null}
+        {rec.status === 'complete' && rec.params.cutOff && !what ? (
           <Notice>
             The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
             stops part-way. Try a shorter length, or a writer model that can write more in one go.
           </Notice>
         ) : null}
-        {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? 'Something went wrong while this draft was written.'}</Notice> : null}
+        {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? `Something went wrong while ${noun.toLowerCase()} was written.`}</Notice> : null}
         {changed ? (
           <Notice tone="ai">
-            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since this draft, so the AI saw an older version. They're marked below.
+            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since {what ? 'then' : 'this draft'}, so the AI saw an older version. They're marked below.
           </Notice>
         ) : null}
       </div>

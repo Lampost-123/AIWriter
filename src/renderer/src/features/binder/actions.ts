@@ -158,13 +158,24 @@ function removeFromOutline(sceneIds: ID[], chapterId?: ID): void {
   }))
 }
 
-/** Picks a neighbour when the open scene is going away. Returns whether the open scene was affected. */
-function moveSelectionAway(sceneIds: ID[]): boolean {
+/** Opens a scene without leaving the page Adam is on (the outline helper, say). */
+function openWithoutLeaving(id: ID | null, storyId?: ID): void {
+  const view = app().view
+  app().selectScene(id, storyId)
+  app().navigate(view)
+}
+
+/**
+ * Picks a neighbour when the open scene is going away. Returns whether the open scene was affected.
+ * `stay`: on the page Adam is on, rather than going to the scene.
+ */
+function moveSelectionAway(sceneIds: ID[], stay = false): boolean {
   const o = outlineStore().outline
   const openId = app().sceneId
   if (!o || !openId || !sceneIds.includes(openId)) return false
   const next = neighbourAfterRemoval(readingOrder(o), sceneIds, openId)
-  app().selectScene(next, o.story.id)
+  if (stay) openWithoutLeaving(next, o.story.id)
+  else app().selectScene(next, o.story.id)
   return true
 }
 
@@ -196,7 +207,8 @@ export async function deleteScene(id: ID): Promise<void> {
   )
 }
 
-export async function deleteChapter(id: ID): Promise<void> {
+/** Deletes a chapter with its scenes. `stay`: from a page other than the binder (the outline helper), which it doesn't leave. */
+export async function deleteChapter(id: ID, opts: { stay?: boolean } = {}): Promise<void> {
   const o = outlineStore().outline
   const chapter = o?.chapters.find((c) => c.id === id)
   const sceneIds = o?.scenes.filter((s) => s.chapterId === id).map((s) => s.id) ?? []
@@ -210,7 +222,7 @@ export async function deleteChapter(id: ID): Promise<void> {
     failed(e)
     return
   }
-  const wasOpen = moveSelectionAway(sceneIds)
+  const wasOpen = moveSelectionAway(sceneIds, opts.stay)
   removeFromOutline(sceneIds, id)
   app().bumpOutline()
   const count = sceneIds.length
@@ -221,7 +233,10 @@ export async function deleteChapter(id: ID): Promise<void> {
         .restoreDeleted('chapter', id)
         .then(() => {
           app().bumpOutline()
-          if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
+          if (wasOpen && openBefore && storyId && app().storyId === storyId) {
+            if (opts.stay) openWithoutLeaving(openBefore, storyId)
+            else app().selectScene(openBefore, storyId)
+          }
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
     )

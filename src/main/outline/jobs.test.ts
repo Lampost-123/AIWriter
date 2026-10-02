@@ -4,6 +4,7 @@ import type { ModelChoice } from '@shared/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import * as gens from '../db/generations'
+import { putSummary } from '../db/memory'
 import type { JobModel } from '../ai/jobModel'
 import type { Emit } from '../ai/tasks'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
@@ -207,6 +208,40 @@ describe('asking for an outline', () => {
     expect(record.messages[1].content).toContain("They carry on the story's last act, “The Turning”.")
     expect(record.messages[1].content).toContain('Act: The Turning')
     expect(record.response).not.toContain('# Act:')
+  })
+
+  it('plans a new story from its premise, not after the empty Chapter 1 it was made with, and still knows the story before', async () => {
+    const w = dbWorld()
+    putSummary(w.db, { level: 'story', targetId: w.id('b1'), text: 'Mara learns she is the heir, and the mill burns.', origin: 'text' })
+    const story = repo.createStory(w.db, { title: 'Book 5', startStoryId: w.id('b1') })
+    const chapter = repo.createChapter(w.db, story.id, { title: 'Chapter 1' })
+    repo.createScene(w.db, chapter.id, { title: 'Scene 1' })
+    const { record } = await run(
+      (emit) =>
+        startOutlineJob(
+          { db: w.db, model: model(), emit },
+          { taskId: 't4', storyId: story.id, premise: 'Mara goes north.', size: { acts: 1, chapters: 1, scenes: 1 } }
+        ),
+      w.db
+    )
+    const user = record.messages[1].content
+    expect(user).toContain('The story has nothing written or planned yet: start it from the premise.')
+    expect(user).not.toContain('## What the story has so far')
+    expect(user).toContain('## Earlier stories\nBook 1: Mara learns she is the heir, and the mill burns.')
+
+    // Once the scene has a name of its own, it is something to carry on from.
+    const scene = repo.getOutline(w.db, story.id).scenes[0]
+    repo.updateScene(w.db, scene.id, { title: 'The north road' })
+    const again = await run(
+      (emit) =>
+        startOutlineJob(
+          { db: w.db, model: model(), emit },
+          { taskId: 't5', storyId: story.id, premise: 'Mara goes north.', size: { acts: 1, chapters: 1, scenes: 1 } }
+        ),
+      w.db
+    )
+    expect(again.record.messages[1].content).toContain('## What the story has so far\nChapter: Chapter 1\n  - The north road')
+    expect(again.record.messages[1].content).toContain('They come after everything the story already has, and carry it on.')
   })
 
   it('says plainly when the model can’t read enough to plan', () => {

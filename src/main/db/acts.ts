@@ -270,17 +270,24 @@ export function storyCards(db: DB, storyId: ID): Map<ID, { goal: string; beats: 
 // ---------- What the outline helper keeps ----------
 
 /**
- * Marks something the outline helper just made as untouched (its last change is when it was made), so
- * its Undo can tell whether Adam has changed it since. Runs inside the keep.
+ * Marks something the outline helper just made as untouched, so its Undo can tell whether Adam has
+ * changed it since. Its last change is set a millisecond before it was made: any change after that,
+ * even within the same millisecond, leaves it no earlier than when it was made. Runs inside the keep.
  */
 export function markMade(db: DB, kind: KeptItem['kind'], id: ID): void {
   const table = { act: 'acts', chapter: 'chapters', scene: 'scenes' }[kind]
-  db.prepare(`UPDATE ${table} SET updated_at = created_at WHERE id = ?`).run(id)
+  const r = db.prepare(`SELECT created_at FROM ${table} WHERE id = ?`).get(id) as Row | undefined
+  const made = Date.parse(String(r?.created_at ?? ''))
+  if (Number.isNaN(made)) return
+  db.prepare(`UPDATE ${table} SET updated_at = ? WHERE id = ?`).run(new Date(made - 1).toISOString(), id)
 }
+
+/** Whether a row was changed after the outline helper made it (see markMade). */
+const changedSince = (r: Row): boolean => (r.updated_at as string) >= (r.created_at as string)
 
 /** Whether a scene has anything in it beyond what the outline helper made: words, a draft, or something the memory or Adam tied to it. */
 function sceneUsed(db: DB, id: ID, r: Row): boolean {
-  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || (r.updated_at as string) > (r.created_at as string)) return true
+  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || changedSince(r)) return true
   const any = (sql: string): boolean => !!db.prepare(sql).get(id)
   return (
     any('SELECT 1 FROM generations WHERE scene_id = ? LIMIT 1') ||
@@ -301,7 +308,7 @@ function sceneUsed(db: DB, id: ID, r: Row): boolean {
 export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id'>[]): { storyIds: ID[]; sceneIds: ID[] } {
   const t = now()
   const of = (kind: KeptItem['kind']): ID[] => kept.filter((k) => k.kind === kind).map((k) => k.id)
-  const changed = (r: Row): boolean => (r.updated_at as string) > (r.created_at as string)
+  const changed = changedSince
   const stories = new Set<ID>()
   const gone: ID[] = []
   return db.transaction(() => {

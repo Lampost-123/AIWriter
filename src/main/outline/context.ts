@@ -56,6 +56,26 @@ export function storyPlan(db: DB, storyId: ID): PlanAct[] {
   return out
 }
 
+/** A chapter or scene title as it was made ("Chapter 1", "Scene 1"). */
+const MADE_TITLE = /^\s*(chapter|scene)\s*\d*\s*$/i
+
+/**
+ * Nothing planned or written yet: at most the empty "Chapter 1" and "Scene 1" a new story is made with
+ * (titles as made, no acts, words, goals, summaries or beats). The outline helper then plans the story
+ * from its premise rather than carrying on after them, as its page says (features/outline/OutlineHelper.tsx).
+ */
+export function isBlankPlan(plan: PlanAct[]): boolean {
+  const chapters = plan.flatMap((a) => a.chapters)
+  const scenes = chapters.flatMap((c) => c.scenes)
+  return (
+    !plan.some((a) => a.id) &&
+    chapters.length <= 1 &&
+    scenes.length <= 1 &&
+    chapters.every((c) => MADE_TITLE.test(c.title) && !c.goal.trim() && !c.summary.trim()) &&
+    scenes.every((s) => MADE_TITLE.test(s.title) && s.words === 0 && !s.summary.trim() && !s.goal.trim() && !s.beats.some((b) => b.trim()))
+  )
+}
+
 const CAST_KINDS: EntryKind[] = ['character', 'place', 'group', 'item']
 
 /**
@@ -104,7 +124,9 @@ export interface OutlineFacts {
 /** Everything the outline helper tells the AI about a story, as of its end. */
 export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts {
   const story = repo.getStory(db, storyId)
-  const plan = storyPlan(db, storyId)
+  const shape = storyPlan(db, storyId)
+  // A new story's empty "Chapter 1" is nothing to carry on from.
+  const plan = isBlankPlan(shape) ? [] : shape
   const acted = plan.filter((a) => a.id)
   let entries: EntryState[] = []
   let threads: ThreadLine[] = []
@@ -116,7 +138,8 @@ export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts
     // The plan still helps without the memory.
     console.warn('The outline helper could not read the memory', e)
   }
-  const firstScene = plan.flatMap((a) => a.chapters).flatMap((c) => c.scenes)[0]
+  // The earlier stories are read from the story's first scene, even an empty one.
+  const firstScene = shape.flatMap((a) => a.chapters).flatMap((c) => c.scenes)[0]
   let earlier: EarlierStory[] = []
   if (firstScene) {
     try {
