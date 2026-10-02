@@ -43,6 +43,11 @@ export function formatBackupDate(iso: string, now: Date = new Date(), locale?: s
   return `${date} at ${time}`
 }
 
+/** The date for the middle of a sentence: "today at 09:05", while "Thu 24 Sept at 14:00" keeps its capital. */
+export function inSentence(when: string): string {
+  return /^(Today|Yesterday) /.test(when) ? when.charAt(0).toLowerCase() + when.slice(1) : when
+}
+
 /** "just now", "5 minutes ago", "3 hours ago", "2 days ago". */
 export function timeAgo(iso: string, now: Date = new Date()): string {
   const s = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000))

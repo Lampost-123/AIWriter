@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBackupDate, formatSize, reasonLabel, timeAgo } from './backupText'
+import { formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
 
 describe('backup words', () => {
   it('names every reason in plain words', () => {
@@ -27,6 +27,13 @@ describe('backup words', () => {
     expect(formatBackupDate(new Date(2026, 8, 24, 14, 0).toISOString(), now, 'en-GB')).toMatch(/^Thu,? 24 Sept? at 14:00$/)
     expect(formatBackupDate(new Date(2025, 11, 31, 8, 0).toISOString(), now, 'en-GB')).toMatch(/^Wed,? 31 Dec 2025 at 08:00$/)
     expect(formatBackupDate('not a date', now)).toBe('not a date')
+  })
+
+  it('fits a date into a sentence without lowercasing a weekday', () => {
+    const now = new Date(2026, 9, 1, 22, 30)
+    expect(inSentence(formatBackupDate(new Date(2026, 9, 1, 9, 5).toISOString(), now, 'en-GB'))).toBe('today at 09:05')
+    expect(inSentence(formatBackupDate(new Date(2026, 8, 30, 23, 59).toISOString(), now, 'en-GB'))).toBe('yesterday at 23:59')
+    expect(inSentence(formatBackupDate(new Date(2026, 8, 24, 14, 0).toISOString(), now, 'en-GB'))).toMatch(/^Thu,? 24 Sept? at 14:00$/)
   })
 
   it('says how long ago', () => {

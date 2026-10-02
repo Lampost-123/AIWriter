@@ -1,12 +1,13 @@
 import { Archive, Clock, DoorOpen, Folder, FolderOpen, Hand, History, RotateCcw, CircleArrowUp, CloudUpload } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import type { BackupFolderStatus, BackupInfo } from '@shared/types'
 import { Button, Card, EmptyState, Notice, SectionTitle, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { formatBackupDate, formatSize, reasonLabel, timeAgo } from './backupText'
+import { formatBackupDate, formatSize, inSentence, reasonLabel, timeAgo } from './backupText'
 
 const REASON_ICONS: Record<BackupInfo['reason'], ReactNode> = {
   launch: <DoorOpen size={15} />,
@@ -40,9 +41,26 @@ async function reloadAfterRestore(): Promise<void> {
   // value and views watching it would never reload. Move it strictly past where it was.
   useApp.setState((s) => ({ outlineRev: Math.max(s.outlineRev, before) + 1 }))
   useApp.getState().bumpEntries()
+  // Undo runs while the scene is open, and init() hands back the same scene id, so the editor
+  // would keep showing (and later save) the text from before. Mount it afresh so it loads the
+  // restored text. Both changes land in the same task, so nothing flashes.
+  const { sceneId } = useApp.getState()
+  if (sceneId) {
+    flushSync(() => useApp.setState({ sceneId: null }))
+    useApp.setState({ sceneId })
+  }
 }
 
+/** After a failed restore the world may not have reopened: show that, not a workspace that no longer works. */
+async function recheckWorld(): Promise<void> {
+  const open = await api.getWorld().catch(() => null)
+  if (!open) await useApp.getState().init()
+}
+
+const DRAFT_RUNNING = 'A draft is being written. Stop it or let it finish, then restore.'
+
 async function restore(id: string, when: string): Promise<void> {
+  if (useApp.getState().activeGeneration) throw new Error(DRAFT_RUNNING)
   await flushAll()
   await api.restoreBackup(id)
   // The restore has happened: from here on nothing may turn it into an error.
@@ -51,7 +69,7 @@ async function restore(id: string, when: string): Promise<void> {
     .then((list) => list.find((b) => b.reason === 'before-restore'))
     .catch(() => undefined)
   await reloadAfterRestore()
-  toast(`Restored the backup from ${when.charAt(0).toLowerCase()}${when.slice(1)}. Your work from before is saved as a backup too.`, {
+  toast(`Restored the backup from ${inSentence(when)}. Your work from before is saved as a backup too.`, {
     tone: 'success',
     action: safety
       ? {
@@ -59,12 +77,14 @@ async function restore(id: string, when: string): Promise<void> {
           run: () => {
             void (async () => {
               try {
+                if (useApp.getState().activeGeneration) throw new Error(DRAFT_RUNNING)
                 await flushAll()
                 await api.restoreBackup(safety.id)
                 await reloadAfterRestore()
                 toast('Undone. Your world is back to how it was before the restore.', { tone: 'success' })
               } catch (e) {
                 toast((e as Error).message, { tone: 'danger' })
+                await recheckWorld()
               }
             })()
           }
@@ -75,6 +95,12 @@ async function restore(id: string, when: string): Promise<void> {
 
 export function BackupsSettings(): React.JSX.Element {
   const world = useApp((s) => s.world)
+  // Both parts load in a moment. Show them together once they have, so the page never paints a
+  // placeholder for a single frame and then jumps; a slow load gets its placeholder after 200 ms.
+  const [listReady, setListReady] = useState(false)
+  const [folderReady, setFolderReady] = useState(false)
+  const settled = listReady && folderReady
+  const late = useDelayed(!settled)
   if (!world) {
     return (
       <Card>
@@ -85,14 +111,14 @@ export function BackupsSettings(): React.JSX.Element {
     )
   }
   return (
-    <div className="flex flex-col gap-8">
-      <BackupList worldId={world.id} worldName={world.name} />
-      <SecondFolder />
+    <div className={cn('flex flex-col gap-8', !settled && !late && 'invisible')}>
+      <BackupList worldId={world.id} worldName={world.name} onSettled={() => setListReady(true)} />
+      <SecondFolder onSettled={() => setFolderReady(true)} />
     </div>
   )
 }
 
-function BackupList({ worldId, worldName }: { worldId: string; worldName: string }): React.JSX.Element {
+function BackupList({ worldId, worldName, onSettled }: { worldId: string; worldName: string; onSettled: () => void }): React.JSX.Element {
   const [backups, setBackups] = useState<BackupInfo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -100,6 +126,8 @@ function BackupList({ worldId, worldName }: { worldId: string; worldName: string
   const [restoringId, setRestoringId] = useState<string | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const knownIds = useRef<Set<string> | null>(null)
+  const settled = useRef(onSettled)
+  settled.current = onSettled
 
   const load = useCallback(async () => {
     try {
@@ -114,6 +142,8 @@ function BackupList({ worldId, worldName }: { worldId: string; worldName: string
       setError(null)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      settled.current()
     }
   }, [])
 
@@ -151,6 +181,7 @@ function BackupList({ worldId, worldName }: { worldId: string; worldName: string
       await restore(b.id, formatBackupDate(b.createdAt))
     } catch (e) {
       toast((e as Error).message, { tone: 'danger' })
+      await recheckWorld()
     } finally {
       setRestoringId(null)
       setConfirmId(null)
@@ -253,8 +284,13 @@ function BackupRow({
 }): React.JSX.Element {
   const when = formatBackupDate(backup.createdAt)
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const askRef = useRef<HTMLButtonElement>(null)
+  const wasConfirming = useRef(false)
   useEffect(() => {
     if (confirming) confirmRef.current?.focus()
+    // After Cancel or Escape, keyboard focus goes back to this row's Restore button, not the page.
+    else if (wasConfirming.current && (!document.activeElement || document.activeElement === document.body)) askRef.current?.focus()
+    wasConfirming.current = confirming
   }, [confirming])
 
   return (
@@ -275,7 +311,7 @@ function BackupRow({
             <RotateCcw size={15} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13.5px] font-medium text-fg">Go back to {when.charAt(0).toLowerCase() + when.slice(1)}?</p>
+            <p className="truncate text-[13.5px] font-medium text-fg">Go back to {inSentence(when)}?</p>
             <p className="truncate text-[12px] text-muted">Your current work is backed up first, so you can undo this.</p>
           </div>
           <Button size="sm" variant="ghost" disabled={restoring} onClick={onCancel}>
@@ -296,7 +332,15 @@ function BackupRow({
               <span className="tabular-nums">{formatSize(backup.sizeBytes)}</span>
             </p>
           </div>
-          <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} disabled={locked} onClick={onAsk} aria-label={`Restore the backup from ${when}`}>
+          <Button
+            ref={askRef}
+            size="sm"
+            variant="ghost"
+            icon={<RotateCcw size={13} />}
+            disabled={locked}
+            onClick={onAsk}
+            aria-label={`Restore the backup from ${inSentence(when)}`}
+          >
             Restore
           </Button>
         </>
@@ -305,16 +349,20 @@ function BackupRow({
   )
 }
 
-function SecondFolder(): React.JSX.Element {
+function SecondFolder({ onSettled }: { onSettled: () => void }): React.JSX.Element {
   const [status, setStatus] = useState<BackupFolderStatus | null>(null)
   const [choosing, setChoosing] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const settled = useRef(onSettled)
+  settled.current = onSettled
 
   const load = useCallback(async () => {
     try {
       setStatus(await api.getBackupFolderStatus())
     } catch {
       setStatus({ folder: null, ok: true, message: null, lastCopyAt: null })
+    } finally {
+      settled.current()
     }
   }, [])
 
@@ -368,6 +416,7 @@ function SecondFolder(): React.JSX.Element {
                 .getState()
                 .updateSettings({ backup: { extraFolder: previous } })
                 .then(load)
+                .catch((e: Error) => toast(e.message, { tone: 'danger' }))
             }
           }
         })
