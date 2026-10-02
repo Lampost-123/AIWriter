@@ -489,6 +489,16 @@ describe('drafting', () => {
     expect(rec.entries.find((e) => e.name === 'Mara')).toMatchObject({ changedSince: true, deleted: false })
   })
 
+  it('counts a change over time made since as changed since', async () => {
+    const { emit, done } = recorder()
+    const { generationId } = start(w, emit)
+    await done(generationId)
+    expect(gens.getGeneration(w.db, generationId).entries.find((e) => e.name === 'Mara')).toMatchObject({ changedSince: false })
+    await new Promise((r) => setTimeout(r, 5))
+    insertChange(w.db, { entryId: w.mara.id, anchor: 'baseline', kind: 'update', payload: { note: 'Cuts her hair short' }, origin: 'text' })
+    expect(gens.getGeneration(w.db, generationId).entries.find((e) => e.name === 'Mara')).toMatchObject({ changedSince: true })
+  })
+
   it('throws a plain message for a missing record', () => {
     expect(() => gens.getGeneration(w.db, 'nope')).toThrow(/could not be found/)
   })
