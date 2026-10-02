@@ -1440,6 +1440,37 @@ describe('a small-context model and a large-context model both get a sensible br
     }
   })
 
+  it('late in a long series, when the point of view knows 150 things, a small model still gets her and who knows what', () => {
+    const inp = bookThree(8192, 1500)
+    const mara = named(inp, 'Mara Venn')
+    const tobin = named(inp, 'Tobin')
+    inp.memory.facts = Array.from({ length: 150 }, (_, i) => ({
+      factId: `k${i}`,
+      fact: i === 3 ? 'Tobin owes the Tide Guild forty crowns.' : `${prose(14)} (${i})`,
+      knownBy: i % 5 ? [mara.id] : [mara.id, tobin.id]
+    }))
+    const p = assembleContext(inp, countRaw)
+    const block = (id: string) => p.blocks.find((b) => b.id === id)!
+    expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
+    for (const id of ['pov', 'relationships', 'story-so-far', 'previous-scene']) expect(block(id).dropped, id).toBe(false)
+    const pov = block('pov').text
+    // The fact about someone in the scene is kept, with the latest ones, and the rest are counted.
+    expect(pov).toContain('- Tobin owes the Tide Guild forty crowns.')
+    expect(pov).toContain('(149)')
+    expect(pov).toMatch(/\(And 14\d more, left out here to save space\.\)/)
+    expect(pov).toContain('- How they speak: Short, dry sentences.')
+    const rel = block('relationships')
+    expect(rel.short).toBe(true)
+    expect(rel.text).toContain('- Mara Venn and Tobin: old friends, now uneasy.')
+    expect(rel.text).toContain("Facts some of them know and others don't:\n- Tobin does not know: ")
+    expect(rel.text).toMatch(/\(And 11\d more, left out here to save space\.\)/)
+    // A large model gets them all.
+    const big = assembleContext({ ...inp, contextLength: 200_000 }, countRaw)
+    expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
+    expect(big.messages[1].content).not.toContain('left out here to save space')
+    expect(big.messages[1].content.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+  })
+
   it('a model too small for the length asked: only the instructions and the scene card, and the draft is refused with a length that fits', () => {
     const b = briefing(4096, 1500)
     expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card'])

@@ -21,7 +21,7 @@
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
 //  5 others present as of this scene: profile and voice (summary plus voice)
-//  6 relationships and who knows what among those present (no short form)
+//  6 relationships and who knows what among those present (none; with many facts, the ones that matter here)
 //  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
 //  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
 //    smaller: only the most recent parts)
@@ -698,9 +698,11 @@ function bringAboutLines(input: ContextInput, sel: Selection): string[] {
  * says what they know.
  */
 function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 1 | 2 | 3): string {
-  const knows = input.memory.facts
-    .filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
-    .map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
+  const known = input.memory.facts.filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
+  // In the smaller forms a long list of what they know (a long series) is cut to what matters here.
+  const { kept, left } = level >= 2 ? someFacts(known, sel, level === 2 ? 12 : 6) : { kept: known, left: 0 }
+  const knows = kept.map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
+  if (left) knows.push(leftOutLine(left))
   const profile = level >= 2 ? coreProfile(e, level === 2 ? 'core' : 'least') : formatProfile(e, null, undefined, level === 1)
   // An empty profile still says who it is, so the block (and the Context tab's entry) is there.
   const parts = [profile || `${e.name}.`, happenedText(e, [undefined, 5, 3, 2][level])]
@@ -721,8 +723,27 @@ function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 
   return parts.filter(Boolean).join('\n\n')
 }
 
-/** Relationships among the people present, and the facts some of them know and others don't. */
-function relationshipsText(input: ContextInput, sel: Selection): { text: string; entryIds: ID[] } {
+/**
+ * The facts to give when space is tight: at most `cap`, those naming someone or something in this
+ * briefing first, then the most recent, kept in their usual order; and how many were left out.
+ */
+function someFacts<T extends { fact: string }>(facts: T[], sel: Selection, cap: number): { kept: T[]; left: number } {
+  if (facts.length <= cap) return { kept: facts, left: 0 }
+  const names = [...sel.chosen.values()].flatMap(({ entry }) => [entry.name, ...(entry.aliases ?? [])])
+  const keep = new Set<T>()
+  const latestFirst = [...facts].reverse()
+  for (const f of latestFirst) if (keep.size < cap && namedIn(haystack(f.fact), names)) keep.add(f)
+  for (const f of latestFirst) if (keep.size < cap) keep.add(f)
+  return { kept: facts.filter((f) => keep.has(f)), left: facts.length - keep.size }
+}
+
+const leftOutLine = (n: number): string => `(And ${n.toLocaleString('en-GB')} more, left out here to save space.)`
+
+/**
+ * Relationships among the people present, and the facts some of them know and others don't. The
+ * short form, used only when there are many such facts (a long series), keeps the ones that matter here.
+ */
+function relationshipsText(input: ContextInput, sel: Selection): { text: string; short: string | null; entryIds: ID[] } {
   const people = [sel.pov, ...sel.present].filter((x): x is EntryState => !!x && x.kind === 'character')
   const ids = new Set(people.map((p) => p.id))
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
@@ -734,7 +755,7 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       used.add(r.bId)
       return `- ${relationshipLine(r, name)}`
     })
-  const facts: string[] = []
+  const facts: { fact: string; line: string }[] = []
   if (people.length > 1) {
     for (const f of input.memory.facts) {
       if (!clean(f.fact)) continue
@@ -743,16 +764,28 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       const not = people.filter((p) => !f.knownBy.includes(p.id))
       ;[...knowers, ...not].forEach((p) => used.add(p.id))
       const knowersText = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
-      facts.push(
-        `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
-      )
+      facts.push({
+        fact: f.fact,
+        line: `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
+      })
     }
   }
-  const parts: string[] = []
-  if (rels.length) parts.push(rels.join('\n'))
-  if (facts.length) parts.push(`Facts some of them know and others don't:\n${facts.join('\n')}`)
-  return { text: parts.join('\n\n'), entryIds: people.map((p) => p.id).filter((id) => used.has(id)) }
+  const write = (list: string[]): string => {
+    const parts: string[] = []
+    if (rels.length) parts.push(rels.join('\n'))
+    if (list.length) parts.push(`Facts some of them know and others don't:\n${list.join('\n')}`)
+    return parts.join('\n\n')
+  }
+  const { kept, left } = someFacts(facts, sel, RELATIONSHIP_FACTS_SHORT)
+  return {
+    text: write(facts.map((f) => f.line)),
+    short: left ? write([...kept.map((f) => f.line), leftOutLine(left)]) : null,
+    entryIds: people.map((p) => p.id).filter((id) => used.has(id))
+  }
 }
+
+/** Facts some of those present don't know, kept in block 6's short form. */
+const RELATIONSHIP_FACTS_SHORT = 10
 
 /**
  * The order of this story's chapters, from the scene summaries and the finished chapters' summaries
@@ -967,9 +1000,11 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
-  // 6 Relationships and who knows what (no short form: they're short).
+  // 6 Relationships and who knows what. The spec gives it no short form ("these are short"); in a long
+  //   series who-knows-what can run to many lines, so then a short form keeps the facts that matter
+  //   here rather than the whole block, relationships included, being left out.
   const rel = relationshipsText(input, sel)
-  add('relationships', 6, 'Relationships and who knows what', rel.text, null, rel.entryIds)
+  add('relationships', 6, 'Relationships and who knows what', rel.text, rel.short, rel.entryIds)
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
