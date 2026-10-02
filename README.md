@@ -26,7 +26,7 @@ Unzip it (right-click it, then **Extract All**); the installer is inside.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```
-npm install
+npm ci             # install exactly what package-lock.json lists (it never changes the file)
 npm run dev        # run the app with hot reload
 npm run typecheck
 npm test
