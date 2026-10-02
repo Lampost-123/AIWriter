@@ -13,14 +13,36 @@ import type { ID } from '@shared/types'
  * its scene break) as one step. Going to another page keeps the draft writing;
  * opening another scene (or switching worlds) stops it first, and the text so
  * far is kept.
+ *
+ * With `replace`, the draft takes the place of the scene's text instead: the old
+ * text is held as it is (dimmed, and nothing can change it) from the moment Adam
+ * picks Replace it until the draft's first words arrive, then goes in the same step,
+ * and the page shows the top of the scene. The old text is kept with the draft's
+ * record at that moment. One Ctrl+Z puts it back exactly. A draft that brings no
+ * words leaves the old text untouched.
  */
 export interface EditorBridge {
   /** The scene the editor is showing. */
   sceneId: ID | null
+  /**
+   * Holds the scene's text as it is while a draft that will replace it gets ready, so nothing typed
+   * in the meantime goes with it. Returns false if the editor isn't showing that scene.
+   */
+  holdForReplace(sceneId: ID): boolean
+  /** Lets go of held text when the draft that was to replace it didn't start. */
+  releaseHold(): void
   /** Prepares to receive a streamed draft. Returns false if the editor isn't showing that scene. */
-  beginStream(sceneId: ID, generationId: ID): boolean
+  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean }): boolean
   appendStream(generationId: ID, text: string): void
-  endStream(generationId: ID): void
+  /**
+   * Ends the draft. `failed`: it ended with a problem that Generate reports itself, so the page says
+   * nothing. Returns whether the draft took the place of the scene's text.
+   */
+  endStream(generationId: ID, opts?: { failed?: boolean }): { replaced: boolean }
+  /** Adam picked where the draft goes: the keyboard goes into the page (once it can take it), so Ctrl+Z works there. */
+  takeKeyboard(): void
+  /** Ctrl+Z pressed outside the page (on the Generate button, say): undoes in the page. False when there was nothing to undo. */
+  undo(): boolean
   /** Saves the scene right now (if anything changed). */
   flush(): Promise<void>
   /** Current plain text of the scene. */

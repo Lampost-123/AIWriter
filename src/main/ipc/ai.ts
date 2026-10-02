@@ -17,7 +17,7 @@ import { memorySettingsChanged } from '../keeper'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
-  | 'previewContext' | 'startDraft' | 'stopGeneration' | 'cancelDraftStart' | 'listGenerations' | 'getGeneration'
+  | 'previewContext' | 'startDraft' | 'stopGeneration' | 'cancelDraftStart' | 'listGenerations' | 'getGeneration' | 'keepReplacedText'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -124,5 +124,6 @@ export const aiHandlers: Handlers<AiMethods> = {
     starting.get(sceneId)?.abort()
   },
   listGenerations: (sceneId) => gens.listGenerations(world.db(), sceneId),
-  getGeneration: (id) => gens.getGeneration(world.db(), id)
+  getGeneration: (id) => gens.getGeneration(world.db(), id),
+  keepReplacedText: (id, replaced) => gens.keepReplacedText(world.db(), id, replaced)
 }

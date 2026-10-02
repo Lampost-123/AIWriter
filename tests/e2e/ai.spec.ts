@@ -100,7 +100,7 @@ test('switching worlds mid-draft stops it with every word kept, and no false "Re
   }
 })
 
-test('a new draft on a scene with text goes below a scene break, and one Ctrl+Z takes both away', async ({ launch }) => {
+test('Add below on a scene with text puts the draft below a scene break, and one Ctrl+Z takes both away', async ({ launch }) => {
   const fake = await fakeProvider({ words: 60 })
   try {
     const { win } = await launch()
@@ -111,10 +111,12 @@ test('a new draft on a scene with text goes below a scene break, and one Ctrl+Z 
 
     // Said before Generate is pressed.
     await win.getByRole('button', { name: 'Draft options' }).click()
-    await expect(win.getByText('This scene already has text. The new draft goes after it, below a scene break.', { exact: false })).toBeVisible()
+    await expect(win.getByText('This scene already has text. You can replace it with the new draft, or add the draft below it.')).toBeVisible()
     await win.keyboard.press('Escape')
 
+    // Generate asks where the draft goes; Add below keeps the text and puts the draft after it.
     await generateButton(win).click()
+    await win.getByRole('button', { name: 'Add below', exact: true }).click()
     const sceneId = await firstScene(win)
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status).toBe('complete')
     await expect(prose(win).locator('hr')).toHaveCount(1)
