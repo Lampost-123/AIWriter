@@ -23,6 +23,8 @@ type DB = Database.Database
 export const SET_BUSY = 'Variants of this scene are already being written. Stop them first, or wait for them to finish.'
 /** Said when a draft of the scene (Generate, Beat by beat) is being written. */
 export const DRAFT_BUSY = 'A draft is being written for this scene. Stop it first, or wait for it to finish, then write the variants.'
+/** Said to Generate (or Beat by beat) while the scene's variants are getting ready or being written. */
+export const VARIANTS_WRITING = 'Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.'
 
 /** The set was called off before anything was sent. */
 const calledOff = (): UserError => new UserError('The variants were stopped before they began.', 'cancelled')
@@ -92,8 +94,9 @@ export async function startVariantSet(input: StartVariantsInput, deps: VariantsD
   try {
     const b = await deps.briefing(sceneId, options, set.stop.signal)
     if (set.stop.signal.aborted) throw calledOff()
-    // A draft of the scene began while the set got ready (Generate, say): the scene is its for now.
-    if (isDrafting(sceneId)) throw new UserError(DRAFT_BUSY, 'busy')
+    // A draft of the scene began, or began getting ready, while the set got ready (Generate, say): the
+    // scene is its for now. (Generate waits for the set, so this is only in case something else didn't.)
+    if (isDrafting(sceneId) || deps.startingElsewhere?.(sceneId)) throw new UserError(DRAFT_BUSY, 'busy')
     const notes = deps.providerNotes?.(b.target.id)
     for (let index = 1; index <= count; index++) {
       const { generationId } = startDraftJob({

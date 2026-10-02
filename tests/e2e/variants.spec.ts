@@ -2,18 +2,32 @@
 // one used whole or paragraphs taken from several. Against the fake OpenAI-compatible server
 // (tests/fake-provider/server.mjs), which writes the same prose for every draft: its paragraphs are
 // told apart by their first words.
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
 import type { TakeSnapshotInput } from '@shared/contracts/history'
 import { binder, closeWindow, createWorldFromWelcome, expect, invoke, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
+/** The message in the corner that says this. */
+const toastSaying = (win: Page, text: string) => toasts(win).locator('> div').filter({ hasText: text })
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
 const variantsButton = (win: Page) => win.getByRole('button', { name: 'Variants', exact: true })
 const column = (win: Page, n: number) => win.getByRole('region', { name: `Variant ${n}`, exact: true })
 const paragraphs = (win: Page, n: number) => column(win, n).getByRole('checkbox')
 const choiceHeading = (win: Page) => win.getByRole('heading', { name: 'This scene already has text' })
+const usePicked = (win: Page) => win.getByRole('button', { name: 'Use the picked paragraphs' })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const draftRows = (win: Page) => win.getByRole('tabpanel', { name: 'Drafts' }).getByRole('button', { name: /What the AI saw/ })
+
+/** The two don't overlap on screen (a message in the corner never covers the button, say). */
+async function expectApart(a: Locator, b: Locator): Promise<void> {
+  const [x, y] = [await a.boundingBox(), await b.boundingBox()]
+  expect(x).not.toBeNull()
+  expect(y).not.toBeNull()
+  const apart = x!.x + x!.width <= y!.x || y!.x + y!.width <= x!.x || x!.y + x!.height <= y!.y || y!.y + y!.height <= x!.y
+  expect(apart, `${JSON.stringify(x)} overlaps ${JSON.stringify(y)}`).toBe(true)
+}
 
 const OLD = ['Mara waited by the door, counting the knocks.', 'The tavern had gone quiet around her.']
 /** The first words of the fake prose's first three paragraphs. */
@@ -162,6 +176,10 @@ test('three variants are written side by side from one briefing; one stops on it
     // ----- Paragraphs from two variants, in the order picked, below the scene's text -----
     await variantsButton(win).click()
     await expect(column(win, 3)).toContainText(P1)
+    // The message about the last one is still in the corner: it never covers the page's main button.
+    const replacedMessage = toastSaying(win, 'Variant 1 took the place of the scene')
+    await expect(replacedMessage).toBeVisible()
+    await expectApart(usePicked(win), replacedMessage)
     await paragraphs(win, 1).nth(1).click()
     await paragraphs(win, 3).nth(0).click()
     await expect(paragraphs(win, 1).nth(1)).toHaveAttribute('aria-checked', 'true')
@@ -177,7 +195,7 @@ test('three variants are written side by side from one briefing; one stops on it
     await expect(win.getByText('2 paragraphs picked')).toBeVisible()
     await expect(paragraphs(win, 3).nth(2)).toHaveAttribute('aria-checked', 'false')
 
-    await win.getByRole('button', { name: 'Use the picked paragraphs' }).click()
+    await usePicked(win).click()
     await expect(choiceHeading(win)).toBeVisible()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(prose(win)).toBeVisible()
@@ -233,10 +251,16 @@ test('problems starting or writing variants are said in plain words, with the wa
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
 
-    // No writer model yet: nothing is sent, and the fix is a click away.
+    // No writer model yet: nothing is sent, and the fix is a click away. The problem shows below the
+    // button just pressed, in sight, and the button stays in sight above it.
     await variantsButton(win).click()
-    await win.getByRole('button', { name: 'Write three variants' }).click()
-    await expect(win.getByText('Choose a writer model first.', { exact: false })).toBeVisible()
+    const writeThree = win.getByRole('button', { name: 'Write three variants' })
+    await writeThree.click()
+    const needModel = win.getByText('Choose a writer model first.', { exact: false })
+    await expect(needModel).toBeVisible()
+    await expect(needModel).toBeInViewport({ ratio: 1 })
+    await expect(writeThree).toBeInViewport({ ratio: 1 })
+    expect((await writeThree.boundingBox())!.y).toBeLessThan((await needModel.boundingBox())!.y)
     await win.getByRole('button', { name: 'Open Settings › Models' }).click()
     await expect(win.getByRole('heading', { level: 1, name: 'Models' })).toBeVisible()
     expect(Object.keys(fake.requestCounts())).toEqual([])
@@ -252,6 +276,34 @@ test('problems starting or writing variants are said in plain words, with the wa
       await expect(column(win, n).getByRole('button', { name: 'Use this one' })).toBeDisabled()
     }
     await expect(column(win, 3)).toHaveCount(0)
+    expect(await savedText(win, sceneId)).toBe('')
+
+    // Too much for the model: each variant offers both fixes its message names, the length first.
+    await useModels(win, fake, 'fake/toolong')
+    await variantsButton(win).click()
+    await win.getByRole('button', { name: 'New variants' }).click()
+    await win.getByRole('button', { name: 'Write two variants' }).click()
+    for (const n of [1, 2]) {
+      await expect(column(win, n).getByText('too much for this model together', { exact: false })).toBeVisible()
+      await expect(column(win, n).getByRole('button', { name: /^(Change the length|Open Settings)$/ })).toHaveText([
+        'Change the length',
+        'Open Settings'
+      ])
+    }
+    // Change the length: the panel to start again, with the keyboard in the length box, ready to type.
+    await column(win, 1).getByRole('button', { name: 'Change the length' }).click()
+    const length = win.getByLabel('Length of each')
+    await expect(length).toBeFocused()
+    // The scene card's length shows, selected, so typing replaces it.
+    await expect(length).toHaveValue('1500')
+    const allSelected = () =>
+      length.evaluate((el) => {
+        const input = el as unknown as { selectionStart: number | null; selectionEnd: number | null; value: string }
+        return input.selectionStart === 0 && input.selectionEnd === input.value.length
+      })
+    await expect.poll(allSelected).toBe(true)
+    await win.keyboard.type('300')
+    await expect(length).toHaveValue('300')
     expect(await savedText(win, sceneId)).toBe('')
 
     // Two is remembered for next time. With a model that writes, an empty scene takes a variant straight away.
@@ -291,6 +343,15 @@ test('while variants are being written the toolbar says so, from any page; Esc s
     // Back on the writing page, the Variants button shows they are still being written.
     await win.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(variantsButton(win)).toHaveAttribute('title', /being written now/)
+    // Generate waits for them, and says so in words that name them; nothing goes into the page.
+    await generateButton(win).click()
+    await expect(choiceHeading(win)).toBeVisible()
+    await win.getByRole('button', { name: 'Add below', exact: true }).click()
+    await expect(
+      toasts(win).getByText('Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.')
+    ).toBeVisible()
+    await expect(prose(win).locator('p')).toHaveText(OLD)
+    await expect(generateButton(win)).toBeEnabled()
     await variantsButton(win).click()
     await expect(win.getByRole('button', { name: 'Stop all' })).toBeVisible()
 
@@ -314,6 +375,15 @@ test('while variants are being written the toolbar says so, from any page; Esc s
     await expect(variantsButton(win)).toHaveAttribute('title', /side by side/)
     // Nothing went into the scene.
     expect(await savedText(win, knock)).toBe(OLD.join('\n\n'))
+
+    // A variant's record opened from the Drafts tab goes back to the scene, where Adam came from.
+    await win.getByRole('tab', { name: 'Drafts' }).click()
+    await expect(draftRows(win)).toHaveCount(3)
+    await draftRows(win).first().click()
+    await expect(win.getByText('This variant was stopped before it finished.', { exact: false })).toBeVisible()
+    await expect(win.getByRole('button', { name: 'Back to the variants' })).toHaveCount(0)
+    await win.getByRole('button', { name: 'Back to “The knock”' }).click()
+    await expect(prose(win).locator('p')).toHaveText(OLD)
   } finally {
     await fake.close()
   }

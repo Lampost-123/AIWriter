@@ -14,6 +14,7 @@ import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { openScene } from '@/features/memory/openScene'
+import { fixesFor, type Fix } from './fixes'
 import { togglePick, type Pick } from './merge'
 
 export interface LiveVariant {
@@ -58,10 +59,10 @@ export interface LiveSet {
 /** A scene's variants: being looked up, none yet, its latest set, or the lookup failed. */
 export type SceneVariants = { kind: 'loading' } | { kind: 'none' } | { kind: 'set'; set: LiveSet } | { kind: 'failed'; error: string }
 
-/** Why the variants didn't start, in plain words, and where the fix is. */
+/** Why the variants didn't start, in plain words, and where the fixes are (the first to offer first). */
 export interface StartProblem {
   message: string
-  fix: 'settings' | 'length' | null
+  fixes: Fix[]
 }
 
 interface VariantsState {
@@ -272,9 +273,10 @@ function ended(set: LiveSet): void {
   const of = title ? ` of “${title}”` : ''
   const failed = set.variants.find((v) => v.status === 'error' && v.error)
   if (failed?.error) {
+    // A length the model can't manage is changed on the Variants page (each variant offers it there).
     toast(`The variants${of} couldn't all be written. ${failed.error}`, {
       tone: 'danger',
-      action: /\bSettings\b/.test(failed.error) ? openSettings : showThem(sceneId)
+      action: fixesFor(failed.error)[0] === 'settings' ? openSettings : showThem(sceneId)
     })
   } else if (!set.stopping && set.variants.some((v) => v.status === 'complete')) {
     toast(`The variants${of} are written.`, { action: showThem(sceneId) })
@@ -328,12 +330,10 @@ export async function loadVariants(sceneId: ID, force = false): Promise<void> {
   }
 }
 
-/** What to say, and where the fix is, when the variants couldn't start. */
+/** What to say, and where the fixes are, when the variants couldn't start. */
 function problemOf(err: ApiError): StartProblem {
   const message = plainReason(err)
-  if (err.code === 'too-long') return { message, fix: 'length' }
-  if (err.code === 'no-writer-model' || err.code === 'no-key' || /\bSettings\b/.test(message)) return { message, fix: 'settings' }
-  return { message, fix: null }
+  return { message, fixes: fixesFor(message, err.code) }
 }
 
 /**
@@ -393,9 +393,10 @@ export async function startVariants(sceneId: ID, count: VariantCount, options: D
     const problem = problemOf(err)
     setProblem(sceneId, problem)
     if (!onPage(sceneId)) {
+      // The length is changed on the Variants page; Settings is a page of its own.
       toast(`The variants couldn't start. ${problem.message}`, {
         tone: 'danger',
-        action: problem.fix === 'settings' ? openSettings : showThem(sceneId)
+        action: problem.fixes[0] === 'settings' ? openSettings : showThem(sceneId)
       })
     }
     return 'failed'

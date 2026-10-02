@@ -61,6 +61,7 @@ export function UseButton({
   plural,
   generationId,
   onUsed,
+  align,
   children,
   className,
   ...button
@@ -73,6 +74,8 @@ export function UseButton({
   plural?: boolean
   generationId?: ID | null
   onUsed?: () => void
+  /** Which edge of the button the question lines up with: its right edge unless said. */
+  align?: 'start' | 'end'
 }): React.JSX.Element {
   const [asking, setAsking] = useState(false)
   // Quick (no spinner), but a second press while it goes in does nothing.
@@ -109,6 +112,7 @@ export function UseButton({
       {asking ? (
         <PopoverPanel
           className="w-[340px]"
+          align={align}
           onOpenAutoFocus={(e) => {
             // The panel takes the keyboard (nothing looks picked before Adam picks); Tab or the arrows reach the answers.
             e.preventDefault()

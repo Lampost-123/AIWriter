@@ -2,7 +2,7 @@
 // same ones Generate and the Context tab use, so a direction typed here is there too), the writer model
 // and what the set should cost. Problems starting show here in plain words, with the way to fix them.
 import { Columns3, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import type { VariantCount } from '@shared/contracts/variants'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
@@ -44,6 +44,7 @@ export function StartPanel({
   hasSet,
   focus = 'direction',
   onCancel,
+  onAsking,
   onStarted
 }: {
   sceneId: ID
@@ -53,6 +54,8 @@ export function StartPanel({
   /** Where the keyboard starts: the direction, or the length (when the model had a problem with it). */
   focus?: 'direction' | 'length'
   onCancel: () => void
+  /** The set is about to be asked for (its columns may take this panel's place). */
+  onAsking?: () => void
   /** The start has run its course: started, called off, or failed (the problem shows here). */
   onStarted: (result: 'started' | 'cancelled' | 'failed') => void
 }): React.JSX.Element {
@@ -106,11 +109,32 @@ export function StartPanel({
     if (writer) setNeedModel(false)
   }, [writer])
 
+  /** The keyboard goes to the length box, its number selected, ready to type another. */
+  const toLength = (): void => {
+    lengthRef.current?.focus()
+    lengthRef.current?.select()
+  }
+  /** Opened to change the length: its number is selected once it shows (the scene card is read first). */
+  const selectLength = useRef(focus === 'length')
+
   // The keyboard starts in the direction box, ready to type (or in the length box, to change it).
   useEffect(() => {
-    if (focus === 'length') lengthRef.current?.select()
+    if (focus === 'length') toLength()
     else directionRef.current?.focus({ preventScroll: true })
   }, [focus])
+  useLayoutEffect(() => {
+    if (!selectLength.current || !lengthText) return
+    selectLength.current = false
+    if (document.activeElement === lengthRef.current) lengthRef.current?.select()
+  }, [lengthText])
+
+  // A problem shows below the buttons, so nothing Adam is looking at moves; the panel scrolls just
+  // enough to show it when it is out of sight (in a small window, say).
+  const noticeRef = useRef<HTMLDivElement>(null)
+  const shownProblem = needModel ? 'need-model' : (problem?.message ?? null)
+  useEffect(() => {
+    if (shownProblem) noticeRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [shownProblem])
 
   // What the whole set should cost, for models with prices: the briefing and the length, once per variant.
   const promptPrice = writer?.promptPrice ?? null
@@ -152,12 +176,13 @@ export function StartPanel({
         useApp.getState().settings?.creativity ?? 'balanced'
       )
       rememberCount(count)
-      // The columns show as soon as the set is on its way (this panel goes); this says how it went.
+      // The columns show once the set is on its way (this panel goes); this says how it went.
+      onAsking?.()
       onStarted(await startVariants(sceneId, count, options))
     } catch {
       // The scene couldn't be read: startVariants was never called, so say so here.
       useVariants.setState((s) => ({
-        problems: { ...s.problems, [sceneId]: { message: "The scene couldn't be read just now. Try again in a moment.", fix: null } }
+        problems: { ...s.problems, [sceneId]: { message: "The scene couldn't be read just now. Try again in a moment.", fixes: [] } }
       }))
       onStarted('failed')
     } finally {
@@ -233,6 +258,7 @@ export function StartPanel({
                       inputMode="numeric"
                       value={lengthText}
                       onChange={(e) => {
+                        selectLength.current = false
                         const v = e.target.value.replace(/[^\d]/g, '').slice(0, 5)
                         setLengthText(v)
                         const n = parseInt(v, 10)
@@ -292,42 +318,9 @@ export function StartPanel({
             ) : null}
           </div>
 
-          {needModel ? (
-            <Notice
-              tone="danger"
-              action={
-                <Button size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
-                  Open Settings › Models
-                </Button>
-              }
-            >
-              Choose a writer model first. AI Write needs a model to write with: connect OpenRouter or another provider, then pick a writer
-              model.
-            </Notice>
-          ) : problem ? (
-            <Notice
-              tone="danger"
-              action={
-                problem.fix === 'settings' ? (
-                  <Button size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
-                    Open Settings
-                  </Button>
-                ) : problem.fix === 'length' ? (
-                  <Button size="sm" onClick={() => lengthRef.current?.focus()}>
-                    Change the length
-                  </Button>
-                ) : undefined
-              }
-            >
-              {problem.message}
-            </Notice>
-          ) : generating ? (
-            <Notice>A draft is being written into this scene. Stop it first, or wait for it to finish, then write the variants.</Notice>
-          ) : null}
-
           <div className="flex items-center justify-end gap-2">
             {hasSet ? (
-              <Button variant="ghost" onClick={onCancel}>
+              <Button variant="ghost" onClick={onCancel} disabled={starting}>
                 Cancel
               </Button>
             ) : null}
@@ -335,6 +328,46 @@ export function StartPanel({
               {count === 2 ? 'Write two variants' : 'Write three variants'}
             </Button>
           </div>
+
+          {/* Below the buttons, so the one just pressed stays where it is. */}
+          {needModel || problem || generating ? (
+            <div ref={noticeRef} className="scroll-mb-4">
+              {needModel ? (
+                <Notice
+                  tone="danger"
+                  action={
+                    <Button size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
+                      Open Settings › Models
+                    </Button>
+                  }
+                >
+                  Choose a writer model first. AI Write needs a model to write with: connect OpenRouter or another provider, then pick a
+                  writer model.
+                </Notice>
+              ) : problem ? (
+                <Notice tone="danger">
+                  <p>{problem.message}</p>
+                  {problem.fixes.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {problem.fixes.map((f) =>
+                        f === 'length' ? (
+                          <Button key={f} size="sm" onClick={toLength}>
+                            Change the length
+                          </Button>
+                        ) : (
+                          <Button key={f} size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
+                            Open Settings
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  ) : null}
+                </Notice>
+              ) : (
+                <Notice>A draft is being written into this scene. Stop it first, or wait for it to finish, then write the variants.</Notice>
+              )}
+            </div>
+          ) : null}
         </Card>
       </div>
     </div>

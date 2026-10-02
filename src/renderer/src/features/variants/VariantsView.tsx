@@ -34,11 +34,24 @@ export function VariantsView({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const [composing, setComposing] = useState(false)
   const [focus, setFocus] = useState<'direction' | 'length'>('direction')
 
+  /**
+   * A set was just asked for: the start panel stays a moment longer (its button turning), so a start
+   * turned down at once (a model that can't write that much, say) never flashes the columns, and its
+   * problem shows under the button just pressed. `hadSet`: a set showed before, so the panel stays as it was.
+   */
+  const [asking, setAsking] = useState<{ hadSet: boolean } | null>(null)
+  useEffect(() => {
+    if (!asking) return
+    const t = setTimeout(() => setAsking(null), 300)
+    return () => clearTimeout(t)
+  }, [asking])
+
   useEffect(() => void loadVariants(sceneId), [sceneId])
 
   const set = entry?.kind === 'set' ? entry.set : null
   const writing = isWriting(set)
-  const showStart = entry?.kind === 'none' || (!!set && composing && !writing)
+  const holding = !!asking && !!set?.starting
+  const showStart = entry?.kind === 'none' || (!!set && composing && !writing) || holding
   const loading = !entry || entry.kind === 'loading'
   const slow = useDelayed(loading, 300)
 
@@ -75,7 +88,7 @@ export function VariantsView({ sceneId }: { sceneId: ID }): React.JSX.Element {
           {sceneTitle ? <span className="font-normal text-faint"> of “{sceneTitle}”</span> : null}
         </h1>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {writing ? (
+          {writing && !holding ? (
             <>
               <span
                 role="status"
@@ -139,13 +152,16 @@ export function VariantsView({ sceneId }: { sceneId: ID }): React.JSX.Element {
             key={focus}
             sceneId={sceneId}
             sceneTitle={sceneTitle}
-            hasSet={!!set}
+            hasSet={holding && asking ? asking.hadSet : !!set}
             focus={focus}
             onCancel={() => setComposing(false)}
+            onAsking={() => setAsking({ hadSet: !!set })}
             onStarted={(result) => {
-              if (result === 'started') setComposing(false)
-              else setComposing(true)
-              setFocus('direction')
+              setAsking(null)
+              if (result === 'started') {
+                setComposing(false)
+                setFocus('direction')
+              } else setComposing(true)
             }}
           />
         </div>
@@ -220,7 +236,23 @@ function SetView({
           ))}
         </div>
       </div>
-      <footer className="flex h-14 shrink-0 items-center gap-3 border-t border-line/70 bg-page pl-5 pr-3">
+      {/* The button comes first: it never moves as paragraphs are picked, and the app's messages (in
+          the bottom right corner) never cover it. */}
+      <footer className="flex h-14 shrink-0 items-center gap-3 border-t border-line/70 bg-page pl-3 pr-5">
+        <UseButton
+          sceneId={sceneId}
+          variant="primary"
+          align="start"
+          className="shrink-0"
+          blocks={(): VariantBlock[] => picked}
+          what="The picked paragraphs"
+          plural
+          disabled={!picks.length}
+          onUsed={() => clearPicks(sceneId)}
+          title={picks.length ? 'Put the picked paragraphs into the scene, in the order they are numbered' : 'Pick paragraphs first'}
+        >
+          Use the picked paragraphs
+        </UseButton>
         {picks.length ? (
           <>
             <span className="whitespace-nowrap text-[13px] text-fg" role="status">
@@ -232,25 +264,12 @@ function SetView({
             </Button>
           </>
         ) : (
-          <span className="min-w-0 truncate text-[12.5px] text-faint">
+          <span className="line-clamp-2 min-w-0 text-[12.5px] leading-snug text-faint">
             {anyParagraph || writing
-              ? 'Click paragraphs in any variant to pick them. They go into the scene in the order you pick them.'
+              ? 'Click paragraphs in any variant to pick them, in the order they should go in.'
               : 'These variants have no paragraphs to pick from.'}
           </span>
         )}
-        <UseButton
-          sceneId={sceneId}
-          variant="primary"
-          className="ml-auto"
-          blocks={(): VariantBlock[] => picked}
-          what="The picked paragraphs"
-          plural
-          disabled={!picks.length}
-          onUsed={() => clearPicks(sceneId)}
-          title={picks.length ? 'Put the picked paragraphs into the scene, in the order they are numbered' : 'Pick paragraphs first'}
-        >
-          Use the picked paragraphs
-        </UseButton>
       </footer>
     </>
   )

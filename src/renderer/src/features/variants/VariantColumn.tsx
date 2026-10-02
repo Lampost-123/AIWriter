@@ -14,6 +14,8 @@ import { useApp } from '@/lib/store'
 import { FollowScroll } from '@/features/editor/followScroll'
 import { formatCost } from '@/features/generate/format'
 import type { MarkedPiece } from '@/features/editor/streamText'
+import { openVariantRecord } from './back'
+import { fixesFor } from './fixes'
 import { blocksWords, pickNumber, variantBlocks, type Pick } from './merge'
 import { pickParagraph, stopVariant, type LiveVariant } from './store'
 import { UseButton } from './UseButton'
@@ -226,7 +228,8 @@ export function VariantColumn({
       : cost
         ? `It cost ${cost}.`
         : undefined
-  const fix = !error ? null : /\bSettings\b/.test(error) ? 'settings' : /\bdraft options\b/.test(error) ? 'length' : null
+  // The ways to fix it that its words name: the length first (as Generate offers it), then Settings.
+  const fixes = error ? fixesFor(error) : []
 
   return (
     <section
@@ -301,14 +304,20 @@ export function VariantColumn({
                 // The way to fix it goes under the words, so they keep the column's width.
                 <Notice tone="danger">
                   <p>{error}</p>
-                  {fix ? (
-                    <Button
-                      size="sm"
-                      className="mt-2"
-                      onClick={fix === 'settings' ? () => navigate({ kind: 'settings', tab: 'models' }) : onChangeLength}
-                    >
-                      {fix === 'settings' ? 'Open Settings' : 'Change the length'}
-                    </Button>
+                  {fixes.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {fixes.map((f) =>
+                        f === 'length' ? (
+                          <Button key={f} size="sm" onClick={onChangeLength}>
+                            Change the length
+                          </Button>
+                        ) : (
+                          <Button key={f} size="sm" onClick={() => navigate({ kind: 'settings', tab: 'models' })}>
+                            Open Settings
+                          </Button>
+                        )
+                      )}
+                    </div>
                   ) : null}
                 </Notice>
               ) : null}
@@ -347,7 +356,7 @@ export function VariantColumn({
           size="sm"
           icon={<FileSearch size={13} />}
           disabled={!generationId}
-          onClick={() => navigate({ kind: 'generation', generationId })}
+          onClick={() => openVariantRecord(sceneId, generationId)}
           title="The exact briefing this variant was written from, and what it cost"
         >
           What the AI saw

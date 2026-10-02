@@ -12,6 +12,7 @@ import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
+import { variantsBackTo } from '@/features/variants/back'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
@@ -78,19 +79,21 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
 
   const slow = useDelayed(!rec && !error)
 
-  // A variant's record (milestone 4) is opened from the Variants page, so Back goes there.
-  const variant = !!rec?.params.variant
+  // A variant's record (milestone 4) opened from the Variants page goes back there.
+  const toVariants = variantsBackTo(generationId)
   const back = (): void => {
-    if (rec) selectScene(rec.sceneId)
+    if (toVariants) {
+      selectScene(toVariants)
+      useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
+    } else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
-    if (rec && variant) useApp.getState().navigate({ kind: 'variants', sceneId: rec.sceneId })
   }
 
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {variant ? 'Back to the variants' : rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
+          {toVariants ? 'Back to the variants' : rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
         </Button>
 
         {error ? (

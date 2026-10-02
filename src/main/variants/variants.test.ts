@@ -12,6 +12,7 @@ import { isDrafting, startDraftJob, stopDraft, type Emit } from '../ai/drafts'
 import type { DraftBriefing } from '../ai/draftFlow'
 import { catchUpBeforeDraft, gatherContextInput, setBeforeDraft } from '../ai/gather'
 import { countRaw } from '../ai/tokens'
+import { variantRows } from '../db/variants'
 import {
   DRAFT_BUSY,
   latestVariantSet,
@@ -302,6 +303,30 @@ describe('a set of variants', () => {
     await allDone(events, fine.generationIds)
   })
 
+  it('gives way to a draft of the scene that began getting ready while the set did: nothing is sent or recorded', async () => {
+    const w = setup()
+    const events: Ev[] = []
+    fake.reset()
+    const plain = deps(w.db, events)
+    let generateStarting = false
+    const starting = startVariantSet(
+      { setId: 'late', sceneId: w.second.id, count: 2, options: OPTIONS },
+      {
+        ...plain,
+        startingElsewhere: (id) => generateStarting && id === w.second.id,
+        // Generate is pressed (and begins getting ready) while the set's briefing is being made.
+        briefing: (sceneId, options, signal) => {
+          generateStarting = true
+          return plain.briefing(sceneId, options, signal)
+        }
+      }
+    )
+    await expect(starting).rejects.toMatchObject({ message: DRAFT_BUSY, code: 'busy' })
+    expect(gens.listGenerations(w.db, w.second.id)).toEqual([])
+    expect(Object.keys(fake.requestCounts())).toEqual([])
+    expect(variantsBusy(w.second.id)).toBe(false)
+  })
+
   it('reads the scene’s latest set back from the records, variant 1 first, ignoring other drafts', async () => {
     const w = setup()
     const events: Ev[] = []
@@ -348,8 +373,18 @@ describe('a set of variants', () => {
     expect(latestVariantSet(w.db, w.third.id)).toBeNull()
 
     // The older set is still there, complete, with its words and cost.
-    const olderSet = latestVariantSet(w.db, w.second.id)
-    expect(olderSet?.setId).not.toBe('older')
+    const olderRows = variantRows(w.db, w.second.id, 'older')
+    expect(olderRows).toHaveLength(2)
+    expect(olderRows.map((r) => r.index)).toEqual([1, 2])
+    expect(olderRows.map((r) => r.id)).toEqual(older.generationIds)
+    for (const r of olderRows) {
+      expect(r.setId).toBe('older')
+      expect(r.of).toBe(2)
+      expect(r.status).toBe('complete')
+      expect(r.response).toContain('The rain had not let up')
+      expect(r.cost).toBeGreaterThan(0)
+      expect(r.direction).toBe('End on the knock.')
+    }
   })
 
   it('says what each variant cost, and marks the cost estimated when the provider didn’t report it', async () => {
