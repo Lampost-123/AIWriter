@@ -8,6 +8,7 @@ import { Fragment, useEffect } from 'react'
 import { IconButton, Kbd } from '@/components/ui'
 import { isShortcut, isTyping, SHORTCUT_GROUPS, SHORTCUTS, shortcutKeys, shortcutText, type Shortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { HoldToTalkLine } from '@/features/dictation/HoldToTalkLine'
 import { giveFocusBack, openShortcuts, PALETTE_LAYER, usePalette } from './paletteStore'
 
 function Keys({ s }: { s: Shortcut }): React.JSX.Element {
@@ -90,6 +91,8 @@ export function ShortcutsList(): React.JSX.Element {
                     <Keys s={s} />
                   </li>
                 ))}
+                {/* Milestone 4: dictation's key is the one Adam picks, so its line is its own (the Dictation part's). */}
+                {group === 'Writing' ? <HoldToTalkLine /> : null}
               </ul>
             </section>
           ))}
