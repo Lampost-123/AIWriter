@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { isDictationKey, isModifierKey, keptKey, keyName, pressedAlone, refusal, type KeyEventLike } from './keys'
 
+/** The words as they read: a name's unbreakable spaces (it is kept on one line) as plain ones. */
+const read = (s: string | null): string => (s ?? '').replace(/\u00a0/g, ' ')
+
 const ev = (key: string, code: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => ({
   key,
   code,
@@ -104,25 +107,32 @@ describe('picking the dictation key', () => {
     expect(refusal('Unidentified')).toMatch(/can't tell that key apart/)
   })
 
-  it('suggests keys that work', () => {
-    expect(refusal('a')).toContain('F9, Right Ctrl or Right Alt')
+  it('suggests keys that work, by their names on this computer', () => {
+    expect(read(refusal('a'))).toContain('such as F9, Right Ctrl or Right Alt.')
+    expect(read(refusal('a', true))).toContain('such as F9 or Right Option.')
+    expect(refusal('Meta', true)).toMatch(/^That key belongs to macOS\./)
   })
 })
 
 describe("the key's name", () => {
   it('names keys for Windows', () => {
-    expect(keyName('ControlRight')).toBe('Right Ctrl')
-    expect(keyName('ShiftLeft')).toBe('Left Shift')
-    expect(keyName('AltRight')).toBe('Right Alt')
+    expect(read(keyName('ControlRight'))).toBe('Right Ctrl')
+    expect(read(keyName('ShiftLeft'))).toBe('Left Shift')
+    expect(read(keyName('AltRight'))).toBe('Right Alt')
     expect(keyName('F9')).toBe('F9')
-    expect(keyName('ContextMenu')).toBe('Menu key')
-    expect(keyName('ScrollLock')).toBe('Scroll Lock')
+    expect(read(keyName('ContextMenu'))).toBe('Menu key')
+    expect(read(keyName('ScrollLock'))).toBe('Scroll Lock')
     expect(keyName('')).toBe('')
   })
 
   it('names Ctrl and Alt the Mac way on a Mac', () => {
-    expect(keyName('ControlRight', true)).toBe('Right Control')
-    expect(keyName('AltLeft', true)).toBe('Left Option')
-    expect(keyName('ShiftRight', true)).toBe('Right Shift')
+    expect(read(keyName('ControlRight', true))).toBe('Right Control')
+    expect(read(keyName('AltLeft', true))).toBe('Left Option')
+    expect(read(keyName('ShiftRight', true))).toBe('Right Shift')
+  })
+
+  it('keeps a name on one line, wherever the words around it wrap', () => {
+    expect(keyName('ControlRight')).toBe('Right\u00a0Ctrl')
+    expect(refusal('a')).toContain('F9, Right\u00a0Ctrl or Right\u00a0Alt.')
   })
 })

@@ -1,12 +1,12 @@
 // Dictation (milestone 4): picking the hold-to-talk key in Settings (with the mouse or the keyboard),
 // holding it to type what was said into the scene at the cursor (one Ctrl+Z takes it out, and the moment
 // before the key went down is kept), into a scene card field, and with a window switch half way; the
-// marker clear of the words in the middle of a paragraph; a Ctrl key that only listens on its own; the
-// Quick start box's microphone button, and its words offered to copy when building starts first; the
-// microphone Test with its level and try-it box, before and after the speech engine is ready; problems in
-// plain words with Open Settings and Try again; the shortcuts list's line. Chromium's fake microphone
-// (AIWRITE_FAKE_MIC=1: a beep every half second) does the talking, and the fake speech server
-// (tests/fake-speech) writes it down.
+// marker clear of the words in the middle of a paragraph; holding the key again straight away without
+// hearing anything twice; a Ctrl key that only listens on its own; the Quick start box's microphone
+// button, and its words offered to copy when building starts first; the microphone Test with its level
+// and try-it box, before and after the speech engine is ready; problems in plain words with Open
+// Settings and Try again; the shortcuts list's line. Chromium's fake microphone (AIWRITE_FAKE_MIC=1: a
+// beep every half second) does the talking, and the fake speech server (tests/fake-speech) writes it down.
 import type { ElectronApplication, Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
@@ -85,6 +85,12 @@ interface KeyTimes {
   up?: number
 }
 
+/** Every time the page saw a key go down and come up, by its own clock (ms). */
+interface KeyLog {
+  down: number[]
+  up: number[]
+}
+
 /** What these tests reach in the page itself, typed just enough: the tests are checked without the page's own types. */
 interface InPage {
   document: {
@@ -102,6 +108,7 @@ interface InPage {
   addEventListener(type: 'keydown' | 'keyup', listener: (e: { code: string; timeStamp: number }) => void, capture: boolean): void
   Event: new (type: string) => unknown
   keyTimes?: KeyTimes
+  keyLog?: KeyLog
 }
 
 /** Nothing in the page has the keyboard (so ? opens the shortcuts list). */
@@ -161,6 +168,17 @@ async function timeHold(win: Page, code: string): Promise<() => Promise<number>>
     expect(t?.down !== undefined && t.up !== undefined).toBe(true)
     return (t!.up! - t!.down!) / 1000
   }
+}
+
+/** Notes every time the page sees the key `code` go down and come up, by its own clock (ms). */
+async function keyLog(win: Page, code: string): Promise<() => Promise<KeyLog>> {
+  await win.evaluate((code) => {
+    const w = globalThis as unknown as InPage
+    const log: KeyLog = (w.keyLog = { down: [], up: [] })
+    w.addEventListener('keydown', (e) => (e.code === code ? log.down.push(e.timeStamp) : undefined), true)
+    w.addEventListener('keyup', (e) => (e.code === code ? log.up.push(e.timeStamp) : undefined), true)
+  }, code)
+  return async () => (await win.evaluate(() => (globalThis as unknown as InPage).keyLog))!
 }
 
 /** The words of each line of the scene's first paragraph, as boxes on the screen, top to bottom. */
@@ -317,6 +335,40 @@ test('in the middle of a paragraph the marker shows small, in the gap between th
     await expect(marker(win)).toHaveAttribute('data-small', 'true')
     await expect(prose(win)).toContainText(' slowly ')
     await expect(marker(win)).toHaveCount(0)
+  } finally {
+    await speech.close()
+  }
+})
+
+test('holding the key again straight after letting go hears each moment once, so no words are typed twice', async ({ launch }) => {
+  const speech = await startSpeech({ dictation: ['One.', 'Two.'], dictationDelayMs: 300 })
+  try {
+    const { app, win } = await setUp(launch, speech)
+    await makeDictationReady(app)
+    await pickKey(win, 'F9', 'F9')
+    await prose(win).click()
+    await win.waitForTimeout(1000)
+    const times = await keyLog(win, 'F9')
+    await hold(win, 'F9')
+    // Straight away again, while the first is still being written down.
+    await win.keyboard.down('F9')
+    await win.waitForTimeout(1300)
+    await win.keyboard.up('F9')
+    await expect(prose(win)).toHaveText('One. Two.')
+    await expect(marker(win)).toHaveCount(0)
+
+    // The second starts where the first ended (0.25 s after the key came up), not 0.45 s before the key
+    // went down again, which would take in the first one's last words a second time.
+    const { down, up } = await times()
+    expect(down).toHaveLength(2)
+    expect(up).toHaveLength(2)
+    const firstEnds = up[0] / 1000 + 0.25
+    const secondStarts = Math.max(down[1] / 1000 - 0.45, firstEnds)
+    const expected = 0.3 + (up[1] / 1000 + 0.25 - secondStarts)
+    const sent = await recordings(speech)
+    expect(sent).toHaveLength(2)
+    expect(sent[1].seconds).toBeGreaterThan(expected - 0.2)
+    expect(sent[1].seconds).toBeLessThan(expected + 0.2)
   } finally {
     await speech.close()
   }
@@ -483,6 +535,10 @@ test('the microphone Test shows a live level and writes what it heard in the try
       await expect(win.getByText(/^No key yet\./)).toBeVisible()
     }
     await win.keyboard.press('Enter')
+    // The Windows key on its own is one key, not a combination: it is told why it can't be used.
+    await win.keyboard.press('Meta')
+    await expect(win.getByText('That key belongs to Windows. Pick another, such as F9, Right Ctrl or Right Alt.')).toBeVisible()
+    await expect(keyBox(win)).toHaveText('Press a key…')
     await win.keyboard.press('F8')
     await expect(keyBox(win)).toHaveText('F8')
     await expect(win.getByText('Hold F8 and talk, then let go.')).toBeVisible()

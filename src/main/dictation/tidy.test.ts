@@ -66,7 +66,7 @@ describe('tidying dictated words', () => {
     expect(tidyDictation('I I think so.')).toBe('I think so.')
     expect(tidyDictation('and and then the the the door')).toBe('and then the door')
     expect(tidyDictation("It's it's late.")).toBe("It's late.")
-    expect(tidyDictation('She went to, uh, to the door.')).toBe('She went to the door.')
+    expect(tidyDictation('And, uh, and then she left.')).toBe('And then she left.')
   })
 
   it('keeps real doubles such as "had had"', () => {
@@ -79,6 +79,25 @@ describe('tidying dictated words', () => {
     expect(tidyDictation('There there, my dear.')).toBe('There there, my dear.')
     expect(tidyDictation('A very very long road.')).toBe('A very very long road.')
     expect(tidyDictation('No, no, no.')).toBe('No, no, no.')
+    expect(tidyDictation('I told you you were right.')).toBe('I told you you were right.')
+  })
+
+  it('keeps a small word said twice when one part of the sentence ends on it and the next starts with it', () => {
+    expect(tidyDictation('The town she grew up in in Ohio.')).toBe('The town she grew up in in Ohio.')
+    expect(tidyDictation('He was the man she talked to to get in.')).toBe('He was the man she talked to to get in.')
+    expect(tidyDictation('What was he looking at at the time?')).toBe('What was he looking at at the time?')
+    expect(tidyDictation('The coat she had on on Sunday.')).toBe('The coat she had on on Sunday.')
+    expect(tidyDictation('The day she had waited for for years.')).toBe('The day she had waited for for years.')
+  })
+
+  it('keeps an um that is all there is between the quotes: it was meant', () => {
+    expect(tidyDictation('"Um," she said.')).toBe('"Um," she said.')
+    expect(tidyDictation('"Uh." He looked away.')).toBe('"Uh." He looked away.')
+    expect(tidyDictation('“Um...” she said.')).toBe('“Um...” she said.')
+    expect(tidyDictation('She said "um" twice.')).toBe('She said "um" twice.')
+    expect(tidyDictation('(Um.)')).toBe('(Um.)')
+    // With more said inside the quotes, it goes as usual.
+    expect(tidyDictation('"Um, hello," she said.')).toBe('"Hello," she said.')
   })
 
   it('keeps the words on one line', () => {

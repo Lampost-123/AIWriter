@@ -1,7 +1,8 @@
 // Tidying what the speech model wrote down (milestone 4, "Dictation"): "um", "uh" and the like are taken
 // out, with the commas the model put round them, and so are stutters such as "the the"; real doubles
 // such as "had had", "that that" or "is is" stay. Capitals and punctuation are the model's own, except
-// that a sentence which started with "Um" now starts with the word after it. Pure.
+// that a sentence which started with "Um" now starts with the word after it. An "um" that is all of a
+// quotation ('"Um," she said.') was meant, so it stays. Pure.
 
 /** Sounds people make while they think: um, umm, uh, uhh, uhm, erm and er (never "err", which is a word). */
 const FILLER = /^(?:u+m+|u+h+|u+h+m+|e+r+m+|er)$/i
@@ -9,12 +10,15 @@ const FILLER = /^(?:u+m+|u+h+|u+h+m+|e+r+m+|er)$/i
 /**
  * Small words that are only ever doubled by a stumble ("the the", "I I", "and and"). Words that can be
  * doubled on purpose are left out: had had, that that, is is, was was, do do, her her ("gave her her
- * coat"), my my, there there, so so, can can, will will (Will), very very, no no...
+ * coat"), my my, there there, so so, can can, will will (Will), very very, no no, you you ("I told you
+ * you were right"), and the small words a part of a sentence can end on just before the next part starts
+ * with the same one: "the town she grew up in in Ohio", "the man she talked to to get in", "what he was
+ * looking at at the time", "the coat she had on on Sunday", "the day she had waited for for years".
  */
 const STUMBLES = new Set(
   [
-    'a an the and but or if then when just to of in on at by for from with into onto this',
-    "i i'm i'll i've i'd it it's its he he's his she she's we we're our they they're their you you're your"
+    'a an the and but or if then when just into onto this',
+    "i i'm i'll i've i'd it it's its he he's his she she's we we're our they they're their you're your"
   ]
     .join(' ')
     .split(' ')
@@ -41,6 +45,8 @@ const DASH = /^[—–-]$/
 const OPENS = /^(?:\.+|[!?…“‘"(])$/
 /** A quote or bracket that something can open with. */
 const OPENER = /^["'“‘(\[]$/
+/** A quote or bracket that closes what it opened. */
+const CLOSER = /^["'”’)\]]$/
 
 const mark = (t: Token | undefined, re: RegExp): boolean => !!t && t.kind === 'mark' && re.test(t.text)
 const isFiller = (word: string): boolean => FILLER.test(word) && !(word.length > 1 && word === word.toUpperCase())
@@ -65,6 +71,13 @@ function opensAt(list: Token[], i: number): boolean {
   return /^[“‘(\[]$/.test(q.text) || !before || before.kind === 'space' || mark(before, /^[—–(\[“‘"']$/)
 }
 
+/** True when a quote or bracket closes straight after token `i`, with at most a comma or a full stop between ('um,"'). */
+function closesAfter(list: Token[], i: number): boolean {
+  let j = nearest(list, i, 1)
+  if (mark(list[j], COMMA) || mark(list[j], ENDS)) j = nearest(list, j, 1)
+  return mark(list[j], CLOSER)
+}
+
 /** Takes out "um", "uh" and the like, with the commas (or the second dash) round them. */
 function dropFillers(list: Token[]): Token[] {
   const out = [...list]
@@ -77,6 +90,8 @@ function dropFillers(list: Token[]): Token[] {
     const next = n >= 0 ? out[n] : undefined
     // Straight after an opening quote or bracket: what follows joins it ('"Um, hello"' becomes '"Hello"').
     const tight = opensAt(out, i)
+    // All there is between the quotes ('"Um," she said.', 'the word "uh"'): it was meant, so it stays.
+    if (tight && closesAfter(out, i)) continue
     const opening = !prev || mark(prev, OPENS) || tight
     const gone = new Set([i])
     if (mark(next, COMMA)) gone.add(n)

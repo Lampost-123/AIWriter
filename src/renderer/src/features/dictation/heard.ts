@@ -15,6 +15,8 @@ export interface Heard {
   origin: number
   /** Samples received since opening. */
   total: number
+  /** Where the last recording taken ends: the next one starts there at the earliest, so no words are typed twice. */
+  takenUntil: number
 }
 
 /** Adds a batch that has just arrived. */
@@ -33,5 +35,15 @@ export function trimHeard(h: Heard, keep: number, starts: Iterable<number>): voi
   }
 }
 
-/** Where a recording starts that goes `back` samples before now: as far back as is held. */
-export const startBack = (h: Heard, back: number): number => Math.max(h.origin, h.total - Math.max(0, Math.floor(back)))
+/**
+ * Where a recording starts that goes `back` samples before now: as far back as is held, but never into the
+ * recording before it (pressed again straight after letting go, its last words would be typed again).
+ */
+export const startBack = (h: Heard, back: number): number => Math.max(h.origin, h.takenUntil, h.total - Math.max(0, Math.floor(back)))
+
+/** Where a recording that stops now ends, once `tail` more samples have come in; the next one starts there at the earliest. */
+export function endAfter(h: Heard, tail: number): number {
+  const until = h.total + Math.max(0, Math.floor(tail))
+  h.takenUntil = Math.max(h.takenUntil, until)
+  return until
+}

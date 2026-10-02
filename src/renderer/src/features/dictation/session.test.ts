@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
-import { cancelRecording, finishRecording, startRecording, useDictation, type StartOptions } from './session'
+import { onMicBatch, takeSeconds } from './mic'
+import { cancelRecording, finishRecording, limitMessage, startRecording, useDictation, type StartOptions } from './session'
 
 // The microphone, the window's API, its messages and its settings, stood in for: these tests are about
 // what a recording does, not the sound. The microphone opens when a test says so (`opened`).
@@ -25,7 +26,7 @@ vi.mock('./mic', () => ({
   openMic: vi.fn(() => new Promise<void>((resolve) => mic.openings.push(resolve))),
   openMicId: () => (mic.open ? '' : null),
   startTake: vi.fn(() => (mic.closedAgain-- > 0 ? null : { mic: {}, from: 0 })),
-  takeSeconds: () => 0
+  takeSeconds: vi.fn(() => 0)
 }))
 vi.mock('@/components/ui', () => ({ toast: vi.fn() }))
 vi.mock('@/lib/api', () => ({
@@ -143,5 +144,38 @@ describe('a problem writing the words down', () => {
     const [message, opts] = vi.mocked(toast).mock.calls[0]
     expect(message).toBe("The speech engine isn't running. Start it in Settings, then try again.")
     expect(opts).toMatchObject({ tone: 'danger', action: { label: 'Try again' }, secondary: { label: 'Open Settings' } })
+  })
+})
+
+describe('the limit of about four minutes', () => {
+  it('counts down the last 20 seconds, then stops, says why and still types what was said', async () => {
+    // The window, so the session watches the microphone's batches (the tests otherwise run without one).
+    vi.stubGlobal('window', { addEventListener: vi.fn() })
+    try {
+      mic.open = true
+      vi.mocked(api.transcribeDictation).mockResolvedValueOnce({ text: 'And that was the end of it.' })
+      const o = recording()
+      startRecording(o)
+      const batch = vi.mocked(onMicBatch).mock.calls.at(-1)![0]
+      const left = (): number | null | undefined => useDictation.getState().recordings[0]?.left
+      vi.mocked(takeSeconds).mockReturnValue(200)
+      batch()
+      expect(left()).toBeNull()
+      vi.mocked(takeSeconds).mockReturnValue(225.5)
+      batch()
+      expect(left()).toBe(15)
+      now = 240_000
+      vi.mocked(takeSeconds).mockReturnValue(240)
+      batch()
+      expect(o.onProblem).toHaveBeenCalledWith(limitMessage('key'), 'limit')
+      expect(useDictation.getState().recordings[0].phase).toBe('writing')
+      await vi.waitFor(() => expect(o.deliver).toHaveBeenCalledWith('And that was the end of it.'))
+      expect(limitMessage('key')).toBe(
+        'A recording can run to about 4 minutes, so this one stopped there and what you said is being written down. To say more, let go of the key and hold it again.'
+      )
+    } finally {
+      vi.mocked(takeSeconds).mockReturnValue(0)
+      vi.unstubAllGlobals()
+    }
   })
 })

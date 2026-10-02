@@ -7,7 +7,7 @@ import { DICTATION_SAMPLE_RATE } from '@shared/contracts/dictation'
 // A file of its own, never written into the page as a data: address (the window's security rules only
 // let it load scripts from the app itself).
 import WORKLET from './recorder.worklet.js?url&no-inline'
-import { hear, KEEP_SECONDS, startBack, trimHeard, type Heard } from './heard'
+import { endAfter, hear, KEEP_SECONDS, startBack, trimHeard, type Heard } from './heard'
 import { takeSamples } from './wav'
 
 const RATE = DICTATION_SAMPLE_RATE
@@ -112,7 +112,7 @@ function stop(m: Mic): void {
 async function start(deviceId: string, closesNow: number): Promise<Mic> {
   const { stream, fellBack } = await streamFor(deviceId)
   const ctx = new AudioContext({ sampleRate: RATE, latencyHint: 'interactive' })
-  const m: Mic = { ctx, stream, deviceId, fellBack, chunks: [], origin: 0, total: 0, takes: new Set(), closed: false }
+  const m: Mic = { ctx, stream, deviceId, fellBack, chunks: [], origin: 0, total: 0, takenUntil: 0, takes: new Set(), closed: false }
   try {
     await ctx.audioWorklet.addModule(WORKLET)
     if (ctx.state === 'suspended') await ctx.resume()
@@ -203,7 +203,10 @@ export const openMicId = (): string | null => open?.deviceId ?? null
 /** The computer's default is listening because the microphone asked for isn't plugged in. */
 export const micFellBack = (): boolean => !!open?.fellBack
 
-/** Starts a recording now, `preRoll` seconds back where that much is held. Null when the microphone isn't open. */
+/**
+ * Starts a recording now, `preRoll` seconds back where that much is held (never into the recording before it).
+ * Null when the microphone isn't open.
+ */
 export function startTake(preRoll: number): Take | null {
   const m = open
   if (!m) return null
@@ -221,7 +224,7 @@ export const takeSeconds = (take: Take): number => (take.mic.total - take.from) 
  */
 export async function finishTake(take: Take, tailMs: number): Promise<Float32Array> {
   const m = take.mic
-  const until = m.total + Math.floor((RATE * tailMs) / 1000)
+  const until = endAfter(m, (RATE * tailMs) / 1000)
   if (tailMs > 0 && !m.closed) {
     await new Promise<void>((resolve) => {
       const done = (): void => {

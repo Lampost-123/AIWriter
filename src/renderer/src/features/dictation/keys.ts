@@ -57,21 +57,30 @@ export const KEPT_BY_WINDOW = new Set(['F5', 'F12'])
 /** The keys that work a button that has the keyboard: Enter and Space. */
 export const BUTTON_KEYS = new Set(['Enter', ' '])
 const UNKNOWN = new Set(['Unidentified', 'Dead', 'Process', 'Compose', 'AltGraph'])
-const SUGGEST = 'such as F9, Right Ctrl or Right Alt'
+/** A key's name kept on one line where the words around it wrap: "Right Ctrl", never "Right" then "Ctrl". */
+const whole = (name: string): string => name.replace(/ /g, '\u00a0')
+
+/** Good keys to pick, by the names they have on this computer (a Mac's keyboard has Option, not Alt). */
+export const suggestKeys = (mac = false): string =>
+  mac ? `such as F9 or ${whole('Right Option')}` : `such as F9, ${whole('Right Ctrl')} or ${whole('Right Alt')}`
+
+/** The Windows key (the Command key on a Mac): a key of its own, though it comes with metaKey set. */
+export const isSystemKey = (key: string): boolean => key === 'Meta' || key === 'OS'
 
 /** Why a key can't be the dictation key, in plain words; null when it can. Esc is never asked about: it clears. */
-export function refusal(key: string): string | null {
-  if (key === ' ') return `Space is for typing, so it can't be the dictation key. Pick a key you don't type with, ${SUGGEST}.`
-  if (key.length === 1) return `That key types, so it can't be the dictation key. Pick a key you don't type with, ${SUGGEST}.`
-  if (WRITING_KEYS.has(key)) return `That key is for writing and moving the cursor. Pick another, ${SUGGEST}.`
-  if (LOCK_KEYS.has(key)) return `That key changes how the keyboard types. Pick another, ${SUGGEST}.`
-  if (key === 'Meta' || key === 'OS' || key === 'PrintScreen' || /^(?:Audio|Media|Launch|Browser|Brightness)/.test(key)) {
-    return `That key belongs to Windows. Pick another, ${SUGGEST}.`
+export function refusal(key: string, mac = false): string | null {
+  const suggest = suggestKeys(mac)
+  if (key === ' ') return `Space is for typing, so it can't be the dictation key. Pick a key you don't type with, ${suggest}.`
+  if (key.length === 1) return `That key types, so it can't be the dictation key. Pick a key you don't type with, ${suggest}.`
+  if (WRITING_KEYS.has(key)) return `That key is for writing and moving the cursor. Pick another, ${suggest}.`
+  if (LOCK_KEYS.has(key)) return `That key changes how the keyboard types. Pick another, ${suggest}.`
+  if (isSystemKey(key) || key === 'PrintScreen' || /^(?:Audio|Media|Launch|Browser|Brightness)/.test(key)) {
+    return `That key belongs to ${mac ? 'macOS' : 'Windows'}. Pick another, ${suggest}.`
   }
-  if (KEPT_BY_WINDOW.has(key)) return `AI Write keeps ${key} to itself, so it can't be the dictation key. Pick another, ${SUGGEST}.`
-  if (key === 'F2') return `F2 renames chapters and scenes in the binder. Pick another, ${SUGGEST}.`
-  if (key === 'F11') return `F11 is kept for focus mode, which comes in a later update. Pick another, ${SUGGEST}.`
-  if (UNKNOWN.has(key)) return `AI Write can't tell that key apart from others. Pick another, ${SUGGEST}.`
+  if (KEPT_BY_WINDOW.has(key)) return `AI Write keeps ${key} to itself, so it can't be the dictation key. Pick another, ${suggest}.`
+  if (key === 'F2') return `F2 renames chapters and scenes in the binder. Pick another, ${suggest}.`
+  if (key === 'F11') return `F11 is kept for focus mode, which comes in a later update. Pick another, ${suggest}.`
+  if (UNKNOWN.has(key)) return `AI Write can't tell that key apart from others. Pick another, ${suggest}.`
   return null
 }
 
@@ -97,8 +106,8 @@ const MAC_NAMES: Record<string, string> = {
   AltRight: 'Right Option'
 }
 
-/** The key's name for Adam: "Right Ctrl", "F9", "Menu key". */
+/** The key's name for Adam: "Right Ctrl", "F9", "Menu key", kept on one line. */
 export function keyName(key: string, mac = false): string {
   if (!key) return ''
-  return (mac && MAC_NAMES[key]) || NAMES[key] || (key.length === 1 ? key.toUpperCase() : key)
+  return whole((mac && MAC_NAMES[key]) || NAMES[key] || (key.length === 1 ? key.toUpperCase() : key))
 }

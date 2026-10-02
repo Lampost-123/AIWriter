@@ -12,7 +12,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { DictationLayer } from './DictationLayer'
 import { insertIntoBox } from './insertText'
-import { BUTTON_KEYS, isModifierKey, keptKey, KEPT_BY_WINDOW, keyName, refusal } from './keys'
+import { BUTTON_KEYS, isModifierKey, isSystemKey, keptKey, KEPT_BY_WINDOW, keyName, refusal, suggestKeys } from './keys'
 import { useMicLevel } from './Marker'
 import { listMicrophones, micAllowWhere, MIC_MISSING } from './mic'
 import { useSpeechEngine } from './ready'
@@ -40,7 +40,13 @@ function HoldToTalk(): React.JSX.Element {
   )
 }
 
-const ONE_KEY = 'Pick one key on its own, not a combination: such as F9, Right Ctrl or Right Alt.'
+const oneKey = (mac: boolean): string => `Pick one key on its own, not a combination: ${suggestKeys(mac)}.`
+
+/** Pressed with another key, a Ctrl, Shift or Alt key works as it always has: said with an example, where there's a plain one. */
+function asUsual(key: string, mac: boolean): string {
+  const example = key.startsWith('Shift') ? 'capital letters still type' : key.startsWith('Control') && !mac ? 'Ctrl+C still copies' : ''
+  return `With another key it works as usual${example ? `, so ${example}` : ''}.`
+}
 
 function KeyPicker(): React.JSX.Element {
   const key = useApp((s) => s.settings?.speech?.dictationKey ?? '')
@@ -96,12 +102,13 @@ function KeyPicker(): React.JSX.Element {
         else modifier = { code: e.code, at: e.timeStamp }
         return
       }
-      if (modifier || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
+      // The Windows key on its own comes with metaKey set, but it is one key: it is told why it can't be used.
+      if (modifier || e.ctrlKey || e.altKey || e.shiftKey || (e.metaKey && !isSystemKey(e.key))) {
         combined = true
-        setRefused(ONE_KEY)
+        setRefused(oneKey(isMac()))
         return
       }
-      const why = refusal(e.key)
+      const why = refusal(e.key, isMac())
       if (why) setRefused(why)
       else choose(keptKey(e))
     }
@@ -122,7 +129,7 @@ function KeyPicker(): React.JSX.Element {
       }
       // F5 and F12 never reach the page going down (the window keeps them), only coming up. Any other key
       // that only comes up went down before picking started (the Enter that opened it): nothing to say.
-      if (!seen.has(e.code) && KEPT_BY_WINDOW.has(e.key)) setRefused(refusal(e.key))
+      if (!seen.has(e.code) && KEPT_BY_WINDOW.has(e.key)) setRefused(refusal(e.key, isMac()))
     }
 
     // Clicking anywhere else, or going to another window, stops picking and keeps the key as it was.
@@ -150,9 +157,9 @@ function KeyPicker(): React.JSX.Element {
     (picking
       ? 'Press the key you want to hold while you talk. Esc clears it.'
       : !key
-        ? "No key yet. Pick one you don't type with, such as F9, Right Ctrl or Right Alt."
+        ? `No key yet. Pick one you don't type with, ${suggestKeys(mac)}.`
         : isModifierKey(key)
-          ? `Hold ${name} on its own and talk, then let go. With another key it works as usual, so ${mac ? '⌘' : 'Ctrl'}+C still copies.`
+          ? `Hold ${name} on its own and talk, then let go. ${asUsual(key, mac)}`
           : `Hold ${name} and talk, then let go.`)
 
   return (
