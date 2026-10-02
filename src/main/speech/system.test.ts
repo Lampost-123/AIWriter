@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { join } from 'node:path'
+import { win32 } from 'node:path'
 import {
   findNvidia,
   findPythons,
@@ -12,6 +12,9 @@ import {
   type Runner,
   type SystemEnv
 } from './system'
+
+/** The Windows computers described here write their paths the Windows way, whatever runs the tests. */
+const join = win32.join
 
 /** A computer with these files, answering each program from `answers` (by its path and first argument). */
 function computer(

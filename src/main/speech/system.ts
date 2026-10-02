@@ -4,9 +4,12 @@
 // shell), so nothing typed anywhere reaches a command line. No Electron here: tests pass their own runner.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { posix, win32 } from 'node:path'
 
 /** Runs a program and gives back what it printed; never throws (a program that can't start gives code -1). */
+
+/** Paths written the way the computer being looked at writes them (its own, or the one a test describes). */
+const pathsOf = (platform: NodeJS.Platform): typeof posix => (platform === 'win32' ? win32 : posix)
 export type Runner = (command: string, args: string[], timeoutMs: number) => Promise<{ code: number; stdout: string }>
 
 export const runProgram: Runner = (command, args, timeoutMs) =>
@@ -67,13 +70,13 @@ export function parseProbe(stdout: string): FoundPython | null {
 /** The programs on PATH with one of these names, in PATH order. The Microsoft Store's stand-in "python" is skipped. */
 export function onPath(names: readonly string[], sys: Pick<SystemEnv, 'platform' | 'env' | 'exists'>): string[] {
   const path = sys.env.PATH ?? sys.env.Path ?? ''
-  const sep = sys.platform === 'win32' ? ';' : delimiter
+  const sep = pathsOf(sys.platform).delimiter
   const out: string[] = []
   for (const dir of path.split(sep)) {
     if (!dir.trim()) continue
     if (sys.platform === 'win32' && /\\WindowsApps\\?$/i.test(dir.trim())) continue
     for (const name of names) {
-      const file = join(dir.trim(), name)
+      const file = pathsOf(sys.platform).join(dir.trim(), name)
       if (sys.exists(file) && !out.includes(file)) out.push(file)
     }
   }
@@ -92,17 +95,17 @@ export function pythonCandidates(sys: Pick<SystemEnv, 'platform' | 'env' | 'exis
     const programFiles = sys.env.ProgramFiles ?? 'C:\\Program Files'
     for (const minor of PYTHON_VERSIONS) {
       for (const dir of [
-        local && join(local, 'Programs', 'Python', `Python3${minor}`),
-        join(programFiles, `Python3${minor}`),
+        local && win32.join(local, 'Programs', 'Python', `Python3${minor}`),
+        win32.join(programFiles, `Python3${minor}`),
         `C:\\Python3${minor}`
       ]) {
-        if (dir && sys.exists(join(dir, 'python.exe'))) add(join(dir, 'python.exe'))
+        if (dir && sys.exists(win32.join(dir, 'python.exe'))) add(win32.join(dir, 'python.exe'))
       }
     }
     // The py launcher knows about every Python it installed.
     const launcher =
       onPath(['py.exe'], sys)[0] ??
-      (sys.env.SystemRoot && sys.exists(join(sys.env.SystemRoot, 'py.exe')) ? join(sys.env.SystemRoot, 'py.exe') : null)
+      (sys.env.SystemRoot && sys.exists(win32.join(sys.env.SystemRoot, 'py.exe')) ? win32.join(sys.env.SystemRoot, 'py.exe') : null)
     if (launcher) for (const minor of PYTHON_VERSIONS) add(launcher, [`-3.${minor}`])
     for (const p of onPath(['python.exe', 'python3.exe'], sys)) add(p)
     return out
@@ -147,11 +150,11 @@ export function pickPython(found: readonly FoundPython[], prefer: readonly numbe
 export function findWinget(sys: Pick<SystemEnv, 'platform' | 'env' | 'exists'>): string | null {
   if (sys.platform !== 'win32') return null
   const local = sys.env.LOCALAPPDATA
-  const alias = local ? join(local, 'Microsoft', 'WindowsApps', 'winget.exe') : null
+  const alias = local ? win32.join(local, 'Microsoft', 'WindowsApps', 'winget.exe') : null
   if (alias && sys.exists(alias)) return alias
   const path = sys.env.PATH ?? sys.env.Path ?? ''
   for (const dir of path.split(';')) {
-    const file = dir.trim() && join(dir.trim(), 'winget.exe')
+    const file = dir.trim() && win32.join(dir.trim(), 'winget.exe')
     if (file && sys.exists(file)) return file
   }
   return null
@@ -182,8 +185,8 @@ export async function findNvidia(sys: SystemEnv): Promise<string> {
   const tries = onPath([sys.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi'], sys)
   if (sys.platform === 'win32') {
     for (const p of [
-      sys.env.SystemRoot && join(sys.env.SystemRoot, 'System32', 'nvidia-smi.exe'),
-      join(sys.env.ProgramFiles ?? 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')
+      sys.env.SystemRoot && win32.join(sys.env.SystemRoot, 'System32', 'nvidia-smi.exe'),
+      win32.join(sys.env.ProgramFiles ?? 'C:\\Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe')
     ]) {
       if (p && sys.exists(p) && !tries.includes(p)) tries.push(p)
     }

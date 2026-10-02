@@ -22,7 +22,9 @@ import { estimateCost, guessBuild, guessNames } from './estimate'
 
 let fake: FakeProvider
 beforeAll(async () => {
-  fake = await startFakeProvider({ delayMs: 1, slowDelayMs: 15 })
+  // No pause between pieces of a reply: Windows' timers wait about 15 ms for even 1 ms, and a build makes
+  // several long replies, so a pause per piece took each test past its time there.
+  fake = await startFakeProvider({ delayMs: 0, slowDelayMs: 15 })
 })
 afterAll(() => fake.close())
 beforeEach(() => resetBuildsForTests())
