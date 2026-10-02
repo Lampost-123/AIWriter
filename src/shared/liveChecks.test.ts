@@ -79,14 +79,14 @@ describe('phrases to avoid', () => {
 
 describe('name spelling', () => {
   it('flags a word a letter away from a name, possessives included, and suggests the name', () => {
-    const flags = check(['Marra ran. Then Marra’s sword fell, and Kel came after.'])
+    const flags = check(['Then Marra ran, and Marra’s sword fell, and Kel came after.'])
     const sp = flags.filter((f) => f.kind === 'spelling')
     expect(sp.map((f) => [f.word, f.suggestion])).toEqual([
       ['Marra', 'Mara'],
       ['Marra', 'Mara'],
       ['Kel', 'Kell']
     ])
-    expect(sp[1]).toMatchObject({ from: 16, to: 21, key: 'spelling:marra', message: '“Marra” looks like a misspelling of Mara.' })
+    expect(sp[1]).toMatchObject({ from: 20, to: 25, key: 'spelling:marra', message: '“Marra” looks like a misspelling of Mara.' })
   })
 
   it('allows two letters for long names, one for short ones', () => {
@@ -103,6 +103,33 @@ describe('name spelling', () => {
       'Dark clouds. Forest paths. Roses. Mars.'
     ])
     expect(of(flags, 'spelling')).toEqual([])
+  })
+
+  it('leaves names with an ending added alone: plurals, possessives and the words made from them', () => {
+    const w = prepareLiveWords({
+      names: [...WORDS.names, { entryId: 'e8', name: 'Eldoria', kind: 'place' }, { entryId: 'e9', name: 'Ashara', kind: 'place' }],
+      avoid: []
+    })
+    const flags = check(['The Eldorian soldiers rode to the Asharan coast, where the Kells met two Maras and the Thornwickers.'], [], w)
+    expect(of(flags, 'spelling')).toEqual([])
+    // A misspelling is still one.
+    expect(of(check(['Then Marra waved.'], [], w), 'spelling')).toEqual(['Marra'])
+  })
+
+  it('is strict at the start of a sentence or a quote, where ordinary words are capitalised too', () => {
+    const w = prepareLiveWords({
+      names: ['Hugh', 'Lira', 'Hale', 'Bran', 'Corin', 'Thornwick', 'Marra'].map((name, i) => ({ entryId: `n${i}`, name, kind: 'character' })),
+      avoid: []
+    })
+    const flags = check(['“Huh,” he said. “Liar!” “Halt!” Brat! Brag. Coin by coin, they paid.', 'Thronwik was far. Thornwik was near. The road met Hugo and Corni.'], [], w)
+    // At the start of a sentence only a long name a letter out (not two); mid-sentence, the usual rule.
+    expect(of(flags, 'spelling')).toEqual(['Thornwik', 'Hugo', 'Corni'])
+  })
+
+  it('leaves a capitalised word alone when the scene also has it in lower case', () => {
+    const w = prepareLiveWords({ names: [{ entryId: 'c', name: 'Corin', kind: 'character' }], avoid: [] })
+    expect(of(check(['She met a Coin there.', 'Every coin was gone.'], [], w), 'spelling')).toEqual([])
+    expect(of(check(['She met a Coin there.'], [], w), 'spelling')).toEqual(['Coin'])
   })
 
   it('never flags lower-case words', () => {
@@ -136,6 +163,16 @@ describe('repetition nearby', () => {
     const filler = Array.from({ length: 160 }, (_, i) => `w${i}`).join(' ') + '.'
     expect(of(check(['His iron grip held. Her iron grip slipped.']), 'repetition')).toEqual(['iron grip'])
     expect(of(check([`His iron grip held. ${filler}`, 'Her iron grip slipped.']), 'repetition')).toEqual([])
+  })
+
+  it('leaves names not in the codex yet alone, and shows words as written', () => {
+    expect(of(check(['Tamsin ran. Tamsin hid. Tamsin waited by the old Tamsin oak.']), 'repetition')).toEqual([])
+    expect(of(check(['They crossed Black Water. Black Water was cold, and Black Water was deep.']), 'repetition')).toEqual([])
+    const flags = check(['Darkness fell. The darkness grew, and darkness filled the hall.'])
+    expect(flags.filter((f) => f.kind === 'repetition').map((f) => f.message)).toEqual([
+      '“darkness” is used 3 times in a few paragraphs.',
+      '“darkness” is used 3 times in a few paragraphs.'
+    ])
   })
 
   it('leaves names, little words and dialogue tags alone', () => {

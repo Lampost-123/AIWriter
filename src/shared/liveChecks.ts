@@ -233,14 +233,19 @@ export function findAvoided(text: string, avoid: LiveWords['avoid']): Spot[] {
   return out
 }
 
-/** The name a word looks like a misspelling of, or null. */
-export function closestName(lower: string, words: LiveWords): string | null {
+/**
+ * The name a word looks like a misspelling of, or null. `opener`: the word starts a sentence or words in
+ * quotes, where ordinary words that aren't on the common list ("Huh", "Halt", "Brat") are capitalised
+ * too, so only a word of 5 letters or more a single letter from a name of 5 letters or more counts.
+ */
+export function closestName(lower: string, words: LiveWords, opener = false): string | null {
   const list = words.byFirst.get(lower[0])
-  if (!list) return null
+  if (!list || (opener && lower.length < 5)) return null
   let best: string | null = null
   let bestDist = Infinity
   for (const c of list) {
-    const max = c.lower.length >= 7 ? 2 : 1
+    if (opener && c.lower.length < 5) continue
+    const max = opener ? 1 : c.lower.length >= 7 ? 2 : 1
     if (Math.abs(c.lower.length - lower.length) > max) continue
     // Two letters out only for a word long enough to be the same name.
     const allowed = Math.min(max, lower.length >= 6 ? 2 : 1)
@@ -253,6 +258,19 @@ export function closestName(lower: string, words: LiveWords): string | null {
   return best
 }
 
+/** Endings that make a word from a name: "the Kells", "two Maras", "Eldorian soldiers", "the Asharan coast". */
+const NAME_ENDINGS = ['s', 'es', 'n', 'an', 'ian', 'ans', 'ians', 'ish', 'ese', 'i', 'is', 'er', 'ers', 'ite', 'ites', 'ic']
+
+/** True when a word is a whole name (or a word of one) with only an ending added. */
+export function derivedFromName(lower: string, words: LiveWords): boolean {
+  for (const e of NAME_ENDINGS) {
+    if (lower.length < e.length + 3 || !lower.endsWith(e)) continue
+    const stem = lower.slice(0, -e.length)
+    if (words.nameWords.has(stem) || (words.known.has(stem) && !COMMON.has(stem))) return true
+  }
+  return false
+}
+
 /** Capitalised words in a paragraph that look like misspelt names. */
 export function findMisspelt(tokens: Token[], text: string, words: LiveWords): Spot[] {
   if (!words.byFirst.size) return []
@@ -261,7 +279,8 @@ export function findMisspelt(tokens: Token[], text: string, words: LiveWords): S
     if (!t.cap || t.caps) continue
     const w = t.base
     if (w.length < 3 || words.known.has(w) || words.known.has(t.lower) || COMMON.has(w) || /\d/.test(w)) continue
-    const name = closestName(w, words)
+    if (derivedFromName(w, words)) continue
+    const name = closestName(w, words, t.first)
     if (name) out.push({ from: t.start, to: t.baseEnd, word: text.slice(t.start, t.baseEnd), suggestion: name, lower: w })
   }
   return out
@@ -306,20 +325,54 @@ interface Placed {
   tok: Token
 }
 
+/** How words are written across a scene: those seen in lower case, and those capitalised other than at the start of a sentence. */
+export interface SceneCase {
+  lower: Set<string>
+  capitalMid: Set<string>
+}
+
+export function sceneCase(tokens: Token[][]): SceneCase {
+  const lower = new Set<string>()
+  const capitalMid = new Set<string>()
+  for (const list of tokens) {
+    for (const t of list) {
+      if (!t.cap) lower.add(t.base)
+      else if (!t.first) capitalMid.add(t.base)
+    }
+  }
+  return { lower, capitalMid }
+}
+
 /** Words used too often nearby, and phrases used again; the repeats after the first. */
-export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: LiveWords): LiveFlag[] {
+export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: LiveWords, cased = sceneCase(tokens)): LiveFlag[] {
   const all: Placed[] = []
   tokens.forEach((list, para) => {
     for (const tok of list) all.push({ para, tok })
   })
   const flags: LiveFlag[] = []
   const used = new Uint8Array(all.length)
+  const slice = (start: number, n: number): string => {
+    const a = all[start]
+    return paras[a.para].text.slice(a.tok.start, all[start + n - 1].tok.end)
+  }
   const flagAt = (start: number, n: number, key: string, message: string): void => {
     const a = all[start]
     const b = all[start + n - 1]
-    const text = paras[a.para].text
-    flags.push({ kind: 'repetition', para: a.para, from: a.tok.start, to: b.tok.end, word: text.slice(a.tok.start, b.tok.end), key, message, suggestion: null })
+    flags.push({ kind: 'repetition', para: a.para, from: a.tok.start, to: b.tok.end, word: slice(start, n), key, message, suggestion: null })
   }
+  /**
+   * The words as written, for the message: from a use not at the start of a sentence if there is one,
+   * else with the sentence's capital taken off.
+   */
+  const shown = (starts: number[], n: number): string => {
+    const mid = starts.find((g) => !all[g].tok.first)
+    if (mid !== undefined) return slice(mid, n)
+    const w = slice(starts[0], n)
+    return w[0].toLowerCase() + w.slice(1)
+  }
+  // Names not in the codex yet ("Tamsin ran. Tamsin hid."): words capitalised other than at the start of
+  // a sentence, or never written in lower case in the scene.
+  const proper = (t: Token): boolean => cased.capitalMid.has(t.base) || !cased.lower.has(t.base)
 
   // Phrases first, longest first, so a repeated phrase isn't flagged again for the shorter phrases in it.
   // Built up from two words: a phrase can only repeat where its first words do, so each longer length
@@ -331,7 +384,7 @@ export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: Li
   const link = new Uint8Array(n)
   for (let g = 0; g < n; g++) {
     const t = all[g].tok
-    if (DIGIT.test(t.lower) || words.nameWords.has(t.base)) continue
+    if (DIGIT.test(t.lower) || words.nameWords.has(t.base) || proper(t)) continue
     usable[g] = 1
     if (t.lower.length >= 3 && !PHRASE_STOP.has(t.lower)) isContent[g] = 1
     if (g > 0 && t.joined && all[g - 1].para === all[g].para) link[g] = 1
@@ -386,7 +439,7 @@ export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: Li
       if (near.length < 2) continue
       for (const g of near) for (let k = 0; k < len; k++) used[g + k] = 1
       const where = len === 2 ? 'in a few paragraphs' : 'in this scene'
-      const message = `“${phrase}” is used ${times(near.length)} ${where}.`
+      const message = `“${shown(near, len)}” is used ${times(near.length)} ${where}.`
       for (const g of near.slice(1)) flagAt(g, len, liveKey('repetition', phrase), message)
     }
   }
@@ -395,7 +448,7 @@ export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: Li
   const byWord = new Map<string, number[]>()
   all.forEach(({ tok }, g) => {
     const w = tok.base
-    if (w.length < REPEAT_MIN_LENGTH || STOP.has(w) || words.nameWords.has(w) || /\d/.test(w)) return
+    if (w.length < REPEAT_MIN_LENGTH || STOP.has(w) || words.nameWords.has(w) || /\d/.test(w) || proper(tok)) return
     const list = byWord.get(w)
     if (list) list.push(g)
     else byWord.set(w, [g])
@@ -410,7 +463,7 @@ export function findRepeats(paras: LiveParagraph[], tokens: Token[][], words: Li
     let run: number[] = []
     const close = (): void => {
       if (run.length >= REPEAT_MIN) {
-        const message = `“${w}” is used ${run.length} times in a few paragraphs.`
+        const message = `“${shown(run, 1)}” is used ${run.length} times in a few paragraphs.`
         for (const g of run.slice(1)) if (!used[g]) flagAt(g, 1, liveKey('repetition', w), message)
       }
       run = []
@@ -468,13 +521,17 @@ export function checkScene(paras: LiveParagraph[], words: LiveWords, ignored: Re
     }
   })
   cache.end()
+  const cased = sceneCase(tokens)
+
+  // A capitalised word also written in lower case in the scene ("Coin by coin") is an ordinary word.
+  const spelt = flags.filter((f) => f.kind !== 'spelling' || !cased.lower.has(norm(f.word)))
 
   // A repeat inside a phrase to avoid or a misspelling is left to that flag.
-  const taken = flags.filter((f) => !ignored.has(f.key))
+  const taken = spelt.filter((f) => !ignored.has(f.key))
   const byPara = new Map<number, LiveFlag[]>()
   for (const f of taken) byPara.set(f.para, [...(byPara.get(f.para) ?? []), f])
   const overlaps = (r: LiveFlag): boolean => !!byPara.get(r.para)?.some((f) => f.from < r.to && r.from < f.to)
-  for (const r of findRepeats(paras, tokens, words)) if (!ignored.has(r.key) && !overlaps(r)) taken.push(r)
+  for (const r of findRepeats(paras, tokens, words, cased)) if (!ignored.has(r.key) && !overlaps(r)) taken.push(r)
   return taken.sort((a, b) => a.para - b.para || a.from - b.from)
 }
 
