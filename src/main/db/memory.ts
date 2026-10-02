@@ -535,8 +535,15 @@ export function refreshDefaultExistsPoints(db: DB): ID[] {
   const first = firstStoryId(db)
   const points = new Map<ID, ExistsPoint[]>()
   for (const p of listExistsPoints(db)) pushTo(points, p.entryId, p)
+  // An entry whose story or scene of origin was removed for good has no default to work out (its
+  // points were moved when that happened: settlePlacements), so it is left alone.
   const rows = db
-    .prepare('SELECT id, kind, origin, origin_story_id, origin_scene_id, origin_start FROM entries WHERE deleted_at IS NULL')
+    .prepare(
+      `SELECT e.id, e.kind, e.origin, e.origin_story_id, e.origin_scene_id, e.origin_start FROM entries e
+       WHERE e.deleted_at IS NULL
+         AND (e.origin_story_id IS NULL OR EXISTS (SELECT 1 FROM stories st WHERE st.id = e.origin_story_id))
+         AND (e.origin_scene_id IS NULL OR EXISTS (SELECT 1 FROM scenes s WHERE s.id = e.origin_scene_id))`
+    )
     .all() as Row[]
   const same = (a: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>, b: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>): boolean =>
     a.kind === b.kind && (a.storyId ?? null) === (b.storyId ?? null) && (a.sceneId ?? null) === (b.sceneId ?? null)
@@ -616,9 +623,11 @@ export interface Purging {
  * worked out, so the same safe points are written down here: otherwise a story that followed a
  * removed story would start at the beginning of the world and forget every story before it.
  * Covers stories that are only deleted too, as they can still be restored. Points at things that
- * stay (even deleted ones) are kept, so loadShape still follows them. Returns the stories moved.
+ * stay (even deleted ones) are kept, so loadShape still follows them. First-exists points in what is
+ * going are written down the same way (settleExistsPoints), or the entries would vanish from every
+ * briefing. Returns the stories moved and the entries whose first-exists points moved.
  */
-export function settlePlacements(db: DB, gone: Purging): ID[] {
+export function settlePlacements(db: DB, gone: Purging): { stories: ID[]; entries: ID[] } {
   const stories = db
     .prepare('SELECT id, kind, start_story_id, start_at, start_ref_id, end_at, end_ref_id, leads_into_id FROM stories')
     .all() as Row[]
@@ -670,6 +679,7 @@ export function settlePlacements(db: DB, gone: Purging): ID[] {
     'UPDATE stories SET start_story_id = ?, start_at = ?, start_ref_id = ?, end_at = ?, end_ref_id = ?, leads_into_id = ? WHERE id = ?'
   )
   const moved: ID[] = []
+  const entries: ID[] = []
   db.transaction(() => {
     for (const r of stories) {
       const id = r.id as string
@@ -715,7 +725,99 @@ export function settlePlacements(db: DB, gone: Purging): ID[] {
       update.run(start, safe.at, safe.refId, endAt, endRef, leadsInto, id)
       moved.push(id)
     }
+    entries.push(...settleExistsPoints(db, gone, { stories, chapters, scenes }))
   })()
+  return { stories: moved, entries: [...new Set(entries)] }
+}
+
+/**
+ * settlePlacements' part for first-exists points, written down as loadMemoryData counts them while
+ * what they are in is only deleted. A point in a story that is going moves to the start of each
+ * story that takes over its start and started after it. A point at a scene that is going (in a story
+ * that stays) moves to the next scene that stays, or with none to the last one before it, or the
+ * story's start after its start-of-story changes. Returns the entries whose points moved.
+ */
+function settleExistsPoints(db: DB, gone: Purging, rows: { stories: Row[]; chapters: Row[]; scenes: Row[] }): ID[] {
+  const str = (v: unknown): ID | null => (v as string) ?? null
+  const storyRow = new Map(rows.stories.map((r) => [r.id as string, r]))
+  const chapterRow = new Map(rows.chapters.map((r) => [r.id as string, r]))
+  const sceneRow = new Map(rows.scenes.map((r) => [r.id as string, r]))
+  /** A scene's place in its story: [chapter position, scene position]. */
+  const order = (sceneId: ID | null): [number, number] | null => {
+    const s = sceneId ? sceneRow.get(sceneId) : undefined
+    const c = s ? chapterRow.get(s.chapter_id as string) : undefined
+    return s && c ? [c.position as number, s.position as number] : null
+  }
+  const before = (a: [number, number], b: [number, number]): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])
+  const storyOf = (p: ExistsPoint): ID | null =>
+    p.kind === 'scene' && p.sceneId
+      ? (str(chapterRow.get(str(sceneRow.get(p.sceneId)?.chapter_id) ?? '')?.story_id) ?? p.storyId)
+      : p.storyId
+
+  // The stories that stay and take over each story that is going, with where they (or the story they are in) started in it.
+  const takers = new Map<ID, TakeOver[]>()
+  for (const r of rows.stories) {
+    if (gone.stories.has(r.id as string)) continue
+    const seen = new Set<ID>([r.id as string])
+    let from = r
+    let start = str(r.start_story_id)
+    while (start && gone.stories.has(start) && !seen.has(start)) {
+      seen.add(start)
+      const g = storyRow.get(start)
+      if (!g) break
+      pushTo(takers, start, { storyId: r.id as string, at: (str(from.start_at) ?? 'end') as StartAt, refId: str(from.start_ref_id) })
+      from = g
+      start = str(g.start_story_id)
+    }
+  }
+  /** Whether a story that took over started after the point. */
+  const sees = (p: ExistsPoint, t: TakeOver): boolean => {
+    if (p.kind === 'story-pre' || t.at === 'end') return true
+    if (p.kind === 'story-post') return t.at !== 'pre'
+    if (t.at !== 'chapter' && t.at !== 'scene') return false
+    const x = order(p.sceneId)
+    const chapter = t.refId ? chapterRow.get(t.refId) : undefined
+    const s: [number, number] | null = t.at === 'scene' ? order(t.refId) : chapter ? [chapter.position as number, Infinity] : null
+    return !!x && !!s && !before(s, x)
+  }
+  /** Where a point at a scene that is going moves to, in its story. */
+  const instead = (storyId: ID, sceneId: ID): Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'> => {
+    const x = order(sceneId)
+    const staying = rows.scenes
+      .filter((s) => !gone.scenes.has(s.id as string) && str(chapterRow.get(s.chapter_id as string)?.story_id) === storyId)
+      .map((s) => ({ id: s.id as string, at: order(s.id as string)! }))
+      .sort((a, b) => (before(a.at, b.at) ? -1 : before(b.at, a.at) ? 1 : 0))
+    const next = x ? staying.find((s) => before(x, s.at)) : undefined
+    const prev = x ? staying.filter((s) => before(s.at, x)).pop() : undefined
+    const to = next ?? prev
+    return to ? { kind: 'scene', storyId, sceneId: to.id } : { kind: 'story-post', storyId, sceneId: null }
+  }
+
+  const points = listExistsPoints(db)
+  const key = (p: { entryId: ID; kind: ExistsKind; storyId: ID | null; sceneId: ID | null }): string =>
+    [p.entryId, p.kind, p.storyId ?? '', p.sceneId ?? ''].join('|')
+  const have = new Set(points.map(key))
+  const remove = db.prepare('DELETE FROM exists_points WHERE id = ?')
+  const moved: ID[] = []
+  for (const p of points) {
+    const storyId = storyOf(p)
+    let to: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>[]
+    if (p.kind !== 'world' && storyId && gone.stories.has(storyId)) {
+      to = (takers.get(storyId) ?? []).filter((t) => sees(p, t)).map((t) => ({ kind: 'story-pre', storyId: t.storyId, sceneId: null }))
+      // Nothing took it over: the point stays, on no story's way, rather than leave the entry with none (which counts everywhere).
+      if (!to.length) continue
+    } else if (p.kind === 'scene' && p.sceneId && storyId && gone.scenes.has(p.sceneId)) {
+      to = [instead(storyId, p.sceneId)]
+    } else continue
+    for (const q of to) {
+      const k = key({ ...q, entryId: p.entryId })
+      if (have.has(k)) continue
+      have.add(k)
+      addExistsPoint(db, { ...q, entryId: p.entryId, byHand: p.byHand })
+    }
+    remove.run(p.id)
+    moved.push(p.entryId)
+  }
   return moved
 }
 

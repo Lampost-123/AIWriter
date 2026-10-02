@@ -548,6 +548,19 @@ describe('story placement', () => {
     const own = story('Own', { kind: 'own', startStoryId: w.b1, startAt: 'scene', ...none, startRefId: w.sc[1][1] })
     const short = story('Short', { kind: 'side', startStoryId: w.b1, startAt: 'post', ...none, endAt: 'chapter', endRefId: w.ch[2] })
     const recent = story('Recent', { kind: 'own', startStoryId: w.b1, startAt: 'chapter', ...none, startRefId: w.ch[1] })
+    const b3sc = repo.createScene(w.db, repo.createChapter(w.db, b3).id).id
+    const sideSc = repo.createScene(w.db, repo.createChapter(w.db, side).id).id
+    // Wren is found in Book 2's text, Ash made by Adam in Book 2, Reed found in Book 1 Ch 3 Sc 1.
+    const wren = repo.createEntry(w.db, 'character', { name: 'Wren' }, { origin: 'text', originStoryId: w.b2, originSceneId: w.b2sc }).id
+    const ash = repo.createEntry(w.db, 'character', { name: 'Ash', originStoryId: w.b2 }).id
+    const reed = repo.createEntry(w.db, 'item', { name: 'Reed' }, { origin: 'text', originStoryId: w.b1, originSceneId: w.sc[2][0] }).id
+    const present = () =>
+      [w.sc[0][1], b3sc, sideSc].map((sc) =>
+        sceneMemory(w.db, sc)
+          .entries.filter((e) => [wren, ash, reed].includes(e.id))
+          .map((e) => e.name)
+          .sort()
+      )
     repo.deleteStory(w.db, w.b2)
     repo.deleteScene(w.db, w.sc[1][1])
     repo.deleteChapter(w.db, w.ch[2])
@@ -563,7 +576,9 @@ describe('story placement', () => {
       const shape = mem.loadShape(w.db)
       return [b3, side, own, short, recent].map((id) => knowsSentence(shape, buildLine(shape, { storyId: id, through: 'start' })))
     }
-    const before = { placements: placements(), knows: knows() }
+    const before = { placements: placements(), knows: knows(), present: present() }
+    // Reed counts after Ch 1 (Ch 2 and 3 are deleted); Wren only in the story after Book 2, not the one alongside it.
+    expect(before.present).toEqual([[], ['Ash', 'Reed', 'Wren'], ['Ash', 'Reed']])
     // Book 3 and Side take over Book 2's start (after Book 1); Own and Short move back to Ch 1, as Ch 2 is deleted too.
     expect(before.knows).toEqual([
       'This story knows what happened in: Book 1; Short; Side.',
@@ -581,14 +596,20 @@ describe('story placement', () => {
       chapters: new Set(chapters),
       scenes: new Set([w.sc[1][1], ...chapters.flatMap((c) => ids('SELECT id FROM scenes WHERE chapter_id = ?', c))])
     }
-    expect(mem.settlePlacements(w.db, gone).sort()).toEqual([b3, side, own, short].sort())
-    expect(mem.settlePlacements(w.db, gone)).toEqual([])
+    const settled = mem.settlePlacements(w.db, gone)
+    expect(settled.stories.sort()).toEqual([b3, side, own, short].sort())
+    expect(settled.entries.sort()).toEqual([wren, ash, reed].sort())
+    expect(mem.settlePlacements(w.db, gone)).toEqual({ stories: [], entries: [] })
     expect(repo.getStory(w.db, recent)).toMatchObject({ startAt: 'chapter', startRefId: w.ch[1] })
     purgeTrash(w.db, 30)
 
     expect(repo.listStories(w.db).map((s) => s.id)).not.toContain(w.b2)
     expect(placements()).toEqual(before.placements)
     expect(knows()).toEqual(before.knows)
+    expect(present()).toEqual(before.present)
+    // Working defaults out again later leaves them be: where they were found is gone.
+    mem.refreshDefaultExistsPoints(w.db)
+    expect(present()).toEqual(before.present)
     // Ch 2 was only just deleted, so it can still come back, and the stories that start or end after it go back there.
     repo.restoreDeleted(w.db, 'chapter', w.ch[1])
     expect(knows().slice(2)).toEqual([
