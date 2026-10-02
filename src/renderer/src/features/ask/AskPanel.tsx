@@ -34,7 +34,7 @@ import {
   type AskPlace,
   type ShownTurn
 } from './askStore'
-import { answerParagraphs, citedTargets, nameIndex, plainAnswer, type LinkTarget } from './citations'
+import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
 import { EXAMPLES, NO_ANSWER, answerNote, asOfHint, asOfText, chatWhen, savedMessage } from './askWords'
 
 /** The last request for the box to take the keyboard that was carried out. */
@@ -101,8 +101,10 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
       aria-label="Ask the world"
       className="relative flex h-full min-h-0 flex-col bg-surface"
       onKeyDown={(e) => {
-        // Esc stops an answer being written (as it stops a draft); menus opened from here keep their own Esc.
-        if (!isShortcut(e, 'stopAnswer') || e.nativeEvent.isComposing || !e.currentTarget.contains(e.target as Node)) return
+        // Esc stops an answer being written (as it stops a draft); menus opened from here keep their own Esc,
+        // and so does an entry shown here (Esc there goes back to the chat, and the answer goes on).
+        if (!isShortcut(e, 'stopAnswer') || e.defaultPrevented || e.nativeEvent.isComposing) return
+        if (!e.currentTarget.contains(e.target as Node)) return
         if (!useAsk.getState().running) return
         e.preventDefault()
         e.stopPropagation()
@@ -401,17 +403,7 @@ function TurnView({
           className="mt-2.5 select-text rounded-lg border border-line bg-page px-3 py-2.5 font-serif text-[14.5px] leading-[1.65] text-fg"
         >
           {paragraphs.map((p, i) => (
-            <p key={i} className={cn('whitespace-pre-wrap break-words', i > 0 && 'mt-2.5')}>
-              {p.map((part, j) =>
-                part.target ? (
-                  <Cite key={j} target={part.target}>
-                    {part.text}
-                  </Cite>
-                ) : (
-                  part.text
-                )
-              )}
-            </p>
+            <AnswerParagraph key={i} parts={p} className={i > 0 ? 'mt-2.5' : undefined} />
           ))}
         </div>
       ) : null}
@@ -506,20 +498,65 @@ function AskProblem({ message, code, onRetry }: { message: string; code?: string
   )
 }
 
+/**
+ * A paragraph of an answer, a line at a time. A list item's words hang beside its mark ("-", "2."), so a
+ * list still reads as one when its items wrap in a narrow panel.
+ */
+function AnswerParagraph({ parts, className }: { parts: AnswerPart[]; className?: string }): React.JSX.Element {
+  const lines = answerLines(parts)
+  // The numbers of a numbered list share one width, so the items' words line up.
+  const digits = Math.max(1, ...lines.map((l) => l.mark?.match(/\d+/)?.[0].length ?? 0))
+  return (
+    <div className={cn('whitespace-pre-wrap break-words', className)}>
+      {lines.map((line, i) => {
+        if (!line.mark) return <div key={i}>{answerWords(line.parts)}</div>
+        const hang = /\d/.test(line.mark) ? `${0.6 * digits + 0.75}em` : '1em'
+        return (
+          <div key={i} style={{ paddingLeft: `calc(${hang} + ${1.2 * line.depth}em)`, textIndent: `-${hang}` }}>
+            <span className="inline-block" style={{ width: hang, textIndent: 0 }}>
+              {line.mark}
+            </span>
+            {answerWords(line.parts)}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** A line's words: cited names as links, and italics in italics. */
+function answerWords(parts: AnswerPart[]): React.ReactNode[] {
+  return parts.map((part, i) => {
+    const words = part.target ? (
+      <Cite key={i} target={part.target}>
+        {part.text}
+      </Cite>
+    ) : (
+      part.text
+    )
+    return part.em ? <em key={i}>{words}</em> : words
+  })
+}
+
 /** A name the answer cites: a quiet dotted underline, like names on the page; clicking shows that page. */
 function Cite({ target, children }: { target: LinkTarget; children: React.ReactNode }): React.JSX.Element {
-  const open = (): void => openEntry(target.id, target.kind)
+  const open = (name: HTMLElement): void => {
+    // The chat hides while the entry shows, so the keyboard moves to the entry (its Back button, where Esc
+    // works too) rather than being lost.
+    name.blur()
+    openEntry(target.id, target.kind)
+  }
   return (
     <span
       role="button"
       tabIndex={0}
       data-entry-id={target.id}
       title={`Show ${target.name}`}
-      onClick={open}
+      onClick={(e) => open(e.currentTarget)}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return
         e.preventDefault()
-        open()
+        open(e.currentTarget)
       }}
       className="cursor-pointer rounded-sm underline decoration-faint/70 decoration-dotted decoration-[1.5px] underline-offset-[0.24em] hover:text-accent hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
     >
@@ -743,7 +780,6 @@ function AskBox({
         />
         <div className="flex h-9 items-center gap-1 px-1.5 pb-1">
           <MicButton
-            disabled={running}
             onText={(spoken) => {
               const el = boxRef.current
               if (el) insertIntoBox(el, spoken, setDraft)

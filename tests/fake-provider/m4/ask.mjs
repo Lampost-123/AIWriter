@@ -4,11 +4,14 @@
 // Jobs and their replies:
 //   answer   An answer to the question (the last user message), citing what the briefing gave it, as the
 //            real model is asked to:
-//              - every entry under "## Named in the question" (its "### Name (kind)" headings), else those
+//              - every entry under "## Named in the question" (or "## Named earlier in this chat", or "## Named
+//                in the question or earlier in this chat": its "### Name (kind)" headings), else those
 //                under "## Also relevant", else the first two names under "## Everything else in the
 //                memory", each as [[Name]];
 //              - always "[[The Grey Ferry]]" as well, a name that is in no world (so the app must show it
 //                as plain words, not a link);
+//              - one word in italics, "*nobody*", as real models often write (so the app must show it in
+//                italics, without the marks);
 //              - from the second question in a chat on, it starts "Answer N in this chat." (N counts the
 //                earlier answers sent with it, so tests can see the conversation was sent);
 //            Two short paragraphs; with model fake/slow, a list of twenty ideas after them, one a line, so
@@ -36,7 +39,7 @@ export function askReply(system, messages, model) {
   const job = system.slice(MARKER.length).trim().split(/\s/)[0]
   if (job !== 'answer') return null
   const parts = sections(system)
-  let names = headed(parts.get('Named in the question'))
+  let names = headed([...parts].find(([title]) => title.startsWith('Named '))?.[1])
   if (!names.length) names = headed(parts.get('Also relevant'))
   if (!names.length) names = listed(parts.get('Everything else in the memory')).slice(0, 2)
   names = [...new Set(names)].slice(0, 4)
@@ -48,7 +51,7 @@ export function askReply(system, messages, model) {
   const lead = earlier ? `Answer ${earlier + 1} in this chat. ` : ''
   const paragraphs = [
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,
-    `One idea that fits: they meet at [[The Grey Ferry]] at dusk, where nobody is watching.`
+    `One idea that fits: they meet at [[The Grey Ferry]] at dusk, where *nobody* is watching.`
   ]
   if (model === 'fake/slow') {
     const more = []

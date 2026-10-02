@@ -1,9 +1,10 @@
 // Ask the world (milestone 4): the chat beside the page that can see the memory. Opened from the top
 // bar, a question's answer streams in with links to the entries it cites (a name that isn't in the
-// world stays plain words); a cited entry shows beside the page; an answer is saved to the memory as
-// Adam's own note, with Undo; Stop keeps what arrived; a question that got no answer stays in the chat;
-// New chat starts afresh (an answer not yet started stops as it starts), and the last chat is there
-// again after a restart. The fake provider answers as tests/fake-provider/m4/ask.mjs says.
+// world stays plain words); a cited entry shows beside the page (Esc there goes back to the chat, and an
+// answer being written goes on); an answer is saved to the memory as Adam's own note, with Undo; Stop
+// keeps what arrived; a question that got no answer stays in the chat; New chat starts afresh (an answer
+// not yet started stops as it starts), and the last chat is there again after a restart. The fake
+// provider answers as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
 import type { ModelChoice } from '@shared/types'
 import { closeWindow, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
@@ -25,7 +26,9 @@ const choice = (providerId: string, modelId: string): ModelChoice => ({
 })
 
 test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the last chat after a restart', async ({ launch }) => {
-  const fake = await startFake({ delayMs: 15 })
+  // A slow answer takes several seconds: time to look at an entry it cites, then Stop it.
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 15, slowDelayMs: 70 })
   try {
     const first = await launch()
     const { win } = first
@@ -58,6 +61,9 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(answer.getByRole('button', { name: 'Tobin' })).toBeVisible()
     await expect(answer.locator('[data-entry-id]')).toHaveCount(2)
     await expect(answer).not.toContainText('[[')
+    // Words the model set in italics show in italics, without the marks.
+    await expect(answer.locator('em')).toHaveText('nobody')
+    await expect(answer).not.toContainText('*')
     await expect(turns(win).first().getByRole('button', { name: 'What the AI saw' })).toBeVisible()
     // It was asked from the open scene, with the marker, and the entries it names in full.
     const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[] }
@@ -66,10 +72,11 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     expect(sent.messages[0].content).toContain('Quick to anger, slow to forgive.')
     expect(sent.messages.at(-1)?.content).toBe('What would Mara do if Tobin lied to her?')
 
-    // A cited entry shows beside the page, inside Ask; Back returns to the chat.
+    // A cited entry shows beside the page, inside Ask, with the keyboard; Back returns to the chat.
     await answer.getByRole('button', { name: 'Tobin' }).click()
     const peek = scenePanel(win).getByRole('region', { name: 'Tobin' })
     await expect(peek).toContainText('The ferryman.')
+    await expect(peek.getByRole('button', { name: 'Back to Ask the world' })).toBeFocused()
     await peek.getByRole('button', { name: 'Back to Ask the world' }).click()
     await expect(answer).toBeVisible()
     await expect(box(win)).toBeFocused()
@@ -83,6 +90,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     expect(toastBox.x + toastBox.width).toBeLessThanOrEqual((await panel(win).boundingBox())!.x)
     let page = await invoke(win, 'getEntry', mara.id)
     expect(page.description).toContain('Quick to anger, slow to forgive.\n\nFrom the memory: Mara Venn and Tobin.')
+    expect(page.description).toContain('where nobody is watching.')
     expect(page.description).not.toContain('[[')
     expect(page.fieldOrigins.description).toBe('adam')
     await toasts(win).getByRole('button', { name: 'Undo' }).click()
@@ -104,6 +112,13 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     const second = turns(win).nth(1)
     await expect(second.getByRole('status')).toContainText('Answering…')
     await expect(second.locator('[data-answer]')).toContainText('Idea 1:')
+    // An entry it cites, shown while it is being written: Esc goes back to the chat, and the answer goes on.
+    await second.locator('[data-answer]').getByRole('button', { name: 'Tobin' }).click()
+    await expect(peek).toContainText('The ferryman.')
+    await win.keyboard.press('Escape')
+    await expect(peek).toHaveCount(0)
+    await expect(second.getByRole('status')).toContainText('Answering…')
+    await expect(box(win)).toBeFocused()
     await panel(win).getByRole('button', { name: 'Stop', exact: true }).click()
     // Under it, "What the AI saw" first: how the answer ended (and its cost) come after it, so it never moves.
     await expect(second).toContainText('What the AI saw·Stopped')

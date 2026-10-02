@@ -1,17 +1,20 @@
 // Ask the world's conversation store, with the main process stood in for (the test plays its replies
 // and task events): an answer asked to stop before it has started (Stop, a new chat, another chat or
 // story) stops as soon as it starts, so none goes on being written where Adam can't see it; and a
-// question the AI was asked stays in the chat even when no answer came, as it does in the chat's record.
+// question the AI was asked stays in the chat even when no answer came, as it does in the chat's record;
+// and a chat opened again while its answer is still finishing shows how it ended.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AskInput, AskTurn } from '@shared/contracts/ask'
-import type { TaskDone } from '@shared/contracts/tasks'
+import type { TaskDone, TaskProgress } from '@shared/contracts/tasks'
 
 const main = vi.hoisted(() => ({
   /** What happened, in order: "asked:<task>", "started:<task>" (askWorld came back), "stopTask:<task>". */
   log: [] as string[],
   listeners: new Map<string, (payload: unknown) => void>(),
   /** askWorld's replies, held until the test lets one go. */
-  replies: [] as { input: AskInput; resolve: (t: AskTurn) => void; reject: (e: Error) => void }[]
+  replies: [] as { input: AskInput; resolve: (t: AskTurn) => void; reject: (e: Error) => void }[],
+  /** The chats' records, by chat. */
+  chats: new Map<string, AskTurn[]>()
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -28,7 +31,7 @@ vi.mock('@/lib/api', () => ({
       main.log.push(`stopTask:${taskId}`)
     },
     listChats: async () => [],
-    getChat: async () => []
+    getChat: async (chatId: string) => main.chats.get(chatId) ?? []
   },
   onEvent: (name: string, fn: (payload: unknown) => void) => {
     main.listeners.set(name, fn)
@@ -78,6 +81,7 @@ const runningTask = (): string => {
 beforeEach(() => {
   main.log.length = 0
   main.replies.length = 0
+  main.chats.clear()
   useAsk.setState({ storyKey: 'w:s1', loading: false, loadError: null, chatId: null, turns: [], chats: [], running: null, saved: {} })
 })
 
@@ -171,5 +175,40 @@ describe('a question that got no answer', () => {
     expect(turns).toHaveLength(2)
     expect(turns[0]).toMatchObject({ generationId: `g-${taskId}`, status: 'error', error: done.error })
     expect(turns[1].status).toBe('streaming')
+  })
+})
+
+describe('a chat opened again while its answer is still finishing', () => {
+  it('shows the rest of the answer and how it ended', async () => {
+    const asking = ask('Who is Mara?', place)
+    const taskId = await started()
+    await asking
+    const generationId = `g-${taskId}`
+    expect(useAsk.getState().chatId).toBe('chat-1')
+    await openChat('chat-0')
+    expect(stoppedOnceStarted(taskId)).toBe(true)
+    // Back before the answer has finished stopping: its record still says it is being written.
+    const record: AskTurn = {
+      generationId,
+      chatId: 'chat-1',
+      question: 'Who is Mara?',
+      answer: 'Mara is',
+      status: 'streaming',
+      error: null,
+      cost: null,
+      costEstimated: false,
+      cutOff: false,
+      createdAt: '2026-10-02T15:00:00.000Z'
+    }
+    main.chats.set('chat-1', [record])
+    await openChat('chat-1')
+    expect(useAsk.getState().turns[0].taskId).toBeUndefined()
+    const progress: TaskProgress = { taskId, generationId, job: 'chat', text: 'Mara is a smith' }
+    main.listeners.get('task:progress')?.(progress)
+    expect(useAsk.getState().turns[0]).toMatchObject({ answer: 'Mara is a smith', status: 'streaming' })
+    const done: TaskDone = { ...progress, text: 'Mara is a smith’s daughter', status: 'stopped', error: null, cost: 0.0004, cutOff: false }
+    main.listeners.get('task:done')?.(done)
+    expect(useAsk.getState().turns).toHaveLength(1)
+    expect(useAsk.getState().turns[0]).toMatchObject({ answer: 'Mara is a smith’s daughter', status: 'stopped', cost: 0.0004 })
   })
 })

@@ -85,6 +85,9 @@ export const ASK_WHY = {
 
 export const NOT_YET = 'not in the story yet at this point'
 
+/** The label of an entry named only earlier in the chat, so the AI doesn't take it for one the question names. */
+export const EARLIER = 'named earlier in this chat'
+
 export interface AskContextInput {
   question: string
   /** The open story and scene; either may be null. */
@@ -266,7 +269,7 @@ export function askPoint(
 interface Chosen {
   entry: EntryState
   why: string
-  /** "not in the story yet at this point", or "from Book 1, not in this story so far". */
+  /** "not in the story yet at this point", "from Book 1, not in this story so far" or "named earlier in this chat". */
   label: string | null
   /** Only its name is given (an entry from a story this one leaves before it comes). */
   nameOnly?: boolean
@@ -357,7 +360,7 @@ function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTur
     .slice(-2)
     .map((t) => `${t.question}\n${t.answer}`)
     .join('\n')
-  for (const e of point.here.values()) if (!hidden(e.id) && namedIn(recent, e)) take(named, e, ASK_WHY.chat)
+  for (const e of point.here.values()) if (!hidden(e.id) && namedIn(recent, e)) take(named, e, ASK_WHY.chat, EARLIER)
 
   // Who and what the open scene's card names.
   const cast: Chosen[] = []
@@ -397,6 +400,14 @@ function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTur
 const kindWord = (e: EntryState): string => KIND_LABELS[e.kind]?.one.toLowerCase() ?? 'entry'
 
 const heading = (c: Chosen): string => `### ${c.entry.name} (${[kindWord(c.entry), c.label].filter(Boolean).join('; ')})`
+
+/** The named entries' title says where they were named: in the question, earlier in the chat, or both. */
+function namedTitle(named: Chosen[]): string {
+  const inQuestion = named.some((c) => c.why === ASK_WHY.question)
+  const earlier = named.some((c) => c.why === ASK_WHY.chat)
+  if (!earlier) return 'Named in the question'
+  return inQuestion ? 'Named in the question or earlier in this chat' : 'Named earlier in this chat'
+}
 
 function relationLine(r: RelationshipState, name: (id: ID) => string): string {
   const parts = [`${name(r.aId)} and ${name(r.bId)}: ${sentence(clean(r.type) || 'linked')}`]
@@ -625,7 +636,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
       ? block(
           'named',
           3,
-          'Named in the question',
+          namedTitle(sel.named),
           [
             sel.named.map((c) => profileText(shown, c, 0)).join('\n\n'),
             sel.named.map((c) => profileText(shown, c, 1)).join('\n\n'),

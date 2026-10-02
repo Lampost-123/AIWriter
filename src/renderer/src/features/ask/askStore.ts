@@ -75,10 +75,13 @@ const errorOf = (e: unknown): { message: string; code?: string } => ({
   code: e instanceof ApiError ? e.code : undefined
 })
 
-/** Changes the turn its task is writing. */
-function updateTask(taskId: ID, fn: (t: ShownTurn) => ShownTurn): void {
+/**
+ * Changes the turn its task is writing: found by the task (asked this session), or by its record (a chat
+ * opened again while its answer was still finishing, which then finishes on screen too).
+ */
+function updateTask(taskId: ID, fn: (t: ShownTurn) => ShownTurn, generationId?: ID): void {
   const turns = get().turns
-  const i = turns.findIndex((t) => t.taskId === taskId)
+  const i = turns.findIndex((t) => t.taskId === taskId || (!!generationId && t.generationId === generationId))
   if (i < 0) return
   const next = turns.slice()
   next[i] = fn(turns[i])
@@ -94,7 +97,7 @@ function listen(): void {
   listening = true
   onEvent('task:progress', (p) => {
     if (p.job !== 'chat') return
-    updateTask(p.taskId, (t) => ({ ...t, generationId: p.generationId, answer: p.text }))
+    updateTask(p.taskId, (t) => ({ ...t, generationId: p.generationId, answer: p.text }), p.generationId)
     const r = get().running
     if (r?.taskId === p.taskId && r.retrying) set({ running: { ...r, retrying: null } })
   })
@@ -104,16 +107,20 @@ function listen(): void {
   })
   onEvent('task:done', (p) => {
     if (p.job !== 'chat') return
-    const shown = get().turns.find((t) => t.taskId === p.taskId)
-    updateTask(p.taskId, (t) => ({
-      ...t,
-      generationId: p.generationId,
-      answer: p.text,
-      status: p.status,
-      error: p.error,
-      cost: p.cost,
-      cutOff: p.cutOff
-    }))
+    const shown = get().turns.find((t) => t.taskId === p.taskId || t.generationId === p.generationId)
+    updateTask(
+      p.taskId,
+      (t) => ({
+        ...t,
+        generationId: p.generationId,
+        answer: p.text,
+        status: p.status,
+        error: p.error,
+        cost: p.cost,
+        cutOff: p.cutOff
+      }),
+      p.generationId
+    )
     if (get().running?.taskId === p.taskId) set({ running: null })
     void settle(shown?.chatId || get().chatId)
   })

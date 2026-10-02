@@ -9,7 +9,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { countRaw } from '../ai/tokens'
-import { assembleAsk, MAX_TURNS, NOT_YET, searchTerms, standsAlone, type AskBriefing } from './context'
+import { assembleAsk, EARLIER, MAX_TURNS, NOT_YET, searchTerms, standsAlone, type AskBriefing } from './context'
 import { loadShape } from '../memory/scene'
 import { ASK_MARKER } from './prompts'
 import type { PastTurn } from './prompts'
@@ -204,9 +204,20 @@ describe('the conversation so far', () => {
     expect(b.messages.map((m) => m.content)).not.toContain('Lost?')
   })
 
-  it('remembers who an earlier turn was about', () => {
-    const b = brief('What would she do next?', 'b1', 'b1.c3.s1', [{ question: 'Tell me about Mara.', answer: 'Mara is quick to anger.' }])
+  it('remembers who an earlier turn was about, and says so', () => {
+    const earlier: PastTurn[] = [{ question: 'Tell me about Mara.', answer: 'Mara is quick to anger.' }]
+    const b = brief('What would she do next?', 'b1', 'b1.c3.s1', earlier)
     expect(sent(b, 'named')?.entryIds).toContain(w.id('mara'))
+    expect(sent(b, 'named')?.title).toBe('Named earlier in this chat')
+    expect(textOf(b, 'named')).toContain(`### Mara (character; ${EARLIER})`)
+
+    // With one the question names too, each says where it was named.
+    const both = brief('Would Tobin help her?', 'b1', 'b1.c3.s1', earlier)
+    expect(sent(both, 'named')?.title).toBe('Named in the question or earlier in this chat')
+    expect(textOf(both, 'named')).toContain('### Tobin (character)\n')
+    expect(textOf(both, 'named')).toContain(`### Mara (character; ${EARLIER})`)
+    expect(sent(both, 'named')?.entryIds).toEqual([w.id('tobin'), w.id('mara')])
+    expect(sent(brief('Would Tobin help?', 'b1', 'b1.c3.s1'), 'named')?.title).toBe('Named in the question')
   })
 })
 
