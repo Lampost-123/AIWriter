@@ -1,29 +1,64 @@
-// Context assembly: builds the writer model's briefing from memory in the
-// spec's fixed priority order, measures it, and drops whole blocks from the
-// least important up until it fits the model. Pure: the caller supplies the
-// data and a token counter, so every rule here is unit-tested.
+// Context assembly: builds the writer model's briefing for one scene from what the memory says
+// counts there (SceneMemory, from src/main/memory/scene.ts), in the spec's fixed priority order,
+// measures it, and fits it to the model. Pure: the caller supplies the data and a token counter,
+// so every rule here is unit-tested.
 //
-// Priorities (milestone 1):
-//  1 instructions + style guide + sample passage + phrases to avoid (never dropped)
-//  2 scene card + Adam's direction (never dropped)
-//  3 the end of the previous scene, word for word
-//  4 point-of-view character: full profile and voice
-//  5 other characters present: profile and voice
-//  6 relationships and knowledge (milestone 2)
-//  7 location with the places around it, and hard-rule lore
-//  8 story so far (milestone 2)
-//  9 other entries named in the beats, notes or direction
-// 10 themes, tone and premise
+// What is selected (spec, "What gets selected"), each entry with why in plain words for the Context tab:
+// - everything on the scene card: point of view, characters present, location, its plot threads;
+// - anything whose name or alias appears in the beats, the notes or Adam's direction;
+// - the places around the location and the groups the people present belong to, one line each;
+// - relationships and knowledge among the people present, as of this scene;
+// - lore flagged as a hard rule, always;
+// - anything Adam pinned for this scene, story or world.
+// Only entries that exist at this scene count. One that doesn't is sent only if Adam pins it or
+// lists it on the scene card, with its label ("not in the story yet at this point"); one that
+// first appears in this scene says so. Entries Adam kept out ('hide' pins) are left out.
 //
-// The priorities decide what is dropped when the briefing is too long. The
-// order the blocks are sent in is separate (SEND_ORDER): what stays the same
-// across a story comes first, right after the instructions, so providers that
-// cache repeated prompts can reuse it; the previous scene's ending and the
-// scene card come last, right above "Write the scene now".
+// Priorities, with each block's short form in brackets:
+//  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
+//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; never dropped
+//  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
+//  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory)
+//  5 others present as of this scene: profile and voice (summary plus voice)
+//  6 relationships and who knows what among those present (no short form)
+//  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
+//  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups)
+//  9 other entries named in the beats, notes or direction, and pins (one line each)
+// 10 themes, tone and premise (one line)
+//
+// Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
+// their short form from the bottom up (10 to 3, then block 1), and only then are whole blocks
+// dropped (10 up to 3). Anything that fits again afterwards is put back, then re-expanded, most
+// important first. Adam's choice in the Context tab wins: 'full' is never shortened (it is dropped
+// only as a last resort), 'short' is always short.
+//
+// The order the blocks are sent in is separate (SEND_ORDER): what stays the same across a story
+// comes first, right after the instructions, so providers that cache repeated prompts can reuse
+// it; the story so far, the previous scene's ending and the scene card come last, right above
+// "Write the scene now".
 
-import type { ChatMessage, ContextBlock, ContextBudget, ContextPreview, DraftOptions, Entry, ID, SceneCard, StyleGuide } from '@shared/types'
+import type {
+  BlockMode,
+  Change,
+  ChatMessage,
+  ContextBlock,
+  ContextBudget,
+  ContextEntry,
+  ContextPreview,
+  DraftOptions,
+  Entry,
+  EntryState,
+  ID,
+  Pin,
+  PinScope,
+  RelationshipState,
+  SceneCard,
+  StyleGuide,
+  ThreadState
+} from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
-import { finalInstruction, indentMore, instructionsText } from './prompts'
+import type { SceneMemory, StorySoFar } from '../memory/types'
+import { finalInstruction, indentMore, instructionsText, SHORT_SAMPLE_WORDS } from './prompts'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -37,11 +72,15 @@ export interface ContextInput {
   /** The style guide in effect (preferences, world and story merged). */
   style: StyleGuide
   scene: { title: string; card: SceneCard }
-  /** Plain text of the scene before this one, or null at the start of the line. */
-  previousText: string | null
-  /** Every live entry in the world. */
-  entries: Entry[]
+  /** What counts at this scene: entries as of here, the previous scene, the story so far... */
+  memory: SceneMemory
+  /** The pins that apply to this scene: its own, its story's and the world's. */
+  pins: Pin[]
+  /** Adam's choice for each block of this scene's briefing, by block id (missing = 'auto'). */
+  blockModes: Record<string, BlockMode>
   world: { themes: string; tone: string }
+  /** The story's series, if it has one. */
+  series: { name: string; themes: string; tone: string } | null
   story: { title: string; premise: string; themes: string; tone: string }
   options: DraftOptions
   /** From the model choice; null when unknown. */
@@ -52,17 +91,27 @@ export interface BlockDraft {
   id: string
   priority: number
   title: string
+  /** The full form. */
   text: string
+  /** The short form, or null when the block has none (or it would be the same as the full form). */
+  short: string | null
   entryIds: ID[]
 }
 
 export interface PreparedContext {
   blocks: BlockDraft[]
+  /** Adam's choice for each block, by block id. */
+  modes: Record<string, BlockMode>
   finals: { withPrevious: string; withoutPrevious: string }
-  /** Every text to measure, in order: each block as sent, then both closing instructions. */
+  /**
+   * Every text to measure, in order: each block's full form as sent, then each block's short form
+   * as sent ('' when it has none), then both closing instructions.
+   */
   texts: string[]
   contextLength: number
   targetWords: number
+  knows: string
+  entries: ContextEntry[]
 }
 
 // ---------- Budget ----------
@@ -95,7 +144,10 @@ export const THINKING_ROOM = 4000
  * left after the briefing, and never past the model's own output limit when
  * the provider says what it is.
  */
-export function replyTokenLimit(budget: Pick<ContextBudget, 'contextLength' | 'reserved' | 'used'>, maxOutput?: number | null): { limit: number; fallback: number } {
+export function replyTokenLimit(
+  budget: Pick<ContextBudget, 'contextLength' | 'reserved' | 'used'>,
+  maxOutput?: number | null
+): { limit: number; fallback: number } {
   const out = maxOutput && maxOutput > 0 ? maxOutput : Infinity
   const fallback = Math.max(1, Math.min(budget.reserved, out))
   const wanted = Math.max(budget.reserved + THINKING_ROOM, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP))
@@ -123,28 +175,66 @@ export function lengthTooLong(budget: Pick<ContextBudget, 'contextLength' | 'use
   return budget.reserved > replyRoom(budget) ? { maxWords: maxTargetWords(budget) } : null
 }
 
-/** Token estimate with a 10% allowance, since providers count differently. */
-export const withAllowance = (rawTokens: number): number => Math.ceil(rawTokens * 1.1)
+/** Token estimate with a 10% allowance, since providers count differently (in whole numbers: 100 * 1.1 isn't exactly 110). */
+export const withAllowance = (rawTokens: number): number => Math.ceil((Math.round(rawTokens) * 11) / 10)
+
+/**
+ * Wraps a token counter with a cache, so a preview made again as Adam edits the scene card only
+ * counts the blocks that changed. Keeps the `limit` most recently used texts.
+ */
+export function cachedCounter(count: (texts: string[]) => Promise<number[]>, limit = 400): (texts: string[]) => Promise<number[]> {
+  const cache = new Map<string, number>()
+  return async (texts) => {
+    const missing = [...new Set(texts.filter((t) => t && !cache.has(t)))]
+    if (missing.length) {
+      const counts = await count(missing)
+      missing.forEach((t, i) => cache.set(t, counts[i] ?? 0))
+    }
+    const out = texts.map((t) => {
+      if (!t) return 0
+      const n = cache.get(t) ?? 0
+      // Most recently used last, so the oldest go first.
+      cache.delete(t)
+      cache.set(t, n)
+      return n
+    })
+    for (const key of cache.keys()) {
+      if (cache.size <= limit) break
+      cache.delete(key)
+    }
+    return out
+  }
+}
 
 // ---------- Formatting memory entries ----------
 
 const clean = (s: string | undefined | null): string => (s ?? '').trim()
 
+/** Ends a phrase with a full stop unless it already ends with punctuation. */
+const sentence = (s: string): string => (/[.!?…:;]["'”’)\]]*$/.test(s) ? s : `${s}.`)
+
 /**
  * Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes.
- * `onlyGroups` keeps just those groups (by id).
+ * `onlyGroups` keeps just those groups (by id); `short` leaves out the fields marked optionalInShort (backstory).
  */
-export function fieldSections(e: Entry, onlyGroups?: string[]): string[] {
+export function fieldSections(e: Entry, onlyGroups?: string[], short = false): string[] {
   const groups = FIELD_GROUPS[e.kind] ?? []
   const out: string[] = []
   for (const g of groups) {
     if (onlyGroups && !onlyGroups.includes(g.id)) continue
     const lines: string[] = []
     for (const f of g.fields) {
+      if (short && f.optionalInShort) continue
       const v = clean(e.fields?.[f.key])
       if (!v) continue
       if (v.includes('\n')) {
-        lines.push(`- ${f.label}:\n${v.split(/\r?\n/).filter((l) => l.trim()).map((l) => `    ${l.trim()}`).join('\n')}`)
+        lines.push(
+          `- ${f.label}:\n${v
+            .split(/\r?\n/)
+            .filter((l) => l.trim())
+            .map((l) => `    ${l.trim()}`)
+            .join('\n')}`
+        )
       } else {
         lines.push(`- ${f.label}: ${v}`)
       }
@@ -155,8 +245,11 @@ export function fieldSections(e: Entry, onlyGroups?: string[]): string[] {
   return out
 }
 
-/** A full profile: name line, aliases, summary, description and every filled field (or only `onlyGroups`). */
-export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`, onlyGroups?: string[]): string {
+/**
+ * A profile: name line, aliases, summary, description and every filled field (or only `onlyGroups`).
+ * `short` leaves out the backstory fields.
+ */
+export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`, onlyGroups?: string[], short = false): string {
   const head: string[] = []
   if (heading) head.push(heading)
   const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
@@ -164,13 +257,22 @@ export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`
   if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
   const parts = [head.join('\n')]
   if (clean(e.description)) parts.push(clean(e.description))
-  parts.push(...fieldSections(e, onlyGroups))
+  parts.push(...fieldSections(e, onlyGroups, short))
   return parts.filter(Boolean).join('\n\n')
 }
 
 /** One line for an entry: its name and one-line summary. */
-export function oneLine(e: Entry): string {
-  return clean(e.summary) ? `${e.name}: ${clean(e.summary)}` : e.name
+export function oneLine(e: Entry, note = ''): string {
+  const name = note ? `${e.name} (${note})` : e.name
+  return clean(e.summary) ? `${name}: ${clean(e.summary)}` : name
+}
+
+/** What has happened to an entry so far, oldest first; `last` keeps only the most recent few. */
+export function happenedText(e: Pick<EntryState, 'happened'>, last?: number): string {
+  const all = (e.happened ?? []).filter((h) => clean(h.note))
+  const items = last != null ? all.slice(-last) : all
+  if (!items.length) return ''
+  return `What has happened so far:\n${items.map((h) => `- ${indentMore(clean(h.note).replace(/\.$/, ''))}${clean(h.where) ? ` (${clean(h.where)})` : ''}`).join('\n')}`
 }
 
 /** The places containing this one, nearest first (cycle-safe). */
@@ -199,6 +301,17 @@ export function mentions(text: string, name: string): boolean {
   if (n.length < 2 || !text) return false
   const flags = /\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'
   return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags).test(text)
+}
+
+const squash = (s: string): string => s.toLocaleLowerCase().replace(/\s+/g, ' ')
+
+/** A text to look for names in, with a plain copy for a quick check first, so a big world stays fast. */
+const haystack = (text: string): { text: string; plain: string } => ({ text, plain: squash(text) })
+
+/** True when any of the names appears in the text. */
+function namedIn(h: { text: string; plain: string }, names: string[]): boolean {
+  if (!h.plain.trim()) return false
+  return names.some((n) => n.trim().length >= 2 && h.plain.includes(squash(n.trim())) && mentions(h.text, n))
 }
 
 // ---------- The end of the previous scene ----------
@@ -249,19 +362,240 @@ export function sceneTail(text: string, o: { min: number; target: number; max: n
   return `…${t.slice(starts[n - o.target])}`.trim()
 }
 
+/** Block 3's short form: about the last 200 words. */
+export const SHORT_TAIL = { min: 150, target: 200, max: 250 }
+
+// ---------- Selection ----------
+
+/** Why an entry is in the briefing, in plain words, as the Context tab shows it. */
+export const WHY = {
+  card: 'On the scene card',
+  location: 'Where the scene happens',
+  around: "Around the scene's location",
+  group: 'A group someone here belongs to',
+  beats: 'Named in the beats',
+  notes: 'Named in the scene notes',
+  direction: 'Named in your direction',
+  rule: 'A world rule',
+  pin: { scene: 'Pinned for this scene', story: 'Pinned for this story', world: 'Pinned for every scene' },
+  hide: { scene: 'Kept out of this scene', story: 'Kept out of this story', world: 'Kept out of every scene' }
+} as const
+
+/** The label for an entry whose first appearance is the scene being drafted. */
+export const FIRST_HERE = 'first appears in this scene'
+
+const SCOPE_RANK: Record<PinScope, number> = { scene: 0, story: 1, world: 2 }
+
+/** The pin that decides for each entry: the most specific one (scene, then story, then world). */
+export function effectivePins(pins: Pin[]): Map<ID, Pin> {
+  const out = new Map<ID, Pin>()
+  for (const p of pins) {
+    const cur = out.get(p.entryId)
+    if (!cur || SCOPE_RANK[p.scope] < SCOPE_RANK[cur.scope]) out.set(p.entryId, p)
+  }
+  return out
+}
+
+export interface Chosen {
+  entry: EntryState
+  why: string
+  /** Where Adam pinned it, if he did. */
+  pinned: PinScope | null
+  /** "first appears in this scene", or the label for an entry that doesn't exist here. */
+  label: string | null
+}
+
+export interface Selection {
+  /** Every entry the briefing could name: those that exist here and those that don't (for names on the card). */
+  known: Map<ID, EntryState>
+  /** The entries in the briefing, in the order chosen, with why. */
+  chosen: Map<ID, Chosen>
+  /** Entries Adam kept out, with which pin did it. */
+  hidden: { entry: EntryState; why: string }[]
+  pov: EntryState | null
+  /** The others present (not the point-of-view character). */
+  present: EntryState[]
+  location: EntryState | null
+  /** The places containing the location, nearest first. */
+  around: EntryState[]
+  /** Groups the people present belong to, with who belongs and how. */
+  groups: { group: EntryState; ties: { memberId: ID; type: string }[] }[]
+  rules: EntryState[]
+  /** Plot threads on the scene card that are still open here. */
+  threads: { entry: EntryState; role: 'sets up' | 'pays off'; state: ThreadState | null }[]
+  /** Other entries named in the beats, notes or direction, and pins. */
+  others: EntryState[]
+  label: (id: ID) => string | null
+}
+
+/** Decides which entries the briefing holds and why (spec, "What gets selected"). */
+export function selectEntries(input: ContextInput): Selection {
+  const m = input.memory
+  const card = input.scene.card
+  const here = new Map(m.entries.map((e) => [e.id, e]))
+  const away = new Map(m.elsewhere.map((x) => [x.entry.id, x]))
+  const known = new Map<ID, EntryState>([...m.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...here])
+  const firstHere = new Set(m.firstHere)
+  const pins = effectivePins(input.pins)
+  const label = (id: ID): string | null => away.get(id)?.label ?? (firstHere.has(id) ? FIRST_HERE : null)
+  const chosen = new Map<ID, Chosen>()
+
+  /** Adds an entry for a reason, once. One that doesn't exist here comes in only when it is on the card or pinned. */
+  const take = (id: ID | null | undefined, why: string, listed: boolean): EntryState | null => {
+    if (!id || chosen.has(id)) return null
+    const pin = pins.get(id)
+    if (pin?.action === 'hide') return null
+    const e = here.get(id) ?? (listed || pin?.action === 'pin' ? away.get(id)?.entry : undefined)
+    if (!e) return null
+    chosen.set(id, { entry: e, why, pinned: pin?.action === 'pin' ? pin.scope : null, label: label(id) })
+    return e
+  }
+  const some = <T>(x: T | null): x is T => x != null
+
+  const pov = take(card.povId, WHY.card, true)
+  const present = card.presentIds
+    .filter((id) => id !== card.povId)
+    .map((id) => take(id, WHY.card, true))
+    .filter(some)
+  const location = take(card.locationId, WHY.location, true)
+
+  const threads: Selection['threads'] = []
+  for (const [ids, role] of [
+    [card.setsUpIds ?? [], 'sets up'],
+    [card.paysOffIds ?? [], 'pays off']
+  ] as const) {
+    for (const id of ids) {
+      const state = m.threads.find((t) => t.entryId === id) ?? null
+      if (state?.status === 'resolved') continue
+      const e = take(id, WHY.card, true)
+      if (e) threads.push({ entry: e, role, state })
+    }
+  }
+
+  // The places around the location, as far as they exist here.
+  const around = location
+    ? parentChain(location, known)
+        .filter((p) => here.has(p.id))
+        .map((p) => take(p.id, WHY.around, false))
+        .filter(some)
+    : []
+
+  // Groups the people present belong to: a relationship between one of them and a group.
+  const people = new Set([pov, ...present].filter(some).map((e) => e.id))
+  const ties = new Map<ID, { memberId: ID; type: string }[]>()
+  for (const r of m.relationships) {
+    for (const [member, other] of [
+      [r.aId, r.bId],
+      [r.bId, r.aId]
+    ]) {
+      if (!people.has(member) || here.get(other)?.kind !== 'group') continue
+      ties.set(other, [...(ties.get(other) ?? []), { memberId: member, type: clean(r.type) }])
+    }
+  }
+  const groups: Selection['groups'] = []
+  for (const [groupId, list] of ties) {
+    const group = take(groupId, WHY.group, false)
+    if (group) groups.push({ group, ties: list })
+  }
+
+  const rules = m.entries
+    .filter((e) => e.kind === 'lore' && e.hardRule)
+    .map((e) => take(e.id, WHY.rule, false))
+    .filter(some)
+
+  // Anything else named in the beats, the notes or the direction (only what exists here).
+  const others: EntryState[] = []
+  const texts = [
+    [haystack(card.beats.join('\n')), WHY.beats],
+    [haystack(card.notes), WHY.notes],
+    [haystack(input.options.direction), WHY.direction]
+  ] as const
+  for (const e of m.entries) {
+    if (chosen.has(e.id)) continue
+    const names = [e.name, ...(e.aliases ?? [])]
+    const hit = texts.find(([h]) => namedIn(h, names))
+    const got = hit ? take(e.id, hit[1], false) : null
+    if (got) others.push(got)
+  }
+
+  // Adam's pins.
+  for (const p of pins.values()) {
+    if (p.action !== 'pin') continue
+    const got = take(p.entryId, WHY.pin[p.scope], true)
+    if (got) others.push(got)
+  }
+
+  const hidden: Selection['hidden'] = []
+  for (const p of pins.values()) {
+    const e = known.get(p.entryId)
+    if (p.action === 'hide' && e) hidden.push({ entry: e, why: WHY.hide[p.scope] })
+  }
+
+  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, label }
+}
+
 // ---------- Blocks ----------
 
-function sceneCardText(input: ContextInput, byId: Map<ID, Entry>): string {
+const withLabel = (name: string, label: string | null): string => (label ? `${name} (${label})` : name)
+
+function relationshipLine(r: RelationshipState, name: (id: ID) => string): string {
+  const parts = [`${name(r.aId)} and ${name(r.bId)}: ${sentence(clean(r.type) || 'linked')}`]
+  if (clean(r.aFeels)) parts.push(`${name(r.aId)} feels: ${sentence(clean(r.aFeels))}`)
+  if (clean(r.bFeels)) parts.push(`${name(r.bId)} feels: ${sentence(clean(r.bFeels))}`)
+  return parts.join(' ')
+}
+
+const joinAnd = (items: string[]): string =>
+  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+
+/** A change pinned to this scene, as an aim for the draft ("Mara: loses her left hand"). */
+export function bringAboutLine(c: Change, name: (id: ID) => string): string | null {
+  const who = name(c.entryId)
+  switch (c.kind) {
+    case 'update':
+      return clean(c.payload.note) ? `${who}: ${clean(c.payload.note)}` : null
+    case 'full':
+      return clean(c.payload.summary) || clean(c.payload.description)
+        ? `${who}: ${clean(c.payload.summary) || clean(c.payload.description)}`
+        : null
+    case 'relationship': {
+      const p = c.payload
+      const type = clean(p.type) || 'linked'
+      const feels = [
+        clean(p.feels) ? `${who} feels: ${sentence(clean(p.feels))}` : '',
+        clean(p.otherFeels) ? `${name(p.otherId)} feels: ${sentence(clean(p.otherFeels))}` : ''
+      ]
+        .filter(Boolean)
+        .join(' ')
+      return `${who} and ${name(p.otherId)}: ${p.ended ? `no longer ${type}` : type}${feels ? `. ${feels}` : ''}`
+    }
+    case 'knowledge':
+      return clean(c.payload.fact) ? `${who} ${c.payload.forgets ? 'forgets' : 'learns'}: ${clean(c.payload.fact)}` : null
+    case 'thread':
+      return `${c.payload.status === 'resolved' ? 'Pays off' : 'Sets up'} the plot thread ${who}${clean(c.payload.note) ? `: ${clean(c.payload.note)}` : ''}`
+  }
+}
+
+function sceneCardText(input: ContextInput, sel: Selection): string {
   const { card, title } = input.scene
+  const name = (id: ID): string | null => {
+    const e = sel.known.get(id)
+    return e ? withLabel(e.name, sel.label(id)) : null
+  }
+  const names = (ids: ID[]): string[] => ids.map(name).filter((n): n is string => !!n)
   const lines: string[] = []
   if (clean(title)) lines.push(`Scene: ${clean(title)}`)
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
-  const pov = card.povId ? byId.get(card.povId) : undefined
-  if (pov) lines.push(`Point of view: ${pov.name}`)
-  const others = card.presentIds.filter((id) => id !== card.povId).map((id) => byId.get(id)).filter((e): e is Entry => !!e)
-  if (others.length) lines.push(`Also in the scene: ${others.map((e) => e.name).join(', ')}`)
-  const where = card.locationId ? byId.get(card.locationId) : undefined
-  if (where) lines.push(`Where: ${where.name}`)
+  const pov = card.povId ? name(card.povId) : null
+  if (pov) lines.push(`Point of view: ${pov}`)
+  const others = names(card.presentIds.filter((id) => id !== card.povId))
+  if (others.length) lines.push(`Also in the scene: ${others.join(', ')}`)
+  const where = card.locationId ? name(card.locationId) : null
+  if (where) lines.push(`Where: ${where}`)
+  const setsUp = names(card.setsUpIds ?? [])
+  if (setsUp.length) lines.push(`Sets up: ${setsUp.join(', ')}`)
+  const paysOff = names(card.paysOffIds ?? [])
+  if (paysOff.length) lines.push(`Pays off: ${paysOff.join(', ')}`)
 
   const parts: string[] = []
   if (lines.length) parts.push(lines.join('\n'))
@@ -274,158 +608,398 @@ function sceneCardText(input: ContextInput, byId: Map<ID, Entry>): string {
   if (clean(card.mood)) shape.push(`Mood: ${indentMore(card.mood)}`)
   shape.push(`Length: about ${input.options.targetWords.toLocaleString('en-GB')} words`)
   parts.push(shape.join('\n'))
+  const aims = bringAboutLines(input, sel)
+  if (aims.length) {
+    parts.push(
+      `What this scene should bring about (aims for this draft, not facts yet):\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`
+    )
+  }
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
   if (clean(input.options.direction)) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
   return parts.join('\n\n')
 }
 
+function bringAboutLines(input: ContextInput, sel: Selection): string[] {
+  const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
+  return (input.memory.bringAbout ?? []).map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
+}
+
+/** The point-of-view character: what they know (both forms) and their ties to anyone not in the scene (full form). */
+function povText(e: EntryState, input: ContextInput, sel: Selection, short: boolean): string {
+  const knows = input.memory.facts
+    .filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
+    .map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
+  // An empty profile still says who it is, so the block (and the Context tab's entry) is there.
+  const parts = [formatProfile(e, null, undefined, short) || `${e.name}.`, happenedText(e, short ? 5 : undefined)]
+  if (knows.length) parts.push(`What ${e.name} knows:\n${knows.join('\n')}`)
+  if (!short) {
+    const inScene = new Set([sel.pov, ...sel.present].filter((x): x is EntryState => !!x).map((x) => x.id))
+    const exists = new Set(input.memory.entries.map((x) => x.id))
+    const hidden = new Set(sel.hidden.map((h) => h.entry.id))
+    const ties = input.memory.relationships
+      .filter((r) => {
+        if (r.aId !== e.id && r.bId !== e.id) return false
+        const other = r.aId === e.id ? r.bId : r.aId
+        return !inScene.has(other) && exists.has(other) && !hidden.has(other)
+      })
+      .map((r) => `- ${relationshipLine(r, (id) => sel.known.get(id)?.name ?? 'Someone')}`)
+    if (ties.length) parts.push(`Ties to people and groups not in the scene:\n${ties.join('\n')}`)
+  }
+  return parts.filter(Boolean).join('\n\n')
+}
+
+/** Relationships among the people present, and the facts some of them know and others don't. */
+function relationshipsText(input: ContextInput, sel: Selection): { text: string; entryIds: ID[] } {
+  const people = [sel.pov, ...sel.present].filter((x): x is EntryState => !!x && x.kind === 'character')
+  const ids = new Set(people.map((p) => p.id))
+  const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
+  const used = new Set<ID>()
+  const rels = input.memory.relationships
+    .filter((r) => ids.has(r.aId) && ids.has(r.bId) && r.aId !== r.bId)
+    .map((r) => {
+      used.add(r.aId)
+      used.add(r.bId)
+      return `- ${relationshipLine(r, name)}`
+    })
+  const facts: string[] = []
+  if (people.length > 1) {
+    for (const f of input.memory.facts) {
+      if (!clean(f.fact)) continue
+      const knowers = people.filter((p) => f.knownBy.includes(p.id))
+      if (!knowers.length || knowers.length === people.length) continue
+      const not = people.filter((p) => !f.knownBy.includes(p.id))
+      ;[...knowers, ...not].forEach((p) => used.add(p.id))
+      const knowersText = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
+      facts.push(
+        `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
+      )
+    }
+  }
+  const parts: string[] = []
+  if (rels.length) parts.push(rels.join('\n'))
+  if (facts.length) parts.push(`Facts some of them know and others don't:\n${facts.join('\n')}`)
+  return { text: parts.join('\n\n'), entryIds: people.map((p) => p.id).filter((id) => used.has(id)) }
+}
+
+/** Block 8. Summaries go in word for word, so the Context tab can find each one to edit it. */
+export function storySoFarText(s: StorySoFar, storyTitle: string, short: boolean): string {
+  const parts: string[] = []
+  type Earlier = { heading: string; text: string }
+  const earlier: Earlier[] = []
+  const rolled = new Set<ID>()
+  for (const st of s.stories) {
+    if (!clean(st.text) || rolled.has(st.storyId)) continue
+    // When space is tight, a series roll-up stands in for the stories it covers.
+    const rollup = short ? s.series.find((r) => clean(r.text) && r.storyIds.includes(st.storyId)) : undefined
+    if (rollup) {
+      rollup.storyIds.forEach((id) => rolled.add(id))
+      earlier.push({ heading: rollup.name, text: clean(rollup.text) })
+      continue
+    }
+    const heading = st.meanwhile ? `Meanwhile: ${st.title}` : st.cut ? `${st.title}, up to where this story starts` : st.title
+    earlier.push({ heading, text: clean(st.text) })
+  }
+  for (const e of earlier) parts.push(`### ${e.heading}\n${e.text}`)
+
+  const sceneCount = short ? 2 : 5
+  const recent = s.scenes.filter((x) => clean(x.text)).slice(-sceneCount)
+  const shownScenes = new Set(recent.map((x) => x.sceneId))
+  // A chapter is told by its own summary unless every one of its summarised scenes is shown.
+  const chapters = s.chapters.filter((c) => {
+    if (!clean(c.text)) return false
+    const own = s.scenes.filter((x) => x.chapterId === c.chapterId && clean(x.text))
+    return !own.length || own.some((x) => !shownScenes.has(x.sceneId))
+  })
+  if (chapters.length)
+    parts.push(`### Earlier in ${storyTitle || 'this story'}\n${chapters.map((c) => `${c.label}: ${clean(c.text)}`).join('\n\n')}`)
+  if (recent.length) parts.push(`### Most recently\n${recent.map((x) => `${x.label}: ${clean(x.text)}`).join('\n\n')}`)
+
+  if (s.leadsInto && clean(s.leadsInto.text)) {
+    const t = s.leadsInto.title
+    parts.push(
+      `### Leads into ${t}\nThis story leads into ${t}. Below is how ${t} begins: a target to steer towards over the story, not events to mention or bring about in this scene.\n${clean(s.leadsInto.text)}`
+    )
+  }
+  return parts.join('\n\n')
+}
+
 function themesText(input: ContextInput): string {
   const lines: string[] = []
-  const add = (label: string, v: string): void => {
-    if (clean(v)) lines.push(`${label}: ${indentMore(v)}`)
+  const add = (label: string, v: string | undefined): void => {
+    if (clean(v)) lines.push(`${label}: ${indentMore(v ?? '')}`)
   }
   add('Story premise', input.story.premise)
   add('Story themes', input.story.themes)
   add('Story tone', input.story.tone)
+  add('Series themes', input.series?.themes)
+  add('Series tone', input.series?.tone)
   add('World themes', input.world.themes)
   add('World tone', input.world.tone)
   return lines.join('\n')
 }
 
-/** Builds every block that has something in it, in priority order. */
-export function buildBlocks(input: ContextInput): BlockDraft[] {
-  const entries = input.entries
-  const byId = new Map(entries.map((e) => [e.id, e]))
-  const card = input.scene.card
-  const used = new Set<ID>()
+/** The first sentence (or line) of a text. */
+const firstSentence = (s: string): string => {
+  const line = clean(s).split(/\r?\n/)[0] ?? ''
+  const m = line.match(/^.*?[.!?…](?=\s|$)/)
+  return (m ? m[0] : line).trim()
+}
+
+/** Block 10's short form: one line with the closest themes and tone (the story's, else the series', else the world's). */
+function themesLine(input: ContextInput): string {
+  const pick = (...vs: (string | undefined)[]): string => firstSentence(vs.find((v) => clean(v)) ?? '')
+  const themes = pick(input.story.themes, input.series?.themes, input.world.themes)
+  const tone = pick(input.story.tone, input.series?.tone, input.world.tone)
+  const bits = [themes ? `Themes: ${sentence(themes)}` : '', tone ? `Tone: ${sentence(tone)}` : ''].filter(Boolean)
+  return bits.length ? bits.join(' ') : sentence(firstSentence(input.story.premise))
+}
+
+const kindWord = (e: Entry): string => KIND_LABELS[e.kind]?.one.toLowerCase() ?? 'entry'
+
+/** Builds every block that has something in it, in the order they are sent. */
+export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(input)): BlockDraft[] {
   const blocks: BlockDraft[] = []
+  const label = (e: Entry): string | null => sel.chosen.get(e.id)?.label ?? null
+  const add = (id: string, priority: number, title: string, text: string, short: string | null, entryIds: ID[]): void => {
+    if (!text.trim()) return
+    blocks.push({ id, priority, title, text, short: short != null && short.trim() && short !== text ? short : null, entryIds })
+  }
 
-  // 1 Instructions and style guide.
-  blocks.push({ id: 'instructions', priority: 1, title: 'Instructions and style guide', text: instructionsText(input.style), entryIds: [] })
+  // 1 Instructions and style guide (short: the sample passage trimmed).
+  const trimmed = input.style.samplePassage.trim().split(/\s+/).length > SHORT_SAMPLE_WORDS * 1.25
+  add(
+    'instructions',
+    1,
+    'Instructions and style guide',
+    instructionsText(input.style),
+    trimmed ? instructionsText(input.style, { trimSample: true }) : null,
+    []
+  )
 
-  // 2 Scene card and direction.
-  blocks.push({ id: 'scene-card', priority: 2, title: 'Scene card', text: sceneCardText(input, byId), entryIds: [] })
+  // 2 Scene card and direction (no short form).
+  add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
 
-  // 3 The end of the previous scene.
-  const prev = clean(input.previousText)
-  if (prev) blocks.push({ id: 'previous-scene', priority: 3, title: 'End of the previous scene', text: sceneTail(prev), entryIds: [] })
+  // 3 The end of the previous scene (short: the last 200 words).
+  const prev = clean(input.memory.previous?.text)
+  if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
-  // 4 Point-of-view character.
-  const pov = card.povId ? byId.get(card.povId) : undefined
+  // 4 Point-of-view character (short: without backstory).
+  const pov = sel.pov
   if (pov) {
-    used.add(pov.id)
-    blocks.push({ id: 'pov', priority: 4, title: `Point-of-view character: ${pov.name}`, text: formatProfile(pov, null), entryIds: [pov.id] })
+    add(
+      'pov',
+      4,
+      `Point-of-view character: ${withLabel(pov.name, label(pov))}`,
+      povText(pov, input, sel, false),
+      povText(pov, input, sel, true),
+      [pov.id]
+    )
   }
 
-  // 5 Other characters present.
-  const present: Entry[] = []
-  for (const id of card.presentIds) {
-    const e = byId.get(id)
-    if (!e || used.has(id)) continue
-    used.add(id)
-    present.push(e)
-  }
+  // 5 Other characters present (short: summary plus voice).
+  const present = sel.present
   if (present.length) {
-    blocks.push({
-      id: 'present',
-      priority: 5,
-      title: present.length === 1 ? 'Also in the scene' : 'Others in the scene',
-      text: present.map((e) => formatProfile(e)).join('\n\n'),
-      entryIds: present.map((e) => e.id)
-    })
+    const heading = (e: EntryState): string => `### ${withLabel(e.name, label(e))}`
+    add(
+      'present',
+      5,
+      present.length === 1 ? 'Also in the scene' : 'Others in the scene',
+      present.map((e) => [formatProfile(e, heading(e)), happenedText(e)].filter(Boolean).join('\n\n')).join('\n\n'),
+      present
+        .map((e) => {
+          const head = [heading(e), clean(e.summary) ? `In short: ${clean(e.summary)}` : ''].filter(Boolean).join('\n')
+          return [head, ...fieldSections(e, ['voice'])].join('\n\n')
+        })
+        .join('\n\n'),
+      present.map((e) => e.id)
+    )
   }
 
-  // 6 Relationships and knowledge: milestone 2.
+  // 6 Relationships and who knows what (no short form: they're short).
+  const rel = relationshipsText(input, sel)
+  add('relationships', 6, 'Relationships and who knows what', rel.text, null, rel.entryIds)
 
-  // 7 Where the scene happens, and the world's hard rules (two blocks, sent apart).
-  const where = card.locationId ? byId.get(card.locationId) : undefined
-  if (where && !used.has(where.id)) {
-    used.add(where.id)
-    const settingIds: ID[] = [where.id]
-    let text = formatProfile(where, `### Where: ${where.name}`)
-    const around = parentChain(where, byId).filter((p) => !used.has(p.id))
-    if (around.length) {
-      around.forEach((p) => {
-        used.add(p.id)
-        settingIds.push(p.id)
-      })
-      text += `\n\nIt lies within:\n${around.map((p) => `- ${oneLine(p)}`).join('\n')}`
+  // 7 Where the scene happens, the places around it and the groups of those present.
+  const where = sel.location
+  if (where || sel.groups.length) {
+    const full: string[] = []
+    const short: string[] = []
+    if (where) {
+      const head = `### Where: ${withLabel(where.name, label(where))}`
+      full.push([formatProfile(where, head), happenedText(where)].filter(Boolean).join('\n\n'))
+      short.push([head, clean(where.summary) ? `In short: ${clean(where.summary)}` : ''].filter(Boolean).join('\n'))
     }
-    blocks.push({ id: 'setting', priority: 7, title: 'Setting', text, entryIds: settingIds })
-  }
-  const rules = entries.filter((e) => e.kind === 'lore' && e.hardRule && !used.has(e.id))
-  if (rules.length) {
-    rules.forEach((r) => used.add(r.id))
-    blocks.push({
-      id: 'world-rules',
-      priority: 7,
-      title: 'World rules (never break these)',
-      text: rules.map((r) => formatProfile(r, `### World rule: ${r.name}`)).join('\n\n'),
-      entryIds: rules.map((r) => r.id)
-    })
-  }
-
-  // 8 Story so far: milestone 2 (no summaries yet).
-
-  // 9 Anything else named in the beats, notes or direction.
-  const haystack = [...card.beats, card.notes, input.options.direction].filter(Boolean).join('\n')
-  if (haystack.trim()) {
-    const named = entries.filter((e) => !used.has(e.id) && [e.name, ...(e.aliases ?? [])].some((n) => mentions(haystack, n)))
-    if (named.length) {
-      named.forEach((e) => used.add(e.id))
-      blocks.push({
-        id: 'mentioned',
-        priority: 9,
-        title: 'Also mentioned',
-        text: named
-          .map((e) => {
-            const head = `### ${e.name} (${KIND_LABELS[e.kind].one.toLowerCase()})`
-            // Lore and places are short, and their fields are the facts: send them whole.
-            // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
-            return e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks']) : formatProfile(e, head)
-          })
-          .join('\n\n'),
-        entryIds: named.map((e) => e.id)
-      })
+    if (sel.around.length) {
+      const within = `It lies within:\n${sel.around.map((p) => `- ${oneLine(p)}`).join('\n')}`
+      full.push(within)
+      short.push(within)
     }
+    if (sel.groups.length) {
+      const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
+      const list = sel.groups.map(({ group, ties }) => {
+        const how = ties.map((t) => (t.type ? `${name(t.memberId)}: ${t.type}` : name(t.memberId))).join('; ')
+        return `- ${oneLine(group, label(group) ?? '')}${how ? ` (${how})` : ''}`
+      })
+      const text = `Groups the people here belong to:\n${list.join('\n')}`
+      full.push(text)
+      short.push(text)
+    }
+    add('setting', 7, where ? 'Setting' : 'Groups', full.join('\n\n'), short.join('\n\n'), [
+      ...(where ? [where.id] : []),
+      ...sel.around.map((p) => p.id),
+      ...sel.groups.map((g) => g.group.id)
+    ])
   }
 
-  // 10 Themes, tone and premise.
+  // 7 The world's hard rules (short: one line each).
+  if (sel.rules.length) {
+    add(
+      'world-rules',
+      7,
+      'World rules (never break these)',
+      sel.rules
+        .map((r) => [formatProfile(r, `### World rule: ${withLabel(r.name, label(r))}`), happenedText(r)].filter(Boolean).join('\n\n'))
+        .join('\n\n'),
+      sel.rules.map((r) => `- ${oneLine(r, label(r) ?? '')}`).join('\n'),
+      sel.rules.map((r) => r.id)
+    )
+  }
+
+  // 7 Plot threads on the card that are still open here (short: one line each).
+  if (sel.threads.length) {
+    const role = (t: Selection['threads'][number]): string =>
+      [t.role === 'sets up' ? 'this scene sets it up' : 'this scene pays it off', label(t.entry)].filter(Boolean).join('; ')
+    add(
+      'threads',
+      7,
+      'Plot threads in this scene',
+      sel.threads
+        .map((t) => {
+          const setUp = t.role === 'pays off' && clean(t.state?.setUp) ? `Set up in ${clean(t.state?.setUp)}.` : ''
+          return [formatProfile(t.entry, `### ${t.entry.name} (${role(t)})`), setUp, happenedText(t.entry)].filter(Boolean).join('\n\n')
+        })
+        .join('\n\n'),
+      sel.threads.map((t) => `- ${oneLine(t.entry, role(t))}`).join('\n'),
+      sel.threads.map((t) => t.entry.id)
+    )
+  }
+
+  // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups).
+  const sofar = input.memory.storySoFar
+  if (sofar)
+    add(
+      'story-so-far',
+      8,
+      'The story so far',
+      storySoFarText(sofar, input.story.title, false),
+      storySoFarText(sofar, input.story.title, true),
+      []
+    )
+
+  // 9 Anything else named in the beats, notes or direction, and pins (short: one line each).
+  if (sel.others.length) {
+    const mentionedOnly = sel.others.every((e) => {
+      const why = sel.chosen.get(e.id)?.why
+      return why === WHY.beats || why === WHY.notes || why === WHY.direction
+    })
+    const note = (e: Entry): string => [kindWord(e), label(e)].filter(Boolean).join('; ')
+    add(
+      'mentioned',
+      9,
+      mentionedOnly ? 'Also mentioned' : 'Also relevant',
+      sel.others
+        .map((e) => {
+          const head = `### ${e.name} (${note(e)})`
+          // Lore and places are short, and their fields are the facts: send them whole.
+          // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
+          const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks']) : formatProfile(e, head)
+          return [profile, happenedText(e, 3)].filter(Boolean).join('\n\n')
+        })
+        .join('\n\n'),
+      sel.others.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
+      sel.others.map((e) => e.id)
+    )
+  }
+
+  // 10 Themes, tone and premise (short: one line).
   const themes = themesText(input)
-  if (themes) blocks.push({ id: 'themes', priority: 10, title: 'Themes and tone', text: themes, entryIds: [] })
+  if (themes) add('themes', 10, 'Themes and tone', themes, themesLine(input), [])
 
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
 
 /**
  * The order blocks are sent in. What stays the same across a story comes first,
- * so a provider can reuse it from one draft to the next; the end of the previous
- * scene and the scene card (with Adam's direction) come last, right above the
- * closing instruction, where the model attends to them most.
+ * so a provider can reuse it from one draft to the next; the story so far, the
+ * end of the previous scene and the scene card (with Adam's direction) come
+ * last, right above the closing instruction, where the model attends to them most.
  */
-export const SEND_ORDER = ['instructions', 'world-rules', 'themes', 'setting', 'pov', 'present', 'mentioned', 'previous-scene', 'scene-card']
+export const SEND_ORDER = [
+  'instructions',
+  'world-rules',
+  'themes',
+  'setting',
+  'pov',
+  'present',
+  'relationships',
+  'mentioned',
+  'threads',
+  'story-so-far',
+  'previous-scene',
+  'scene-card'
+]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   const i = SEND_ORDER.indexOf(b.id)
   return i < 0 ? SEND_ORDER.length : i
 }
 
-/** Among blocks of the same priority, these are kept longest. */
-const KEEP_LONGEST = new Set(['world-rules'])
+/** Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). */
+const KEEP_ORDER = ['threads', 'setting', 'world-rules']
+const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
-/** How a block appears in the user message. */
-export const blockAsSent = (b: BlockDraft): string => (b.priority === 1 ? b.text : `## ${b.title}\n\n${b.text}`)
+/** How a block appears in the messages: block 1 as the system message, the others under a heading. */
+export const blockAsSent = (b: Pick<BlockDraft, 'priority' | 'title' | 'text'>, text: string = b.text): string =>
+  b.priority === 1 ? text : `## ${b.title}\n\n${text}`
+
+/** Every entry in the briefing with why, for the Context tab, then the ones Adam kept out. */
+function contextEntries(sel: Selection, blocks: BlockDraft[]): ContextEntry[] {
+  const blockOf = new Map<ID, string>()
+  for (const b of [...blocks].sort((x, y) => x.priority - y.priority)) {
+    for (const id of b.entryIds) if (sel.chosen.has(id) && !blockOf.has(id)) blockOf.set(id, b.id)
+  }
+  const out: ContextEntry[] = [...blockOf].map(([id, blockId]) => {
+    const c = sel.chosen.get(id)!
+    return { entryId: id, name: c.entry.name, kind: c.entry.kind, blockId, why: c.why, pinned: c.pinned, hidden: false, label: c.label }
+  })
+  for (const h of sel.hidden) {
+    out.push({
+      entryId: h.entry.id,
+      name: h.entry.name,
+      kind: h.entry.kind,
+      blockId: null,
+      why: h.why,
+      pinned: null,
+      hidden: true,
+      label: sel.label(h.entry.id)
+    })
+  }
+  return out
+}
 
 export function prepareContext(input: ContextInput): PreparedContext {
-  const blocks = buildBlocks(input)
+  const sel = selectEntries(input)
+  const blocks = buildBlocks(input, sel)
   const targetWords = input.options.targetWords
+  const card = input.scene.card
   const base = {
     targetWords,
     style: input.style,
-    hasBeats: input.scene.card.beats.some((b) => b.trim()),
-    hasGoal: !!clean(input.scene.card.goal),
-    hasOutcome: !!clean(input.scene.card.outcome),
-    hasNotes: !!clean(input.scene.card.notes),
-    hasDirection: !!clean(input.options.direction)
+    hasBeats: card.beats.some((b) => b.trim()),
+    hasGoal: !!clean(card.goal),
+    hasOutcome: !!clean(card.outcome),
+    hasNotes: !!clean(card.notes),
+    hasDirection: !!clean(input.options.direction),
+    hasBringAbout: bringAboutLines(input, sel).length > 0
   }
   const finals = {
     withPrevious: finalInstruction({ ...base, hasPrevious: true }),
@@ -433,64 +1007,109 @@ export function prepareContext(input: ContextInput): PreparedContext {
   }
   return {
     blocks,
+    modes: input.blockModes ?? {},
     finals,
-    texts: [...blocks.map(blockAsSent), finals.withPrevious, finals.withoutPrevious],
+    texts: [
+      ...blocks.map((b) => blockAsSent(b)),
+      ...blocks.map((b) => (b.short == null ? '' : blockAsSent(b, b.short))),
+      finals.withPrevious,
+      finals.withoutPrevious
+    ],
     contextLength: computeBudget(input.contextLength, targetWords).contextLength,
-    targetWords
+    targetWords,
+    knows: input.memory.knows ?? '',
+    entries: contextEntries(sel, blocks)
   }
 }
 
+const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : 'auto')
+
 /**
- * Measures, drops whole blocks from priority 10 upward until the briefing fits
- * (blocks 1 and 2 are never dropped), puts back any dropped block that fits
- * once a bigger one has gone, and builds the messages.
+ * Measures and fits the briefing (see the top of this file), then builds the messages.
  * `rawCounts` are plain token counts for `prepared.texts`, in order.
  */
 export function finishContext(prepared: PreparedContext, rawCounts: number[]): ContextPreview {
   const n = prepared.blocks.length
-  const blocks: ContextBlock[] = prepared.blocks.map((b, i) => ({ ...b, tokens: withAllowance(rawCounts[i] ?? 0), dropped: false }))
+  const state = prepared.blocks.map((b, i) => {
+    const mode = asMode(prepared.modes[b.id])
+    const hasShort = b.short != null
+    return {
+      b,
+      mode,
+      hasShort,
+      fullTokens: withAllowance(rawCounts[i] ?? 0),
+      shortTokens: hasShort ? withAllowance(rawCounts[n + i] ?? 0) : 0,
+      short: hasShort && mode === 'short',
+      dropped: false
+    }
+  })
+  type State = (typeof state)[number]
+  const tokens = (s: State): number => (s.short ? s.shortTokens : s.fullTokens)
   const finalTokens = {
-    withPrevious: withAllowance(rawCounts[n] ?? 0),
-    withoutPrevious: withAllowance(rawCounts[n + 1] ?? 0)
+    withPrevious: withAllowance(rawCounts[2 * n] ?? 0),
+    withoutPrevious: withAllowance(rawCounts[2 * n + 1] ?? 0)
   }
   const budget = computeBudget(prepared.contextLength, prepared.targetWords)
+  const fits = (): boolean => measure() <= budget.available
 
-  const measure = (): number => {
-    const hasPrev = blocks.some((b) => b.id === 'previous-scene' && !b.dropped)
-    const sent = blocks.filter((b) => !b.dropped).reduce((sum, b) => sum + b.tokens, 0)
+  function measure(): number {
+    const hasPrev = state.some((s) => s.b.id === 'previous-scene' && !s.dropped)
+    const sent = state.filter((s) => !s.dropped).reduce((sum, s) => sum + tokens(s), 0)
     return sent + (hasPrev ? finalTokens.withPrevious : finalTokens.withoutPrevious) + MESSAGE_OVERHEAD * 2
   }
 
-  let used = measure()
   // Least important first; within a priority, hard rules go last.
-  const droppable = blocks
-    .filter((b) => b.priority >= 3)
-    .sort((a, b) => b.priority - a.priority || Number(KEEP_LONGEST.has(a.id)) - Number(KEEP_LONGEST.has(b.id)))
-  for (const b of droppable) {
-    if (used <= budget.available) break
-    b.dropped = true
-    used = measure()
+  const leastFirst = [...state].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
+  const droppable = leastFirst.filter((s) => s.b.priority >= 3)
+
+  // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
+  for (const s of [...droppable, ...state.filter((x) => x.b.priority === 1)]) {
+    if (fits()) break
+    if (s.hasShort && !s.short && s.mode === 'auto') s.short = true
   }
-  // Dropping one big block (often the previous scene) can free room for
-  // smaller, less important ones dropped before it. Put those back, most
-  // important first, as long as the briefing still fits.
-  for (const b of [...droppable].reverse()) {
-    if (!b.dropped) continue
-    b.dropped = false
-    const next = measure()
-    if (next <= budget.available) used = next
-    else b.dropped = true
+  // 2. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
+  for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
+    if (fits()) break
+    s.dropped = true
+  }
+  // 3. Dropping one big block (often the previous scene) can free room for smaller, less
+  //    important ones dropped before it. Put those back, most important first, while it fits.
+  for (const s of [...droppable].reverse()) {
+    if (!s.dropped) continue
+    s.dropped = false
+    if (!fits()) s.dropped = true
+  }
+  // 4. Then give back the full form to anything that fits in full again, most important first.
+  for (const s of [...leastFirst].reverse()) {
+    if (s.dropped || !s.short || s.mode !== 'auto') continue
+    s.short = false
+    if (!fits()) s.short = true
   }
 
+  const blocks: ContextBlock[] = state.map((s) => ({
+    id: s.b.id,
+    priority: s.b.priority,
+    title: s.b.title,
+    text: s.short && s.b.short != null ? s.b.short : s.b.text,
+    tokens: tokens(s),
+    entryIds: s.b.entryIds,
+    dropped: s.dropped,
+    short: s.short,
+    hasShort: s.hasShort,
+    mode: s.mode
+  }))
   const sent = blocks.filter((b) => !b.dropped)
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''
-  const user = [...sent.filter((b) => b.priority > 1).map(blockAsSent), hasPrev ? prepared.finals.withPrevious : prepared.finals.withoutPrevious].join('\n\n')
+  const user = [
+    ...sent.filter((b) => b.priority > 1).map((b) => blockAsSent(b)),
+    hasPrev ? prepared.finals.withPrevious : prepared.finals.withoutPrevious
+  ].join('\n\n')
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
     { role: 'user', content: user }
   ]
-  return { blocks, budget: { ...budget, used }, messages }
+  return { blocks, budget: { ...budget, used: measure() }, messages, knows: prepared.knows, entries: prepared.entries }
 }
 
 /** The whole assembly with a synchronous token counter (used by tests and as a fallback). */
@@ -510,6 +1129,20 @@ export function sentEntryIds(blocks: ContextBlock[]): ID[] {
       seen.add(id)
       out.push(id)
     }
+  }
+  return out
+}
+
+/** The version (updatedAt) of each entry actually sent, for the draft's record. */
+export function sentEntryVersions(memory: Pick<SceneMemory, 'entries' | 'elsewhere'>, blocks: ContextBlock[]): Map<ID, string> {
+  const all = new Map<ID, Entry>([
+    ...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const),
+    ...memory.entries.map((e) => [e.id, e] as const)
+  ])
+  const out = new Map<ID, string>()
+  for (const id of sentEntryIds(blocks)) {
+    const e = all.get(id)
+    if (e) out.set(id, e.updatedAt)
   }
   return out
 }
