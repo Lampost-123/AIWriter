@@ -15,6 +15,7 @@ import {
   kindNoun,
   mergeEntry,
   parentPlaceOptions,
+  saveOverNewer,
   withArticle,
   type NearDuplicate,
   type PlaceOption
@@ -23,7 +24,7 @@ import { EntryMemorySections } from './memory/EntryMemory'
 import { ExistsLine, MadeByNote } from './memory/EntryNotes'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
-import { fieldOrigin, linksFor, sourceNote } from './memoryLogic'
+import { fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
 import { Section } from './parts/Section'
@@ -138,7 +139,14 @@ const ownership = (e: Entry): Ownership => ({
 })
 
 /** The form for any kind of entry, with its memory sections underneath. Saves itself as Adam types. */
-export const EntryForm = memo(function EntryForm({ initial, others, places, onLiveChange, onDeleted, onOpen }: EntryFormProps): React.JSX.Element {
+export const EntryForm = memo(function EntryForm({
+  initial,
+  others,
+  places,
+  onLiveChange,
+  onDeleted,
+  onOpen
+}: EntryFormProps): React.JSX.Element {
   const kind = initial.kind
   const [draft, setDraftState] = useState(initial)
   const draftRef = useRef(initial)
@@ -146,8 +154,9 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
   liveRef.current = onLiveChange
   const nameRef = useRef<HTMLInputElement>(null)
   const ids = { notes: useId(), hard: useId() }
-  // Bumped when the whole entry is replaced from outside, so inputs that keep their own text start again.
-  const [rev, setRev] = useState(0)
+  // Bumped when a list is replaced from outside, so the input that keeps its own text for it starts again.
+  // One each, so a change to the aliases never resets (and takes the cursor out of) the tags.
+  const [rev, setRev] = useState({ aliases: 0, tags: 0 })
   // Who the entry and its fields come from: kept up to date from each save (an edit makes them Adam's).
   const [owner, setOwner] = useState(() => ownership(initial))
   // Where each field came from, as it was when the page opened: those notes stay put while Adam types.
@@ -159,11 +168,58 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
   const base = useRef(initial)
   const known = useRef(initial.updatedAt)
 
+  const copy = COPY[kind]
+  const groups = FIELD_GROUPS[kind] ?? []
+  // Every field that can say where its words came from.
+  const noteKeys = useMemo(
+    () => ['aliases', 'summary', 'description', 'tags', ...groups.flatMap((g) => g.fields.map((f) => f.key))],
+    [groups]
+  )
+  const noteKeysRef = useRef(noteKeys)
+  noteKeysRef.current = noteKeys
+
+  // Shows a newer saved copy of the entry, with `shown` (that copy, or it merged with Adam's edits) on the page.
+  const adopt = useCallback((saved: Entry, shown: Entry) => {
+    const before = draftRef.current
+    base.current = saved
+    known.current = saved.updatedAt
+    draftRef.current = shown
+    setDraftState(shown)
+    setOwner(ownership(saved))
+    setSources((prev) => notesSource(prev, saved, noteKeysRef.current))
+    // Lists typed as text keep their own words: start one again only when it changed.
+    const aliases = !sameList(before.aliases, shown.aliases)
+    const tags = !sameList(before.tags, shown.tags)
+    if (aliases || tags) setRev((r) => ({ aliases: r.aliases + (aliases ? 1 : 0), tags: r.tags + (tags ? 1 : 0) }))
+    liveRef.current(shown)
+  }, [])
+
+  // A save of Adam's (or a reload) brought a newer copy, say with a field the memory keeper filled in
+  // while he typed: show it, keeping whatever he has typed since `since`.
+  const scheduleRef = useRef<(e: Entry) => void>(() => undefined)
+  const takeNewer = useCallback(
+    (saved: Entry, since: Entry) => {
+      const shown = mergeEntry(since, draftRef.current, saved)
+      adopt(saved, shown)
+      // Edits still waiting to be saved are sent again on top of the newer copy.
+      if (getDraft(saved.id)) {
+        setDraft(shown)
+        scheduleRef.current(shown)
+      }
+    },
+    [adopt]
+  )
+
   const autosave = useAutosave<Entry>(
     async (e) => {
-      const saved = await api.updateEntry(e.id, toPatch(e))
+      // Written over the newest saved copy, so a memory update that landed while Adam typed isn't undone.
+      const { sent, saved } = await saveOverNewer(e, base.current, {
+        get: (id) => api.getEntry(id),
+        put: (x) => api.updateEntry(x.id, toPatch(x))
+      })
       confirmSaved(e)
-      if (saved.updatedAt > known.current) {
+      if (sent !== e) takeNewer(saved, e)
+      else if (saved.updatedAt > known.current) {
         known.current = saved.updatedAt
         base.current = saved
       }
@@ -173,6 +229,7 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
     { what: draft.name.trim() ? `"${draft.name.trim()}"` : `this ${kindNoun(kind)}` }
   )
   const { schedule, cancel, flush } = autosave
+  scheduleRef.current = schedule
 
   const update = useCallback(
     (patch: Partial<Entry>) => {
@@ -186,31 +243,11 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
     [schedule]
   )
 
-  // Shows a newer saved copy of the entry, with `shown` (that copy, or it merged with Adam's edits) on the page.
-  const adopt = useCallback((saved: Entry, shown: Entry) => {
-    const before = draftRef.current
-    base.current = saved
-    known.current = saved.updatedAt
-    draftRef.current = shown
-    setDraftState(shown)
-    setOwner(ownership(saved))
-    setSources(saved)
-    // Lists typed as text keep their own words: start them again only when they changed.
-    if (!sameList(before.aliases, shown.aliases) || !sameList(before.tags, shown.tags)) setRev((r) => r + 1)
-    liveRef.current(shown)
-  }, [])
-
   // The memory keeper changed this entry while its page was open: show the newer copy, keeping what Adam typed.
   useEffect(() => {
     if (initial.id !== draftRef.current.id || initial.updatedAt <= known.current || getDraft(initial.id) === initial) return
-    const merged = mergeEntry(base.current, draftRef.current, initial)
-    adopt(initial, merged)
-    // Edits still waiting to be saved are sent again on top of the newer copy.
-    if (getDraft(initial.id)) {
-      setDraft(merged)
-      schedule(merged)
-    }
-  }, [initial, adopt, schedule])
+    takeNewer(initial, base.current)
+  }, [initial, takeNewer])
 
   // An earlier version was brought back (or that was undone): show it, whatever was waiting to be saved.
   useEffect(
@@ -270,28 +307,17 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
     else deleting.current = false
   }
 
-  const copy = COPY[kind]
-  const groups = FIELD_GROUPS[kind] ?? []
   const parentOptions = useMemo(() => (kind === 'place' ? parentPlaceOptions(places, draft.id) : []), [kind, places, draft.id])
 
   // Where each field's words came from, for fields AI Write filled in (read from a scene, or drafted).
   const fromAI = useMemo(() => {
     const m = new Map<string, Origin>()
-    const filled = (key: string): boolean => {
-      const v =
-        key === 'aliases' || key === 'tags'
-          ? sources[key].join('')
-          : key === 'summary' || key === 'description'
-            ? sources[key]
-            : sources.fields[key]
-      return !!v?.trim()
-    }
-    for (const key of ['aliases', 'summary', 'description', 'tags', ...groups.flatMap((g) => g.fields.map((f) => f.key))]) {
+    for (const key of noteKeys) {
       const origin = fieldOrigin(sources, key)
-      if (origin !== 'adam' && filled(key)) m.set(key, origin)
+      if (origin !== 'adam' && fieldText(sources, key).trim()) m.set(key, origin)
     }
     return m
-  }, [sources, groups])
+  }, [sources, noteKeys])
   const links = useEntryData(() => api.listEntryLinks(initial.id), `links:${initial.id}`, fromAI.size > 0)
   const fieldNotes = useMemo(() => {
     const m = new Map<string, LineNote>()
@@ -345,7 +371,7 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
         <Field label="Aliases" hint={hint('aliases', copy?.aliasesHint)}>
           {(id) => (
             <CommaListInput
-              key={rev}
+              key={rev.aliases}
               id={id}
               value={draft.aliases}
               onChange={(aliases) => update({ aliases })}
@@ -354,7 +380,9 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
           )}
         </Field>
         <Field label="Short summary" hint={hint('summary')}>
-          {(id) => <Input id={id} value={draft.summary} placeholder={copy?.summary} onChange={(e) => update({ summary: e.target.value })} />}
+          {(id) => (
+            <Input id={id} value={draft.summary} placeholder={copy?.summary} onChange={(e) => update({ summary: e.target.value })} />
+          )}
         </Field>
 
         {kind === 'place' ? (
@@ -371,7 +399,12 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
         ) : null}
 
         {kind === 'lore' ? (
-          <div className={cn('flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-150', draft.hardRule ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface')}>
+          <div
+            className={cn(
+              'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-150',
+              draft.hardRule ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface'
+            )}
+          >
             <Switch id={ids.hard} checked={draft.hardRule} onChange={(hardRule) => update({ hardRule })} className="mt-px" />
             <label htmlFor={ids.hard} className="flex-1 cursor-default">
               <span className="block text-[13.5px] font-medium text-fg">Hard rule</span>
@@ -382,13 +415,20 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
 
         <Field label="Description" hint={hint('description')}>
           {(id) => (
-            <AutoTextarea id={id} value={draft.description} minRows={4} maxRows={30} placeholder={copy?.description} onChange={(e) => update({ description: e.target.value })} />
+            <AutoTextarea
+              id={id}
+              value={draft.description}
+              minRows={4}
+              maxRows={30}
+              placeholder={copy?.description}
+              onChange={(e) => update({ description: e.target.value })}
+            />
           )}
         </Field>
         <Field label="Tags" hint={hint('tags', 'Separate with commas.')}>
           {(id) => (
             <CommaListInput
-              key={rev}
+              key={rev.tags}
               id={id}
               value={draft.tags}
               onChange={(tags) => update({ tags })}
@@ -447,7 +487,15 @@ const ParentSelect = memo(function ParentSelect({
   return <Select id={id} value={value} onChange={onChange} options={options} allowNone noneLabel="Not inside another place" />
 })
 
-function DuplicateHint({ dups, kind, onOpen }: { dups: NearDuplicate[]; kind: EntryKind; onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void }): React.JSX.Element {
+function DuplicateHint({
+  dups,
+  kind,
+  onOpen
+}: {
+  dups: NearDuplicate[]
+  kind: EntryKind
+  onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void
+}): React.JSX.Element {
   const d = dups[0]
   // The line is always there (empty when there's nothing to say) so the form never jumps while typing a name.
   if (!d) return <div className="h-6" aria-hidden />
@@ -468,9 +516,7 @@ function DuplicateHint({ dups, kind, onOpen }: { dups: NearDuplicate[]; kind: En
       className="flex h-6 animate-fade-in items-center gap-1.5 text-[12.5px] text-ai"
     >
       <AlertTriangle size={13} className="shrink-0" aria-hidden />
-      <span className="min-w-0 truncate">
-        {text} Same one?
-      </span>
+      <span className="min-w-0 truncate">{text} Same one?</span>
       <button type="button" onClick={() => onOpen(other)} className="shrink-0 font-medium underline-offset-2 hover:underline">
         Open {otherName}
       </button>
@@ -541,7 +587,14 @@ const FieldInput = memo(function FieldInput({
             placeholder="Not set"
           />
         ) : wide ? (
-          <AutoTextarea id={id} value={value} minRows={2} maxRows={20} placeholder={def.placeholder} onChange={(e) => onField(def.key, e.target.value)} />
+          <AutoTextarea
+            id={id}
+            value={value}
+            minRows={2}
+            maxRows={20}
+            placeholder={def.placeholder}
+            onChange={(e) => onField(def.key, e.target.value)}
+          />
         ) : (
           <Input id={id} value={value} placeholder={def.placeholder} onChange={(e) => onField(def.key, e.target.value)} />
         )

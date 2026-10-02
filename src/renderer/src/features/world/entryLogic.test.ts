@@ -13,6 +13,7 @@ import {
   parentPlaceOptions,
   parseList,
   placeAndDescendants,
+  saveOverNewer,
   placePath,
   withArticle,
   withinOneEdit
@@ -56,7 +57,9 @@ describe('findNearDuplicates', () => {
   })
 
   it('warns when an alias is shared, either way round', () => {
-    expect(findNearDuplicates(named('x', 'Old Tobin', ['The Ferryman']), others).map((d) => [d.entry.id, d.reason])).toEqual([['2', 'alias']])
+    expect(findNearDuplicates(named('x', 'Old Tobin', ['The Ferryman']), others).map((d) => [d.entry.id, d.reason])).toEqual([
+      ['2', 'alias']
+    ])
     expect(findNearDuplicates(named('x', 'Ferrier', ['tobin']), others).map((d) => d.entry.id)).toEqual(['2'])
   })
 
@@ -271,5 +274,65 @@ describe('mergeEntry', () => {
     expect(merged.description).toBe('Older now.')
     expect(merged.fields).toEqual({ hair: 'cropped short', eyes: 'grey', fears: 'deep water' })
     expect(merged.updatedAt).toBe('2')
+  })
+
+  it('keeps a field the memory filled in that Adam never touched', () => {
+    const base = entry({ fields: { hair: 'long' } })
+    const mine = entry({ fields: { hair: 'long, greying' } })
+    const theirs = entry({ fields: { hair: 'long', eyes: 'grey' }, updatedAt: '2' })
+    expect(mergeEntry(base, mine, theirs).fields).toEqual({ hair: 'long, greying', eyes: 'grey' })
+  })
+})
+
+describe('saveOverNewer', () => {
+  const entry = (patch: Partial<Entry>): Entry =>
+    ({
+      id: 'mara',
+      kind: 'character',
+      name: 'Mara',
+      aliases: [],
+      summary: '',
+      description: '',
+      tags: [],
+      notes: '',
+      fields: {},
+      ...patch
+    }) as Entry
+
+  /** A database of one entry, where someone else's writes (the memory keeper) can land between Adam's. */
+  function db(start: Entry): { row: () => Entry; others: (e: Entry) => Entry; io: Parameters<typeof saveOverNewer>[2] } {
+    let row = start
+    let clock = Number(start.updatedAt)
+    const write = (e: Entry): Entry => (row = { ...e, fields: { ...e.fields }, updatedAt: String(++clock) })
+    return { row: () => row, others: write, io: { get: async () => row, put: async (e) => write(e) } }
+  }
+
+  it("doesn't write over a field the memory filled in while Adam typed in another", async () => {
+    const base = entry({ fields: { hair: 'long' }, updatedAt: '1' })
+    const d = db(base)
+    d.others({ ...base, fields: { hair: 'long', eyes: 'grey' } })
+    const mine = { ...base, fields: { hair: 'long, greying' } }
+    const { sent, saved } = await saveOverNewer(mine, base, d.io)
+    expect(d.row().fields).toEqual({ hair: 'long, greying', eyes: 'grey' })
+    expect(sent).not.toBe(mine)
+    expect(saved).toBe(d.row())
+  })
+
+  it("writes Adam's copy as it is when nothing newer was saved", async () => {
+    const base = entry({ fields: { hair: 'long' }, updatedAt: '1' })
+    const d = db(base)
+    const mine = { ...base, summary: 'A ferrywoman', fields: { hair: '' } }
+    const { sent } = await saveOverNewer(mine, base, d.io)
+    expect(sent).toBe(mine)
+    expect(d.row().summary).toBe('A ferrywoman')
+    expect(d.row().fields).toEqual({ hair: '' })
+  })
+
+  it('keeps what Adam typed in a field the memory changed at the same time', async () => {
+    const base = entry({ summary: 'A ferrywoman', updatedAt: '1' })
+    const d = db(base)
+    d.others({ ...base, summary: 'A ferrywoman from the north' })
+    await saveOverNewer({ ...base, summary: 'A ferrywoman who owes the Duke' }, base, d.io)
+    expect(d.row().summary).toBe('A ferrywoman who owes the Duke')
   })
 })

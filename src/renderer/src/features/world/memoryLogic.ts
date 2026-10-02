@@ -121,6 +121,32 @@ export function linksFor(links: SourceLink[], key: string): SourceLink[] {
 /** Who a field's value comes from: its own origin, or the entry's when it has none. */
 export const fieldOrigin = (e: Pick<Entry, 'origin' | 'fieldOrigins'>, key: string): Origin => e.fieldOrigins?.[key] ?? e.origin
 
+/** A field's value as text: the entry's own aliases, summary, description and tags, or one of its kind's fields. */
+export function fieldText(e: Pick<Entry, 'aliases' | 'summary' | 'description' | 'tags' | 'fields'>, key: string): string {
+  if (key === 'aliases' || key === 'tags') return e[key].join(', ')
+  if (key === 'summary' || key === 'description') return e[key]
+  return e.fields[key] ?? ''
+}
+
+/**
+ * The copy an entry page reads its "where this came from" lines from, after a newer save arrives
+ * (the memory changed the entry while its page was open). Fields AI Write filled in that Adam has
+ * since made his keep their old value and origin here, so their line goes on saying "Changed by you"
+ * rather than vanishing (and moving everything under it) while the page is open.
+ */
+export function notesSource(prev: Entry, saved: Entry, keys: string[]): Entry {
+  const out: Entry = { ...saved, fields: { ...saved.fields }, fieldOrigins: { ...saved.fieldOrigins } }
+  for (const key of keys) {
+    const was = fieldOrigin(prev, key)
+    if (was === 'adam' || fieldOrigin(saved, key) !== 'adam' || !fieldText(prev, key).trim()) continue
+    if (key === 'aliases' || key === 'tags') out[key] = prev[key]
+    else if (key === 'summary' || key === 'description') out[key] = prev[key]
+    else out.fields[key] = prev.fields[key] ?? ''
+    out.fieldOrigins[key] = was
+  }
+  return out
+}
+
 // ---------- Relationships ----------
 
 type RelationshipChange = Extract<ChangeView, { kind: 'relationship' }>
