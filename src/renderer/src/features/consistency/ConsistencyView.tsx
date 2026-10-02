@@ -227,14 +227,11 @@ function CheckItem({ title, hint, onSelect }: { title: string; hint: string; onS
 function RunBar({ storyId }: { storyId: ID }): React.JSX.Element | null {
   const run = useChecks((s) => (s.run?.storyId === storyId ? s.run : null))
   if (!run) return null
-  const waiting = run.total === null || run.done === null
-  const share = run.total ? Math.min(1, (run.done ?? 0) / run.total) : 0
+  // Until the first scene starts there is nothing to measure: the bar starts from the left, never shrinks back.
+  const share = run.total && run.done !== null ? Math.min(1, run.done / run.total) : 0
   return (
     <div aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-      <div
-        className={cn('h-full bg-accent transition-[width] duration-200', waiting && 'animate-pulse opacity-40')}
-        style={{ width: waiting ? '100%' : `${Math.max(2, share * 100)}%` }}
-      />
+      <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(2, share * 100)}%` }} />
     </div>
   )
 }

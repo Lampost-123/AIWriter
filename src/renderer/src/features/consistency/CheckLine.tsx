@@ -20,7 +20,7 @@ export function CheckLine(): React.JSX.Element | null {
   const run = useChecks((s) => s.run)
   if (!run) return null
   return (
-    <div role="status" className="flex h-9 shrink-0 items-center gap-2 border-t border-line px-3 text-[12px] text-muted animate-fade-in">
+    <div role="status" aria-label="Check running" className="flex h-9 shrink-0 items-center gap-2 border-t border-line px-3 text-[12px] text-muted animate-fade-in">
       <Spinner size={12} />
       <button
         type="button"
