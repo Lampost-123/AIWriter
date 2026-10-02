@@ -29,6 +29,7 @@ const REST = `- Be specific and concrete. Ground each moment in the place with a
 - Give each character their own voice, as their profile describes. Use their sample lines as a guide to how they sound; don't repeat them word for word.
 - Vary sentence length and paragraph rhythm. Trust the reader: don't explain feelings the scene already shows, and don't close on a summary or a moral. End on the scene's final beat.
 - Avoid clichés and stock phrases, such as a breath someone didn't know they were holding, a shiver running down a spine, eyes that sparkle, a heart hammering against ribs, or anything described as "a testament to" something.
+- The briefing gives the characters, places and world as they stand at this point in the story. Anything marked as an aim or a target (what this scene should bring about, what the story leads into) is where the story is heading, not something that has already happened.
 - Never contradict the facts you are given about the characters, places and world, or break the world's rules. Where the briefing is silent, stay consistent with what it implies, and don't invent major new facts (new powers, deaths, family ties, revelations) that the scene card doesn't call for.
 - Keep every name, title and spelling exactly as given.`
 
@@ -42,8 +43,30 @@ const SPELLING = {
   US: 'US English (color, realize, gray, traveled)'
 } as const
 
-/** Block 1: the writer instructions, the style guide, one sample passage and the phrases to avoid. */
-export function instructionsText(style: StyleGuide): string {
+/** Words kept of the sample passage in block 1's short form. */
+export const SHORT_SAMPLE_WORDS = 120
+
+/**
+ * The opening of a passage, about `words` words long: up to the last sentence end in that stretch
+ * when one falls in its second half, otherwise cut mid-sentence with an ellipsis. Short passages
+ * come back whole.
+ */
+export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
+  const t = text.trim()
+  const ends = [...t.matchAll(/\S+/g)].map((m) => (m.index ?? 0) + m[0].length)
+  if (ends.length <= words) return t
+  const cut = t.slice(0, ends[words - 1])
+  let best = -1
+  for (const m of cut.matchAll(/[.!?…]["'”’)\]]*(?=\s|$)/g)) best = (m.index ?? 0) + m[0].length
+  if (best > 0 && t.slice(0, best).split(/\s+/).length >= words / 2) return t.slice(0, best)
+  return `${cut}…`
+}
+
+/**
+ * Block 1: the writer instructions, the style guide, one sample passage and the phrases to avoid.
+ * The short form (`trimSample`) keeps only the opening of the sample passage.
+ */
+export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean } = {}): string {
   const parts: string[] = [writerInstructions(style.pov)]
 
   const rules: string[] = []
@@ -55,9 +78,10 @@ export function instructionsText(style: StyleGuide): string {
   if (style.notes) rules.push(`- Other notes from the author: ${indentMore(style.notes)}`)
   if (rules.length) parts.push(`Style guide\n${rules.join('\n')}`)
 
-  if (style.samplePassage) {
+  if (style.samplePassage.trim()) {
+    const sample = opts.trimSample ? trimPassage(style.samplePassage) : style.samplePassage.trim()
     parts.push(
-      `Sample passage\nThis passage is by the author. Match its voice, rhythm, sentence length and level of detail. It shows how the book should sound: don't copy its sentences or replay its events.\n\n"""\n${style.samplePassage.trim()}\n"""`
+      `Sample passage\nThis passage is by the author. Match its voice, rhythm, sentence length and level of detail. It shows how the book should sound: don't copy its sentences or replay its events.\n\n"""\n${sample}\n"""`
     )
   }
 
@@ -79,8 +103,12 @@ export function finalInstruction(o: {
   hasNotes?: boolean
   hasPrevious: boolean
   hasDirection: boolean
+  /** On a redraft: the scene card lists what this scene should bring about. */
+  hasBringAbout?: boolean
 }): string {
-  const lines: string[] = ['- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.']
+  const lines: string[] = [
+    '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.'
+  ]
   const plan = planLine(o)
   if (plan) lines.push(plan)
   lines.push(`- Aim for about ${o.targetWords.toLocaleString('en-GB')} words.`)
@@ -90,13 +118,20 @@ export function finalInstruction(o: {
   if (o.style.spelling) keep.push(`${o.style.spelling} spelling`)
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
   if (o.hasPrevious) lines.push("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
+  if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
   return `Write the scene now.\n${lines.join('\n')}`
 }
 
 /** What to aim the scene at, from whatever the scene card holds. */
-function planLine(o: { hasBeats: boolean; hasGoal?: boolean; hasOutcome?: boolean; hasNotes?: boolean; hasDirection: boolean }): string | null {
+function planLine(o: {
+  hasBeats: boolean
+  hasGoal?: boolean
+  hasOutcome?: boolean
+  hasNotes?: boolean
+  hasDirection: boolean
+}): string | null {
   if (o.hasBeats) return '- Hit every beat on the scene card, in order.'
   if (o.hasGoal && o.hasOutcome) return '- Cover what the scene card describes, from its goal to its outcome.'
   if (o.hasGoal) return "- Build the scene around the scene card's goal."
