@@ -6,5 +6,6 @@ Better drafting, and your scenes read aloud.
 - AI edits of selected words to accept or reject, and Continue from the cursor.
 - Every scene keeps earlier versions to compare and restore.
 - Ask the world: a chat that answers from your world's memory.
-- Outline helper, next scene ideas, and building a world from a summary.
-- Read aloud with a voice for each character, and dictation.
+- Outline helper, next scene ideas, and building a world from a summary, with Interview me to flesh it out.
+- New characters get their details filled in and a voice, and the timeline starts on Day 1.
+- Read aloud with a voice for each character, a clear player, and dictation.
