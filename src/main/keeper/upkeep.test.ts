@@ -21,6 +21,7 @@ import { memoryAt } from './places'
 import * as scene from '../memory/scene'
 import { READING_MARKER } from './prompts'
 import { fieldsClearedByHand, removeScenes, restoreScenes } from './removed'
+import { sceneSummaryDue } from './summaries'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -818,6 +819,32 @@ describe('deleting a scene, and bringing it back', () => {
     await read(w.db, w.sceneId)
     expect(repo.getEntry(w.db, kell.id).fields.eyes).toBe('')
     expect(w.db.prepare('SELECT COUNT(*) AS n FROM issues').get()).toEqual({ n: 0 })
+  })
+})
+
+describe('memory history', () => {
+  const latest = (db: Database.Database, kind: 'entry' | 'summary', id: ID) =>
+    kdb.versionData(db, kind, id, kdb.latestVersion(db, kind, id))
+
+  it('has a version when an entry comes back from the Trash, and when a summary is taken away', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    await read(w.db, w.sceneId)
+    const mara = entryNamed(w.db, 'Mara')!
+    repo.deleteEntry(w.db, mara.id, { origin: 'text' })
+    expect(latest(w.db, 'entry', mara.id)?.data).toBeNull()
+    kdb.untrashEntry(w.db, mara.id, 'text')
+    expect(latest(w.db, 'entry', mara.id)).toMatchObject({ data: { name: 'Mara' }, origin: 'text' })
+    // Taking an entry that isn't in the Trash out of it writes nothing.
+    const v = kdb.latestVersion(w.db, 'entry', mara.id)
+    kdb.untrashEntry(w.db, mara.id, 'text')
+    expect(kdb.latestVersion(w.db, 'entry', mara.id)).toBe(v)
+
+    mem.putSummary(w.db, { level: 'scene', targetId: w.sceneId, text: 'Mara lost her hand.', origin: 'text' })
+    save(w.db, w.sceneId, [['p1', '']])
+    sceneSummaryDue(w.db, w.sceneId, false)
+    expect(kdb.summaryRow(w.db, 'scene', w.sceneId)).toBeNull()
+    expect(latest(w.db, 'summary', `scene:${w.sceneId}`)).toMatchObject({ data: null, origin: 'text' })
   })
 })
 

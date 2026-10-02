@@ -6,9 +6,9 @@
 import type Database from 'better-sqlite3'
 import type { ID, MemoryLogItem, Origin, SceneMeta, SceneMemoryState, SummaryLevel } from '@shared/types'
 import { newId, now } from '../util'
-import { getSceneMeta } from './repo'
+import { getEntry, getSceneMeta } from './repo'
 import { getChange } from './memory'
-import { linksForEntry, linksForFact } from './history'
+import { linksForEntry, linksForFact, recordVersion } from './history'
 import { fingerprint } from '../keeper/facts'
 import { plain } from '../keeper/text'
 
@@ -500,8 +500,11 @@ export function summaryRow(
 }
 
 /** Removes a summary the keeper wrote (Adam's own are never removed). */
-export function deleteTextSummary(db: DB, level: SummaryLevel, targetId: ID): boolean {
-  return db.prepare("DELETE FROM summaries WHERE level = ? AND target_id = ? AND origin <> 'adam'").run(level, targetId).changes > 0
+/** Deletes a summary the keeper wrote (never Adam's), writing a version that says who removed it. */
+export function deleteTextSummary(db: DB, level: SummaryLevel, targetId: ID, origin: Origin = 'text'): boolean {
+  const gone = db.prepare("DELETE FROM summaries WHERE level = ? AND target_id = ? AND origin <> 'adam'").run(level, targetId).changes > 0
+  if (gone) recordVersion(db, { factKind: 'summary', factId: `${level}:${targetId}`, entryId: null, data: null, origin })
+  return gone
 }
 
 /** Marks a summary the keeper wrote as out of date (Adam's own are left alone). */
@@ -587,8 +590,10 @@ export function setFieldOrigins(db: DB, entryId: ID, origins: Record<string, Ori
 }
 
 /** Brings back an entry from Trash (an undo of the keeper moving it there). */
-export function untrashEntry(db: DB, id: ID): void {
-  db.prepare('UPDATE entries SET deleted_at = NULL WHERE id = ?').run(id)
+/** Takes an entry out of the Trash, writing a version (with the origin of the one before it went). */
+export function untrashEntry(db: DB, id: ID, origin: Origin): void {
+  if (!db.prepare('UPDATE entries SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL').run(id).changes) return
+  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: getEntry(db, id), origin })
 }
 
 /** Removes a first-exists point the keeper added (never one Adam set). */
