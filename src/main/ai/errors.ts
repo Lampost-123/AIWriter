@@ -28,7 +28,7 @@ export type Failure =
 
 export type During = 'draft' | 'models' | 'test'
 
-const SETTINGS = 'Settings > Models'
+const SETTINGS = 'Settings › Models'
 
 /** The provider as Adam knows it. */
 export const providerWho = (p: Pick<ProviderRef, 'name' | 'kind'>): string => (p.kind === 'openrouter' ? 'OpenRouter' : p.name.trim() || 'The provider')
@@ -179,7 +179,7 @@ function describeStatus(
 ): string {
   const onPage = ctx.during !== 'draft'
   const model = ctx.modelId ? `“${ctx.modelId}”` : 'that model'
-  // On Settings > Models the next step is a button on the page; elsewhere it's the page itself.
+  // On Settings › Models the next step is a button on the page; elsewhere it's the page itself.
   const otherModel = onPage ? 'Click Change and pick another writer model.' : `Pick another writer model in ${SETTINGS}.`
   if (status === 401 || (status === 403 && !looksLikeRefusal(msg))) {
     if (!onPage) {

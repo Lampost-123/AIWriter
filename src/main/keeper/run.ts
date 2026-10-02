@@ -167,7 +167,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
 
   const budget = readingBudget(model.choice)
   if (!budget) {
-    return fail('The memory model can take too little text at once, so pick another model for the memory keeper in Settings > Models.')
+    return fail('The memory model can take too little text at once, so pick another model for the memory keeper in Settings › Models.')
   }
   const memory = memoryAt(db, scene.storyId, sceneId)
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)
@@ -225,7 +225,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
     }
     if (!reply) {
       return fail(
-        "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings > Models."
+        "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings › Models."
       )
     }
     replies.push({ ids: req.ids, reply, paras: chunk.paras })

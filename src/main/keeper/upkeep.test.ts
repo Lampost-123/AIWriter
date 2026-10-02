@@ -405,7 +405,7 @@ describe('a reply cut off by the model’s reply limit', () => {
 function keeperFor(db: Database.Database, model: MemoryModel | null = modelFor(), quietMs = 60_000): Keeper {
   return new Keeper({
     db,
-    model: () => model ?? { error: 'Choose a writer model in Settings > Models to keep the memory up to date.' },
+    model: () => model ?? { error: 'Choose a writer model in Settings › Models to keep the memory up to date.' },
     emitStatus: () => {},
     emitChanged: () => {},
     quietMs,

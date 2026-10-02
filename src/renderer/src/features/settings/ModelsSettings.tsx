@@ -1,4 +1,4 @@
-// Settings > Models: connect OpenRouter or another provider, test it, and pick
+// Settings › Models: connect OpenRouter or another provider, test it, and pick
 // the writer model. Keys are sent to the main process once and never come back.
 import { Check, KeyRound, PenLine, Plus, Search, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'

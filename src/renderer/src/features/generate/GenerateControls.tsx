@@ -389,7 +389,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             type="button"
             onClick={openSettings}
             tabIndex={showStatus ? -1 : 0}
-            title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings > Models.` : 'Choose a writer model in Settings > Models.'}
+            title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings › Models.` : 'Choose a writer model in Settings › Models.'}
             className={cn(
               'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
               showStatus && 'invisible'

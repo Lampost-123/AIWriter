@@ -74,7 +74,7 @@ test('without a model the memory waits, and says how to choose one', async ({ la
   await win.keyboard.type('Mara lost her left hand.')
   await expect
     .poll(async () => (await invoke(win, 'getMemoryStatus')).error, { timeout: 30_000 })
-    .toBe('Choose a writer model in Settings > Models to keep the memory up to date.')
+    .toBe('Choose a writer model in Settings › Models to keep the memory up to date.')
   await expect(
     win
       .locator('header')

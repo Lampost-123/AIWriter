@@ -59,12 +59,12 @@ export const aiHandlers: Handlers<AiMethods> = {
 
   startDraft: async (sceneId, options) => {
     const choice = getSettings().models.writer
-    if (!choice) throw new UserError('Choose a writer model first, in Settings > Models.', 'no-writer-model')
+    if (!choice) throw new UserError('Choose a writer model first, in Settings › Models.', 'no-writer-model')
     const provider = providers.getProvider(choice.providerId)
-    if (!provider) throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings > Models.", 'no-writer-model')
+    if (!provider) throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings › Models.", 'no-writer-model')
     const target = providers.providerTarget(provider)
     if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
-      throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings > Models.`, 'no-key')
+      throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings › Models.`, 'no-key')
     }
     if (isDrafting(sceneId) || starting.has(sceneId)) {
       throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
@@ -88,12 +88,12 @@ export const aiHandlers: Handlers<AiMethods> = {
       if (tooLong) {
         if (tooLong.maxWords >= 100) {
           throw new UserError(
-            `This model can write about ${tooLong.maxWords.toLocaleString('en-GB')} words in one go. Lower the length in the draft options or on the scene card, or pick a model that can read more in Settings > Models.`,
+            `This model can write about ${tooLong.maxWords.toLocaleString('en-GB')} words in one go. Lower the length in the draft options or on the scene card, or pick a model that can read more in Settings › Models.`,
             'too-long'
           )
         }
         throw new UserError(
-          "This model can't read the style guide and the scene card and still write the scene. Pick a model that can read more in Settings > Models, or shorten the scene card or the style guide.",
+          "This model can't read the style guide and the scene card and still write the scene. Pick a model that can read more in Settings › Models, or shorten the scene card or the style guide.",
           'briefing-too-long'
         )
       }

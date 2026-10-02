@@ -783,7 +783,7 @@ export interface MemoryStatus {
   failed: number
   /** The scene being read now. */
   reading: { sceneId: ID; title: string } | null
-  /** Plain words with a next step, when the last attempt failed ("Choose a memory model in Settings > Models"). */
+  /** Plain words with a next step, when the last attempt failed ("Choose a writer model in Settings › Models to keep the memory up to date."). */
   error: string | null
   /** The last run that changed something, for the quiet "Memory updated" note. */
   lastUpdate: { at: string; runId: ID; changes: number } | null

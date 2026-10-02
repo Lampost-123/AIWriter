@@ -48,7 +48,7 @@ describe('keeperState', () => {
   it('shows reading over an older error, and the error otherwise', () => {
     expect(keeperState(status({ reading: { sceneId: 's1', title: 'The ferry' } }))).toBe('reading')
     expect(keeperState(status({ reading: { sceneId: 's1', title: 'The ferry' }, error: 'No memory model' }))).toBe('reading')
-    expect(keeperState(status({ error: 'Choose a memory model in Settings > Models.' }))).toBe('error')
+    expect(keeperState(status({ error: 'Choose a memory model in Settings › Models.' }))).toBe('error')
   })
 })
 
@@ -88,7 +88,7 @@ describe('freshUpdate', () => {
 
 describe('pointsToSettings', () => {
   it('spots a next step in Settings', () => {
-    expect(pointsToSettings('Choose a memory model in Settings > Models.')).toBe(true)
+    expect(pointsToSettings('Choose a memory model in Settings › Models.')).toBe(true)
     expect(pointsToSettings('Your OpenRouter credit has run out. Top up and try again.')).toBe(false)
   })
 })

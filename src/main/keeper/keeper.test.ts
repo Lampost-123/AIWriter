@@ -351,11 +351,11 @@ describe('failures', () => {
     const scene = kdb.keeperScene(w.db, w.sceneId)!
     expect(scene.memoryState).toBe('failed')
     expect(scene.memoryError).toBe(
-      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings > Models."
+      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings › Models."
     )
     // The line in What changed (shown as the scene's "Memory not updated" reason) is one plain sentence.
     expect(lines(w.db)[0].text).toBe(
-      "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings > Models."
+      "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings › Models."
     )
     expect(repo.listEntries(w.db)).toHaveLength(0)
     expect(lines(w.db).map((l) => l.action)).toEqual(['failed'])
@@ -553,7 +553,7 @@ describe('the keeper', () => {
     const model = o.model === undefined ? modelFor() : o.model
     const k = new Keeper({
       db,
-      model: () => model ?? { error: 'Choose a writer model in Settings > Models to keep the memory up to date.' },
+      model: () => model ?? { error: 'Choose a writer model in Settings › Models to keep the memory up to date.' },
       emitStatus: (s) => statuses.push(s),
       emitChanged: (p) => changed.push(p),
       quietMs: o.quietMs ?? 20,
@@ -613,7 +613,7 @@ describe('the keeper', () => {
     await k.whenIdle()
     expect(statuses[statuses.length - 1]).toMatchObject({
       behind: 1,
-      error: 'Choose a writer model in Settings > Models to keep the memory up to date.'
+      error: 'Choose a writer model in Settings › Models to keep the memory up to date.'
     })
     k.stop()
   })

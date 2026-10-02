@@ -19,9 +19,9 @@ const http = (status: number, message = '') => ({ type: 'http' as const, status,
 
 describe('describeFailure', () => {
   it('explains key problems with where to fix them', () => {
-    expect(describeFailure(http(401), openrouter)).toBe("OpenRouter didn't accept your API key. Check it in Settings > Models.")
-    expect(describeFailure(http(403, 'Forbidden'), deepseek)).toBe("DeepSeek didn't accept your API key. Check it in Settings > Models.")
-    expect(describeFailure(http(401), { ...deepseek, hasKey: false })).toBe('DeepSeek needs an API key. Add one in Settings > Models.')
+    expect(describeFailure(http(401), openrouter)).toBe("OpenRouter didn't accept your API key. Check it in Settings › Models.")
+    expect(describeFailure(http(403, 'Forbidden'), deepseek)).toBe("DeepSeek didn't accept your API key. Check it in Settings › Models.")
+    expect(describeFailure(http(401), { ...deepseek, hasKey: false })).toBe('DeepSeek needs an API key. Add one in Settings › Models.')
   })
 
   it('explains running out of credit', () => {
@@ -31,13 +31,13 @@ describe('describeFailure', () => {
 
   it('tells an unknown model apart from a wrong address', () => {
     expect(describeFailure(http(404, 'No endpoints found for model x/y'), openrouter, { during: 'draft', modelId: 'x/y' })).toBe(
-      "OpenRouter doesn't have a model called “x/y”. Pick another writer model in Settings > Models."
+      "OpenRouter doesn't have a model called “x/y”. Pick another writer model in Settings › Models."
     )
-    expect(describeFailure(http(404, 'Not Found'), deepseek)).toContain('Check the base URL in Settings > Models')
+    expect(describeFailure(http(404, 'Not Found'), deepseek)).toContain('Check the base URL in Settings › Models')
     expect(describeFailure(http(404, 'Not Found'), deepseek, { during: 'models' })).toContain('Click Edit and check the base URL')
   })
 
-  it('points to the button on the page when testing on Settings > Models', () => {
+  it('points to the button on the page when testing on Settings › Models', () => {
     expect(describeFailure(http(401), openrouter, { during: 'test' })).toBe(
       "OpenRouter didn't accept this key. Copy it again from openrouter.ai/keys and click Replace key."
     )
@@ -62,7 +62,7 @@ describe('describeFailure', () => {
     const o3 = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
     expect(looksLikeTokenParamRejected(400, o3)).toBe(true)
     expect(looksLikeReplyLimitRejected(400, o3)).toBe(false)
-    expect(describeFailure(http(400, o3), deepseek)).toBe("This model doesn't accept one of the settings AI Write sent. Pick another writer model in Settings > Models.")
+    expect(describeFailure(http(400, o3), deepseek)).toBe("This model doesn't accept one of the settings AI Write sent. Pick another writer model in Settings › Models.")
     const gpt5 = "Unsupported value: 'temperature' does not support 0.85 with this model. Only the default (1) value is supported."
     expect(looksLikeSamplingRejected(400, gpt5)).toBe(true)
     expect(looksLikeTokenParamRejected(400, gpt5)).toBe(false)
@@ -74,7 +74,7 @@ describe('describeFailure', () => {
   it('explains a briefing that is too long for the model', () => {
     const msg = "This endpoint's maximum context length is 8192 tokens. However, you requested about 9000 tokens."
     expect(describeFailure(http(400, msg), openrouter)).toBe(
-      'The briefing and the length you asked for are too much for this model together. Lower the length in the draft options, shorten the scene card, or pick a model that can read more in Settings > Models.'
+      'The briefing and the length you asked for are too much for this model together. Lower the length in the draft options, shorten the scene card, or pick a model that can read more in Settings › Models.'
     )
     expect(describeFailure(http(413), deepseek)).toContain('too much for this model together')
   })
@@ -82,7 +82,7 @@ describe('describeFailure', () => {
   it('tells a reply that is too long apart from a briefing that is too long', () => {
     const limit = 'max_tokens: 5670 > 4096, which is the maximum allowed number of output tokens for this model'
     expect(describeFailure(http(400, limit), openrouter)).toBe(
-      "This model can't write that much in one reply. Lower the length in the draft options, or pick another writer model in Settings > Models."
+      "This model can't write that much in one reply. Lower the length in the draft options, or pick another writer model in Settings › Models."
     )
     expect(describeFailure(http(400, 'Invalid max_tokens value, the valid range of max_tokens is [1, 8192]'), deepseek)).toContain("can't write that much")
     const ctx = "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (6000 in the messages, 3000 in the completion)."
@@ -99,9 +99,9 @@ describe('describeFailure', () => {
   })
 
   it('points to another model when the model refuses', () => {
-    expect(describeFailure({ type: 'refused' }, openrouter)).toBe('This model refused the scene. Try another model in Settings > Models.')
+    expect(describeFailure({ type: 'refused' }, openrouter)).toBe('This model refused the scene. Try another model in Settings › Models.')
     expect(describeFailure(http(403, 'Your input was flagged by moderation'), openrouter)).toBe(
-      'This model refused the scene. Try another model in Settings > Models.'
+      'This model refused the scene. Try another model in Settings › Models.'
     )
   })
 
@@ -113,7 +113,7 @@ describe('describeFailure', () => {
 
   it('explains internet and address problems', () => {
     expect(describeFailure({ type: 'network', code: 'ENOTFOUND', message: '' }, deepseek)).toBe(
-      "Couldn't find api.deepseek.com. Check your internet connection, and the base URL in Settings > Models."
+      "Couldn't find api.deepseek.com. Check your internet connection, and the base URL in Settings › Models."
     )
     expect(describeFailure({ type: 'network', code: null, message: '' }, deepseek)).toBe(
       "Couldn't connect to DeepSeek. Check your internet connection, then try again."

@@ -345,6 +345,8 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX memory_log_run ON memory_log(run_id);
   CREATE INDEX memory_log_created ON memory_log(created_at);
+  CREATE INDEX memory_log_scene ON memory_log(scene_id, created_at);
+  CREATE INDEX memory_log_entry ON memory_log(entry_id, created_at);
   `
 ]
 

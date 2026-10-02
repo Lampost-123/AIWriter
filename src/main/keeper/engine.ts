@@ -19,7 +19,7 @@ import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
 
 /** What the keeper says when there is no model to use (none for the memory keeper, and no writer model). */
-export const NO_MODEL = 'Choose a writer model in Settings > Models to keep the memory up to date.'
+export const NO_MODEL = 'Choose a writer model in Settings › Models to keep the memory up to date.'
 
 type DB = Database.Database
 
