@@ -46,10 +46,31 @@ jobs:
           npm run typecheck
           npx vitest run
 
+      # electron-builder uploads the installer, the blockmap and latest.yml at the same time. If the
+      # release doesn't exist yet, each upload tries to create it and only the first succeeds
+      # ("Published releases must have a valid tag"). So start the release as a draft first: every
+      # upload goes to it, and it's published only once all three files are there, so installed
+      # copies never see a half-uploaded version.
+      - name: Start the release as a draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if ! gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "v$version" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "$version" --notes ""
+          fi
+
       - name: Build and publish
         run: npm run release:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v$(node -p "require('./package.json').version")" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
       - name: Keep a copy of the installer on the run
         uses: actions/upload-artifact@v4
