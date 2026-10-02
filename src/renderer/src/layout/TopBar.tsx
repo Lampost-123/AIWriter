@@ -1,15 +1,17 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown, Globe2, PanelLeft, PanelRight, PenLine, Plus, Settings as SettingsIcon } from 'lucide-react'
+import { Check, ChevronDown, Globe2, PanelLeft, PanelRight, PenLine, Plus, Search as SearchIcon, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { WorldSummary } from '@shared/types'
-import { IconButton, toast } from '@/components/ui'
-import { api } from '@/lib/api'
+import { IconButton, Kbd, toast } from '@/components/ui'
+import { api, isMac } from '@/lib/api'
 import { flushBeforeWorldChange } from '@/lib/flush'
+import { shortcutKeys, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
+import { openPalette, usePalette } from '@/features/palette/paletteStore'
 import { saveNote } from './saveNote'
 import { UpdateBanner } from './UpdateBanner'
 
@@ -49,11 +51,29 @@ function WorldMenu(): React.JSX.Element {
   const world = useApp((s) => s.world)
   const openWorld = useApp((s) => s.openWorld)
   const [worlds, setWorlds] = useState<WorldSummary[]>([])
-  const [newOpen, setNewOpen] = useState(false)
-  const [renaming, setRenaming] = useState(false)
+  // Kept with the command palette's state, so the palette can open the menu, the New world dialog and the name box too.
+  const menuOpen = usePalette((s) => s.worldMenu)
+  const newOpen = usePalette((s) => s.newWorld)
+  const renaming = usePalette((s) => s.renamingWorld)
+  const setNewOpen = (o: boolean): void => usePalette.setState({ newWorld: o })
+  const setRenaming = (o: boolean): void => usePalette.setState({ renamingWorld: o })
   // Set when the chosen item moves focus elsewhere (the name box, the New world dialog),
   // so the closing menu doesn't pull focus back to its button.
   const keepFocus = useRef(false)
+
+  // The list of worlds is fetched each time the menu opens, however it was opened.
+  useEffect(() => {
+    if (!menuOpen) return
+    keepFocus.current = false
+    let live = true
+    api
+      .listWorlds()
+      .then((w) => live && setWorlds(w))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [menuOpen])
 
   if (renaming && world) {
     return (
@@ -72,13 +92,7 @@ function WorldMenu(): React.JSX.Element {
 
   return (
     <>
-      <M.Root
-        onOpenChange={(o) => {
-          if (!o) return
-          keepFocus.current = false
-          void api.listWorlds().then(setWorlds)
-        }}
-      >
+      <M.Root open={menuOpen} onOpenChange={(o) => usePalette.setState({ worldMenu: o })}>
         <M.Trigger className="flex h-7 max-w-[260px] items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2">
           <Globe2 size={14} className="shrink-0 text-muted" />
           <span className="truncate">{world?.name ?? 'No world open'}</span>
@@ -139,6 +153,37 @@ function WorldMenu(): React.JSX.Element {
   )
 }
 
+/**
+ * The way into search and the command palette: looks like a search field, opens the palette (as
+ * Ctrl+K does). Pressing it leaves the caret where it was, so closing the palette goes back there.
+ * A fixed width, so nothing else in the bar moves.
+ */
+function SearchBox(): React.JSX.Element {
+  const label = withShortcut('Search', 'search')
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-keyshortcuts={isMac() ? 'Meta+K' : 'Control+K'}
+      title={label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={openPalette}
+      className={cn(
+        'ml-1 flex h-7 w-[220px] min-w-[120px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
+        'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40'
+      )}
+    >
+      <SearchIcon size={14} className="shrink-0" aria-hidden />
+      <span className="flex-1 truncate text-left">Search</span>
+      <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+        {shortcutKeys('search').map((k) => (
+          <Kbd key={k}>{k}</Kbd>
+        ))}
+      </span>
+    </button>
+  )
+}
+
 export function TopBar(): React.JSX.Element {
   const settings = useApp((s) => s.settings)
   const update = useApp((s) => s.updateSettings)
@@ -170,6 +215,7 @@ export function TopBar(): React.JSX.Element {
         <PanelLeft size={16} />
       </IconButton>
       <WorldMenu />
+      <SearchBox />
       {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it. */}
       <div className="flex min-w-0 flex-1 justify-center px-3">
         <UpdateBanner />
@@ -191,7 +237,11 @@ export function TopBar(): React.JSX.Element {
         </button>
       ) : null}
       <SaveIndicator />
-      <IconButton label="Settings" active={view.kind === 'settings'} onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}>
+      <IconButton
+        label="Settings"
+        title={withShortcut('Settings', 'settings')}
+        active={view.kind === 'settings'}
+        onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}>
         <SettingsIcon size={16} />
       </IconButton>
       <IconButton

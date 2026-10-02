@@ -1,0 +1,220 @@
+// Running what the command palette offers: its actions (paletteLogic.ts lists them) and opening a
+// search result. Each uses the app's own way of doing it (the binder's actions, the entry pages,
+// the Generate button's shortcut), so the palette never does anything differently from the rest.
+
+import type { EntryKind, ID, Outline } from '@shared/types'
+import type { SearchOpen } from '@shared/contracts/search'
+import { toast } from '@/components/ui'
+import { api } from '@/lib/api'
+import { editorBridge } from '@/lib/editorBridge'
+import { flushAll } from '@/lib/flush'
+import { pressShortcut } from '@/lib/shortcuts'
+import { useApp, type SettingsTab } from '@/lib/store'
+import * as binder from '@/features/binder/actions'
+import { lastSceneOf } from '@/features/binder/lastScene'
+import { useOutlineStore } from '@/features/binder/outlineStore'
+import { requestEditorFocus } from '@/features/editor/focusRequest'
+import { markSceneDone } from '@/features/editor/markDone'
+import { requestReveal } from '@/features/editor/reveal'
+import { createEntry } from '@/features/world/entryActions'
+import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
+import { openShortcuts, usePalette } from './paletteStore'
+
+const app = useApp.getState
+
+const failed = (e: unknown): void => void toast((e as Error).message || 'That didn’t work. Please try again.', { tone: 'danger' })
+
+/** The open story's outline (the binder's copy when it has it). */
+async function outlineOf(storyId: ID): Promise<Outline> {
+  const o = useOutlineStore.getState().outline
+  return o && o.story.id === storyId ? o : api.getOutline(storyId)
+}
+
+/** A new scene after the open one (else at the end of the story), opened with the caret in the page. */
+async function newScene(): Promise<void> {
+  const storyId = app().storyId
+  if (!storyId) return
+  const o = await outlineOf(storyId)
+  const open = o.scenes.find((s) => s.id === app().sceneId)
+  let chapterId: ID | null = open?.chapterId ?? o.chapters[o.chapters.length - 1]?.id ?? null
+  if (!chapterId) chapterId = await binder.addChapter(storyId)
+  if (!chapterId) return
+  const id = await binder.addScene(chapterId, open?.id ?? null)
+  if (id) requestEditorFocus(id)
+}
+
+/** A new chapter after the open scene's (else at the end), with a first scene to write in. */
+async function newChapter(): Promise<void> {
+  const storyId = app().storyId
+  if (!storyId) return
+  const o = await outlineOf(storyId)
+  const after = o.scenes.find((s) => s.id === app().sceneId)?.chapterId ?? null
+  const chapterId = await binder.addChapter(storyId, after)
+  if (!chapterId) return
+  const id = await binder.addScene(chapterId)
+  if (id) requestEditorFocus(id)
+}
+
+async function newEntry(kind: EntryKind): Promise<void> {
+  const entry = await createEntry(kind)
+  app().navigate({ kind: 'entries', entryKind: kind, entryId: entry.id })
+}
+
+type SettingsAction = Extract<FixedActionId, `settings-${string}`>
+
+const SETTINGS: Record<SettingsAction, SettingsTab> = {
+  'settings-models': 'models',
+  'settings-preferences': 'preferences',
+  'settings-appearance': 'appearance',
+  'settings-backups': 'backups',
+  'settings-trash': 'trash',
+  'settings-about': 'about'
+}
+
+/** Runs one of the palette's actions. */
+export async function runAction(id: ActionId): Promise<void> {
+  const a = app()
+  const entry = entryAction(id)
+  try {
+    if (entry) {
+      if (entry.verb === 'go') a.navigate({ kind: 'entries', entryKind: entry.kind, entryId: null })
+      else await newEntry(entry.kind)
+      return
+    }
+    const fixed = id as FixedActionId
+    const layout = a.settings?.layout
+    switch (fixed) {
+      case 'generate':
+        // The Generate button acts on its shortcut, on the writing page.
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        pressShortcut('generate')
+        return
+      case 'stop':
+        if (a.activeGeneration) await api.stopGeneration(a.activeGeneration.id)
+        return
+      case 'mark-done':
+        if (a.sceneId) await markSceneDone(a.sceneId)
+        return
+      case 'new-scene':
+        return await newScene()
+      case 'new-chapter':
+        return await newChapter()
+      case 'new-story':
+        a.setNewStoryOpen(true)
+        return
+      case 'delete-scene':
+        if (a.sceneId) await binder.deleteScene(a.sceneId)
+        return
+      case 'go-write':
+        a.navigate({ kind: 'write' })
+        return
+      case 'go-codex':
+        a.navigate({ kind: 'codex' })
+        return
+      case 'go-timeline':
+        a.navigate({ kind: 'timeline' })
+        return
+      case 'go-map':
+        a.navigate({ kind: 'map' })
+        return
+      case 'go-threads':
+        a.navigate({ kind: 'threads' })
+        return
+      case 'go-style':
+        a.navigate({ kind: 'style' })
+        return
+      case 'go-memory':
+        a.navigate({ kind: 'memory', sceneId: null })
+        return
+      case 'go-story':
+        if (a.storyId) a.navigate({ kind: 'story', storyId: a.storyId })
+        return
+      case 'quick-character':
+        a.navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
+        return
+      case 'theme-light':
+      case 'theme-dark':
+      case 'theme-sepia':
+      case 'theme-system':
+        await a.updateSettings({ theme: fixed.slice('theme-'.length) as 'light' | 'dark' | 'sepia' | 'system' })
+        return
+      case 'toggle-binder':
+        if (layout) await a.updateSettings({ layout: { binderOpen: !layout.binderOpen } })
+        return
+      case 'toggle-panel':
+        if (layout) await a.updateSettings({ layout: { inspectorOpen: !layout.inspectorOpen } })
+        return
+      case 'backup-now':
+        await flushAll()
+        await api.backupNow()
+        toast('Backed up. Find every backup in Settings › Backups.', { tone: 'success' })
+        return
+      case 'new-world':
+        usePalette.setState({ newWorld: true })
+        return
+      case 'switch-world':
+        usePalette.setState({ worldMenu: true })
+        return
+      case 'rename-world':
+        usePalette.setState({ renamingWorld: true })
+        return
+      case 'shortcuts':
+        openShortcuts()
+        return
+      case 'settings-models':
+      case 'settings-preferences':
+      case 'settings-appearance':
+      case 'settings-backups':
+      case 'settings-trash':
+      case 'settings-about':
+        a.navigate({ kind: 'settings', tab: SETTINGS[fixed] })
+        return
+      default: {
+        const unknown: never = fixed
+        throw new Error(`Unknown action ${String(unknown)}`)
+      }
+    }
+  } catch (e) {
+    failed(e)
+  }
+}
+
+/** Opens a search result: a scene (at the words, when it has them), an entry, a story or the style guide. */
+export async function openResult(open: SearchOpen): Promise<void> {
+  const a = app()
+  try {
+    switch (open.kind) {
+      case 'scene':
+        // Asked for before the scene opens: the editor selects the words (or puts the caret in the page) once it shows.
+        if (open.words) requestReveal(open.sceneId, open.words)
+        else requestEditorFocus(open.sceneId)
+        if (open.panel) {
+          a.setInspectorTab(open.panel)
+          if (a.settings && !a.settings.layout.inspectorOpen) void a.updateSettings({ layout: { inspectorOpen: true } })
+        }
+        a.selectScene(open.sceneId, open.storyId)
+        return
+      case 'entry':
+        a.navigate({ kind: 'entries', entryKind: open.entryKind, entryId: open.entryId })
+        return
+      case 'story': {
+        // Where Adam last was in that story, else its first scene (as the story switcher does).
+        let sceneId = open.sceneId
+        if (!sceneId) {
+          const o = await outlineOf(open.storyId)
+          const remembered = lastSceneOf(open.storyId)
+          sceneId = o.scenes.find((s) => s.id === remembered)?.id ?? o.scenes[0]?.id ?? null
+        }
+        await editorBridge()?.flush()
+        if (sceneId) requestEditorFocus(sceneId)
+        a.selectScene(sceneId, open.storyId)
+        return
+      }
+      case 'style':
+        a.navigate(open.storyId ? { kind: 'story', storyId: open.storyId } : { kind: 'style' })
+        return
+    }
+  } catch (e) {
+    failed(e)
+  }
+}
