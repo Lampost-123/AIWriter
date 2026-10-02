@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui'
 import { api } from '@/lib/api'
 import { installFlushOnClose } from '@/lib/flush'
@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { useTheme } from '@/lib/theme'
 import { ResizablePane } from '@/layout/ResizablePane'
+import { dragMax, fitPanels } from '@/layout/fitPanels'
 import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
 import { Welcome } from '@/features/welcome/Welcome'
@@ -70,6 +71,31 @@ function NoWorld(): React.JSX.Element {
   return <Welcome />
 }
 
+/**
+ * The window's width, and whether it is being resized right now (the side panels then follow the
+ * window edge straight away instead of easing after it).
+ */
+function useWindowWidth(): { width: number; resizing: boolean } {
+  const [state, setState] = useState(() => ({ width: window.innerWidth, resizing: false }))
+  useEffect(() => {
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const onResize = (): void => {
+      setState({ width: window.innerWidth, resizing: true })
+      clearTimeout(settle)
+      settle = setTimeout(() => setState({ width: window.innerWidth, resizing: false }), 250)
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      clearTimeout(settle)
+    }
+  }, [])
+  return state
+}
+
+const BINDER = { min: 220, max: 440, floor: 200 }
+const SCENE_PANEL = { min: 280, max: 520, floor: 260 }
+
 function Workspace(): React.JSX.Element {
   const settings = useApp((s) => s.settings)!
   const update = useApp((s) => s.updateSettings)
@@ -77,6 +103,15 @@ function Workspace(): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
   const { layout } = settings
   const writing = view.kind === 'write'
+  const scenePanel = writing && !!sceneId
+  // In a small window the open panels give up some width, so the page keeps room to write in.
+  // Adam's chosen widths are kept and come back when the window is wider.
+  const win = useWindowWidth()
+  const fit = fitPanels(
+    win.width,
+    { open: layout.binderOpen, width: layout.binderWidth, floor: BINDER.floor },
+    { open: scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
+  )
 
   return (
     <>
@@ -85,10 +120,11 @@ function Workspace(): React.JSX.Element {
         <ResizablePane
           side="left"
           label="Binder"
-          width={layout.binderWidth}
+          width={layout.binderOpen ? fit.left : layout.binderWidth}
           open={layout.binderOpen}
-          min={220}
-          max={440}
+          min={BINDER.min}
+          max={dragMax(win.width, fit.right, BINDER.min, BINDER.max)}
+          instant={win.resizing}
           onResize={(w) => void update({ layout: { binderWidth: w } })}
         >
           <Binder />
@@ -110,14 +146,15 @@ function Workspace(): React.JSX.Element {
             </div>
           ) : null}
         </main>
-        {view.kind === 'write' && sceneId ? (
+        {scenePanel && sceneId ? (
           <ResizablePane
             side="right"
             label="Scene panel"
-            width={layout.inspectorWidth}
+            width={layout.inspectorOpen ? fit.right : layout.inspectorWidth}
             open={layout.inspectorOpen}
-            min={280}
-            max={520}
+            min={SCENE_PANEL.min}
+            max={dragMax(win.width, fit.left, SCENE_PANEL.min, SCENE_PANEL.max)}
+            instant={win.resizing}
             onResize={(w) => void update({ layout: { inspectorWidth: w } })}
           >
             <Inspector sceneId={sceneId} />

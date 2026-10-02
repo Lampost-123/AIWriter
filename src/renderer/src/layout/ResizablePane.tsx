@@ -19,7 +19,8 @@ export function ResizablePane({
   onResize,
   children,
   className,
-  label
+  label,
+  instant = false
 }: {
   side: 'left' | 'right'
   width: number
@@ -30,6 +31,8 @@ export function ResizablePane({
   children: ReactNode
   className?: string
   label: string
+  /** Follow width changes straight away, without easing (while the window is being resized). */
+  instant?: boolean
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
@@ -69,7 +72,8 @@ export function ResizablePane({
       aria-label={label}
       style={{ width: open ? width : 0 }}
       className={cn(
-        'relative flex shrink-0 flex-col overflow-hidden bg-surface transition-[width] duration-200 ease-out',
+        'relative flex shrink-0 flex-col overflow-hidden bg-surface',
+        !instant && 'transition-[width] duration-200 ease-out',
         side === 'left' ? 'border-r border-line' : 'border-l border-line',
         !open && 'border-transparent',
         className
