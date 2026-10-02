@@ -9,7 +9,7 @@ import { ensureLibraryFolder, getSettings, getWritingPrefs, setWritingPrefs, upd
 import { userDataDir } from '../paths'
 import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
-import { sceneSaved } from '../keeper'
+import { memorySettingsChanged, sceneSaved } from '../keeper'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -65,7 +65,12 @@ export const coreHandlers: Handlers<CoreMethods> = {
     libraryReachable: ensureLibraryFolder()
   }),
   getSettings: () => getSettings(),
-  updateSettings: (patch) => updateSettings(patch),
+  updateSettings: (patch) => {
+    const settings = updateSettings(patch)
+    // A memory model chosen (or changed): the memory tries the scenes it couldn't read straight away.
+    if (patch.models) memorySettingsChanged()
+    return settings
+  },
   getWritingPrefs: () => getWritingPrefs(),
   setWritingPrefs: (prefs) => setWritingPrefs(prefs),
   chooseLibraryFolder: async () => {
