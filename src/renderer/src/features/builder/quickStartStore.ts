@@ -5,9 +5,10 @@
 import { create } from 'zustand'
 import type { BuilderDone, BuilderKind, BuilderProgress, BuilderStart } from '@shared/contracts/builder'
 import type { ID } from '@shared/types'
+import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { arrivalOrder } from './builderLogic'
+import { arrivalOrder, notesToOfferBack } from './builderLogic'
 
 export type QuickView = Pick<BuilderProgress, 'values' | 'fromNotes' | 'writing' | 'entryId'>
 export const EMPTY_VIEW: QuickView = { values: {}, fromNotes: [], writing: null, entryId: null }
@@ -95,16 +96,42 @@ function listen(): void {
  * The builder opened for a new entry: a build still running shows as it is, and so does one that
  * stopped part way (to finish the rest), while notes not built from yet are still there. A finished
  * build is done with, so the screen starts afresh. A passage Adam has just selected replaces what was
- * there (a build running meanwhile goes on saving).
+ * there (a build running meanwhile goes on saving), and notes he hadn't built from are one click away.
  */
 export function openQuickStart(kind: BuilderKind, start: BuilderStart | undefined): void {
   listen()
   const key = keyOf(kind)
   const s = get(key)
-  if (start?.notes) return put(key, fresh(start.notes, start.sceneId ?? null))
+  if (start?.notes) {
+    put(key, fresh(start.notes, start.sceneId ?? null))
+    if (s && notesToOfferBack(s, start.notes)) offerNotesBack(key, s)
+    return
+  }
   if (s?.jobId || (s?.done?.entryId && s.done.status === 'error')) return
   if (!s || s.done?.entryId) return put(key, fresh())
   put(key, { done: null, problem: null, view: EMPTY_VIEW, order: [] })
+}
+
+// The toast offering back the notes a passage replaced, while it shows.
+let notesBack: number | null = null
+const dropNotesBack = (): void => {
+  if (notesBack !== null) useToasts.getState().dismiss(notesBack)
+  notesBack = null
+}
+
+/** A passage replaced notes Adam typed and hadn't built from: Undo puts them back, until he builds from the passage. */
+function offerNotesBack(key: string, was: QuickSession): void {
+  dropNotesBack()
+  notesBack = toast('Your earlier notes were replaced by the passage.', {
+    action: {
+      label: 'Undo',
+      run: () => {
+        notesBack = null
+        const now = get(key)
+        if (now && !now.jobId && !now.done) put(key, { notes: was.notes, sceneId: was.sceneId, problem: null })
+      }
+    }
+  })
 }
 
 export function setQuickNotes(kind: BuilderKind, notes: string): void {
@@ -127,6 +154,7 @@ export async function buildQuickStart(kind: BuilderKind, storyId: ID | null, opt
     return
   }
   const jobId = crypto.randomUUID()
+  dropNotesBack()
   // Finishing keeps the profile on screen as it is; what arrives goes at the end.
   put(key, { jobId, retrying: null, finishing: !!entryId, done: null, problem: null, ...(entryId ? {} : { view: EMPTY_VIEW, order: [] }) })
   try {
@@ -134,7 +162,8 @@ export async function buildQuickStart(kind: BuilderKind, storyId: ID | null, opt
   } catch (e) {
     if (get(key)?.jobId !== jobId) return
     const problem = { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined }
-    put(key, { jobId: null, finishing: false, problem })
+    // A finish that couldn't start leaves what is saved as it was on screen, with Finish the rest to try again.
+    put(key, { jobId: null, finishing: false, problem, ...(entryId ? { done: s.done } : {}) })
   }
 }
 
@@ -147,5 +176,7 @@ export function stopQuickStart(kind: BuilderKind): void {
 /** Starts again with empty notes, no longer from a passage. */
 export function startAnotherQuickStart(kind: BuilderKind): void {
   const key = keyOf(kind)
-  if (!get(key)?.jobId) put(key, fresh())
+  if (get(key)?.jobId) return
+  dropNotesBack()
+  put(key, fresh())
 }

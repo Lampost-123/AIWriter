@@ -176,6 +176,7 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
         <OptionsPanel
           field={field}
           options={options}
+          filled={!empty}
           onPick={(v) => p.onPick(field.key, v)}
           onClose={p.onCloseOptions}
           onStop={p.onStopOptions}
@@ -259,8 +260,9 @@ function Control({
 /**
  * A one-line field (aliases, pronouns, all of Looks): one line high, growing to show the whole of a
  * longer text (a kept suggestion, say) rather than cut it off. Still one line of text: Enter does
- * nothing, and a pasted line break becomes a space. Empty, it stays one line high however far its
- * hint would wrap, so the first letter typed doesn't make it shrink.
+ * nothing, and a pasted line break becomes a space. Empty, its hint stays on its one line, ending in
+ * "…" when the box is too narrow for it, so no second line shows cut in half under the first and the
+ * first letter typed doesn't make the box shrink.
  */
 function LineBox({
   id,
@@ -298,7 +300,7 @@ function LineBox({
       onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
       }}
-      className={cn(CONTROL, BOX.line, 'overflow-hidden')}
+      className={cn(CONTROL, BOX.line, 'overflow-hidden', empty && 'truncate placeholder:truncate')}
     />
   )
 }
@@ -398,10 +400,14 @@ function SuggestionBox({
   )
 }
 
-/** Three alternatives for one field. Three places are kept for them from the start, so nothing moves as they arrive. */
+/**
+ * Three alternatives for one field, under it (so its words need no field name). Three places are
+ * kept for them from the start, so nothing moves as they arrive.
+ */
 function OptionsPanel({
   field,
   options,
+  filled,
   onPick,
   onClose,
   onStop,
@@ -409,6 +415,8 @@ function OptionsPanel({
 }: {
   field: StepField
   options: OptionsState
+  /** The field has words of its own, which closing the options keeps. */
+  filled: boolean
   onPick: (v: string) => void
   onClose: () => void
   onStop: () => void
@@ -421,9 +429,10 @@ function OptionsPanel({
     else if (options.running && i === options.list.length && options.writing) slots.push({ text: options.writing, state: 'writing' })
     else if (options.running) slots.push({ text: '', state: 'waiting' })
   }
-  const label = field.label.toLowerCase()
   // A model or key missing: the fix is in Settings, so the button goes there.
   const settings = options.error ? settingsAction(options.error, options.code) : undefined
+  // Short enough for a field at half width.
+  const heading = options.error ? 'No options this time' : filled ? 'Pick one, or close this to keep yours' : 'Pick one, or close this'
   return (
     <div
       role="group"
@@ -432,10 +441,10 @@ function OptionsPanel({
     >
       <div className="flex h-7 items-center gap-2 pl-1">
         {options.running ? (
-          <WritingStatus text={`Thinking of three ideas for ${label}…`} />
+          <WritingStatus text="Thinking of three ideas…" />
         ) : (
-          <span className="min-w-0 truncate text-[12.5px] font-medium text-muted">
-            {options.error ? `No options for ${label}` : `Pick one for ${label}, or close this to keep what you have`}
+          <span title={heading} className="min-w-0 truncate text-[12.5px] font-medium text-muted">
+            {heading}
           </span>
         )}
         <div className="flex-1" />

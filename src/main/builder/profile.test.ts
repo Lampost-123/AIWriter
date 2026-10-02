@@ -11,6 +11,7 @@ import {
   optionsFrom,
   optionsFromText,
   ownInput,
+  partsBegun,
   pickThree,
   profileKeys,
   quickStartView,
@@ -36,6 +37,23 @@ describe("keeping Adam's words", () => {
     expect(fromHisWords(NOTES, 'A grumpy former soldier who owes the Duke money.')).toBe(false)
     expect(fromHisWords(NOTES, 'Missing two fingers on his left hand. He hides it in a glove.')).toBe(false)
     expect(fromHisWords(NOTES, '...')).toBe(false)
+  })
+
+  it('counts only whole words: a name or a number inside a longer one is not his', () => {
+    expect(fromHisWords('Marat is a smuggler.', 'Mara')).toBe(false)
+    expect(fromHisWords('He owes 400 crowns.', '40')).toBe(false)
+    expect(fromHisWords('Hannah keeps the inn.', 'Ann')).toBe(false)
+    expect(fromHisWords('Hannah keeps the inn.', 'Hannah')).toBe(true)
+    expect(fromHisWords('Brann’s ferry crosses the Narrows.', 'Brann')).toBe(true)
+    expect(fromHisWords(NOTES, 'ex-soldier')).toBe(true)
+    const v = quickStartView('character', 'Marat is a smuggler.', parsePartial('{"fromNotes": {"name": "Mara"}}'))
+    expect(v.values.name).toBe('Mara')
+    expect(v.fromNotes).toEqual([])
+  })
+
+  it('does not count a reply stuck repeating his words as his', () => {
+    expect(fromHisWords('He runs the ferry.', 'He runs the ferry.')).toBe(true)
+    expect(fromHisWords('He runs the ferry.', 'He runs the ferry. He runs the ferry.')).toBe(false)
   })
 
   it("reads a Quick start reply: his words are his, and win over the AI's for the same field", () => {
@@ -67,7 +85,8 @@ describe("keeping Adam's words", () => {
     const v = quickStartView('character', NOTES, parsePartial(reply))
     expect(v.values.traits).toBe('Short-tempered, loyal')
     expect(v.values.flaws).toBe('Gambles')
-    expect(v.fromNotes).toEqual([])
+    // Only the name is his: "Brann" is a word of his notes, even under "drafted".
+    expect(v.fromNotes).toEqual(['name'])
   })
 
   it('lists the fields in the order they first arrived, so a profile shown as it arrives only grows at the end', () => {
@@ -93,10 +112,63 @@ describe("keeping Adam's words", () => {
     expect(quickStartView('character', long, parsePartial(reply)).values.summary).toBe(long)
   })
 
-  it('reads a reply without the two parts as all drafted, and shows the field being written', () => {
+  it('keeps a long passage of his whole, and cuts the same words short when they are not his', () => {
+    const winter = (i: number): string => `Winter ${i + 1}: he hauled ${i + 3} carts across the river and nobody thanked him.`
+    const past = Array.from({ length: 150 }, (_, i) => winter(i)).join(' ')
+    expect(past.length).toBeGreaterThan(10_000)
+    expect(cleanValue('character', 'pastEvents', past, true)).toBe(past)
+    const reply = JSON.stringify({ fromNotes: { name: 'Brann Holt', pastEvents: past } })
+    const v = quickStartView('character', `Brann Holt runs the ferry.\n${past}`, parsePartial(reply))
+    expect(v.values.pastEvents).toBe(past)
+    expect(v.fromNotes).toEqual(['name', 'pastEvents'])
+    const w = quickStartView('character', 'Brann Holt runs the ferry.', parsePartial(reply))
+    expect(w.values.pastEvents.length).toBeLessThanOrEqual(6000)
+    expect(w.fromNotes).toEqual(['name'])
+  })
+
+  it('reads a reply without the two parts, his words still his, and shows the field being written', () => {
     const v = quickStartView('place', 'A port town', parsePartial('{"name": "Saltmere", "atmosphere": "Salt and wet ro'))
     expect(v.values).toEqual({ name: 'Saltmere' })
+    expect(v.fromNotes).toEqual([])
     expect(v.writing).toEqual({ key: 'atmosphere', text: 'Salt and wet ro' })
+
+    const long = `Brann Holt runs the ferry across the Narrows, ${'rain or shine, '.repeat(30)}and always has.`
+    const notes = `${long}\nA grumpy ex-soldier who owes the Duke money.`
+    const flat = {
+      name: 'Brann Holt',
+      summary: long,
+      traits: 'A grumpy ex-soldier who owes the Duke money.',
+      hair: 'Grey and cropped close'
+    }
+    const w = quickStartView('character', notes, parsePartial(JSON.stringify(flat)))
+    expect(w.values).toEqual(flat)
+    expect(w.fromNotes).toEqual(['name', 'summary', 'traits'])
+    expect(partsBegun(parsePartial(JSON.stringify(flat)).value)).toBe(0)
+  })
+
+  it('counts words copied from his notes as his wherever the model put them', () => {
+    const reply = JSON.stringify({
+      fromNotes: { traits: 'Grumpy and proud' },
+      drafted: {
+        name: 'Brann Holt',
+        traits: 'A grumpy ex-soldier who owes the Duke money.',
+        marks: 'Missing two fingers on his left hand.',
+        hair: 'Grey'
+      }
+    })
+    const v = quickStartView('character', NOTES, parsePartial(reply))
+    expect(v.values.traits).toBe('A grumpy ex-soldier who owes the Duke money.')
+    expect(v.fromNotes).toEqual(['traits', 'name', 'marks'])
+  })
+
+  it('reads the two parts when the model wraps them in an outer object', () => {
+    const parts = { fromNotes: { name: 'Brann Holt', marks: 'Missing two fingers on his left hand.' }, drafted: { hair: 'Grey' } }
+    const reply = JSON.stringify({ character: parts })
+    const v = quickStartView('character', NOTES, parsePartial(reply))
+    expect(v.values).toEqual({ name: 'Brann Holt', marks: 'Missing two fingers on his left hand.', hair: 'Grey' })
+    expect(v.fromNotes).toEqual(['name', 'marks'])
+    expect(partsBegun(parsePartial(reply).value)).toBe(2)
+    expect(partsBegun(parsePartial('{"character": {"from_notes": {"name": "Br').value)).toBe(1)
   })
 })
 

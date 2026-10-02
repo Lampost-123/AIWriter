@@ -35,6 +35,7 @@ import {
   interviewReply,
   optionsFrom,
   optionsFromText,
+  partsBegun,
   pickThree,
   profileKeys,
   quickStartView,
@@ -339,7 +340,8 @@ async function quickStart(
 
   // Saves the fields that have fully arrived. Only now and then, since each save writes a version of
   // the entry's history: once there is a name, as each part of the reply (Adam's words, the AI's) is
-  // complete, and at the end, on Stop or when the world closes.
+  // complete, and at the end, on Stop or when the world closes. A reply without the two parts is
+  // saved once it has a name and then at the end.
   const save = (): void => {
     if (run.closed || !db.open || state.failed || !view.values.name) return
     try {
@@ -367,7 +369,7 @@ async function quickStart(
       const parsed = parsePartial(text)
       view = viewOf(parsed)
       // A new part of the reply has begun, so the one before it is complete.
-      const n = Object.keys(parsed.value ?? {}).length
+      const n = partsBegun(parsed.value)
       if (!state.entryId || n > parts) save()
       parts = n
       ctx.emit('builder:progress', progress())

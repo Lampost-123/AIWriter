@@ -6,7 +6,7 @@
 // says how it ended. The interface makes each job's id, so no event can arrive before it knows it.
 // Nothing the AI suggests is saved until Adam keeps it, except Quick start, which builds and saves
 // the whole profile in one click: Adam's own words as his (origin 'adam'), the rest as 'ai'.
-import type { Entry, ID } from '../types'
+import type { Entry, ID, Origin } from '../types'
 
 /** Entry kinds that have a builder. */
 export type BuilderKind = 'character' | 'place' | 'group' | 'item'
@@ -141,6 +141,12 @@ export interface BuilderApi {
    * own words, unless `replace` (he picked one of the options for that field himself).
    */
   keepSuggestions(entryId: ID, values: BuilderValues, opts?: { replace?: boolean }): Promise<Entry>
+  /**
+   * Puts one field back as it was, with who made it (Undo after Adam picked an option for it): words
+   * read from the story or drafted by AI are theirs again, so the memory keeper goes on keeping them
+   * up to date as before. Saved exactly as given.
+   */
+  restoreBuilderField(entryId: ID, key: string, value: string, origin: Origin): Promise<Entry>
 }
 
 export interface BuilderEvents {

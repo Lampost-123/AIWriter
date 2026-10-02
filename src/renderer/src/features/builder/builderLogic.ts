@@ -3,7 +3,7 @@
 // here, so they're easy to test (see builderLogic.test.ts).
 
 import { CHARACTER_GROUPS, CHARACTER_ROLES, FIELD_GROUPS, type FieldDef } from '@shared/fields'
-import type { Entry, EntryInput } from '@shared/types'
+import type { Entry, EntryInput, ID, Origin } from '@shared/types'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 
 /** How a field is typed in: the big name box, a comma list, the role picker, one line or a few paragraphs. */
@@ -61,12 +61,13 @@ const ALIASES: Record<BuilderKind, StepField> = {
   item: listOf("other names, like 'the old blade'")
 }
 
+// Short enough to fit the summary's box at half width.
 const summaryOf = (placeholder: string): StepField => ({ key: 'summary', label: 'Short summary', type: 'line', placeholder })
 const SUMMARY: Record<BuilderKind, StepField> = {
-  character: summaryOf('A grumpy ex-soldier who runs the ferry and owes the Duke money'),
-  place: summaryOf('A salt-crusted port where nobody asks questions'),
-  group: summaryOf('A guild of smugglers who answer to no crown'),
-  item: summaryOf('A cracked compass that always points to the person you miss')
+  character: summaryOf('A grumpy ex-soldier who runs the ferry'),
+  place: summaryOf('A port where nobody asks questions'),
+  group: summaryOf('Smugglers who answer to no crown'),
+  item: summaryOf('A compass that points to who you miss')
 }
 
 const descriptionOf = (placeholder: string): StepField => ({ key: 'description', label: 'Description', type: 'text', placeholder })
@@ -275,6 +276,34 @@ export function fleshOutKeys(step: Step, values: BuilderValues, suggestions: Bui
 export function markOf(key: string, value: string, ai: Readonly<Record<string, string>>): 'ai' | 'edited' | null {
   if (!(key in ai)) return null
   return filled(value) && ai[key] === value ? 'ai' : 'edited'
+}
+
+/**
+ * Who the words in a field on screen come from, so Undo can put them back as they were: the AI's when
+ * they are AI words (kept, saved or still being saved), as saved when they are what was last saved
+ * (Adam's or read from the story), and his otherwise.
+ */
+export function originNow(
+  key: string,
+  value: string,
+  saved: Pick<Entry, 'origin' | 'fieldOrigins'> | null,
+  base: BuilderValues,
+  ai: Readonly<Record<string, string>>
+): Origin {
+  if (markOf(key, value, ai) === 'ai') return 'ai'
+  if (saved && value === (base[key] ?? '')) return saved.fieldOrigins?.[key] ?? saved.origin
+  return 'adam'
+}
+
+/**
+ * Whether a passage Adam selected is replacing notes worth offering back: notes in Quick start that
+ * no build is using or has saved a character from, and that aren't the passage itself.
+ */
+export function notesToOfferBack(
+  s: { notes: string; jobId: ID | null; done: { entryId: ID | null } | null } | undefined,
+  passage: string
+): boolean {
+  return !!s && !!s.notes.trim() && !s.jobId && !s.done?.entryId && s.notes.trim() !== passage.trim()
 }
 
 /**

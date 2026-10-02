@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
-import type { Entry, ID } from '@shared/types'
+import type { Entry, ID, Origin } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import type { SaveStatus } from '@/features/world/parts/saver'
 import { useAutosave } from '@/features/world/parts/useAutosave'
-import { aiAfterSave, entryText, markOf, nonEmpty, patchFor, profileKeys, valuesOf } from './builderLogic'
+import { aiAfterSave, entryText, markOf, nonEmpty, originNow, patchFor, profileKeys, valuesOf } from './builderLogic'
 
-/** A field as it is on screen: its words, and the AI's words for it (see markOf), if it had any. */
+/** A field as it is on screen: its words, the AI's words for it (see markOf) if it had any, and who they come from. */
 export interface FieldState {
   value: string
   ai: string | undefined
+  origin: Origin
 }
 
 export interface BuildDraft {
@@ -31,8 +32,9 @@ export interface BuildDraft {
   /** A field as it is now, to put back later with `revert`. */
   fieldNow(key: string): FieldState
   /**
-   * Puts a field back as it was (Undo after an option replaced it), whose words included: the AI's
-   * are saved as the AI's again, anything else as Adam's.
+   * Puts a field back as it was (Undo after an option replaced it), with who made its words: the AI's
+   * and those read from the story are saved as theirs again at once, Adam's as his after the usual
+   * pause. Rejects if it couldn't be saved, leaving the field as it was.
    */
   revert(key: string, was: FieldState): Promise<void>
   /** Writes anything waiting now. Never rejects. */
@@ -48,6 +50,14 @@ export interface BuildDraft {
 }
 
 const filled = (v: string | undefined): boolean => !!v?.trim()
+
+/** `to` with `key` set to `v`, or without it when `v` is undefined. */
+function withKey<T>(to: Readonly<Record<string, T>>, key: string, v: T | undefined): Record<string, T> {
+  const out = { ...to }
+  if (v === undefined) delete out[key]
+  else out[key] = v
+  return out
+}
 
 /**
  * A profile being built step by step. Nothing is made until it has a name (leaving before then
@@ -160,24 +170,40 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
     [adopt, schedule]
   )
 
-  const fieldNow = useCallback((key: string): FieldState => ({ value: valuesRef.current[key] ?? '', ai: aiRef.current[key] }), [])
+  const fieldNow = useCallback((key: string): FieldState => {
+    const value = valuesRef.current[key] ?? ''
+    return { value, ai: aiRef.current[key], origin: originNow(key, value, entryRef.current, base.current, aiRef.current) }
+  }, [])
 
   const revert = useCallback(
     async (key: string, was: FieldState): Promise<void> => {
+      const before = { value: valuesRef.current[key], ai: aiRef.current[key], base: base.current[key] }
       const ai = { ...aiRef.current }
       if (was.ai === undefined) delete ai[key]
       else ai[key] = was.ai
       showAi(ai)
       show({ ...valuesRef.current, [key]: was.value })
       const e = entryRef.current
-      if (!e || markOf(key, was.value, ai) !== 'ai') {
-        // His words, saved as his after the usual pause (or with the entry, once it has a name).
+      if (!e || was.origin === 'adam') {
+        // His words, saved as his after the usual pause (or with the entry, once it has a name, the
+        // AI's words among them marked as the AI's).
         schedule(++tick.current)
         return
       }
-      Object.assign(base.current, { [key]: was.value })
-      const saved = await api.keepSuggestions(e.id, { [key]: was.value }, { replace: true })
-      adopt(saved, { [key]: was.value })
+      // Counted as saved already, so a save of Adam's typing meanwhile doesn't send them as his.
+      base.current[key] = was.value
+      try {
+        const saved = await api.restoreBuilderField(e.id, key, was.value, was.origin)
+        adopt(saved, { [key]: was.value })
+      } catch (err) {
+        // Back to what is saved, unless Adam has typed in the field since.
+        if ((valuesRef.current[key] ?? '') === was.value) {
+          show(withKey(valuesRef.current, key, before.value))
+          showAi(withKey(aiRef.current, key, before.ai))
+        }
+        base.current = withKey(base.current, key, before.base)
+        throw err
+      }
     },
     [adopt, schedule]
   )

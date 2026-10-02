@@ -2,9 +2,10 @@
 // profile. It streams: each field is added at the end of the profile as it arrives, so nothing he is
 // reading moves, and Stop keeps what has fully arrived. His own words are kept as written and marked
 // as his; the rest is drafted by AI. The notes and a build still running are kept in quickStartStore,
-// so leaving the screen loses neither.
+// so leaving the screen loses neither. Once a build has saved a character, its notes are done with:
+// they can't be typed in, and Start another clears them for the next one.
 import { Check, Sparkles, Square } from 'lucide-react'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
@@ -95,6 +96,7 @@ function Screen({
   const copy = COPY[kind]
   const noun = KIND_LABELS[kind].one.toLowerCase()
   const [opening, setOpening] = useState(false)
+  const notesBox = useRef<HTMLTextAreaElement>(null)
   const { view, done } = s
 
   const running = !!s.jobId
@@ -103,7 +105,13 @@ function Screen({
   const finished = !running && !!done
   // The connection dropped (say) after the entry was saved: what arrived is kept, and the rest can be finished.
   const partSaved = finished && saved && done.status === 'error'
+  // The notes being built from, or that a saved character was built from: not for typing in.
+  const locked = running || (finished && saved)
   const build = (finish = false): void => void buildQuickStart(kind, storyId, { finish })
+  const another = (): void => {
+    startAnotherQuickStart(kind)
+    notesBox.current?.focus()
+  }
 
   const lookOver = async (): Promise<void> => {
     const id = view.entryId
@@ -149,19 +157,21 @@ function Screen({
           {copy.about}
         </label>
         <AutoTextarea
+          ref={notesBox}
           id="builder-notes"
           autoFocus={!s.notes}
           value={s.notes}
-          readOnly={running}
+          readOnly={locked}
+          title={finished && saved ? `To build another ${noun}, choose Start another.` : undefined}
           minRows={4}
           maxRows={14}
           placeholder={copy.placeholder}
-          className="mt-1 font-serif text-[15px] leading-[1.6]"
+          className={cn('mt-1 font-serif text-[15px] leading-[1.6]', locked && 'bg-surface-2!')}
           onChange={(e) => setQuickNotes(kind, e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault()
-              if (!finished || !saved) build()
+              if (!locked) build()
             }
           }}
         />
@@ -194,7 +204,7 @@ function Screen({
                 Look it over step by step
               </Button>
               <div className="flex-1" />
-              <Button variant="ghost" onClick={() => startAnotherQuickStart(kind)}>
+              <Button variant="ghost" onClick={another}>
                 Start another
               </Button>
             </>
@@ -207,7 +217,7 @@ function Screen({
                 Back to writing
               </Button>
               <div className="flex-1" />
-              <Button variant="ghost" onClick={() => startAnotherQuickStart(kind)}>
+              <Button variant="ghost" onClick={another}>
                 Start another
               </Button>
             </>

@@ -19,11 +19,21 @@ async function entryNamed(win: Page, name: string): Promise<Entry> {
 
 const origin = (e: Entry, key: string): string => e.fieldOrigins[key] ?? e.origin
 
+type Box = { value: string; placeholder: string; scrollHeight: number; clientHeight: number }
+
+/** The hints of the step's empty one-line boxes that don't fit on their one line. */
+const hintsCut = (win: Page): Promise<string[]> =>
+  main(win)
+    .locator('textarea[rows="1"]')
+    .evaluateAll((els) =>
+      (els as unknown as Box[]).filter((t) => !t.value && t.scrollHeight > t.clientHeight + 1).map((t) => t.placeholder)
+    )
+
 /**
  * Opens the builder for a new entry the way Adam does: the list's Quick start (its empty state's
  * button, or the one in its header once it has entries), then (if asked) the steps.
  */
-async function openBuilder(win: Page, list: 'Characters' | 'Places', opts: { guided?: boolean } = {}): Promise<void> {
+async function openBuilder(win: Page, list: 'Characters' | 'Places' | 'Items', opts: { guided?: boolean } = {}): Promise<void> {
   await binder(win).getByRole('button', { name: list }).click()
   await main(win)
     .getByRole('button', { name: /^Quick start (an? \w+ )?from a few notes$/ })
@@ -216,10 +226,27 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
     await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.origin).toBe('Born on a barge')
     expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('adam')
     // Closing a list of options leaves the field as it was.
+    const secrets = main(win).getByLabel('Secrets they keep', { exact: true })
+    const secretOptions = main(win).getByRole('group', { name: 'Options for Secrets they keep' })
     await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
-    await expect(main(win).getByRole('group', { name: 'Options for Secrets they keep' }).getByRole('listitem')).toHaveCount(3)
+    await expect(secretOptions.getByRole('listitem')).toHaveCount(3)
     await main(win).getByRole('button', { name: 'Close the options for Secrets they keep' }).click()
-    await expect(main(win).getByLabel('Secrets they keep', { exact: true })).toHaveValue('')
+    await expect(secrets).toHaveValue('')
+
+    // Words the AI drafted that an option replaced go back as the AI's.
+    const drafted = 'Secrets they keep, first option: something only Mara Venn would have.'
+    await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
+    await secretOptions.getByRole('button', { name: 'Use option 1 for Secrets they keep' }).click()
+    await expect(secrets).toHaveValue(drafted)
+    await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
+    await secretOptions.getByRole('button', { name: 'Use option 3 for Secrets they keep' }).click()
+    await expect(secrets).toHaveValue('Secrets they keep, third option: something only Mara Venn would have.')
+    await expect(win.getByText('Replaced secrets they keep with the option you picked.')).toBeVisible()
+    await win.getByRole('button', { name: 'Undo' }).click()
+    await expect(secrets).toHaveValue(drafted)
+    await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.secrets).toBe(drafted)
+    expect(origin(await entryNamed(win, 'Mara Venn'), 'secrets')).toBe('ai')
+    await expect(main(win).getByText('Drafted by AI')).toBeVisible()
   } finally {
     await fake.close()
   }
@@ -375,6 +402,17 @@ test('a build that stops part way keeps what arrived, and finishes the rest of t
     expect(part.fields.marks).toBe('Missing two fingers on his left hand.')
     expect(part.fields.speech ?? '').toBe('')
 
+    // Finishing can't start without a writer model: it says so, and what is saved stays on screen,
+    // ready to finish once there is one.
+    const finish = main(win).getByRole('button', { name: 'Finish the rest' })
+    await invoke(win, 'updateSettings', { models: { writer: null } })
+    await finish.click()
+    await expect(main(win).getByRole('alert')).toContainText('Choose a writer model first')
+    await expect(finish).toBeVisible()
+    await expect(main(win).getByRole('button', { name: 'Look it over step by step' })).toBeVisible()
+    await expect(main(win).getByRole('status').filter({ hasText: 'It stopped part way. What had arrived is saved.' })).toBeVisible()
+    expect((await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')).toHaveLength(1)
+
     // The service is back: finishing fills in only the empty fields, of the same character.
     const [p] = await invoke(win, 'listProviders')
     const writer = {
@@ -386,14 +424,34 @@ test('a build that stops part way keeps what arrived, and finishes the rest of t
       completionPrice: null
     }
     await invoke(win, 'updateSettings', { models: { writer } })
-    await main(win).getByRole('button', { name: 'Finish the rest' }).click()
-    await expect(main(win).getByRole('status').filter({ hasText: 'Brann Holt is built and saved.' })).toBeVisible()
+    await finish.click()
+    const built = main(win).getByRole('status').filter({ hasText: 'Brann Holt is built and saved.' })
+    await expect(built).toBeVisible()
     const all = (await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')
     expect(all).toHaveLength(1)
     expect(all[0].fields.marks).toBe('Missing two fingers on his left hand.')
     expect(origin(all[0], 'marks')).toBe('adam')
     expect(all[0].fields.speech).toBe('How they speak of Brann Holt, drafted to fit the world.')
     expect(origin(all[0], 'speech')).toBe('ai')
+
+    // The notes it was built from can't be typed over, or built from twice by mistake.
+    const notes = main(win).getByLabel('What you know about them')
+    await expect(notes).not.toBeEditable()
+    await expect(notes).toHaveAttribute('title', 'To build another character, choose Start another.')
+    await notes.focus()
+    await win.keyboard.type('More')
+    await win.keyboard.press('Control+Enter')
+    await expect(notes).toHaveValue(NOTES)
+    await expect(built).toBeVisible()
+    await expect(main(win).getByRole('button', { name: 'Stop' })).toHaveCount(0)
+    // Start another clears them, ready to type in.
+    await main(win).getByRole('button', { name: 'Start another' }).click()
+    await expect(notes).toHaveValue('')
+    await expect(notes).toBeEditable()
+    await expect(notes).toBeFocused()
+    await win.keyboard.type('A tall woman')
+    await expect(notes).toHaveValue('A tall woman')
+    expect((await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')).toHaveLength(1)
   } finally {
     await fake.close()
   }
@@ -467,4 +525,57 @@ test('relationships are picked from the characters already in the world', async 
     .toBe('old friend')
   await step(win, 'Review').click()
   await expect(main(win).getByRole('region', { name: 'Relationships' })).toContainText('Mara Venn · old friend')
+})
+
+test('one-line fields keep their hint on one line, and the heading over options fits beside them, in a narrow window too', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { app, win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await useFakeModel(win, fake)
+    const fits = async (): Promise<void> => {
+      await expect(main(win).locator('textarea[rows="1"]').first()).toBeVisible()
+      expect(await hintsCut(win)).toEqual([])
+    }
+
+    await openBuilder(win, 'Characters', { guided: true })
+    await fits()
+    // A hint too long for its box ends in "…" on its one line rather than wrap.
+    const long = 'A hint far too long for its box, which goes on past the edge of it and on and on and further still'
+    const wraps = await main(win)
+      .getByLabel('Short summary', { exact: true })
+      .evaluate((el, hint) => {
+        const box = el as unknown as Box
+        box.placeholder = hint
+        return box.scrollHeight > box.clientHeight + 1
+      }, long)
+    expect(wraps).toBe(false)
+    await main(win).getByRole('textbox', { name: 'Name' }).fill('Mara Venn')
+    await step(win, 'Looks').click()
+    await expect(main(win).getByRole('heading', { level: 1, name: 'Looks' })).toBeVisible()
+    await fits()
+    // The heading says what closing the options does, whole, over a field at half width.
+    await main(win).getByLabel('Hair', { exact: true }).fill('Grey')
+    await main(win).getByRole('button', { name: 'Give me options for Hair' }).click()
+    const options = main(win).getByRole('group', { name: 'Options for Hair' })
+    await expect(options.getByRole('listitem')).toHaveCount(3)
+    const heading = options.getByText('Pick one, or close this to keep yours')
+    await expect(heading).toBeVisible()
+    expect(await heading.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await options.getByRole('button', { name: 'Close the options for Hair' }).click()
+
+    // The narrowest the window goes.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 700))
+    await expect.poll(() => win.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBeLessThanOrEqual(960)
+    await fits()
+    await step(win, 'Basics').click()
+    await fits()
+
+    await openBuilder(win, 'Items', { guided: true })
+    await fits()
+  } finally {
+    await fake.close()
+  }
 })

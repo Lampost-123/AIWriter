@@ -8,7 +8,9 @@ import {
   labelOf,
   markOf,
   mergeSuggestions,
+  notesToOfferBack,
   openSuggestions,
+  originNow,
   patchFor,
   profileKeys,
   shownValue,
@@ -143,6 +145,19 @@ describe('Quick start', () => {
     expect(shownValue('role', 'mentor')).toBe('Mentor')
     expect(shownValue('hair', 'grey')).toBe('grey')
   })
+
+  it('offers back the notes a passage replaced only when they are worth having', () => {
+    const typed = { notes: 'A ferryman who owes everyone', jobId: null, done: null }
+    expect(notesToOfferBack(typed, 'Brann leaned on the rail.')).toBe(true)
+    expect(notesToOfferBack(undefined, 'Brann leaned on the rail.')).toBe(false)
+    expect(notesToOfferBack({ ...typed, notes: '  ' }, 'Brann leaned on the rail.')).toBe(false)
+    // The same passage selected again, a build using the notes, or one that saved a character from them.
+    expect(notesToOfferBack({ ...typed, notes: 'Brann leaned on the rail. ' }, 'Brann leaned on the rail.')).toBe(false)
+    expect(notesToOfferBack({ ...typed, jobId: 'j1' }, 'Brann leaned on the rail.')).toBe(false)
+    expect(notesToOfferBack({ ...typed, done: { entryId: 'e1' } }, 'Brann leaned on the rail.')).toBe(false)
+    // A build that stopped before it saved anything leaves the notes worth having.
+    expect(notesToOfferBack({ ...typed, done: { entryId: null } }, 'Brann leaned on the rail.')).toBe(true)
+  })
 })
 
 describe('"Drafted by AI"', () => {
@@ -156,6 +171,26 @@ describe('"Drafted by AI"', () => {
   it('follows what each save says about who wrote each field', () => {
     const saved = entry({ fields: { hair: 'Grey', eyes: 'Blue' }, fieldOrigins: { hair: 'ai', eyes: 'adam' } })
     expect(aiAfterSave('character', { eyes: 'Green' }, saved)).toEqual({ hair: 'Grey', eyes: '' })
+  })
+
+  it('knows who the words in a field come from, so Undo puts them back as theirs', () => {
+    const saved = entry({
+      summary: 'Runs the ferry',
+      fields: { hair: 'Grey', eyes: 'Blue', build: 'Broad' },
+      fieldOrigins: { summary: 'text', hair: 'ai', eyes: 'adam' }
+    })
+    const base = { summary: 'Runs the ferry', hair: 'Grey', eyes: 'Blue', build: 'Broad' }
+    const ai = { hair: 'Grey', scars: 'One across the jaw' }
+    // As saved: read from the story, the AI's, his, or the entry's own when the field has none.
+    expect(originNow('summary', 'Runs the ferry', saved, base, ai)).toBe('text')
+    expect(originNow('hair', 'Grey', saved, base, ai)).toBe('ai')
+    expect(originNow('eyes', 'Blue', saved, base, ai)).toBe('adam')
+    expect(originNow('build', 'Broad', saved, base, ai)).toBe('adam')
+    // Changed since the last save: his, unless they are AI words he kept that aren't saved yet.
+    expect(originNow('summary', 'Runs the ferry, badly', saved, base, ai)).toBe('adam')
+    expect(originNow('scars', 'One across the jaw', saved, base, ai)).toBe('ai')
+    expect(originNow('scars', 'One across the jaw', null, {}, ai)).toBe('ai')
+    expect(originNow('eyes', 'Green', null, {}, ai)).toBe('adam')
   })
 })
 

@@ -4,7 +4,7 @@
 // never touches his. Nothing here writes over words someone else has put in a field. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Entry, ID } from '@shared/types'
+import type { Entry, ID, Origin } from '@shared/types'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import * as repo from '../db/repo'
 import { stampOrigins } from '../db/builder'
@@ -115,4 +115,16 @@ export function keepSuggestions(db: DB, entryId: ID, values: BuilderValues, repl
   }
   if (!Object.keys(patch).length) return e
   return repo.updateEntry(db, entryId, toInput(e.kind, patch), { origin: 'ai' })
+}
+
+/**
+ * Puts one field back as it was, with who made it (Undo after Adam picked an option for it): words
+ * read from the story or drafted by AI are theirs again, so the memory keeper goes on keeping them up
+ * to date as before. Saved exactly as given.
+ */
+export function restoreField(db: DB, entryId: ID, key: string, value: string, origin: Origin): Entry {
+  const e = repo.getEntry(db, entryId)
+  if (!isBuilderKind(e.kind)) throw new UserError('That page has no builder.')
+  if (!profileKeys(e.kind).includes(key) || (key === 'name' && !value.trim())) return e
+  return repo.updateEntry(db, entryId, ownInput(e.kind, { [key]: value }), { origin })
 }

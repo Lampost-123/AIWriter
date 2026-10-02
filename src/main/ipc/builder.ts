@@ -12,7 +12,7 @@ import { UserError } from '../util'
 import { builderTarget } from '../builder/model'
 import { gatherWorld } from '../builder/context'
 import { startFleshOut, startInterview, startOptions, startQuickStart, stopJob, stopJobsFor, type JobContext } from '../builder/jobs'
-import { createBuilt, isBuilderKind, keepSuggestions } from '../builder/save'
+import { createBuilt, isBuilderKind, keepSuggestions, restoreField } from '../builder/save'
 
 // Closing a world stops its builder jobs first, saving what Quick start has while the database is still open.
 world.onWorldClosing((w) => stopJobsFor(w.db))
@@ -73,6 +73,12 @@ export const builderHandlers: Handlers<keyof BuilderApi> = {
   keepSuggestions: (entryId, values, opts) => {
     const db = world.db()
     const e = keepSuggestions(db, entryId, values, !!opts?.replace)
+    repo.touchWorld(db)
+    return e
+  },
+  restoreBuilderField: (entryId, key, value, origin) => {
+    const db = world.db()
+    const e = restoreField(db, entryId, key, String(value ?? ''), origin === 'text' || origin === 'ai' ? origin : 'adam')
     repo.touchWorld(db)
     return e
   }

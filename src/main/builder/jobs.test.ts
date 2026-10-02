@@ -26,7 +26,7 @@ import {
 } from './jobs'
 import type { BuilderModel } from './model'
 import { BUILDER_MARKER, worldText } from './prompts'
-import { createBuilt, keepSuggestions, noteWritten, saveBuilt, type Written } from './save'
+import { createBuilt, keepSuggestions, noteWritten, restoreField, saveBuilt, type Written } from './save'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -321,6 +321,37 @@ describe('Quick start', () => {
     expect(hist.entryHistory(w.db, e.id).length).toBeLessThanOrEqual(4)
   })
 
+  it('saves a reply without the two parts once it has a name and then at the end, his words as his', async () => {
+    const keys = 'hair eyes build face skin clothing origin wants needs fears flaws habits speech tics'.split(' ')
+    const flat = {
+      name: 'Brann Holt',
+      summary: 'Brann Holt runs the ferry across the Narrows.',
+      ...Object.fromEntries(keys.map((k) => [k, `The ${k}.`]))
+    }
+    const w = setup({ fetchImpl: trickle(JSON.stringify(flat, null, 1), 15) })
+    startQuickStart(w.ctx, { jobId: 'q16', kind: 'character', notes: NOTES }, w.brief())
+    const done = await w.done('q16')
+    expect(done.status).toBe('complete')
+    expect(done.fromNotes).toEqual(['name', 'summary'])
+    const e = repo.getEntry(w.db, done.entryId!)
+    expect(e.fields.tics).toBe('The tics.')
+    expect(e.fieldOrigins.summary ?? e.origin).toBe('adam')
+    expect(e.fieldOrigins.hair).toBe('ai')
+    // Not a version for every field that arrived.
+    expect(hist.entryHistory(w.db, e.id).length).toBeLessThanOrEqual(4)
+  })
+
+  it('reads a reply that wraps its two parts in an outer object', async () => {
+    const parts = { fromNotes: { name: 'Brann Holt', summary: 'Brann Holt runs the ferry across the Narrows.' }, drafted: { hair: 'Grey' } }
+    const w = setup({ fetchImpl: canned([JSON.stringify({ character: parts })]) })
+    startQuickStart(w.ctx, { jobId: 'q17', kind: 'character', notes: NOTES }, w.brief())
+    const e = repo.getEntry(w.db, (await w.done('q17')).entryId!)
+    expect(e.summary).toBe('Brann Holt runs the ferry across the Narrows.')
+    expect(e.fieldOrigins.summary ?? e.origin).toBe('adam')
+    expect(e.fields.hair).toBe('Grey')
+    expect(e.fieldOrigins.hair).toBe('ai')
+  })
+
   it('finishes a build that stopped part way, filling only the fields still empty', async () => {
     const w = setup({ modelId: 'fake/midstream-error' })
     startQuickStart(w.ctx, { jobId: 'q13', kind: 'character', notes: NOTES }, w.brief())
@@ -419,6 +450,20 @@ describe('saving a profile', () => {
     expect(picked.fieldOrigins.hair).toBe('ai')
     // Editing a kept field makes it his.
     expect(repo.updateEntry(db, e.id, { fields: { eyes: 'Grey as slate' } }).fieldOrigins.eyes).toBe('adam')
+  })
+
+  it('puts a field back with who made it when Adam undoes picking an option', () => {
+    const db = memoryWorld()
+    const e = repo.createEntry(db, 'character', { name: 'Mara', fields: { hair: 'Black  as pitch' } }, { origin: 'text' })
+    expect(keepSuggestions(db, e.id, { hair: 'Silver' }, true).fieldOrigins.hair).toBe('ai')
+    const back = restoreField(db, e.id, 'hair', 'Black  as pitch', 'text')
+    expect(back.fields.hair).toBe('Black  as pitch')
+    expect(back.fieldOrigins.hair).toBe('text')
+    // Read from the story and never touched by Adam, so it can still go to the Trash when the story drops it.
+    expect(back.byHand).toBe(false)
+    keepSuggestions(db, e.id, { summary: 'A smuggler' })
+    keepSuggestions(db, e.id, { summary: 'A thief' }, true)
+    expect(restoreField(db, e.id, 'summary', 'A smuggler', 'ai').fieldOrigins.summary).toBe('ai')
   })
 })
 
