@@ -108,13 +108,19 @@ export function newName(text: string, index: NameIndex): string {
   return pick ? pick.words.join(' ') : ''
 }
 
+/**
+ * Whether a change to an entry can be pinned to the scene: not to a plot thread (those change on the
+ * scene card), nor to an entry that isn't in the story yet at this point.
+ */
+export const canChange = (e: Pick<NamedEntry, 'kind' | 'absent'>): boolean => e.kind !== 'thread' && !e.absent
+
 /** What the form starts with for these words. */
-export function prefill(selection: string, index: NameIndex, entries: Map<ID, Pick<NamedEntry, 'kind'>>): AddPrefill {
+export function prefill(selection: string, index: NameIndex, entries: Map<ID, Pick<NamedEntry, 'kind' | 'absent'>>): AddPrefill {
   const words = tidySelection(selection)
   const named: ID[] = []
   for (const m of findNames(words, index)) {
     const e = entries.get(m.entryId)
-    if (e && e.kind !== 'thread' && !named.includes(m.entryId)) named.push(m.entryId)
+    if (e && canChange(e) && !named.includes(m.entryId)) named.push(m.entryId)
   }
   return {
     mode: named.length ? 'change' : 'new',

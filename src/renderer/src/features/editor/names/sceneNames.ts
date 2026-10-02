@@ -1,10 +1,11 @@
 // A scene's names (see getSceneNames in src/shared/contracts/manuscript.ts), shared by the page's
 // underlines and hover cards, the Cast tab and the entry beside the page: one call per scene, made
-// again when entries, the memory or the scene card change. The last answer stays on screen while a
-// newer one loads, and the last few scenes are kept, so switching back to one shows it at once.
+// again when entries, the memory, the scene card, the order of scenes or a story's title change. The
+// last answer stays on screen while a newer one loads, and the last few scenes are kept, so switching
+// back to one shows it at once.
 import { useCallback, useEffect } from 'react'
 import { create } from 'zustand'
-import type { ID } from '@shared/types'
+import type { ID, Story } from '@shared/types'
 import type { SceneNames } from '@shared/contracts/manuscript'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
@@ -28,8 +29,24 @@ export const useNamesStore = create<NamesState>(() => ({ scenes: {}, named: { sc
 /** How many scenes' names are kept. */
 const KEEP = 8
 
-/** What a scene's names depend on: the world, its entries, the memory and the scene card. */
-const revision = (s: ReturnType<typeof useApp.getState>): string => `${s.world?.id ?? ''}:${s.entriesRev}:${s.memoryRev}:${s.briefingRev}`
+/** The stories' titles, worked out once for each list of stories (the revision is read on every change to the store). */
+const titlesOf = new WeakMap<Story[], string>()
+function storyTitles(stories: Story[]): string {
+  let titles = titlesOf.get(stories)
+  if (titles === undefined) {
+    titles = stories.map((s) => `${s.id}=${s.title}`).join('\n')
+    titlesOf.set(stories, titles)
+  }
+  return titles
+}
+
+/**
+ * What a scene's names depend on: the world, its entries, the memory and the scene card; the outline,
+ * as moving a scene or chapter renumbers the places ("Book 1, Ch 2, Sc 3") and changes what came
+ * before; and the stories' titles, which those places are named after.
+ */
+const revision = (s: ReturnType<typeof useApp.getState>): string =>
+  `${s.world?.id ?? ''}:${s.entriesRev}:${s.memoryRev}:${s.briefingRev}:${s.outlineRev}:${storyTitles(s.stories)}`
 
 /** The revision each scene was last asked for: only the newest answer is kept. */
 const asked = new Map<ID, string>()

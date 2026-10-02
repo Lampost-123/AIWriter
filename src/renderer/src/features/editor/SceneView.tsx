@@ -161,10 +161,13 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const lineHeight = prefs?.lineHeight ?? 1.7
   const pageWidth = prefs?.pageWidth ?? 70
 
-  /** Clicking the empty page below the text puts the cursor at the end. */
-  const onPageMouseDown = (e: React.MouseEvent): void => {
+  /**
+   * Clicking the empty page below the text puts the cursor at the end. Only presses on the page itself:
+   * pop-ups opened from the page (a name's card, the Add to memory form) reach here through React too.
+   */
+  const onPageMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
     const prose = editor.view.dom
-    if (e.button !== 0 || prose.contains(e.target as Node)) return
+    if (e.button !== 0 || !e.currentTarget.contains(e.target as Node) || prose.contains(e.target as Node)) return
     if (e.clientY > prose.getBoundingClientRect().bottom) {
       e.preventDefault()
       editor.commands.focus('end')

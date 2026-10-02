@@ -120,6 +120,24 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
   await peek.getByRole('button', { name: 'Back to Scene card' }).click()
   await expect(scenePanel(win).getByRole('tab', { name: 'Scene card', selected: true })).toBeVisible()
 
+  // Clicking the card shows the entry beside the page too, even where the card hangs below the last
+  // line of the scene, and the caret stays where it was.
+  await prose(win).locator('p').first().click()
+  await win.keyboard.press('Home')
+  await names(win, w.mara).last().hover()
+  await expect(card(win)).toBeVisible()
+  const words = (await prose(win).boundingBox())!
+  const cardBox = (await card(win).boundingBox())!
+  expect(cardBox.y + cardBox.height - 12).toBeGreaterThan(words.y + words.height)
+  await card(win).click({ position: { x: 24, y: cardBox.height - 12 } })
+  await expect(peek).toBeVisible()
+  await expect(card(win)).toBeHidden()
+  await expect(prose(win)).toBeFocused()
+  await win.keyboard.type('So. ')
+  await expect(prose(win).locator('p').first()).toHaveText(`So. ${TEXT[0]}`)
+  await expect(prose(win).locator('p').nth(3)).toHaveText('Mara lost her temper with the bellows that night. Still here.')
+  await peek.getByRole('button', { name: 'Back to Scene card' }).click()
+
   // The Cast tab: point of view, the others present, where, then anyone else named.
   await scenePanel(win).getByRole('tab', { name: 'Cast' }).click()
   const cast = scenePanel(win).getByRole('tabpanel', { name: 'Cast' })
@@ -198,6 +216,33 @@ test('Add to memory and Quick start from selected words', async ({ launch }) => 
   await win.keyboard.press('Escape')
   await expect(bar).toBeHidden()
   expect(await win.evaluate('window.getSelection().toString()')).toContain('Mara crossed the yard')
+
+  // Opened from the last lines of the scene, the form hangs below the words. Its parts work with the
+  // mouse there too: the form stays open, and the scene's words and the selection are left alone.
+  await selectParagraph(win, 3)
+  await bar.getByRole('button', { name: 'Add to memory' }).click()
+  await expect(form.getByRole('heading', { name: 'A change to Mara Venn' })).toBeVisible()
+  const words = (await prose(win).boundingBox())!
+  const somethingNew = form.getByRole('radio', { name: 'Something new' })
+  expect((await somethingNew.boundingBox())!.y).toBeGreaterThan(words.y + words.height)
+  await somethingNew.click()
+  await expect(form.getByRole('heading', { name: 'New character' })).toBeVisible()
+  await form.getByRole('combobox', { name: 'Kind' }).click()
+  await win.getByRole('option', { name: 'Place' }).click()
+  await expect(form.getByRole('heading', { name: 'New place' })).toBeVisible()
+  await form.getByRole('textbox', { name: 'Name' }).click()
+  await win.keyboard.type('The Forge')
+  await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue('The Forge')
+  await form.getByRole('textbox', { name: 'Description' }).click()
+  await expect(form.getByRole('textbox', { name: 'Description' })).toBeFocused()
+  await form.getByRole('radio', { name: 'A change' }).click()
+  await form.getByRole('textbox', { name: 'What changed' }).click()
+  await expect(form.getByRole('textbox', { name: 'What changed' })).toBeFocused()
+  await form.getByRole('button', { name: 'Cancel' }).click()
+  await expect(form).toBeHidden()
+  await expect(prose(win)).toBeFocused()
+  expect(await win.evaluate('window.getSelection().toString()')).toContain('Mara lost her temper')
+  expect((await invoke(win, 'getScene', w.sceneId)).text).toBe(TEXT.join('\n\n'))
 
   // Quick start a character opens the builder with the passage.
   await selectParagraph(win, 2)

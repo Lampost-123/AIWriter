@@ -31,7 +31,7 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
     if (wasInside) requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus())
   }
 
-  // Something asked for a tab (a new draft shows its Drafts tab): it shows instead of the entry.
+  // When something else picks a tab while an entry shows here, the tab shows instead of the entry.
   const lastTab = useRef(tab)
   useEffect(() => {
     if (lastTab.current === tab) return

@@ -238,6 +238,8 @@ export function SelectionLayer({
           sideOffset={6}
           collisionPadding={12}
           onOpenAutoFocus={(e) => e.preventDefault()}
+          // A press in the form (or its lists) belongs to the form, never to the page it was opened from.
+          onMouseDown={(e) => e.stopPropagation()}
           onCloseAutoFocus={(e) => {
             e.preventDefault()
             backToPage()

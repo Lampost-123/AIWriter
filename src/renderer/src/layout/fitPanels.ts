@@ -18,15 +18,25 @@ export const PROSE_CHAR_EM = 0.472
 export const PROSE_CH_EM = 0.631
 /** The page's padding either side when narrow (px-6), and its scroll bar. */
 export const PAGE_PADDING = 2 * 24 + 10
+/** From this page width the padding may be wider (px-10, SceneView's container query; with a scroll bar it starts 10 px later). */
+export const WIDE_PAGE = 700
+/** The page's padding either side from WIDE_PAGE (px-10), and its scroll bar. */
+export const WIDE_PAGE_PADDING = 2 * 40 + 10
+
+/** The room the words need for about 55 characters a line at Adam's text size, never more than the page width setting gives them. */
+export function proseMinFor(fontSize: number, pageWidthCh = 70): number {
+  return Math.round(Math.min((LINE_CHARS + WRAP_SLACK) * PROSE_CHAR_EM, pageWidthCh * PROSE_CH_EM) * fontSize)
+}
 
 /**
  * The narrowest the writing page gets while the panels beside it can give up width: room for about
  * 55 characters a line at Adam's text size (about 620 px at the default 19 px), plus the padding.
  * Never more than the page's own column at its widest (the page width setting), which is all it uses.
+ * Large text needs a page wide enough for the wider padding too, so the words still get their room.
  */
 export function pageMinFor(fontSize: number, pageWidthCh = 70): number {
-  const prose = Math.min((LINE_CHARS + WRAP_SLACK) * PROSE_CHAR_EM, pageWidthCh * PROSE_CH_EM) * fontSize
-  return Math.round(prose) + PAGE_PADDING
+  const prose = proseMinFor(fontSize, pageWidthCh)
+  return prose + PAGE_PADDING < WIDE_PAGE ? prose + PAGE_PADDING : prose + WIDE_PAGE_PADDING
 }
 
 /**

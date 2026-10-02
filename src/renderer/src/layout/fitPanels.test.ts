@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { PAGE_MIN, binderFloats, chosenWidthFor, dragMax, fitPanels, pageMinFor } from './fitPanels'
+import {
+  PAGE_MIN,
+  PAGE_PADDING,
+  WIDE_PAGE,
+  WIDE_PAGE_PADDING,
+  binderFloats,
+  chosenWidthFor,
+  dragMax,
+  fitPanels,
+  pageMinFor,
+  proseMinFor
+} from './fitPanels'
 
 const binder = (width = 272, open = true) => ({ open, width, floor: 200 })
 const scenePanel = (width = 340, open = true) => ({ open, width, floor: 260 })
@@ -60,6 +71,18 @@ describe('pageMinFor', () => {
   it('never asks for more than the page uses at its chosen width', () => {
     expect(pageMinFor(19, 40)).toBeLessThan(pageMinFor(19, 70))
     expect(pageMinFor(19, 100)).toBe(pageMinFor(19, 70))
+  })
+
+  it('leaves the words their room with whichever padding the page has at that width', () => {
+    // The page has 40 px either side from 700 px (24 below), so large text needs room for that too.
+    for (let size = 15; size <= 24; size++) {
+      const min = pageMinFor(size)
+      const padding = min >= WIDE_PAGE ? WIDE_PAGE_PADDING : PAGE_PADDING
+      expect(min - padding).toBe(proseMinFor(size))
+    }
+    expect(pageMinFor(19)).toBe(proseMinFor(19) + PAGE_PADDING)
+    expect(pageMinFor(22)).toBe(proseMinFor(22) + WIDE_PAGE_PADDING)
+    expect(pageMinFor(24)).toBe(proseMinFor(24) + WIDE_PAGE_PADDING)
   })
 })
 

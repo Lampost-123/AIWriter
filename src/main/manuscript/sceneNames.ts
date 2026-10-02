@@ -44,9 +44,10 @@ export function stateLines(e: Pick<EntryState, 'kind' | 'happened' | 'changed' |
   const lines: StateLine[] = e.happened
     .filter((h) => h.note.trim())
     .slice(-HAPPENED_SHOWN)
-    .map(
-      (h): StateLine => ({ kind: 'happened', text: upperFirst(oneLine(h.note).replace(/\.$/, '')), where: h.where, here: hereIds.has(h.changeId) })
-    )
+    .map((h): StateLine => {
+      const text = upperFirst(oneLine(h.note).replace(/\.$/, ''))
+      return { kind: 'happened', text, where: h.where, here: hereIds.has(h.changeId) }
+    })
   let fields = 0
   for (const key of e.changed) {
     if (fields >= FIELDS_SHOWN) break

@@ -1,6 +1,6 @@
 // The small form "Add to memory" opens beside the selected words: a new entry (named after a name in
 // the words, with the words as its description) or a change to one the words name (the words as its
-// note, pinned to this scene). Saving makes it Adam's and offers Undo; nothing asks "are you sure?".
+// note, pinned to this scene). Saving makes it Adam's and offers Open and Undo; nothing asks "are you sure?".
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EntryKind, ID } from '@shared/types'
 import type { SceneNames } from '@shared/contracts/manuscript'
@@ -11,7 +11,7 @@ import { useApp } from '@/lib/store'
 import { Segmented } from '@/features/generate/parts'
 import { newEntryName } from '@/features/world/entryActions'
 import { displayName, kindWord } from '@/features/peek/entryView'
-import { addedChangeMessage, addedEntryMessage, NEW_KINDS, type AddPrefill } from './addToMemoryLogic'
+import { addedChangeMessage, addedEntryMessage, canChange, NEW_KINDS, type AddPrefill } from './addToMemoryLogic'
 
 type Mode = AddPrefill['mode']
 
@@ -22,15 +22,21 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
 
 const KIND_OPTIONS = NEW_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k].one }))
 
-/** A toast for something just added, with Undo (see "Needs from integration": Open belongs here too). */
-function announceAdded(message: string, undo: () => Promise<unknown>): void {
-  toast(message, {
-    tone: 'success',
+/**
+ * A toast for something just added: Undo, and Open, which shows the entry beside the page. Open is the
+ * toast's second button (`secondary`), which the shared toast gains with this milestone; until it
+ * does, the toast shows Undo alone.
+ */
+function announceAdded(message: string, entryId: ID, undo: () => Promise<unknown>): void {
+  const options = {
+    tone: 'success' as const,
     action: {
       label: 'Undo',
       run: () => void undo().catch((e: Error) => toast(`Couldn’t undo that. ${e.message}`, { tone: 'danger' }))
-    }
-  })
+    },
+    secondary: { label: 'Open', run: () => useApp.getState().peekEntry(entryId) }
+  }
+  toast(message, options)
 }
 
 export function AddToMemoryForm({
@@ -56,7 +62,7 @@ export function AddToMemoryForm({
 
   // The entries a change can be to: those the words name first, then the rest by name.
   const options = useMemo(() => {
-    const live = names.entries.filter((e) => e.kind !== 'thread' && !e.absent)
+    const live = names.entries.filter(canChange)
     const named = start.named.map((id) => live.find((e) => e.id === id)).filter((e) => !!e)
     const rest = live.filter((e) => !start.named.includes(e.id)).sort((a, b) => displayName(a).localeCompare(displayName(b)))
     return [...named, ...rest].map((e) => ({ value: e.id, label: displayName(e), hint: kindWord(e.kind) }))
@@ -83,7 +89,8 @@ export function AddToMemoryForm({
           originStoryId: names.storyId
         })
         useApp.getState().bumpEntries()
-        announceAdded(addedEntryMessage(displayName(e), kind), () => api.deleteEntry(e.id).then(() => useApp.getState().bumpEntries()))
+        const undo = (): Promise<void> => api.deleteEntry(e.id).then(() => useApp.getState().bumpEntries())
+        announceAdded(addedEntryMessage(displayName(e), kind), e.id, undo)
       } else if (target) {
         const c = await api.createChange({
           kind: 'update',
@@ -93,7 +100,7 @@ export function AddToMemoryForm({
           sceneId: names.sceneId,
           storyId: names.storyId
         })
-        announceAdded(addedChangeMessage(displayName(target), note), () => api.deleteChange(c.id))
+        announceAdded(addedChangeMessage(displayName(target), note), target.id, () => api.deleteChange(c.id))
       }
       onDone(true)
     } catch (e) {

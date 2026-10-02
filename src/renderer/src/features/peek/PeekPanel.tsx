@@ -92,9 +92,9 @@ export function PeekPanel({
           <Portrait entry={entry} size={52} />
           <div className="min-w-0">
             <h2 className="truncate text-[16px] font-semibold leading-6 text-fg">{name}</h2>
-            <p className="truncate text-[12px] text-faint">
-              {kindWord(entry.kind)} · as of {data?.label ?? 'this scene'}
-            </p>
+            <p className="truncate text-[12px] leading-4 text-faint">{kindWord(entry.kind)}</p>
+            {/* Which scene it is as of, whole even in a narrow panel (a long story title wraps). */}
+            <p className="text-[12px] leading-4 text-faint">As of {data?.label ?? 'this scene'}</p>
           </div>
         </div>
         {entry.summary ? <p className="mt-3 text-[13px] leading-relaxed text-muted">{entry.summary}</p> : null}

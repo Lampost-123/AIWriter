@@ -3,13 +3,14 @@ import type { EntryKind } from '@shared/types'
 import { buildNameIndex } from '../names/nameMatch'
 import { addedChangeMessage, addedEntryMessage, newName, prefill, tidySelection } from './addToMemoryLogic'
 
-const world: { id: string; kind: EntryKind; name: string; aliases: string[] }[] = [
+const world: { id: string; kind: EntryKind; name: string; aliases: string[]; absent?: string }[] = [
   { id: 'mara', kind: 'character', name: 'Mara Venn', aliases: ['Mara'] },
   { id: 'eel', kind: 'place', name: 'The Gilded Eel', aliases: [] },
-  { id: 'fire', kind: 'thread', name: 'The Fire', aliases: [] }
+  { id: 'fire', kind: 'thread', name: 'The Fire', aliases: [] },
+  { id: 'kell', kind: 'character', name: 'Kell', aliases: [], absent: 'Not in the story yet at this point' }
 ]
 const index = buildNameIndex(world)
-const kinds = new Map(world.map((e) => [e.id, { kind: e.kind }]))
+const kinds = new Map(world.map((e) => [e.id, { kind: e.kind, absent: e.absent ?? null }]))
 
 describe('Add to memory starts with the selected words', () => {
   it('words that name an entry: a change to it, with the words as its note', () => {
@@ -28,6 +29,11 @@ describe('Add to memory starts with the selected words', () => {
 
   it('a plot thread named in the words is not offered for a change', () => {
     expect(prefill('Nobody spoke of The Fire.', index, kinds)).toMatchObject({ mode: 'new', named: [], entryId: null })
+  })
+
+  it('nor is anyone not in the story yet at this point (the form doesn’t list them)', () => {
+    expect(prefill('Kell watched from the hill.', index, kinds)).toMatchObject({ mode: 'new', named: [], entryId: null })
+    expect(prefill('Kell watched Mara from the hill.', index, kinds)).toMatchObject({ mode: 'change', named: ['mara'], entryId: 'mara' })
   })
 
   it('keeps paragraphs, with at most one blank line between them', () => {

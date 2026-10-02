@@ -8,7 +8,8 @@ import { Portrait } from '@/features/views/Portrait'
 import { cardLines, displayName, kindWord, noStateWords, whereWords } from '@/features/peek/entryView'
 
 export const CARD_WIDTH = 304
-export const CARD_HEIGHT = 194
+/** Room for the portrait row, a one-liner of two lines, three lines of state and the hint, with a little space above the hint. */
+export const CARD_HEIGHT = 202
 const GAP = 6
 const MARGIN = 8
 
@@ -42,8 +43,11 @@ export function HoverCard({
       data-hover-card=""
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      // Clicking it keeps the caret and the selection in the page.
-      onMouseDown={(e) => e.preventDefault()}
+      // Clicking it keeps the caret and the selection in the page (and the press never reaches the page behind).
+      onMouseDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
       onClick={onOpen}
       style={{ left: at.left, top: at.top, width: CARD_WIDTH, height: CARD_HEIGHT }}
       className="fixed z-50 flex select-none flex-col rounded-xl border border-line bg-surface px-3.5 pb-2.5 pt-3 text-left shadow-pop animate-fade-in transition-colors duration-150 hover:border-line-strong"
