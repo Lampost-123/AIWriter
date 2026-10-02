@@ -5,6 +5,7 @@ import type {
   Entry,
   EntryInput,
   EntryKind,
+  EntryOrigin,
   ID,
   Outline,
   Scene,
@@ -17,6 +18,7 @@ import type {
 } from '@shared/types'
 import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { newId, now, UserError } from '../util'
+import { addExistsPoint, defaultExistsPoint } from './memory'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
 // handle, with no Electron imports, so they can be unit-tested in plain Node.
@@ -496,36 +498,59 @@ export function getEntries(db: DB, ids: ID[]): Entry[] {
   })
 }
 
-export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}): Entry {
+/** How an entry is being made: by Adam (the default), by the memory keeper from a scene, or by a start-of-story change. */
+export interface EntryMaking {
+  origin: EntryOrigin
+  originStoryId?: ID | null
+  originSceneId?: ID | null
+}
+
+/** Makes an entry and gives it its default first-exists point (spec, Multi-story rules). */
+export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, making: EntryMaking = { origin: 'hand' }): Entry {
   const t = now()
   const id = newId()
-  db.prepare(
-    `INSERT INTO entries (id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json, parent_id, hard_rule, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    kind,
-    (input.name ?? '').trim() || 'Unnamed',
-    JSON.stringify(input.aliases ?? []),
-    input.summary ?? '',
-    input.description ?? '',
-    JSON.stringify(input.tags ?? []),
-    input.notes ?? '',
-    JSON.stringify(input.fields ?? {}),
-    input.parentId ?? null,
-    input.hardRule ? 1 : 0,
-    t,
-    t
-  )
+  const originStoryId = making.originStoryId ?? input.originStoryId ?? null
+  const originSceneId = making.originSceneId ?? null
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO entries (id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json, parent_id, hard_rule,
+         origin, origin_story_id, origin_scene_id, by_hand, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      kind,
+      (input.name ?? '').trim() || 'Unnamed',
+      JSON.stringify(input.aliases ?? []),
+      input.summary ?? '',
+      input.description ?? '',
+      JSON.stringify(input.tags ?? []),
+      input.notes ?? '',
+      JSON.stringify(input.fields ?? {}),
+      input.parentId ?? null,
+      input.hardRule ? 1 : 0,
+      making.origin,
+      originStoryId,
+      originSceneId,
+      making.origin === 'hand' ? 1 : 0,
+      t,
+      t
+    )
+    const point = defaultExistsPoint(db, { kind, origin: making.origin, originStoryId, originSceneId })
+    addExistsPoint(db, { ...point, entryId: id, byHand: false })
+  })()
   return getEntry(db, id)
 }
 
-export function updateEntry(db: DB, id: ID, patch: EntryInput): Entry {
+/**
+ * Saves changes to an entry. Adam's edits (the default) mark it as his, so the memory keeper never
+ * overwrites or removes it; the keeper passes `{ byHand: false }` for entries it made.
+ */
+export function updateEntry(db: DB, id: ID, patch: EntryInput, opts: { byHand: boolean } = { byHand: true }): Entry {
   const e = { ...getEntry(db, id), ...patch }
   if (e.parentId === id) e.parentId = null
   db.prepare(
     `UPDATE entries SET name = ?, aliases_json = ?, summary = ?, description = ?, tags_json = ?, notes = ?, fields_json = ?,
-     parent_id = ?, hard_rule = ?, updated_at = ? WHERE id = ?`
+     parent_id = ?, hard_rule = ?, by_hand = MAX(by_hand, ?), updated_at = ? WHERE id = ?`
   ).run(
     e.name.trim() || 'Unnamed',
     JSON.stringify(e.aliases),
@@ -536,6 +561,7 @@ export function updateEntry(db: DB, id: ID, patch: EntryInput): Entry {
     JSON.stringify(e.fields),
     e.parentId,
     e.hardRule ? 1 : 0,
+    opts.byHand ? 1 : 0,
     now(),
     id
   )
