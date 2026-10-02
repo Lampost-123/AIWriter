@@ -20,10 +20,10 @@ describe('parseModelList', () => {
   })
 
   it('reads plain id lists from other providers, without prices', () => {
-    const list = parseModelList({ object: 'list', data: [{ id: 'llama3', object: 'model' }, { id: 'mistral', context_window: 32768 }, { id: 'llama3' }] }, 'custom')
+    const list = parseModelList({ object: 'list', data: [{ id: 'local-a', object: 'model' }, { id: 'local-b', context_window: 32768 }, { id: 'local-a' }] }, 'custom')
     expect(list).toEqual([
-      { id: 'llama3', name: 'llama3', contextLength: null, promptPrice: null, completionPrice: null },
-      { id: 'mistral', name: 'mistral', contextLength: 32768, promptPrice: null, completionPrice: null }
+      { id: 'local-a', name: 'local-a', contextLength: null, promptPrice: null, completionPrice: null },
+      { id: 'local-b', name: 'local-b', contextLength: 32768, promptPrice: null, completionPrice: null }
     ])
   })
 
@@ -31,7 +31,7 @@ describe('parseModelList', () => {
     expect(parseModelList(null, 'custom')).toEqual([])
     expect(parseModelList({ nothing: true }, 'custom')).toEqual([])
     expect(parseModelList([{ id: 'x' }, 'junk', null], 'custom').map((m) => m.id)).toEqual(['x'])
-    expect(parseModelList({ models: [{ name: 'qwen' }] }, 'custom').map((m) => m.id)).toEqual(['qwen'])
+    expect(parseModelList({ models: [{ name: 'local-c' }] }, 'custom').map((m) => m.id)).toEqual(['local-c'])
   })
 })
 

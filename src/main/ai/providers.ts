@@ -138,7 +138,7 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
   }
 }
 
-const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} seconds`
+const seconds = (ms: number): string => (ms < 1000 ? 'under a second' : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} seconds`)
 const usd = (n: number): string => `$${n.toFixed(n < 10 ? 2 : 0)}`
 
 export async function testProvider(id: string, modelId?: string): Promise<{ ok: boolean; message: string; latencyMs: number | null }> {
