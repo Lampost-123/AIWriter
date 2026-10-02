@@ -113,6 +113,22 @@ test('a scene added from a row menu keeps its name box, even if it opens before 
   }
 })
 
+test("the top bar's Saved is the scene's, so it shows only on the writing page", async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  const note = win.locator('header').first().locator('[aria-live]', { hasText: /^Sav/ })
+  await win.keyboard.type('A few words.')
+  await expect(note).toHaveText('Saved')
+  await expect(note).toHaveCSS('opacity', '1')
+  // An entry page has its own save note: the bar's goes quiet, and screen readers aren't told "Saved".
+  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
+  await expect(note).toHaveCSS('opacity', '0')
+  await expect(note.locator('[aria-hidden="true"]')).toHaveText('Saved')
+  await row(win, 'Scene 1').click()
+  await expect(note).toHaveCSS('opacity', '1')
+})
+
 test('emptying a drafted scene puts it back to planned', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
