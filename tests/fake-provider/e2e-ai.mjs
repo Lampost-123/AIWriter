@@ -99,6 +99,15 @@ try {
   check(!badTest.ok && /Couldn't reach Nowhere/.test(badTest.message), `bad address: ${badTest.message}`)
   await invoke('deleteProvider', bad.id)
 
+  // Removing a provider can be undone from the toast, key included.
+  const keyed = await invoke('saveProvider', { kind: 'custom', name: 'Keyed', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test-123' })
+  await invoke('deleteProvider', keyed.id)
+  const gone = !(await invoke('listProviders')).some((p) => p.id === keyed.id)
+  const back = await invoke('restoreProvider', keyed.id)
+  const listed = await invoke('listProviders')
+  check(gone && back.hasKey && listed.some((p) => p.id === keyed.id && p.hasKey), 'a removed provider comes back with its key (Undo)')
+  await invoke('deleteProvider', keyed.id)
+
   // ----- A scene card with a character and a place (through the API) -----
   const stories = await invoke('listStories')
   const outline = await invoke('getOutline', stories[0].id)
