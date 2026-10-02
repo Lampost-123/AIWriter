@@ -11,7 +11,7 @@
 // is reloaded so it shows it, and everything checked is done through the interface.
 import type { Page } from '@playwright/test'
 import type { ID } from '@shared/types'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const nameBox = (win: Page) => win.getByRole('textbox', { name: 'Name', exact: true })
@@ -89,7 +89,7 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
     anchor: 'scene',
     sceneId: s[1],
     kind: 'update',
-    payload: { note: 'Loses her left eye', fields: { eyes: 'one grey eye' } }
+    payload: { note: 'loses her left eye', fields: { eyes: 'one grey eye' } }
   })
   // Tobin first appears in the third scene.
   const tobin = await invoke(win, 'createEntry', 'character', { name: 'Tobin', originStoryId: b1 })
@@ -113,7 +113,10 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await expect(slider).toHaveAttribute('aria-valuetext', 'Book 1, Ch 1, Sc 2')
   await expect(main(win).getByText('one grey eye', { exact: true })).toBeVisible()
   await expect(main(win).getByText('Changed', { exact: true })).toBeVisible()
-  await expect(main(win).getByText('Loses her left eye')).toBeVisible()
+  // Worded as the page's Changes over time words it.
+  const happened = main(win).getByRole('listitem').filter({ hasText: 'her left eye' })
+  await expect(happened.getByText('Loses her left eye', { exact: true })).toBeVisible()
+  await expect(happened.getByText('Book 1, Ch 1, Sc 2', { exact: true })).toBeVisible()
   await expect(main(win).getByText('You wrote this. What has changed by this point is marked.')).toBeVisible()
 
   // Back to the start of the story: as Adam wrote her. "Next change" jumps to where she changes.
@@ -143,6 +146,54 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await main(win).getByRole('button', { name: 'New character' }).click()
   await expect(nameBox(win)).toBeFocused()
   await expect(nameBox(win)).toHaveValue('New character')
+})
+
+test('each relationship and fact says where it came from, or that Adam wrote it, on the page and as of a scene', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '700' } })
+    await createWorldFromWelcome(win, 'Sources')
+    await useFakeModel(win, fake)
+    const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+    // The memory keeper reads the scene: it finds Kell, and what he learns there.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.type('Rain all night. Kell learned that the bridge is out.')
+    const kellKnows = async (): Promise<boolean> => {
+      const kell = (await invoke(win, 'listEntries')).find((e) => e.name === 'Kell')
+      return !!kell && (await invoke(win, 'listChanges', kell.id)).some((c) => c.kind === 'knowledge' && c.links.length > 0)
+    }
+    await expect.poll(kellKnows, { timeout: 30_000 }).toBe(true)
+    const kell = (await invoke(win, 'listEntries')).find((e) => e.name === 'Kell')!
+    // Adam says himself how Kell and Mara are linked.
+    await invoke(win, 'createChange', {
+      entryId: kell.id,
+      anchor: 'baseline',
+      kind: 'relationship',
+      payload: { otherId: mara.id, type: 'brother', feels: '', otherFeels: '' }
+    })
+    await reload(win)
+
+    // On Kell's page (AI Write made him) Adam's relationship says he wrote it; on Mara's (all his) it needn't.
+    await openEntry(win, 'Characters', 'Kell')
+    await openSection(win, 'Relationships')
+    await expect(main(win).getByLabel('How Kell is linked to Mara')).toHaveValue('brother')
+    await expect(main(win).getByText('You wrote this', { exact: true })).toHaveCount(1)
+    await entryRows(win).filter({ hasText: 'Mara' }).click()
+    await expect(main(win).getByLabel('How Kell is linked to Mara')).toHaveValue('brother')
+    await expect(main(win).getByText('You wrote this', { exact: true })).toHaveCount(0)
+
+    // As of the scene: what he knows shows the words it came from, and the relationship that Adam wrote it.
+    await entryRows(win).filter({ hasText: 'Kell' }).click()
+    await main(win).getByRole('button', { name: 'View as of a scene' }).click()
+    await expect(main(win).getByRole('slider', { name: 'As of' })).toHaveAttribute('aria-valuetext', 'Book 1, Ch 1, Sc 1')
+    const knows = main(win).getByRole('listitem').filter({ hasText: 'the bridge is out' })
+    await expect(knows).toContainText('“Kell learned that the bridge is out.”')
+    await expect(knows.getByRole('button', { name: 'Book 1, Ch 1, Sc 1' })).toBeVisible()
+    const brother = main(win).getByRole('listitem').filter({ hasText: 'Brother of Mara' })
+    await expect(brother.getByText('You wrote this', { exact: true })).toBeVisible()
+  } finally {
+    await fake.close()
+  }
 })
 
 test('the codex shows every entry with its portrait, filters and sorts them, and keeps them while Adam goes back and forth', async ({
@@ -207,7 +258,10 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await choose(win, 'Tag', 'the north')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(2)
   expect(await cardNames(win, 'Characters')).toEqual(['Tobin'])
+  // A clear button goes once used: the keyboard's place moves to the search box.
+  const search = main(win).getByRole('textbox', { name: 'Search the codex' })
   await main(win).getByRole('button', { name: 'Clear filters' }).click()
+  await expect(search).toBeFocused()
   await choose(win, 'Role', 'Antagonist')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(1)
   expect(await cardNames(win, 'Characters')).toEqual(['Tobin'])
@@ -216,20 +270,25 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(1)
   expect(await cardNames(win, 'Characters')).toEqual(['Kell'])
   await main(win).getByRole('button', { name: 'Clear filters' }).click()
-  await main(win).getByRole('textbox', { name: 'Search the codex' }).fill('ferry')
+  await search.fill('ferry')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(1)
-  await main(win).getByRole('textbox', { name: 'Search the codex' }).fill('nobody here')
+  // Only the search is set: the search box's own clear button is the way to clear it.
+  await expect(main(win).getByRole('button', { name: 'Clear filters' })).toHaveCount(0)
+  await search.fill('nobody here')
   await expect(main(win).getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
   await expect(main(win).getByText('Nothing in the codex matches your search.')).toBeVisible()
   // The search box's own clear button comes first; the one under "Nothing matches" last.
-  await main(win).getByRole('button', { name: 'Clear search' }).last().click()
+  await main(win).getByRole('button', { name: 'Clear search' }).last().focus()
+  await win.keyboard.press('Enter')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
+  await expect(search).toBeFocused()
   await choose(win, 'Kind', 'Places')
-  await main(win).getByRole('textbox', { name: 'Search the codex' }).fill('Mara')
+  await search.fill('Mara')
   await expect(main(win).getByText('Nothing in the codex matches your search and this filter.')).toBeVisible()
   await main(win).getByRole('button', { name: 'Clear filters' }).last().click()
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
-  await expect(main(win).getByRole('textbox', { name: 'Search the codex' })).toHaveValue('')
+  await expect(search).toHaveValue('')
+  await expect(search).toBeFocused()
 
   // A card opens the entry's page; going back finds the codex as it was left.
   await choose(win, 'Tag', 'family')
@@ -240,6 +299,71 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await expect(main(win).getByRole('combobox', { name: 'Tag', exact: true })).toHaveText('family')
   await expect(main(win).getByRole('combobox', { name: 'Sort by', exact: true })).toHaveText('Importance')
   expect(await cardNames(win, 'Characters')).toEqual(['Mara', 'Tobin'])
+})
+
+test('a long codex is where Adam left it when he comes back, with the card he opened in its place', async ({ launch }) => {
+  const { app, win } = await launch()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1280, 800))
+  await createWorldFromWelcome(win, 'Long')
+  // 300 entries, some with one-liners long enough to take two lines (so cards differ in height).
+  await win.evaluate(async () => {
+    const { aiwrite } = globalThis as unknown as { aiwrite: { invoke(m: string, ...a: unknown[]): Promise<{ ok: boolean }> } }
+    for (let i = 0; i < 300; i++) {
+      const summary = i % 2 ? `Someone or somewhere number ${i}, with a one-liner long enough to take two lines on its card` : `Number ${i}`
+      const input = { name: `Person ${String(i).padStart(3, '0')}`, summary, tags: [`tag${i % 7}`] }
+      const res = await aiwrite.invoke('createEntry', i < 200 ? 'character' : 'place', input)
+      if (!res.ok) throw new Error('Could not make the entries')
+    }
+  })
+  await reload(win)
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await expect(main(win).locator('[data-codex-card]')).toHaveCount(300)
+
+  // The codex scrolls in its own view, with the toolbar staying at the top of it.
+  const toolbar = main(win).locator('[data-codex-toolbar]')
+  /** The first card wholly under the toolbar (or `below` further down), and how far down the view it is. */
+  const cardInView = (below = 0): Promise<{ id: string; top: number }> =>
+    toolbar.evaluate((bar, below) => {
+      const view = bar.closest('.overflow-y-auto')!
+      const under = bar.getBoundingClientRect().bottom + below
+      const card = [...view.querySelectorAll('[data-codex-card]')].find((c) => c.getBoundingClientRect().top >= under)!
+      return { id: card.getAttribute('data-codex-card')!, top: card.getBoundingClientRect().top - view.getBoundingClientRect().top }
+    }, below)
+  const topOf = (id: string): Promise<number> =>
+    main(win)
+      .locator(`[data-codex-card="${id}"]`)
+      .evaluate((c) => c.getBoundingClientRect().top - c.closest('.overflow-y-auto')!.getBoundingClientRect().top)
+  /** Scrolls the codex, and waits for the cards come into view to be drawn. */
+  const scrollTo = (y: number): Promise<unknown> =>
+    toolbar.evaluate(async (bar, y) => {
+      bar.closest('.overflow-y-auto')!.scrollTop = y
+      const w = globalThis as unknown as { requestAnimationFrame(next: () => void): number }
+      for (let i = 0; i < 3; i++) await new Promise<void>((r) => w.requestAnimationFrame(() => r()))
+    }, y)
+
+  for (const [y, below] of [
+    [3000, 0],
+    [9000, 250],
+    [1e6, 0]
+  ]) {
+    await scrollTo(y)
+    const was = await cardInView(below)
+    await main(win).locator(`[data-codex-card="${was.id}"]`).click()
+    await main(win).getByRole('button', { name: 'Back to the codex' }).click()
+    // The card is where it was, and has the keyboard's place back.
+    const card = main(win).locator(`[data-codex-card="${was.id}"]`)
+    await expect(card).toBeFocused()
+    expect(Math.abs((await topOf(was.id)) - was.top)).toBeLessThan(2)
+  }
+
+  // Leaving another way, the codex is still as it was left.
+  await scrollTo(6000)
+  const was = await cardInView()
+  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await expect(main(win).getByRole('heading', { name: 'Characters', exact: true })).toBeVisible()
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await expect(main(win).locator(`[data-codex-card="${was.id}"]`)).toBeVisible()
+  expect(Math.abs((await topOf(was.id)) - was.top)).toBeLessThan(2)
 })
 
 test('an empty codex explains what entries are for and offers a way to start', async ({ launch }) => {

@@ -1,14 +1,14 @@
 // An entry as of a point in the story (milestone 3: "Any entry can be viewed as of any scene"):
 // read-only, with a slider through the story's scenes kept at the top of the page, what has changed
 // by then marked, what has happened so far, its relationships and what it knows. Each value still as
-// written says where it came from (the words, the AI, or Adam). "Back to editing" returns to the
-// profile in one click. The last answer stays on screen while the next one loads, so sliding never
-// flickers.
+// written, each relationship and each fact says where it came from (the words, the AI, or Adam).
+// "Back to editing" returns to the profile in one click. The last answer stays on screen while the
+// next one loads, so sliding never flickers.
 
 import { Pencil } from 'lucide-react'
 import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import type { FirstExists } from '@shared/contracts/entryViews'
-import type { Entry, EntryAsOf, ID } from '@shared/types'
+import type { ChangeView, Entry, EntryAsOf, ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -17,7 +17,17 @@ import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AsOfSlider } from '@/features/views/AsOfSlider'
 import { AsSeenIn } from '@/features/views/AsSeenIn'
 import { useAsOfStopsState, useEntryAsOf } from '@/features/views/useAsOf'
-import { asOfLead, asOfOrigins, asOfProfile, asOfRelations, chosenStop, type AsOfValue } from './asOfViewLogic'
+import {
+  asOfHappened,
+  asOfLead,
+  asOfNote,
+  asOfOrigins,
+  asOfProfile,
+  asOfRelations,
+  chosenStop,
+  knowsSource,
+  type AsOfValue
+} from './asOfViewLogic'
 import { setAsOfMode, useAsOfMode } from './asOfMode'
 import { firstAppearsText } from './firstExistsLogic'
 import { QuietError } from './memory/QuietError'
@@ -54,8 +64,12 @@ export function EntryAsOfView({
   const { stops, error: stopsError, reload: reloadStops } = useAsOfStopsState(story, entry.id)
   const stop = stops ? chosenStop(stops, chosen, sceneId) : null
   const asOf = useEntryAsOf(entry.id, stop?.at ?? null)
+  // Its changes, for who made each relationship and fact shown. The view waits for them the first
+  // time (not as the slider moves), so those lines never arrive after the rest and move it.
+  const changes = useEntryData(() => api.listChanges(entry.id), `changes:${entry.id}`)
+  const ready = !!asOf.data && (!!changes.data || !!changes.error)
   // Placeholders only while a point is loading: with no point (no stops, or they couldn't load) there is nothing to wait for.
-  const slow = useDelayed(!!stop && !asOf.data && !asOf.error, 250)
+  const slow = useDelayed(!!stop && !ready && !asOf.error, 250)
 
   const bar = useRef<HTMLDivElement>(null)
   const wantFocus = useRef(autoFocus)
@@ -96,7 +110,7 @@ export function EntryAsOfView({
       <div className="min-h-[50vh] pt-5">
         {asOf.error && !asOf.data ? (
           <QuietError what={`${entry.name.trim() || 'it'} at this point`} message={asOf.error} onRetry={asOf.reload} />
-        ) : !asOf.data ? (
+        ) : !asOf.data || !ready ? (
           slow ? (
             <div className="flex flex-col gap-3" aria-hidden>
               <Skeleton className="h-4 w-2/3" />
@@ -105,21 +119,33 @@ export function EntryAsOfView({
             </div>
           ) : null
         ) : (
-          <AsOfContent data={asOf.data} entry={entry} others={others} firsts={firsts} onOpen={onOpen} />
+          <AsOfContent
+            data={asOf.data}
+            changes={changes.data ?? NO_CHANGES}
+            entry={entry}
+            others={others}
+            firsts={firsts}
+            onOpen={onOpen}
+          />
         )}
       </div>
     </>
   )
 }
 
+const NO_CHANGES: ChangeView[] = []
+
 const AsOfContent = memo(function AsOfContent({
   data,
+  changes,
   entry,
   others,
   firsts,
   onOpen
 }: {
   data: EntryAsOf
+  /** The entry's changes, as its page lists them (empty when they couldn't load). */
+  changes: ChangeView[]
   entry: Pick<Entry, 'id' | 'kind' | 'name'>
   others: Entry[]
   firsts: FirstExists[] | null
@@ -130,12 +156,13 @@ const AsOfContent = memo(function AsOfContent({
   const byId = useMemo(() => new Map(others.map((e) => [e.id, e])), [others])
   const nameOf = (id: ID): string | null => (id === entry.id ? name : byId.get(id)?.name.trim() || (byId.has(id) ? 'Unnamed' : null))
   const profile = useMemo(() => (state ? asOfProfile(state, entry.kind) : null), [state, entry.kind])
-  const relations = asOfRelations(data.relationships, entry.id, nameOf)
+  const relations = asOfRelations(data.relationships, entry.id, nameOf, changes)
+  const adamsEntry = state?.origin === 'adam'
   // Where each value still as written came from; the words only load when some were read from the story.
   const origins = useMemo(() => (state && profile ? asOfOrigins(state, profile) : null), [state, profile])
   const fromText = !!origins && [...origins.values()].includes('text')
   const links = useEntryData(() => api.listEntryLinks(entry.id), `links:${entry.id}`, fromText)
-  const places = useSceneLabels(!!links.data?.length)
+  const places = useSceneLabels(!!links.data?.length || changes.some((c) => c.links.length > 0))
   const noteOf = (key: string): LineNote | null => {
     const origin = origins?.get(key)
     if (!origin) return null
@@ -154,7 +181,7 @@ const AsOfContent = memo(function AsOfContent({
     )
   }
 
-  const happened = state.happened
+  const happened = asOfHappened(state.happened)
   return (
     <div className="flex flex-col gap-6">
       <p className="text-[12.5px] text-muted">{asOfLead(profile, happened.length, state.origin === 'adam')}</p>
@@ -184,7 +211,7 @@ const AsOfContent = memo(function AsOfContent({
             {happened.map((h) => (
               <li key={h.changeId} className="flex items-baseline gap-2 text-[13.5px] text-fg">
                 <span className="w-[150px] shrink-0 truncate text-[12px] text-faint" title={h.where}>
-                  {h.where || 'From the start'}
+                  {h.where}
                 </span>
                 <span className="min-w-0">{h.note}</span>
               </li>
@@ -201,6 +228,7 @@ const AsOfContent = memo(function AsOfContent({
           <ul className="flex flex-col gap-2">
             {relations.map((r) => {
               const other = byId.get(r.otherId)
+              const note = asOfNote(r.source, adamsEntry)
               return (
                 <li key={r.otherId} className="text-[13.5px] text-fg">
                   <span className="flex flex-wrap items-baseline gap-x-2">
@@ -219,6 +247,7 @@ const AsOfContent = memo(function AsOfContent({
                     {r.where ? <span className="text-[12px] text-faint">since {r.where}</span> : null}
                   </span>
                   {r.feels ? <span className="block text-[12.5px] text-muted">{r.feels}</span> : null}
+                  {note ? <SourceLine note={note} places={places} showAdam className="flex" /> : null}
                 </li>
               )
             })}
@@ -233,9 +262,15 @@ const AsOfContent = memo(function AsOfContent({
           <h3 className="mb-2 text-[13.5px] font-semibold text-fg">Knows at this point</h3>
           {data.knows.length ? (
             <ul className="flex list-disc flex-col gap-1 pl-5 text-[13.5px] text-fg marker:text-faint">
-              {data.knows.map((f) => (
-                <li key={f.factId}>{f.fact}</li>
-              ))}
+              {data.knows.map((f) => {
+                const note = asOfNote(knowsSource(entry.id, f.factId, changes), adamsEntry)
+                return (
+                  <li key={f.factId}>
+                    {f.fact}
+                    {note ? <SourceLine note={note} places={places} showAdam className="flex" /> : null}
+                  </li>
+                )
+              })}
             </ul>
           ) : (
             <p className="text-[13px] text-muted">Nothing noted yet.</p>

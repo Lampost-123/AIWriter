@@ -81,6 +81,8 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   }, [split, id, kind, nameOf])
 
   const self = useMemo(() => ({ id, kind, name: now.name }), [id, kind, now.name])
+  // On an entry AI Write made, what Adam added to it says "You wrote this", as his fields there do.
+  const adamsEntry = now.origin === 'adam'
   const relationships = split?.relationships ?? []
   const relCount = relationships.filter((r) => byId.has(r.otherId)).length
   const placeName = useCallback((x: ID) => byId.get(x)?.name.trim() || 'a place that was deleted', [byId])
@@ -93,11 +95,19 @@ export const EntryMemorySections = memo(function EntryMemorySections({
         open={open.has('relationships')}
         onToggle={() => onToggle('relationships')}
       >
-        <RelationshipsSection self={self} rows={relationships} data={data} entries={others} places={places} onOpen={onOpen} />
+        <RelationshipsSection
+          self={self}
+          adamsEntry={adamsEntry}
+          rows={relationships}
+          data={data}
+          entries={others}
+          places={places}
+          onOpen={onOpen}
+        />
       </Section>
       {kind === 'character' ? (
         <Section title="Knows at the start" meta={split?.knows.length || null} open={open.has('knows')} onToggle={() => onToggle('knows')}>
-          <KnowledgeSection self={self} rows={split?.knows ?? []} data={data} places={places} />
+          <KnowledgeSection self={self} adamsEntry={adamsEntry} rows={split?.knows ?? []} data={data} places={places} />
         </Section>
       ) : null}
       <Section title="Changes over time" meta={items.length || null} open={open.has('changes')} onToggle={() => onToggle('changes')}>

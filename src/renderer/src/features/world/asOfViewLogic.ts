@@ -2,9 +2,9 @@
 // point in the story, read-only, with what has changed by then marked. Tested in asOfViewLogic.test.ts.
 
 import { FIELD_GROUPS } from '@shared/fields'
-import type { AsOf, AsOfStop, EntryKind, EntryState, ID, Origin, RelationshipState } from '@shared/types'
+import type { AsOf, AsOfStop, ChangeView, EntryKind, EntryState, ID, Origin, RelationshipState } from '@shared/types'
 import { stopForScene, stopIndex } from '@/features/views/asOfLogic'
-import { relationPhrase, upperFirst } from './memoryLogic'
+import { relationPhrase, sourceNote, upperFirst, type SourceNote } from './memoryLogic'
 
 export interface AsOfValue {
   key: string
@@ -77,6 +77,70 @@ export function asOfOrigins(state: Pick<EntryState, 'origin' | 'fieldOrigins' | 
   return out
 }
 
+export interface AsOfHappening {
+  changeId: ID
+  /** "Book 1, Ch 2, Sc 1", "The start of Book 2", or "Before any story". */
+  where: string
+  /** "Lost her left hand". */
+  note: string
+}
+
+/** What has happened to the entry by a point, oldest first, in the same words as its Changes over time. */
+export function asOfHappened(happened: EntryState['happened']): AsOfHappening[] {
+  return happened.map((h) => ({
+    changeId: h.changeId,
+    where: h.where.trim() ? upperFirst(h.where.trim()) : 'Before any story',
+    note: upperFirst(h.note.trim())
+  }))
+}
+
+/** Who made a relationship or fact that holds at a point, and the words it came from: the change that set it. */
+export type AsOfSource = Pick<ChangeView, 'origin' | 'links'>
+
+/** Whether a change was made at a place, as a relationship's "where" names it ('' for before any story). */
+const madeAt = (c: Pick<ChangeView, 'anchor' | 'where'>, where: string): boolean =>
+  c.anchor === 'baseline' ? !where.trim() : c.where.trim() === where.trim()
+
+/**
+ * The change that set a relationship as it is at a point: written on the entry it is read from
+ * (`aId`), about the other one, at the place it last changed, saying just what it says there. The
+ * last such change when there are several (the one that counts). Null when none is found.
+ */
+export function relationSource(r: RelationshipState, changes: ChangeView[]): AsOfSource | null {
+  const same = (x: { otherId: ID; type?: string; feels?: string; otherFeels?: string }): boolean =>
+    x.otherId === r.bId && (x.type ?? '') === r.type && (x.feels ?? '') === r.aFeels && (x.otherFeels ?? '') === r.bFeels
+  let found: ChangeView | null = null
+  for (const c of changes) {
+    if (c.entryId !== r.aId || !madeAt(c, r.where)) continue
+    if (c.kind === 'relationship' ? !c.payload.ended && same(c.payload) : c.kind === 'full' && (c.payload.relationships ?? []).some(same)) {
+      found = c
+    }
+  }
+  return found
+}
+
+/**
+ * The change by which a character knows a fact: the only one where it learns it, or the last of
+ * several made the same way, by Adam or by the AI. Null when several were read from the story or
+ * made in different ways, as it can't be told here which one counts.
+ */
+export function knowsSource(entryId: ID, factId: ID, changes: ChangeView[]): AsOfSource | null {
+  const learned = changes.filter(
+    (c) =>
+      c.entryId === entryId &&
+      ((c.kind === 'knowledge' && c.payload.factId === factId && !c.payload.forgets) ||
+        (c.kind === 'full' && (c.payload.knows ?? []).some((k) => k.factId === factId)))
+  )
+  const origins = new Set(learned.map((c) => c.origin))
+  return learned.length === 1 || (origins.size === 1 && !origins.has('text')) ? (learned[learned.length - 1] ?? null) : null
+}
+
+/** The quiet line under a relationship or fact as of a point. Adam's own need none on an entry that is all his (see asOfLead). */
+export function asOfNote(source: AsOfSource | null, adamsEntry: boolean): SourceNote | null {
+  if (!source || (source.origin === 'adam' && adamsEntry)) return null
+  return sourceNote(source.origin, source.links)
+}
+
 export interface AsOfRelation {
   otherId: ID
   /** "Rival of Tobin", or written from the other side, "Tobin: sister of Mara". */
@@ -85,10 +149,21 @@ export interface AsOfRelation {
   feels: string | null
   /** Where it last changed ("Book 1, Ch 2, Sc 1"); '' when it is as it was from the start. */
   where: string
+  /** Who made it as it is here, from the entry's changes (see relationSource). */
+  source: AsOfSource | null
 }
 
-/** The entry's relationships at a point, from its side. Ones with an entry that no longer exists are left out. */
-export function asOfRelations(rows: RelationshipState[], selfId: ID, nameOf: (id: ID) => string | null): AsOfRelation[] {
+/**
+ * The entry's relationships at a point, from its side, with who made each as it is there (from
+ * `changes`, the entry's changes as its page lists them). Ones with an entry that no longer exists
+ * are left out.
+ */
+export function asOfRelations(
+  rows: RelationshipState[],
+  selfId: ID,
+  nameOf: (id: ID) => string | null,
+  changes: ChangeView[] = []
+): AsOfRelation[] {
   const self = nameOf(selfId) ?? 'This entry'
   const out: AsOfRelation[] = []
   for (const r of rows) {
@@ -109,7 +184,7 @@ export function asOfRelations(rows: RelationshipState[], selfId: ID, nameOf: (id
     const otherFeels = (mine ? r.bFeels : r.aFeels).trim()
     const feels =
       [selfFeels && `${self} feels: ${selfFeels}`, otherFeels && `${other} feels: ${otherFeels}`].filter(Boolean).join(' · ') || null
-    out.push({ otherId, text, feels, where: r.where.trim() })
+    out.push({ otherId, text, feels, where: r.where.trim(), source: relationSource(r, changes) })
   }
   return out
 }

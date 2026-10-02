@@ -23,11 +23,14 @@ const MAX_SHOWN = 50
  */
 export function KnowledgeSection({
   self,
+  adamsEntry,
   rows,
   data,
   places
 }: {
   self: Pick<Entry, 'id' | 'name'>
+  /** The entry is Adam's own: the note at the top of its page says he wrote it, so what he added needs no line of its own. */
+  adamsEntry: boolean
   rows: Knows[]
   data: EntryData<ChangeView[]>
   places: Map<ID, ScenePlace> | null
@@ -96,12 +99,12 @@ export function KnowledgeSection({
       {rows.length ? (
         <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
           {rows.map((c) => {
-            const note = c.origin === 'adam' ? null : sourceNote(c.origin, c.links)
+            const note = c.origin === 'adam' && adamsEntry ? null : sourceNote(c.origin, c.links)
             return (
               <li key={c.id} className="flex items-start gap-2 py-1.5 pl-3 pr-1.5">
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="text-[13.5px] leading-snug text-fg">{c.payload.fact}</p>
-                  {note ? <SourceLine note={note} places={places} /> : null}
+                  {note ? <SourceLine note={note} places={places} showAdam /> : null}
                 </div>
                 <IconButton label={`Remove ${shortQuote(c.payload.fact)} from what ${name} knows`} size="sm" onClick={() => void remove(c)}>
                   <X size={13} />

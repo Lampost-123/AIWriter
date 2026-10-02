@@ -5,7 +5,7 @@ import { emptySceneCard } from '@shared/defaults'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { memoryWorld } from '../../../tests/unit/helpers'
-import { appearancesOf, readAhead, worldAppearances } from './appearances'
+import { appearancesOf, forgetReadings, readAhead, worldAppearances } from './appearances'
 import { codexCards } from './codex'
 import { warmReadings } from './warm'
 
@@ -115,6 +115,49 @@ describe('where an entry appears', () => {
     // A deleted scene doesn't count.
     repo.deleteScene(db, s.s31)
     expect(where(db, kell)).toEqual([])
+  })
+
+  it('reads a scene back from Recently deleted for the names that are new since it was deleted', () => {
+    const { db, s } = world()
+    const mara = repo.createEntry(db, 'character', { name: 'Mara' }).id
+    text(db, s.s12, 'Tobin crossed the river. Mara saw him go.')
+    expect(where(db, mara).map(([l]) => l)).toEqual(['Book 1, Ch 1, Sc 2'])
+    repo.deleteScene(db, s.s12)
+    const tobin = repo.createEntry(db, 'character', { name: 'Tobin' }).id
+    expect(where(db, tobin)).toEqual([])
+    repo.restoreDeleted(db, 'scene', s.s12)
+    const seen = [where(db, tobin), where(db, mara)]
+    expect(seen).toEqual([[['Book 1, Ch 1, Sc 2', ['named']]], [['Book 1, Ch 1, Sc 2', ['named']]]])
+    // The same as reading every scene afresh.
+    forgetReadings(db)
+    expect([where(db, tobin), where(db, mara)]).toEqual(seen)
+  })
+
+  it('reads a chapter back from Recently deleted for new entries, names and aliases', () => {
+    const { db, s, b1 } = world()
+    const c1 = repo.getOutline(db, b1).chapters[0].id
+    const mara = repo.createEntry(db, 'character', { name: 'Mara' }).id
+    const kell = repo.createEntry(db, 'character', { name: 'Kell' }).id
+    text(db, s.s11, 'The ferryman waited by the steps.')
+    text(db, s.s12, 'Tobin crossed the river. Mara saw him go, and Kellan too.')
+    expect(where(db, mara).map(([l]) => l)).toEqual(['Book 1, Ch 1, Sc 2'])
+    expect(where(db, kell)).toEqual([])
+    repo.deleteChapter(db, c1)
+    const tobin = repo.createEntry(db, 'character', { name: 'Tobin' }).id
+    repo.updateEntry(db, mara, { aliases: ['the ferryman'] })
+    repo.updateEntry(db, kell, { name: 'Kellan' })
+    expect([where(db, tobin), where(db, mara), where(db, kell)]).toEqual([[], [], []])
+    repo.restoreDeleted(db, 'chapter', c1)
+    const seen = [where(db, tobin), where(db, mara), where(db, kell)]
+    expect(seen.map((list) => list.map(([l]) => l))).toEqual([
+      ['Book 1, Ch 1, Sc 2'],
+      ['Book 1, Ch 1, Sc 1', 'Book 1, Ch 1, Sc 2'],
+      ['Book 1, Ch 1, Sc 2']
+    ])
+    expect(codexCards(db).find((c) => c.id === tobin)).toMatchObject({ scenes: 1 })
+    // The same as reading every scene afresh.
+    forgetReadings(db)
+    expect([where(db, tobin), where(db, mara), where(db, kell)]).toEqual(seen)
   })
 
   it('reads each scene’s words once, until they change', () => {

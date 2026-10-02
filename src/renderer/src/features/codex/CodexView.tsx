@@ -28,9 +28,10 @@ import {
   tagChoices,
   tidyFilters,
   type Choice,
+  type CodexFilters,
   type CodexSort
 } from './codexLogic'
-import { openFromCodex, useCodex } from './codexStore'
+import { openFromCodex, useCodex, type CodexAnchor } from './codexStore'
 
 /** The codex's cards, reloaded whenever entries, the memory or the stories change. The last answer stays while the next loads. */
 function useCodexCards(): { cards: CodexCard[] | null; error: string | null; retry: () => void } {
@@ -53,6 +54,36 @@ function useCodexCards(): { cards: CodexCard[] | null; error: string | null; ret
 const quickStart = (): void =>
   useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
 
+// Cards are measured by the list item around each: its box is there even while the card inside
+// hasn't been drawn, so measuring it never makes the browser draw a card out of view.
+const itemOf = (el: HTMLElement, id: string): HTMLElement | null => el.querySelector<HTMLElement>(`[data-codex-item="${CSS.escape(id)}"]`)
+
+/** The first card at least partly in view under the toolbar, and how far below the top of the view it starts. */
+function firstInView(el: HTMLElement): CodexAnchor | null {
+  const top = el.getBoundingClientRect().top
+  const under = el.querySelector('[data-codex-toolbar]')?.getBoundingClientRect().bottom ?? top
+  for (const item of el.querySelectorAll<HTMLElement>('[data-codex-item]')) {
+    const r = item.getBoundingClientRect()
+    if (r.bottom > under) return { id: item.dataset.codexItem!, top: r.top - top, opened: false }
+  }
+  return null
+}
+
+/** Cards on each side of the one put back that are drawn straight away: more than a tall window holds. */
+const NEAR = 60
+
+/**
+ * Scrolls the codex so a card is `top` below the top of its view again. The cards around it are drawn
+ * first, as they will be once they are in view: a card not drawn yet counts at a guessed height, which
+ * would put the view out by the difference (most of all at the end of the list).
+ */
+function putBack(el: HTMLElement, item: HTMLElement, top: number): void {
+  const items = [...el.querySelectorAll<HTMLElement>('[data-codex-item]')]
+  const i = items.indexOf(item)
+  for (const near of items.slice(Math.max(0, i - NEAR), i + NEAR + 1)) near.style.contentVisibility = 'visible'
+  el.scrollTop = item.getBoundingClientRect().top - el.getBoundingClientRect().top - top
+}
+
 export function CodexView(): React.JSX.Element {
   const { cards, error, retry } = useCodexCards()
   const filters = useCodex((s) => s.filters)
@@ -61,6 +92,7 @@ export function CodexView(): React.JSX.Element {
   const setSort = useCodex((s) => s.setSort)
   const stories = useApp((s) => s.stories)
   const scroller = useRef<HTMLDivElement>(null)
+  const search = useRef<HTMLInputElement>(null)
   const [creating, setCreating] = useState(false)
 
   const all = useMemo(() => (cards ?? []).filter((c) => CODEX_KINDS.includes(c.kind)), [cards])
@@ -82,27 +114,59 @@ export function CodexView(): React.JSX.Element {
     if (tidy !== filters) useCodex.setState({ filters: tidy })
   }, [cards, filters, tags, roles, stories])
 
-  // Back from an entry's page: the codex is where Adam left it.
+  // Back from an entry's page: the codex is where Adam left it, with the card he opened (or the one at
+  // the top) where it was. The card he opened gets the keyboard's place back when "Back to the codex"
+  // took it away with it.
   const restored = useRef(false)
   useLayoutEffect(() => {
-    if (restored.current || !cards || !scroller.current) return
+    const el = scroller.current
+    if (restored.current || !cards || !el) return
     restored.current = true
-    scroller.current.scrollTop = useCodex.getState().scroll
+    const { scroll, anchor } = useCodex.getState()
+    const item = anchor ? itemOf(el, anchor.id) : null
+    if (item && anchor) putBack(el, item, anchor.top)
+    else el.scrollTop = scroll
+    if (item && anchor?.opened && document.activeElement === document.body) {
+      item.querySelector<HTMLElement>('[data-codex-card]')?.focus({ preventScroll: true })
+    }
+    useCodex.setState({ scroll: el.scrollTop, anchor: null })
   }, [cards])
+  // Leaving the codex another way (from the binder, say): the card at the top of the view is its place,
+  // unless the codex was at its very top.
+  useLayoutEffect(() => {
+    const el = scroller.current
+    return () => {
+      if (el && el.scrollTop > 0 && restored.current && !useCodex.getState().anchor) useCodex.setState({ anchor: firstInView(el) })
+    }
+  }, [])
 
-  const open = useCallback((c: CodexCard) => openFromCodex(c, scroller.current?.scrollTop ?? 0), [])
+  const open = useCallback((c: CodexCard) => {
+    const el = scroller.current
+    const item = el ? itemOf(el, c.id) : null
+    const top = el && item ? item.getBoundingClientRect().top - el.getBoundingClientRect().top : null
+    openFromCodex(c, { scroll: el?.scrollTop ?? 0, top })
+  }, [])
 
   const createCharacter = async (): Promise<void> => {
     if (creating) return
     setCreating(true)
     try {
       const e = await createEntry('character')
-      openFromCodex(e, 0)
+      openFromCodex(e, { scroll: 0, top: null })
     } catch (err) {
       toast(`Couldn't create the character. ${(err as Error).message}`, { tone: 'danger' })
       setCreating(false)
     }
   }
+
+  // A clear button goes once it has done its job: the keyboard's place moves to the search box rather than the top of the window.
+  const clear = useCallback(
+    (patch: Partial<CodexFilters>) => {
+      setFilters(patch)
+      search.current?.focus()
+    },
+    [setFilters]
+  )
 
   const slow = useDelayed(cards === null && !error, 250)
   const shown = groups.reduce((n, g) => n + g.cards.length, 0)
@@ -157,7 +221,7 @@ export function CodexView(): React.JSX.Element {
   } else {
     body = (
       <>
-        <Toolbar tags={tags} roles={roles} stories={storyChoices} />
+        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} />
         {shown ? (
           groups.map((g) => <Group key={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
         ) : (
@@ -167,11 +231,11 @@ export function CodexView(): React.JSX.Element {
             className="mt-4"
             actions={
               filtersOn({ ...filters, query: '' }) ? (
-                <Button size="sm" onClick={() => setFilters(NO_FILTERS)}>
+                <Button size="sm" onClick={() => clear(NO_FILTERS)}>
                   Clear filters
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => setFilters({ query: '' })}>
+                <Button size="sm" onClick={() => clear({ query: '' })}>
                   Clear search
                 </Button>
               )
@@ -260,12 +324,24 @@ function FilterSelect({
 const KIND_CHOICES: Choice[] = CODEX_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k].many }))
 
 /** Search and filters. Stays at the top while the cards scroll under it. */
-function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; stories: Choice[] }): React.JSX.Element {
+function Toolbar({
+  tags,
+  roles,
+  stories,
+  search,
+  onClear
+}: {
+  tags: Choice[]
+  roles: Choice[]
+  stories: Choice[]
+  search: React.RefObject<HTMLInputElement | null>
+  /** Clears some of the search and filters, and puts the keyboard's place in the search box. */
+  onClear: (patch: Partial<CodexFilters>) => void
+}): React.JSX.Element {
   const filters = useCodex((s) => s.filters)
   const setFilters = useCodex((s) => s.setFilters)
-  const search = useRef<HTMLInputElement>(null)
   return (
-    <div className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 bg-bg px-2 pb-3 pt-4">
+    <div data-codex-toolbar className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 bg-bg px-2 pb-3 pt-4">
       <div className="relative w-[220px]">
         <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" aria-hidden />
         <Input
@@ -287,10 +363,7 @@ function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; st
             label="Clear search"
             size="sm"
             className="absolute right-1 top-1/2 -translate-y-1/2"
-            onClick={() => {
-              setFilters({ query: '' })
-              search.current?.focus()
-            }}
+            onClick={() => onClear({ query: '' })}
           >
             <X size={13} />
           </IconButton>
@@ -327,8 +400,9 @@ function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; st
           width={140}
         />
       ) : null}
-      {filtersOn(filters) ? (
-        <Button variant="ghost" size="sm" onClick={() => setFilters(NO_FILTERS)}>
+      {/* The search box clears itself; this is for the pickers (and clears the search with them, as under "Nothing matches"). */}
+      {filtersOn({ ...filters, query: '' }) ? (
+        <Button variant="ghost" size="sm" onClick={() => onClear(NO_FILTERS)}>
           Clear filters
         </Button>
       ) : null}
@@ -354,8 +428,8 @@ const Group = memo(function Group({
       </h2>
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
         {cards.map((c) => (
-          // Cards out of view skip layout and paint, so hundreds of them scroll smoothly.
-          <li key={c.id} className="[contain-intrinsic-size:auto_104px] [content-visibility:auto]">
+          // Cards out of view skip layout and paint, so a codex of hundreds of entries opens quickly.
+          <li key={c.id} data-codex-item={c.id} className="[contain-intrinsic-size:auto_104px] [content-visibility:auto]">
             <Card card={c} onOpen={onOpen} />
           </li>
         ))}

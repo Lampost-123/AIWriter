@@ -82,6 +82,8 @@ const FEW_NEW_NAMES = 8
 /**
  * Brings the remembered readings up to date: scenes whose words changed are read again for every
  * name, and every other scene is read for names that are new since. One query for the words needed.
+ * A scene in Recently deleted isn't read for new names, so what it said is forgotten then: if it
+ * comes back (its words and version as they were), it is read again in full.
  */
 function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version: string }>, entries: Named[]): NameIndex {
   const index = buildNameIndex(entries)
@@ -93,8 +95,10 @@ function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version:
     const freshIndex = fresh.length ? buildNameIndex(entries, new Set(fresh)) : null
     // A new entry or a new name: most scenes can't mention it, and a quick look says which to read.
     const maybe = freshIndex && fresh.length <= FEW_NEW_NAMES ? quickCheck(freshIndex) : null
+    const read = new Set<ID>()
     // New names are looked for in every scene; otherwise only changed scenes are read.
     for (const s of views.sceneWords(db, freshIndex ? null : stale)) {
+      read.add(s.id)
       if (staleSet.has(s.id) || !memo.scenes.has(s.id)) {
         memo.scenes.set(s.id, { version: s.version, hits: findMentions(index, s.text), quotes: new Map(), cast: s.cast })
         continue
@@ -107,6 +111,7 @@ function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version:
       if (maybe && !maybe(s.text)) continue
       for (const [k, at] of findMentions(freshIndex!, s.text)) m.hits.set(k, at)
     }
+    if (freshIndex) for (const id of memo.scenes.keys()) if (!read.has(id)) memo.scenes.delete(id)
   }
   memo.scanned = keys
   return index
