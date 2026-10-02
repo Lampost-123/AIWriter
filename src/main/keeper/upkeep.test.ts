@@ -349,6 +349,33 @@ describe('the "Memory updated" note and the What changed list', () => {
   })
 })
 
+describe('a reply cut off by the model’s reply limit', () => {
+  it('reads the scene in smaller pieces instead of failing every time', async () => {
+    const w = world()
+    const things = ['hat', 'boots', 'map', 'knife', 'ring', 'cloak', 'horse', 'lamp', 'purse', 'flute', 'book', 'key']
+    const paras: [string, string][] = []
+    for (const [i, t] of things.entries()) paras.push([`p${i}`, `Kell lost his ${t}. Mara lost her ${t}.`])
+    save(w.db, w.sceneId, paras)
+    // A small model: its reply has room for only a few facts, and there are 24 here.
+    const out = await read(w.db, w.sceneId, undefined, modelFor('fake/small', 3000))
+    expect(out.status).toBe('done')
+    expect(mem.listAllChanges(w.db)).toHaveLength(24)
+    expect(state(w.db, w.sceneId)).toBe('current')
+  })
+
+  it('a short broken reply is still asked about once more, not split', async () => {
+    const w = world()
+    save(
+      w.db,
+      w.sceneId,
+      ['hat', 'boots', 'map', 'knife'].map((t, i): [string, string] => [`p${i}`, `Kell lost his ${t}.`])
+    )
+    fake.reset()
+    expect((await read(w.db, w.sceneId, undefined, modelFor('fake/memory-junk'))).status).toBe('failed')
+    expect(fake.requestCounts()['fake/memory-junk']).toBe(2)
+  })
+})
+
 function keeperFor(db: Database.Database, model: MemoryModel | null = modelFor(), quietMs = 60_000): Keeper {
   return new Keeper({
     db,

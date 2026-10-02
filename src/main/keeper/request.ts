@@ -88,7 +88,12 @@ export function planChunks(all: Para[], toRead: Para[], atRisk: SceneFact[], bud
     }
   }
   flush()
-  // Each fact whose words changed goes with the chunk holding its paragraph, or the most alike text.
+  giveAtRisk(chunks, atRisk)
+  return chunks
+}
+
+/** Each fact whose words changed goes with the chunk holding its paragraph, or the most alike text. */
+function giveAtRisk(chunks: ReadingChunk[], atRisk: SceneFact[]): void {
   for (const f of atRisk) {
     const link = f.links[0]
     let best = link?.paragraphId ? chunks.findIndex((c) => c.paras.some((p) => p.pid === link.paragraphId)) : -1
@@ -104,7 +109,43 @@ export function planChunks(all: Para[], toRead: Para[], atRisk: SceneFact[], bud
     }
     chunks[Math.max(0, best)].atRisk.push(f)
   }
-  return chunks
+}
+
+/**
+ * A chunk in two halves of about the same size, for when the model's reply to it ran past the reply
+ * limit; null when it is too small to split.
+ */
+export function splitChunk(chunk: ReadingChunk): [ReadingChunk, ReadingChunk] | null {
+  let pieces = chunk.pieces
+  const reading = pieces.filter((p) => p.para)
+  if (reading.length === 1) {
+    // One paragraph (or part of one): split its text, keeping the surrounding text either side.
+    const one = reading[0]
+    const parts = splitLong(one.text, Math.ceil(estimateTokens(one.text) / 2))
+    if (parts.length < 2) return null
+    const at = pieces.indexOf(one)
+    pieces = [...pieces.slice(0, at), ...parts.map((text) => ({ ...one, text })), ...pieces.slice(at + 1)]
+  }
+  const cost = (p: Piece): number => (p.para ? estimateTokens(p.text) + 4 : 0)
+  const total = pieces.reduce((n, p) => n + cost(p), 0)
+  // Cut before the paragraph piece that would take the first half past the middle (never before the first).
+  let used = 0
+  let cut = -1
+  let seen = 0
+  for (let i = 0; i < pieces.length; i++) {
+    if (!pieces[i].para) continue
+    if (seen > 0 && used + cost(pieces[i]) / 2 > total / 2) {
+      cut = i
+      break
+    }
+    used += cost(pieces[i])
+    seen++
+  }
+  if (cut < 0) return null
+  const half = (ps: Piece[]): ReadingChunk => ({ pieces: ps, paras: [...new Set(ps.flatMap((p) => (p.para ? [p.para] : [])))], atRisk: [] })
+  const halves: [ReadingChunk, ReadingChunk] = [half(pieces.slice(0, cut)), half(pieces.slice(cut))]
+  giveAtRisk(halves, chunk.atRisk)
+  return halves
 }
 
 /** Short ids for one request, and what they stand for. */
