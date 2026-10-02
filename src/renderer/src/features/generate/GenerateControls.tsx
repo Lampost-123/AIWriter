@@ -276,6 +276,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       if (session.current === s) session.current = null
       setPhase('idle')
       const err = e as ApiError
+      // Adam pressed Stop before it began: nothing was sent, and there's nothing to say.
+      if (err.code === 'cancelled') return
       if (err.code === 'no-writer-model') setPopover('need-model')
       // A length the model can't write is changed in the draft options; key and model problems in Settings.
       else if (err.code === 'too-long') toast(err.message, { tone: 'danger', action: { label: 'Draft options', run: () => openOptionsRef.current() } })
@@ -287,9 +289,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     const s = session.current
     if (!s) return
     if (!s.generationId) {
-      // Still starting: it stops as soon as it has begun.
+      // Still starting (perhaps waiting for the memory to catch up): it is called off and nothing is sent.
+      // A draft that had already begun by then is stopped as soon as its start comes back.
       s.cancelled = true
       setPhase('stopping')
+      void api.cancelDraftStart(s.sceneId).catch(() => undefined)
       return
     }
     if (phaseRef.current === 'stopping') return
@@ -311,7 +315,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         s.bridge.endStream(s.generationId)
         const app = useApp.getState()
         if (app.activeGeneration?.id === s.generationId) app.setActiveGeneration(null)
-      }
+      } else void api.cancelDraftStart(s.sceneId).catch(() => undefined)
     }
   }, [sceneId])
 
@@ -339,8 +343,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   const busy = phase !== 'idle'
   // Before a draft starts, the memory first reads any earlier scenes it hasn't caught up with, which
-  // can take a little while; Generate then rests (it can't be stopped until the draft has begun) and
-  // says why. A quick start shows nothing at all.
+  // can take a little while; the status then says why, and Stop (or Esc) calls the draft off before
+  // anything is sent. A quick start shows no status at all.
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const startingSlow = useDelayed(phase === 'starting', 700)
   const showStatus = phase === 'streaming' || phase === 'stopping' || startingSlow
@@ -414,12 +418,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       <P.Root open={popover !== null} onOpenChange={(o) => !o && setPopover(null)}>
         <P.Anchor asChild>
           <div className="flex w-[132px] shrink-0">
-            {phase === 'starting' ? (
-              // Waiting for the draft to begin (perhaps for the memory to catch up first): it can't be stopped yet.
-              <Button variant="primary" className="w-full" loading title={statusTitle}>
-                Generate
-              </Button>
-            ) : busy ? (
+            {busy ? (
+              // Also while the draft is starting (perhaps waiting for the memory to catch up first).
               <Button
                 variant="secondary"
                 className="w-full"
