@@ -1,0 +1,66 @@
+/* The live checks in the page (features/liveChecks/): a quiet underline under a misspelt name (wavy), a
+   phrase to avoid (solid) or a word used too often nearby (dashed), below the letters and taking no
+   room. Colours come from the theme tokens; amber is for AI suggestions and red for must-fix problems,
+   so neither is used here. A name's own underline is dotted and grey, so the two never look alike. */
+
+.scene-prose .aw-live {
+  text-decoration-line: underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.26em;
+  text-decoration-thickness: 1.5px;
+}
+
+.scene-prose .aw-live.aw-live-spelling {
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+.scene-prose .aw-live.aw-live-phrase {
+  text-decoration-style: solid;
+  text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.scene-prose .aw-live.aw-live-repetition {
+  text-decoration-style: dashed;
+  text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.scene-prose .aw-live.aw-live-spelling:hover,
+.scene-prose .aw-live.aw-live-phrase:hover {
+  text-decoration-color: var(--accent);
+}
+
+.scene-prose .aw-live.aw-live-repetition:hover {
+  text-decoration-color: var(--muted);
+}
+
+/* The same underline beside the kind's name in the card, lifted to sit under the middle of the words. */
+.aw-live-swatch {
+  position: relative;
+  top: -3px;
+}
+
+.aw-live-swatch::before {
+  content: '\00a0\00a0\00a0\00a0';
+  text-decoration-line: underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+.aw-live-swatch-spelling::before {
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--accent);
+}
+
+.aw-live-swatch-phrase::before {
+  text-decoration-style: solid;
+  text-decoration-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.aw-live-swatch-repetition::before {
+  text-decoration-style: dashed;
+  text-decoration-color: var(--muted);
+}

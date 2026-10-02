@@ -574,6 +574,17 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   world, never on `outlineRev`. One check runs at a time in the interface; it shows in the binder (`CheckLine`) and
   on the Consistency page, and ends in a toast.
 
+**Live checks** (`src/shared/liveChecks.ts`, `features/liveChecks/`, `checks/live.ts`, `db/checksLive.ts`)
+- The checking happens in the window, paragraph by paragraph (`LiveCache`, by paragraph text), about 300 ms
+  after typing pauses; a keystroke only maps the underlines and drops those whose words it touched. Spelling
+  matches capitalised words against name words of 4 letters or more with the same first letter (1 letter
+  out, 2 for names of 7+), skipping common English words; a misspelt name at the caret waits until the caret
+  leaves it. Nothing is underlined while a draft streams in or text is held, nor inside an AI tool's change.
+- Ignores are `issues` rows (status `ignored`, severity `minor`, `payload_json.key`); see `liveKey`. A
+  spelling is ignored world-wide, a phrase per paragraph, a repetition per scene. Ignoring emits
+  `issues:changed`, so a list showing ignored issues shows them too.
+- For the Issues tab: `useLiveFlagCounts()` and `revealLiveFlag(kind)` in `features/liveChecks/liveFlags.ts`.
+
 ### Who builds what (parallel build, milestone 5)
 
 | Part | Owns |

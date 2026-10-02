@@ -8,6 +8,7 @@ import { ParagraphIds } from './paragraphIds'
 import { NameUnderlines } from './names/underlines'
 import { Suggestions } from '@/features/edits/suggestions'
 import { ReadAloudHighlight } from '@/features/readAloud/highlight'
+import { LiveChecks } from '@/features/liveChecks/liveDecorations'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -41,7 +42,8 @@ const MarkDoneShortcut = Extension.create({
  * horizontal rule used as a scene break. No headings, lists, links or code:
  * a scene is prose. Every paragraph carries a stable id (paragraphIds.ts), and the names of known
  * entries get a faint underline (names/underlines.ts). Milestone 4 adds tracked changes for AI edits
- * (features/edits/suggestions.ts) and the sentence being read aloud (features/readAloud/highlight.ts).
+ * (features/edits/suggestions.ts) and the sentence being read aloud (features/readAloud/highlight.ts);
+ * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -64,6 +66,7 @@ export function sceneExtensions(): AnyExtension[] {
     ParagraphIds,
     NameUnderlines,
     Suggestions,
-    ReadAloudHighlight
+    ReadAloudHighlight,
+    LiveChecks
   ]
 }
