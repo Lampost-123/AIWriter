@@ -131,6 +131,16 @@ export function markFailed(db: DB, sceneId: ID, error: string): void {
   db.prepare("UPDATE scenes SET memory_status = 'failed', memory_error = ? WHERE id = ?").run(error, sceneId)
 }
 
+/** Puts the latest reason on a scene's "Memory not updated" line in What changed; false when it has none. */
+export function updateFailedLine(db: DB, sceneId: ID, text: string): boolean {
+  const r = db
+    .prepare("SELECT id FROM memory_log WHERE scene_id = ? AND action = 'failed' AND undone_at IS NULL ORDER BY rowid DESC LIMIT 1")
+    .get(sceneId) as Row | undefined
+  if (!r) return false
+  db.prepare('UPDATE memory_log SET text = ? WHERE id = ?').run(text, r.id)
+  return true
+}
+
 /** How many live scenes are waiting to be read, and how many show "Memory not updated". */
 export function memoryCounts(db: DB): { behind: number; failed: number } {
   const r = db

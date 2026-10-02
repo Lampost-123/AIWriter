@@ -351,7 +351,11 @@ describe('failures', () => {
     const scene = kdb.keeperScene(w.db, w.sceneId)!
     expect(scene.memoryState).toBe('failed')
     expect(scene.memoryError).toBe(
-      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format. It will try again; or pick another memory model in Settings > Models."
+      "The memory couldn't read Book 1, Ch 1, Sc 1: the memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings > Models."
+    )
+    // The line in What changed (shown as the scene's "Memory not updated" reason) is one plain sentence.
+    expect(lines(w.db)[0].text).toBe(
+      "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings > Models."
     )
     expect(repo.listEntries(w.db)).toHaveLength(0)
     expect(lines(w.db).map((l) => l.action)).toEqual(['failed'])
@@ -368,8 +372,10 @@ describe('failures', () => {
     save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
     const out = await read(w.db, w.sceneId, modelFor('fake/credit'))
     expect(out.status).toBe('failed')
-    expect((out as { error: string }).error).toMatch(/^The memory couldn't read Book 1, Ch 1, Sc 1\. /)
+    expect((out as { error: string }).error).toMatch(/^The memory couldn't read Book 1, Ch 1, Sc 1: /)
     expect((out as { error: string }).error).not.toContain('writer')
+    const text = lines(w.db)[0].text
+    expect(text.match(/[.!?](\s|$)/g)).toHaveLength(1)
   })
 
   it('without a memory model the scene waits (it is not failed)', async () => {

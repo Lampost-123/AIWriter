@@ -325,9 +325,8 @@ export class Keeper {
       console.error('The memory keeper could not read a scene', e)
       if (this.closed || !this.db.open) outcome = { status: 'stopped' }
       else {
-        const where = this.where(id) || 'this scene'
-        const error = `The memory couldn't read ${where}. Something went wrong (${(e as Error)?.message ?? e}). It will try again.`
-        outcome = failScene(this.db, id, null, error, null)
+        const reason = `Something went wrong (${String((e as Error)?.message ?? e).replace(/[.!?]+$/, '')}), so it will try again`
+        outcome = failScene(this.db, id, null, this.where(id), reason, null)
       }
     }
     this.reading = null

@@ -66,21 +66,40 @@ class Totals {
   }
 }
 
+/** Common first words that start a sentence without being a name, so they can follow a colon or semicolon in lower case. */
+const COMMON_START = /^(The|It|Its|A|An|Add|Try|Pick|Choose|Check|Wait|This|That|Your|You|Something|Nothing|There)\b/
+
+const lowerStart = (s: string): string => s.replace(COMMON_START, (w) => w.toLowerCase())
+
+/** A message of a sentence or two, as one plain sentence: "X needs a key. Add it in Settings." → "X needs a key; add it in Settings." */
+export function oneSentence(message: string): string {
+  const parts = message
+    .trim()
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .map((p) => p.trim().replace(/[.!?]+$/, ''))
+    .filter(Boolean)
+  if (!parts.length) return 'Something went wrong.'
+  return `${[parts[0], ...parts.slice(1).map(lowerStart)].join('; ')}.`
+}
+
 /**
  * The scene couldn't be read: it shows "Memory not updated" (tried again on the next trigger and at
- * app start) and, the first time, is listed in What changed. The memory is left as it was.
+ * app start) and is listed in What changed (once while it stays failed; the line keeps the latest
+ * reason). `reason` is one plain sentence; the status adds where the scene is. The memory is left as it was.
  */
-export function failScene(db: DB, sceneId: ID, runId: ID | null, error: string, totals: kdb.RunTotals | null): RunOutcome {
+export function failScene(db: DB, sceneId: ID, runId: ID | null, where: string, reason: string, totals: kdb.RunTotals | null): RunOutcome {
   const id = runId ?? kdb.startRun(db, sceneId, kdb.keeperScene(db, sceneId)?.textVersion ?? 0)
+  const text = oneSentence(reason)
+  const error = `The memory couldn't read ${where || 'this scene'}: ${lowerStart(text)}`
   db.transaction(() => {
     const wasFailed = kdb.keeperScene(db, sceneId)?.memoryState === 'failed'
     kdb.markFailed(db, sceneId, error)
-    if (!wasFailed) {
+    if (!wasFailed || !kdb.updateFailedLine(db, sceneId, text)) {
       kdb.insertLog(db, {
         runId: id,
         sceneId,
         entryName: '',
-        text: error,
+        text,
         before: '',
         after: '',
         action: 'failed',
@@ -134,8 +153,8 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   const model = o.model
   const runId = kdb.startRun(db, sceneId, plan.version)
   const totals = new Totals()
-  const fail = (error: string): RunOutcome =>
-    o.closed() || !db.open ? { status: 'stopped' } : failScene(db, sceneId, runId, error, totals.of(model))
+  const fail = (reason: string): RunOutcome =>
+    o.closed() || !db.open ? { status: 'stopped' } : failScene(db, sceneId, runId, where, reason, totals.of(model))
   const stopped = (): RunOutcome => {
     if (!o.closed() && db.open) kdb.finishRun(db, runId, 'stopped', null, totals.of(model))
     return { status: 'stopped' }
@@ -143,9 +162,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
 
   const budget = readingBudget(model.choice)
   if (!budget) {
-    return fail(
-      `The memory couldn't read ${where}: the memory model can take too little text at once. Pick another memory model in Settings > Models.`
-    )
+    return fail('The memory model can take too little text at once, so pick another memory model in Settings > Models.')
   }
   const memory = memoryAt(db, scene.storyId, sceneId)
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)
@@ -178,7 +195,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
       const call = await ask(messages)
       totals.add(call)
       if (o.closed() || call.status === 'stopped' || o.signal.aborted) return stopped()
-      if (call.status === 'error') return fail(`The memory couldn't read ${where}. ${call.error ?? 'Something went wrong.'}`)
+      if (call.status === 'error') return fail(call.error ?? 'Something went wrong.')
       const parsed = parseLenient(call.text)
       const checked = parsed.ok ? readingReply(parsed.value) : parsed
       if (checked.ok) {
@@ -190,7 +207,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
     }
     if (!reply) {
       return fail(
-        `The memory couldn't read ${where}: the memory model's reply wasn't in the right format. It will try again; or pick another memory model in Settings > Models.`
+        "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings > Models."
       )
     }
     replies.push({ ids: req.ids, reply, paras: chunk.paras })
