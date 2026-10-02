@@ -188,7 +188,8 @@ function DraftRecord({
           <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
         ) : (
           <>
-            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`}, written {fullDate(rec.createdAt)}.
+            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`}, written{' '}
+            {fullDate(rec.createdAt)}.
           </>
         )}
       </p>
@@ -231,8 +232,8 @@ function DraftRecord({
         ) : null}
         {changed ? (
           <Notice tone="ai">
-            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since {edit?.since ?? `this ${answer ? 'answer' : 'draft'}`}, so
-            the AI saw an older version. They're marked below.
+            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since{' '}
+            {edit?.since ?? `this ${answer ? 'answer' : 'draft'}`}, so the AI saw an older version. They're marked below.
           </Notice>
         ) : null}
       </div>

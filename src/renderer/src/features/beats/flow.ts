@@ -127,8 +127,9 @@ function reachesPage(t: EventTarget | null): boolean {
 /** Undo (Ctrl+Z) or redo (Ctrl+Y, or Ctrl+Shift+Z) as the page takes them, or null for any other key. */
 function historyKeyOf(e: KeyboardEvent): 'undo' | 'redo' | null {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.isComposing) return null
+  // e.code too, so a keyboard layout that types another letter there (Russian, say) still undoes.
   const key = e.key.toLowerCase()
-  if (key === 'z' || key === 'я') return e.shiftKey ? 'redo' : 'undo'
+  if (key === 'z' || e.code === 'KeyZ') return e.shiftKey ? 'redo' : 'undo'
   return key === 'y' && !e.shiftKey ? 'redo' : null
 }
 
