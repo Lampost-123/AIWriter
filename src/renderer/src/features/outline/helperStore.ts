@@ -249,6 +249,14 @@ function offerBack(storyId: ID, taskId: ID, run: HelperRun): void {
   replaced = { toastId, key, taskId, run }
 }
 
+/**
+ * A first Keep or Discard among the new suggestions settles on them: the toast offering back the ones
+ * they replaced goes, rather than swapping away what Adam has started deciding on.
+ */
+function settledOnNew(key: string, taskId: ID): void {
+  if (replaced?.key === key && replaced.taskId === taskId) dropReplaced()
+}
+
 /** Stops the request; what has arrived stays, to keep or discard. */
 export function stopOutline(storyId: ID): void {
   const run = get(keyOf(storyId)).run
@@ -313,6 +321,7 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all'): Promise<vo
       return
     }
     patchRun(key, run.taskId, (r) => ({ decisions: withKept(r.decisions, kept) }))
+    settledOnNew(key, run.taskId)
     useApp.getState().bumpOutline()
     const message =
       keys === 'all' ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the story.` : keptMessage(tree, keys[0], items)
@@ -396,6 +405,7 @@ export function discardSuggestion(storyId: ID, nodeKey: string): void {
   const keys = discardKeys(tree, decisionsOf(s), nodeKey)
   if (!keys.length) return
   patchRun(key, run.taskId, (r) => ({ decisions: withDiscarded(r.decisions, keys) }))
+  settledOnNew(key, run.taskId)
   if (discardBatch && liveToast(discardBatch.toastId) && discardBatch.key === key && discardBatch.taskId === run.taskId) {
     discardBatch.keys.push(...keys)
     const kinds = discardBatch.keys.map((k) => findKind(tree, k)).filter((k): k is TreeNode['kind'] => !!k)

@@ -11,7 +11,8 @@
 //     Asked again, it carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
 //     kept. One that fails says why in plain words, and Undo brings back the suggestions it replaced.
-//     What was kept and is then deleted in the binder waits for a decision again.
+//     What was kept and is then deleted in the binder waits for a decision again. Replaced suggestions
+//     can be brought back until one of the new ones is kept.
 //  3. Acts in the binder: a story without acts looks as it always has; acts fold and unfold, are
 //     renamed and given a purpose, get a new chapter, take a chapter moved from another act (with
 //     Undo), and are deleted with their chapters (with Undo).
@@ -339,6 +340,16 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'kept')
     expect((await invoke(win, 'getOutline', story.id)).acts!.map((a) => a.title)).toEqual(['The Arrival'])
+
+    // Asked again, the undecided ones can come back with Undo until Adam keeps one of the new ones.
+    await setModel(win, 'fake/writer')
+    await main(win).getByRole('button', { name: 'Suggest again' }).click()
+    const replacedNote = toastWith(win, 'Replaced the earlier suggestions you hadn’t decided on.')
+    await expect(replacedNote).toBeVisible()
+    await expect(main(win).getByText(/^Here is the outline: /)).toBeVisible()
+    await main(win).locator('[data-suggestion="scene"][data-state="open"]').first().getByRole('button', { name: /^Keep/ }).click()
+    await expect(main(win).locator('[data-suggestion="scene"][data-state="kept"]')).toHaveCount(1)
+    await expect(replacedNote).toHaveCount(0)
   } finally {
     await fake.close()
   }
