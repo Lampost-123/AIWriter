@@ -197,6 +197,7 @@ export class SceneController {
     editor.on('transaction', this.onTransaction)
 
     const sceneIdOf = (): ID | null => this.session?.id ?? null
+    const editorOf = (): Editor | null => (this.destroyed ? null : this.editor)
     this.bridge = {
       get sceneId() {
         return sceneIdOf()
@@ -211,7 +212,13 @@ export class SceneController {
       flush: () => this.flush(),
       getText: () => streamDoc.sceneText(this.editor.state.doc),
       hasText: () => this.editor.state.doc.textContent.trim() !== '',
-      stopDraft: (reason) => this.stopStreamForSwitch(reason)
+      stopDraft: (reason) => this.stopStreamForSwitch(reason),
+      get editor() {
+        return editorOf()
+      },
+      busy: () => this.busy(),
+      current: () => this.current(),
+      replaceScene: (sceneId, doc, text, opts) => this.replaceScene(sceneId, doc, text, opts)
     }
   }
 
@@ -427,10 +434,10 @@ export class SceneController {
     this.keyboardBack()
   }
 
-  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean } = {}): boolean {
+  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean; noBreak?: boolean } = {}): boolean {
     if (this.destroyed || !this.session || this.session.id !== sceneId || this.requested !== sceneId) return false
     if (this.stream) this.finishStream()
-    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, { replace: !!opts.replace }))
+    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, { replace: !!opts.replace, noBreak: !!opts.noBreak }))
     this.stream = { generationId, split: newSplitState() }
     this.updateDraftBelow()
     return true
@@ -666,6 +673,39 @@ export class SceneController {
     if (el) el.scrollTop = 0
     this.focusIfFree()
     toast(`The text this draft replaced is back in the scene. ${modKey()}+Z takes it out again.`)
+  }
+
+  // ---------- Milestone 4: the page as a whole ----------
+
+  /** A draft is being written into the page, or the page is held for one. */
+  private busy(): boolean {
+    return !this.destroyed && (!!this.stream || streamDoc.holding(this.editor.state))
+  }
+
+  /** The page as it shows now, as it would be saved. */
+  private current(): { sceneId: ID; doc: unknown; text: string } | null {
+    if (this.destroyed || !this.session) return null
+    const doc = this.editor.state.doc
+    return { sceneId: this.session.id, doc: doc.toJSON(), text: streamDoc.sceneText(doc) }
+  }
+
+  /** Other text in place of the whole scene, as one step Ctrl+Z takes back. */
+  private replaceScene(sceneId: ID, doc: unknown, text: string, opts: { message?: string } = {}): boolean {
+    if (this.destroyed || this.session?.id !== sceneId || this.busy()) return false
+    const view = this.editor.view
+    const next = withParagraphIds(streamDoc.docFromStored(this.editor.schema, doc, text)).doc
+    if (!next.eq(view.state.doc)) {
+      const tr = closeHistory(view.state.tr.replaceWith(0, view.state.doc.content.size, next.content))
+      tr.setSelection(Selection.atStart(tr.doc))
+      view.dispatch(tr)
+      // Typing straight after is a step of its own.
+      view.dispatch(closeHistory(view.state.tr))
+      this.follow.stop()
+      const el = this.scroller()
+      if (el) el.scrollTop = 0
+    }
+    if (opts.message) toast(opts.message)
+    return true
   }
 
   // ---------- Where the draft is being written ----------

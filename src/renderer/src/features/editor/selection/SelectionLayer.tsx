@@ -17,6 +17,7 @@ import { nameIndex } from '../names/underlines'
 import { useSceneNames } from '../names/sceneNames'
 import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
+import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
 
 /** How long the selection must stay still before the bar shows: after the mouse is let go, and after keys. */
@@ -245,6 +246,7 @@ export function SelectionLayer({
           <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
             Quick start a character
           </BarButton>
+          <ListenFromHere editor={editor} sceneId={sceneId} from={bar.from} to={bar.to} />
         </div>
       </P.Anchor>
       <P.Portal>
@@ -287,7 +289,7 @@ export function SelectionLayer({
   )
 }
 
-const BarButton = ({
+export const BarButton = ({
   icon,
   children,
   pressed,

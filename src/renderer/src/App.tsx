@@ -27,6 +27,10 @@ import { StorySettings } from '@/features/stories/StorySettings'
 import { NewStoryDialog } from '@/features/stories/NewStoryDialog'
 import { CommandPalette } from '@/features/palette/CommandPalette'
 import { ShortcutsList } from '@/features/palette/ShortcutsList'
+import { HistoryView } from '@/features/history/HistoryView'
+import { VariantsView } from '@/features/variants/VariantsView'
+import { OutlineHelper } from '@/features/outline/OutlineHelper'
+import { DictationLayer } from '@/features/dictation/DictationLayer'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -176,6 +180,9 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'map' && <RelationshipMap />}
               {view.kind === 'threads' && <ThreadsBoard />}
               {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
+              {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
+              {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
+              {view.kind === 'outline' && <OutlineHelper key={view.storyId} storyId={view.storyId} />}
             </div>
           ) : null}
         </main>
@@ -199,6 +206,7 @@ function Workspace(): React.JSX.Element {
       <CommandPalette />
       <ShortcutsList />
       <NewStoryDialog />
+      <DictationLayer />
     </>
   )
 }

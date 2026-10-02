@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import { ModelsSettings } from './ModelsSettings'
 import { PreferencesSettings } from './PreferencesSettings'
 import { AppearanceSettings } from './AppearanceSettings'
+import { SpeechSettings } from './SpeechSettings'
 import { BackupsSettings } from './BackupsSettings'
 import { RecentlyDeleted } from './RecentlyDeleted'
 import { AboutSettings } from './AboutSettings'
@@ -12,6 +13,11 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
   { id: 'models', label: 'Models', blurb: 'Connect OpenRouter or another provider, and pick the model that writes your scenes.' },
   { id: 'preferences', label: 'My writing preferences', blurb: 'Your own defaults, used in every world. Each world can override them.' },
   { id: 'appearance', label: 'Appearance', blurb: 'Theme, text size and page width.' },
+  {
+    id: 'speech',
+    label: 'Read aloud and dictation',
+    blurb: 'Hear your scenes read aloud, and speak instead of typing. Both run on this computer, with nothing sent anywhere.'
+  },
   { id: 'backups', label: 'Backups', blurb: 'Automatic copies of the open world, and restoring one.' },
   {
     id: 'trash',
@@ -48,6 +54,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
           {current.id === 'models' && <ModelsSettings />}
           {current.id === 'preferences' && <PreferencesSettings />}
           {current.id === 'appearance' && <AppearanceSettings />}
+          {current.id === 'speech' && <SpeechSettings />}
           {current.id === 'backups' && <BackupsSettings />}
           {current.id === 'trash' && <RecentlyDeleted />}
           {current.id === 'about' && <AboutSettings />}

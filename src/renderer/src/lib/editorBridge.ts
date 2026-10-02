@@ -1,3 +1,4 @@
+import type { Editor } from '@tiptap/core'
 import type { ID } from '@shared/types'
 
 /**
@@ -31,8 +32,12 @@ export interface EditorBridge {
   holdForReplace(sceneId: ID): boolean
   /** Lets go of held text when the draft that was to replace it didn't start. */
   releaseHold(): void
-  /** Prepares to receive a streamed draft. Returns false if the editor isn't showing that scene. */
-  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean }): boolean
+  /**
+   * Prepares to receive a streamed draft. Returns false if the editor isn't showing that scene.
+   * `noBreak` (milestone 4, Beat by beat): the draft carries on straight after the scene's text, with no
+   * scene break before it.
+   */
+  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean }): boolean
   appendStream(generationId: ID, text: string): void
   /**
    * Ends the draft. `failed`: it ended with a problem that Generate reports itself, so the page says
@@ -54,6 +59,20 @@ export interface EditorBridge {
    * once its last words are in. Says so in a message. Does nothing when no draft is writing.
    */
   stopDraft(reason: 'scene' | 'world'): Promise<void>
+
+  // ----- Milestone 4 -----
+  /** The TipTap editor showing the scene (for the AI tools, reading aloud and dictation), or null once gone. */
+  readonly editor: Editor | null
+  /** True while a draft is being written into the page, or the page is held for one (nothing else should change it then). */
+  busy(): boolean
+  /** The page as it shows now, Adam's unsaved typing included, as it would be saved: for snapshots. Null with no scene open. */
+  current(): { sceneId: ID; doc: unknown; text: string } | null
+  /**
+   * Puts other text in place of the whole scene (a restored snapshot, a picked variant, another draft) as
+   * one step Ctrl+Z takes back, and shows `message` (if given) in a message. Returns false
+   * (and changes nothing) when the editor isn't showing that scene or a draft is being written into it.
+   */
+  replaceScene(sceneId: ID, doc: unknown, text: string, opts?: { message?: string }): boolean
 }
 
 let current: EditorBridge | null = null

@@ -398,6 +398,87 @@ Each part also owns its own tests (`*.test.ts` beside its modules, `tests/e2e/<p
 files (`src/shared/types.ts`, `api.ts`, `fields.ts`, `defaults.ts`, `lib/store.ts`, `App.tsx`,
 `migrations.ts`, this file) change only additively, and only at integration.
 
+## Milestone 4: better drafting
+
+What it adds (spec, Build plan 4): Variants; Beat by beat; the AI tools for selected words (Rewrite,
+Expand, Condense, More vivid, Change tone, Fix voice, Alternatives) and Continue, as tracked changes with
+Accept and Reject; drafts and history with compare and restore; Ask the world; the outline helper and
+next scene ideas; reading aloud with its voice setup and calibration, and dictation (spec, "Read aloud
+and dictation"). The data model stays frozen (migrations 1 and 2): world.db is unchanged.
+
+- **history.db.** Scene snapshots (and the drafts a scene holds besides its current one) live in a file
+  of their own in each world folder, `history.db`, beside `world.db`, opened by `src/main/history/`.
+  A missing, locked or damaged history.db never stops a world from opening: History starts afresh (the
+  damaged file is moved aside, never deleted). Backups copy world.db only, so restoring a backup leaves
+  history alone. **Milestone 6:** import, export and world copy must carry history.db with world.db.
+- **Generation records.** New `job` values: `beat`, `edit`, `chat`, `outline`, `ideas`, `speech`
+  (Variants stay `draft`). The extras go in `params` (`variant`, `beat`, `tool`, `chatId`), so no
+  migration. Only the scene's current draft counts for the memory; a variant or draft Adam hasn't
+  chosen never reaches it.
+- **AI calls.** Drafts (Generate, Variants, Beat by beat) go through `ai/draftFlow.ts`
+  (`draftBriefing`: the memory catches up first, the briefing is fitted to the writer model, "too long"
+  is said in plain words) and `ai/drafts.ts` (`startDraftJob`, with `job`, `partOf` and `exclusive`).
+  `prepareContext(input, extras)` takes a part's own closing instruction (`final`) and extra blocks
+  (sent last, never shortened). Every other AI call (edits, Ask the world, the outline helper, ideas,
+  who says each line) goes through the task runner, `ai/tasks.ts`: it records the call, streams it, saves
+  as it goes, and sends `task:progress` (the whole text so far), `task:retrying` and `task:done`; Stop is
+  `stopTask(taskId)`. The interface makes the `taskId`, so it hears every event.
+- **Models.** `ai/jobModel.ts` picks the model for a job and says in plain words what to set up when
+  there is none. New jobs in Settings › Models, each with its own Thinking choice (default Off): "Chat
+  and brainstorm model" (`chat`: Ask the world, the outline helper, next scene ideas; the writer model
+  until Adam picks one) and "Read aloud model" (`speech`, shown once read aloud is on; the memory model
+  until Adam picks one). Beat by beat, Variants and the AI edits use the writer model.
+- **Snapshots before AI changes.** Every part that changes the page with AI calls
+  `snapshotBefore(sceneId, label)` (`features/history/snapshot.ts`) just before the change goes in;
+  Mark done and writing (every 10 minutes) take theirs in the main process (`history/index.ts`:
+  `sceneMarkedDone`, `sceneTextSaved`).
+- **The page.** The editor bridge (`lib/editorBridge.ts`) adds `editor`, `busy()`, `current()` (the
+  page as it would be saved) and `replaceScene()` (other text in place of the whole scene, one Ctrl+Z
+  step), and `beginStream(..., { noBreak })` for a beat that carries on without a scene break. AI
+  edits and reading aloud add TipTap extensions (`features/edits/suggestions.ts`,
+  `features/readAloud/highlight.ts`), listed in `features/editor/extensions.ts`.
+- **Screens.** New views: `history`, `variants`, `outline`. `askOpen` shows Ask the world in the right
+  panel in place of the scene panel's tabs. The scene toolbar's new buttons (`features/editor/SceneTools.tsx`)
+  use `ToolButton`. Each part's piece of a shared screen is a component in the part's own folder, already
+  placed: `SceneTools` (Variants, Beat by beat, History, Listen), `SceneView` (ReadAloudBar, SuggestionLayer,
+  BeatBar), the selection bar (ListenFromHere), the scene card (SceneIdeas), the top bar (AskButton), entry
+  pages (EntryVoice), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
+  dictation (`features/settings/SpeechSettings.tsx`: each part's `section="everyday"` and `"more"`), and
+  the palette's actions and shortcuts (Listen Ctrl+L, Stop reading Ctrl+Shift+Space).
+- **Speech.** Adam's rule (2 October 2026): from mcreader-v2 and Poor-Mans-Holodeck, only their
+  text-to-speech and voice-to-text code may be reused (each such file says where it came from); nothing
+  else from either repo, and never keys, tokens or voice clips. Helpers they lean on are written fresh.
+  One local speech server (Python) speaks and listens: its source ships with the app; its Python
+  environments and models download into the user data folder (`speech/`), never into the app, git, a world
+  folder or a backup. It listens on 127.0.0.1:8766; Settings may point at another server on this
+  computer, loopback only (`speech/url.ts`). It starts hidden with the app when "Start with AI Write" is
+  on and stops as the app quits. Its routes are reached through IPC (the window never calls it directly).
+  The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the
+  world's `meta` key `read_aloud`, by entry id; speaker marks and spoken audio are a cache in the user data
+  folder (audio up to the limit Adam picks, oldest removed first). Dictated audio is never saved.
+  Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
+- **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
+  (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
+  `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
+
+### Who builds what (parallel build, milestone 4)
+
+| Part | Owns |
+|---|---|
+| History | `contracts/history.ts`, `ipc/history.ts`, `src/main/history/`, `features/history/`, the Drafts tab (`features/generate/GenerationsPanel.tsx`), the snapshot calls in `GenerateControls.tsx` |
+| Variants | `contracts/variants.ts`, `ipc/variants.ts`, `src/main/variants/`, `features/variants/` |
+| Beat by beat | `contracts/beats.ts`, `ipc/beats.ts`, `src/main/beats/`, `features/beats/` |
+| AI edits | `contracts/edits.ts`, `ipc/edits.ts`, `src/main/edits/`, `features/edits/`, the AI tools in `features/editor/selection/SelectionLayer.tsx`, `tests/fake-provider/m4/edits.mjs` |
+| Ask the world | `contracts/ask.ts`, `ipc/ask.ts`, `src/main/ask/`, `features/ask/`, `tests/fake-provider/m4/ask.mjs` |
+| Outline | `contracts/outline.ts`, `ipc/outline.ts`, `src/main/outline/`, `features/outline/`, acts in the binder (`features/binder/`), `tests/fake-provider/m4/outline.mjs` |
+| Speech engine | `contracts/speech.ts`, `ipc/speech.ts`, `src/main/speech/`, the speech server's source, `features/speech/`, `tests/fake-speech/` |
+| Read aloud | `contracts/readAloud.ts`, `ipc/readAloud.ts`, `src/main/readAloud/`, `features/readAloud/`, `tests/fake-provider/m4/readAloud.mjs` |
+| Dictation | `contracts/dictation.ts`, `ipc/dictation.ts`, `src/main/dictation/`, `features/dictation/`, the hold-to-talk line in the shortcuts list |
+
+The groundwork (shared before the parts start): the task runner, `jobModel`, `draftFlow`, the contracts'
+first lines, the new Settings › Models entries, the views, the slots and the editor bridge additions above.
+Each part also owns its tests. Shared files change only additively, and only at integration.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

@@ -73,6 +73,7 @@ import {
 } from './paletteLogic'
 import { giveFocusBack, openPalette, PALETTE_LAYER, usePalette } from './paletteStore'
 import { followRecent, recentPlaces } from './recent'
+import { useReading } from '@/features/readAloud/control'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -288,7 +289,12 @@ function useActionContext(): ActionContext {
   const drafting = useApp((s) => s.activeGeneration !== null)
   const theme = useApp((s) => s.settings?.theme ?? 'system')
   const sceneDone = useOutlineStore((s) => !!sceneId && s.outline?.scenes.find((x) => x.id === sceneId)?.status === 'done')
-  return useMemo(() => ({ view, storyId, sceneId, sceneDone, drafting, theme }), [view, storyId, sceneId, sceneDone, drafting, theme])
+  const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
+  const reading = useReading((s) => s.reading)
+  return useMemo(
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading]
+  )
 }
 
 /** Ctrl+K (⌘K) from anywhere, even the page: caught on the way down, before the editor sees it. */

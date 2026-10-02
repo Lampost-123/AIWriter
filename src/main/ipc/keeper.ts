@@ -8,6 +8,7 @@ import * as world from '../world'
 import { emit } from '../events'
 import { labeler } from '../memory/line'
 import { currentKeeper, markSceneDone, memoryStatus } from '../keeper'
+import { sceneMarkedDone } from '../history'
 import { loadShapeSafe } from '../keeper/places'
 import { answerItem, undoItem, type Outcome } from '../keeper/undo'
 import type { Undo } from '../keeper/apply'
@@ -60,6 +61,7 @@ function withWhere(rows: kdb.LogRow[]): MemoryLogItem[] {
 export const keeperHandlers: Handlers<KeeperMethods> = {
   markSceneDone: (id) => {
     const meta = write(() => markSceneDone(id) ?? kdb.markSceneDone(world.db(), id))
+    sceneMarkedDone(id)
     emit('memory:status', memoryStatus())
     return meta
   },

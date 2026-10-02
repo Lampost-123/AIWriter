@@ -27,6 +27,8 @@ import {
   useQuickStart,
   type QuickSession
 } from './quickStartStore'
+import { MicButton } from '@/features/dictation/MicButton'
+import { insertIntoBox } from '@/features/dictation/insertText'
 
 const COPY: Record<BuilderKind, { title: string; about: string; placeholder: string; build: string }> = {
   character: {
@@ -153,9 +155,15 @@ function Screen({
           Your own words are kept exactly as you wrote them.
         </p>
 
-        <label htmlFor="builder-notes" className="mt-5 block text-[12px] font-medium text-muted">
-          {copy.about}
-        </label>
+        <div className="mt-5 flex items-end justify-between gap-2">
+          <label htmlFor="builder-notes" className="block text-[12px] font-medium text-muted">
+            {copy.about}
+          </label>
+          <MicButton
+            disabled={locked}
+            onText={(t) => notesBox.current && insertIntoBox(notesBox.current, t, (v) => setQuickNotes(kind, v))}
+          />
+        </div>
         <AutoTextarea
           ref={notesBox}
           id="builder-notes"

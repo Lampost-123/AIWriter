@@ -59,6 +59,17 @@ export type FixedActionId =
   | 'switch-world'
   | 'rename-world'
   | 'shortcuts'
+  // Milestone 4
+  | 'variants'
+  | 'beat-by-beat'
+  | 'history'
+  | 'continue'
+  | 'ask-world'
+  | 'outline-helper'
+  | 'scene-ideas'
+  | 'listen'
+  | 'stop-reading'
+  | 'settings-speech'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -73,6 +84,10 @@ export interface ActionContext {
   /** A draft is being written. */
   drafting: boolean
   theme: ThemeName
+  /** Read aloud is turned on in Settings (milestone 4). */
+  readAloud?: boolean
+  /** Something is being read aloud now. */
+  reading?: boolean
 }
 
 export interface ActionDef {
@@ -184,7 +199,54 @@ export const ACTIONS: ActionDef[] = [
   { id: 'new-world', label: 'New world', keywords: 'add create' },
   { id: 'switch-world', label: 'Switch to another world', keywords: 'open change worlds' },
   { id: 'rename-world', label: 'Rename this world', keywords: 'name title' },
-  { id: 'shortcuts', label: 'Keyboard shortcuts', keywords: 'keys help hotkeys', shortcut: 'shortcuts' }
+  { id: 'shortcuts', label: 'Keyboard shortcuts', keywords: 'keys help hotkeys', shortcut: 'shortcuts' },
+  // ----- Milestone 4 -----
+  {
+    id: 'variants',
+    label: 'Variants side by side',
+    keywords: 'ai drafts versions compare pick choose',
+    away: true,
+    when: (c) => hasScene(c) && !c.drafting
+  },
+  {
+    id: 'beat-by-beat',
+    label: 'Beat by beat',
+    keywords: 'ai draft steer step pause',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.drafting
+  },
+  { id: 'history', label: 'Scene history', keywords: 'snapshots earlier versions compare restore drafts', away: true, when: hasScene },
+  {
+    id: 'continue',
+    label: 'Continue from the cursor',
+    keywords: 'ai write on more carry',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.drafting
+  },
+  { id: 'ask-world', label: 'Ask the world', keywords: 'chat brainstorm question ai ideas memory', away: toWriting },
+  { id: 'outline-helper', label: 'Outline helper', keywords: 'ai plan premise acts chapters scenes suggest', away: true, when: hasStory },
+  { id: 'scene-ideas', label: 'Ideas for this scene', keywords: 'ai next scene directions suggest card', away: toWriting, when: hasScene },
+  {
+    id: 'listen',
+    label: 'Listen',
+    keywords: 'read aloud speak voice hear audio pause',
+    shortcut: 'listen',
+    away: toWriting,
+    when: (c) => hasScene(c) && !!c.readAloud
+  },
+  {
+    id: 'stop-reading',
+    label: 'Stop reading aloud',
+    keywords: 'listen speak voice halt',
+    shortcut: 'stopReading',
+    when: (c) => !!c.reading
+  },
+  {
+    id: 'settings-speech',
+    label: 'Settings › Read aloud and dictation',
+    keywords: 'voice speech speak listen microphone dictate talk narrator',
+    away: true
+  }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

@@ -11,6 +11,7 @@ import { readJson, UserError, writeFileAtomicAsync } from '../util'
 import { resolveFlush } from '../flush'
 import { refreshDefaultExistsPoints } from '../db/memory'
 import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
+import { sceneTextSaved } from '../history'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -132,7 +133,11 @@ export const coreHandlers: Handlers<CoreMethods> = {
   createScene: (chapterId, input) => write(() => repo.createScene(world.db(), chapterId, input)),
   getScene: (id) => repo.getScene(world.db(), id),
   updateScene: (id, patch) => write(() => repo.updateScene(world.db(), id, patch)),
-  saveSceneText: (id, doc, text) => write(() => sceneSaved(id, repo.saveSceneText(world.db(), id, doc, text))),
+  saveSceneText: (id, doc, text) => {
+    const saved = write(() => sceneSaved(id, repo.saveSceneText(world.db(), id, doc, text)))
+    sceneTextSaved(id)
+    return saved
+  },
   updateSceneCard: (id, card) => write(() => repo.updateSceneCard(world.db(), id, card)),
   deleteScene: (id) =>
     write(() => {

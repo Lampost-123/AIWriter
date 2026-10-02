@@ -26,8 +26,8 @@ function sources(
   const p = o.provider === undefined ? provider() : o.provider
   return {
     settings: {
-      models: { writer: o.writer === undefined ? choice : o.writer, memory: null, chat: null, builder: o.builder ?? null },
-      ...(o.thinking ? { thinking: { writer: 'off', memory: 'off', chat: 'off', builder: o.thinking } } : {})
+      models: { writer: o.writer === undefined ? choice : o.writer, memory: null, chat: null, builder: o.builder ?? null, speech: null },
+      ...(o.thinking ? { thinking: { writer: 'off', memory: 'off', chat: 'off', builder: o.thinking, speech: 'off' } } : {})
     },
     getProvider: (id) => (p && p.id === id ? p : null),
     providerTarget: (c) => ({ id: c.id, name: c.name, kind: c.kind, baseUrl: c.baseUrl, apiKey: o.key === undefined ? 'sk-test' : o.key })

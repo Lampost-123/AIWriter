@@ -20,6 +20,9 @@ import { SelectionLayer } from './selection/SelectionLayer'
 import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
+import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
+import { BeatBar } from '@/features/beats/BeatBar'
+import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -211,6 +214,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       ) : (
         <div className="h-12 shrink-0 border-b border-line/70" />
       )}
+      <ReadAloudBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
       <div
         ref={scrollerRef}
         onScroll={() => {
@@ -229,6 +233,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </div>
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
+        <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState
@@ -261,6 +266,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <ArrowDown size={13} aria-hidden />
         </button>
       ) : null}
+      {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
     </div>
   )
 }

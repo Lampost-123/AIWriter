@@ -63,7 +63,7 @@ import type {
 } from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import type { SceneMemory, StorySoFar } from '../memory/types'
-import { finalInstruction, indentMore, instructionsText, SHORT_SAMPLE_WORDS } from './prompts'
+import { finalInstruction, indentMore, instructionsText, SHORT_SAMPLE_WORDS, type FinalOptions } from './prompts'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1209,9 +1209,26 @@ function contextEntries(sel: Selection, blocks: BlockDraft[]): ContextEntry[] {
   return out
 }
 
-export function prepareContext(input: ContextInput): PreparedContext {
+/**
+ * Milestone 4's additions to a draft's briefing. Variants and Beat by beat send the same briefing as
+ * Generate, with their own closing instruction and, for a beat, the scene so far.
+ */
+export interface ContextExtras {
+  /** Takes the place of the closing instruction ("Write the scene now..."); given what the usual one is made from. */
+  final?: (o: FinalOptions) => string
+  /**
+   * Blocks sent after the scene card, right above the closing instruction, never shortened or dropped
+   * (so keep them to a sensible size, such as the end of the scene so far).
+   */
+  extraBlocks?: { id: string; title: string; text: string }[]
+}
+
+export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
   const blocks = buildBlocks(input, sel)
+  for (const b of extras.extraBlocks ?? []) {
+    if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
+  }
   const targetWords = input.options.targetWords
   const card = input.scene.card
   const base = {
@@ -1225,9 +1242,10 @@ export function prepareContext(input: ContextInput): PreparedContext {
     hasBringAbout: bringAboutLines(input, sel).length > 0,
     previousStory: previousStory(input)
   }
+  const final = extras.final ?? finalInstruction
   const finals = {
-    withPrevious: finalInstruction({ ...base, hasPrevious: true }),
-    withoutPrevious: finalInstruction({ ...base, hasPrevious: false })
+    withPrevious: final({ ...base, hasPrevious: true }),
+    withoutPrevious: final({ ...base, hasPrevious: false })
   }
   return {
     blocks,

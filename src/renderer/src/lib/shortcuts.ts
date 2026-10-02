@@ -27,6 +27,9 @@ export type ShortcutId =
   | 'binderRename'
   | 'binderDelete'
   | 'binderUndo'
+  // Milestone 4
+  | 'listen'
+  | 'stopReading'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -55,6 +58,8 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'quote', name: 'Quoted passage', group: 'Writing', keys: ['Mod', 'Shift', 'B'] },
   { id: 'lineBreak', name: 'New line in the same paragraph', group: 'Writing', keys: ['Shift', 'Enter'] },
   { id: 'showName', name: 'Show who or what an underlined name is, beside the page', group: 'Writing', keys: ['Mod', 'Click'] },
+  { id: 'listen', name: 'Listen from the cursor, or pause and carry on', group: 'Writing', keys: ['Mod', 'L'] },
+  { id: 'stopReading', name: 'Stop reading aloud', group: 'Writing', keys: ['Mod', 'Shift', 'Space'] },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },
@@ -99,6 +104,8 @@ export const withShortcut = (label: string, id: ShortcutId, mac = isMac()): stri
 /** The parts of a key press that decide a shortcut. */
 export interface KeyPress {
   key: string
+  /** The physical key, when known: Space is told by it as well as by its character. */
+  code?: string
   ctrlKey: boolean
   metaKey: boolean
   shiftKey: boolean
@@ -119,6 +126,7 @@ export function isShortcut(e: KeyPress, id: ShortcutId, mac = isMac()): boolean 
   const want = main[0] === 'Esc' ? 'Escape' : main[0]
   // '?' is Shift and / on many keyboards (and other keys elsewhere): the character decides, not Shift.
   if (want === '?') return e.key === '?'
+  if (want === 'Space') return shift === e.shiftKey && (e.key === ' ' || e.code === 'Space')
   return shift === e.shiftKey && e.key.toLowerCase() === want.toLowerCase()
 }
 
@@ -140,11 +148,12 @@ export function pressShortcut(id: ShortcutId, mac = isMac()): void {
   const s = shortcut(id)
   const keys = (mac && s.mac) || s.keys
   const main = keys.filter((k) => k !== 'Mod' && k !== 'Shift')[0]
-  const key = main === 'Esc' ? 'Escape' : main.length === 1 ? main.toLowerCase() : main
+  const key = main === 'Esc' ? 'Escape' : main === 'Space' ? ' ' : main.length === 1 ? main.toLowerCase() : main
   const mod = keys.includes('Mod')
   window.dispatchEvent(
     new KeyboardEvent('keydown', {
       key,
+      code: main === 'Space' ? 'Space' : undefined,
       bubbles: true,
       cancelable: true,
       ctrlKey: mod && !mac,

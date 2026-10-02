@@ -19,6 +19,14 @@ import { requestReveal } from '@/features/editor/reveal'
 import { openStorySettings } from '@/features/stories/storyActions'
 import { createEntry } from '@/features/world/entryActions'
 import { toggleFloatingBinder, useFloatingBinder } from '@/layout/ResizablePane'
+import { openHistory } from '@/features/history/open'
+import { openVariants } from '@/features/variants/open'
+import { startBeatByBeat } from '@/features/beats/start'
+import { continueFromCursor } from '@/features/edits/continue'
+import { openAsk } from '@/features/ask/open'
+import { openOutlineHelper } from '@/features/outline/open'
+import { showSceneIdeas } from '@/features/outline/ideas'
+import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -83,7 +91,8 @@ const SETTINGS: Record<SettingsAction, SettingsTab> = {
   'settings-appearance': 'appearance',
   'settings-backups': 'backups',
   'settings-trash': 'trash',
-  'settings-about': 'about'
+  'settings-about': 'about',
+  'settings-speech': 'speech'
 }
 
 /** Runs one of the palette's actions. */
@@ -198,7 +207,42 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'settings-backups':
       case 'settings-trash':
       case 'settings-about':
+      case 'settings-speech':
         a.navigate({ kind: 'settings', tab: SETTINGS[fixed] })
+        return
+      // ----- Milestone 4 -----
+      case 'variants':
+        if (a.sceneId) openVariants(a.sceneId)
+        return
+      case 'beat-by-beat':
+        if (!a.sceneId) return
+        backToWriting()
+        startBeatByBeat(a.sceneId)
+        return
+      case 'history':
+        if (a.sceneId) await openHistory(a.sceneId)
+        return
+      case 'continue':
+        backToWriting()
+        continueFromCursor()
+        return
+      case 'ask-world':
+        openAsk()
+        return
+      case 'outline-helper':
+        if (a.storyId) openOutlineHelper(a.storyId)
+        return
+      case 'scene-ideas':
+        if (!a.sceneId) return
+        backToWriting()
+        showSceneIdeas(a.sceneId)
+        return
+      case 'listen':
+        backToWriting()
+        toggleListen()
+        return
+      case 'stop-reading':
+        stopReading()
         return
       default: {
         const unknown: never = fixed

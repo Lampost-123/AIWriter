@@ -21,6 +21,7 @@ import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
+import { AskButton } from '@/features/ask/AskButton'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
@@ -335,6 +336,7 @@ export function TopBar(): React.JSX.Element {
         </button>
       ) : null}
       <SaveIndicator />
+      {hasWorld ? <AskButton /> : null}
       <IconButton
         label="Settings"
         title={withShortcut('Settings', 'settings')}

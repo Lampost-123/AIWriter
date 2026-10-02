@@ -232,14 +232,14 @@ function lastFilledBlock(doc: PMNode): PMNode | null {
  * Starts a stream at the end of the scene. Writes into a trailing empty paragraph, else
  * after the last block. When the scene already has text, the draft begins below a scene
  * break, so Adam can see where his text ends and the new draft starts (one Ctrl+Z removes
- * the break with the draft).
+ * the break with the draft). With `noBreak` (Beat by beat's later beats) it carries straight on.
  *
  * With `replace`, the draft takes the place of the scene's text instead: nothing changes
  * until its first words arrive, so a draft that brings nothing never touches the old text.
  * Until then the old text is held (see `holding`). Starting again while held (once the draft
  * has its id) keeps holding it.
  */
-export function startStream(state: EditorState, generationId: string, opts: { replace?: boolean } = {}): Transaction {
+export function startStream(state: EditorState, generationId: string, opts: { replace?: boolean; noBreak?: boolean } = {}): Transaction {
   if (opts.replace) {
     // Nothing changes yet: the old text stays on the page until the draft's first words arrive.
     // Adam's typing before this is an undo step of its own, never joined to anything after.
@@ -253,7 +253,7 @@ export function startStream(state: EditorState, generationId: string, opts: { re
   const tr = state.tr
   const hr = state.schema.nodes.horizontalRule
   const filled = lastFilledBlock(doc)
-  const breakAdded = !!hr && !!filled && filled.type !== hr
+  const breakAdded = !opts.noBreak && !!hr && !!filled && filled.type !== hr
   if (breakAdded) {
     // Before the trailing empty paragraph the draft writes into (or at the very end).
     // Nothing before `from` moves, and a cursor in that paragraph stays in it.

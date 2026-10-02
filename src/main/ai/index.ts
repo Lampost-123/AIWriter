@@ -3,10 +3,14 @@
 //   providers.ts  OpenRouter and custom providers, model lists, connection tests
 //   context.ts    the briefing, in the spec's fixed priority order, fitted to the model
 //   drafts.ts     running a draft: record, stream, save as it arrives, finish
+//   draftFlow.ts  getting a draft's briefing ready (milestone 4's Variants and Beat by beat use it too)
+//   tasks.ts      milestone 4's other AI calls (AI edits, Ask the world, outline, ideas, read aloud)
+//   jobModel.ts   which model each of those jobs uses
 import { onWorldClosing, onWorldOpened } from '../world'
 import { stopInterrupted } from '../db/generations'
 import { now } from '../util'
 import { stopDraftsFor } from './drafts'
+import { stopTasksFor } from './tasks'
 import { warmTokens } from './tokenService'
 
 export function initAi(): void {
@@ -19,7 +23,10 @@ export function initAi(): void {
       console.error('Could not tidy unfinished drafts', e)
     }
   })
-  // Closing a world stops its drafts and finishes their records first.
-  onWorldClosing((w) => stopDraftsFor(w.db))
+  // Closing a world stops its drafts (and milestone 4's other AI calls) and finishes their records first.
+  onWorldClosing((w) => {
+    stopDraftsFor(w.db)
+    stopTasksFor(w.db)
+  })
   warmTokens()
 }

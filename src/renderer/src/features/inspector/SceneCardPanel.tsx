@@ -16,6 +16,7 @@ import { beatsToStore } from './beats'
 import { BeatsEditor } from './BeatsEditor'
 import { CastPicker } from './CastPicker'
 import { BringAbout, SceneSummary } from './SceneMemory'
+import { SceneIdeas } from '@/features/outline/SceneIdeas'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
 
@@ -189,6 +190,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div className="flex animate-fade-in flex-col gap-5 px-4 pb-12 pt-4" onBlur={() => void autosave.flush()}>
+      <SceneIdeas sceneId={sceneId} card={card} onUse={update} />
       <Group title="Who and where" action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <Field label="Point of view" hint={characters.length ? 'The scene is told through their eyes.' : 'No characters yet. Type a name under Characters present to add one.'}>
           {(id) => <OptionSelect id={id} value={povValue} onChange={setPov} options={povOptions} />}

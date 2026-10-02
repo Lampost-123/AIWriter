@@ -12,6 +12,7 @@ import { STATUS_LABELS, STATUSES, StatusDot } from '@/features/binder/StatusDot'
 import { changeStatus } from './markDone'
 import { DoneButton } from './DoneButton'
 import { MemoryNote } from './MemoryNote'
+import { SceneTools } from './SceneTools'
 
 function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   return (
@@ -110,6 +111,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
       </div>
       <StatusMenu sceneId={sceneId} status={status} />
       <DoneButton sceneId={sceneId} status={status} />
+      <SceneTools sceneId={sceneId} />
       <div className={cn('flex shrink-0 items-center')}>
         <GenerateControls sceneId={sceneId} />
       </div>
