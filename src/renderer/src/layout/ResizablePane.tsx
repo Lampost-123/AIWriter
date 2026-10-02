@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 
@@ -165,37 +166,46 @@ export function ResizablePane({
   )
 }
 
+/** The binder floating over the page in a small window: whether it floats now, and whether it shows. */
+export const useFloatingBinder = create<{ floating: boolean; open: boolean }>(() => ({ floating: false, open: false }))
+
+/** Shows or hides the floating binder (for the top bar's binder button while the binder floats). */
+export function toggleFloatingBinder(): void {
+  const { floating, open } = useFloatingBinder.getState()
+  if (floating) useFloatingBinder.setState({ open: !open })
+}
+
 /**
- * Whether a pane floating over the page shows (see ResizablePane's `floating`). While `active`, the
- * button named `toggle` shows and hides it instead of changing the saved layout; picking a scene or
- * another page closes it. It starts closed whenever the pane starts floating.
+ * Whether the binder floating over the page shows (see ResizablePane's `floating`). While `active`,
+ * the button named `toggle` shows and hides it instead of changing the saved layout; picking a scene
+ * or another page closes it. It starts closed whenever the binder starts floating.
  */
 export function useFloatingPane(active: boolean, toggle: string): { open: boolean; close: () => void } {
-  const [open, setOpen] = useState(false)
-  const close = useCallback(() => setOpen(false), [])
+  const open = useFloatingBinder((s) => s.open)
+  const close = useCallback(() => useFloatingBinder.setState({ open: false }), [])
 
   useEffect(() => {
-    if (!active) {
-      setOpen(false)
-      return
-    }
-    // Ahead of the button's own click, which would change the saved layout.
+    useFloatingBinder.setState({ floating: active, open: false })
+    if (!active) return
+    // Ahead of the button's own click, which would change the saved layout. (Once the top bar calls
+    // toggleFloatingBinder itself, this is no longer needed; it does no harm meanwhile.)
     const onClick = (e: MouseEvent): void => {
       if (!(e.target instanceof Element) || !e.target.closest(`[aria-label="${toggle}"]`)) return
       e.preventDefault()
       e.stopPropagation()
-      setOpen((o) => !o)
+      toggleFloatingBinder()
     }
     document.addEventListener('click', onClick, true)
     // Picking something in it (a scene, a page) is what it was opened for.
     const off = useApp.subscribe((s, prev) => {
-      if (s.sceneId !== prev.sceneId || s.view !== prev.view || s.storyId !== prev.storyId) setOpen(false)
+      if (s.sceneId !== prev.sceneId || s.view !== prev.view || s.storyId !== prev.storyId) close()
     })
     return () => {
       document.removeEventListener('click', onClick, true)
       off()
+      useFloatingBinder.setState({ floating: false, open: false })
     }
-  }, [active, toggle])
+  }, [active, toggle, close])
 
   return { open: active && open, close }
 }
