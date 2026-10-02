@@ -23,6 +23,7 @@ const scene = (id: string, chapterId: string, position: number, wordCount = 0): 
   position,
   status: 'planned',
   acceptedAt: null,
+  memoryState: 'current',
   wordCount,
   updatedAt: ''
 })

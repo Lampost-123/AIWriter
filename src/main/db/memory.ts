@@ -12,17 +12,18 @@ import type {
   ChangeAnchor,
   ChangeData,
   ChangeInput,
-  ChangeSource,
   Entry,
   ExistsKind,
   ExistsPoint,
   ID,
+  Origin,
   Pin,
   PinScope,
   Summary,
   SummaryLevel
 } from '@shared/types'
 import { newId, now, UserError } from '../util'
+import { recordVersion } from './history'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -48,8 +49,7 @@ const toChange = (r: Row): Change =>
     kind: r.kind as ChangeData['kind'],
     payload: json<ChangeData['payload']>(r.payload_json, {} as ChangeData['payload']),
     position: r.position as number,
-    source: r.source as ChangeSource,
-    quote: (r.quote as string) ?? '',
+    origin: r.origin as Origin,
     runId: (r.run_id as string) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
@@ -85,8 +85,8 @@ function anchorFor(
 }
 
 export type NewChange = ChangeInput & {
-  source: ChangeSource
-  quote?: string
+  origin: Origin
+  /** The memory keeper run that makes it (text- and ai-origin changes). */
   runId?: ID | null
   /** Order among changes at the same anchor; after the others when left out. */
   position?: number
@@ -113,8 +113,8 @@ export function insertChange(db: DB, c: NewChange): Change {
         .get(c.anchor, storyId, sceneId) as Row
     ).p as number) + 1
   db.prepare(
-    `INSERT INTO changes (id, entry_id, anchor, story_id, scene_id, kind, payload_json, position, source, quote, run_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO changes (id, entry_id, anchor, story_id, scene_id, kind, payload_json, position, origin, run_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     c.entryId,
@@ -124,21 +124,25 @@ export function insertChange(db: DB, c: NewChange): Change {
     c.kind,
     JSON.stringify(c.payload ?? {}),
     position,
-    c.source,
-    c.quote ?? '',
+    c.origin,
     c.runId ?? null,
     t,
     t
   )
-  return getChange(db, id)
+  const change = getChange(db, id)
+  recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: c.origin, runId: c.runId })
+  return change
 }
 
-/** Replaces a change's anchor, kind and payload (and, for the memory keeper, its words and run). */
-export function replaceChange(db: DB, id: ID, c: ChangeInput & { quote?: string; runId?: ID | null; source?: ChangeSource }): Change {
+/**
+ * Replaces a change's anchor, kind and payload. `origin` says who: Adam editing a text-origin change
+ * makes it his ('adam'); the memory keeper passes 'text' or 'ai' with its run.
+ */
+export function replaceChange(db: DB, id: ID, c: ChangeInput & { origin: Origin; runId?: ID | null }): Change {
   const old = getChange(db, id)
   const { storyId, sceneId } = anchorFor(db, c)
   db.prepare(
-    `UPDATE changes SET entry_id = ?, anchor = ?, story_id = ?, scene_id = ?, kind = ?, payload_json = ?, quote = ?, run_id = ?, source = ?, updated_at = ?
+    `UPDATE changes SET entry_id = ?, anchor = ?, story_id = ?, scene_id = ?, kind = ?, payload_json = ?, run_id = ?, origin = ?, updated_at = ?
      WHERE id = ?`
   ).run(
     c.entryId,
@@ -147,23 +151,30 @@ export function replaceChange(db: DB, id: ID, c: ChangeInput & { quote?: string;
     sceneId,
     c.kind,
     JSON.stringify(c.payload ?? {}),
-    c.quote ?? old.quote,
     c.runId !== undefined ? c.runId : old.runId,
-    c.source ?? old.source,
+    c.origin,
     now(),
     id
   )
-  return getChange(db, id)
+  const change = getChange(db, id)
+  recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: c.origin, runId: c.runId })
+  return change
 }
 
-export function deleteChange(db: DB, id: ID): void {
+/** Removes a change (it stays restorable). `by` says who removed it, for the memory history. */
+export function deleteChange(db: DB, id: ID, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): void {
+  const r = db.prepare('SELECT entry_id FROM changes WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
+  if (!r) return
   db.prepare('UPDATE changes SET deleted_at = ? WHERE id = ?').run(now(), id)
+  recordVersion(db, { factKind: 'change', factId: id, entryId: r.entry_id as string, data: null, origin: by.origin, runId: by.runId })
 }
 
-export function restoreChange(db: DB, id: ID): void {
+export function restoreChange(db: DB, id: ID, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): void {
   const r = db.prepare('SELECT id FROM changes WHERE id = ?').get(id) as Row | undefined
   if (!r) throw new UserError('That change could not be found to restore.')
   db.prepare('UPDATE changes SET deleted_at = NULL WHERE id = ?').run(id)
+  const change = getChange(db, id)
+  recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: by.origin, runId: by.runId })
 }
 
 /** Every live change, in a stable order (the line decides which count where). */
@@ -268,11 +279,11 @@ export function firstStoryId(db: DB): ID | null {
  */
 export function defaultExistsPoint(
   db: DB,
-  e: Pick<Entry, 'kind' | 'origin' | 'originStoryId' | 'originSceneId'>
+  e: Pick<Entry, 'kind' | 'origin' | 'originStoryId' | 'originSceneId' | 'originStart'>
 ): Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'> {
   const world = { kind: 'world' as const, storyId: null, sceneId: null }
-  if (e.origin === 'start' && e.originStoryId) return { kind: 'story-post', storyId: e.originStoryId, sceneId: null }
-  if (e.origin === 'memory') {
+  if (e.originStart && e.originStoryId) return { kind: 'story-post', storyId: e.originStoryId, sceneId: null }
+  if (e.origin === 'text') {
     if ((e.kind === 'character' || e.kind === 'item' || e.kind === 'event') && e.originSceneId) {
       return {
         kind: 'scene',
@@ -293,7 +304,7 @@ const toSummary = (r: Row): Summary => ({
   level: r.level as SummaryLevel,
   targetId: r.target_id as string,
   text: r.text as string,
-  byHand: !!r.by_hand,
+  origin: r.origin as Origin,
   stale: !!r.stale,
   updatedAt: r.updated_at as string
 })
@@ -307,25 +318,31 @@ export function listSummaries(db: DB): Summary[] {
   return (db.prepare('SELECT * FROM summaries').all() as Row[]).map(toSummary)
 }
 
-/** Writes a summary. `byHand` marks Adam's own words; `sourceHash` records what an automatic one was made from. */
+/**
+ * Writes a summary and its memory-history version. `origin` 'adam' marks Adam's own words (never
+ * replaced automatically); `sourceHash` records what an automatic one was made from.
+ */
 export function putSummary(
   db: DB,
   s: {
     level: SummaryLevel
     targetId: ID
     text: string
-    byHand: boolean
+    origin: Origin
     sourceHash?: string
     generationId?: ID | null
+    runId?: ID | null
   }
 ): Summary {
   db.prepare(
-    `INSERT INTO summaries (level, target_id, text, by_hand, stale, source_hash, generation_id, updated_at)
+    `INSERT INTO summaries (level, target_id, text, origin, stale, source_hash, generation_id, updated_at)
      VALUES (?, ?, ?, ?, 0, ?, ?, ?)
-     ON CONFLICT(level, target_id) DO UPDATE SET text = excluded.text, by_hand = excluded.by_hand, stale = 0,
+     ON CONFLICT(level, target_id) DO UPDATE SET text = excluded.text, origin = excluded.origin, stale = 0,
        source_hash = excluded.source_hash, generation_id = excluded.generation_id, updated_at = excluded.updated_at`
-  ).run(s.level, s.targetId, s.text, s.byHand ? 1 : 0, s.sourceHash ?? '', s.generationId ?? null, now())
-  return getSummary(db, s.level, s.targetId)!
+  ).run(s.level, s.targetId, s.text, s.origin, s.sourceHash ?? '', s.generationId ?? null, now())
+  const summary = getSummary(db, s.level, s.targetId)!
+  recordVersion(db, { factKind: 'summary', factId: `${s.level}:${s.targetId}`, entryId: null, data: summary, origin: s.origin, runId: s.runId })
+  return summary
 }
 
 export function markSummaryStale(db: DB, level: SummaryLevel, targetId: ID): void {

@@ -5,8 +5,8 @@ import type {
   Entry,
   EntryInput,
   EntryKind,
-  EntryOrigin,
   ID,
+  Origin,
   Outline,
   Scene,
   SceneCard,
@@ -19,6 +19,7 @@ import type {
 import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint } from './memory'
+import { recordVersion } from './history'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
 // handle, with no Electron imports, so they can be unit-tested in plain Node.
@@ -302,7 +303,8 @@ const toSceneMeta = (r: Row): SceneMeta => ({
   status: r.status as SceneStatus,
   wordCount: r.word_count as number,
   updatedAt: r.updated_at as string,
-  acceptedAt: (r.accepted_at as string) ?? null
+  acceptedAt: (r.accepted_at as string) ?? null,
+  memoryState: ((r.memory_status as string) ?? 'current') as SceneMeta['memoryState']
 })
 
 const toScene = (r: Row): Scene => ({
@@ -326,7 +328,9 @@ export function getScene(db: DB, id: ID): Scene {
 
 export function getSceneMeta(db: DB, id: ID): SceneMeta {
   const r = db
-    .prepare('SELECT id, chapter_id, title, position, status, word_count, updated_at, accepted_at FROM scenes WHERE id = ? AND deleted_at IS NULL')
+    .prepare(
+      'SELECT id, chapter_id, title, position, status, word_count, updated_at, accepted_at, memory_status FROM scenes WHERE id = ? AND deleted_at IS NULL'
+    )
     .get(id) as Row | undefined
   if (!r) throw new UserError('That scene no longer exists.')
   return toSceneMeta(r)
@@ -413,7 +417,7 @@ export function getOutline(db: DB, storyId: ID): Outline {
   const scenes = (
     db
       .prepare(
-        `SELECT s.id, s.chapter_id, s.title, s.position, s.status, s.word_count, s.updated_at, s.accepted_at
+        `SELECT s.id, s.chapter_id, s.title, s.position, s.status, s.word_count, s.updated_at, s.accepted_at, s.memory_status
          FROM scenes s JOIN chapters c ON c.id = s.chapter_id
          WHERE c.story_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL
          ORDER BY c.position, s.position`
@@ -470,9 +474,11 @@ const toEntry = (r: Row): Entry => ({
   fields: json<Record<string, string>>(r.fields_json, {}),
   parentId: (r.parent_id as string) ?? null,
   hardRule: !!r.hard_rule,
-  origin: ((r.origin as string) ?? 'hand') as Entry['origin'],
+  origin: ((r.origin as string) ?? 'adam') as Entry['origin'],
+  fieldOrigins: json<Record<string, Origin>>(r.field_origins_json, {}),
   originStoryId: (r.origin_story_id as string) ?? null,
   originSceneId: (r.origin_scene_id as string) ?? null,
+  originStart: !!r.origin_start,
   byHand: !!r.by_hand,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string
@@ -498,15 +504,18 @@ export function getEntries(db: DB, ids: ID[]): Entry[] {
   })
 }
 
-/** How an entry is being made: by Adam (the default), by the memory keeper from a scene, or by a start-of-story change. */
+/** How an entry is being made: by Adam (the default), read from a scene's text, or drafted by the AI; and whether by a start-of-story change. */
 export interface EntryMaking {
-  origin: EntryOrigin
+  origin: Origin
   originStoryId?: ID | null
   originSceneId?: ID | null
+  originStart?: boolean
+  /** The memory keeper run making it. */
+  runId?: ID | null
 }
 
 /** Makes an entry and gives it its default first-exists point (spec, Multi-story rules). */
-export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, making: EntryMaking = { origin: 'hand' }): Entry {
+export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, making: EntryMaking = { origin: 'adam' }): Entry {
   const t = now()
   const id = newId()
   const originStoryId = making.originStoryId ?? input.originStoryId ?? null
@@ -514,8 +523,8 @@ export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, mak
   db.transaction(() => {
     db.prepare(
       `INSERT INTO entries (id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json, parent_id, hard_rule,
-         origin, origin_story_id, origin_scene_id, by_hand, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         origin, origin_story_id, origin_scene_id, origin_start, by_hand, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       kind,
@@ -531,26 +540,45 @@ export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, mak
       making.origin,
       originStoryId,
       originSceneId,
-      making.origin === 'hand' ? 1 : 0,
+      making.originStart ? 1 : 0,
+      making.origin === 'adam' ? 1 : 0,
       t,
       t
     )
-    const point = defaultExistsPoint(db, { kind, origin: making.origin, originStoryId, originSceneId })
+    const point = defaultExistsPoint(db, { kind, origin: making.origin, originStoryId, originSceneId, originStart: !!making.originStart })
     addExistsPoint(db, { ...point, entryId: id, byHand: false })
+    recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: getEntry(db, id), origin: making.origin, runId: making.runId })
   })()
   return getEntry(db, id)
 }
 
+/** The keys an entry patch changes, as field-origin keys (field keys, or 'name', 'aliases', 'summary', 'description', 'tags'). */
+function changedKeys(before: Entry, patch: EntryInput): string[] {
+  const keys: string[] = []
+  for (const k of ['name', 'aliases', 'summary', 'description', 'tags'] as const) {
+    if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) keys.push(k)
+  }
+  if (patch.fields) {
+    for (const [k, v] of Object.entries(patch.fields)) if ((before.fields[k] ?? '') !== (v ?? '')) keys.push(k)
+  }
+  return keys
+}
+
 /**
- * Saves changes to an entry. Adam's edits (the default) mark it as his, so the memory keeper never
- * overwrites or removes it; the keeper passes `{ byHand: false }` for entries it made.
+ * Saves changes to an entry and writes a memory-history version. Adam's edits (the default) make
+ * every field he changed his ('adam'), so the memory keeper never changes those fields, and mark the
+ * entry as touched by hand, so it is never removed automatically. The memory keeper passes
+ * `{ origin: 'text' }` (or 'ai') with its run, and only for fields that aren't Adam's.
  */
-export function updateEntry(db: DB, id: ID, patch: EntryInput, opts: { byHand: boolean } = { byHand: true }): Entry {
-  const e = { ...getEntry(db, id), ...patch }
+export function updateEntry(db: DB, id: ID, patch: EntryInput, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): Entry {
+  const before = getEntry(db, id)
+  const e = { ...before, ...patch }
   if (e.parentId === id) e.parentId = null
+  const fieldOrigins = { ...before.fieldOrigins }
+  for (const k of changedKeys(before, patch)) fieldOrigins[k] = by.origin
   db.prepare(
     `UPDATE entries SET name = ?, aliases_json = ?, summary = ?, description = ?, tags_json = ?, notes = ?, fields_json = ?,
-     parent_id = ?, hard_rule = ?, by_hand = MAX(by_hand, ?), updated_at = ? WHERE id = ?`
+     parent_id = ?, hard_rule = ?, field_origins_json = ?, by_hand = MAX(by_hand, ?), updated_at = ? WHERE id = ?`
   ).run(
     e.name.trim() || 'Unnamed',
     JSON.stringify(e.aliases),
@@ -561,13 +589,18 @@ export function updateEntry(db: DB, id: ID, patch: EntryInput, opts: { byHand: b
     JSON.stringify(e.fields),
     e.parentId,
     e.hardRule ? 1 : 0,
-    opts.byHand ? 1 : 0,
+    JSON.stringify(fieldOrigins),
+    by.origin === 'adam' ? 1 : 0,
     now(),
     id
   )
-  return getEntry(db, id)
+  const after = getEntry(db, id)
+  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: after, origin: by.origin, runId: by.runId })
+  return after
 }
 
-export function deleteEntry(db: DB, id: ID): void {
+/** Moves an entry to Trash and writes a memory-history version saying who removed it. */
+export function deleteEntry(db: DB, id: ID, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): void {
   db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?').run(now(), id)
+  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: null, origin: by.origin, runId: by.runId })
 }
