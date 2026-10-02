@@ -40,6 +40,8 @@ export interface CodexCard {
   id: ID
   kind: EntryKind
   name: string
+  /** Other names, for searching the codex. */
+  aliases: string[]
   /** The one-liner. */
   summary: string
   tags: string[]

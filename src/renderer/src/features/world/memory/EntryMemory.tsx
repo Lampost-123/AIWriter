@@ -1,10 +1,12 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, ID } from '@shared/types'
 import { api } from '@/lib/api'
+import { useApp } from '@/lib/store'
 import { describeChange, splitChanges } from '../memoryLogic'
 import { Section } from '../parts/Section'
 import { useSceneLabels } from '../useSceneLabels'
+import { AppearsSection } from './AppearsSection'
 import { ChangesSection, type ChangeItem } from './ChangesSection'
 import { HistorySection } from './HistorySection'
 import { KnowledgeSection } from './KnowledgeSection'
@@ -24,7 +26,8 @@ function fieldLabels(kind: Entry['kind']): (key: string) => string {
 
 /**
  * The memory parts of an entry page, as sections under its fields: relationships (or connections)
- * at the start, what a character knows at the start, how it changes over time, and earlier versions.
+ * at the start, what a character knows at the start, how it changes over time, the scenes it
+ * appears in, and earlier versions.
  * Each loads on its own and says so quietly when it can't, so the rest of the page always works.
  */
 export const EntryMemorySections = memo(function EntryMemorySections({
@@ -48,6 +51,16 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   const name = now.name.trim() || 'Unnamed'
   const data = useEntryData(() => api.listChanges(id), `changes:${id}`)
   const places = useSceneLabels(!!data.data?.some((c) => c.links.length > 0 || c.anchor === 'scene'))
+  const appears = useEntryData(() => api.listAppearances(id), `appears:${id}`)
+  // Where it appears also moves when the memory keeper pins a change to a scene.
+  const memoryRev = useApp((s) => s.memoryRev)
+  const seenRev = useRef(memoryRev)
+  const reloadAppears = appears.reload
+  useEffect(() => {
+    if (seenRev.current === memoryRev) return
+    seenRev.current = memoryRev
+    reloadAppears()
+  }, [memoryRev, reloadAppears])
 
   const byId = useMemo(() => new Map(others.map((e) => [e.id, e])), [others])
   const nameOf = useCallback(
@@ -88,6 +101,9 @@ export const EntryMemorySections = memo(function EntryMemorySections({
       ) : null}
       <Section title="Changes over time" meta={items.length || null} open={open.has('changes')} onToggle={() => onToggle('changes')}>
         <ChangesSection name={name} kind={kind} items={items} data={data} places={places} />
+      </Section>
+      <Section title="Appears in" meta={appears.data?.length || null} open={open.has('appears')} onToggle={() => onToggle('appears')}>
+        <AppearsSection name={name} kind={kind} data={appears} />
       </Section>
       <Section title="Earlier versions" open={open.has('history')} onToggle={() => onToggle('history')}>
         <HistorySection now={now} placeName={placeName} beforeRestore={beforeRestore} />

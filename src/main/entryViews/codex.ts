@@ -61,6 +61,7 @@ export function codexCards(db: DB): CodexCard[] {
       id: e.id,
       kind: e.kind,
       name: e.name,
+      aliases: e.aliases,
       summary: e.summary,
       tags: e.tags,
       image: e.image ?? null,

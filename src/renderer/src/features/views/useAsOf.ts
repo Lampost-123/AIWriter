@@ -1,6 +1,6 @@
 // Loading the memory as of a point, for entry pages, the relationship map, hover cards and the Cast
 // tab. The last answer stays on screen while a newer one loads, so sliding never flickers.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AsOf, AsOfStop, EntryAsOf, ID } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -26,10 +26,15 @@ export function useAsOfStops(storyId: ID | null, entryId?: ID | null): AsOfStop[
 }
 
 /** An entry as of a point (null until first loaded, or when `at` is null). Keeps the last answer while the next loads. */
-export function useEntryAsOf(entryId: ID | null, at: AsOf | null): { data: EntryAsOf | null; loading: boolean; error: string | null } {
+export function useEntryAsOf(
+  entryId: ID | null,
+  at: AsOf | null
+): { data: EntryAsOf | null; loading: boolean; error: string | null; reload: () => void } {
   const memoryRev = useApp((s) => s.memoryRev)
   const entriesRev = useApp((s) => s.entriesRev)
   const [state, setState] = useState<{ data: EntryAsOf | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null })
+  const [tries, setTries] = useState(0)
+  const reload = useCallback(() => setTries((n) => n + 1), [])
   const ticket = useRef(0)
   const key = at ? JSON.stringify(at) : null
   useEffect(() => {
@@ -44,6 +49,6 @@ export function useEntryAsOf(entryId: ID | null, at: AsOf | null): { data: Entry
         .catch((e: Error) => mine === ticket.current && setState((s) => ({ ...s, loading: false, error: e.message })))
     }, 60)
     return () => clearTimeout(timer)
-  }, [entryId, key, memoryRev, entriesRev])
-  return state
+  }, [entryId, key, memoryRev, entriesRev, tries])
+  return { ...state, reload }
 }
