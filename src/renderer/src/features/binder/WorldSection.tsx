@@ -1,4 +1,4 @@
-import { Palette } from 'lucide-react'
+import { History, Palette } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
@@ -77,6 +77,7 @@ export function WorldSection(): React.JSX.Element {
         />
       ))}
       <Link icon={<Palette size={15} />} label="Style guide" active={view.kind === 'style'} onClick={() => navigate({ kind: 'style' })} />
+      <Link icon={<History size={15} />} label="What changed" active={view.kind === 'memory'} onClick={() => navigate({ kind: 'memory', sceneId: null })} />
     </nav>
   )
 }

@@ -9,6 +9,9 @@ import * as actions from '@/features/binder/actions'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { useOutline } from '@/features/binder/outlineStore'
 import { STATUS_LABELS, STATUSES, StatusDot } from '@/features/binder/StatusDot'
+import { changeStatus } from './markDone'
+import { DoneButton } from './DoneButton'
+import { MemoryNote } from './MemoryNote'
 
 function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   return (
@@ -33,7 +36,8 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
           {STATUSES.map((s) => (
             <M.Item
               key={s}
-              onSelect={() => s !== status && void actions.setSceneStatus(sceneId, s)}
+              // Done is the same as Mark done; leaving Done reopens the scene.
+              onSelect={() => s !== status && void changeStatus(sceneId, status, s)}
               className="flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-fg outline-none data-[highlighted]:bg-surface-2"
             >
               <span className="flex w-3 justify-center">
@@ -50,7 +54,7 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
 }
 
 /**
- * The slim bar above the page: where the scene sits, its title and status, and
+ * The slim bar above the page: where the scene sits, its title and status, Mark done, and
  * the drafting controls. Fixed height, so nothing below it ever moves.
  */
 export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneId: ID; fallbackTitle: string; fallbackStatus: SceneStatus }): React.JSX.Element {
@@ -101,8 +105,10 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
             {title || 'Untitled scene'}
           </button>
         )}
+        {meta?.memoryState === 'failed' && !editing ? <MemoryNote sceneId={sceneId} /> : null}
       </div>
       <StatusMenu sceneId={sceneId} status={status} />
+      <DoneButton sceneId={sceneId} status={status} />
       <div className={cn('flex shrink-0 items-center')}>
         <GenerateControls sceneId={sceneId} />
       </div>

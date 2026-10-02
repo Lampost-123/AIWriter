@@ -5,7 +5,7 @@ import * as P from '@radix-ui/react-popover'
 import { ChevronDown, Sparkles, Square } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { AppEvents } from '@shared/api'
-import type { Creativity, DraftOptions, ID } from '@shared/types'
+import type { Creativity, ID } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
 import { Button, Field, Input, Textarea, toast } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
@@ -13,20 +13,9 @@ import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
-import { PopoverPanel, Segmented } from './parts'
-
-interface SceneDraftOptions {
-  direction: string
-  /** Null: use the scene card's target length. */
-  targetWords: number | null
-  /** Null: use the default from Settings. */
-  creativity: Creativity | null
-}
-
-const BLANK: SceneDraftOptions = { direction: '', targetWords: null, creativity: null }
-/** Each scene's draft options, kept while the app is open. */
-const remembered = new Map<ID, SceneDraftOptions>()
+import { PopoverPanel, Segmented, useDelayed } from './parts'
 
 interface Session {
   sceneId: ID
@@ -70,7 +59,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const defaultCreativity = useApp((s) => s.settings?.creativity ?? 'balanced')
   const navigate = useApp((s) => s.navigate)
 
-  const [opts, setOpts] = useState<SceneDraftOptions>(() => remembered.get(sceneId) ?? BLANK)
+  // Kept in the store (each scene's own), so the Context tab previews the briefing with the same options.
+  const opts = useApp((s) => s.draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS)
   const [lengthText, setLengthText] = useState('')
   const [cardWords, setCardWords] = useState<number | null>(null)
   /** The scene card says what happens (beats, a goal, an outcome or notes). Null until loaded. */
@@ -121,8 +111,6 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   )
 
   useEffect(() => {
-    const o = remembered.get(sceneId) ?? BLANK
-    setOpts(o)
     setCardWords(null)
     setCardPlanned(null)
     setEstimate(null)
@@ -139,13 +127,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     setHasText(!!bridge && bridge.sceneId === sceneId && bridge.hasText())
   }, [sceneId])
 
-  const updateOpts = (patch: Partial<SceneDraftOptions>): void => {
-    setOpts((o) => {
-      const next = { ...o, ...patch }
-      remembered.set(sceneId, next)
-      return next
-    })
-  }
+  const updateOpts = (patch: Partial<SceneDraftOptions>): void => useApp.getState().setDraftOptions(sceneId, patch)
 
   // ---------- Estimated cost (only for models with prices) ----------
 
@@ -264,12 +246,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       // Save the card and the page first, so the draft is built from the latest of both.
       await flushAll()
       const card = (await api.getScene(sceneId)).card
-      const o = optsRef.current
-      const options: DraftOptions = {
-        direction: o.direction.trim(),
-        targetWords: o.targetWords ?? card.targetWords,
-        creativity: o.creativity ?? useApp.getState().settings?.creativity ?? 'balanced'
-      }
+      const options = resolveDraftOptions(optsRef.current, card.targetWords, useApp.getState().settings?.creativity ?? 'balanced')
       if (s.cancelled) {
         if (session.current === s) session.current = null
         setPhase('idle')
@@ -361,18 +338,39 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // ---------- View ----------
 
   const busy = phase !== 'idle'
+  // Before a draft starts, the memory first reads any earlier scenes it hasn't caught up with, which
+  // can take a little while; Generate then rests (it can't be stopped until the draft has begun) and
+  // says why. A quick start shows nothing at all.
+  const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
+  const startingSlow = useDelayed(phase === 'starting', 700)
+  const showStatus = phase === 'streaming' || phase === 'stopping' || startingSlow
   const afterText = `This scene already has text. The new draft goes after it, below a scene break. ${modKey()}+Z removes it.`
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
-  const status = retrying ? 'Retrying…' : phase === 'stopping' ? 'Stopping…' : 'Writing…'
+  const status =
+    phase === 'starting'
+      ? memoryReading
+        ? 'Updating memory first…'
+        : 'Getting ready…'
+      : retrying
+        ? 'Retrying…'
+        : phase === 'stopping'
+          ? 'Stopping…'
+          : 'Writing…'
+  const statusTitle =
+    phase === 'starting'
+      ? memoryReading
+        ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
+        : 'Getting the draft ready.'
+      : (retrying ?? undefined)
 
   return (
     <div ref={rootRef} className="flex items-center gap-1.5">
       {compact ? (
         // Narrow header: only the amber light while writing (its slot is always kept, so nothing moves).
-        <span role="status" title={busy ? (retrying ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
-          {busy ? (
+        <span role="status" title={showStatus ? (statusTitle ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
+          {showStatus ? (
             <>
               <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
               <span className="sr-only">{status}</span>
@@ -384,11 +382,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           <button
             type="button"
             onClick={openSettings}
-            tabIndex={busy ? -1 : 0}
+            tabIndex={showStatus ? -1 : 0}
             title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings > Models.` : 'Choose a writer model in Settings > Models.'}
             className={cn(
               'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-              busy && 'invisible'
+              showStatus && 'invisible'
             )}
           >
             <span className="truncate">{modelName ?? 'No writer model'}</span>
@@ -398,11 +396,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               </span>
             ) : null}
           </button>
-          {busy ? (
+          {showStatus ? (
             <span
               role="status"
-              title={retrying ?? undefined}
-              className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
+              title={statusTitle}
+              className="absolute inset-y-0 right-0 flex items-center gap-2 whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
             >
               <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
               {status}
@@ -414,7 +412,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       <P.Root open={popover !== null} onOpenChange={(o) => !o && setPopover(null)}>
         <P.Anchor asChild>
           <div className="flex w-[132px] shrink-0">
-            {busy ? (
+            {phase === 'starting' ? (
+              // Waiting for the draft to begin (perhaps for the memory to catch up first): it can't be stopped yet.
+              <Button variant="primary" className="w-full" loading title={statusTitle}>
+                Generate
+              </Button>
+            ) : busy ? (
               <Button
                 variant="secondary"
                 className="w-full"

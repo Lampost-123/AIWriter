@@ -18,6 +18,8 @@ import { itemsForWorld, shouldRestore } from './recovery'
 import * as streamDoc from './streamDoc'
 import { newSplitState, splitChunk, type SplitState } from './streamText'
 import { takeFocusRequest } from './focusRequest'
+import { withParagraphIds } from './paragraphIds'
+import { findTextRange } from './findText'
 
 /** Where Adam was in each scene this session, so coming back restores the view. */
 const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>()
@@ -274,7 +276,9 @@ export class SceneController {
       unsaved.dispose()
       this.dropLeaving(unsaved)
     }
-    const doc = unsaved?.doc ?? streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text)
+    // Every paragraph has a stable id; a scene from before ids existed gets them now, and (if it has
+    // words) they are saved.
+    const { doc, filled } = withParagraphIds(unsaved?.doc ?? streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text))
     const mem = memory.get(scene.id)
     let selection: Selection = Selection.atStart(doc)
     if (mem) {
@@ -307,6 +311,10 @@ export class SceneController {
     if (unsaved) {
       this.session.changed()
       app().setSceneWords(countWords(streamDoc.sceneText(doc)))
+    } else if (filled && doc.textContent.trim()) {
+      // Only a scene with words in it: an empty one gets its ids saved with the first thing typed,
+      // so merely opening it never writes over the stored copy.
+      this.session.changed()
     }
     // The caret goes into the page when asked (opening a scene from the binder), and whenever
     // nothing else has focus (launch, a new world), so typing straight away is never lost.
@@ -317,6 +325,25 @@ export class SceneController {
   focus(): void {
     if (this.destroyed) return
     this.editor.view.focus()
+  }
+
+  /**
+   * Selects the first place these words appear and brings it into view, a third of the way down
+   * the page (from "What changed"). Returns false when the words aren't in the scene any more.
+   */
+  revealWords(quote: string): boolean {
+    if (this.destroyed) return false
+    const view = this.editor.view
+    const range = findTextRange(view.state.doc, quote)
+    if (!range) return false
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+    view.focus()
+    const el = this.scroller()
+    if (el) {
+      const top = view.coordsAtPos(range.from).top - el.getBoundingClientRect().top
+      el.scrollTop = Math.max(0, el.scrollTop + top - el.clientHeight / 3)
+    }
+    return true
   }
 
   // ---------- Editing and saving ----------
