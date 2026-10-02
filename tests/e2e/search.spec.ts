@@ -2,7 +2,7 @@
 // scene, an entry by another name, a summary and a private note; running actions; and keyboard
 // focus going back where it was.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const palette = (win: Page) => win.getByRole('dialog', { name: 'Search' })
@@ -163,4 +163,31 @@ test('Esc gives focus back; ? lists the shortcuts, but not while typing; the top
   await win.keyboard.press('Escape')
   await expect(list).toBeHidden()
   await expect(prose(win)).toBeFocused()
+})
+
+test('Generate a draft and Stop the draft run from the palette, from any page', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5, slowWords: 900, slowDelayMs: 20 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    await useFakeModel(win, fake, 'fake/slow')
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+
+    // From another page, Generate goes back to the scene and starts the draft, as Ctrl+G does there.
+    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await search(win, 'generate')
+    await expect(palette(win).getByRole('option', { name: 'Generate a draft' })).toHaveAttribute('aria-selected', 'true')
+    await win.keyboard.press('Enter')
+    await expect(prose(win)).toContainText('The rain')
+
+    // While it writes, the palette offers Stop (and not Generate).
+    await search(win, 'stop')
+    await expect(palette(win).getByRole('option', { name: 'Stop the draft' })).toHaveAttribute('aria-selected', 'true')
+    await win.keyboard.press('Enter')
+    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 15_000 }).toBe('stopped')
+  } finally {
+    await fake.close()
+  }
 })
