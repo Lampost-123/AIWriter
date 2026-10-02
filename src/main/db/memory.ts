@@ -396,6 +396,65 @@ export function placesBeforeDeletedScenes(
   return out
 }
 
+/** A live story that takes over a deleted story's start, and where in the deleted story it (or the deleted story it is in) started. */
+export interface TakeOver {
+  storyId: ID
+  at: StartAt
+  refId: ID | null
+}
+
+/**
+ * For each deleted story, the live stories that take over its start (they started in it, or in a
+ * deleted story that did), as loadShape has them. A first-exists point in a deleted story counts at
+ * the start of each of these that started after it, so deleting Kell's Road doesn't make Kell vanish
+ * from Kell's Return.
+ */
+export function storiesTakingOver(db: DB): Map<ID, TakeOver[]> {
+  const rows = db.prepare('SELECT id, start_story_id, start_at, start_ref_id, deleted_at FROM stories').all() as Row[]
+  const byId = new Map(rows.map((r) => [r.id as string, r]))
+  const out = new Map<ID, TakeOver[]>()
+  for (const r of rows) {
+    if (r.deleted_at) continue
+    const seen = new Set<ID>([r.id as string])
+    let from = r
+    let start = (r.start_story_id as string) ?? null
+    while (start && !seen.has(start)) {
+      const gone = byId.get(start)
+      if (!gone?.deleted_at) break
+      seen.add(start)
+      pushTo(out, start, {
+        storyId: r.id as string,
+        at: ((from.start_at as string) ?? 'end') as StartAt,
+        refId: (from.start_ref_id as string) ?? null
+      })
+      from = gone
+      start = (gone.start_story_id as string) ?? null
+    }
+  }
+  return out
+}
+
+/**
+ * Whether each start point (in a story) comes at or after a scene in that story, by chapter and
+ * scene order, deleted ones included: so a story that took over a deleted story's start only gets
+ * what first existed in that story before it started there.
+ */
+export function startsAfterScene(db: DB, sceneId: ID, starts: Pick<TakeOver, 'at' | 'refId'>[]): boolean[] {
+  const place = (sql: string, id: ID | null): [number, number] | null => {
+    const r = id ? (db.prepare(sql).get(id) as Row | undefined) : undefined
+    return r ? [r.chapter as number, r.scene as number] : null
+  }
+  const sceneSql = 'SELECT c.position AS chapter, s.position AS scene FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?'
+  const scene = place(sceneSql, sceneId)
+  return starts.map(({ at, refId }) => {
+    if (at === 'end') return true
+    if (at === 'pre' || at === 'post' || !scene) return false
+    const p =
+      at === 'chapter' ? place('SELECT position AS chapter, 1e9 AS scene FROM chapters WHERE id = ?', refId) : place(sceneSql, refId)
+    return !!p && (scene[0] < p[0] || (scene[0] === p[0] && scene[1] <= p[1]))
+  })
+}
+
 /** Replaces an entry's default points (Adam's own are kept). */
 export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>[]): void {
   db.transaction(() => {

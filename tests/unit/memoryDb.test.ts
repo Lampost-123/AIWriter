@@ -262,10 +262,69 @@ describe('where entries first exist', () => {
     expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[0][0]]).get(w.sc[0][0])).toEqual({ storyId: w.b1, at: 'post', refId: null })
     expect(sceneMemory(w.db, w.sc[0][1]).entries.some((e) => e.id === reed)).toBe(true)
     repo.restoreDeleted(w.db, 'scene', w.sc[0][0])
-    // A story that is itself deleted takes its points with it.
+    // A scene in a story that is itself deleted is left to the stories that take over its start.
     expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[1][1]]).size).toBe(0)
     repo.deleteStory(w.db, w.b1)
     expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[1][1]]).size).toBe(0)
+  })
+
+  it('an entry that first existed in a deleted story exists from the start of each story that takes over its start', () => {
+    const w = small()
+    const b3 = repo.createStory(w.db, { title: 'Book 3' }).id
+    const b3sc = repo.createScene(w.db, repo.createChapter(w.db, b3).id).id
+    const side = repo.createStory(w.db, { title: 'Side' }).id
+    mem.setStoryPlacement(w.db, side, {
+      kind: 'side',
+      startStoryId: w.b2,
+      startAt: 'post',
+      startRefId: null,
+      endAt: 'end',
+      endRefId: null,
+      leadsIntoId: null
+    })
+    const sideSc = repo.createScene(w.db, repo.createChapter(w.db, side).id).id
+    // Its own version of events from Book 2's first scene (own versions are on no other story's line).
+    const late = repo.createStory(w.db, { title: 'Late' }).id
+    mem.setStoryPlacement(w.db, late, {
+      kind: 'own',
+      startStoryId: w.b2,
+      startAt: 'scene',
+      startRefId: w.b2sc,
+      endAt: null,
+      endRefId: null,
+      leadsIntoId: null
+    })
+    const lateSc = repo.createScene(w.db, repo.createChapter(w.db, late).id).id
+    // Wren is found in Book 2's text; Ash is made by Adam while working in Book 2.
+    const wren = repo.createEntry(w.db, 'character', { name: 'Wren' }, { origin: 'text', originStoryId: w.b2, originSceneId: w.b2sc }).id
+    const ash = repo.createEntry(w.db, 'character', { name: 'Ash', originStoryId: w.b2 }).id
+    const present = (sceneId: ID) =>
+      sceneMemory(w.db, sceneId)
+        .entries.filter((e) => e.id === wren || e.id === ash)
+        .map((e) => e.name)
+        .sort()
+    const all = () => [present(w.sc[2][1]), present(b3sc), present(sideSc), present(lateSc)]
+    expect(all()).toEqual([[], ['Ash', 'Wren'], ['Ash'], ['Ash', 'Wren']])
+
+    // Book 2 deleted: Book 3 and the side story take over its start, after Book 1, and know what they
+    // knew: Book 3 both, the side story (which started before Wren's scene) only Ash.
+    repo.deleteStory(w.db, w.b2)
+    expect(mem.storiesTakingOver(w.db)).toEqual(
+      new Map([
+        [
+          w.b2,
+          [
+            { storyId: b3, at: 'end', refId: null },
+            { storyId: side, at: 'post', refId: null },
+            { storyId: late, at: 'scene', refId: w.b2sc }
+          ]
+        ]
+      ])
+    )
+    expect(all()).toEqual([[], ['Ash', 'Wren'], ['Ash'], ['Ash', 'Wren']])
+    expect(sceneMemory(w.db, b3sc).firstHere).toEqual([])
+    repo.restoreDeleted(w.db, 'story', w.b2)
+    expect(all()).toEqual([[], ['Ash', 'Wren'], ['Ash'], ['Ash', 'Wren']])
   })
 
   it('makes the book after a deleted first book the first story, as it now starts at the beginning of the world', () => {

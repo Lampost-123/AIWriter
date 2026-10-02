@@ -19,7 +19,7 @@
 
 import type Database from 'better-sqlite3'
 import type { Change, ChangeView, EntryState, ID } from '@shared/types'
-import type { Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
+import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
@@ -35,19 +35,33 @@ export function loadShape(db: DB): WorldShape {
   return mem.loadShape(db)
 }
 
-/** Every live entry, change and first-exists point (a point at a deleted scene counts just after the place before it). */
+/**
+ * Every live entry, change and first-exists point. A point at a deleted scene counts just after the
+ * place before it; a point in a deleted story counts at the start of each story that takes over its
+ * start (as the line has them), so deleting where something first appeared never makes it vanish.
+ */
 export function loadMemoryData(db: DB): MemoryData {
   const entries = repo.listEntries(db)
   const live = new Set(entries.map((e) => e.id))
   const points = mem.listExistsPoints(db).filter((p) => live.has(p.entryId))
   const atScenes = [...new Set(points.flatMap((p) => (p.kind === 'scene' && p.sceneId ? [p.sceneId] : [])))]
   const before = mem.placesBeforeDeletedScenes(db, atScenes)
+  const takers = mem.storiesTakingOver(db)
   return {
     entries,
     changes: mem.listAllChanges(db).filter((c) => live.has(c.entryId)),
-    exists: points.map((p) => {
+    exists: points.flatMap((p): ExistsAt[] => {
       const place = p.kind === 'scene' && p.sceneId ? before.get(p.sceneId) : undefined
-      return place ? { ...p, storyId: place.storyId, after: { at: place.at, refId: place.refId } } : p
+      if (place) return [{ ...p, storyId: place.storyId, after: { at: place.at, refId: place.refId } }]
+      // Only to stories that started after the point (a prequel never sees the start-of-story changes). The
+      // point itself is kept too: it is on no line while its story is deleted, and counts again once it is back.
+      const all = p.kind !== 'world' && p.storyId ? takers.get(p.storyId) : undefined
+      if (!all) return [p]
+      const after =
+        p.kind === 'scene' && p.sceneId
+          ? mem.startsAfterScene(db, p.sceneId, all)
+          : all.map((t) => p.kind === 'story-pre' || t.at !== 'pre')
+      return [p, ...all.filter((_, i) => after[i]).map((t) => ({ ...p, kind: 'story-pre' as const, storyId: t.storyId, sceneId: null }))]
     }),
     answers: mem.listAnswers(db)
   }
