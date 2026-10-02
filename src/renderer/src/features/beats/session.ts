@@ -17,8 +17,18 @@ export interface BeatSession {
   mode: BeatMode
   /** The paragraphs each beat wrote (see sessionLogic.ts). */
   paragraphs: BeatParagraphs
+  /** Which record wrote each of those paragraphs, by paragraph id (so the bar knows which version of a beat is on the page). */
+  owners: Record<string, ID>
+  /** The records that ended part-way: stopped, cut off, or with a problem after some of their words. */
+  partWay: ID[]
+  /** The scene as it was before the session's first words is kept in its History (or there was nothing on the page to keep). */
+  kept: boolean
   /** How many beats are on the page, worked out from the page as it changes. */
   written: number
+  /** The record of the last beat on the page (the version showing), worked out with `written`. */
+  last: ID | null
+  /** The bar points to a beat whose start is out of sight below: the one being written, or one that finished there until it is seen. */
+  below: { index: number; writing: boolean } | null
   phase: BeatPhase
   /** The beat being written, or getting ready: which, its record once it has one, whether it is a rewrite, and Adam's note for it. */
   current: { index: number; generationId: ID | null; again: boolean; steer: string } | null

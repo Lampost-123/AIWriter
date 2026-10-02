@@ -7,6 +7,7 @@
 // before it), so the scene so far goes in as a block of its own, once, right above the closing
 // instruction, and never shortened by the briefing's fitting: a small model gets only its later part.
 
+import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
 import { indentMore } from '../ai/prompts'
 import { DEFAULT_CONTEXT_LENGTH, sceneTail, TOKENS_PER_WORD } from '../ai/context'
@@ -62,6 +63,16 @@ export interface BeatAsk {
   steer: string
   /** The briefing has the scene so far (soFarBlock), which this beat carries on from. */
   hasSoFar: boolean
+  /** How the scene so far ends: with the beat before (the default), part-way through it, or with Adam's own words after it. */
+  soFarEnds?: SoFarEnd
+}
+
+/** What the closing instruction says of the beat before this one. */
+function beforeNote(ask: BeatAsk): string {
+  if (!ask.hasSoFar) return 'already happened'
+  if (ask.soFarEnds === 'mid-beat') return 'begun, but it stopped part-way: the scene so far ends in the middle of it'
+  if (ask.soFarEnds === 'after-beat') return "already written, and the author's own writing comes after it at the end of the scene so far"
+  return 'already written: the scene so far ends with it'
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
@@ -92,10 +103,7 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
   const where: string[] = []
   if (only) where.push(`- ${beat(1)}`)
   else {
-    if (i > 1)
-      where.push(
-        `- Beat ${i - 1} (${ask.hasSoFar ? 'already written: the scene so far ends with it' : 'already happened'}): ${beat(i - 1)}`
-      )
+    if (i > 1) where.push(`- Beat ${i - 1} (${beforeNote(ask)}): ${beat(i - 1)}`)
     where.push(`- Beat ${i} (write this one now): ${beat(i)}`)
     if (!last) where.push(`- Beat ${i + 1} (comes next: leave it for later): ${beat(i + 1)}`)
   }
@@ -108,6 +116,9 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
     lines.push(
       "- Carry on seamlessly from the very end of the scene so far, as if there had been no pause. Don't repeat, recap or rewrite any of it."
     )
+    if (i > 1 && ask.soFarEnds === 'mid-beat') {
+      lines.push(`- First bring beat ${i - 1} to its end in a few lines, from where the scene so far stops, then write this beat.`)
+    }
   } else if (i === 1) {
     const other = o.previousStory
     if (o.hasPrevious && other) {

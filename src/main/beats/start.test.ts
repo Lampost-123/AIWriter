@@ -12,7 +12,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { Emit } from '../ai/drafts'
-import { startBeat } from './index'
+import { isStartingBeat, startBeat } from './index'
 
 const h = vi.hoisted(() => ({
   db: null as import('better-sqlite3').Database | null,
@@ -157,6 +157,25 @@ describe('starting a beat', () => {
     expect(rec.response).toContain('The rain had not let up')
     // The memory caught up before the first beat only.
     expect(h.calls.map((c) => c.catchUp)).toEqual([false])
+    // The beat is listed with the scene's drafts (the Drafts tab), so its record can be opened from there.
+    expect(gens.listGenerations(db, sceneId)).toEqual([expect.objectContaining({ id: generationId, job: 'beat', status: 'complete' })])
+  })
+
+  it("says when the scene so far ends part-way through the beat before, or with the author's own words", async () => {
+    const { sceneId } = setup()
+    const r = recorder()
+    const mid = await startBeat(input(sceneId, { steer: '', soFarEnds: 'mid-beat' }), { emit: r.emit })
+    await r.done(mid.generationId)
+    const user = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    expect(user).toContain(
+      '- Beat 1 (begun, but it stopped part-way: the scene so far ends in the middle of it): Mara meets Tobin at the Gilded Eel.'
+    )
+    expect(user).toContain('- First bring beat 1 to its end in a few lines')
+    const after = await startBeat(input(sceneId, { steer: '', soFarEnds: 'after-beat' }), { emit: r.emit })
+    await r.done(after.generationId)
+    expect(fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content).toContain(
+      "- Beat 1 (already written, and the author's own writing comes after it at the end of the scene so far)"
+    )
   })
 
   it('opens the scene with the first beat: the memory catches up first, and there is no scene so far', async () => {
@@ -195,5 +214,15 @@ describe('starting a beat', () => {
     await expect(startBeat(input(sceneId), { emit: r.emit, otherStarting: (id) => id === sceneId })).rejects.toThrow(
       'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
     )
+  })
+
+  it('says it is getting ready while it is, so Generate waits for it too', async () => {
+    const { sceneId } = setup()
+    const r = recorder()
+    const started = startBeat(input(sceneId, { index: 1, soFar: '' }), { emit: r.emit })
+    expect(isStartingBeat(sceneId)).toBe(true)
+    const { generationId } = await started
+    expect(isStartingBeat(sceneId)).toBe(false)
+    await r.done(generationId)
   })
 })

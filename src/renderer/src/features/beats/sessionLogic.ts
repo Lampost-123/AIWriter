@@ -6,7 +6,7 @@
 
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
-import { closeHistory } from '@tiptap/pm/history'
+import { closeHistory, undoDepth } from '@tiptap/pm/history'
 import { sceneText } from '@/features/editor/streamDoc'
 import { PID_TYPES } from '@/features/editor/paragraphIds'
 
@@ -47,6 +47,60 @@ export function withParagraphs(all: BeatParagraphs, beat: number, pids: string[]
   const fresh = pids.filter((id) => !had.includes(id))
   return fresh.length ? { ...all, [beat]: [...had, ...fresh] } : all
 }
+
+/** Notes the record that wrote these paragraphs. Returns the same object when nothing is new. */
+export function withOwner(owners: Record<string, string>, pids: string[], record: string): Record<string, string> {
+  const fresh = pids.filter((id) => owners[id] !== record)
+  return fresh.length ? { ...owners, ...Object.fromEntries(fresh.map((id) => [id, record])) } : owners
+}
+
+/** The record whose words are the last of these paragraphs on the page (the version of a beat showing), or null. */
+export function recordOf(doc: PMNode, pids: string[], owners: Record<string, string>): string | null {
+  const mine = new Set(pids)
+  let found: string | null = null
+  for (const p of filledParagraphs(doc)) if (mine.has(p.pid) && owners[p.pid]) found = owners[p.pid]
+  return found
+}
+
+/** Where the first of these paragraphs on the page begins (a beat's start), or null when none is there. */
+export function startOf(doc: PMNode, pids: string[]): number | null {
+  const mine = new Set(pids)
+  return filledParagraphs(doc).find((p) => mine.has(p.pid))?.pos ?? null
+}
+
+/** True when the last paragraph with words on the page is one of these: nothing comes after the beat they are. */
+export function endsPage(doc: PMNode, pids: string[]): boolean {
+  const last = filledParagraphs(doc).at(-1)
+  return !!last && pids.includes(last.pid)
+}
+
+/**
+ * True when the scene so far that beat `index` carries on from ends with the beat before it, and not
+ * with other words after that beat (Adam's own). `leaveOut`: a beat being written again, whose
+ * paragraphs are about to go.
+ */
+export function endsWithBeat(doc: PMNode, beats: BeatParagraphs, index: number, leaveOut?: number): boolean {
+  const skip = new Set(leaveOut ? (beats[leaveOut] ?? []) : [])
+  const last = filledParagraphs(doc)
+    .filter((p) => !skip.has(p.pid))
+    .at(-1)
+  return !!last && (beats[index - 1] ?? []).includes(last.pid)
+}
+
+/** The page as a beat left it: how many undo steps it had, and its text. */
+export interface PageMark {
+  depth: number
+  doc: PMNode
+}
+
+export const markPage = (state: EditorState): PageMark => ({ depth: undoDepth(state), doc: state.doc })
+
+/**
+ * True when the page is as a beat left it (nothing changed since, or only undone and redone back to
+ * it), so the beat is still the newest undo step and one undo takes exactly it out.
+ */
+export const unchangedSince = (state: EditorState, mark: PageMark | null | undefined): boolean =>
+  !!mark && undoDepth(state) === mark.depth && state.doc.eq(mark.doc)
 
 /** How many beats are on the page: the highest beat with any of its words still there (0: none). */
 export function beatsOnPage(doc: PMNode, beats: BeatParagraphs): number {
@@ -90,7 +144,8 @@ export function isWholePage(doc: PMNode, pids: string[]): boolean {
 
 /**
  * Takes a beat's paragraphs out of the page, as one step of its own (Ctrl+Z brings them back), to write
- * the beat again in their place. Null when none of them are on the page.
+ * the beat again in their place when Adam has changed the page since it was written (so it can't simply
+ * be undone). Null when none of them are on the page.
  */
 export function removeParagraphs(state: EditorState, pids: string[]): Transaction | null {
   const mine = new Set(pids)

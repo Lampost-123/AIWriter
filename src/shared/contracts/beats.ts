@@ -26,7 +26,15 @@ export interface BeatStart {
    * starts the scene (on an empty page, in place of its text, or below a scene break).
    */
   soFar: string
+  /**
+   * How the scene so far ends: with the beat before this one as it was written ('with-beat', the
+   * default), part-way through it because it was stopped or cut off ('mid-beat'), or with more of
+   * Adam's own writing after it ('after-beat').
+   */
+  soFarEnds?: SoFarEnd
 }
+
+export type SoFarEnd = 'with-beat' | 'mid-beat' | 'after-beat'
 
 export interface BeatsApi {
   /**

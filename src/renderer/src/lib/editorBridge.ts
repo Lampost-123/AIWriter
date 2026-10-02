@@ -35,9 +35,10 @@ export interface EditorBridge {
   /**
    * Prepares to receive a streamed draft. Returns false if the editor isn't showing that scene.
    * `noBreak` (milestone 4, Beat by beat): the draft carries on straight after the scene's text, with no
-   * scene break before it.
+   * scene break before it. `quiet` (Beat by beat): the page shows no "new draft below" pointer and says
+   * nothing when the draft ends; whoever writes it shows where it goes (the beat bar).
    */
-  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean }): boolean
+  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean; quiet?: boolean }): boolean
   appendStream(generationId: ID, text: string): void
   /**
    * Ends the draft. `failed`: it ended with a problem that Generate reports itself, so the page says

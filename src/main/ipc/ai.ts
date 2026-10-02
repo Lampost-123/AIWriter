@@ -8,6 +8,7 @@ import { emit } from '../events'
 import * as gens from '../db/generations'
 import * as providers from '../ai/providers'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
+import { isStartingBeat } from '../beats'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
 import { memorySettingsChanged } from '../keeper'
 
@@ -41,6 +42,8 @@ export const aiHandlers: Handlers<AiMethods> = {
     if (isDrafting(sceneId) || starting.has(sceneId)) {
       throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
     }
+    // Milestone 4: a beat of the scene getting ready (Beat by beat) has it for now too.
+    if (isStartingBeat(sceneId)) throw new UserError('A beat is being written for this scene. Stop it first, or wait for it to finish.')
     const db = world.db()
     const stop = new AbortController()
     starting.set(sceneId, stop)

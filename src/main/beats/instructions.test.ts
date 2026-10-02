@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultStyleGuide } from '@shared/defaults'
+import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
 import {
   beatDirection,
@@ -24,7 +25,7 @@ const final = (over: Partial<FinalOptions> = {}): FinalOptions => ({
   ...over
 })
 
-const ask = (index: number, over: Partial<{ steer: string; hasSoFar: boolean; beats: string[] }> = {}) => ({
+const ask = (index: number, over: Partial<{ steer: string; hasSoFar: boolean; beats: string[]; soFarEnds: SoFarEnd }> = {}) => ({
   index,
   beats: BEATS,
   steer: '',
@@ -105,6 +106,24 @@ describe('the closing instruction for one beat', () => {
     expect(text).toContain('- Beat 2 (already happened): Tobin asks for the ledger.')
     expect(text).toContain('as if the beats before it had just happened')
     expect(text).not.toContain('Carry on seamlessly')
+  })
+
+  it("says how the scene so far ends: part-way through the beat before, or with the author's own words after it", () => {
+    const mid = beatInstruction(final(), ask(3, { soFarEnds: 'mid-beat' }))
+    expect(mid).toContain(
+      '- Beat 2 (begun, but it stopped part-way: the scene so far ends in the middle of it): Tobin asks for the ledger.'
+    )
+    expect(mid).toContain('- First bring beat 2 to its end in a few lines, from where the scene so far stops, then write this beat.')
+    expect(mid).toContain('Carry on seamlessly from the very end of the scene so far')
+    const after = beatInstruction(final(), ask(3, { soFarEnds: 'after-beat' }))
+    expect(after).toContain(
+      "- Beat 2 (already written, and the author's own writing comes after it at the end of the scene so far): Tobin asks for the ledger."
+    )
+    expect(after).not.toContain('First bring beat')
+    // As written, the scene so far ends with it (the default).
+    expect(beatInstruction(final(), ask(3, { soFarEnds: 'with-beat' }))).toBe(beatInstruction(final(), ask(3)))
+    // With no scene so far, the beat before simply happened.
+    expect(beatInstruction(final(), ask(3, { soFarEnds: 'mid-beat', hasSoFar: false }))).toContain('- Beat 2 (already happened)')
   })
 })
 

@@ -1,19 +1,32 @@
 // What shows over the bottom of the page while writing beat by beat (milestone 4). Between beats: which
 // beat is next and its words, a box to steer it, Write the next beat (Enter in the box), Write it again
-// (the beat just written, afresh in its place) and Finish. While a beat is being written: that it is,
-// with Stop (Esc also stops). Rendered by SceneView over the page's room below the text, so it never
-// covers the words being written; its rows keep their size whatever it shows, so it never jumps.
+// (the beat just written, afresh in its place), What the AI saw (for the beat just written) and Finish.
+// While a beat is being written: that it is, with Stop (Esc also stops). Rendered by SceneView over the
+// page's room below the text, so it never covers the words being written; its rows keep their size
+// whatever it shows, so it never jumps. Messages show above it while it does, and a pointer above it
+// leads to a beat being written out of sight below.
 import * as P from '@radix-ui/react-popover'
-import { Check, ListOrdered, RotateCcw, Sparkles, Square } from 'lucide-react'
+import { ArrowDown, Check, FileSearch, ListOrdered, RotateCcw, Sparkles, Square } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Textarea } from '@/components/ui'
+import { Button, Textarea, useToastsAbove } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { useDelayed } from '@/features/generate/parts'
-import { clearHeight, dismissQuestion, finish, reloadBeats, stopBeat, watchPage, writeAgain, writeNext } from './flow'
+import {
+  clearHeight,
+  dismissQuestion,
+  finish,
+  reloadBeats,
+  revealBeat,
+  showRecord,
+  stopBeat,
+  watchPage,
+  writeAgain,
+  writeNext
+} from './flow'
 import { MAX_NOTE_CHARS, nextBeat } from './sessionLogic'
 import { QuestionPanel } from './parts'
 import { patchSession, useBeats, type BeatSession } from './session'
@@ -28,8 +41,18 @@ export function BeatBar({ sceneId }: { sceneId: ID }): React.JSX.Element | null 
   return session ? <Bar session={session} /> : null
 }
 
-/** How far the session has got, one mark a beat: written, being written, still to come. */
-function Progress({ of, written, writing }: { of: number; written: number; writing: number | null }): React.JSX.Element | null {
+/** How far the session has got, one mark a beat: written, being written (or stopped part-way), still to come. */
+function Progress({
+  of,
+  written,
+  writing,
+  partWay
+}: {
+  of: number
+  written: number
+  writing: number | null
+  partWay: number | null
+}): React.JSX.Element | null {
   if (of < 2 || of > 12) return null
   return (
     <span className="flex shrink-0 items-center gap-[3px] @max-[460px]:hidden" aria-hidden>
@@ -38,11 +61,32 @@ function Progress({ of, written, writing }: { of: number; written: number; writi
           key={i}
           className={cn(
             'h-1.5 w-3 rounded-full transition-colors duration-150',
-            writing === i + 1 ? 'bg-ai animate-pulse' : i < written ? 'bg-success' : 'bg-line-strong'
+            writing === i + 1 ? 'bg-ai animate-pulse' : partWay === i + 1 ? 'bg-ai' : i < written ? 'bg-success' : 'bg-line-strong'
           )}
         />
       ))}
     </span>
+  )
+}
+
+/** Above the bar, while the beat it is about starts out of sight below (the page's own pointer would be under the bar). */
+function Pointer({ index, writing }: { index: number; writing: boolean }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      // The keyboard stays where it is (the box, usually): the page only moves.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={revealBeat}
+      title={writing ? 'Show where the beat is being written' : 'Show where the beat begins'}
+      className={cn(
+        'absolute bottom-full left-1/2 mb-3 flex h-8 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[12.5px] font-medium shadow-pop transition-colors duration-150 animate-fade-in',
+        writing ? 'border-ai/40 bg-ai-soft text-ai hover:border-ai' : 'border-line bg-surface text-fg hover:border-line-strong'
+      )}
+    >
+      {writing ? <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden /> : null}
+      {writing ? `Writing beat ${index} below` : `Beat ${index} is below`}
+      <ArrowDown size={13} aria-hidden />
+    </button>
   )
 }
 
@@ -52,6 +96,9 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
   const memoryReading = useApp((x) => !!x.memoryStatus?.reading)
   const briefingRev = useApp((x) => x.briefingRev)
   const boxRef = useRef<HTMLTextAreaElement>(null)
+  const barRef = useRef<HTMLElement>(null)
+  // Messages show above the bar while it does, so none covers its buttons (or the Undo in one covers it).
+  useToastsAbove(barRef)
 
   // The beats on the page are counted as it changes (Ctrl+Z on a beat takes the bar back a beat).
   useEffect(() => {
@@ -79,6 +126,8 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
   const shown = writing ?? next ?? of
   // Between beats, a beat after the one written (or being written) that the note in the box is for.
   const after = writing != null ? (writing < of ? writing + 1 : null) : next
+  // The last beat on the page was stopped or cut off before its end.
+  const short = !busy && s.written >= 1 && s.last != null && s.partWay.includes(s.last)
 
   // Getting ready is usually quick; when it isn't because the memory is catching up first, the bar says so.
   const startingSlow = useDelayed(s.phase === 'starting', 700)
@@ -94,9 +143,18 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
       statusTitle = 'Bringing the memory up to date with earlier scenes first, so the beat knows what happened in them.'
     } else status = s.current?.again ? `Writing beat ${writing} again…` : `Writing beat ${writing} of ${of}…`
   } else if (next != null) status = `Beat ${next} of ${of}`
+  else if (short) status = of === 1 ? 'The beat stopped part-way' : `Beat ${s.written} stopped part-way`
   else status = of === 1 ? 'The beat is written' : `All ${of} beats are written`
 
-  const words = busy || next != null ? (s.beats[shown - 1] ?? '') : 'That was the last beat on the scene card. Write it again, or finish.'
+  const words = busy
+    ? (s.beats[shown - 1] ?? '')
+    : short
+      ? next != null
+        ? `Beat ${s.written} stopped part-way. Write it again, or carry on with beat ${next}.`
+        : 'Write it again, or finish with the scene as it is.'
+      : next != null
+        ? (s.beats[next - 1] ?? '')
+        : 'That was the last beat on the scene card. Write it again, or finish.'
   const again = s.written >= 1 ? s.written : null
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -113,10 +171,12 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
     // the page's scroll bar).
     <div className="pointer-events-none absolute bottom-0 left-0 right-2.5 z-10 flex justify-center bg-[linear-gradient(to_top,var(--page)_calc(100%-20px),transparent)] px-4 pb-4 pt-5">
       <section
+        ref={barRef}
         data-beat-bar
         aria-label="Beat by beat"
-        className="@container pointer-events-auto w-full max-w-[680px] rounded-xl border border-line bg-surface px-4 pb-3 pt-2 shadow-pop animate-slide-up"
+        className="@container pointer-events-auto relative w-full max-w-[680px] rounded-xl border border-line bg-surface px-4 pb-3 pt-2 shadow-pop animate-slide-up"
       >
+        {s.below ? <Pointer key={`${s.below.index}-${s.below.writing}`} index={s.below.index} writing={s.below.writing} /> : null}
         <div className="flex h-8 items-center gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <span
@@ -131,29 +191,35 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
               )}
               <span className="truncate">{status}</span>
             </span>
-            <Progress of={of} written={s.written} writing={writing} />
+            <Progress of={of} written={s.written} writing={writing} partWay={short ? s.written : null} />
           </div>
           {/* Between beats only; the room is kept while a beat is written, so nothing moves. Once every beat is
-              written, Finish is the big button below instead. */}
+              written, Finish is the big button below instead (the buttons here keep their places at the right). */}
           <div className={cn('-mr-1.5 flex shrink-0 items-center gap-0.5', busy && 'invisible')}>
+            {next != null ? (
+              <Button variant="ghost" size="sm" onClick={finish} title="Close this bar. The beats stay as they are.">
+                Finish
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="sm"
-              className={cn(next == null && 'invisible')}
-              onClick={finish}
-              title="Close this bar. The beats stay as they are."
+              icon={<FileSearch size={13} />}
+              disabled={!s.last}
+              onClick={showRecord}
+              title={again != null && s.last ? `See exactly what the AI was given for beat ${again}` : undefined}
             >
-              Finish
+              <span className="@max-[540px]:sr-only">What the AI saw</span>
             </Button>
             <Button
-              variant="ghost"
+              variant={short ? 'secondary' : 'ghost'}
               size="sm"
               icon={<RotateCcw size={13} />}
               disabled={again == null}
               onClick={writeAgain}
               title={
                 again != null
-                  ? `Write beat ${again} again in its place, following your note if you wrote one. ${modKey()}+Z brings it back as it was.`
+                  ? `Write beat ${again} afresh in its place, following your note if you wrote one. ${modKey()}+Z takes the new version out.`
                   : undefined
               }
             >

@@ -16,31 +16,42 @@
 // - Switching worlds ends it.
 
 import type { Editor } from '@tiptap/core'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
-import { closeHistory, isHistoryTransaction } from '@tiptap/pm/history'
+import { closeHistory, isHistoryTransaction, redo, undo } from '@tiptap/pm/history'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import type { AppEvents } from '@shared/api'
+import type { SoFarEnd } from '@shared/contracts/beats'
 import type { ID } from '@shared/types'
-import { toast } from '@/components/ui'
+import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
-import { editorBridge } from '@/lib/editorBridge'
+import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
+import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { activeStream, streamKey } from '@/features/editor/streamDoc'
 import { resolveDraftOptions } from '@/features/generate/draftOptions'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { revealCardPart } from '@/features/palette/cardReveal'
-import { focusBar, patchSession, useBeats, type BeatQuestion } from './session'
+import { focusBar, patchSession, useBeats, type BeatQuestion, type BeatSession } from './session'
 import {
   beatsOnPage,
   cardBeats,
+  endsPage,
+  endsWithBeat,
   isWholePage,
+  markPage,
   nextBeat,
   pidsFrom,
+  recordOf,
   removeParagraphs,
   soFarText,
+  startOf,
+  unchangedSince,
+  withOwner,
   withParagraphs,
-  type BeatMode
+  type BeatMode,
+  type PageMark
 } from './sessionLogic'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
@@ -53,9 +64,19 @@ interface Run {
   again: boolean
   /** It takes the place of the page's text: Replace it, or a beat written again that was all there was on the page. */
   replace: boolean
-  /** Writing again: the paragraphs of the beat as it was, taken out as the new words arrive. */
+  /** The page shows nothing of its own when it ends (the bar does): every beat but Replace it's first, whose message has Undo. */
+  quiet: boolean
+  /** Writing again: the paragraphs of the beat as it was, and the record of that version. */
   old: string[]
+  oldRecord: ID | null
+  /** Writing again: the beat as it was has made way for the new words (they go in its place). */
+  settled: boolean
+  /** It was undone: the new version is the only undo step, as for any beat. */
+  undone: boolean
+  /** It was taken out as an undo step of its own (Adam had changed the page since it was written). */
   removed: boolean
+  /** Writing again: blank lines that arrived before the first words, held until the beat as it was makes way. */
+  held: string
   generationId: ID | null
   /** Words that arrived before startBeat returned the beat's id. */
   early: AppEvents['generation:chunk'][]
@@ -67,8 +88,11 @@ interface Run {
 
 let run: Run | null = null
 
-/** Sessions whose scene has been kept in its History before their first beat went in. */
-const kept = new Set<ID>()
+/** The page as each beat's record left it (so Write it again knows whether the beat is still the newest undo step). */
+const marks = new Map<ID, PageMark>()
+
+/** The last message about a beat (a problem, a cut-off), taken away when the next beat starts. */
+let beatToast: number | null = null
 
 /** A scene whose beats are being looked up, so a second press doesn't ask twice. */
 let opening: ID | null = null
@@ -161,7 +185,12 @@ function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean): 
       sceneId,
       mode,
       paragraphs: {},
+      owners: {},
+      partWay: [],
+      kept: false,
       written: 0,
+      last: null,
+      below: null,
       phase: 'paused',
       current: null,
       retrying: null,
@@ -192,12 +221,27 @@ export function writeNext(byKey = false): void {
   focusBar()
 }
 
-/** Write it again: the beat just written is written afresh in its place, with the note in the box. */
+/**
+ * Write it again: the beat just written is undone and written afresh in its place, with the note in the
+ * box (see makeWay). Only while it ends the scene: with Adam's own words after it, the new version
+ * would land after them, so it says so instead.
+ */
 export function writeAgain(): void {
   const s = useBeats.getState().session
   if (!s || s.phase !== 'paused' || run || s.written < 1) return
+  const ed = editorBridge()?.sceneId === s.sceneId ? editorBridge()?.editor : null
+  if (ed && !endsPage(ed.state.doc, s.paragraphs[s.written] ?? [])) {
+    toast(`Beat ${s.written} can only be written again while it ends the scene, and your own words come after it now.`)
+    return
+  }
   void writeBeat(s.written, { again: true })
   focusBar()
+}
+
+/** The record of the beat the bar is about (the last one on the page): what the AI saw for it. */
+export function showRecord(): void {
+  const id = useBeats.getState().session?.last
+  if (id) useApp.getState().navigate({ kind: 'generation', generationId: id })
 }
 
 /** Stops the beat being written (the text so far stays), or calls off one still getting ready. */
@@ -240,6 +284,7 @@ export function end(): void {
       if (r.replace && bridge?.sceneId === r.sceneId) bridge.releaseHold()
     }
   }
+  marks.clear()
   useBeats.setState({ session: null, question: null })
   settleHeight()
 }
@@ -282,10 +327,12 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
   const again = !!how.again
   const doc = ed.state.doc
   const old = again ? (s.paragraphs[index] ?? []) : []
-  // Writing again a beat that is all there is on the page: the new one takes the page's place, as Replace it does.
+  // Writing again a beat that is all there is on the page: the page is held as it is until the new
+  // version's first words arrive, as for Replace it.
   const replace = !!how.replace || (again && isWholePage(doc, old))
   const steer = s.steer.trim()
   const soFar = index > 1 ? soFarText(doc, s.mode, s.paragraphs, again ? index : undefined) : ''
+  const soFarEnds = soFar ? howSoFarEnds(s, doc, index, again) : undefined
   // From now until the first words arrive, text about to be replaced is held as it is (as for Generate).
   if (replace && !bridge.holdForReplace(s.sceneId)) {
     toast("The editor wasn't ready for this scene, so nothing was sent. Try again in a moment.")
@@ -296,8 +343,14 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     index,
     again,
     replace,
+    // Replace it's first beat keeps Generate's message about the text it replaced, with its Undo.
+    quiet: !(how.replace && !again),
     old,
+    oldRecord: again ? recordOf(doc, old, s.owners) : null,
+    settled: !again,
+    undone: false,
     removed: false,
+    held: '',
     generationId: null,
     early: [],
     earlyDone: null,
@@ -305,8 +358,9 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     wrote: false
   }
   run = r
+  dismissBeatToast()
   // The note goes with this beat; the box is ready for the next one.
-  patchSession({ phase: 'starting', current: { index, generationId: null, again, steer }, steer: '', retrying: null })
+  patchSession({ phase: 'starting', current: { index, generationId: null, again, steer }, steer: '', retrying: null, below: null })
   /** The beat didn't start: the page is as it was, and the note goes back in the box (unless a new one was typed meanwhile). */
   const giveUp = (): void => {
     if (run !== r) return
@@ -315,10 +369,11 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     patchSession((x) => ({ phase: 'paused', current: null, retrying: null, steer: x.steer.trim() ? x.steer : steer }))
   }
   try {
-    // The scene as it was before the session's first beat went in, kept in its History.
-    if (!kept.has(s.id) && bridge.hasText()) {
-      kept.add(s.id)
+    // The scene as it was before the session's first words, kept in its History once. A session that
+    // began on an empty page has nothing to keep: its first words mark it kept (see note).
+    if (!s.kept && bridge.hasText()) {
       await snapshotBefore(s.sceneId, 'Before beat by beat')
+      patchSession({ kept: true })
     }
     // The card and the page are saved first, so the beat is written from the latest of both.
     await flushAll()
@@ -326,14 +381,15 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     const app = useApp.getState()
     const options = resolveDraftOptions(app.draftOptions[s.sceneId], card.targetWords, app.settings?.creativity ?? 'balanced')
     if (r.cancelled) return giveUp()
-    const { generationId, of } = await api.startBeat({ sceneId: s.sceneId, sessionId: s.id, index, options, steer, soFar })
+    const { generationId, of } = await api.startBeat({ sceneId: s.sceneId, sessionId: s.id, index, options, steer, soFar, soFarEnds })
     if (r.cancelled || run !== r) {
       void api.stopGeneration(generationId).catch(() => undefined)
       giveUp()
       return
     }
-    // Every beat after the first carries straight on, so the beats read as one piece.
-    if (!bridge.beginStream(s.sceneId, generationId, { replace, noBreak: !replace && (index > 1 || again) })) {
+    // Every beat after the first carries straight on, so the beats read as one piece. A beat written
+    // again waits after the beat as it was until its first words arrive (see makeWay).
+    if (!bridge.beginStream(s.sceneId, generationId, { replace, noBreak: !replace && (index > 1 || again), quiet: r.quiet })) {
       void api.stopGeneration(generationId).catch(() => undefined)
       giveUp()
       toast("The editor wasn't ready for this scene, so the beat was stopped. Try again in a moment.")
@@ -347,11 +403,28 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     for (const c of r.early) if (c.generationId === generationId) append(r, c.text)
     r.early = []
     if (r.earlyDone?.generationId === generationId) finishBeat(r, r.earlyDone)
+    else updatePointer()
   } catch (e) {
     const cancelled = r.cancelled
     giveUp()
     if (!cancelled) failedToStart(e as ApiError, s.sceneId)
   }
+}
+
+/**
+ * How the scene so far that beat `index` carries on from ends: with the beat before it as written,
+ * part-way through that beat (it was stopped or cut off), or with Adam's own words after it.
+ */
+function howSoFarEnds(s: BeatSession, doc: PMNode, index: number, again: boolean): SoFarEnd {
+  if (!endsWithBeat(doc, s.paragraphs, index, again ? index : undefined)) return 'after-beat'
+  const before = recordOf(doc, s.paragraphs[index - 1] ?? [], s.owners)
+  return before && s.partWay.includes(before) ? 'mid-beat' : 'with-beat'
+}
+
+/** Takes away the last message about a beat (its problem is old news once the next beat starts). */
+function dismissBeatToast(): void {
+  if (beatToast != null) useToasts.getState().dismiss(beatToast)
+  beatToast = null
 }
 
 /** Says why a beat couldn't start, with the way on. */
@@ -374,28 +447,69 @@ function append(r: Run, text: string): void {
   const bridge = editorBridge()
   const ed = bridge?.editor
   if (!bridge || !ed || bridge.sceneId !== r.sceneId || !r.generationId) return
-  // Writing again: the beat as it was goes as the new words arrive, in a step of its own (Ctrl+Z puts it
-  // back). The page keeps its height meanwhile, so nothing on screen moves.
-  if (r.old.length && !r.removed && !r.replace && text.trim()) {
-    r.removed = true
-    const tr = removeParagraphs(ed.state, r.old)
-    if (tr) {
-      holdHeight(ed.view.dom)
-      ed.view.dispatch(tr)
-      // Anything typed straight after is a step of its own.
-      ed.view.dispatch(closeHistory(ed.state.tr))
+  if (!r.settled) {
+    // Writing again: the beat as it was stays until the first words arrive (in case none come), then
+    // makes way for them.
+    if (!text.trim()) {
+      r.held += text
+      return
     }
+    text = r.held + text
+    r.held = ''
+    if (!makeWay(r, bridge, ed)) return
   }
   bridge.appendStream(r.generationId, text)
   note(r)
   if (useBeats.getState().session?.retrying) patchSession({ retrying: null })
 }
 
-/** Remembers the paragraphs the beat has written so far (so the page says how far the session has got). */
+/**
+ * Writing a beat again, as the new version's first words arrive: the beat as it was makes way. When the
+ * page is as that beat left it, it is undone (as Ctrl+Z would), so the new version is the only undo
+ * step: one Ctrl+Z takes it out like any beat, and the old version stays in its record. When Adam has
+ * changed the page since, undoing would take his changes with it, so the beat's paragraphs are taken out
+ * as a step of their own instead (Ctrl+Z takes the new version out, and pressed again brings the old one
+ * back); a beat that was all there was on the page is replaced in one step, as Replace it does. False
+ * when the new version couldn't start in its place (it is stopped, and the page stays as it was).
+ */
+function makeWay(r: Run, bridge: EditorBridge, ed: Editor): boolean {
+  r.settled = true
+  const id = r.generationId!
+  if (unchangedSince(ed.state, r.oldRecord ? marks.get(r.oldRecord) : null)) {
+    holdHeight(ed.view.dom)
+    // Nothing of the new version is on the page yet, so ending its stream changes nothing.
+    bridge.endStream(id)
+    undo(ed.state, ed.view.dispatch)
+    // A first beat that had replaced the scene's text takes its place again; a first beat below the
+    // old text goes under a scene break again.
+    const replace = r.index === 1 && useBeats.getState().session?.mode === 'whole' && bridge.hasText()
+    if (!bridge.beginStream(r.sceneId, id, { replace, noBreak: !replace && r.index > 1, quiet: true })) {
+      redo(ed.state, ed.view.dispatch)
+      void api.stopGeneration(id).catch(() => undefined)
+      return false
+    }
+    r.replace = replace
+    r.undone = true
+    return true
+  }
+  if (!r.replace) {
+    const tr = removeParagraphs(ed.state, r.old)
+    if (tr) {
+      holdHeight(ed.view.dom)
+      ed.view.dispatch(tr)
+      // Anything typed straight after is a step of its own.
+      ed.view.dispatch(closeHistory(ed.state.tr))
+      r.removed = true
+    }
+  }
+  return true
+}
+
+/** Remembers the paragraphs the beat has written so far, and that this record wrote them (so the page says how far the session has got). */
 function note(r: Run): void {
   const bridge = editorBridge()
   const ed = bridge?.editor
-  if (!ed || bridge?.sceneId !== r.sceneId) return
+  if (!ed || bridge?.sceneId !== r.sceneId || !r.generationId || !r.settled) return
   const info = activeStream(ed.state)
   if (!info || info.generationId !== r.generationId) return
   // Replacing, the old text is there until the first words arrive: none of it is the beat's.
@@ -406,7 +520,9 @@ function note(r: Run): void {
   const s = useBeats.getState().session
   if (!s) return
   const paragraphs = withParagraphs(s.paragraphs, r.index, pids)
-  if (paragraphs !== s.paragraphs) patchSession({ paragraphs })
+  const owners = withOwner(s.owners, pids, r.generationId)
+  // The session's first words are on the page: from here, nothing before it is left to keep.
+  if (paragraphs !== s.paragraphs || owners !== s.owners || !s.kept) patchSession({ paragraphs, owners, kept: true })
 }
 
 /** The beat has ended: the bar pauses for Adam's note, and a problem is said in one message (as for Generate). */
@@ -414,42 +530,48 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
   if (run !== r) return
   note(r)
   const failed = (p.status === 'error' && !!p.error) || !!p.cutOff
-  // A beat written again in the page's place says nothing of its own: the bar and the page show it.
-  const { replaced } = editorBridge()?.endStream(p.generationId, { failed: failed || r.again }) ?? { replaced: false }
+  const bridge = editorBridge()
+  const { replaced } = bridge?.endStream(p.generationId, { failed }) ?? { replaced: false }
   run = null
+  // The page as this beat left it, so Write it again can tell whether it is still the newest undo step.
+  if (r.wrote && bridge?.sceneId === r.sceneId && bridge.editor) marks.set(p.generationId, markPage(bridge.editor.state))
   const app = useApp.getState()
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
-  // A beat that brought no words: the note goes back in the box, unless a new one has been typed.
+  // Stopped, cut off, or a problem after some of its words: the bar says the beat is unfinished.
+  const partWay = r.wrote && (p.status !== 'complete' || !!p.cutOff)
   patchSession((x) => ({
     phase: 'paused',
     current: null,
     retrying: null,
-    steer: !r.wrote && !x.steer.trim() && x.current ? x.current.steer : x.steer
+    // A beat that brought no words: the note goes back in the box, unless a new one has been typed.
+    steer: !r.wrote && !x.steer.trim() && x.current ? x.current.steer : x.steer,
+    partWay: partWay ? [...x.partWay, p.generationId] : x.partWay,
+    // A beat that finished out of sight below: the bar points to it until it has been seen.
+    below: x.below?.writing && r.wrote ? { index: r.index, writing: false } : null
   }))
   recount()
   settleHeight()
-  const showRecord = {
+  const seeRecord = {
     label: 'What the AI saw',
     run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId })
   }
-  const back = r.again
-    ? replaced
+  // What Ctrl+Z does now, where that isn't simply taking the beat out.
+  const back = replaced
+    ? r.again && !r.undone
       ? ` ${modKey()}+Z puts the beat back as it was.`
-      : r.removed
-        ? ` ${modKey()}+Z takes the new words out, and pressed again puts the beat back as it was.`
-        : ''
-    : replaced
-      ? ` ${modKey()}+Z puts the scene's old text back.`
+      : ` ${modKey()}+Z puts the scene's old text back.`
+    : r.removed
+      ? ` ${modKey()}+Z takes the new words out, and pressed again puts the beat back as it was.`
       : ''
   if (p.status === 'error' && p.error) {
-    toast(p.error + back, {
+    beatToast = toast(p.error + back, {
       tone: 'danger',
-      action: /\bSettings\b/.test(p.error) ? { label: 'Open Settings', run: openSettings } : showRecord
+      action: /\bSettings\b/.test(p.error) ? { label: 'Open Settings', run: openSettings } : seeRecord
     })
   } else if (p.cutOff) {
-    toast(
-      `The model ran out of room before the end of the beat, so it stops mid-way. The text so far is kept. Write it again, or try a writer model that can write more in one go.${back}`,
-      { action: showRecord }
+    beatToast = toast(
+      `The model ran out of room before the end of the beat, so it stops part-way. The text so far is kept. Write it again, or try a writer model that can write more in one go.${back}`,
+      { action: seeRecord }
     )
   }
   // Ready for the next note, if the keyboard was in the bar (or nowhere in particular).
@@ -459,14 +581,73 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
 
 // ---------- Following the page ----------
 
-/** Works out how many beats are on the page (after Ctrl+Z, redo, edits...). */
+/** Works out how many beats are on the page (after Ctrl+Z, redo, edits...), and which version of the last one shows. */
 export function recount(): void {
   const s = useBeats.getState().session
   const bridge = editorBridge()
   const ed = bridge?.editor
   if (!s || !ed || bridge?.sceneId !== s.sceneId) return
-  const written = beatsOnPage(ed.state.doc, s.paragraphs)
-  if (written !== s.written) patchSession({ written })
+  const doc = ed.state.doc
+  const written = beatsOnPage(doc, s.paragraphs)
+  const last = written ? recordOf(doc, s.paragraphs[written] ?? [], s.owners) : null
+  if (written !== s.written || last !== s.last) patchSession({ written, last })
+  updatePointer()
+}
+
+/** True when a place in the page is out of sight below: behind the bar, or further down. */
+function isBelow(ed: Editor, pos: number): boolean {
+  const bar = document.querySelector('[data-beat-bar]')
+  if (!bar) return false
+  try {
+    const top = ed.view.coordsAtPos(Math.min(pos + 1, ed.state.doc.content.size)).top
+    return top > bar.getBoundingClientRect().top - 8
+  } catch {
+    return false
+  }
+}
+
+/** Where the beat the bar points to begins: the one being written, or the one that finished out of sight. */
+function pointedAt(s: BeatSession, ed: Editor): number | null {
+  if (!s.below) return null
+  if (s.below.writing) {
+    const info = activeStream(ed.state)
+    // Replacing, the beat begins at the top of the page once its first words are in.
+    return info && run?.generationId === info.generationId && !(info.replace && !info.before) ? info.from : null
+  }
+  return startOf(ed.state.doc, s.paragraphs[s.below.index] ?? [])
+}
+
+/**
+ * Keeps the bar's pointer to a beat out of sight below up to date (the page's own "new draft below"
+ * pointer would be under the bar): shown while the beat being written starts below what shows above
+ * the bar, and after a beat that finished there until its start has been seen.
+ */
+function updatePointer(): void {
+  const s = useBeats.getState().session
+  const bridge = editorBridge()
+  const ed = bridge?.editor
+  if (!s || !ed || bridge?.sceneId !== s.sceneId || useApp.getState().view.kind !== 'write') return
+  const writing = !!run?.generationId && s.phase !== 'paused' && run.sceneId === s.sceneId
+  const asked = writing ? { index: run!.index, writing: true } : s.below?.writing ? null : s.below
+  const pos = asked ? pointedAt({ ...s, below: asked }, ed) : null
+  const below = asked && pos != null && isBelow(ed, pos) ? asked : null
+  if (below?.index !== s.below?.index || below?.writing !== s.below?.writing) patchSession({ below })
+}
+
+/** The bar's pointer: the page glides to where the beat begins, a quarter of the way down (and follows it from there while it is written). */
+export function revealBeat(): void {
+  const s = useBeats.getState().session
+  const ed = editorBridge()?.sceneId === s?.sceneId ? editorBridge()?.editor : null
+  const scroller = ed ? scrollerOf(ed.view.dom) : null
+  const pos = s && ed ? pointedAt(s, ed) : null
+  if (!ed || !scroller || pos == null) return
+  try {
+    const top = ed.view.coordsAtPos(Math.min(pos + 1, ed.state.doc.content.size)).top
+    const at = top - scroller.getBoundingClientRect().top + scroller.scrollTop
+    glide(scroller, Math.min(at - scroller.clientHeight * 0.25, scroller.scrollHeight - scroller.clientHeight))
+  } catch {
+    // The beat has gone from the page meanwhile: nothing to show.
+  }
 }
 
 /** Reads the scene card's beats again (changed on the card while the session is on). */
@@ -506,8 +687,20 @@ export function watchPage(editor: Editor): () => void {
     if (!s || run || editorBridge()?.sceneId !== s.sceneId || !replacesAll(transaction)) return
     if (s.written > 0 && beatsOnPage(editor.state.doc, s.paragraphs) === 0) end()
   }
+  // The page scrolled, or the window changed size: the pointer to a beat out of sight follows.
+  let look = 0
+  const onMove = (): void => {
+    if (look) return
+    look = requestAnimationFrame(() => {
+      look = 0
+      updatePointer()
+    })
+  }
+  const scroller = scrollerOf(editor.view.dom)
   editor.on('update', onUpdate)
   editor.on('transaction', onTransaction)
+  scroller?.addEventListener('scroll', onMove, { passive: true })
+  window.addEventListener('resize', onMove)
   // Once the scene's page shows (the bar can show a frame before it does).
   frame = requestAnimationFrame(() => {
     frame = 0
@@ -516,7 +709,10 @@ export function watchPage(editor: Editor): () => void {
   return () => {
     editor.off('update', onUpdate)
     editor.off('transaction', onTransaction)
+    scroller?.removeEventListener('scroll', onMove)
+    window.removeEventListener('resize', onMove)
     cancelAnimationFrame(frame)
+    cancelAnimationFrame(look)
   }
 }
 
@@ -655,6 +851,13 @@ function install(): void {
     const undoKey = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z'
     if (undoKey && !e.defaultPrevented && inBarNotTyping(e.target) && !layerOpen()) {
       if (editorBridge()?.sceneId === s.sceneId && editorBridge()?.undo()) e.preventDefault()
+      return
+    }
+    // And redo (Ctrl+Y, or Ctrl+Shift+Z) brings it back, between beats.
+    const redoKey = isShortcut(e, 'redo') || ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z')
+    if (redoKey && s.phase === 'paused' && !e.defaultPrevented && inBarNotTyping(e.target) && !layerOpen()) {
+      const ed = editorBridge()?.sceneId === s.sceneId ? editorBridge()?.editor : null
+      if (ed && redo(ed.state, ed.view.dispatch)) e.preventDefault()
     }
   })
 

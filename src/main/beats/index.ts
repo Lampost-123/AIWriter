@@ -20,7 +20,7 @@ const BUSY = 'A draft is already being written for this scene. Stop it first, or
 /** Scenes whose next beat is being started (the memory may be catching up first), with how to stop each. */
 const starting = new Map<ID, AbortController>()
 
-/** True while a beat of this scene is being started. */
+/** True while a beat of this scene is being started (so Generate doesn't start a draft of it meanwhile: ipc/ai.ts). */
 export const isStartingBeat = (sceneId: ID): boolean => starting.has(sceneId)
 
 /** The scene card's beats, or a plain-words reason there is no beat `index` to write. */
@@ -55,6 +55,7 @@ export async function startBeat(
   const sessionId = typeof input.sessionId === 'string' && input.sessionId ? input.sessionId.slice(0, 64) : newId()
   const steer = tidySteer(input.steer)
   const block = soFarBlock(typeof input.soFar === 'string' ? input.soFar : '', getSettings().models.writer?.contextLength ?? null)
+  const soFarEnds = input.soFarEnds === 'mid-beat' || input.soFarEnds === 'after-beat' ? input.soFarEnds : 'with-beat'
 
   const stop = new AbortController()
   starting.set(sceneId, stop)
@@ -66,7 +67,7 @@ export async function startBeat(
       const options: Partial<DraftOptions> = { ...input.options, targetWords: beatWords(scene.targetWords, beats.length) }
       return draftBriefing(sceneId, options, {
         extras: {
-          final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block }),
+          final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds }),
           extraBlocks: block ? [block] : []
         },
         signal: stop.signal,

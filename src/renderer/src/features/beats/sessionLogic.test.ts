@@ -17,12 +17,19 @@ import {
 import { newSplitState, splitChunk } from '@/features/editor/streamText'
 import {
   beatsOnPage,
+  endsPage,
+  endsWithBeat,
   filledParagraphs,
   isWholePage,
+  markPage,
   nextBeat,
   pidsFrom,
+  recordOf,
   removeParagraphs,
   soFarText,
+  startOf,
+  unchangedSince,
+  withOwner,
   withParagraphs,
   type BeatParagraphs
 } from './sessionLogic'
@@ -52,20 +59,37 @@ function runRedo(s: EditorState): EditorState {
 
 /**
  * Writes one beat into the page as the bar does: a stream (carrying straight on after the first beat),
- * the paragraphs it wrote noted as it goes, then one undo step.
+ * the paragraphs it wrote, and the record that wrote them, noted as it goes, then one undo step.
  */
-function writeBeat(s: EditorState, beats: BeatParagraphs, n: number, text: string, o: { noBreak?: boolean } = {}) {
-  let state = apply(s, startStream(s, `g${n}`, { noBreak: o.noBreak ?? n > 1 }))
+function writeBeat(
+  s: EditorState,
+  beats: BeatParagraphs,
+  n: number,
+  text: string,
+  o: { noBreak?: boolean; replace?: boolean; id?: string; owners?: Record<string, string> } = {}
+) {
+  const id = o.id ?? `g${n}`
+  let state = apply(s, startStream(s, id, { noBreak: o.noBreak ?? n > 1, replace: o.replace }))
   let split = newSplitState()
   let mine = beats
+  let owners = o.owners ?? {}
   for (const chunk of text.match(/.{1,12}/gs) ?? []) {
     const r = splitChunk(split, chunk)
     split = r.state
     state = apply(state, appendStream(state, r.ops))
-    mine = withParagraphs(mine, n, pidsFrom(state.doc, activeStream(state)!.from))
+    const info = activeStream(state)!
+    if (info.replace && !info.before) continue
+    const pids = pidsFrom(state.doc, info.from)
+    mine = withParagraphs(mine, n, pids)
+    owners = withOwner(owners, pids, id)
   }
   state = commitStream(apply(state, finishStreamText(state)))
-  return { state, beats: mine }
+  return { state, beats: mine, owners }
+}
+
+/** The new version of a beat waits after it until its first words arrive; ended before any did, the page is as it was. */
+function waitAndEnd(s: EditorState, id: string, o: { replace?: boolean } = {}): EditorState {
+  return commitStream(apply(s, startStream(s, id, { noBreak: true, replace: o.replace })))
 }
 
 describe('beats on the page', () => {
@@ -158,5 +182,121 @@ describe('writing a beat again', () => {
     expect(all[2]).toEqual(['a', 'b', 'c'])
     const same = withParagraphs(all, 2, ['a'])
     expect(same).toBe(all)
+  })
+})
+
+describe('Write it again', () => {
+  it('undoes the beat and writes it afresh, so one Ctrl+Z takes the new version out and the next the beat before', () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    let owners: Record<string, string> = {}
+    ;({ state: s, beats, owners } = writeBeat(s, beats, 1, 'One.', { owners }))
+    ;({ state: s, beats, owners } = writeBeat(s, beats, 2, 'Two.\n\nThree.', { owners }))
+    const mark = markPage(s)
+    expect(recordOf(s.doc, beats[2], owners)).toBe('g2')
+    expect(endsPage(s.doc, beats[2])).toBe(true)
+
+    // Nothing changed since beat 2 was written, and the new version waiting after it changes nothing either.
+    s = waitAndEnd(s, 'g2b')
+    expect(unchangedSince(s, mark)).toBe(true)
+    s = runUndo(s)
+    expect(sceneText(s.doc)).toBe('One.')
+    ;({ state: s, beats, owners } = writeBeat(s, beats, 2, 'Two again.', { owners, id: 'g2b' }))
+    expect(sceneText(s.doc)).toBe('One.\n\nTwo again.')
+    expect(beatsOnPage(s.doc, beats)).toBe(2)
+    expect(recordOf(s.doc, beats[2], owners)).toBe('g2b')
+
+    // One Ctrl+Z takes the new version out, the next takes beat 1: no flip back to the old beat 2.
+    const back = runUndo(s)
+    expect(sceneText(back.doc)).toBe('One.')
+    expect(beatsOnPage(back.doc, beats)).toBe(1)
+    expect(recordOf(back.doc, beats[1], owners)).toBe('g1')
+    const backTwo = runUndo(back)
+    expect(sceneText(backTwo.doc)).toBe('')
+    expect(beatsOnPage(backTwo.doc, beats)).toBe(0)
+    // Redo brings them back in order.
+    expect(sceneText(runRedo(runRedo(backTwo)).doc)).toBe('One.\n\nTwo again.')
+  })
+
+  it('knows when the page has changed since a beat was written, so it is not simply undone', () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'Two.'))
+    const mark = markPage(s)
+    expect(unchangedSince(s, mark)).toBe(true)
+    // Undone and redone back to it: still the newest step.
+    expect(unchangedSince(runRedo(runUndo(s)), mark)).toBe(true)
+    // Adam's typing (even put back as it was) is a step of its own after it.
+    const typed = s.apply(s.tr.insertText('Adam ', 1))
+    expect(unchangedSince(typed, mark)).toBe(false)
+    const putBack = typed.apply(typed.tr.delete(1, 6))
+    expect(putBack.doc.eq(s.doc)).toBe(true)
+    expect(unchangedSince(putBack, mark)).toBe(false)
+    expect(unchangedSince(s, null)).toBe(false)
+  })
+
+  it("after Adam's own change, takes the beat out as a step of its own, so his change is never undone with it", () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'Two.'))
+    s = s.apply(s.tr.insertText('Adam: ', 1))
+    // The new version waits at the end; its first words take the old beat out, then follow.
+    s = apply(s, startStream(s, 'g2b', { noBreak: true }))
+    s = s.apply(removeParagraphs(s, beats[2])!)
+    let split = newSplitState()
+    const r = splitChunk(split, 'Two again.')
+    split = r.state
+    s = apply(s, appendStream(s, r.ops))
+    s = commitStream(apply(s, finishStreamText(s)))
+    expect(sceneText(s.doc)).toBe('Adam: One.\n\nTwo again.')
+    // Ctrl+Z takes the new version out, again puts the old one back, and Adam's change stays throughout.
+    const back = runUndo(s)
+    expect(sceneText(back.doc)).toBe('Adam: One.')
+    expect(sceneText(runUndo(back).doc)).toBe('Adam: One.\n\nTwo.')
+  })
+
+  it('puts a first beat that replaced the scene back in its place again, so one Ctrl+Z brings the old text back', () => {
+    let s = stateFrom('The old draft.')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.', { replace: true }))
+    expect(sceneText(s.doc)).toBe('One.')
+    expect(isWholePage(s.doc, beats[1])).toBe(true)
+    const mark = markPage(s)
+    // Held while it waits, then undone: the old text is back, and the new version takes its place again.
+    s = waitAndEnd(s, 'g1b', { replace: true })
+    expect(unchangedSince(s, mark)).toBe(true)
+    s = runUndo(s)
+    expect(sceneText(s.doc)).toBe('The old draft.')
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One again.', { replace: true, id: 'g1b' }))
+    expect(sceneText(s.doc)).toBe('One again.')
+    expect(sceneText(runUndo(s).doc)).toBe('The old draft.')
+  })
+
+  it("is only written again while it ends the scene; the scene so far says when Adam's own words come after the beat before", () => {
+    let s = stateFrom('')
+    let beats: BeatParagraphs = {}
+    ;({ state: s, beats } = writeBeat(s, beats, 1, 'One.'))
+    ;({ state: s, beats } = writeBeat(s, beats, 2, 'Two.\n\nThree.'))
+    expect(endsPage(s.doc, beats[2])).toBe(true)
+    expect(endsPage(s.doc, beats[1])).toBe(false)
+    expect(endsWithBeat(s.doc, beats, 3)).toBe(true)
+    // Writing beat 2 again carries on from beat 1.
+    expect(endsWithBeat(s.doc, beats, 2, 2)).toBe(true)
+    expect(startOf(s.doc, beats[2])).toBe(filledParagraphs(s.doc)[1].pos)
+    // Adam adds a paragraph of his own at the end.
+    const end = s.doc.content.size
+    s = s.apply(s.tr.insert(end, s.schema.nodes.paragraph.create(null, s.schema.text('Adam adds this.'))))
+    expect(endsPage(s.doc, beats[2])).toBe(false)
+    expect(endsWithBeat(s.doc, beats, 3)).toBe(false)
+    expect(startOf(stateFrom('').doc, beats[2])).toBeNull()
+  })
+
+  it('notes which record wrote each paragraph, once', () => {
+    const owners = withOwner({}, ['a', 'b'], 'g1')
+    expect(owners).toEqual({ a: 'g1', b: 'g1' })
+    expect(withOwner(owners, ['a'], 'g1')).toBe(owners)
+    expect(withOwner(owners, ['b', 'c'], 'g2')).toEqual({ a: 'g1', b: 'g2', c: 'g2' })
   })
 })
