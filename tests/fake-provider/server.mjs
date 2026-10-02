@@ -28,6 +28,12 @@
 //   fake/credit-limit      402 "can only afford" when max_tokens is over 3000, else a normal stream
 //   fake/memory-bad-json   memory keeper requests: a broken JSON reply the first time, then valid replies
 //   fake/memory-junk       memory keeper requests: never valid JSON (the scene shows "Memory not updated")
+//   fake/overthinker       thinks for 3000 tokens whatever it is asked: with a reply limit of 3000 or less it sends only
+//                          thinking and stops with finish_reason "length"; with more, thinking then the reply
+//   fake/must-think        400 "Reasoning is mandatory" when asked not to think (effort "none"), else a normal stream
+//   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
+//   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
+//   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
 //
 // Memory keeper requests (any model) are recognised by the markers in their system prompt
 // (src/main/keeper/prompts.ts) and answered with deterministic JSON instead of prose:
@@ -44,6 +50,9 @@
 
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
+
+/** How long fake/overthinker thinks, in tokens. */
+const OVERTHINK_TOKENS = 3000
 
 export const FAKE_MODELS = [
   { id: 'fake/writer', name: 'Fake: Writer', context_length: 32000, pricing: { prompt: '0.000003', completion: '0.000015' } },
@@ -264,6 +273,14 @@ export async function startFakeProvider(options = {}) {
     if (model === 'fake/no-stream-options' && body.stream_options) {
       return json(res, 400, { error: { message: 'Unrecognized request argument supplied: stream_options' } })
     }
+    // How much thinking was asked for: OpenRouter's reasoning.effort, or OpenAI's reasoning_effort.
+    const effort = body.reasoning?.effort ?? body.reasoning_effort ?? null
+    if (model === 'fake/must-think' && effort === 'none') {
+      return json(res, 400, { error: { code: 400, message: 'Reasoning is mandatory for this endpoint and cannot be disabled.' } })
+    }
+    if (model === 'fake/no-thinking-option' && effort != null) {
+      return json(res, 400, { error: { message: `Unrecognized request argument supplied: ${'reasoning' in body ? 'reasoning' : 'reasoning_effort'}` } })
+    }
 
     const limit = body.max_tokens ?? body.max_completion_tokens ?? 400
     const words = model === 'fake/slow' ? opts.slowWords : Math.min(opts.words, Math.max(10, Math.floor(limit / 2)))
@@ -313,6 +330,23 @@ export async function startFakeProvider(options = {}) {
       send(chunk({ reasoning_content: 'More private thoughts.' }))
       for (const p of pieces('<think>I should open with the rain and keep it tense.</think>\n\n', 2)) send(chunk({ content: p }))
     }
+    if (model === 'fake/overthinker') {
+      send(chunk({ reasoning: 'Thinking it all through, at length...' }))
+      if (limit <= OVERTHINK_TOKENS) {
+        // All the room went on thinking: nothing visible, stopped at the limit (and still billed).
+        send(chunk({}, 'length'))
+        const spent = { prompt_tokens: usage.prompt_tokens, completion_tokens: limit, total_tokens: usage.prompt_tokens + limit }
+        if (body.usage?.include) spent.cost = Number((spent.prompt_tokens * 0.000003 + limit * 0.000015).toFixed(6))
+        if (body.usage?.include || body.stream_options?.include_usage) send({ id: 'fake-1', object: 'chat.completion.chunk', model, choices: [], usage: spent })
+        send('[DONE]')
+        return res.end()
+      }
+    }
+    if (model === 'fake/finish-error-once' && n === 1) {
+      send(chunk({}, 'error'))
+      send('[DONE]')
+      return res.end()
+    }
     if (model === 'fake/refuse') {
       send(chunk({}, 'content_filter'))
       send('[DONE]')
@@ -331,7 +365,9 @@ export async function startFakeProvider(options = {}) {
         send('[DONE]')
         return res.end()
       }
-      send(chunk({ content: parts[i] }))
+      if (model === 'fake/content-parts') {
+        send(chunk({ content: [{ type: 'reasoning', text: 'A private thought. ' }, { type: 'text', text: parts[i] }] }))
+      } else send(chunk({ content: parts[i] }))
       if (i % 7 === 3) res.write(`: keep-alive${nl}${nl}`)
       if (delay) await sleep(delay)
     }

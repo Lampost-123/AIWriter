@@ -276,6 +276,17 @@ describe('replyTokenLimit', () => {
     expect(replyTokenLimit({ contextLength: 3000, reserved: 756, used: 2900 })).toEqual({ limit: 756, fallback: 756 })
   })
 
+  it('leaves the reply its room beside the thinking when the model is asked to think more', () => {
+    const budget = { contextLength: 128000, reserved: 2835, used: 4000 }
+    expect(replyTokenLimit(budget, null, 'high').limit).toBe(14175)
+    expect(replyTokenLimit(budget, null, 'medium').limit).toBe(2835 + THINKING_ROOM)
+    expect(replyTokenLimit(budget, null, 'off').limit).toBe(2835 + THINKING_ROOM)
+    expect(replyTokenLimit(budget, null, 'auto').limit).toBe(2835 + THINKING_ROOM)
+    // Still never past the model's own output limit or what the window has left.
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 2835, used: 3000 }, 4096, 'high').limit).toBe(4096)
+    expect(replyTokenLimit({ contextLength: 3000, reserved: 756, used: 1500 }, null, 'high').limit).toBe(1350)
+  })
+
   it("respects the model's own output limit when the provider gives one", () => {
     expect(replyTokenLimit({ contextLength: 200000, reserved: 2835, used: 3000 }, 4096)).toEqual({ limit: 4096, fallback: 2835 })
     expect(replyTokenLimit({ contextLength: 200000, reserved: 5670, used: 3000 }, 4096)).toEqual({ limit: 4096, fallback: 4096 })

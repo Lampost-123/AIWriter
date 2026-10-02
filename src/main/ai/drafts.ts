@@ -5,11 +5,11 @@
 
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
-import type { ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice } from '@shared/types'
+import type { ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
-import { knownParams, streamChat, type ChatTarget, type SentParams, type StreamOutcome } from './client'
+import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
 import { isKeyFailure } from './errors'
 
@@ -45,6 +45,8 @@ export interface DraftRequest {
   preview: ContextPreview
   provider: ChatTarget & { id: ID }
   model: ModelChoice
+  /** How much the writer model is asked to think (Settings › Models). */
+  thinking?: ThinkingLevel
   /** Each live entry's updatedAt, recorded as the version that was sent. */
   entryVersions: Map<ID, string>
   emit: Emit
@@ -76,12 +78,14 @@ function startParams(req: DraftRequest): SentParams {
   return req.model.sampling === false ? { ...known, sampling: false } : known
 }
 
-/** The params with how they were actually sent (only noted when it differs from the usual). */
-function withSent(p: GenerationParams, sent: SentParams): GenerationParams {
-  const { tokenParam: _t, sampling: _s, cutOff: _c, ...rest } = p
+/** The params with how they were actually sent (only noted when it differs from the usual), and the thinking asked for. */
+function withSent(p: GenerationParams, sent: SentParams, effort: string | null): GenerationParams {
+  const { tokenParam: _t, sampling: _s, cutOff: _c, thinking: _k, ...rest } = p
   const out: GenerationParams = { ...rest }
   if (sent.tokenParam !== 'max_tokens') out.tokenParam = sent.tokenParam
   if (!sent.sampling) out.sampling = false
+  const thinking = levelOfEffort(effort)
+  if (thinking) out.thinking = thinking
   return out
 }
 
@@ -91,7 +95,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   }
   const id = newId()
   const preset = CREATIVITY_PRESETS[req.options.creativity] ?? CREATIVITY_PRESETS.balanced
-  const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput)
+  const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput, req.thinking)
   const sent = startParams(req)
   const params: GenerationParams = withSent(
     {
@@ -101,7 +105,8 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
       creativity: req.options.creativity,
       targetWords: req.options.targetWords
     },
-    sent
+    sent,
+    thinkingEffort(req.provider, req.model.modelId, req.thinking)
   )
   gens.insertGeneration(req.db, {
     id,
@@ -169,6 +174,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       onRetry: (info) => emit('generation:retrying', { generationId: job.id, ...info }),
       fallbackMaxTokens,
       startParams: startParams(req),
+      thinking: req.thinking,
       fetchImpl: req.fetchImpl,
       delays: req.retryDelays
     })
@@ -187,7 +193,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       retries: 0,
       maxTokens: params.max_tokens,
       cutOff: false,
-      sentParams: startParams(req)
+      sentParams: startParams(req),
+      effort: thinkingEffort(req.provider, req.model.modelId, req.thinking)
     }
   }
 
@@ -209,7 +216,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   const cutOff = outcome.cutOff && status === 'complete'
   // The settings as actually sent: a smaller reply limit, a model that sets its own
   // creativity, or a reply that ran into the limit, so "What the AI saw" stays truthful.
-  const used = withSent({ ...params, max_tokens: outcome.maxTokens }, outcome.sentParams)
+  const used = withSent({ ...params, max_tokens: outcome.maxTokens }, outcome.sentParams, outcome.effort)
   if (cutOff) used.cutOff = true
   const paramsChanged = JSON.stringify(used) !== JSON.stringify(params)
   if (!job.closed && db.open) {

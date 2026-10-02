@@ -11,7 +11,7 @@ import { Button, Card, Notice, SectionTitle } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
+import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
 type Entry = GenerationRecord['entries'][number]
@@ -154,7 +154,13 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
       </div>
 
       <Card className="mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
-        <Meta label="Model" value={modelLabel || rec.modelId} title={rec.modelId} />
+        {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
+        <Meta
+          label="Model"
+          value={modelLabel || rec.modelId}
+          title={rec.modelId}
+          note={rec.params.thinking ? `Thinking: ${THINKING_LABELS[rec.params.thinking]}` : undefined}
+        />
         <Meta label="Provider" value={rec.providerName} />
         <Meta
           label="Creativity"
