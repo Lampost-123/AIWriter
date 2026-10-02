@@ -39,8 +39,11 @@ export function recordVersion(
   v: { factKind: FactVersion['factKind']; factId: ID; entryId: ID | null; data: unknown; origin: Origin; runId?: ID | null }
 ): FactVersion {
   const next =
-    ((db.prepare('SELECT COALESCE(MAX(version), 0) AS v FROM fact_versions WHERE fact_kind = ? AND fact_id = ?').get(v.factKind, v.factId) as Row)
-      .v as number) + 1
+    ((
+      db
+        .prepare('SELECT COALESCE(MAX(version), 0) AS v FROM fact_versions WHERE fact_kind = ? AND fact_id = ?')
+        .get(v.factKind, v.factId) as Row
+    ).v as number) + 1
   const id = newId()
   db.prepare(
     `INSERT INTO fact_versions (id, fact_kind, fact_id, entry_id, version, data_json, origin, run_id, created_at)
@@ -51,9 +54,9 @@ export function recordVersion(
 
 /** Every version of an entry and of its changes, newest first. */
 export function entryHistory(db: DB, entryId: ID): FactVersion[] {
-  return (
-    db.prepare('SELECT * FROM fact_versions WHERE entry_id = ? ORDER BY created_at DESC, rowid DESC').all(entryId) as Row[]
-  ).map(toVersion)
+  return (db.prepare('SELECT * FROM fact_versions WHERE entry_id = ? ORDER BY created_at DESC, rowid DESC').all(entryId) as Row[]).map(
+    toVersion
+  )
 }
 
 export function getVersion(db: DB, id: ID): FactVersion | null {
@@ -95,20 +98,17 @@ export function addLink(db: DB, l: Omit<SourceLink, 'id' | 'state'> & { state?: 
   return toLink(db.prepare('SELECT * FROM source_links WHERE id = ?').get(id) as Row)
 }
 
-export function updateLink(db: DB, id: ID, patch: Partial<Pick<SourceLink, 'sceneVersion' | 'paragraphId' | 'start' | 'end' | 'quote' | 'state'>>): void {
+export function updateLink(
+  db: DB,
+  id: ID,
+  patch: Partial<Pick<SourceLink, 'sceneVersion' | 'paragraphId' | 'start' | 'end' | 'quote' | 'state'>>
+): void {
   const r = db.prepare('SELECT * FROM source_links WHERE id = ?').get(id) as Row | undefined
   if (!r) return
   const l = { ...toLink(r), ...patch }
-  db.prepare('UPDATE source_links SET scene_version = ?, paragraph_id = ?, start = ?, end = ?, quote = ?, state = ?, updated_at = ? WHERE id = ?').run(
-    l.sceneVersion,
-    l.paragraphId,
-    l.start,
-    l.end,
-    l.quote,
-    l.state,
-    now(),
-    id
-  )
+  db.prepare(
+    'UPDATE source_links SET scene_version = ?, paragraph_id = ?, start = ?, end = ?, quote = ?, state = ?, updated_at = ? WHERE id = ?'
+  ).run(l.sceneVersion, l.paragraphId, l.start, l.end, l.quote, l.state, now(), id)
 }
 
 export function deleteLink(db: DB, id: ID): void {
@@ -116,9 +116,25 @@ export function deleteLink(db: DB, id: ID): void {
 }
 
 export function linksForFact(db: DB, factKind: SourceLink['factKind'], factId: ID): SourceLink[] {
-  return (db.prepare('SELECT * FROM source_links WHERE fact_kind = ? AND fact_id = ? ORDER BY created_at, rowid').all(factKind, factId) as Row[]).map(
-    toLink
-  )
+  return (
+    db.prepare('SELECT * FROM source_links WHERE fact_kind = ? AND fact_id = ? ORDER BY created_at, rowid').all(factKind, factId) as Row[]
+  ).map(toLink)
+}
+
+/** The links of many facts of one kind, by fact id, in one query (for lists of changes). */
+export function linksForFacts(db: DB, factKind: SourceLink['factKind'], factIds: ID[]): Map<ID, SourceLink[]> {
+  const out = new Map<ID, SourceLink[]>()
+  if (!factIds.length) return out
+  const rows = db
+    .prepare('SELECT * FROM source_links WHERE fact_kind = ? AND fact_id IN (SELECT value FROM json_each(?)) ORDER BY created_at, rowid')
+    .all(factKind, JSON.stringify([...new Set(factIds)])) as Row[]
+  for (const r of rows) {
+    const l = toLink(r)
+    const list = out.get(l.factId)
+    if (list) list.push(l)
+    else out.set(l.factId, [l])
+  }
+  return out
 }
 
 export function linksInScene(db: DB, sceneId: ID): SourceLink[] {

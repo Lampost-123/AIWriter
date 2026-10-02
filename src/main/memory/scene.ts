@@ -24,7 +24,7 @@ import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
-import { linksForFact } from '../db/history'
+import { linksForFacts } from '../db/history'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 
@@ -269,10 +269,18 @@ function leadsInto(
 export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadShape(db)): ChangeView[] {
   const label = labeler(shape)
   const order = storyOrder(shape)
+  // A scene's story as it is now (a change keeps the story its scene was in when it was made).
+  const storyOf = new Map<ID, ID>()
+  for (const s of shape.stories) for (const c of s.chapters) for (const sc of c.scenes) storyOf.set(sc.id, s.id)
   const keyed = changes
     .map((c) => ({
       c,
-      key: c.anchor === 'baseline' ? [-1] : order({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null })
+      key:
+        c.anchor === 'baseline'
+          ? [-1]
+          : c.anchor === 'scene' && c.sceneId
+            ? order({ storyId: storyOf.get(c.sceneId) ?? c.storyId, sceneId: c.sceneId })
+            : order({ storyId: c.storyId, sceneId: null })
     }))
     .filter(({ key }) => key[0] !== Infinity)
   keyed.sort(
@@ -281,9 +289,14 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
       a.c.position - b.c.position ||
       (a.c.createdAt < b.c.createdAt ? -1 : a.c.createdAt > b.c.createdAt ? 1 : 0)
   )
+  const links = linksForFacts(
+    db,
+    'change',
+    keyed.map(({ c }) => c.id)
+  )
   return keyed.map(({ c }) => ({
     ...c,
     where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
-    links: linksForFact(db, 'change', c.id)
+    links: links.get(c.id) ?? []
   }))
 }

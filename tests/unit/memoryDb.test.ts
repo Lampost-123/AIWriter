@@ -139,6 +139,16 @@ describe('changes', () => {
     ])
     expect(views.find((v) => v.id === early.id)?.links.map((l) => l.quote)).toEqual(['Mara'])
     expect(views.some((v) => v.id === gone.id)).toBe(false)
+
+    // A scene moved into another story takes its changes with it.
+    repo.moveScene(w.db, w.sc[1][1], repo.getOutline(w.db, w.b2).chapters[0].id, 1)
+    expect(changeViews(w.db, mem.changesForEntry(w.db, w.mara)).map((v) => [v.id, v.where])).toEqual([
+      [other.id, 'Before any story'],
+      [start.id, 'the start of Book 2'],
+      [full.id, 'the start of Book 2'],
+      [late.id, 'Book 2, Ch 1, Sc 1'],
+      [early.id, 'Book 2, Ch 1, Sc 2']
+    ])
   })
 
   it('lists every fact once, with its latest wording, leaving out facts only deleted entries knew', () => {
