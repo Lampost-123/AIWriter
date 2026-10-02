@@ -234,6 +234,19 @@ describe('where entries first exist', () => {
     expect(point('character', { origin: 'ai', originStoryId: w.b2, originStart: true })).toEqual([['story-post', w.b2, null]])
   })
 
+  it('makes the book after a deleted first book the first story, as it now starts at the beginning of the world', () => {
+    const w = small()
+    const b3 = repo.createStory(w.db, { title: 'Book 3' }).id
+    repo.deleteStory(w.db, w.b1)
+    expect(mem.firstStoryId(w.db)).toBe(w.b2)
+    const e = repo.createEntry(w.db, 'character', { name: 'X', originStoryId: w.b2 })
+    expect(mem.listExistsPoints(w.db, e.id).map((p) => p.kind)).toEqual(['world'])
+    repo.deleteStory(w.db, w.b2)
+    expect(mem.firstStoryId(w.db)).toBe(b3)
+    repo.restoreDeleted(w.db, 'story', w.b1)
+    expect(mem.firstStoryId(w.db)).toBe(w.b1)
+  })
+
   it('works defaults out again when a story becomes its own version of events, keeping points Adam set', () => {
     const w = small()
     const inBook1 = repo.createEntry(w.db, 'character', { name: 'Made in Book 1', originStoryId: w.b1 }).id

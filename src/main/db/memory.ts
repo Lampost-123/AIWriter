@@ -367,15 +367,28 @@ export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsP
  * earliest-made story that starts at the beginning of the world and isn't its own version of events
  * (an own version shares nothing with the rest, and a story placed during another can't be first).
  * So it can change when a story's kind or start changes, and defaults are then worked out again.
+ * A story whose start story is deleted takes over its start (as in loadShape), so deleting Book 1
+ * makes the book after it first.
  */
 export function firstStoryId(db: DB): ID | null {
-  const r = db
-    .prepare(
-      `SELECT id FROM stories WHERE deleted_at IS NULL AND start_story_id IS NULL AND kind <> 'own'
-       ORDER BY created_order, created_at LIMIT 1`
-    )
-    .get() as Row | undefined
-  return r ? (r.id as string) : null
+  const rows = db
+    .prepare('SELECT id, kind, start_story_id, deleted_at FROM stories ORDER BY created_order, created_at, rowid')
+    .all() as Row[]
+  const byId = new Map(rows.map((r) => [r.id as string, r]))
+  const startsAtBeginning = (r: Row): boolean => {
+    const seen = new Set<ID>([r.id as string])
+    let start = (r.start_story_id as string) ?? null
+    while (start) {
+      const s = byId.get(start)
+      if (!s || seen.has(start)) return true
+      if (!s.deleted_at) return false
+      seen.add(start)
+      start = (s.start_story_id as string) ?? null
+    }
+    return true
+  }
+  const first = rows.find((r) => !r.deleted_at && r.kind !== 'own' && startsAtBeginning(r))
+  return first ? (first.id as string) : null
 }
 
 /** Kinds of entry found in a scene's text that first exist at that scene (the rest exist from that story's start). */
