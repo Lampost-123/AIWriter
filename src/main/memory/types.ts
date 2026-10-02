@@ -166,7 +166,19 @@ export interface SceneMemory {
   /** "This story knows what happened in: Book 1; Kell's Road; Book 2 up to the end of Ch 5." */
   knows: string
   /** Block 3: the last scene on the line before this one (never a side story added whole). */
-  previous: { sceneId: ID; title: string; text: string } | null
+  previous: {
+    sceneId: ID
+    title: string
+    text: string
+    /** The story that scene is in. */
+    storyId: ID
+    storyTitle: string
+    /**
+     * Set when that is another story (this story's first scene, after another book or a time gap):
+     * whether it was that story's last scene, and this story's time gap ("200 years", '' for none).
+     */
+    otherStory: { ended: boolean; timeGap: string } | null
+  } | null
   /** Every entry that exists here, as of this scene. */
   entries: EntryState[]
   /** Ids of entries whose first appearance is this scene. */

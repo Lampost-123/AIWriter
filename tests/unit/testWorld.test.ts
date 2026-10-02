@@ -296,8 +296,23 @@ describe('the test world in a database', () => {
     expect(later.previous?.sceneId).toBe(w.id('b1.c3.s1'))
     expect(later.facts.find((f) => f.factId === 'f-heir')?.knownBy.sort()).toEqual([w.id('kell'), w.id('tobin')].sort())
 
+    expect(later.previous).toMatchObject({ storyId: w.id('b1'), storyTitle: 'Book 1', otherStory: null })
     const b3 = sceneMemory(db, w.id('b3.c1.s1'))
-    expect(b3.previous).toMatchObject({ sceneId: w.id('b2.c6.s1'), title: 'Scene 1' })
+    expect(b3.previous).toMatchObject({
+      sceneId: w.id('b2.c6.s1'),
+      title: 'Scene 1',
+      storyId: w.id('b2'),
+      storyTitle: 'Book 2',
+      otherStory: { ended: true, timeGap: '' }
+    })
+    // A later series 200 years on: the previous scene is how Book 4 ended, with The Long Dark's time gap.
+    db.prepare('UPDATE stories SET time_gap = ? WHERE id = ?').run('200 years', w.id('ld'))
+    expect(sceneMemory(db, w.id('ld.c1.s1')).previous).toMatchObject({
+      storyTitle: 'Book 4',
+      otherStory: { ended: true, timeGap: '200 years' }
+    })
+    // A side story starting partway through its book: where that book had got to.
+    expect(sceneMemory(db, w.id('ember.c1.s1')).previous).toMatchObject({ storyId: w.id('b2'), otherStory: { ended: false } })
     const wren = sceneMemory(db, w.id('b2.c3.s1')).elsewhere.find((x) => x.entry.name === 'Wren')
     expect(wren?.label).toBe('not in the story yet at this point')
     expect(sceneMemory(db, w.id('b2.c4.s1')).firstHere).toEqual([w.id('wren')])

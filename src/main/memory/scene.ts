@@ -63,15 +63,13 @@ export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
   const state = stateAt(data, shape, line, changes)
 
-  const prevStep = previousSceneStep(line)
-  const prevText = prevStep ? mem.sceneText(db, prevStep.sceneId) : null
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
 
   return {
     storyId: story.id,
     sceneId,
     knows: knowsSentence(shape, line),
-    previous: prevStep && prevText ? { sceneId: prevStep.sceneId, title: prevText.title, text: prevText.text } : null,
+    previous: previousScene(db, shape, story.id, line),
     entries: [...state.entries.values()],
     firstHere: [...state.firstHere],
     elsewhere: elsewhere(shape, line, data, state),
@@ -80,6 +78,30 @@ export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
     threads: state.threads,
     storySoFar: storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)),
     bringAbout: changes.byScene.get(sceneId) ?? []
+  }
+}
+
+/**
+ * Block 3: the last scene on the line before this one, with the story it is in. When that is
+ * another story (this story's first scene), whether it was that story's last scene and this
+ * story's time gap, so the briefing doesn't ask for this story to carry on from it seamlessly.
+ */
+function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): SceneMemory['previous'] {
+  const step = previousSceneStep(line)
+  const text = step ? mem.sceneText(db, step.sceneId) : null
+  if (!step || !text) return null
+  const from = shape.stories.find((s) => s.id === step.storyId)
+  const scenes = from ? from.chapters.flatMap((c) => c.scenes) : []
+  return {
+    sceneId: step.sceneId,
+    title: text.title,
+    text: text.text,
+    storyId: step.storyId,
+    storyTitle: from?.title ?? '',
+    otherStory:
+      step.storyId === storyId
+        ? null
+        : { ended: scenes.length > 0 && scenes[scenes.length - 1].id === step.sceneId, timeGap: repo.getStory(db, storyId).timeGap.trim() }
   }
 }
 

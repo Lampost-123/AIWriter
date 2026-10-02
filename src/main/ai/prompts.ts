@@ -102,6 +102,8 @@ export function finalInstruction(o: {
   hasOutcome?: boolean
   hasNotes?: boolean
   hasPrevious: boolean
+  /** The previous scene is from another story (this story's first scene): its title, whether it ended there, this story's time gap. */
+  previousStory?: { title: string; ended: boolean; timeGap: string } | null
   hasDirection: boolean
   /** On a redraft: the scene card lists what this scene should bring about. */
   hasBringAbout?: boolean
@@ -117,7 +119,14 @@ export function finalInstruction(o: {
   if (o.style.tense) keep.push(lowerFirst(o.style.tense))
   if (o.style.spelling) keep.push(`${o.style.spelling} spelling`)
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
-  if (o.hasPrevious) lines.push("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
+  const other = o.previousStory
+  if (o.hasPrevious && other) {
+    const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
+    const what = other.ended ? `is how ${other.title} ended` : `is where ${other.title} had got to`
+    lines.push(
+      `- The previous scene ${what}, not part of this story. Don't continue it seamlessly or recap it: open this story in its own right.${gap}`
+    )
+  } else if (o.hasPrevious) lines.push("- Continue seamlessly from where the previous scene ends. Don't repeat or recap it.")
   if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
