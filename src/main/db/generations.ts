@@ -138,11 +138,12 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
   // Entries are listed even if deleted since, so the record still says who was in the briefing.
   const rows = db
     .prepare(
-      `SELECT ge.entry_id, ge.entry_version, e.name, e.kind, e.deleted_at, e.updated_at
+      `SELECT ge.entry_id, ge.entry_version, e.name, e.kind, e.deleted_at, e.updated_at,
+         EXISTS (SELECT 1 FROM fact_versions v WHERE v.entry_id = ge.entry_id AND v.created_at > ?) AS changed_later
        FROM generation_entries ge LEFT JOIN entries e ON e.id = ge.entry_id
        WHERE ge.generation_id = ?`
     )
-    .all(id) as Row[]
+    .all(r.created_at, id) as Row[]
   const order = new Map<ID, number>()
   blocks.forEach((b) => b.entryIds.forEach((eid) => order.has(eid) || order.set(eid, order.size)))
   const entries: GenerationRecord['entries'] = rows
@@ -152,7 +153,8 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
       kind: ((e.kind as EntryKind | null) ?? 'lore') as EntryKind,
       version: e.entry_version as string,
       deleted: e.name == null || e.deleted_at != null,
-      changedSince: e.updated_at != null && e.updated_at !== e.entry_version
+      // Edited since, or its memory changed since (a change over time added, edited or removed).
+      changedSince: (e.updated_at != null && e.updated_at !== e.entry_version) || e.changed_later === 1
     }))
     .sort((a, b) => (order.get(a.entryId) ?? 1e9) - (order.get(b.entryId) ?? 1e9))
   return {

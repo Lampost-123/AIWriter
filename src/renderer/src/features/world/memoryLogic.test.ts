@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { ChangeView, ExistsPoint, Outline, SourceLink } from '@shared/types'
+import type { ChangeView, Entry, ExistsPoint, Outline, SourceLink } from '@shared/types'
 import {
   changeWhere,
   createKindsFor,
   describeChange,
   existsLine,
   madeByNote,
+  notesSource,
   orientRelationship,
   relationPhrase,
   relationshipInput,
@@ -347,5 +348,43 @@ describe('changeWhere', () => {
   it('starts with a capital, and says when a change has no place', () => {
     expect(changeWhere({ where: 'the start of Book 2', anchor: 'story-start' })).toBe('The start of Book 2')
     expect(changeWhere({ where: '', anchor: 'baseline' })).toBe('From the start')
+  })
+})
+
+describe('notesSource', () => {
+  const entry = (patch: Partial<Entry>): Entry =>
+    ({
+      id: 'mara',
+      kind: 'character',
+      name: 'Mara',
+      aliases: [],
+      summary: '',
+      description: '',
+      tags: [],
+      notes: '',
+      fields: {},
+      origin: 'text',
+      fieldOrigins: {},
+      ...patch
+    }) as Entry
+  const keys = ['aliases', 'summary', 'description', 'tags', 'eyes', 'hair']
+
+  it('keeps the line of a field AI Write filled in that Adam has since made his', () => {
+    const prev = entry({ summary: 'Someone called Mara.', fields: { eyes: 'green' } })
+    const saved = entry({
+      summary: 'A ferrywoman',
+      fields: { eyes: '', hair: 'grey' },
+      fieldOrigins: { summary: 'adam', eyes: 'adam', hair: 'text' }
+    })
+    const out = notesSource(prev, saved, keys)
+    expect(out.summary).toBe('Someone called Mara.')
+    expect(out.fields).toEqual({ eyes: 'green', hair: 'grey' })
+    expect(out.fieldOrigins).toEqual({ summary: 'text', eyes: 'text', hair: 'text' })
+  })
+
+  it('takes the newer copy for everything else', () => {
+    const prev = entry({ origin: 'adam', fields: { hair: 'long' } })
+    const saved = entry({ origin: 'adam', fields: { hair: 'long', eyes: 'grey' }, fieldOrigins: { eyes: 'text' } })
+    expect(notesSource(prev, saved, keys)).toEqual(saved)
   })
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, FactVersion } from '@shared/types'
 import { PLACE_GROUPS } from '@shared/fields'
-import { earlierVersions, entryDiff, versionLabel, whenLabel } from './historyLogic'
+import { earlierVersions, entryDiff, versionLabel, whenInSentence, whenLabel } from './historyLogic'
 
 const entry = (patch: Partial<Entry> = {}): Entry => ({
   id: 'mara',
@@ -70,6 +70,29 @@ describe('earlierVersions', () => {
     ]
     expect(earlierVersions(list, 'mara').map((v) => v.version)).toEqual([5, 2, 1])
   })
+
+  it('keeps the page as it was before an earlier version was brought back, and says which one did', () => {
+    const list = [
+      version(4, 'adam', '2026-10-02T14:04:00.000Z', entry({ fields: { eyes: '' } })),
+      version(3, 'adam', '2026-10-02T14:03:00.000Z', entry({ fields: { eyes: 'green, flecked with brown' } })),
+      version(2, 'text', '2026-10-02T14:01:00.000Z', entry({ fields: { eyes: 'green' } })),
+      version(1, 'text', '2026-10-02T14:00:00.000Z', entry())
+    ]
+    // Version 4 brought back version 1: the page as it was just before (3) stays listed.
+    expect(earlierVersions(list, 'mara').map((v) => [v.version, versionLabel(v, null)])).toEqual([
+      [3, 'Changed by you'],
+      [2, 'Updated from your story'],
+      [1, 'Found in your story']
+    ])
+    // Then it was undone (5 is 3 again): 4 is listed as what was brought back.
+    const undone = [version(5, 'adam', '2026-10-02T14:05:00.000Z', entry({ fields: { eyes: 'green, flecked with brown' } })), ...list]
+    expect(earlierVersions(undone, 'mara').map((v) => [v.version, versionLabel(v, null)])).toEqual([
+      [4, 'Brought back by you'],
+      [3, 'Changed by you'],
+      [2, 'Updated from your story'],
+      [1, 'Found in your story']
+    ])
+  })
 })
 
 describe('versionLabel', () => {
@@ -92,6 +115,13 @@ describe('whenLabel', () => {
     expect(whenLabel(new Date(2026, 6, 12, 8, 0).toISOString(), now)).toBe('12 Jul, 08:00')
     expect(whenLabel(new Date(2025, 9, 12, 8, 0).toISOString(), now)).toBe('12 Oct 2025')
     expect(whenLabel('not a date', now)).toBe('')
+  })
+
+  it('reads well in the middle of a sentence, months keeping their capitals', () => {
+    expect(whenInSentence(new Date(2026, 9, 2, 14, 2).toISOString(), now)).toBe('today at 14:02')
+    expect(whenInSentence(new Date(2026, 9, 1, 9, 5).toISOString(), now)).toBe('yesterday at 09:05')
+    expect(whenInSentence(new Date(2026, 6, 12, 8, 0).toISOString(), now)).toBe('on 12 Jul at 08:00')
+    expect(whenInSentence(new Date(2025, 9, 12, 8, 0).toISOString(), now)).toBe('on 12 Oct 2025')
   })
 })
 

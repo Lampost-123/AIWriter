@@ -129,7 +129,10 @@ export interface PlaceOption {
 /** Places that can hold `selfId`: every place except itself and the places inside it. Labelled by path. */
 export function parentPlaceOptions(places: Place[], selfId: ID | null): PlaceOption[] {
   const blocked = selfId ? placeAndDescendants(places, selfId) : new Set<ID>()
-  return placeOptions(places.filter((p) => !blocked.has(p.id)), places)
+  return placeOptions(
+    places.filter((p) => !blocked.has(p.id)),
+    places
+  )
 }
 
 /** All places as select options labelled by path ("Varn › Castle Varn"), sorted by that path. */
@@ -241,6 +244,22 @@ export function mergeEntry(base: Entry, mine: Entry, theirs: Entry): Entry {
     if ((mine.fields[k] ?? '') !== (base.fields[k] ?? '')) out.fields[k] = mine.fields[k] ?? ''
   }
   return out
+}
+
+/**
+ * Saves Adam's copy of an entry without writing over anything saved since `base` (the newest saved
+ * copy his page knows of), such as a field the memory keeper filled while he typed in another. A whole
+ * entry is written at once, so his edits since `base` are laid over the newest saved copy first.
+ * Returns what was written (`sent`, which is `mine` unless something newer was saved) and the result.
+ */
+export async function saveOverNewer(
+  mine: Entry,
+  base: Entry,
+  io: { get: (id: ID) => Promise<Entry>; put: (e: Entry) => Promise<Entry> }
+): Promise<{ sent: Entry; saved: Entry }> {
+  const fresh = await io.get(mine.id)
+  const sent = fresh.updatedAt > base.updatedAt ? mergeEntry(base, mine, fresh) : mine
+  return { sent, saved: await io.put(sent) }
 }
 
 /**
