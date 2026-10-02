@@ -84,7 +84,11 @@ function elsewhere(shape: WorldShape, line: Line, data: MemoryData, state: Memor
   const sceneStory = new Map<ID, ID>()
   for (const s of shape.stories) for (const c of s.chapters) for (const sc of c.scenes) sceneStory.set(sc.id, s.id)
   const pointsOf = new Map<ID, MemoryData['exists']>()
-  for (const p of data.exists) pointsOf.set(p.entryId, [...(pointsOf.get(p.entryId) ?? []), p])
+  for (const p of data.exists) {
+    const list = pointsOf.get(p.entryId)
+    if (list) list.push(p)
+    else pointsOf.set(p.entryId, [p])
+  }
 
   const out: SceneMemory['elsewhere'] = []
   for (const [id, entry] of state.absent) {

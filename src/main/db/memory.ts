@@ -43,6 +43,13 @@ const json = <T>(s: unknown, fallback: T): T => {
 
 // ---------- Changes ----------
 
+/** Adds a value to a list in a map of lists. */
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key)
+  if (list) list.push(value)
+  else map.set(key, [value])
+}
+
 /** A payload as stored, with the lists a kind always has filled in (so a damaged row can't break the memory). */
 function cleanPayload(kind: ChangeData['kind'], raw: unknown): ChangeData['payload'] {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -423,7 +430,7 @@ export function defaultExistsPoint(
 export function refreshDefaultExistsPoints(db: DB): ID[] {
   const first = firstStoryId(db)
   const points = new Map<ID, ExistsPoint[]>()
-  for (const p of listExistsPoints(db)) points.set(p.entryId, [...(points.get(p.entryId) ?? []), p])
+  for (const p of listExistsPoints(db)) pushTo(points, p.entryId, p)
   const rows = db
     .prepare('SELECT id, kind, origin, origin_story_id, origin_scene_id, origin_start FROM entries WHERE deleted_at IS NULL')
     .all() as Row[]
@@ -532,10 +539,10 @@ export function loadShape(db: DB): WorldShape {
   const chaptersOf = new Map<ID, Row[]>()
   for (const r of chapterRows) {
     const storyId = r.story_id as string
-    if (live(r) && nodes.has(storyId)) chaptersOf.set(storyId, [...(chaptersOf.get(storyId) ?? []), r])
+    if (live(r) && nodes.has(storyId)) pushTo(chaptersOf, storyId, r)
   }
   const scenesOf = new Map<ID, Row[]>()
-  for (const r of sceneRows) if (live(r)) scenesOf.set(r.chapter_id as string, [...(scenesOf.get(r.chapter_id as string) ?? []), r])
+  for (const r of sceneRows) if (live(r)) pushTo(scenesOf, r.chapter_id as string, r)
   for (const [storyId, rows] of chaptersOf) {
     nodes.get(storyId)!.chapters = rows.map((c) => ({
       id: c.id as string,
