@@ -187,6 +187,12 @@ export interface AppApi {
   /** Starts a streamed draft. Text arrives as 'generation:chunk' events. */
   startDraft(sceneId: ID, options: DraftOptions): Promise<{ generationId: ID }>
   stopGeneration(generationId: ID): Promise<void>
+  /**
+   * Stops a draft of this scene that hasn't begun yet (the memory may still be catching up with
+   * earlier scenes first). Nothing is sent to the model, and that startDraft fails with the code
+   * 'cancelled'. Does nothing when no draft of the scene is starting.
+   */
+  cancelDraftStart(sceneId: ID): Promise<void>
   listGenerations(sceneId: ID): Promise<GenerationSummary[]>
   getGeneration(id: ID): Promise<GenerationRecord>
 

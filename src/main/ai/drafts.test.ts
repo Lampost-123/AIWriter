@@ -5,7 +5,7 @@ import type { DraftOptions, ModelChoice } from '@shared/types'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
-import { setBlockMode, setPin } from '../db/memory'
+import { insertChange, putSummary, setBlockMode, setDefaultExistsPoints, setPin } from '../db/memory'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { assembleContext, replyTokenLimit, sentEntryVersions } from './context'
 import { draftCost, isDrafting, startDraftJob, stopDraft, stopDraftsFor, type Emit } from './drafts'
@@ -153,6 +153,88 @@ describe('gatherContextInput', () => {
   })
 })
 
+describe('drafting an earlier scene does not show later changes to the AI', () => {
+  /** One chapter of four scenes; what happens in scene 1 and in scene 3 is in the memory. */
+  function fourScenes() {
+    const w = setup()
+    const chapterId = repo.getOutline(w.db, w.story.id).chapters[0].id
+    const s3 = repo.createScene(w.db, chapterId, { title: 'The hand', afterId: w.second.id })
+    const s4 = repo.createScene(w.db, chapterId, { title: 'After', afterId: s3.id })
+    for (const s of [s3, s4]) repo.updateSceneCard(w.db, s.id, { ...repo.getScene(w.db, w.second.id).card })
+    repo.saveSceneText(w.db, s3.id, null, 'The blade came down. Kell watched from the door.')
+    const mara = w.mara.id
+    const tobin = w.tobin.id
+    const at = (sceneId: string) => ({ entryId: mara, anchor: 'scene' as const, sceneId, origin: 'text' as const })
+    insertChange(w.db, { ...at(w.first.id), kind: 'update', payload: { note: 'Cuts her hair short' } })
+    insertChange(w.db, { ...at(w.first.id), kind: 'knowledge', payload: { factId: 'heir', fact: 'Mara is the heir' } })
+    insertChange(w.db, { ...at(s3.id), kind: 'update', payload: { note: 'Loses her left hand', fields: { marks: 'No left hand' } } })
+    insertChange(w.db, { ...at(s3.id), kind: 'relationship', payload: { otherId: tobin, type: 'sworn enemies', feels: '', otherFeels: '' } })
+    insertChange(w.db, { ...at(s3.id), entryId: tobin, kind: 'knowledge', payload: { factId: 'heir', fact: 'Mara is the heir' } })
+    putSummary(w.db, { level: 'scene', targetId: w.first.id, text: 'Mara leaves the docks.', origin: 'text' })
+    putSummary(w.db, { level: 'scene', targetId: s3.id, text: 'Mara loses her hand; Tobin learns who she is.', origin: 'text' })
+    // Kell first appears in scene 3, and is named in every scene's beats.
+    const kell = repo.createEntry(w.db, 'character', { name: 'Kell', summary: 'A drifter with a crossbow.' })
+    setDefaultExistsPoints(w.db, kell.id, [{ kind: 'scene', storyId: w.story.id, sceneId: s3.id }])
+    for (const s of [w.second, s3, s4]) {
+      const card = repo.getScene(w.db, s.id).card
+      repo.updateSceneCard(w.db, s.id, { ...card, beats: [...card.beats, 'Kell watches from the door'] })
+    }
+    const draft = (sceneId: string) => {
+      const input = gatherContextInput(w.db, sceneId, undefined, plain)
+      const preview = assembleContext(input, countRaw)
+      return { input, preview, all: preview.messages.map((m) => m.content).join('\n') }
+    }
+    return { w, s3, s4, kell, draft }
+  }
+
+  it('scene 2 sees what happened in scene 1, and nothing from scene 3 or later', () => {
+    const { w, draft, kell } = fourScenes()
+    const { all, preview } = draft(w.second.id)
+    expect(all).toContain('Cuts her hair short')
+    expect(all).toContain('Mara leaves the docks.')
+    expect(all).toContain('She left the docks at dusk')
+    expect(all).toContain('What Mara knows:\n- Mara is the heir.')
+    // Tobin learns it in scene 3.
+    expect(all).toContain('Tobin does not know: Mara is the heir. (Mara knows it.)')
+    for (const later of ['Loses her left hand', 'No left hand', 'sworn enemies', 'Tobin learns', 'loses her hand', 'The blade came down']) {
+      expect(all, later).not.toContain(later)
+    }
+    // Kell doesn't exist yet: his name on the card is Adam's, but nothing about him is sent.
+    expect(preview.entries!.map((e) => e.entryId)).not.toContain(kell.id)
+    expect(all).not.toContain('### Kell')
+    expect(all).not.toContain('A drifter with a crossbow')
+  })
+
+  it('scene 3 is told what it should bring about as aims, never as facts', () => {
+    const { s3, draft, kell } = fourScenes()
+    const { all, preview } = draft(s3.id)
+    expect(all).toContain(
+      'What this scene should bring about (aims for this draft, not facts yet):\n- Mara: Loses her left hand\n- Mara and Tobin: sworn enemies\n- Tobin learns: Mara is the heir'
+    )
+    const facts = preview.blocks.filter((b) => b.id !== 'scene-card' && !b.dropped).map((b) => b.text).join('\n')
+    for (const aim of ['Loses her left hand', 'No left hand', 'sworn enemies', 'Tobin learns', 'loses her hand']) expect(facts, aim).not.toContain(aim)
+    expect(facts).toContain('Cuts her hair short')
+    // Until this scene brings it about, Tobin doesn't know.
+    expect(facts).toContain('Tobin does not know: Mara is the heir. (Mara knows it.)')
+    // Kell first appears here: named in the beats, and sent as such.
+    expect(preview.entries!.find((e) => e.entryId === kell.id)).toMatchObject({ label: 'first appears in this scene' })
+    expect(all).toContain('### Kell (character; first appears in this scene)')
+  })
+
+  it('scene 4 knows all of it as facts', () => {
+    const { s4, draft } = fourScenes()
+    const { all } = draft(s4.id)
+    expect(all).toContain('Loses her left hand')
+    expect(all).toContain('- Distinguishing marks: No left hand')
+    expect(all).toContain('Mara and Tobin: sworn enemies.')
+    expect(all).not.toContain('does not know')
+    expect(all).toContain('Mara loses her hand; Tobin learns who she is.')
+    expect(all).toContain('A drifter with a crossbow')
+    expect(all).toContain('The blade came down.')
+    expect(all).not.toContain('What this scene should bring about')
+  })
+})
+
 describe('catching the memory up before a draft', () => {
   const db = {} as Database.Database
 
@@ -180,6 +262,21 @@ describe('catching the memory up before a draft', () => {
 
     setBeforeDraft(() => new Promise(() => undefined))
     expect(await catchUpBeforeDraft(db, 's1', 20)).toBe('timed-out')
+    setBeforeDraft(null)
+  })
+
+  it('stops waiting at once when Adam stops the draft before it begins', async () => {
+    setBeforeDraft(() => new Promise(() => undefined))
+    const stop = new AbortController()
+    const started = Date.now()
+    setTimeout(() => stop.abort(), 10)
+    expect(await catchUpBeforeDraft(db, 's1', 60_000, stop.signal)).toBe('cancelled')
+    expect(Date.now() - started).toBeLessThan(1000)
+    // Already stopped: the catch-up isn't even asked for.
+    const asked = vi.fn()
+    setBeforeDraft(asked)
+    expect(await catchUpBeforeDraft(db, 's1', 60_000, stop.signal)).toBe('cancelled')
+    expect(asked).not.toHaveBeenCalled()
     setBeforeDraft(null)
   })
 })

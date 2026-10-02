@@ -18,19 +18,23 @@
 //  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
 //  2 scene card and Adam's direction, and on a redraft what the scene should bring about; never dropped
 //  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
-//  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory)
+//  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
+//    smaller: the core of the profile, then less)
 //  5 others present as of this scene: profile and voice (summary plus voice)
-//  6 relationships and who knows what among those present (no short form)
+//  6 relationships and who knows what among those present (none; with many facts, the ones that matter here)
 //  7 setting (location, places around it, groups), hard-rule lore, open plot threads on the card (one line each)
-//  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups)
+//  8 story so far: recent scenes, this story's chapters, earlier stories, "Leads into" (fewer scenes, series roll-ups;
+//    smaller: only the most recent parts)
 //  9 other entries named in the beats, notes or direction, and pins (one line each)
 // 10 themes, tone and premise (one line)
 //
 // Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
-// their short form from the bottom up (10 to 3, then block 1), and only then are whole blocks
-// dropped (10 up to 3). Anything that fits again afterwards is put back, then re-expanded, most
-// important first. Adam's choice in the Context tab wins: 'full' is never shortened (it is dropped
-// only as a last resort), 'short' is always short.
+// their short form from the bottom up (10 to 3, then block 1). Blocks 4 and 8 can shrink further,
+// a step at a time, so a small model still gets a usable point-of-view character and what happened
+// just before; only then are whole blocks dropped (10 up to 3). Anything that fits again afterwards
+// is put back, then given its longest form that fits, most important first. Adam's choice in the
+// Context tab wins: 'full' is never shortened (it is dropped only as a last resort), 'short' is
+// always short. The briefing never goes past the budget unless blocks 1 and 2 alone do.
 //
 // The order the blocks are sent in is separate (SEND_ORDER): what stays the same across a story
 // comes first, right after the instructions, so providers that cache repeated prompts can reuse
@@ -95,8 +99,17 @@ export interface BlockDraft {
   text: string
   /** The short form, or null when the block has none (or it would be the same as the full form). */
   short: string | null
+  /**
+   * Still shorter forms, each smaller than the one before, for models with very little room: tried
+   * once every block is short, before any block is dropped. Empty for most blocks.
+   */
+  smaller: string[]
   entryIds: ID[]
 }
+
+/** Every form of a block, longest first: full, short, then any smaller ones. */
+export const formsOf = (b: Pick<BlockDraft, 'text' | 'short' | 'smaller'>): string[] =>
+  b.short == null ? [b.text] : [b.text, b.short, ...b.smaller]
 
 export interface PreparedContext {
   blocks: BlockDraft[]
@@ -104,8 +117,8 @@ export interface PreparedContext {
   modes: Record<string, BlockMode>
   finals: { withPrevious: string; withoutPrevious: string }
   /**
-   * Every text to measure, in order: each block's full form as sent, then each block's short form
-   * as sent ('' when it has none), then both closing instructions.
+   * Every text to measure, in order: each block's forms as sent (formsOf: full, then short, then
+   * any smaller ones), block after block, then both closing instructions.
    */
   texts: string[]
   contextLength: number
@@ -215,9 +228,10 @@ const sentence = (s: string): string => (/[.!?…:;]["'”’)\]]*$/.test(s) ? s
 
 /**
  * Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes.
- * `onlyGroups` keeps just those groups (by id); `short` leaves out the fields marked optionalInShort (backstory).
+ * `onlyGroups` keeps just those groups (by id); `short` leaves out the fields marked optionalInShort (backstory);
+ * `onlyKeys` keeps just those fields.
  */
-export function fieldSections(e: Entry, onlyGroups?: string[], short = false): string[] {
+export function fieldSections(e: Entry, onlyGroups?: string[], short = false, onlyKeys?: ReadonlySet<string>): string[] {
   const groups = FIELD_GROUPS[e.kind] ?? []
   const out: string[] = []
   for (const g of groups) {
@@ -225,6 +239,7 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false): s
     const lines: string[] = []
     for (const f of g.fields) {
       if (short && f.optionalInShort) continue
+      if (onlyKeys && !onlyKeys.has(f.key)) continue
       const v = clean(e.fields?.[f.key])
       if (!v) continue
       if (v.includes('\n')) {
@@ -258,6 +273,58 @@ export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`
   const parts = [head.join('\n')]
   if (clean(e.description)) parts.push(clean(e.description))
   parts.push(...fieldSections(e, onlyGroups, short))
+  return parts.filter(Boolean).join('\n\n')
+}
+
+const lookKeys = FIELD_GROUPS.character?.find((g) => g.id === 'looks')?.fields.map((f) => f.key) ?? []
+/**
+ * The point-of-view character's fields kept in the two smallest forms. Core: who they are, how they
+ * look, what drives them now and their voice. Least: who they are, the mark anyone would notice,
+ * what drives them now and how they speak, with two sample lines.
+ */
+const POV_FIELDS = {
+  core: new Set(['pronouns', 'age', 'role', ...lookKeys, 'traits', 'wants', 'motivation', 'speech', 'tics', 'neverSays', 'sampleLines']),
+  least: new Set(['pronouns', 'age', 'role', 'marks', 'motivation', 'speech', 'sampleLines'])
+}
+
+/** Words of the description kept in the point-of-view character's two smallest forms. */
+export const CORE_DESCRIPTION_WORDS = { core: 70, least: 35 }
+
+/**
+ * The opening of a text, about `words` words long, in whole sentences, so nothing is cut off mid-thought.
+ * A first sentence longer than that is cut at a word with an ellipsis. Short texts come back whole.
+ */
+export function openingSentences(text: string, words: number): string {
+  const t = clean(text)
+  const ends = [...t.matchAll(/\S+/g)].map((m) => (m.index ?? 0) + m[0].length)
+  if (ends.length <= words) return t
+  let best = -1
+  for (const m of t.matchAll(/[.!?…]["'”’)\]]*(?=\s|$)/g)) {
+    const end = (m.index ?? 0) + m[0].length
+    if (end > ends[words - 1]) break
+    best = end
+  }
+  if (best > 0) return t.slice(0, best)
+  return `${t.slice(0, ends[words - 1]).replace(/[,;:]$/, '')}…`
+}
+
+/**
+ * The point-of-view character in fewer words, never the backstory: the name line, the opening of
+ * the description and the fields above. The least form gives the description only when there is
+ * no one-line summary, and only two sample lines.
+ */
+function coreProfile(e: Entry, size: 'core' | 'least'): string {
+  const head: string[] = []
+  const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
+  if (aliases.length) head.push(`Also called: ${aliases.join(', ')}`)
+  if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
+  const parts = [head.join('\n')]
+  if (clean(e.description) && (size === 'core' || !clean(e.summary))) {
+    parts.push(openingSentences(e.description, CORE_DESCRIPTION_WORDS[size]))
+  }
+  const lines = (e.fields?.sampleLines ?? '').split(/\r?\n/).filter((l) => l.trim())
+  const shown = size === 'least' ? { ...e, fields: { ...e.fields, sampleLines: lines.slice(0, 2).join('\n') } } : e
+  parts.push(...fieldSections(shown, undefined, true, POV_FIELDS[size]))
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -624,15 +691,23 @@ function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   return (input.memory.bringAbout ?? []).map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
 }
 
-/** The point-of-view character: what they know (both forms) and their ties to anyone not in the scene (full form). */
-function povText(e: EntryState, input: ContextInput, sel: Selection, short: boolean): string {
-  const knows = input.memory.facts
-    .filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
-    .map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
+/**
+ * The point-of-view character: 0 the full profile, everything that has happened to them and their
+ * ties to anyone not in the scene; 1 (short) the profile without backstory and the last 5 things that
+ * happened; 2 the core of the profile and the last 3; 3 the least of it and the last 2. Every form
+ * says what they know.
+ */
+function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 1 | 2 | 3): string {
+  const known = input.memory.facts.filter((f) => f.knownBy.includes(e.id) && clean(f.fact))
+  // In the smaller forms a long list of what they know (a long series) is cut to what matters here.
+  const { kept, left } = level >= 2 ? someFacts(known, sel, level === 2 ? 12 : 6) : { kept: known, left: 0 }
+  const knows = kept.map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
+  if (left) knows.push(leftOutLine(left))
+  const profile = level >= 2 ? coreProfile(e, level === 2 ? 'core' : 'least') : formatProfile(e, null, undefined, level === 1)
   // An empty profile still says who it is, so the block (and the Context tab's entry) is there.
-  const parts = [formatProfile(e, null, undefined, short) || `${e.name}.`, happenedText(e, short ? 5 : undefined)]
+  const parts = [profile || `${e.name}.`, happenedText(e, [undefined, 5, 3, 2][level])]
   if (knows.length) parts.push(`What ${e.name} knows:\n${knows.join('\n')}`)
-  if (!short) {
+  if (level === 0) {
     const inScene = new Set([sel.pov, ...sel.present].filter((x): x is EntryState => !!x).map((x) => x.id))
     const exists = new Set(input.memory.entries.map((x) => x.id))
     const hidden = new Set(sel.hidden.map((h) => h.entry.id))
@@ -648,8 +723,27 @@ function povText(e: EntryState, input: ContextInput, sel: Selection, short: bool
   return parts.filter(Boolean).join('\n\n')
 }
 
-/** Relationships among the people present, and the facts some of them know and others don't. */
-function relationshipsText(input: ContextInput, sel: Selection): { text: string; entryIds: ID[] } {
+/**
+ * The facts to give when space is tight: at most `cap`, those naming someone or something in this
+ * briefing first, then the most recent, kept in their usual order; and how many were left out.
+ */
+function someFacts<T extends { fact: string }>(facts: T[], sel: Selection, cap: number): { kept: T[]; left: number } {
+  if (facts.length <= cap) return { kept: facts, left: 0 }
+  const names = [...sel.chosen.values()].flatMap(({ entry }) => [entry.name, ...(entry.aliases ?? [])])
+  const keep = new Set<T>()
+  const latestFirst = [...facts].reverse()
+  for (const f of latestFirst) if (keep.size < cap && namedIn(haystack(f.fact), names)) keep.add(f)
+  for (const f of latestFirst) if (keep.size < cap) keep.add(f)
+  return { kept: facts.filter((f) => keep.has(f)), left: facts.length - keep.size }
+}
+
+const leftOutLine = (n: number): string => `(And ${n.toLocaleString('en-GB')} more, left out here to save space.)`
+
+/**
+ * Relationships among the people present, and the facts some of them know and others don't. The
+ * short form, used only when there are many such facts (a long series), keeps the ones that matter here.
+ */
+function relationshipsText(input: ContextInput, sel: Selection): { text: string; short: string | null; entryIds: ID[] } {
   const people = [sel.pov, ...sel.present].filter((x): x is EntryState => !!x && x.kind === 'character')
   const ids = new Set(people.map((p) => p.id))
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
@@ -661,7 +755,7 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       used.add(r.bId)
       return `- ${relationshipLine(r, name)}`
     })
-  const facts: string[] = []
+  const facts: { fact: string; line: string }[] = []
   if (people.length > 1) {
     for (const f of input.memory.facts) {
       if (!clean(f.fact)) continue
@@ -670,22 +764,82 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
       const not = people.filter((p) => !f.knownBy.includes(p.id))
       ;[...knowers, ...not].forEach((p) => used.add(p.id))
       const knowersText = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
-      facts.push(
-        `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
-      )
+      facts.push({
+        fact: f.fact,
+        line: `- ${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${sentence(clean(f.fact))} (${knowersText}.)`
+      })
     }
   }
-  const parts: string[] = []
-  if (rels.length) parts.push(rels.join('\n'))
-  if (facts.length) parts.push(`Facts some of them know and others don't:\n${facts.join('\n')}`)
-  return { text: parts.join('\n\n'), entryIds: people.map((p) => p.id).filter((id) => used.has(id)) }
+  const write = (list: string[]): string => {
+    const parts: string[] = []
+    if (rels.length) parts.push(rels.join('\n'))
+    if (list.length) parts.push(`Facts some of them know and others don't:\n${list.join('\n')}`)
+    return parts.join('\n\n')
+  }
+  const { kept, left } = someFacts(facts, sel, RELATIONSHIP_FACTS_SHORT)
+  return {
+    text: write(facts.map((f) => f.line)),
+    short: left ? write([...kept.map((f) => f.line), leftOutLine(left)]) : null,
+    entryIds: people.map((p) => p.id).filter((id) => used.has(id))
+  }
 }
 
-/** Block 8. Summaries go in word for word, so the Context tab can find each one to edit it. */
-export function storySoFarText(s: StorySoFar, storyTitle: string, short: boolean): string {
-  const parts: string[] = []
-  type Earlier = { heading: string; text: string }
-  const earlier: Earlier[] = []
+/** Facts some of those present don't know, kept in block 6's short form. */
+const RELATIONSHIP_FACTS_SHORT = 10
+
+/**
+ * The order of this story's chapters, from the scene summaries and the finished chapters' summaries
+ * (both oldest first). A chapter with no summary of its own (the one this scene is in, or one whose
+ * summary isn't written yet) goes after the summarised chapters before it; a summarised chapter none
+ * of whose scenes has a summary is taken to come before it.
+ */
+function chapterOrder(s: StorySoFar): ID[] {
+  const out: ID[] = []
+  const seen = new Set<ID>()
+  const add = (id: ID): void => {
+    if (seen.has(id)) return
+    seen.add(id)
+    out.push(id)
+  }
+  const told = s.chapters.map((c) => c.chapterId)
+  const withScenes = new Set(s.scenes.map((x) => x.chapterId))
+  let i = 0
+  for (const sc of s.scenes) {
+    const k = told.indexOf(sc.chapterId, i)
+    if (k >= 0) {
+      while (i <= k) add(told[i++])
+    } else if (!seen.has(sc.chapterId)) {
+      while (i < told.length && !withScenes.has(told[i])) add(told[i++])
+      add(sc.chapterId)
+    }
+  }
+  while (i < told.length) add(told[i++])
+  return out
+}
+
+/**
+ * How much of the story so far block 8 gives. 0 is the full form; 1 the short form (fewer scenes,
+ * chapter level, series roll-ups); 2 to 4 keep only the most recent parts, so a model with little
+ * room still learns what happened just before this scene rather than nothing at all.
+ */
+export const STORY_LEVELS = 5
+/** At each level: how many of the most recent parts (a story, a chapter or a scene) are kept. */
+const RECENT_PARTS = [Infinity, Infinity, 6, 2, 1]
+
+/**
+ * Block 8, oldest first. Summaries go in word for word, so the Context tab can find each one to edit it.
+ * - Earlier stories on the line, one paragraph each ("Meanwhile" for side stories; a story the line
+ *   cuts short says so). From level 1 a series roll-up stands in for the stories it covers.
+ * - This story: each chapter by its summary, or by its scenes' summaries while it has none (the
+ *   chapter this scene is in, say), so no earlier scene is skipped; then the last 5 scenes in detail
+ *   (2 from level 1).
+ * - The "Leads into" target, up to level 2.
+ */
+export function storySoFarText(s: StorySoFar, storyTitle: string, level: number | boolean = 0): string {
+  const lv = typeof level === 'boolean' ? (level ? 1 : 0) : Math.max(0, Math.min(STORY_LEVELS - 1, level))
+  const short = lv > 0
+  type Part = { heading: string; text: string }
+  const parts: Part[] = []
   const rolled = new Set<ID>()
   for (const st of s.stories) {
     if (!clean(st.text) || rolled.has(st.storyId)) continue
@@ -693,34 +847,51 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, short: boolean
     const rollup = short ? s.series.find((r) => clean(r.text) && r.storyIds.includes(st.storyId)) : undefined
     if (rollup) {
       rollup.storyIds.forEach((id) => rolled.add(id))
-      earlier.push({ heading: rollup.name, text: clean(rollup.text) })
+      parts.push({ heading: rollup.name, text: clean(rollup.text) })
       continue
     }
     const heading = st.meanwhile ? `Meanwhile: ${st.title}` : st.cut ? `${st.title}, up to where this story starts` : st.title
-    earlier.push({ heading, text: clean(st.text) })
+    parts.push({ heading, text: clean(st.text) })
   }
-  for (const e of earlier) parts.push(`### ${e.heading}\n${e.text}`)
 
-  const sceneCount = short ? 2 : 5
-  const recent = s.scenes.filter((x) => clean(x.text)).slice(-sceneCount)
-  const shownScenes = new Set(recent.map((x) => x.sceneId))
-  // A chapter is told by its own summary unless every one of its summarised scenes is shown.
-  const chapters = s.chapters.filter((c) => {
-    if (!clean(c.text)) return false
-    const own = s.scenes.filter((x) => x.chapterId === c.chapterId && clean(x.text))
-    return !own.length || own.some((x) => !shownScenes.has(x.sceneId))
-  })
-  if (chapters.length)
-    parts.push(`### Earlier in ${storyTitle || 'this story'}\n${chapters.map((c) => `${c.label}: ${clean(c.text)}`).join('\n\n')}`)
-  if (recent.length) parts.push(`### Most recently\n${recent.map((x) => `${x.label}: ${clean(x.text)}`).join('\n\n')}`)
+  const scenes = s.scenes.filter((x) => clean(x.text))
+  const recent = scenes.slice(-(short ? 2 : 5))
+  const shown = new Set(recent.map((x) => x.sceneId))
+  const told = new Map(s.chapters.filter((c) => clean(c.text)).map((c) => [c.chapterId, c]))
+  const earlier = `Earlier in ${storyTitle || 'this story'}`
+  for (const chapterId of chapterOrder(s)) {
+    const own = scenes.filter((x) => x.chapterId === chapterId)
+    const chapter = told.get(chapterId)
+    if (chapter) {
+      // A chapter is told by its own summary unless every one of its summarised scenes is shown.
+      if (!own.length || own.some((x) => !shown.has(x.sceneId)))
+        parts.push({ heading: earlier, text: `${chapter.label}: ${clean(chapter.text)}` })
+    } else {
+      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: `${x.label}: ${clean(x.text)}` })
+    }
+  }
+  for (const x of recent) parts.push({ heading: 'Most recently', text: `${x.label}: ${clean(x.text)}` })
 
-  if (s.leadsInto && clean(s.leadsInto.text)) {
+  const keep = RECENT_PARTS[lv]
+  const kept = parts.slice(-keep)
+  const out: string[] = []
+  if (kept.length < parts.length) out.push('Only the most recent part of the story so far is given here, to save space.')
+  // Parts under the same heading in a row go together.
+  let i = 0
+  while (i < kept.length) {
+    const heading = kept[i].heading
+    const texts: string[] = []
+    while (i < kept.length && kept[i].heading === heading) texts.push(kept[i++].text)
+    out.push(`### ${heading}\n${texts.join('\n\n')}`)
+  }
+
+  if (s.leadsInto && clean(s.leadsInto.text) && lv < 3) {
     const t = s.leadsInto.title
-    parts.push(
+    out.push(
       `### Leads into ${t}\nThis story leads into ${t}. Below is how ${t} begins: a target to steer towards over the story, not events to mention or bring about in this scene.\n${clean(s.leadsInto.text)}`
     )
   }
-  return parts.join('\n\n')
+  return out.join('\n\n')
 }
 
 function themesText(input: ContextInput): string {
@@ -760,9 +931,22 @@ const kindWord = (e: Entry): string => KIND_LABELS[e.kind]?.one.toLowerCase() ??
 export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(input)): BlockDraft[] {
   const blocks: BlockDraft[] = []
   const label = (e: Entry): string | null => sel.chosen.get(e.id)?.label ?? null
-  const add = (id: string, priority: number, title: string, text: string, short: string | null, entryIds: ID[]): void => {
+  const add = (
+    id: string,
+    priority: number,
+    title: string,
+    text: string,
+    short: string | null,
+    entryIds: ID[],
+    smaller: string[] = []
+  ): void => {
     if (!text.trim()) return
-    blocks.push({ id, priority, title, text, short: short != null && short.trim() && short !== text ? short : null, entryIds })
+    // Each form kept only when it is actually shorter than the one before.
+    const forms = [text]
+    for (const f of [short, ...smaller]) {
+      if (f != null && f.trim() && f.length < forms[forms.length - 1].length) forms.push(f)
+    }
+    blocks.push({ id, priority, title, text, short: forms[1] ?? null, smaller: forms.slice(2), entryIds })
   }
 
   // 1 Instructions and style guide (short: the sample passage trimmed).
@@ -783,16 +967,17 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   const prev = clean(input.memory.previous?.text)
   if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
-  // 4 Point-of-view character (short: without backstory).
+  // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
   const pov = sel.pov
   if (pov) {
     add(
       'pov',
       4,
       `Point-of-view character: ${withLabel(pov.name, label(pov))}`,
-      povText(pov, input, sel, false),
-      povText(pov, input, sel, true),
-      [pov.id]
+      povText(pov, input, sel, 0),
+      povText(pov, input, sel, 1),
+      [pov.id],
+      [povText(pov, input, sel, 2), povText(pov, input, sel, 3)]
     )
   }
 
@@ -815,9 +1000,11 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
-  // 6 Relationships and who knows what (no short form: they're short).
+  // 6 Relationships and who knows what. The spec gives it no short form ("these are short"); in a long
+  //   series who-knows-what can run to many lines, so then a short form keeps the facts that matter
+  //   here rather than the whole block, relationships included, being left out.
   const rel = relationshipsText(input, sel)
-  add('relationships', 6, 'Relationships and who knows what', rel.text, null, rel.entryIds)
+  add('relationships', 6, 'Relationships and who knows what', rel.text, rel.short, rel.entryIds)
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -884,17 +1071,20 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
-  // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups).
+  // 8 The story so far (short: fewer scenes, chapter summaries, series roll-ups; smaller: only the most recent parts).
   const sofar = input.memory.storySoFar
-  if (sofar)
+  if (sofar) {
+    const level = (n: number): string => storySoFarText(sofar, input.story.title, n)
     add(
       'story-so-far',
       8,
       'The story so far',
-      storySoFarText(sofar, input.story.title, false),
-      storySoFarText(sofar, input.story.title, true),
-      []
+      level(0),
+      level(1),
+      [],
+      Array.from({ length: STORY_LEVELS - 2 }, (_, i) => level(i + 2))
     )
+  }
 
   // 9 Anything else named in the beats, notes or direction, and pins (short: one line each).
   if (sel.others.length) {
@@ -902,7 +1092,12 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
       const why = sel.chosen.get(e.id)?.why
       return why === WHY.beats || why === WHY.notes || why === WHY.direction
     })
-    const note = (e: Entry): string => [kindWord(e), label(e)].filter(Boolean).join('; ')
+    // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
+    const paidOff = (e: Entry): string => {
+      const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
+      return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
+    }
+    const note = (e: Entry): string => [kindWord(e), paidOff(e), label(e)].filter(Boolean).join('; ')
     add(
       'mentioned',
       9,
@@ -1009,12 +1204,7 @@ export function prepareContext(input: ContextInput): PreparedContext {
     blocks,
     modes: input.blockModes ?? {},
     finals,
-    texts: [
-      ...blocks.map((b) => blockAsSent(b)),
-      ...blocks.map((b) => (b.short == null ? '' : blockAsSent(b, b.short))),
-      finals.withPrevious,
-      finals.withoutPrevious
-    ],
+    texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), finals.withPrevious, finals.withoutPrevious],
     contextLength: computeBudget(input.contextLength, targetWords).contextLength,
     targetWords,
     knows: input.memory.knows ?? '',
@@ -1029,25 +1219,22 @@ const asMode = (m: unknown): BlockMode => (m === 'full' || m === 'short' ? m : '
  * `rawCounts` are plain token counts for `prepared.texts`, in order.
  */
 export function finishContext(prepared: PreparedContext, rawCounts: number[]): ContextPreview {
-  const n = prepared.blocks.length
-  const state = prepared.blocks.map((b, i) => {
+  let at = 0
+  const state = prepared.blocks.map((b) => {
     const mode = asMode(prepared.modes[b.id])
-    const hasShort = b.short != null
-    return {
-      b,
-      mode,
-      hasShort,
-      fullTokens: withAllowance(rawCounts[i] ?? 0),
-      shortTokens: hasShort ? withAllowance(rawCounts[n + i] ?? 0) : 0,
-      short: hasShort && mode === 'short',
-      dropped: false
-    }
+    const forms = formsOf(b)
+    const tokensAt = forms.map(() => withAllowance(rawCounts[at++] ?? 0))
+    const hasShort = forms.length > 1
+    // Levels of shortening: 0 is the full form, 1 the short form, then any smaller ones.
+    const min = hasShort && mode === 'short' ? 1 : 0
+    const max = mode === 'full' ? 0 : forms.length - 1
+    return { b, mode, forms, tokensAt, hasShort, min, max, level: min, dropped: false }
   })
   type State = (typeof state)[number]
-  const tokens = (s: State): number => (s.short ? s.shortTokens : s.fullTokens)
+  const tokens = (s: State): number => s.tokensAt[s.level]
   const finalTokens = {
-    withPrevious: withAllowance(rawCounts[2 * n] ?? 0),
-    withoutPrevious: withAllowance(rawCounts[2 * n + 1] ?? 0)
+    withPrevious: withAllowance(rawCounts[at] ?? 0),
+    withoutPrevious: withAllowance(rawCounts[at + 1] ?? 0)
   }
   const budget = computeBudget(prepared.contextLength, prepared.targetWords)
   const fits = (): boolean => measure() <= budget.available
@@ -1061,40 +1248,58 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // Least important first; within a priority, hard rules go last.
   const leastFirst = [...state].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
+  const shortenable = [...droppable, ...state.filter((x) => x.b.priority === 1)]
 
   // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
-  for (const s of [...droppable, ...state.filter((x) => x.b.priority === 1)]) {
+  for (const s of shortenable) {
     if (fits()) break
-    if (s.hasShort && !s.short && s.mode === 'auto') s.short = true
+    if (s.level === 0 && s.max >= 1) s.level = 1
   }
-  // 2. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
+  // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
+  //    down to its most recent parts, the point-of-view character down to the core of the profile),
+  //    a step at a time, from the bottom up.
+  for (let more = true; more && !fits(); ) {
+    more = false
+    for (const s of shortenable) {
+      if (fits()) break
+      if (s.level >= 1 && s.level < s.max) {
+        s.level++
+        more = true
+      }
+    }
+  }
+  // 3. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
   for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
     if (fits()) break
     s.dropped = true
   }
-  // 3. Dropping one big block (often the previous scene) can free room for smaller, less
+  // 4. Dropping one big block (often the previous scene) can free room for smaller, less
   //    important ones dropped before it. Put those back, most important first, while it fits.
   for (const s of [...droppable].reverse()) {
     if (!s.dropped) continue
     s.dropped = false
     if (!fits()) s.dropped = true
   }
-  // 4. Then give back the full form to anything that fits in full again, most important first.
+  // 5. Then give back the longest form that fits again to each block, most important first.
   for (const s of [...leastFirst].reverse()) {
-    if (s.dropped || !s.short || s.mode !== 'auto') continue
-    s.short = false
-    if (!fits()) s.short = true
+    if (s.dropped) continue
+    const was = s.level
+    for (let l = s.min; l < was; l++) {
+      s.level = l
+      if (fits()) break
+      s.level = was
+    }
   }
 
   const blocks: ContextBlock[] = state.map((s) => ({
     id: s.b.id,
     priority: s.b.priority,
     title: s.b.title,
-    text: s.short && s.b.short != null ? s.b.short : s.b.text,
+    text: s.forms[s.level],
     tokens: tokens(s),
     entryIds: s.b.entryIds,
     dropped: s.dropped,
-    short: s.short,
+    short: s.level > 0,
     hasShort: s.hasShort,
     mode: s.mode
   }))

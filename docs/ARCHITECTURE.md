@@ -96,6 +96,9 @@ the rules in the spec's "Multi-story rules" tab; most of their screens arrive in
 
 **The data model is frozen after this milestone** (migration 2). A later change needs a written
 reason here and a new migration, never a rewrite. Until 0.2.0 ships, migration 2 may still change.
+Each world's overrides of Adam's writing preferences (spec: "Stored in milestone 2") live in the
+`meta` table under the key `writing_prefs_overrides`, as JSON (`Partial<WritingPrefs>`); the
+preferences themselves stay outside world.db and are not frozen.
 
 ### How memory over time works
 

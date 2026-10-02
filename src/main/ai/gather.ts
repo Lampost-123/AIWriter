@@ -73,27 +73,43 @@ export function setBeforeDraft(fn: BeforeDraft | null): void {
 /** How long a draft waits for the memory to catch up before going ahead with what it has. */
 export const CATCH_UP_LIMIT_MS = 60_000
 
-/** Brings the memory up to date for earlier scenes; resolves when done, on failure, or after `limitMs`. */
+/**
+ * Brings the memory up to date for earlier scenes; resolves when done, on failure, after `limitMs`,
+ * or at once when `signal` is aborted (Adam stopped the draft before it began). Whatever happens,
+ * the memory goes on catching up in the background.
+ */
 export async function catchUpBeforeDraft(
   db: DB,
   sceneId: ID,
-  limitMs = CATCH_UP_LIMIT_MS
-): Promise<'done' | 'failed' | 'timed-out' | 'none'> {
+  limitMs = CATCH_UP_LIMIT_MS,
+  signal?: AbortSignal
+): Promise<'done' | 'failed' | 'timed-out' | 'cancelled' | 'none'> {
+  if (signal?.aborted) return 'cancelled'
   const fn = beforeDraft
   if (!fn) return 'none'
   let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
   const late = new Promise<'timed-out'>((resolve) => {
     timer = setTimeout(() => resolve('timed-out'), limitMs)
   })
+  const stopped = new Promise<'cancelled'>((resolve) => {
+    onAbort = () => resolve('cancelled')
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+  // A failure is noted even when it comes after the wait is over (timed out or stopped).
+  const run = Promise.resolve()
+    .then(() => fn(db, sceneId))
+    .then(
+      () => 'done' as const,
+      (e: unknown) => {
+        console.warn('The memory could not catch up before this draft; drafting with what it has', e)
+        return 'failed' as const
+      }
+    )
   try {
-    const run = Promise.resolve()
-      .then(() => fn(db, sceneId))
-      .then(() => 'done' as const)
-    return await Promise.race([run, late])
-  } catch (e) {
-    console.warn('The memory could not catch up before this draft; drafting with what it has', e)
-    return 'failed'
+    return await Promise.race([run, late, stopped])
   } finally {
     clearTimeout(timer)
+    if (onAbort) signal?.removeEventListener('abort', onAbort)
   }
 }

@@ -17,7 +17,7 @@ import { memorySettingsChanged } from '../keeper'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
-  | 'previewContext' | 'startDraft' | 'stopGeneration' | 'listGenerations' | 'getGeneration'
+  | 'previewContext' | 'startDraft' | 'stopGeneration' | 'cancelDraftStart' | 'listGenerations' | 'getGeneration'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -40,8 +40,11 @@ function afterProviders<T>(result: T): T {
   return result
 }
 
-/** Scenes whose draft is being started (the memory may be catching up first). */
-const starting = new Set<ID>()
+/** Scenes whose draft is being started (the memory may be catching up first), with how to stop each. */
+const starting = new Map<ID, AbortController>()
+
+/** Adam stopped the draft before it began: nothing more is done or sent. */
+const stoppedBeforeStart = (): UserError => new UserError('The draft was stopped before it began.', 'cancelled')
 
 export const aiHandlers: Handlers<AiMethods> = {
   listProviders: () => providers.listProviders(),
@@ -67,13 +70,18 @@ export const aiHandlers: Handlers<AiMethods> = {
       throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
     }
     const db = world.db()
-    starting.add(sceneId)
+    const stop = new AbortController()
+    starting.set(sceneId, stop)
     try {
       // Earlier scenes the memory hasn't read yet are read first, so the briefing is up to date
-      // (spec, Memory upkeep). This never waits long, and a failure drafts with what the memory has.
-      await catchUpBeforeDraft(db, sceneId)
+      // (spec, Memory upkeep). This never waits long, a failure drafts with what the memory has,
+      // and Stop (cancelDraftStart) ends the wait at once.
+      await catchUpBeforeDraft(db, sceneId, undefined, stop.signal)
+      if (stop.signal.aborted) throw stoppedBeforeStart()
       if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
       const { input, preview } = await assemble(sceneId, options)
+      if (stop.signal.aborted) throw stoppedBeforeStart()
+      if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
       // A model whose window is known can't take a reply longer than what's left of it: say so
       // before sending, rather than letting the provider turn it down with a message about the briefing.
       const tooLong = choice.contextLength != null && choice.contextLength > 0 ? lengthTooLong(preview.budget) : null
@@ -85,7 +93,7 @@ export const aiHandlers: Handlers<AiMethods> = {
           )
         }
         throw new UserError(
-          'The briefing is too long for this model: the instructions and the scene card fill it. Pick a model that can read more in Settings > Models, or shorten the scene card.',
+          "This model can't read the style guide and the scene card and still write the scene. Pick a model that can read more in Settings > Models, or shorten the scene card or the style guide.",
           'briefing-too-long'
         )
       }
@@ -106,10 +114,13 @@ export const aiHandlers: Handlers<AiMethods> = {
         }
       })
     } finally {
-      starting.delete(sceneId)
+      if (starting.get(sceneId) === stop) starting.delete(sceneId)
     }
   },
   stopGeneration: (id) => stopDraft(id),
+  cancelDraftStart: (sceneId) => {
+    starting.get(sceneId)?.abort()
+  },
   listGenerations: (sceneId) => gens.listGenerations(world.db(), sceneId),
   getGeneration: (id) => gens.getGeneration(world.db(), id)
 }
