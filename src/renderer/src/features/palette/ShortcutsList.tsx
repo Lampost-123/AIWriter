@@ -59,6 +59,8 @@ export function ShortcutsList(): React.JSX.Element {
             // Unless the command palette is taking over (Ctrl+K here), focus goes back where Adam was.
             if (!usePalette.getState().open) giveFocusBack()
           }}
+          // Pressing a shortcut to try it while reading the list does nothing underneath (Ctrl+G doesn't start a draft).
+          onKeyDown={(e) => e.stopPropagation()}
           className="fixed left-1/2 top-[12vh] z-50 max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-y-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
         >
           <div className="mb-1 flex items-start justify-between gap-4">
