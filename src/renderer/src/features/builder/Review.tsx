@@ -6,7 +6,7 @@ import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { Portrait } from '@/features/views/Portrait'
-import { markOf, type Step } from './builderLogic'
+import { markOf, shownValue, type Step } from './builderLogic'
 import { MarkLine } from './parts'
 
 export interface RelationLine {
@@ -33,7 +33,7 @@ export function Review({
   values: BuilderValues
   ai: Readonly<Record<string, string>>
   entry: Entry | null
-  /** Characters only: who they know, or null while loading. */
+  /** Characters only: who they know (and any group or place they are linked to), or null while loading. */
   relations: RelationLine[] | null
   /** How many suggestions are still waiting on Keep or Discard. */
   waiting: number
@@ -76,7 +76,9 @@ export function Review({
                 {shown.map((f) => (
                   <div key={f.key} className="min-w-0">
                     <dt className="text-[12px] font-medium text-muted">{f.label}</dt>
-                    <dd className="mt-0.5 whitespace-pre-wrap text-[13.5px] leading-[1.6] text-fg">{values[f.key]}</dd>
+                    <dd className="mt-0.5 whitespace-pre-wrap break-words text-[13.5px] leading-[1.6] text-fg">
+                      {shownValue(f.key, values[f.key])}
+                    </dd>
                     {markOf(f.key, values[f.key] ?? '', ai) === 'ai' ? (
                       <dd>
                         <MarkLine mark="ai" />

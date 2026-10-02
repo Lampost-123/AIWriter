@@ -144,6 +144,13 @@ export function labelOf(kind: BuilderKind, key: string): string {
 
 export const ROLE_OPTIONS = CHARACTER_ROLES.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))
 
+/** A field's words as the builder shows them outside its box: the role as its picker names it ("Supporting"). */
+export function shownValue(key: string, value: string): string {
+  if (key !== 'role') return value
+  const v = value.trim()
+  return ROLE_OPTIONS.find((o) => o.value === v.toLowerCase())?.label ?? v.charAt(0).toUpperCase() + v.slice(1)
+}
+
 const filled = (v: string | undefined): boolean => !!v?.trim()
 
 /**
@@ -228,6 +235,31 @@ export function nonEmpty(values: BuilderValues): BuilderValues {
  */
 export function openSuggestions(suggestions: BuilderValues, values: BuilderValues): BuilderValues {
   return Object.fromEntries(Object.entries(suggestions).filter(([k, v]) => filled(v) && !filled(values[k])))
+}
+
+/**
+ * Suggestions as Flesh out sends them while it writes (every one so far, each time): those Adam has
+ * kept or discarded since it began stay gone.
+ */
+export function mergeSuggestions(current: BuilderValues, incoming: BuilderValues, decided: ReadonlySet<string>): BuilderValues {
+  const out = { ...current }
+  for (const [key, v] of Object.entries(incoming)) if (!decided.has(key)) out[key] = v
+  return out
+}
+
+/**
+ * The fields of a profile that is still arriving, in the order they first came: those already shown
+ * keep their places and new ones go at the end, so nothing Adam is reading moves down the page.
+ */
+export function arrivalOrder(order: readonly string[], values: BuilderValues): string[] {
+  const out = [...order]
+  const seen = new Set(order)
+  for (const [key, v] of Object.entries(values)) {
+    if (seen.has(key) || !filled(v)) continue
+    seen.add(key)
+    out.push(key)
+  }
+  return out
 }
 
 /** The keys of a step that Flesh out can fill: the empty ones without a suggestion waiting. */

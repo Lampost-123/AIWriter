@@ -32,7 +32,6 @@ export function BuilderView({ kind, entryId, start }: { kind: BuilderKind; entry
 /** A new entry: Quick start first (unless Adam asked for the steps), and the steps whenever he likes. */
 function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }): React.JSX.Element {
   const [mode, setMode] = useState<'quick' | 'guided'>(start?.mode === 'guided' ? 'guided' : 'quick')
-  const [notes, setNotes] = useState(start?.notes ?? '')
   // What Quick start built, once Adam opens it to look it over.
   const [built, setBuilt] = useState<Entry | null>(null)
   // The steps stay put (hidden) while Quick start shows, so nothing typed in them is lost. Once Quick
@@ -48,9 +47,7 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
         <div className={mode === 'quick' ? 'h-full' : 'hidden'}>
           <QuickStart
             kind={kind}
-            notes={notes}
-            onNotes={setNotes}
-            sceneId={start?.sceneId ?? null}
+            start={start}
             onLookOver={(e) => {
               setBuilt(e)
               toGuided()

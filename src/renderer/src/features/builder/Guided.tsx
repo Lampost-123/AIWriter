@@ -2,7 +2,7 @@
 // left (each empty, partly done or complete), the step's fields in the middle, and the AI's actions
 // in a slim bar under them. The entry is made once it has a name and then saves itself as he types.
 import { ArrowLeft, ArrowRight, MessageCircle, Sparkles, Square } from 'lucide-react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderDone, BuilderKind, BuilderProgress, BuilderValues, InterviewTurn } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
@@ -12,13 +12,23 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { splitChanges } from '@/features/world/memoryLogic'
-import { RelationshipsSection } from '@/features/world/memory/RelationshipsSection'
 import { useEntryData } from '@/features/world/memory/useEntryData'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useSceneLabels } from '@/features/world/useSceneLabels'
-import { fleshOutKeys, openSuggestions, STATUS_WORDS, stepStatus, stepsFor, withSampleLine, type Step } from './builderLogic'
+import {
+  fleshOutKeys,
+  labelOf,
+  mergeSuggestions,
+  openSuggestions,
+  STATUS_WORDS,
+  stepStatus,
+  stepsFor,
+  withSampleLine,
+  type Step
+} from './builderLogic'
 import { InterviewPanel } from './Interview'
-import { settingsAction, StatusIcon, useWorldEntries, WritingStatus } from './parts'
+import { settingsAction, StatusIcon, useWidth, useWorldEntries, WritingStatus } from './parts'
+import { Relationships } from './Relationships'
 import { Review, type RelationLine } from './Review'
 import { StepFields, type OptionsState } from './StepFields'
 import { useBuildDraft } from './useBuildDraft'
@@ -27,6 +37,12 @@ import { useBuilderJob } from './useBuilderJob'
 const omit = (v: BuilderValues, keys: string[]): BuilderValues => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)))
 const pick = (v: BuilderValues, keys: string[]): BuilderValues => Object.fromEntries(Object.entries(v).filter(([k]) => keys.includes(k)))
 const suggestionsWord = (n: number): string => (n === 1 ? 'One suggestion' : `${n} suggestions`)
+
+/**
+ * Room for the rail (216 px), the interview (340 px) and a step that is still comfortable to use (420
+ * px) side by side. In less, the interview opens over the step instead of squeezing it.
+ */
+const INTERVIEW_BESIDE = 976
 
 export function Guided({
   kind,
@@ -61,20 +77,23 @@ export function Guided({
   const [saving, setSaving] = useState(false)
 
   const open = useMemo(() => openSuggestions(suggestions, draft.values), [suggestions, draft.values])
+  // The fields Adam has kept, discarded or typed in since the last Flesh out began. It sends every
+  // suggestion so far each time, and these stay gone.
+  const decided = useRef(new Set<string>())
 
   const job = useBuilderJob({
     stopOnLeave: true,
     onProgress: (p) => {
       if (p.job === 'flesh-out') {
-        setSuggestions((s) => ({ ...s, ...p.values }))
+        setSuggestions((s) => mergeSuggestions(s, p.values, decided.current))
         setWriting(p.writing)
       } else if (p.job === 'options') setOptions((o) => o && { ...o, list: p.options, writing: p.writing?.text ?? null })
     },
     onDone: (d: BuilderDone) => {
       if (d.job === 'flesh-out') {
-        setSuggestions((s) => ({ ...s, ...d.values }))
+        setSuggestions((s) => mergeSuggestions(s, d.values, decided.current))
         setWriting(null)
-        const n = Object.keys(d.values).length
+        const n = Object.keys(d.values).filter((k) => !decided.current.has(k)).length
         if (d.status === 'error' && d.error) {
           setNote(null)
           toast(d.error, { tone: 'danger', action: settingsAction(d.error) })
@@ -100,17 +119,38 @@ export function Guided({
   const busy = !!job.running
   const fleshing = job.running?.job === 'flesh-out'
 
+  // ---------- Interview ----------
+
+  const root = useRef<HTMLDivElement>(null)
+  const width = useWidth(root)
+  // Beside the step when there is room for both; over it, like a drawer, when the window is narrow.
+  const drawer = interview && width > 0 && width < INTERVIEW_BESIDE
+  const toggle = useRef<HTMLButtonElement>(null)
+  const refocus = useRef(false)
+  const closeInterview = useCallback(() => {
+    refocus.current = true
+    setInterview(false)
+  }, [])
+  // Closed from the panel: back to the button that opens it, rather than nowhere.
+  useEffect(() => {
+    if (interview || !refocus.current) return
+    refocus.current = false
+    toggle.current?.focus()
+  }, [interview])
+
   // ---------- Steps ----------
 
   const scroller = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusHeading = useRef(false)
-  // Options belong to a field on the step being left: they close (and stop, if still arriving).
+  // Options belong to a field on the step being left: they close (and stop, if still arriving). An
+  // interview open over the step closes, so the step shows.
   const go = (id: string, focus = false): void => {
     setStepId(id)
     focusHeading.current = focus
     if (job.running?.job === 'options') job.stop()
     setOptions(null)
+    if (drawer) setInterview(false)
   }
   useLayoutEffect(() => {
     scroller.current?.scrollTo({ top: 0 })
@@ -121,14 +161,14 @@ export function Guided({
   // ---------- Relationships ----------
 
   const changes = useEntryData(() => api.listChanges(entryId ?? ''), `changes:${entryId ?? ''}`, kind === 'character' && !!entryId)
-  const characters = useMemo(() => (entries ?? []).filter((e) => e.kind === 'character' && e.id !== entryId), [entries, entryId])
   const rows = useMemo(() => (changes.data && entryId ? splitChanges(changes.data, entryId).relationships : []), [changes.data, entryId])
+  // Everyone they are linked to, a group or a place made on the entry page included.
   const relations = useMemo((): RelationLine[] | null => {
     if (!entryId) return []
     if (!changes.data || !entries) return null
-    const byId = new Map(characters.map((c) => [c.id, c]))
+    const byId = new Map(entries.map((e) => [e.id, e]))
     return rows.filter((r) => byId.has(r.otherId)).map((r) => ({ id: r.change.id, name: byId.get(r.otherId)!.name, type: r.type }))
-  }, [entryId, changes.data, entries, characters, rows])
+  }, [entryId, changes.data, entries, rows])
   const places = useSceneLabels(step.special === 'relationships' && rows.some((r) => r.change.links.length > 0))
   const self = useMemo(() => ({ id: entryId ?? '', kind, name: draft.values.name ?? '' }), [entryId, kind, draft.values.name])
 
@@ -138,6 +178,7 @@ export function Guided({
     const keys = fleshOutKeys(step, draft.current(), open)
     if (!keys.length || job.running) return
     setNote(null)
+    decided.current = new Set()
     try {
       await job.start('flesh-out', (jobId) =>
         api.startFleshOut({ jobId, kind, entryId: draft.entryNow()?.id ?? null, values: draft.current(), keys, storyId })
@@ -152,12 +193,14 @@ export function Guided({
     async (keys: string[]): Promise<void> => {
       const chosen = pick(open, keys)
       if (!Object.keys(chosen).length) return
+      for (const k of keys) decided.current.add(k)
       setSuggestions((s) => omit(s, keys))
       setNote(null)
       if (keys.length === 1) setFocusKey(keys[0])
       try {
         await draft.keep(chosen)
       } catch (e) {
+        for (const k of keys) decided.current.delete(k)
         setSuggestions((s) => ({ ...chosen, ...s }))
         toast(`Couldn't keep ${keys.length === 1 ? 'that suggestion' : 'those suggestions'}. ${(e as Error).message}`, { tone: 'danger' })
       }
@@ -165,10 +208,21 @@ export function Guided({
     [open, draft]
   )
   const discard = useCallback((keys: string[]): void => {
+    for (const k of keys) decided.current.add(k)
     setSuggestions((s) => omit(s, keys))
     setNote(null)
     if (keys.length === 1) setFocusKey(keys[0])
   }, [])
+  // His words win: a suggestion still to come for a field he types in is left out.
+  const { set } = draft
+  const change = useCallback(
+    (key: string, value: string): void => {
+      decided.current.add(key)
+      setSuggestions((s) => (key in s ? omit(s, [key]) : s))
+      set(key, value)
+    },
+    [set]
+  )
 
   const openOptions = useCallback(
     async (key: string): Promise<void> => {
@@ -189,15 +243,31 @@ export function Guided({
     async (key: string, value: string): Promise<void> => {
       if (job.running?.job === 'options') job.stop()
       setOptions(null)
+      decided.current.add(key)
       setSuggestions((s) => omit(s, [key]))
       setFocusKey(key)
+      const was = draft.fieldNow(key)
       try {
         await draft.keep({ [key]: value }, { replace: true })
       } catch (e) {
         toast(`Couldn't use that option. ${(e as Error).message}`, { tone: 'danger' })
+        return
       }
+      // What it said before is one click away.
+      if (!was.value.trim() || was.value === value) return
+      const label = labelOf(kind, key)
+      toast(`Replaced ${label.toLowerCase()} with the option you picked.`, {
+        action: {
+          label: 'Undo',
+          run: () => {
+            setFocusKey(key)
+            const failed = (e: Error): void => void toast(`Couldn't put ${label.toLowerCase()} back. ${e.message}`, { tone: 'danger' })
+            void draft.revert(key, was).catch(failed)
+          }
+        }
+      })
     },
-    [job, draft]
+    [job, draft, kind]
   )
   const closeOptions = useCallback(() => {
     if (job.running?.job === 'options') job.stop()
@@ -226,23 +296,13 @@ export function Guided({
   const noun = KIND_LABELS[kind].one.toLowerCase()
 
   return (
-    <div className="flex h-full min-h-0">
+    <div ref={root} className="relative flex h-full min-h-0">
       <nav aria-label="Steps" className="flex w-[216px] shrink-0 flex-col border-r border-line bg-surface">
         <div className="flex h-12 shrink-0 items-center gap-2 px-4">
           <Icon size={15} className="shrink-0 text-muted" aria-hidden />
           <span className={cn('min-w-0 truncate text-[14px] font-semibold', name ? 'text-fg' : 'text-faint')}>{name || `New ${noun}`}</span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          {onQuickStart && !entry ? (
-            <button
-              type="button"
-              onClick={onQuickStart}
-              className="mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
-            >
-              <Sparkles size={15} className="shrink-0 text-ai" aria-hidden />
-              Quick start from notes
-            </button>
-          ) : null}
           <ol className="flex flex-col gap-0.5">
             {steps.map((s, i) => {
               const status = stepStatus(kind, s, draft.values, relations?.length ?? 0)
@@ -255,12 +315,13 @@ export function Guided({
                     aria-current={current ? 'step' : undefined}
                     onClick={() => go(s.id)}
                     className={cn(
-                      'flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] transition-colors duration-150',
+                      // A long step name wraps onto a second line rather than being cut short.
+                      'flex min-h-9 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-snug transition-colors duration-150',
                       current ? 'bg-accent-soft font-medium text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'
                     )}
                   >
                     <StatusIcon status={status} />
-                    <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                    <span className="min-w-0 flex-1">{s.label}</span>
                     <span className="sr-only">, {STATUS_WORDS[status]}</span>
                     {waiting ? (
                       <>
@@ -274,11 +335,28 @@ export function Guided({
             })}
           </ol>
         </div>
+        {/* At the foot, so the steps stay put when it goes (once the entry is saved there is no going back to it). */}
+        {onQuickStart && !entry ? (
+          <div className="shrink-0 border-t border-line p-2">
+            <button
+              type="button"
+              onClick={onQuickStart}
+              className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-snug text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
+            >
+              <Sparkles size={15} className="shrink-0 text-ai" aria-hidden />
+              Quick start from notes
+            </button>
+          </div>
+        ) : null}
       </nav>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col" inert={drawer}>
         {/* Leaving any field writes straight away, so nothing waits on the timer. */}
-        <div ref={scroller} className="@container min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]" onBlur={() => void draft.flush()}>
+        <div
+          ref={scroller}
+          className="@container min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+          onBlur={() => void draft.flush()}
+        >
           <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-5">
             <div className="flex h-8 items-center gap-2">
               <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">
@@ -320,14 +398,7 @@ export function Guided({
               />
             ) : step.special === 'relationships' ? (
               entry ? (
-                <RelationshipsSection
-                  self={self}
-                  rows={rows}
-                  data={changes}
-                  entries={characters}
-                  places={places}
-                  onOpen={(e) => useApp.getState().navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id })}
-                />
+                <Relationships self={self} rows={rows} data={changes} entries={entries} places={places} />
               ) : (
                 <div className="rounded-lg border border-dashed border-line-strong px-4 py-6 text-center">
                   <p className="text-[13px] text-muted">Give them a name first, then you can say who they know.</p>
@@ -350,7 +421,7 @@ export function Guided({
                 entries={entries}
                 focusKey={focusKey}
                 onFocused={() => setFocusKey(null)}
-                onChange={draft.set}
+                onChange={change}
                 onKeep={(k) => void keep([k])}
                 onDiscard={(k) => discard([k])}
                 onOptions={(k) => void openOptions(k)}
@@ -397,7 +468,11 @@ export function Guided({
                 icon={<Sparkles size={14} className="text-ai" />}
                 disabled={!canFlesh || busy}
                 onClick={() => void fleshOut()}
-                title={canFlesh ? 'Suggestions for the empty fields on this step. Nothing is saved until you keep it.' : 'Every field here is filled in.'}
+                title={
+                  canFlesh
+                    ? 'Suggestions for the empty fields on this step. Nothing is saved until you keep it.'
+                    : 'Every field here is filled in.'
+                }
               >
                 Flesh out with AI
               </Button>
@@ -412,8 +487,11 @@ export function Guided({
               </span>
             </>
           ) : (
-            <span className="min-w-0 truncate text-[12.5px] text-faint">
-              {step.special === 'review' ? 'Everything is saved as you go.' : 'Pick from your characters, then say what they are to each other.'}
+            // Left out when the bar is narrow (the interview open beside it) rather than cut short.
+            <span className="hidden min-w-0 truncate text-[12.5px] text-faint @[520px]:block">
+              {step.special === 'review'
+                ? 'Everything is saved as you go.'
+                : 'Pick from your characters, then say what they are to each other.'}
             </span>
           )}
           <div className="flex-1" />
@@ -430,6 +508,7 @@ export function Guided({
           {kind === 'character' ? (
             // Just its icon when the bar is narrow (the interview open beside it), so nothing is cut off.
             <Button
+              ref={toggle}
               size="sm"
               variant="ghost"
               icon={<MessageCircle size={14} />}
@@ -449,9 +528,10 @@ export function Guided({
           draft={draft}
           storyId={storyId}
           turns={turns}
+          over={drawer}
           onTurns={setTurns}
           onSaveLine={saveLine}
-          onClose={() => setInterview(false)}
+          onClose={closeInterview}
         />
       ) : null}
     </div>

@@ -1,12 +1,14 @@
 // Small pieces the builder's screens share.
-import { Check, CircleDashed, Sparkles } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
-import type { Entry } from '@shared/types'
+import { AlertTriangle, Check, CircleDashed, Sparkles } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
+import type { BuilderKind } from '@shared/contracts/builder'
+import type { Entry, ID } from '@shared/types'
 import { Button, Notice } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import type { StepStatus } from './builderLogic'
+import { findNearDuplicates, kindNoun, withArticle } from '@/features/world/entryLogic'
+import { splitAliases, type StepStatus } from './builderLogic'
 
 /** Every entry in the world, reloaded when entries change; null until first loaded. */
 export function useWorldEntries(): Entry[] | null {
@@ -23,6 +25,75 @@ export function useWorldEntries(): Entry[] | null {
     }
   }, [rev])
   return list
+}
+
+/** The width of an element, kept up to date as the window or a panel beside it changes; 0 until measured. */
+export function useWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    setWidth(el.offsetWidth)
+    const ro = new ResizeObserver(() => setWidth(el.offsetWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return width
+}
+
+/**
+ * "Very close to Mara, another character. Same one?", with a button to open the other one, when the
+ * name (or an alias) is the same as or very like another entry's, as the entry page warns. Nothing
+ * when it isn't; the line it sits on keeps its room either way, so nothing moves.
+ */
+export function DuplicateHint({
+  kind,
+  entryId,
+  name,
+  aliases,
+  entries
+}: {
+  kind: BuilderKind
+  /** The entry being built, once it exists, so it isn't counted as a duplicate of itself. */
+  entryId: ID | null
+  name: string
+  aliases: string
+  /** Every entry in the world, or null while loading. */
+  entries: Entry[] | null
+}): React.JSX.Element | null {
+  const dups = useMemo(
+    () => (entries && name.trim() ? findNearDuplicates({ id: entryId ?? '', kind, name, aliases: splitAliases(aliases) }, entries) : []),
+    [entries, entryId, kind, name, aliases]
+  )
+  const d = dups[0]
+  if (!d) return null
+  const other = d.entry
+  const otherName = other.name.trim()
+  const what = other.kind === kind ? `another ${kindNoun(kind)}` : withArticle(kindNoun(other.kind))
+  const more = dups.length > 1 ? `, and ${dups.length - 1} more` : ''
+  const text =
+    d.reason === 'same'
+      ? `There's already ${what} called ${otherName}${more}.`
+      : d.reason === 'similar'
+        ? `Very close to ${otherName}, ${what}${more}.`
+        : `Shares a name with ${otherName}, ${what}${more}.`
+  return (
+    <span
+      role="status"
+      title="If they're the same, keep one, so the AI doesn't mix them up."
+      className="flex min-w-0 animate-fade-in items-center gap-1.5 text-ai"
+    >
+      <AlertTriangle size={13} className="shrink-0" aria-hidden />
+      <span className="min-w-0 truncate">{text} Same one?</span>
+      <button
+        type="button"
+        onClick={() => useApp.getState().navigate({ kind: 'entries', entryKind: other.kind, entryId: other.id })}
+        className="shrink-0 rounded-sm font-medium underline-offset-2 hover:underline"
+      >
+        Open {otherName}
+      </button>
+    </span>
+  )
 }
 
 /** The button a message about the model needs: to Settings › Models when that's where the fix is. */
@@ -131,7 +202,9 @@ export function SuggestionButton({
       type="button"
       className={cn(
         'inline-flex h-6 shrink-0 items-center justify-center rounded px-2 text-[12.5px] font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50',
-        primary ? 'border border-line bg-surface text-fg shadow-sm hover:border-line-strong hover:bg-surface-2' : 'text-muted hover:bg-surface hover:text-fg',
+        primary
+          ? 'border border-line bg-surface text-fg shadow-sm hover:border-line-strong hover:bg-surface-2'
+          : 'text-muted hover:bg-surface hover:text-fg',
         className
       )}
       {...rest}

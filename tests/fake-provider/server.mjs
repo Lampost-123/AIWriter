@@ -413,7 +413,13 @@ export function fakeBuilderReply(system, messages, model = '') {
     const notes = (user.match(/"""\n([\s\S]*?)\n"""/)?.[1] ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
     const named = notes[0]?.match(/^([A-Z][\w'’-]*(?: [A-Z][\w'’-]*)?)(?:,| (?:runs|is|was|has)\b)/)?.[1]
     const name = named ?? 'Corvin Ashe'
-    const slots = { character: ['summary', 'traits', 'marks', 'secrets'], place: ['summary', 'atmosphere', 'history'], group: ['summary', 'goals', 'history'], item: ['summary', 'powers', 'origin'] }[kind] ?? ['summary']
+    const SLOTS = {
+      character: ['summary', 'traits', 'marks', 'secrets'],
+      place: ['summary', 'atmosphere', 'history'],
+      group: ['summary', 'goals', 'history'],
+      item: ['summary', 'powers', 'origin']
+    }
+    const slots = SLOTS[kind] ?? ['summary']
     // Finishing a profile: the fields saved already are listed by label after the notes.
     const saved = new Set([...(user.split('These fields are saved already')[1] ?? '').matchAll(/^([^:\n]+): /gm)].map((m) => m[1].trim()))
     const keep = (key) => !saved.has(fields.find((f) => f.key === key)?.label ?? key)
@@ -438,7 +444,8 @@ export function fakeBuilderReply(system, messages, model = '') {
   }
   if (job === 'options') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'
-    return JSON.stringify({ options: ['first', 'second', 'third'].map((n) => `${label}, ${n} option: something only ${nameIn(user)} would have.`) })
+    const options = ['first', 'second', 'third'].map((n) => `${label}, ${n} option: something only ${nameIn(user)} would have.`)
+    return JSON.stringify({ options })
   }
   if (job === 'interview') {
     const about = user.replace(/^\s*what do you (?:think|make) (?:of|about)\s+/i, '').replace(/[?.!\s]+$/, '') || 'that'

@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest'
 import type { Entry } from '@shared/types'
 import {
   aiAfterSave,
+  arrivalOrder,
   fleshOutKeys,
   hasSampleLine,
   labelOf,
   markOf,
+  mergeSuggestions,
   openSuggestions,
   patchFor,
   profileKeys,
+  shownValue,
   stepStatus,
   stepsFor,
   valuesOf,
@@ -106,6 +109,14 @@ describe('suggestions', () => {
     expect(openSuggestions({ hair: 'Black', eyes: 'Blue', face: '' }, { hair: 'Grey', eyes: ' ' })).toEqual({ eyes: 'Blue' })
   })
 
+  it('stay gone once Adam has kept or discarded them, though Flesh out sends them all again as it writes', () => {
+    const decided = new Set(['build'])
+    const shown = mergeSuggestions({ eyes: 'Blue' }, { build: 'Broad', face: 'Lean' }, decided)
+    expect(shown).toEqual({ eyes: 'Blue', face: 'Lean' })
+    const later = mergeSuggestions(shown, { build: 'Broad', face: 'Lean', hair: 'Red' }, decided)
+    expect(later).toEqual({ eyes: 'Blue', face: 'Lean', hair: 'Red' })
+  })
+
   it('are asked for only for empty fields without one waiting', () => {
     const looks = stepsFor('character')[1]
     const keys = fleshOutKeys(looks, { hair: 'Grey', build: '' }, { eyes: 'Blue' })
@@ -113,6 +124,24 @@ describe('suggestions', () => {
     expect(keys).not.toContain('eyes')
     expect(keys).toContain('build')
     expect(keys).toHaveLength(looks.fields.length - 2)
+  })
+})
+
+describe('Quick start', () => {
+  it('shows a profile in the order it arrives, so it only ever grows at the end', () => {
+    let order = arrivalOrder([], { name: 'Brann', summary: 'Runs the ferry', hair: '' })
+    expect(order).toEqual(['name', 'summary'])
+    // Fields already shown keep their places, whatever order the next message lists them in.
+    order = arrivalOrder(order, { hair: 'Grey', summary: 'Runs the ferry', name: 'Brann', aliases: 'Old Brann' })
+    expect(order).toEqual(['name', 'summary', 'hair', 'aliases'])
+    expect(arrivalOrder(order, { name: 'Brann' })).toEqual(order)
+  })
+
+  it('names the role as its picker does', () => {
+    expect(shownValue('role', 'supporting')).toBe('Supporting')
+    expect(shownValue('role', 'Protagonist')).toBe('Protagonist')
+    expect(shownValue('role', 'mentor')).toBe('Mentor')
+    expect(shownValue('hair', 'grey')).toBe('grey')
   })
 })
 

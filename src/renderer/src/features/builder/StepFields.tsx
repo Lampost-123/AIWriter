@@ -1,18 +1,17 @@
 // A step's fields: what Adam types, the AI's suggestions waiting on Keep or Discard (in the soft
-// amber highlight), a field being written, and the three options for one field.
-import { AlertTriangle, ImagePlus, Shuffle, Sparkles, Square, X } from 'lucide-react'
-import { memo, useEffect, useId, useMemo, useRef } from 'react'
+// amber highlight), a field being written, and the three options for one field. A suggestion's box is
+// the size of the box it would fill, line for line, so nothing moves when he keeps or discards it.
+import { ImagePlus, Shuffle, Sparkles, Square, X } from 'lucide-react'
+import { memo, useEffect, useId, useLayoutEffect, useRef } from 'react'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
-import { Input, Select } from '@/components/ui'
+import { Select } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { useApp } from '@/lib/store'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
 import { Skeleton } from '@/features/generate/parts'
-import { findNearDuplicates, kindNoun, withArticle, type NearDuplicate } from '@/features/world/entryLogic'
 import { AutoTextarea, useFitHeight } from '@/features/world/parts/AutoTextarea'
-import { markOf, ROLE_OPTIONS, splitAliases, type Step, type StepField } from './builderLogic'
-import { MarkLine, SuggestionButton, WritingStatus } from './parts'
+import { markOf, ROLE_OPTIONS, type Step, type StepField } from './builderLogic'
+import { DuplicateHint, MarkLine, settingsAction, SuggestionButton, WritingStatus } from './parts'
 
 /** Give me options for one field: the three alternatives as they arrive, or why there are none. */
 export interface OptionsState {
@@ -63,10 +62,7 @@ export function StepFields(p: StepFieldsProps): React.JSX.Element {
       {name ? (
         <div className="flex items-start gap-4">
           <PortraitSlot kind={p.kind} entry={p.entry} onImage={p.onImage} />
-          <div className="min-w-0 flex-1">
-            <FieldBox {...p} field={name} />
-            <DuplicateHint kind={p.kind} entry={p.entry} values={p.values} entries={p.entries} />
-          </div>
+          <FieldBox {...p} field={name} className="flex-1" />
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-x-4 gap-y-4 @lg:grid-cols-2">
@@ -88,65 +84,16 @@ function PortraitSlot({
   entry: Entry | null
   onImage: (e: Entry) => void
 }): React.JSX.Element {
-  if (entry) return <PortraitDrop entry={entry} size={72} onChange={onImage} className="mt-6" />
+  if (entry) return <PortraitDrop entry={entry} size={72} onChange={onImage} />
   return (
     <div
       title="Give it a name first, then you can add a picture."
       className={cn(
-        'mt-6 flex h-[72px] w-[72px] shrink-0 items-center justify-center border border-dashed border-line-strong text-faint',
+        'flex h-[72px] w-[72px] shrink-0 items-center justify-center border border-dashed border-line-strong text-faint',
         kind === 'character' ? 'rounded-full' : 'rounded-md'
       )}
     >
       <ImagePlus size={18} aria-hidden />
-    </div>
-  )
-}
-
-function DuplicateHint({
-  kind,
-  entry,
-  values,
-  entries
-}: {
-  kind: BuilderKind
-  entry: Entry | null
-  values: BuilderValues
-  entries: Entry[] | null
-}): React.JSX.Element {
-  const name = values.name ?? ''
-  const aliases = values.aliases ?? ''
-  const dups: NearDuplicate[] = useMemo(
-    () => (entries ? findNearDuplicates({ id: entry?.id ?? '', kind, name, aliases: splitAliases(aliases) }, entries) : []),
-    [entries, entry?.id, kind, name, aliases]
-  )
-  const d = dups[0]
-  // The line is always there (empty when there's nothing to say) so nothing moves while a name is typed.
-  if (!d) return <div className="h-6" aria-hidden />
-  const other = d.entry
-  const otherName = other.name.trim()
-  const what = other.kind === kind ? `another ${kindNoun(kind)}` : withArticle(kindNoun(other.kind))
-  const more = dups.length > 1 ? `, and ${dups.length - 1} more` : ''
-  const text =
-    d.reason === 'same'
-      ? `There's already ${what} called ${otherName}${more}.`
-      : d.reason === 'similar'
-        ? `Very close to ${otherName}, ${what}${more}.`
-        : `Shares a name with ${otherName}, ${what}${more}.`
-  return (
-    <div
-      role="status"
-      title="If they're the same, keep one, so the AI doesn't mix them up."
-      className="flex h-6 animate-fade-in items-center gap-1.5 text-[12.5px] text-ai"
-    >
-      <AlertTriangle size={13} className="shrink-0" aria-hidden />
-      <span className="min-w-0 truncate">{text} Same one?</span>
-      <button
-        type="button"
-        onClick={() => useApp.getState().navigate({ kind: 'entries', entryKind: other.kind, entryId: other.id })}
-        className="shrink-0 font-medium underline-offset-2 hover:underline"
-      >
-        Open {otherName}
-      </button>
     </div>
   )
 }
@@ -163,6 +110,7 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
   const canOptions = field.type !== 'list' && field.type !== 'role'
   const mark = markOf(field.key, value, p.ai)
   const control = useRef<HTMLElement | null>(null)
+  const isName = field.type === 'name'
 
   // After Keep, Discard or an option picked, the cursor goes back into the field.
   const { focusKey, onFocused } = p
@@ -173,29 +121,37 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
   }, [focusKey, field.key, suggestion, writing, onFocused])
 
   const label = field.label
+  const optionsButton = canOptions ? (
+    <button
+      type="button"
+      disabled={p.busy}
+      onClick={() => p.onOptions(field.key)}
+      aria-label={`Give me options for ${label}`}
+      title={`Three different ideas for ${label.toLowerCase()} to choose from`}
+      className={cn(
+        'inline-flex h-5 shrink-0 items-center gap-1 rounded px-1 text-[12px] text-faint transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-50',
+        options && 'text-ai'
+      )}
+    >
+      <Shuffle size={11} aria-hidden />
+      Options
+    </button>
+  ) : null
+
   return (
     <div className={cn('flex min-w-0 flex-col gap-1', p.className)}>
-      <div className="flex h-5 items-center justify-between gap-2">
-        <label htmlFor={id} className={cn('text-[12px] font-medium text-muted', field.type === 'name' && 'sr-only')}>
+      {isName ? (
+        <label htmlFor={id} className="sr-only">
           {label}
         </label>
-        {canOptions ? (
-          <button
-            type="button"
-            disabled={p.busy}
-            onClick={() => p.onOptions(field.key)}
-            aria-label={`Give me options for ${label}`}
-            title={`Three different ideas for ${label.toLowerCase()} to choose from`}
-            className={cn(
-              'ml-auto inline-flex h-5 items-center gap-1 rounded px-1 text-[12px] text-faint transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:pointer-events-none disabled:opacity-50',
-              options && 'text-ai'
-            )}
-          >
-            <Shuffle size={11} aria-hidden />
-            Options
-          </button>
-        ) : null}
-      </div>
+      ) : (
+        <div className="flex h-5 items-center justify-between gap-2">
+          <label htmlFor={id} className="text-[12px] font-medium text-muted">
+            {label}
+          </label>
+          {optionsButton}
+        </div>
+      )}
 
       {writing !== null ? (
         <WritingBox field={field} text={writing} />
@@ -205,7 +161,16 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
         <Control field={field} id={id} value={value} onChange={(v) => p.onChange(field.key, v)} innerRef={control} />
       )}
 
-      {suggestion !== undefined || field.type === 'name' ? null : <MarkLine mark={writing !== null ? null : mark}>{field.hint}</MarkLine>}
+      {isName ? (
+        // Under the name: the near-duplicate warning (its line kept even when empty) and the name's Options.
+        <div className="flex h-6 min-w-0 items-center gap-2 text-[12.5px]">
+          <DuplicateHint kind={p.kind} entryId={p.entry?.id ?? null} name={value} aliases={p.values.aliases ?? ''} entries={p.entries} />
+          <div className="flex-1" />
+          {optionsButton}
+        </div>
+      ) : suggestion !== undefined ? null : (
+        <MarkLine mark={writing !== null ? null : mark}>{field.hint}</MarkLine>
+      )}
 
       {options ? (
         <OptionsPanel
@@ -221,7 +186,29 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
   )
 })
 
-const box = 'w-full rounded-md border px-2.5 text-[13.5px] leading-[1.55]'
+const CONTROL =
+  'block w-full resize-none rounded-md border border-line bg-page px-2.5 text-[13.5px] text-fg placeholder:text-faint transition-[border-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
+
+/**
+ * The box sizes each kind of field shares with its suggestion and the suggestion being written, so a
+ * field is the same height whichever of them shows: a one-line field is a line of 20 px (32 px with
+ * its padding) that grows a line at a time, a few-paragraph one starts at two lines (three for the
+ * description), and the name is a title.
+ */
+const BOX = {
+  name: '-mx-2 w-[calc(100%+16px)] px-2 py-1 font-serif text-[28px] font-semibold leading-tight',
+  line: 'px-2.5 py-[5px] text-[13.5px] leading-5',
+  text: 'px-2.5 py-1.5 text-[13.5px] leading-[1.55]'
+}
+const boxOf = (f: StepField): string => (f.type === 'name' ? BOX.name : f.type === 'text' ? BOX.text : BOX.line)
+// The text box's own smallest height: its rows of 20.925 px (13.5 px at 1.55), its padding and border.
+const minHeightOf = (f: StepField): string =>
+  f.type === 'name' ? 'min-h-[45px]' : f.type === 'text' ? (f.key === 'description' ? 'min-h-[77px]' : 'min-h-[56px]') : 'min-h-8'
+
+// A suggestion, or one being written: the AI's words in the soft amber highlight, awaiting Adam.
+const AMBER = 'whitespace-pre-wrap break-words rounded-md border border-ai/40 bg-ai-soft text-fg'
+
+const oneLine = (v: string): string => v.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ')
 
 function Control({
   field,
@@ -266,7 +253,54 @@ function Control({
       />
     )
   }
-  return <Input ref={set} id={id} value={value} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />
+  return <LineBox id={id} value={value} placeholder={field.placeholder} onChange={onChange} innerRef={set} />
+}
+
+/**
+ * A one-line field (aliases, pronouns, all of Looks): one line high, growing to show the whole of a
+ * longer text (a kept suggestion, say) rather than cut it off. Still one line of text: Enter does
+ * nothing, and a pasted line break becomes a space. Empty, it stays one line high however far its
+ * hint would wrap, so the first letter typed doesn't make it shrink.
+ */
+function LineBox({
+  id,
+  value,
+  placeholder,
+  onChange,
+  innerRef
+}: {
+  id: string
+  value: string
+  placeholder?: string
+  onChange: (v: string) => void
+  innerRef: (el: HTMLElement | null) => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+  const empty = !value
+  useFitHeight(ref, value, 1, empty ? 0 : 6)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!empty || !el) return
+    el.style.height = ''
+    el.style.overflowY = ''
+  }, [empty])
+  return (
+    <textarea
+      ref={(el) => {
+        ref.current = el
+        innerRef(el)
+      }}
+      id={id}
+      rows={1}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(oneLine(e.target.value))}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
+      }}
+      className={cn(CONTROL, BOX.line, 'overflow-hidden')}
+    />
+  )
 }
 
 /**
@@ -299,11 +333,14 @@ function NameBox({
       value={value}
       placeholder={placeholder}
       spellCheck={false}
-      onChange={(e) => onChange(e.target.value.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '))}
+      onChange={(e) => onChange(oneLine(e.target.value))}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
       }}
-      className="-mx-2 block w-[calc(100%+16px)] resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-[28px] font-semibold leading-tight text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+      className={cn(
+        BOX.name,
+        'block resize-none overflow-hidden rounded-md border border-transparent bg-transparent text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
+      )}
     />
   )
 }
@@ -311,16 +348,8 @@ function NameBox({
 /** The AI writing a suggestion for this field: its words so far, in the amber highlight. */
 function WritingBox({ field, text }: { field: StepField; text: string }): React.JSX.Element {
   return (
-    <div
-      aria-busy="true"
-      aria-label={`Writing a suggestion for ${field.label}`}
-      className={cn(
-        box,
-        'border-ai/40 bg-ai-soft text-fg',
-        field.type === 'name' ? 'min-h-[46px] py-1 font-serif text-[28px] font-semibold leading-tight' : field.type === 'text' ? 'min-h-[56px] py-1.5' : 'min-h-8 py-[5px]'
-      )}
-    >
-      <span className="whitespace-pre-wrap">{text}</span>
+    <div aria-busy="true" aria-label={`Writing a suggestion for ${field.label}`} className={cn(AMBER, boxOf(field), minHeightOf(field))}>
+      {text}
       <span aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />
     </div>
   )
@@ -342,18 +371,9 @@ function SuggestionBox({
   onKeep: () => void
   onDiscard: () => void
 }): React.JSX.Element {
-  const name = field.type === 'name'
   return (
     <div role="group" aria-label={`Suggestion for ${field.label}`} className="flex flex-col gap-1 animate-fade-in">
-      <p
-        className={cn(
-          box,
-          'whitespace-pre-wrap border-ai/40 bg-ai-soft text-fg',
-          name ? 'min-h-[46px] py-1 font-serif text-[28px] font-semibold leading-tight' : field.type === 'text' ? 'min-h-[56px] py-1.5' : 'min-h-8 py-[5px]'
-        )}
-      >
-        {text}
-      </p>
+      <p className={cn(AMBER, boxOf(field), minHeightOf(field))}>{text}</p>
       <div className="flex h-[18px] items-center gap-1 text-[12px]">
         <Sparkles size={11} className="mr-0.5 shrink-0 text-ai" aria-hidden />
         <span className="mr-1 text-faint">Suggested by AI</span>
@@ -402,8 +422,14 @@ function OptionsPanel({
     else if (options.running) slots.push({ text: '', state: 'waiting' })
   }
   const label = field.label.toLowerCase()
+  // A model or key missing: the fix is in Settings, so the button goes there.
+  const settings = options.error ? settingsAction(options.error, options.code) : undefined
   return (
-    <div role="group" aria-label={`Options for ${field.label}`} className="mt-1 rounded-lg border border-ai/30 bg-ai-soft p-2 animate-fade-in">
+    <div
+      role="group"
+      aria-label={`Options for ${field.label}`}
+      className="mt-1 rounded-lg border border-ai/30 bg-ai-soft p-2 animate-fade-in"
+    >
       <div className="flex h-7 items-center gap-2 pl-1">
         {options.running ? (
           <WritingStatus text={`Thinking of three ideas for ${label}…`} />
@@ -434,7 +460,12 @@ function OptionsPanel({
           <p role="alert" className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-fg">
             {options.error}
           </p>
-          <SuggestionButton primary onClick={onRetry}>
+          {settings ? (
+            <SuggestionButton primary onClick={settings.run}>
+              {settings.label}
+            </SuggestionButton>
+          ) : null}
+          <SuggestionButton primary={!settings} onClick={onRetry}>
             Try again
           </SuggestionButton>
         </div>
@@ -443,14 +474,16 @@ function OptionsPanel({
           {slots.map((s, i) => (
             <li key={i} className="flex min-h-[44px] items-start gap-2 rounded-md border border-line bg-page py-1.5 pl-2.5 pr-1.5">
               {s.state === 'waiting' ? (
-                <div className="flex flex-1 flex-col gap-1.5 py-1">
+                // As tall as an option of one line, so the panel doesn't shrink when the last one arrives.
+                <div className="flex h-6 flex-1 items-center">
                   <Skeleton className="h-3 w-4/5" />
-                  <Skeleton className="h-3 w-2/5" />
                 </div>
               ) : (
-                <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13.5px] leading-[1.55] text-fg">
+                <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[13.5px] leading-[1.55] text-fg">
                   {s.text}
-                  {s.state === 'writing' ? <span aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" /> : null}
+                  {s.state === 'writing' ? (
+                    <span aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />
+                  ) : null}
                 </p>
               )}
               <SuggestionButton

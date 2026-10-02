@@ -7,6 +7,12 @@ import type { SaveStatus } from '@/features/world/parts/saver'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { aiAfterSave, entryText, markOf, nonEmpty, patchFor, profileKeys, valuesOf } from './builderLogic'
 
+/** A field as it is on screen: its words, and the AI's words for it (see markOf), if it had any. */
+export interface FieldState {
+  value: string
+  ai: string | undefined
+}
+
 export interface BuildDraft {
   /** The profile on screen, Adam's unsaved typing included. */
   values: BuilderValues
@@ -22,6 +28,13 @@ export interface BuildDraft {
    * leaving the fields as they were.
    */
   keep(chosen: BuilderValues, opts?: { replace?: boolean }): Promise<void>
+  /** A field as it is now, to put back later with `revert`. */
+  fieldNow(key: string): FieldState
+  /**
+   * Puts a field back as it was (Undo after an option replaced it), whose words included: the AI's
+   * are saved as the AI's again, anything else as Adam's.
+   */
+  revert(key: string, was: FieldState): Promise<void>
   /** Writes anything waiting now. Never rejects. */
   flush(): Promise<void>
   status: SaveStatus
@@ -147,6 +160,28 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
     [adopt, schedule]
   )
 
+  const fieldNow = useCallback((key: string): FieldState => ({ value: valuesRef.current[key] ?? '', ai: aiRef.current[key] }), [])
+
+  const revert = useCallback(
+    async (key: string, was: FieldState): Promise<void> => {
+      const ai = { ...aiRef.current }
+      if (was.ai === undefined) delete ai[key]
+      else ai[key] = was.ai
+      showAi(ai)
+      show({ ...valuesRef.current, [key]: was.value })
+      const e = entryRef.current
+      if (!e || markOf(key, was.value, ai) !== 'ai') {
+        // His words, saved as his after the usual pause (or with the entry, once it has a name).
+        schedule(++tick.current)
+        return
+      }
+      Object.assign(base.current, { [key]: was.value })
+      const saved = await api.keepSuggestions(e.id, { [key]: was.value }, { replace: true })
+      adopt(saved, { [key]: was.value })
+    },
+    [adopt, schedule]
+  )
+
   // Something else changed the entry (the memory keeper, its page in another view): fields Adam
   // hasn't touched since the last save show the newer words.
   const rev = useApp((s) => s.entriesRev)
@@ -193,6 +228,8 @@ export function useBuildDraft(kind: BuilderKind, initial: Entry | null, storyId:
     ai,
     set,
     keep,
+    fieldNow,
+    revert,
     flush: autosave.flush,
     status: autosave.status,
     error: autosave.error,

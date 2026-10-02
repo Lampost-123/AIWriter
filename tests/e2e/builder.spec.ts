@@ -19,10 +19,15 @@ async function entryNamed(win: Page, name: string): Promise<Entry> {
 
 const origin = (e: Entry, key: string): string => e.fieldOrigins[key] ?? e.origin
 
-/** Opens the builder for a new entry the way Adam does: the list's Quick start, then (if asked) the steps. */
+/**
+ * Opens the builder for a new entry the way Adam does: the list's Quick start (its empty state's
+ * button, or the one in its header once it has entries), then (if asked) the steps.
+ */
 async function openBuilder(win: Page, list: 'Characters' | 'Places', opts: { guided?: boolean } = {}): Promise<void> {
   await binder(win).getByRole('button', { name: list }).click()
-  await main(win).getByRole('button', { name: 'Quick start from a few notes' }).click()
+  await main(win)
+    .getByRole('button', { name: /^Quick start (an? \w+ )?from a few notes$/ })
+    .click()
   await expect(main(win).getByRole('heading', { name: /from a few notes$/ })).toBeVisible()
   if (opts.guided) {
     await main(win).getByRole('button', { name: 'Go step by step instead' }).click()
@@ -94,6 +99,14 @@ test('Stop during Quick start keeps what had fully arrived, saved', async ({ lau
     await main(win).getByRole('button', { name: 'Build the character' }).click()
     const profile = main(win).getByRole('region', { name: 'The profile so far' })
     await expect(profile.getByText('Saved', { exact: true })).toBeVisible()
+    // The profile only grows at the end: what has arrived stays put while the rest comes in below it.
+    const summary = profile.getByText('Short summary', { exact: true })
+    await expect(summary).toBeVisible()
+    const at = (await summary.boundingBox())!.y
+    for (let i = 0; i < 5; i++) {
+      await win.waitForTimeout(150)
+      expect((await summary.boundingBox())!.y).toBe(at)
+    }
     await main(win).getByRole('button', { name: 'Stop' }).click()
     await expect(main(win).getByRole('status').filter({ hasText: 'Stopped. What had fully arrived is saved.' })).toBeVisible()
 
@@ -196,6 +209,12 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
 
     await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.origin).toBe(second)
     expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('ai')
+    // It replaced his own words, so one click puts them back, as his.
+    await expect(win.getByText('Replaced origin with the option you picked.')).toBeVisible()
+    await win.getByRole('button', { name: 'Undo' }).click()
+    await expect(main(win).getByLabel('Origin', { exact: true })).toHaveValue('Born on a barge')
+    await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.origin).toBe('Born on a barge')
+    expect(origin(await entryNamed(win, 'Mara Venn'), 'origin')).toBe('adam')
     // Closing a list of options leaves the field as it was.
     await main(win).getByRole('button', { name: 'Give me options for Secrets they keep' }).click()
     await expect(main(win).getByRole('group', { name: 'Options for Secrets they keep' }).getByRole('listitem')).toHaveCount(3)
@@ -209,7 +228,7 @@ test('Give me options offers three, and the one picked is kept', async ({ launch
 test('Interview: the character answers in character, and a reply becomes a sample line in one click', async ({ launch }) => {
   const fake = await startFake()
   try {
-    const { win } = await launch()
+    const { app, win } = await launch()
     await createWorldFromWelcome(win, 'Builder')
     await useFakeModel(win, fake)
     await openBuilder(win, 'Characters', { guided: true })
@@ -228,6 +247,17 @@ test('Interview: the character answers in character, and a reply becomes a sampl
 
     await expect.poll(async () => (await entryNamed(win, 'Brann Holt')).fields.sampleLines).toBe(`"${reply}"`)
     expect(origin(await entryNamed(win, 'Brann Holt'), 'sampleLines')).toBe('adam')
+
+    // In a narrow window the interview opens over the step, at a width that is still comfortable,
+    // rather than squeezing the step beside it. Escape closes it, back to the button that opens it.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 600))
+    const rail = (await steps(win).boundingBox())!
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBe(Math.round(rail.x + rail.width))
+    expect((await panel.boundingBox())!.width).toBeGreaterThan(420)
+    await panel.getByRole('textbox', { name: 'Ask Brann Holt something' }).focus()
+    await win.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(main(win).getByRole('button', { name: 'Interview', exact: true })).toBeFocused()
   } finally {
     await fake.close()
   }
@@ -241,15 +271,19 @@ test('a place goes through the lighter builder, step by step, to its page', asyn
     await useFakeModel(win, fake)
     await openBuilder(win, 'Places', { guided: true })
     await expect(steps(win).getByRole('button')).toHaveText([
-      'Quick start from notes',
       /^Basics/,
       /^Look and feel/,
       /^Sights, sounds and smells/,
       /^History/,
       /^Who is there/,
-      /^Review/
+      /^Review/,
+      'Quick start from notes'
     ])
+    const look = await step(win, 'Look and feel').boundingBox()
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Saltmere')
+    // Once it is saved there is no going back to Quick start, and the steps stay where they were.
+    await expect(steps(win).getByRole('button', { name: 'Quick start from notes' })).toHaveCount(0)
+    expect(await step(win, 'Look and feel').boundingBox()).toEqual(look)
     await main(win).getByRole('button', { name: 'Next: Look and feel' }).click()
     await main(win).getByLabel('Atmosphere', { exact: true }).fill('Salt, tar and wet rope')
     await main(win).getByRole('button', { name: 'Next: Sights, sounds and smells' }).click()
@@ -287,4 +321,150 @@ test('the builder warns about a near-duplicate name', async ({ launch }) => {
   await expect(main(win).getByRole('status').filter({ hasText: 'Very close to Mara, another character. Same one?' })).toBeVisible()
   await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra Holt')
   await expect(main(win).getByText('Same one?')).toHaveCount(0)
+})
+
+test('Quick start keeps the notes, and a build still running, when Adam leaves and comes back', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await useFakeModel(win, fake, 'fake/slow')
+    const notes = main(win).getByLabel('What you know about them')
+
+    // Off to check something before building: the notes are still there.
+    await openBuilder(win, 'Characters')
+    await notes.fill(NOTES)
+    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openBuilder(win, 'Characters')
+    await expect(notes).toHaveValue(NOTES)
+
+    // Leaving while it builds: it carries on, and coming back shows it, with Stop.
+    await main(win).getByRole('button', { name: 'Build the character' }).click()
+    await expect(main(win).getByRole('region', { name: 'The profile so far' }).getByText('Saved', { exact: true })).toBeVisible()
+    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openBuilder(win, 'Characters')
+    await expect(main(win).getByRole('region', { name: 'The profile so far' })).toContainText('Brann Holt')
+    await main(win).getByRole('button', { name: 'Stop' }).click()
+    await expect(main(win).getByRole('status').filter({ hasText: 'Stopped. What had fully arrived is saved.' })).toBeVisible()
+    expect((await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')).toHaveLength(1)
+
+    // A build that is over is done with: the next Quick start starts afresh.
+    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openBuilder(win, 'Characters')
+    await expect(notes).toHaveValue('')
+    await expect(main(win).getByRole('region', { name: 'The profile so far' })).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a build that stops part way keeps what arrived, and finishes the rest of the same character', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await useFakeModel(win, fake, 'fake/midstream-error')
+    await openBuilder(win, 'Characters')
+    await main(win).getByLabel('What you know about them').fill(NOTES)
+    await main(win).getByRole('button', { name: 'Build the character' }).click()
+
+    // No tick and no "Stopped" (Adam didn't stop it): it says what happened, and the problem says why.
+    await expect(main(win).getByRole('status').filter({ hasText: 'It stopped part way. What had arrived is saved.' })).toBeVisible()
+    await expect(main(win).getByRole('alert')).toContainText('Fake is having trouble right now')
+    const part = await entryNamed(win, 'Brann Holt')
+    expect(part.fields.marks).toBe('Missing two fingers on his left hand.')
+    expect(part.fields.speech ?? '').toBe('')
+
+    // The service is back: finishing fills in only the empty fields, of the same character.
+    const [p] = await invoke(win, 'listProviders')
+    const writer = {
+      providerId: p.id,
+      modelId: 'fake/writer',
+      label: 'Writer',
+      contextLength: 32000,
+      promptPrice: null,
+      completionPrice: null
+    }
+    await invoke(win, 'updateSettings', { models: { writer } })
+    await main(win).getByRole('button', { name: 'Finish the rest' }).click()
+    await expect(main(win).getByRole('status').filter({ hasText: 'Brann Holt is built and saved.' })).toBeVisible()
+    const all = (await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')
+    expect(all).toHaveLength(1)
+    expect(all[0].fields.marks).toBe('Missing two fingers on his left hand.')
+    expect(origin(all[0], 'marks')).toBe('adam')
+    expect(all[0].fields.speech).toBe('How they speak of Brann Holt, drafted to fit the world.')
+    expect(origin(all[0], 'speech')).toBe('ai')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a suggestion kept or discarded while Flesh out is still writing stays that way', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  // Slow enough to decide on the first suggestions while the rest are still on their way.
+  const fake = await startFakeProvider({ delayMs: 2, slowDelayMs: 150 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Builder')
+    await useFakeModel(win, fake, 'fake/slow')
+    await openBuilder(win, 'Characters', { guided: true })
+    await main(win).getByRole('textbox', { name: 'Name' }).fill('Mara Venn')
+    await step(win, 'Looks').click()
+    await main(win).getByRole('button', { name: 'Flesh out with AI' }).click()
+
+    const stop = main(win).getByRole('button', { name: 'Stop' })
+    await expect(main(win).getByRole('group', { name: 'Suggestion for Face' })).toBeVisible()
+    await expect(stop).toBeVisible()
+    await main(win).getByRole('button', { name: 'Discard the suggestion for Build' }).click()
+    await main(win).getByRole('button', { name: 'Keep the suggestion for Face' }).click()
+    await expect(stop).toBeVisible()
+
+    // Once it has finished, the rest are there and those two are as he left them.
+    await expect(stop).toHaveCount(0, { timeout: 15_000 })
+    await expect(main(win).getByRole('group', { name: 'Suggestion for Hair' })).toBeVisible()
+    await expect(main(win).getByRole('group', { name: 'Suggestion for Build' })).toHaveCount(0)
+    await expect(main(win).getByRole('group', { name: 'Suggestion for Face' })).toHaveCount(0)
+    await expect(main(win).getByLabel('Build', { exact: true })).toHaveValue('')
+    await expect(main(win).getByLabel('Face', { exact: true })).toHaveValue('Suggested face for Mara Venn.')
+    // Emptying the kept field doesn't bring the suggestion back either.
+    await main(win).getByLabel('Face', { exact: true }).fill('')
+    await expect(main(win).getByRole('group', { name: 'Suggestion for Face' })).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('relationships are picked from the characters already in the world', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Builder')
+  await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', summary: 'A smuggler' })
+  await invoke(win, 'createEntry', 'group', { name: 'Ferry Guild' })
+  await openBuilder(win, 'Characters', { guided: true })
+  await main(win).getByRole('textbox', { name: 'Name' }).fill('Brann Holt')
+  await step(win, 'Relationships').click()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Relationships' })).toBeVisible()
+
+  // Only characters, and nothing new is made here: a group's name finds nobody.
+  const picker = main(win).getByRole('combobox', { name: 'Add someone Brann Holt knows' })
+  await picker.fill('Ferry Guild')
+  await expect(main(win).getByText('None of your characters is called "Ferry Guild". Add them first, then pick them here.')).toBeVisible()
+  await expect(win.getByRole('option')).toHaveCount(0)
+  await picker.fill('Mara')
+  await expect(win.getByRole('option')).toHaveCount(1)
+  await win.getByRole('option', { name: /^Mara Venn/ }).click()
+
+  // Straight into what they are to each other, saved as Adam types.
+  const linked = main(win).getByLabel('How Brann Holt is linked to Mara Venn')
+  await expect(linked).toBeFocused()
+  await linked.fill('old friend')
+  await expect(step(win, 'Relationships')).toHaveAccessibleName(/complete/)
+  const brann = await entryNamed(win, 'Brann Holt')
+  await expect
+    .poll(async () => {
+      const c = (await invoke(win, 'listChanges', brann.id)).find((x) => x.kind === 'relationship')
+      return c?.kind === 'relationship' ? c.payload.type : null
+    })
+    .toBe('old friend')
+  await step(win, 'Review').click()
+  await expect(main(win).getByRole('region', { name: 'Relationships' })).toContainText('Mara Venn · old friend')
 })

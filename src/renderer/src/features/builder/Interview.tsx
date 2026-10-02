@@ -23,6 +23,7 @@ export function InterviewPanel({
   draft,
   storyId,
   turns,
+  over,
   onTurns,
   onSaveLine,
   onClose
@@ -31,6 +32,8 @@ export function InterviewPanel({
   storyId: ID | null
   /** Kept by the builder, so closing the panel and opening it again keeps the conversation. */
   turns: InterviewTurn[]
+  /** Open over the step, like a drawer, when the window is too narrow for both side by side. */
+  over: boolean
   onTurns: (fn: (t: InterviewTurn[]) => InterviewTurn[]) => void
   onSaveLine: (text: string) => void
   onClose: () => void
@@ -88,7 +91,20 @@ export function InterviewPanel({
   const samples = draft.values.sampleLines ?? ''
 
   return (
-    <aside aria-label="Interview" className="flex w-[340px] min-w-[280px] shrink-0 flex-col border-l border-line bg-surface animate-fade-in">
+    <aside
+      aria-label="Interview"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || e.nativeEvent.isComposing) return
+        e.preventDefault()
+        e.stopPropagation()
+        onClose()
+      }}
+      className={cn(
+        'flex flex-col bg-surface animate-fade-in',
+        // Over the step it takes the step's whole width (the rail stays), so the step is never squeezed.
+        over ? 'absolute inset-y-0 left-[216px] right-0 z-10 shadow-soft' : 'w-[340px] shrink-0 border-l border-line'
+      )}
+    >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
         <MessageCircle size={15} className="shrink-0 text-muted" aria-hidden />
         <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-fg">{name ? `Interview ${name}` : 'Interview'}</h2>
@@ -97,9 +113,11 @@ export function InterviewPanel({
         </IconButton>
       </div>
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-4', over ? 'px-[max(16px,calc(50%_-_320px))]' : 'px-4')}>
         {!name ? (
-          <p className="pt-8 text-center text-[13px] leading-relaxed text-muted">Give the character a name first, so there is someone to talk to.</p>
+          <p className="pt-8 text-center text-[13px] leading-relaxed text-muted">
+            Give the character a name first, so there is someone to talk to.
+          </p>
         ) : turns.length === 0 && reply === null ? (
           <div className="pt-4 animate-fade-in">
             <p className="text-[13px] leading-relaxed text-muted">
@@ -124,7 +142,9 @@ export function InterviewPanel({
             {turns.map((t, i) => (
               <li key={i} className={cn('flex flex-col', t.from === 'adam' ? 'items-end' : 'items-start')}>
                 {t.from === 'adam' ? (
-                  <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-accent-soft px-3 py-2 text-[13px] leading-relaxed text-fg">{t.text}</p>
+                  <p className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-accent-soft px-3 py-2 text-[13px] leading-relaxed text-fg">
+                    {t.text}
+                  </p>
                 ) : (
                   <>
                     <p className="max-w-[92%] whitespace-pre-wrap rounded-lg border border-line bg-page px-3 py-2 font-serif text-[14px] leading-relaxed text-fg">
@@ -164,7 +184,7 @@ export function InterviewPanel({
       </div>
 
       <form
-        className="flex shrink-0 items-end gap-2 border-t border-line p-3"
+        className={cn('flex shrink-0 items-end gap-2 border-t border-line py-3', over ? 'px-[max(12px,calc(50%_-_320px))]' : 'px-3')}
         onSubmit={(e) => {
           e.preventDefault()
           void ask(question, turns)
