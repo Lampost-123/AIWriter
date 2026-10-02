@@ -8,55 +8,11 @@ import * as repo from '../db/repo'
 import { getWritingPrefs } from '../settings'
 import { castOf, namedIn, type CastMember, type SceneCast } from './cast'
 import { lexiconOf, type SayRule } from './say'
+import { readAloudOf } from './voiceStore'
 
 type DB = Database.Database
 
-export const META_KEY = 'read_aloud'
-
-interface Stored {
-  v: 1
-  entries: Record<ID, EntryReadAloud>
-}
-
-export const emptyReadAloud = (): EntryReadAloud => ({ voice: { design: '', voice: '' }, say: '' })
-
-const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '')
-
-/** A value as it is kept: trimmed, cut to size, and every part present. */
-export function cleanReadAloud(value: unknown): EntryReadAloud {
-  const v = (value && typeof value === 'object' ? value : {}) as Partial<EntryReadAloud>
-  const voice = (v.voice && typeof v.voice === 'object' ? v.voice : {}) as Partial<EntryReadAloud['voice']>
-  return { voice: { design: text(voice.design, 600), voice: text(voice.voice, 120) }, say: text(v.say, 200) }
-}
-
-const isEmpty = (v: EntryReadAloud): boolean => !v.voice.design && !v.voice.voice && !v.say
-
-/** Everything the world keeps for reading aloud, by entry id. */
-export function readAloudOf(db: DB): Record<ID, EntryReadAloud> {
-  try {
-    const raw = JSON.parse(repo.getMeta(db, META_KEY) ?? '{}') as Partial<Stored>
-    const entries = raw.entries && typeof raw.entries === 'object' ? raw.entries : {}
-    return Object.fromEntries(Object.entries(entries).map(([id, v]) => [id, cleanReadAloud(v)]))
-  } catch {
-    return {}
-  }
-}
-
-export function getEntryReadAloud(db: DB, entryId: ID): EntryReadAloud {
-  return readAloudOf(db)[entryId] ?? emptyReadAloud()
-}
-
-/** Saves one entry's voice and "Say it as"; an empty one is removed. Returns what was saved. */
-export function setEntryReadAloud(db: DB, entryId: ID, value: unknown): EntryReadAloud {
-  repo.getEntry(db, entryId) // A plain-words error when the page has gone.
-  const clean = cleanReadAloud(value)
-  const all = readAloudOf(db)
-  if (isEmpty(clean)) delete all[entryId]
-  else all[entryId] = clean
-  const stored: Stored = { v: 1, entries: all }
-  repo.setMeta(db, META_KEY, JSON.stringify(stored))
-  return clean
-}
+export { META_KEY, cleanReadAloud, emptyReadAloud, getEntryReadAloud, readAloudOf, setEntryReadAloud } from './voiceStore'
 
 /** A character as reading aloud knows them: names, a line about them, their voice and how their name is said. */
 function member(e: Entry, kept: EntryReadAloud | undefined): CastMember | undefined {

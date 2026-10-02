@@ -502,6 +502,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`fallbackWhen`). A finished build puts the story's opening scene on "Day 1" while none of its scenes
   has a When (`worldBuilder/timeline.ts`), and asks for events during the story on that count. A When
   already on a card is never replaced.
+- **Filling in the gaps.** `builder/fill.ts` fills the empty fields of thin characters, places, groups and
+  items (summary or description empty, or a third of the fields empty) with the AI, from the world and
+  what the story says about them, as `'ai'` ("Drafted by AI"). A field with words in it, a name and other
+  names are never changed. Two callers: a World build's last steps ("Filling in missing details": what it
+  made, and pages Adam didn't make himself, such as a character the memory found), and the memory keeper,
+  which hands the entries a run made from scene text (`newEntryIds`) to `fillFound` on the memory model
+  after the run, so it never slows or breaks the memory. Then the build gives each character it made a
+  read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
+  is set; it is saved even when read aloud isn't set up.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.

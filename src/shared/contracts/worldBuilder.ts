@@ -23,7 +23,11 @@ export interface WorldBuildInput {
   storyId: ID | null
 }
 
-/** What a build is doing, in the order it does it: characters and places first, so later parts can link to them. */
+/**
+ * What a build is doing, in the order it does it: characters and places first, so later parts can link to them.
+ * Last, it fills in what is still missing on the pages in the world ('filling') and gives the characters it
+ * made their read-aloud voices ('voices').
+ */
 export type WorldBuildStage =
   | 'reading'
   | 'characters'
@@ -37,6 +41,8 @@ export type WorldBuildStage =
   | 'relationships'
   | 'themes'
   | 'checking'
+  | 'filling'
+  | 'voices'
 
 /** One thing a build made, for its results page. */
 export interface WorldBuildItem {

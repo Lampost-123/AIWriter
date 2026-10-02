@@ -11,7 +11,7 @@
 import type Database from 'better-sqlite3'
 import type { Entry, ID, MemoryStatus, SceneMeta } from '@shared/types'
 import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
-import { getSettings } from '../settings'
+import { getSettings, getWritingPrefs } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
 import { setBeforeDraft } from '../ai/gather'
@@ -19,6 +19,7 @@ import { emit } from '../events'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
+import { fillFound } from '../builder/fill'
 
 let keeper: Keeper | null = null
 
@@ -57,6 +58,7 @@ export function initKeeper(): void {
       model: memoryModel,
       emitStatus: (s) => emit('memory:status', s),
       emitChanged: (p) => emit('memory:changed', { sceneId: p.sceneId, entryIds: [...new Set(p.entryIds)] }),
+      onNewEntries: (entryIds, model) => fillLater(w.db, entryIds, model),
       quietMs: quietMs()
     })
     keeper.start()
@@ -71,6 +73,25 @@ export function initKeeper(): void {
   })
   // Before a draft, the memory catches up with earlier scenes on the line.
   setBeforeDraft((db, sceneId) => (keeper && keeper.db === db ? keeper.catchUpBefore(sceneId) : undefined))
+}
+
+/** Filling in what the memory found, one batch after another, never holding up the memory itself. */
+let filling: Promise<void> = Promise.resolve()
+
+/**
+ * Someone or something new was found in a scene's text, with little more than a name and a line: the memory
+ * model fills in their empty fields from what the story says (builder/fill.ts), as the AI's. A follow-on after
+ * the run, so it never slows or breaks the memory; a failure leaves the fields empty. Stops when the world closes.
+ */
+function fillLater(db: Database.Database, entryIds: ID[], model: MemoryModel): void {
+  const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
+  filling = filling
+    .then(async () => {
+      if (!live()) return
+      const result = await fillFound(db, entryIds, model, { prefs: getWritingPrefs(), stopped: () => !live() })
+      if (result.filled.length && live()) emit('memory:changed', { sceneId: null, entryIds: result.filled })
+    })
+    .catch((e) => console.warn('Could not fill in what the memory found', e))
 }
 
 /** The keeper of the open world (null when none is open). */

@@ -78,6 +78,9 @@ import { earlierBuilds, madeItems } from './lines'
 import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setParent, type Source, type Writer } from './save'
 import { BATCH_ITEM_TOKENS, BATCH_MOST, MAX_SUMMARY_CHARS, NAMES_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
 import { startTimeline } from './timeline'
+import { fillGaps, fillTargets, FILL_SAID_TOKENS, storySaid } from '../builder/fill'
+import { cleanDesign, linesSpokenBy, voicePrompt } from '../readAloud/suggest'
+import { getEntryReadAloud, setEntryReadAloud } from '../readAloud/voiceStore'
 
 type DB = Database.Database
 
@@ -127,6 +130,11 @@ export interface BuildContext {
   /** Adam's writing preferences, under the style guide every profile is written in. */
   prefs: WritingPrefs
   emit: Emit
+  /**
+   * The read-aloud model (the one Suggest uses for a character's voice), so each character the build makes gets
+   * a voice description; null or left out when there is none (the characters then have none until Adam asks).
+   */
+  voiceModel?: JobModel | null
   /** Something was saved: lists and pages showing these entries reload, and backups see the world changed. */
   onSaved?: (entryIds: ID[]) => void
   /** The build ended, so What changed's latest update is this build. */
@@ -401,6 +409,8 @@ async function build(b: Build): Promise<void> {
       if (!halted(b)) await relationships(b)
       if (!halted(b)) await themesAndTone(b)
       if (!halted(b)) await check(b)
+      if (!halted(b)) await fillTheGaps(b)
+      if (!halted(b)) await giveVoices(b)
     }
     openTimeline(b)
     end(b, b.closed || b.cancelled ? 'cancelled' : b.failure ? 'error' : 'complete')
@@ -1004,6 +1014,117 @@ async function check(b: Build): Promise<void> {
       pages.map((p) => p.e),
       c
     )
+  }
+}
+
+// ---------- Filling in what is missing ----------
+
+/**
+ * The pages a build fills in: what it made, and anything else in the world that Adam didn't make himself (a
+ * character the memory found in a scene with only a name and a line, say). Only thin ones, and only their
+ * empty fields (builder/fill.ts).
+ */
+export function pagesToFill(db: DB, made: ID[]): ID[] {
+  const mine = new Set(made)
+  return repo
+    .listEntries(db)
+    .filter((e) => (mine.has(e.id) || !e.byHand) && fillTargets(e).length > 0)
+    .sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)))
+    .map((e) => e.id)
+}
+
+async function fillTheGaps(b: Build): Promise<void> {
+  const db = b.ctx.db
+  const made = b.writer.made.flatMap((m) => (m.what === 'entry' && m.entryId ? [m.entryId] : []))
+  const ids = pagesToFill(db, made)
+  if (!ids.length) return
+  let n = 0
+  const step = (): void => setStep(b, 'filling', `Filling in missing details: ${Math.min(n + 1, ids.length)} of ${ids.length}`)
+  step()
+  const result = await fillGaps(
+    {
+      db,
+      model: b.ctx.model,
+      job: 'world',
+      prefs: b.ctx.prefs,
+      storyId: b.storyId,
+      saidAbout: (e) =>
+        [textAbout(b.summary, [e.name, ...e.aliases], FILL_SAID_TOKENS), storySaid(db, e)].filter((t) => t.trim()).join('\n\n'),
+      stopped: () => halted(b),
+      onTask: (taskId) => {
+        b.taskId = taskId
+        if (taskId === null) {
+          n++
+          if (n < ids.length && !halted(b)) step()
+        }
+      },
+      onFilled: (id) => saved(b, [id]),
+      onKeyRejected: b.ctx.onKeyRejected,
+      fetchImpl: b.ctx.fetchImpl,
+      retryDelays: b.ctx.retryDelays
+    },
+    ids
+  )
+  b.generationIds.push(...result.generationIds)
+  if (result.cost != null) b.cost = (b.cost ?? 0) + result.cost
+}
+
+// ---------- Voices for the characters it made ----------
+
+/**
+ * Each character the build made gets a read-aloud voice described in plain words, as Suggest on the character's
+ * page would write it, unless it has one already. Saved even when reading aloud isn't set up: it is only words,
+ * ready for when it is. A request that fails leaves that character without one.
+ */
+async function giveVoices(b: Build): Promise<void> {
+  const model = b.ctx.voiceModel
+  const db = b.ctx.db
+  if (!model) return
+  const ids = b.writer.made.flatMap((m) => (m.what === 'entry' && m.kind === 'character' && m.entryId ? [m.entryId] : []))
+  const characters = repo.getEntries(db, ids).filter((e) => {
+    const v = getEntryReadAloud(db, e.id).voice
+    return !v.design.trim() && !v.voice.trim()
+  })
+  const storyIds = repo.listStories(db).map((s) => s.id)
+  for (const [i, e] of characters.entries()) {
+    if (halted(b)) return
+    setStep(b, 'voices', `Giving the characters their voices: ${i + 1} of ${characters.length}`)
+    const taskId = newId()
+    b.taskId = taskId
+    let done: TaskDone
+    try {
+      done = await runTask({
+        db,
+        taskId,
+        job: 'speech',
+        sceneId: null,
+        model,
+        messages: voicePrompt(e, linesSpokenBy(db, e, { storyIds }), ''),
+        reply: 200,
+        temperature: 0.5,
+        direction: `A voice for ${e.name}`,
+        emit: relay(b),
+        fetchImpl: b.ctx.fetchImpl,
+        retryDelays: b.ctx.retryDelays
+      })
+    } catch (err) {
+      console.warn('Could not ask for a voice', err)
+      continue
+    } finally {
+      b.taskId = null
+    }
+    if (done.cost != null) b.cost = (b.cost ?? 0) + done.cost
+    const design = done.status === 'complete' ? cleanDesign(done.text) : ''
+    if (!design || halted(b) || !db.open) continue
+    try {
+      // Never over a voice set meanwhile.
+      const now = getEntryReadAloud(db, e.id)
+      if (now.voice.design.trim() || now.voice.voice.trim() || !repo.getEntries(db, [e.id]).length) continue
+      setEntryReadAloud(db, e.id, { voice: { design, voice: '' }, say: now.say })
+      saved(b, [e.id])
+    } catch (err) {
+      console.warn('Could not save a voice', err)
+    }
   }
 }
 

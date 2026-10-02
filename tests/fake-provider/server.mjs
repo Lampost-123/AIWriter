@@ -531,6 +531,8 @@ export function fakeStoryFlowReply(system, user) {
 //                prompt lists is under "drafted", as "<Label> of <name>, drafted to fit the world."
 //                Fields listed as saved already (finishing a profile) are left out.
 //   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
+//   fill-gaps    "<Label> of <name>, filled in from the story." for each empty field it is asked about ("minor"
+//                for the role).
 //   options      Three options: "<Label>, first option: ...", "second", "third".
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
 //                and I pay my debts." The model fake/empty sends back nothing for any of these.
@@ -575,6 +577,13 @@ export function fakeBuilderReply(system, messages, model = '') {
     const name = nameIn(user)
     const wanted = [...(user.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
     return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], `Suggested ${m[2].trim().toLowerCase()} for ${name}.`])), null, 1)
+  }
+  if (job === 'fill-gaps') {
+    const profile = user.split("'s profile so far:")[1] ?? ''
+    const name = nameIn(profile)
+    const wanted = [...(profile.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
+    const value = (key, label) => (key === 'role' ? 'minor' : `${label} of ${name}, filled in from the story.`)
+    return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], value(m[1], m[2].trim())])), null, 1)
   }
   if (job === 'options') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'

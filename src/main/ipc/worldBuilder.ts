@@ -25,6 +25,15 @@ world.onWorldClosing((w) => closeBuildsFor(w.db))
 
 const modelSources = () => ({ settings: getSettings(), getProvider: providers.getProvider, providerTarget: providers.providerTarget })
 
+/** The read-aloud model, which Suggest uses for a character's voice; null when there is none to use. */
+function voiceModel(): ReturnType<typeof jobModel> | null {
+  try {
+    return jobModel('speech', modelSources())
+  } catch {
+    return null
+  }
+}
+
 /** Keeps the summary as given (unless it is already kept), so the page reopens with it. */
 function keepSummary(summary: unknown): void {
   const db = world.db()
@@ -67,6 +76,7 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
         db: w.db,
         worldId: w.id,
         model,
+        voiceModel: voiceModel(),
         prefs: getWritingPrefs(),
         emit,
         onSaved: (entryIds) => {

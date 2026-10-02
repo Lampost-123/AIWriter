@@ -1,8 +1,9 @@
 // Review probes for the memory keeper (spec, "Source links and automatic upkeep").
 
 import type Database from 'better-sqlite3'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ID } from '@shared/types'
+import { defaultWritingPrefs } from '@shared/defaults'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import * as repo from '../db/repo'
@@ -22,6 +23,7 @@ import * as scene from '../memory/scene'
 import { READING_MARKER } from './prompts'
 import { fieldsClearedByHand, removeScenes, restoreScenes } from './removed'
 import { sceneSummaryDue } from './summaries'
+import { fillFound } from '../builder/fill'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -876,5 +878,83 @@ describe('cost', () => {
     expect(sent).toContain('"Duke Aldric"')
     expect(g.entries.map((e) => e.entryId)).toContain(duke.id)
     expect(g.entries.length).toBeLessThan(200)
+  })
+})
+
+describe('someone new found in the text', () => {
+  it('is told after the run, and the memory model fills in their empty fields as the AI’s, from the scene', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [
+      ['p1', 'Kell lost his hat.'],
+      ['p2', 'The wind was cold.'],
+      ['p3', "Kell's eyes were grey."]
+    ])
+    const found: ID[][] = []
+    const filled: ID[][] = []
+    const k = new Keeper({
+      db: w.db,
+      model: () => modelFor(),
+      emitStatus: () => {},
+      emitChanged: () => {},
+      onNewEntries: (ids, model) => {
+        found.push(ids)
+        void fillFound(w.db, ids, model, { prefs: defaultWritingPrefs(), retryDelays: [0] }).then((r) => filled.push(r.filled))
+      },
+      quietMs: 60_000,
+      summaries: false,
+      retryDelays: [0]
+    })
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    await k.catchUpBefore(s2)
+    const kell = entryNamed(w.db, 'Kell')!
+    expect(kell.origin).toBe('text')
+    expect(found).toEqual([[kell.id]])
+    await vi.waitFor(() => expect(filled).toEqual([[kell.id]]))
+
+    const after = repo.getEntries(w.db, [kell.id])[0]
+    expect(after.name).toBe('Kell')
+    expect(after.description).toBe('Description of Kell, filled in from the story.')
+    expect(after.fields.traits).toBe('Core traits of Kell, filled in from the story.')
+    expect(after.fieldOrigins.description).toBe('ai')
+    // What the text said stays as it was, and the text's.
+    expect(after.fields.eyes).toBe(kell.fields.eyes)
+    expect(after.fieldOrigins.eyes ?? after.origin).toBe('text')
+    // Recorded as the memory's.
+    const jobs = w.db.prepare("SELECT job FROM generations WHERE direction LIKE 'Fill in the missing details%'").all() as { job: string }[]
+    expect(jobs.map((j) => j.job)).toEqual(['memory'])
+
+    // Reading again finds no one new.
+    save(w.db, w.sceneId, [
+      ['p1', 'Kell lost his hat.'],
+      ['p2', 'The wind was cold.'],
+      ['p3', "Kell's eyes were grey."],
+      ['p4', 'Kell lost his boots.']
+    ])
+    await k.catchUpBefore(s2)
+    expect(found).toHaveLength(1)
+    k.stop()
+  })
+
+  it('reports the new entries a run made, and only those', async () => {
+    const w = world()
+    repo.createEntry(w.db, 'character', { name: 'Mara' })
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her left hand.'],
+      ['p2', 'Tobin lost his boots.']
+    ])
+    const out = await read(w.db, w.sceneId)
+    if (out.status !== 'done') throw new Error('The read failed')
+    expect(out.newEntryIds).toEqual([entryNamed(w.db, 'Tobin')!.id])
+  })
+
+  it('leaves the fields empty when the fill fails, and the memory as it was', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Kell lost his hat.']])
+    const out = await read(w.db, w.sceneId)
+    if (out.status !== 'done') throw new Error('The read failed')
+    const kell = entryNamed(w.db, 'Kell')!
+    const result = await fillFound(w.db, out.newEntryIds ?? [], modelFor('fake/empty'), { prefs: defaultWritingPrefs(), retryDelays: [0] })
+    expect(result.filled).toEqual([])
+    expect(repo.getEntries(w.db, [kell.id])[0]).toEqual(kell)
   })
 })
