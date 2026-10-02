@@ -39,7 +39,7 @@ export function memoryModel(): MemoryModel | { error: string } {
   if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
     return { error: `${providerWho(provider)} needs an API key for the memory to keep up. Add it in Settings › Models.` }
   }
-  return { target, choice }
+  return { target, choice, thinking: s.thinking?.memory ?? 'off' }
 }
 
 const quietMs = (): number | undefined => {

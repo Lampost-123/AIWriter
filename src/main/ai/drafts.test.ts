@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
-import type { DraftOptions, ModelChoice } from '@shared/types'
+import type { DraftOptions, ModelChoice, ThinkingLevel } from '@shared/types'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
@@ -77,7 +77,8 @@ function start(
   options: Partial<DraftOptions> = {},
   onKeyRejected?: () => void,
   modelOver: Partial<ModelChoice> = {},
-  onWorked?: () => void
+  onWorked?: () => void,
+  thinking?: ThinkingLevel
 ) {
   const input = gatherContextInput(w.db, w.second.id, { direction: 'End on the knock.', ...options }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
   const preview = assembleContext(input, countRaw)
@@ -91,6 +92,7 @@ function start(
       preview,
       provider: { id: 'p1', name: 'Fake', kind, baseUrl: fake.url, apiKey: 'k' },
       model: model({ modelId, ...modelOver }),
+      thinking,
       entryVersions: sentEntryVersions(input.memory, preview.blocks),
       emit,
       onKeyRejected,
@@ -384,6 +386,28 @@ describe('drafting', () => {
     expect(fake.requestCounts()['fake/writer']).toBe(1)
     expect('temperature' in fake.lastRequest()!.body).toBe(false)
     expect(gens.getGeneration(w.db, own.generationId).params.sampling).toBe(false)
+  })
+
+  it("asks with the writer's thinking level, with room for it, and records how it was sent", async () => {
+    const { emit, done } = recorder()
+    fake.reset()
+    const high = start(w, emit, 'fake/writer', 'openrouter', {}, undefined, {}, undefined, 'high')
+    expect((await done(high.generationId)).status).toBe('complete')
+    expect(fake.lastRequest()!.body.reasoning).toEqual({ effort: 'high' })
+    const rec = gens.getGeneration(w.db, high.generationId)
+    expect(rec.params.thinking).toBe('high')
+    // At High the thinking may take 80% of the limit: the scene keeps its own room beside it.
+    expect(rec.params.max_tokens).toBe(replyTokenLimit(high.preview.budget, null, 'high').limit)
+    expect(rec.params.max_tokens).toBe(Math.ceil(high.preview.budget.reserved * 5))
+    // A model that can't stop thinking is asked for as little as it can, and the record says so.
+    const off = start(w, emit, 'fake/must-think', 'openrouter', {}, undefined, {}, undefined, 'off')
+    expect((await done(off.generationId)).status).toBe('complete')
+    expect(gens.getGeneration(w.db, off.generationId).params.thinking).toBe('low')
+    // Left to the model: nothing is asked, nothing recorded.
+    const auto = start(w, emit, 'fake/writer', 'custom', {}, undefined, {}, undefined, 'auto')
+    await done(auto.generationId)
+    expect(fake.lastRequest()!.body).not.toHaveProperty('reasoning_effort')
+    expect(gens.getGeneration(w.db, auto.generationId).params).not.toHaveProperty('thinking')
   })
 
   it("doesn't put a price on a draft the provider turned down", async () => {

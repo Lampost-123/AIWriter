@@ -58,6 +58,7 @@ import type {
   RelationshipState,
   SceneCard,
   StyleGuide,
+  ThinkingLevel,
   ThreadState
 } from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
@@ -142,6 +143,14 @@ export function computeBudget(contextLength: number | null, targetWords: number)
 export const REPLY_LIMIT_CAP = 16_384
 /** Extra room always asked for beyond the reply room, for models that think before they write. */
 export const THINKING_ROOM = 4000
+/**
+ * The share of the reply limit, in percent, a model's thinking may take at each thinking level
+ * (OpenRouter gives a model that thinks to a token budget this much of max_tokens), so a reply limit
+ * asked with a level leaves the reply its own room beside the thinking.
+ */
+export const THINKING_SHARE: Record<ThinkingLevel, number> = { auto: 0, off: 0, low: 20, medium: 50, high: 80 }
+/** The reply limit that still leaves `reply` tokens to answer with once thinking at this level has taken its share. */
+export const withThinkingShare = (reply: number, level?: ThinkingLevel): number => Math.ceil((reply * 100) / (100 - THINKING_SHARE[level ?? 'auto']))
 
 /**
  * The reply limit (max_tokens) for a draft, and a smaller one to fall back on
@@ -155,15 +164,17 @@ export const THINKING_ROOM = 4000
  * REPLY_LIMIT_CAP unless the reply room itself is bigger), and always at least
  * THINKING_ROOM beyond the reply room; never past what the context window has
  * left after the briefing, and never past the model's own output limit when
- * the provider says what it is.
+ * the provider says what it is. A model asked to think more gets room for its
+ * thinking's share on top (THINKING_SHARE).
  */
 export function replyTokenLimit(
   budget: Pick<ContextBudget, 'contextLength' | 'reserved' | 'used'>,
-  maxOutput?: number | null
+  maxOutput?: number | null,
+  thinking?: ThinkingLevel
 ): { limit: number; fallback: number } {
   const out = maxOutput && maxOutput > 0 ? maxOutput : Infinity
   const fallback = Math.max(1, Math.min(budget.reserved, out))
-  const wanted = Math.max(budget.reserved + THINKING_ROOM, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP))
+  const wanted = Math.max(budget.reserved + THINKING_ROOM, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP), withThinkingShare(budget.reserved, thinking))
   // What the window has left after the briefing, keeping 5% spare since providers count differently.
   const room = replyRoom(budget)
   if (room <= fallback) return { limit: fallback, fallback }

@@ -4,7 +4,7 @@
 // happened in plain words. No Electron imports, so it is tested against the
 // fake provider in tests/fake-provider.
 
-import type { ChatMessage, ProviderKind } from '@shared/types'
+import type { ChatMessage, ProviderKind, ThinkingLevel } from '@shared/types'
 import {
   describeFailure,
   extractProviderMessage,
@@ -95,6 +95,17 @@ export interface StreamChatOptions {
   fallbackMaxTokens?: number
   /** How to word the request at first; by default, what this session has learnt about the model. */
   startParams?: SentParams
+  /**
+   * A bigger reply limit to ask with once when the model finished without a visible word because its
+   * thinking used up the limit (most providers count thinking against max_tokens). A model seen doing
+   * that is asked with this limit from the start for the rest of the session.
+   */
+  thinkingRoom?: number
+  /**
+   * How much the model is asked to think (Settings › Models). Left out or 'auto', nothing is asked.
+   * A model that turns the level down is asked the next way, or not at all (see THINKING_EFFORTS).
+   */
+  thinking?: ThinkingLevel
 }
 
 /** How the request had to be worded for this model (some models reject max_tokens, temperature or top_p). */
@@ -116,8 +127,31 @@ export const knownParams = (t: Pick<ChatTarget, 'baseUrl'>, model: string): Sent
 export function rememberParams(t: Pick<ChatTarget, 'baseUrl'>, model: string, p: SentParams): void {
   paramsByModel.set(paramKey(t, model), p)
 }
+/**
+ * The efforts to ask with for each thinking level, in order: OpenRouter's `reasoning.effort`, or
+ * `reasoning_effort` for other servers. A model that can't turn its thinking off is asked for as
+ * little as it can ('low'); one that takes none of them is asked nothing.
+ */
+export const THINKING_EFFORTS: Record<ThinkingLevel, string[]> = { auto: [], off: ['none', 'low'], low: ['low'], medium: ['medium'], high: ['high'] }
+/** Efforts each model has turned down this session. */
+const rejectedEfforts = new Map<string, Set<string>>()
+/** Models seen using up their whole reply limit thinking. */
+const thinkers = new Set<string>()
+
+/** The effort to ask this model with for a level, as far as this session knows; null to ask nothing. */
+export const thinkingEffort = (t: Pick<ChatTarget, 'baseUrl'>, model: string, level: ThinkingLevel | undefined): string | null =>
+  THINKING_EFFORTS[level ?? 'auto'].find((e) => !rejectedEfforts.get(paramKey(t, model))?.has(e)) ?? null
+
+/** The level an effort stands for, for "What the AI saw". */
+export const levelOfEffort = (effort: string | null): Exclude<ThinkingLevel, 'auto'> | undefined =>
+  effort === 'none' ? 'off' : effort === 'low' || effort === 'medium' || effort === 'high' ? effort : undefined
+
 /** For tests. */
-export const forgetParams = (): void => paramsByModel.clear()
+export const forgetParams = (): void => {
+  paramsByModel.clear()
+  rejectedEfforts.clear()
+  thinkers.clear()
+}
 
 export interface StreamOutcome {
   status: 'complete' | 'stopped' | 'error'
@@ -138,16 +172,47 @@ export interface StreamOutcome {
   cutOff: boolean
   /** How the reply limit and creativity settings were finally sent. */
   sentParams: SentParams
+  /** The thinking effort finally asked for; null when nothing was asked. */
+  effort: string | null
 }
 
 type Attempt =
   | { kind: 'ok' }
   | { kind: 'stopped' }
-  | { kind: 'fail'; failure: Failure; retry: RetryCause | null; retryAfterMs: number | null; rejectedUsageOption?: boolean }
+  | {
+      kind: 'fail'
+      failure: Failure
+      retry: RetryCause | null
+      retryAfterMs: number | null
+      rejectedUsageOption?: boolean
+      rejectedThinkingOption?: boolean
+    }
 
 type UsageMode = 'openrouter' | 'stream_options' | 'none'
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+
+/** The visible text in a delta or message: a string, or (from some servers) a list of parts. */
+function visibleText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((p: unknown) => {
+      const part = (p ?? {}) as { type?: unknown; text?: unknown }
+      // 'text' or 'output_text'; never a thinking part.
+      return typeof part.text === 'string' && /text$/.test(String(part.type ?? 'text')) ? part.text : ''
+    })
+    .join('')
+}
+
+/** Whether a delta or message carries the model's thinking (which is never shown). */
+function hasThinking(d: Record<string, unknown>): boolean {
+  return (
+    (typeof d.reasoning === 'string' && d.reasoning !== '') ||
+    (typeof d.reasoning_content === 'string' && d.reasoning_content !== '') ||
+    (Array.isArray(d.reasoning_details) && d.reasoning_details.length > 0)
+  )
+}
 
 export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   const doFetch = o.fetchImpl ?? fetch
@@ -159,13 +224,24 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     promptTokens: null as number | null,
     completionTokens: null as number | null,
     cost: null as number | null,
-    finishReason: null as string | null
+    finishReason: null as string | null,
+    /** The model sent thinking (never shown). */
+    thought: false
   }
+  /** What an earlier try that came back empty already cost (a model that used up its limit thinking is still billed). */
+  const spent = { completionTokens: 0, cost: 0, any: false }
   let filter = new ThinkFilter()
   let usageMode: UsageMode = o.target.kind === 'openrouter' ? 'openrouter' : 'stream_options'
   let retries = 0
   let maxTokens = o.body.max_tokens
   let sent: SentParams = { ...(o.startParams ?? knownParams(o.target, o.body.model)) }
+  const modelKey = paramKey(o.target, o.body.model)
+  let effort = thinkingEffort(o.target, o.body.model, o.thinking)
+  let triedThinkingRoom = false
+  if (o.thinkingRoom && o.thinkingRoom > maxTokens && thinkers.has(modelKey)) {
+    maxTokens = o.thinkingRoom
+    triedThinkingRoom = true
+  }
 
   const emit = (raw: string): void => {
     const t = filter.push(raw)
@@ -189,13 +265,14 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       error,
       failure,
       promptTokens: s.promptTokens,
-      completionTokens: s.completionTokens,
-      cost: s.cost,
+      completionTokens: spent.any ? (s.completionTokens ?? 0) + spent.completionTokens : s.completionTokens,
+      cost: spent.any && (s.cost != null || spent.cost > 0) ? (s.cost ?? 0) + spent.cost : s.cost,
       finishReason: s.finishReason,
       retries,
       maxTokens,
       cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens'),
-      sentParams: { ...sent }
+      sentParams: { ...sent },
+      effort
     }
   }
 
@@ -212,12 +289,19 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     const choice = Array.isArray(j.choices) ? (j.choices[0] as Record<string, unknown> | undefined) : undefined
     if (choice) {
       const delta = choice.delta as Record<string, unknown> | undefined
-      // Only the visible reply counts; reasoning / thinking fields are ignored on purpose.
-      if (delta && typeof delta.content === 'string' && delta.content) emit(delta.content)
-      else if (!delta && choice.message && typeof (choice.message as Record<string, unknown>).content === 'string') {
-        emit((choice.message as Record<string, unknown>).content as string)
+      const part = delta ?? (choice.message as Record<string, unknown> | undefined)
+      // Only the visible reply counts; reasoning / thinking fields are never shown, only noted.
+      if (part && typeof part === 'object') {
+        const text = visibleText(part.content)
+        if (text) emit(text)
+        if (hasThinking(part)) s.thought = true
       }
       if (typeof choice.finish_reason === 'string' && choice.finish_reason) s.finishReason = choice.finish_reason
+    }
+    // A server that gave up before writing anything, without saying why: a server error, tried again.
+    if (!j.error && s.finishReason === 'error' && !s.text) {
+      const message = 'The model stopped with an error before writing anything.'
+      return { kind: 'fail', failure: { type: 'http', status: 502, message }, retry: { kind: 'status', status: 502 }, retryAfterMs: null }
     }
     if (j.error) {
       const e = j.error as Record<string, unknown> | string
@@ -230,6 +314,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   }
 
   const attemptOnce = async (): Promise<Attempt> => {
+    // How the last try ended says nothing about this one.
+    s.finishReason = null
+    s.thought = false
     const ctl = new AbortController()
     let timedOut = false
     const onAbort = (): void => ctl.abort()
@@ -254,6 +341,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       const payload: Record<string, unknown> = { ...rest, stream: true }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
+      // OpenRouter's own way of asking every model; other servers take OpenAI's.
+      if (effort && o.target.kind === 'openrouter') payload.reasoning = { effort }
+      else if (effort) payload.reasoning_effort = effort
       if (usageMode === 'openrouter') payload.usage = { include: true }
       if (usageMode === 'stream_options') payload.stream_options = { include_usage: true }
       let res: Response
@@ -277,8 +367,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         }
         if (o.signal.aborted) return { kind: 'stopped' }
         const message = extractProviderMessage(bodyText)
-        const rejectedUsageOption =
-          usageMode === 'stream_options' &&
+        const unexplained =
           (res.status === 400 || res.status === 422) &&
           !looksLikeContextTooLong(message) &&
           !looksLikeReplyLimitRejected(res.status, message) &&
@@ -289,7 +378,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
           failure: { type: 'http', status: res.status, message },
           retry: { kind: 'status', status: res.status },
           retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
-          rejectedUsageOption
+          rejectedUsageOption: unexplained && usageMode === 'stream_options',
+          rejectedThinkingOption: unexplained && effort != null
         }
       }
 
@@ -370,8 +460,38 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         s.text += rest
         o.onText(rest)
       }
-      if (!s.text.trim()) return finish('error', { type: 'empty' })
+      if (!s.text.trim()) {
+        // Nothing to show. When the model was thinking, or stopped at the reply limit, its thinking
+        // used up the limit: ask once more with room to think and still answer, and remember the model.
+        const thinking = s.thought || filter.sawThinking || s.finishReason === 'length' || s.finishReason === 'max_tokens'
+        if (thinking && !triedThinkingRoom && o.thinkingRoom && o.thinkingRoom > maxTokens) {
+          triedThinkingRoom = true
+          thinkers.add(modelKey)
+          maxTokens = o.thinkingRoom
+          spent.any = true
+          spent.completionTokens += s.completionTokens ?? 0
+          spent.cost += s.cost ?? 0
+          Object.assign(s, { text: '', completionTokens: null, cost: null, finishReason: null, thought: false })
+          filter = new ThinkFilter()
+          continue
+        }
+        return finish('error', thinking ? { type: 'empty', thinking: true } : { type: 'empty' })
+      }
       return finish('complete', null)
+    }
+    // A model that can't take the thinking level the way it was asked: ask the next way (for Off,
+    // 'none' then 'low'), or not at all, and remember it for this model. A server that may be turning
+    // down the usage option instead is asked without that first, unless it names the thinking.
+    if (
+      r.rejectedThinkingOption &&
+      effort &&
+      (!r.rejectedUsageOption || triedWithoutUsage || (r.failure.type === 'http' && /reason|effort|think/i.test(r.failure.message)))
+    ) {
+      const turnedDown = rejectedEfforts.get(modelKey) ?? new Set<string>()
+      turnedDown.add(effort)
+      rejectedEfforts.set(modelKey, turnedDown)
+      effort = thinkingEffort(o.target, o.body.model, o.thinking)
+      continue
     }
     // Some models (OpenAI's reasoning models, for one) want the reply limit under another
     // name, or set their own creativity. Ask once more the way they want; remember it.

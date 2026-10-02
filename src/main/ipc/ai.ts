@@ -58,7 +58,8 @@ export const aiHandlers: Handlers<AiMethods> = {
   previewContext: async (sceneId, options) => (await assemble(sceneId, options)).preview,
 
   startDraft: async (sceneId, options) => {
-    const choice = getSettings().models.writer
+    const settings = getSettings()
+    const choice = settings.models.writer
     if (!choice) throw new UserError('Choose a writer model first, in Settings › Models.', 'no-writer-model')
     const provider = providers.getProvider(choice.providerId)
     if (!provider) throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings › Models.", 'no-writer-model')
@@ -104,6 +105,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         preview,
         provider: target,
         model: choice,
+        thinking: settings.thinking?.writer ?? 'auto',
         // The version of each entry actually sent, for "What the AI saw".
         entryVersions: sentEntryVersions(input.memory, preview.blocks),
         emit,
