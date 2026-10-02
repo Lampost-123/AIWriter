@@ -9,7 +9,17 @@ import { announceDelete } from '@/lib/undoDelete'
 import { createEntry } from '../entryActions'
 import { filterEntries, kindNoun, normalizeName } from '../entryLogic'
 import { KIND_ICONS } from '../kindIcons'
-import { createKindsFor, relationPlaceholder, relationshipInput, sourceNote, type RelationView } from '../memoryLogic'
+import {
+  createKindsFor,
+  mergeRelationEdit,
+  relationEditOf,
+  relationPlaceholder,
+  saveRelationOverNewer,
+  sourceNote,
+  type RelationEdit,
+  type RelationshipChange,
+  type RelationView
+} from '../memoryLogic'
 import { AutoTextarea } from '../parts/AutoTextarea'
 import { Combobox, type ComboOption } from '../parts/Combobox'
 import { useAutosave } from '../parts/useAutosave'
@@ -182,7 +192,9 @@ export function RelationshipsSection({
   )
 }
 
-type Edit = { type: string; selfFeels: string; otherFeels: string }
+type Edit = RelationEdit
+
+const sameEdit = (a: Edit, b: Edit): boolean => a.type === b.type && a.selfFeels === b.selfFeels && a.otherFeels === b.otherFeels
 
 /** One relationship, edited in place and saved as Adam types. */
 const RelationshipRow = memo(function RelationshipRow({
@@ -204,30 +216,53 @@ const RelationshipRow = memo(function RelationshipRow({
   onRemoved: (v: RelationView) => void
   onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void
 }): React.JSX.Element {
-  const [edit, setEdit] = useState<Edit>({ type: view.type, selfFeels: view.selfFeels, otherFeels: view.otherFeels })
+  const [edit, setEdit] = useState<Edit>(() => relationEditOf(view, view.change))
   const viewRef = useRef(view)
   viewRef.current = view
-  // The newest saved state this row knows of, and whether Adam has typed since it was saved.
+  // The newest saved state this row knows of, the relationship as it was then (what Adam's typing
+  // started from), and whether he has typed since it was saved.
   const known = useRef(view.change.updatedAt)
+  const base = useRef<Edit>(relationEditOf(view, view.change))
   const pending = useRef<Edit | null>(null)
+  const editRef = useRef(edit)
+  editRef.current = edit
   const typeRef = useRef<HTMLInputElement>(null)
 
   const selfName = nameOf(self)
   const otherName = nameOf(other)
+  const scheduleRef = useRef<(e: Edit) => void>(() => {})
   const autosave = useAutosave<Edit>(
     async (e) => {
-      const saved = await api.updateChange(viewRef.current.change.id, relationshipInput(viewRef.current, e))
+      // The memory may have changed the relationship since (how the other one feels, say): only the boxes
+      // Adam changed are written over it.
+      const { saved, now } = await saveRelationOverNewer(viewRef.current, e, base.current, {
+        get: async (c) =>
+          (await api.listChanges(c.entryId)).find((x): x is RelationshipChange => x.id === c.id && x.kind === 'relationship') ?? null,
+        put: (id, input) => api.updateChange(id, input)
+      })
+      base.current = now
       if (saved.updatedAt > known.current) known.current = saved.updatedAt
       if (pending.current === e) pending.current = null
+      // What the memory changed shows, in every box Adam hasn't typed in since this save began.
+      const shown = mergeRelationEdit(e, editRef.current, now)
+      if (sameEdit(shown, editRef.current)) return
+      editRef.current = shown
+      setEdit(shown)
+      if (pending.current) {
+        pending.current = shown
+        scheduleRef.current(shown)
+      }
     },
     { what: `the relationship with ${otherName}` }
   )
+  scheduleRef.current = autosave.schedule
 
   // A newer copy loaded from elsewhere (the memory keeper, another page) shows when nothing is waiting to be saved.
   useEffect(() => {
     if (pending.current || view.change.updatedAt <= known.current) return
     known.current = view.change.updatedAt
-    setEdit({ type: view.type, selfFeels: view.selfFeels, otherFeels: view.otherFeels })
+    base.current = relationEditOf(view, view.change)
+    setEdit(base.current)
   }, [view])
 
   // Just added from the picker: straight into its type, ready to type "sister" or "rival".
@@ -237,8 +272,6 @@ const RelationshipRow = memo(function RelationshipRow({
     onFocused()
   }, [focus, onFocused])
 
-  const editRef = useRef(edit)
-  editRef.current = edit
   const change = (patch: Partial<Edit>): void => {
     const next = { ...editRef.current, ...patch }
     editRef.current = next
