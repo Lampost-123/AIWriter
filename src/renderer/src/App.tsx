@@ -18,6 +18,15 @@ import { SettingsView } from '@/features/settings/SettingsView'
 import { WhatTheAISaw } from '@/features/generate/WhatTheAISaw'
 import { WhatChanged } from '@/features/memory/WhatChanged'
 import { installMemoryEvents } from '@/features/memory/events'
+import { CodexView } from '@/features/codex/CodexView'
+import { BuilderView } from '@/features/builder/BuilderView'
+import { TimelineView } from '@/features/timeline/TimelineView'
+import { RelationshipMap } from '@/features/map/RelationshipMap'
+import { ThreadsBoard } from '@/features/threads/ThreadsBoard'
+import { StorySettings } from '@/features/stories/StorySettings'
+import { NewStoryDialog } from '@/features/stories/NewStoryDialog'
+import { CommandPalette } from '@/features/palette/CommandPalette'
+import { ShortcutsList } from '@/features/palette/ShortcutsList'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -150,6 +159,12 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'settings' && <SettingsView tab={view.tab} />}
               {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
               {view.kind === 'memory' && <WhatChanged sceneId={view.sceneId} />}
+              {view.kind === 'codex' && <CodexView />}
+              {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
+              {view.kind === 'timeline' && <TimelineView />}
+              {view.kind === 'map' && <RelationshipMap />}
+              {view.kind === 'threads' && <ThreadsBoard />}
+              {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
             </div>
           ) : null}
         </main>
@@ -168,6 +183,9 @@ function Workspace(): React.JSX.Element {
           </ResizablePane>
         ) : null}
       </div>
+      <CommandPalette />
+      <ShortcutsList />
+      <NewStoryDialog />
     </>
   )
 }

@@ -185,6 +185,50 @@ approval step and no Review inbox.
 Shared files (`src/shared/*`, `migrations.ts`, `ARCHITECTURE.md`) change only additively; say so in
 the commit message.
 
+## Milestone 3: builders and views
+
+What it adds (spec, Build plan 3, plus the multi-story screens milestone 2 left for it): the character
+builder (Quick start, Flesh out, Give me options, Interview) and lighter builders for places, groups and
+items; portraits; the codex; entry pages with an as-of slider; the timeline; the relationship map; the
+plot threads board; names underlined in the manuscript with hover cards and the entry in the side panel;
+the Cast tab; Add to memory; search and the command palette (Ctrl+K); the shortcuts list (?); the New
+story dialog, story settings and the automatic story flows. The data model stays frozen: everything here
+is built on migrations 1 and 2.
+
+- **Portraits** are kept in the world's database (`entries.image`, a `data:` URL of a picture the
+  interface has made small, `lib/image.ts`), so backups, restores and the trash keep them. Lists never
+  carry the picture: `Entry.image` is its address, `aiwrite-image://entry/<id>?v=<version>`, served
+  by `src/main/portraits.ts`. Show one with `features/views/Portrait.tsx`; let Adam change it with
+  `PortraitDrop.tsx`.
+- **As of a point.** `AsOf` (shared/types.ts) is a story's start, the end of a scene (its own changes
+  included) or a story's end, optionally seen along another story's line (`seenIn`, the "As seen in"
+  picker). `memory/asOf.ts` works it out with the same line as drafting: `memoryAt`, `entryAsOf`,
+  `asOfStops`. The interface has `useAsOfStops`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
+  `features/views/`.
+- **Contracts.** Each part declares its calls, events and types in its own file in
+  `src/shared/contracts/`; `AppApi` and `AppEvents` extend them. Each has its own handler file in
+  `src/main/ipc/` (same name), registered in `ipc/index.ts`.
+- **Screens.** New views in `lib/store.ts`: `codex`, `builder`, `timeline`, `map`, `threads`, `story`.
+  `peekEntry(id)` shows an entry in the scene panel without leaving the scene; `setNewStoryOpen` opens
+  the New story dialog. The command palette, the shortcuts list and the New story dialog are mounted
+  once in the workspace (App.tsx).
+
+### Who builds what (parallel build, milestone 3)
+
+| Part | Owns |
+|---|---|
+| Builder | `contracts/builder.ts`, `ipc/builder.ts`, `src/main/builder/`, `features/builder/`, the fake provider's builder replies |
+| Entry views | `contracts/entryViews.ts`, `ipc/entryViews.ts`, `db/entryViews.ts`, `features/codex/`, `features/world/`, `features/views/`, `features/binder/WorldSection.tsx` |
+| World views | `contracts/worldViews.ts`, `ipc/worldViews.ts`, `db/worldViews.ts`, `src/main/worldViews/`, `features/timeline/`, `features/map/`, `features/threads/` |
+| Manuscript | `contracts/manuscript.ts`, `ipc/manuscript.ts`, `db/manuscript.ts`, `features/editor/`, `features/cast/`, `features/peek/`, `features/inspector/`, `layout/Inspector.tsx`, `layout/fitPanels.ts`, the side panels' sizes in App.tsx |
+| Search | `contracts/search.ts`, `ipc/search.ts`, `db/search.ts`, `features/palette/`, `lib/shortcuts.ts`, `layout/TopBar.tsx` |
+| Stories | `contracts/stories.ts`, `ipc/stories.ts`, `db/stories.ts`, `features/stories/`, `features/binder/StorySwitcher.tsx` |
+| Story flows | `contracts/storyFlows.ts`, `ipc/storyFlows.ts`, `src/main/storyFlows/`, the fake provider's story-flow replies |
+
+Each part also owns its own tests (`*.test.ts` beside its modules, `tests/e2e/<part>.spec.ts`). Shared
+files (`src/shared/types.ts`, `api.ts`, `fields.ts`, `defaults.ts`, `lib/store.ts`, `App.tsx`,
+`migrations.ts`, this file) change only additively, and only at integration.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
