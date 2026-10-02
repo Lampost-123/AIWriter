@@ -116,10 +116,80 @@ export const LORE_GROUPS: FieldGroup[] = [
   }
 ]
 
+export const GROUP_GROUPS: FieldGroup[] = [
+  {
+    id: 'group',
+    label: 'Group',
+    fields: [
+      { key: 'category', label: 'What kind of group', type: 'line', placeholder: 'Family, guild, faction, order, nation' },
+      { key: 'goals', label: 'Goals', type: 'text', placeholder: 'What they want, and what they will do to get it' },
+      { key: 'ranks', label: 'Ranks and titles', type: 'text', placeholder: 'Who leads, who follows, and what they are called' },
+      { key: 'rivals', label: 'Rivals and allies', type: 'text' },
+      { key: 'customs', label: 'Symbols and customs', type: 'text', optionalInShort: true },
+      { key: 'history', label: 'History', type: 'text', optionalInShort: true }
+    ]
+  }
+]
+
+export const ITEM_GROUPS: FieldGroup[] = [
+  {
+    id: 'item',
+    label: 'Item',
+    fields: [
+      { key: 'category', label: 'What kind of item', type: 'line', placeholder: 'Weapon, heirloom, letter, key' },
+      { key: 'powers', label: 'Powers or uses', type: 'text' },
+      { key: 'limits', label: 'Limits and costs', type: 'text' },
+      { key: 'origin', label: 'Where it came from', type: 'text', optionalInShort: true }
+    ]
+  }
+]
+
+export const EVENT_GROUPS: FieldGroup[] = [
+  {
+    id: 'event',
+    label: 'Event',
+    fields: [
+      { key: 'when', label: 'When it happened', type: 'line', placeholder: "Day 12, Year 3, or 'the winter before the war'" },
+      { key: 'happened', label: 'What happened', type: 'text' },
+      { key: 'aftermath', label: 'What came of it', type: 'text' },
+      { key: 'remembered', label: 'How people remember it', type: 'text', optionalInShort: true }
+    ]
+  }
+]
+
+export const THREAD_GROUPS: FieldGroup[] = [
+  {
+    id: 'thread',
+    label: 'Plot thread',
+    fields: [
+      { key: 'promise', label: "What's promised to the reader", type: 'text', placeholder: 'The question the reader is waiting to see answered' },
+      { key: 'clues', label: 'Clues given so far', type: 'text', optionalInShort: true },
+      { key: 'payoff', label: 'How it should pay off', type: 'text', optionalInShort: true }
+    ]
+  }
+]
+
+export const GLOSSARY_GROUPS: FieldGroup[] = [
+  {
+    id: 'glossary',
+    label: 'Term',
+    fields: [
+      { key: 'pronunciation', label: 'How to say it', type: 'line', placeholder: 'KEL-oh-ran' },
+      { key: 'spelling', label: 'Notes on spelling', type: 'text', placeholder: "Always capitalised. The plural is Kel'oran, never Kel'orans." },
+      { key: 'usage', label: 'Who uses it, and when', type: 'text', optionalInShort: true }
+    ]
+  }
+]
+
 export const FIELD_GROUPS: Partial<Record<EntryKind, FieldGroup[]>> = {
   character: CHARACTER_GROUPS,
   place: PLACE_GROUPS,
-  lore: LORE_GROUPS
+  group: GROUP_GROUPS,
+  item: ITEM_GROUPS,
+  lore: LORE_GROUPS,
+  event: EVENT_GROUPS,
+  thread: THREAD_GROUPS,
+  glossary: GLOSSARY_GROUPS
 }
 
 export const KIND_LABELS: Record<EntryKind, { one: string; many: string }> = {
@@ -135,3 +205,6 @@ export const KIND_LABELS: Record<EntryKind, { one: string; many: string }> = {
 
 /** Kinds that have screens in milestone 1. */
 export const M1_KINDS: EntryKind[] = ['character', 'place', 'lore']
+
+/** Every kind, in the order the world's lists show them (milestone 2 on). */
+export const ENTRY_KINDS: EntryKind[] = ['character', 'place', 'group', 'item', 'lore', 'event', 'thread', 'glossary']

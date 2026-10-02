@@ -35,7 +35,8 @@ export function differsByDigit(a: string, b: string): boolean {
 }
 
 /** Names the app gives new entries before Adam names them. They never count as duplicates. */
-export const isPlaceholderName = (name: string): boolean => /^(unnamed|new (character|place|lore))$/.test(normalizeName(name))
+export const isPlaceholderName = (name: string): boolean =>
+  /^(unnamed|new (character|place|group|item|lore|event|plot thread|term))$/.test(normalizeName(name))
 
 export interface NearDuplicate {
   entry: Named
@@ -191,12 +192,23 @@ export function filledCount(fields: Record<string, string>, keys: string[]): num
   return keys.filter((k) => (fields[k] ?? '').trim()).length
 }
 
-/** "a character", "a place", "lore": for sentences. */
+/** "character", "place", "lore entry", "plot thread", "term": for sentences. */
 export function kindNoun(kind: EntryKind): string {
   if (kind === 'lore') return 'lore entry'
   if (kind === 'thread') return 'plot thread'
   if (kind === 'glossary') return 'term'
   return kind
+}
+
+/** "a character", "an item", "an event": the noun with its article. */
+export const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`
+
+/** "characters", "lore", "plot threads", "terms": the plural for sentences such as "No terms yet". */
+export function kindNounMany(kind: EntryKind): string {
+  if (kind === 'lore') return 'lore'
+  if (kind === 'thread') return 'plot threads'
+  if (kind === 'glossary') return 'terms'
+  return `${kind}s`
 }
 
 /**
