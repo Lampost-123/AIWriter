@@ -14,6 +14,10 @@ describe('releaseNotesText', () => {
     expect(releaseNotesText(undefined)).toBe('')
   })
 
+  it('keeps each line when the notes have Windows line endings', () => {
+    expect(releaseNotesText('New things.\r\n\r\n- One\r\n- Two\r\n')).toBe('New things.\n• One\n• Two')
+  })
+
   it('keeps the note short, ending on a whole word', () => {
     const long = Array.from({ length: 200 }, (_, i) => `word${i}`).join(' ')
     const out = releaseNotesText(long, 50)

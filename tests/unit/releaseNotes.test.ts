@@ -11,7 +11,13 @@ const { version } = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8
 
 describe('release notes', () => {
   it("are this version's notes", () => {
-    expect(notes.split('\n')[0].replace(/\r$/, '')).toBe(`<!-- version: ${version} -->`)
+    expect(notes.split('\n')[0]).toBe(`<!-- version: ${version} -->`)
+  })
+
+  // Copies of 0.1.0 run lines with Windows line endings together, so the file keeps plain ones
+  // even in a Windows checkout (.gitattributes).
+  it('keep plain line endings', () => {
+    expect(notes).not.toContain('\r')
   })
 
   it('show in full under "What\'s new", without the version line', () => {

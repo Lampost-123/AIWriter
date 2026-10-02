@@ -1,0 +1,3 @@
+# The release notes go into latest.yml as they are checked out, and copies of 0.1.0 run
+# Windows line endings together under "What's new". Keep plain ones everywhere.
+build/release-notes.md text eol=lf
