@@ -1,0 +1,61 @@
+# Publishes a release: push a tag like v0.2.0 (matching "version" in package.json), or run
+# this workflow by hand. The installer, latest.yml and the blockmap go to a GitHub Release,
+# which is where installed copies of AI Write look for updates.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build and publish the Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} doesn't match package.json version $version. Bump the version first."
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: |
+          npm run typecheck
+          npx vitest run
+
+      - name: Build and publish
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep a copy of the installer on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Write-Windows-installer
+          path: |
+            release/*.exe
+            release/latest.yml
+          if-no-files-found: error

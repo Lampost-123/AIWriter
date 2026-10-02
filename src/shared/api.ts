@@ -4,6 +4,7 @@
 
 import type {
   AppInfo,
+  BackupFolderStatus,
   BackupInfo,
   Chapter,
   ContextPreview,
@@ -117,6 +118,11 @@ export interface AppApi {
   backupNow(): Promise<BackupInfo>
   /** Restores a backup of the open world, backing up the current state first. */
   restoreBackup(id: string): Promise<World>
+  /** Opens a folder picker for the optional second backup folder (e.g. inside Dropbox). Returns the folder, or null if cancelled. */
+  chooseBackupFolder(): Promise<string | null>
+  /** Stops copying backups to the second backup folder (copies already there are left alone). */
+  clearBackupFolder(): Promise<void>
+  getBackupFolderStatus(): Promise<BackupFolderStatus>
 
   // ----- Updates -----
   getUpdateStatus(): Promise<UpdateStatus>

@@ -1,0 +1,87 @@
+# Installers for AI Write (electron-builder). `npm run dist:win` builds the Windows installer
+# into release/; the release workflow (.github/workflows/release.yml) publishes it to GitHub
+# Releases, where the installed app looks for updates.
+appId: com.lampost.aiwrite
+productName: AI Write
+copyright: Copyright © 2026 Adam
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the built app goes in: electron-vite bundles everything except the runtime
+# dependencies (better-sqlite3, electron-updater, js-tiktoken), which electron-builder adds
+# from node_modules on its own.
+files:
+  - out/**
+  - package.json
+  - resources/**
+  - '!**/*.map'
+  - '!**/*.{test,spec}.{ts,js,mjs,cjs}'
+  # better-sqlite3 ships ready-made native builds in prebuilds/; its C sources aren't needed.
+  - '!node_modules/better-sqlite3/{deps,src,build}/**'
+  - '!node_modules/better-sqlite3/binding.gyp'
+
+# better-sqlite3's native code can't load from inside the asar archive.
+asarUnpack:
+  - node_modules/better-sqlite3/**/*.node
+
+# The N-API prebuilds already work in Electron, so nothing is compiled while packaging.
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+
+# Chromium's own interface strings: English is enough for the few it shows (menus, spellcheck).
+electronLanguages:
+  - en-GB
+  - en-US
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  # Only the Windows build of the database engine goes into the Windows installer.
+  files:
+    - '!node_modules/better-sqlite3/prebuilds/{darwin,linux,linuxmusl}-*.node'
+    - '!node_modules/better-sqlite3/prebuilds/win32-arm64.node'
+    - '!node_modules/better-sqlite3/lib/{darwin,linux,linuxmusl}-*.js'
+
+nsis:
+  # One click: no wizard, no admin prompt, installs for Adam only and opens straight away.
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AI Write
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  artifactName: AI-Write-Setup-${version}.exe
+
+# For later: a Mac build (needs signing and notarising before auto-update works there).
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: build/icon.png
+  category: public.app-category.productivity
+  files:
+    - '!node_modules/better-sqlite3/prebuilds/{win32,linux,linuxmusl}-*.node'
+dmg:
+  artifactName: AI-Write-${version}-${arch}.dmg
+
+# Only used to check packaging on Linux (`npm run dist:dir`); not shipped.
+linux:
+  target: [dir]
+  icon: build/icon.png
+  category: Office
+  files:
+    - '!node_modules/better-sqlite3/prebuilds/{win32,darwin}-*.node'
+
+publish:
+  provider: github
+  owner: lampost-123
+  repo: aiwriter
+  # Publish straight away (not as a draft), so installed copies can see the new version.
+  releaseType: release

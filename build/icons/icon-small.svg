@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#557aa6" />
+      <stop offset="0.55" stop-color="#3d5a80" />
+      <stop offset="1" stop-color="#283f5e" />
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.3" cy="0.12" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="pageL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fcf8ee" />
+      <stop offset="0.78" stop-color="#fcf8ee" />
+      <stop offset="1" stop-color="#eee2c6" />
+    </linearGradient>
+    <linearGradient id="pageR" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0" stop-color="#f8f1e1" />
+      <stop offset="0.78" stop-color="#f8f1e1" />
+      <stop offset="1" stop-color="#eee2c6" />
+    </linearGradient>
+    <radialGradient id="spark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff1c9" />
+      <stop offset="0.55" stop-color="#ffd47a" />
+      <stop offset="1" stop-color="#f2b84b" />
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f2b84b" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#f2b84b" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#0b1626" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#0b1626" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)" />
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#sheen)" />
+  <g transform="translate(512 30) scale(1.12) translate(-512 0)">
+    <ellipse cx="512" cy="826" rx="350" ry="40" fill="url(#shadow)" />
+    <path d="M 512 506 C 446 466 326 446 176 462 L 176 768 C 326 752 446 770 512 814 Z" fill="#1c304b" /><path d="M 512 506 C 578 466 698 446 848 462 L 848 768 C 698 752 578 770 512 814 Z" fill="#1c304b" />
+    <path d="M 512 492 C 446 448 334 426 196 440 L 196 744 C 334 730 446 750 512 796 Z" fill="#dccaa3" /><path d="M 512 492 C 578 448 690 426 828 440 L 828 744 C 690 730 578 750 512 796 Z" fill="#dccaa3" />
+    <path d="M 512 470 C 446 424 340 400 214 414 L 214 718 C 340 704 446 726 512 772 Z" fill="url(#pageL)" /><path d="M 512 470 C 578 424 684 400 810 414 L 810 718 C 684 704 578 726 512 772 Z" fill="url(#pageR)" />
+    <path d="M 512 470 L 512 772" stroke="#cdb98f" stroke-width="10" stroke-linecap="round" />
+    <g fill="none" stroke="#3d5a80" stroke-opacity="0.26" stroke-width="13" stroke-linecap="round"></g>
+  </g>
+  
+  <g transform="translate(0 30)">
+    <path d="M 512 82 Q 545.6 216.4 680 250 Q 545.6 283.6 512 418 Q 478.4 283.6 344 250 Q 478.4 216.4 512 82 Z" fill="url(#spark)" />
+    
+  </g>
+</svg>
