@@ -41,6 +41,9 @@ export const CastPicker = memo(function CastPicker({
   const box = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const listId = `${id ?? 'cast'}-options`
+  // The cast as it is now, for after an await (a chip may have been added or removed meanwhile).
+  const valueRef = useRef(value)
+  valueRef.current = value
 
   const byId = useMemo(() => new Map(characters.map((c) => [c.id, c])), [characters])
   const chosen = value.map((v) => byId.get(v)).filter((c): c is Entry => !!c)
@@ -75,7 +78,7 @@ export const CastPicker = memo(function CastPicker({
       setBusy(true)
       const made = await onCreate(o.name)
       setBusy(false)
-      if (made) onChange([...value, made.id])
+      if (made && !valueRef.current.includes(made.id)) onChange([...valueRef.current, made.id])
     }
     setQuery('')
     setHighlight(0)
@@ -155,6 +158,8 @@ export const CastPicker = memo(function CastPicker({
               setDismissed(false)
             }}
             onBlur={() => setFocused(false)}
+            // Clicking the box again brings back a list that Escape closed.
+            onMouseDown={() => setDismissed(false)}
             onKeyDown={onKeyDown}
             className="h-6 min-w-[80px] flex-1 bg-transparent px-1 text-[13.5px] text-fg placeholder:text-faint focus:outline-none"
           />
@@ -169,6 +174,8 @@ export const CastPicker = memo(function CastPicker({
           onInteractOutside={(e) => {
             if (box.current?.contains(e.target as Node)) e.preventDefault()
           }}
+          // Keep focus in the text box while using the list's scroll bar, so the list stays open.
+          onMouseDown={(e) => e.preventDefault()}
           className="z-50 max-h-[260px] w-[var(--radix-popover-trigger-width)] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
         >
           <div id={listId} role="listbox" aria-label="Characters">
@@ -191,8 +198,8 @@ export const CastPicker = memo(function CastPicker({
                   </span>
                 ) : (
                   <>
-                    <Plus size={14} className="shrink-0 text-accent" />
-                    <span className="min-w-0 flex-1 truncate text-fg">
+                    <Plus size={14} className="shrink-0 self-start mt-[3px] text-accent" />
+                    <span className="min-w-0 flex-1 break-words text-fg">
                       Add "{o.name}" as a new character
                     </span>
                   </>

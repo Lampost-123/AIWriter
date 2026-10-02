@@ -9,7 +9,7 @@ import { useApp } from '@/lib/store'
 import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
-import { filterEntries, kindNoun, placePath } from './entryLogic'
+import { filterEntries, keepRowOrder, kindNoun, placePath } from './entryLogic'
 import { useSlow } from './parts/useSlow'
 
 const ICONS: Partial<Record<EntryKind, typeof Users>> = { character: Users, place: MapPin, lore: BookMarked }
@@ -54,6 +54,8 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
   // Which change of the world bible the list reflects; while it lags, a just-restored entry may be missing.
   const [loadedRev, setLoadedRev] = useState(-1)
   const loadSeq = useRef(0)
+  // Where deleted rows stood, so Undo puts them back in the same place rather than at the end.
+  const removedAt = useRef(new Map<ID, number>())
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -72,12 +74,8 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
           })
           if (!prev) return next
           // Rows stay where they are while this screen is open, so renaming one doesn't make it jump.
-          // New ones go at the end. The list is sorted by name again next time the screen opens.
-          const pos = (e: Entry): number => before.get(e.id)?.i ?? Number.MAX_SAFE_INTEGER
-          return next
-            .map((e, j) => ({ e, j }))
-            .sort((a, b) => pos(a.e) - pos(b.e) || a.j - b.j)
-            .map((x) => x.e)
+          // The list is sorted by name again next time the screen opens.
+          return keepRowOrder(prev, next, removedAt.current)
         })
         setError(null)
         setLoadedRev(rev)
@@ -102,11 +100,13 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
 
   const select = useCallback((id: ID | null) => navigate({ kind: 'entries', entryKind: kind, entryId: id }), [navigate, kind])
 
-  // Keep the selected row in view when it moves (renamed, or chosen with the arrow keys).
+  // Keep the selected row in view when another one is chosen (arrow keys, New, Undo) or the
+  // search moves it. Not on every save or keystroke, so a list Adam has scrolled stays put.
+  const selectedIndex = entryId ? shown.findIndex((e) => e.id === entryId) : -1
   useLayoutEffect(() => {
-    if (!entryId) return
+    if (!entryId || selectedIndex < 0) return
     listRef.current?.querySelector(`[data-entry="${CSS.escape(entryId)}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [entryId, shown])
+  }, [entryId, selectedIndex])
 
   const create = async (name?: string): Promise<void> => {
     if (creating) return
@@ -129,7 +129,12 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
     (e: Entry) => {
       const i = shown.findIndex((x) => x.id === e.id)
       const next = shown[i + 1] ?? shown[i - 1] ?? null
-      setAll((prev) => prev?.filter((x) => x.id !== e.id) ?? prev)
+      setAll((prev) => {
+        if (!prev) return prev
+        const at = prev.findIndex((x) => x.id === e.id)
+        if (at >= 0) removedAt.current.set(e.id, at)
+        return prev.filter((x) => x.id !== e.id)
+      })
       select(next?.id ?? null)
     },
     [shown, select]
@@ -206,13 +211,22 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex w-[34%] min-w-[220px] max-w-[320px] shrink-0 flex-col border-r border-line bg-surface">
+      <div className="@container flex w-[34%] min-w-[220px] max-w-[320px] shrink-0 flex-col border-r border-line bg-surface">
         <div className="flex h-12 shrink-0 items-center gap-2 pl-4 pr-2">
-          <h1 className="text-[15px] font-semibold text-fg">{labels.many}</h1>
+          <h1 className="min-w-0 truncate text-[15px] font-semibold text-fg">{labels.many}</h1>
           {all !== null ? <span className="text-[12px] tabular-nums text-faint">{list.length}</span> : null}
           <div className="flex-1" />
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} loading={creating} onClick={() => void create()}>
-            New {kind === 'lore' ? 'lore' : noun}
+          {/* In a narrow list the button just says "New", so it never spills over the form. */}
+          <Button
+            size="sm"
+            variant="primary"
+            icon={<Plus size={14} />}
+            loading={creating}
+            aria-label={`New ${kind === 'lore' ? 'lore' : noun}`}
+            onClick={() => void create()}
+          >
+            <span className="@[272px]:hidden">New</span>
+            <span className="hidden @[272px]:inline">New {kind === 'lore' ? 'lore' : noun}</span>
           </Button>
         </div>
         <div className="px-3 pb-2">

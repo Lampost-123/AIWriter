@@ -71,9 +71,14 @@ export const StyleFields = memo(function StyleFields({
 
   // World: an empty field shows the preference in effect underneath. Story: as a placeholder.
   const textProps = (key: StyleTextKey, fallback: string): { placeholder: string; hint: ReactNode } => {
-    const from = value[key].trim() ? null : inherited(key, short(below[key]))
+    const set = !!value[key].trim()
+    const from = set ? null : inherited(key, short(below[key]))
     if (mode === 'story') return { placeholder: from ?? fallback, hint: null }
-    return { placeholder: fallback, hint: from ? <span className="italic">{from}</span> : null }
+    // Once the world sets its own value, the line stays and says what it replaces,
+    // so typing the first letter doesn't make the fields below jump.
+    const replaces = set && below.sources[key] === 'prefs' && below[key] ? `Instead of my preference: ${short(below[key])}` : null
+    const line = from ?? replaces
+    return { placeholder: fallback, hint: line ? <span className="italic">{line}</span> : null }
   }
 
   const spellingFallback =

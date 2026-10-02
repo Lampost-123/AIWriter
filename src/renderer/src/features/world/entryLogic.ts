@@ -198,3 +198,23 @@ export function kindNoun(kind: EntryKind): string {
   if (kind === 'glossary') return 'term'
   return kind
 }
+
+/**
+ * Orders a freshly loaded list like the one on screen, so rows don't jump while
+ * Adam works: rows already shown keep their places, a row brought back by Undo
+ * returns to where it stood (`removedAt`: its index in the list it was removed
+ * from), and anything else goes at the end in the loaded order.
+ */
+export function keepRowOrder<T extends { id: ID }>(shown: T[], loaded: T[], removedAt: ReadonlyMap<ID, number> = new Map()): T[] {
+  const at = new Map(shown.map((e, i) => [e.id, i]))
+  const pos = (e: T): number => {
+    const i = at.get(e.id)
+    if (i !== undefined) return i
+    const was = removedAt.get(e.id)
+    return was !== undefined ? was - 0.5 : Number.MAX_SAFE_INTEGER
+  }
+  return loaded
+    .map((e, j) => ({ e, j, p: pos(e) }))
+    .sort((a, b) => a.p - b.p || a.j - b.j)
+    .map((x) => x.e)
+}

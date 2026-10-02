@@ -3,6 +3,7 @@ import type { EntryKind } from '@shared/types'
 import {
   filledCount,
   filterEntries,
+  keepRowOrder,
   findNearDuplicates,
   isPlaceholderName,
   normalizeName,
@@ -184,5 +185,30 @@ describe('filterEntries', () => {
 describe('filledCount', () => {
   it('counts only fields with text', () => {
     expect(filledCount({ a: 'x', b: ' ', c: '' }, ['a', 'b', 'c', 'd'])).toBe(1)
+  })
+})
+
+describe('keepRowOrder', () => {
+  const rows = (...ids: string[]): { id: string }[] => ids.map((id) => ({ id }))
+  const ids = (l: { id: string }[]): string[] => l.map((x) => x.id)
+
+  it('keeps rows where they were on screen, whatever order they load in', () => {
+    expect(ids(keepRowOrder(rows('c', 'a', 'b'), rows('a', 'b', 'c')))).toEqual(['c', 'a', 'b'])
+  })
+
+  it('puts new rows at the end, in the order they loaded', () => {
+    expect(ids(keepRowOrder(rows('b', 'a'), rows('a', 'b', 'd', 'c')))).toEqual(['b', 'a', 'd', 'c'])
+  })
+
+  it('drops rows that are gone', () => {
+    expect(ids(keepRowOrder(rows('a', 'b', 'c'), rows('a', 'c')))).toEqual(['a', 'c'])
+  })
+
+  it('brings an undone delete back to where it stood', () => {
+    // "c" stood at index 2 of a, b, c, d before it was deleted.
+    const removed = new Map([['c', 2]])
+    expect(ids(keepRowOrder(rows('a', 'b', 'd'), rows('a', 'b', 'c', 'd'), removed))).toEqual(['a', 'b', 'c', 'd'])
+    expect(ids(keepRowOrder(rows('b', 'c', 'd'), rows('a', 'b', 'c', 'd'), new Map([['a', 0]])))).toEqual(['a', 'b', 'c', 'd'])
+    expect(ids(keepRowOrder(rows('a', 'b', 'c'), rows('a', 'b', 'c', 'd'), new Map([['d', 3]])))).toEqual(['a', 'b', 'c', 'd'])
   })
 })
