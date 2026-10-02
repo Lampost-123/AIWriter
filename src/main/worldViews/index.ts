@@ -45,8 +45,7 @@ export function relationshipMapOf(db: DB, storyId: ID, at: AsOf | null, sceneId:
   const stops = countChanges(asOfStops(db, storyId), data)
   const same = (a: AsOf): boolean =>
     !!at && a.kind === at.kind && a.storyId === at.storyId && (a.kind !== 'scene' || (at.kind === 'scene' && a.sceneId === at.sceneId))
-  const stop =
-    stops.find((s) => same(s.at)) ?? (sceneId ? stops.find((s) => s.sceneId === sceneId) : undefined) ?? stops[stops.length - 1]
+  const stop = stops.find((s) => same(s.at)) ?? (sceneId ? stops.find((s) => s.sceneId === sceneId) : undefined) ?? stops[stops.length - 1]
   const point: AsOf = stop ? { ...stop.at, seenIn: storyId } : { kind: 'end', storyId }
   const { state, label } = memoryAt(db, point, shape, data)
   return buildMap({

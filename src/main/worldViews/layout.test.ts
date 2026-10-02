@@ -69,7 +69,13 @@ describe('the relationship map layout', () => {
 
   it('places a lone pair and an empty map', () => {
     expect(layoutGraph({ nodes: [], edges: [] }).size).toBe(0)
-    const p = layoutGraph({ nodes: [{ id: 'a', name: 'Mara' }, { id: 'b', name: 'Tobin' }], edges: [['a', 'b']] })
+    const p = layoutGraph({
+      nodes: [
+        { id: 'a', name: 'Mara' },
+        { id: 'b', name: 'Tobin' }
+      ],
+      edges: [['a', 'b']]
+    })
     expect(dist(p, 'a', 'b')).toBeGreaterThanOrEqual(MIN_GAP - 2)
     expect(dist(p, 'a', 'b')).toBeLessThan(400)
   })

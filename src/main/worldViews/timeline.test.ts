@@ -155,4 +155,3 @@ describe('an empty world', () => {
     expect(t.clashes).toEqual([])
   })
 })
-
