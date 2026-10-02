@@ -197,7 +197,13 @@ function OpenRouterCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="text-[15px] font-semibold text-fg">OpenRouter</h2>
-            {connected ? <Badge tone="success">Connected</Badge> : <Badge tone="accent">Recommended</Badge>}
+            {!connected ? (
+              <Badge tone="accent">Recommended</Badge>
+            ) : result?.state === 'done' && !result.ok ? (
+              <Badge tone="danger">Not working</Badge>
+            ) : (
+              <Badge tone="success">Connected</Badge>
+            )}
           </div>
           <p className="mt-0.5 text-[13px] leading-relaxed text-muted">
             One key for hundreds of models, each with its price shown up front. Make a key at{' '}
@@ -559,7 +565,9 @@ function WriterModel({
               </Button>
             </div>
           </div>
-          {writer.contextLength == null ? <ContextLengthField writer={writer} /> : null}
+          {writerProvider.kind === 'custom' || writer.contextLength == null ? (
+            <ContextLengthField key={`${writer.providerId}/${writer.modelId}`} writer={writer} />
+          ) : null}
           {result ? (
             <div className="mt-3 pl-12">
               <ResultNotice result={result} />
@@ -581,16 +589,36 @@ function WriterModel({
 
 function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Element {
   const update = useApp((s) => s.updateSettings)
-  const [text, setText] = useState('')
+  const [text, setText] = useState(writer.contextLength != null ? String(writer.contextLength) : '')
+  const [error, setError] = useState<string | null>(null)
   const commit = (): void => {
-    const n = parseInt(text.replace(/[^\d]/g, ''), 10)
-    if (n >= 1000) void update({ models: { writer: { ...writer, contextLength: Math.min(n, 10_000_000) } } })
+    const digits = text.replace(/[^\d]/g, '')
+    if (!digits) {
+      // Cleared: back to "not known", which AI Write treats as 16,000.
+      setError(null)
+      if (writer.contextLength != null) void update({ models: { writer: { ...writer, contextLength: null } } }).catch(() => undefined)
+      return
+    }
+    const n = parseInt(digits, 10)
+    if (n < 1000) {
+      setError('That looks too small. Models read at least a few thousand tokens, like 8000 or 32000.')
+      return
+    }
+    setError(null)
+    const value = Math.min(n, 10_000_000)
+    setText(String(value))
+    if (value !== writer.contextLength) void update({ models: { writer: { ...writer, contextLength: value } } }).catch(() => undefined)
   }
   return (
     <div className="mt-4 border-t border-line pt-4 pl-12">
       <Field
         label="How much can this model read at once?"
-        hint="This provider doesn't say. Check the model's page; if you're not sure, leave it and AI Write will assume 16,000 tokens."
+        error={error}
+        hint={
+          writer.contextLength == null
+            ? "This provider doesn't say. Check the model's page; if you're not sure, leave it and AI Write will assume 16,000 tokens."
+            : "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
+        }
       >
         {(id) => (
           <div className="relative w-[200px]">
@@ -599,7 +627,10 @@ function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Elem
               inputMode="numeric"
               value={text}
               placeholder="16000"
-              onChange={(e) => setText(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
+              onChange={(e) => {
+                setText(e.target.value.replace(/[^\d]/g, '').slice(0, 8))
+                setError(null)
+              }}
               onBlur={commit}
               onKeyDown={(e) => e.key === 'Enter' && commit()}
               className="pr-14 tabular-nums"
@@ -654,7 +685,15 @@ function ModelPicker({
   const slow = useDelayed(models === null && !error)
 
   const pick = (m: ModelInfo): void =>
-    onChoose({ providerId: provider.id, modelId: m.id, label: m.name, contextLength: m.contextLength, promptPrice: m.promptPrice, completionPrice: m.completionPrice })
+    onChoose({
+      providerId: provider.id,
+      modelId: m.id,
+      label: m.name,
+      contextLength: m.contextLength,
+      promptPrice: m.promptPrice,
+      completionPrice: m.completionPrice,
+      maxOutput: m.maxOutput ?? null
+    })
 
   return (
     <Card className="overflow-hidden">

@@ -41,7 +41,8 @@ export function parseModelList(json: unknown, kind: ProviderKind): ModelInfo[] {
         name,
         contextLength: positiveInt(m.context_length) ?? positiveInt(top.context_length),
         promptPrice: price(pricing.prompt),
-        completionPrice: price(pricing.completion)
+        completionPrice: price(pricing.completion),
+        maxOutput: positiveInt(top.max_completion_tokens)
       })
     } else {
       // Some servers (Groq, Mistral, LM Studio...) say how much a model can read; use it when given.
@@ -50,7 +51,8 @@ export function parseModelList(json: unknown, kind: ProviderKind): ModelInfo[] {
         name,
         contextLength: positiveInt(m.context_length) ?? positiveInt(m.context_window) ?? positiveInt(m.max_context_length) ?? null,
         promptPrice: null,
-        completionPrice: null
+        completionPrice: null,
+        maxOutput: positiveInt(m.max_completion_tokens) ?? positiveInt(m.max_output_tokens) ?? null
       })
     }
   }

@@ -1,12 +1,12 @@
 import Database from 'better-sqlite3'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AppEvents } from '@shared/api'
-import type { ModelChoice } from '@shared/types'
+import type { DraftOptions, ModelChoice } from '@shared/types'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { assembleContext } from './context'
+import { assembleContext, replyTokenLimit } from './context'
 import { draftCost, isDrafting, startDraftJob, stopDraft, stopDraftsFor, type Emit } from './drafts'
 import { cleanOptions, gatherContextInput } from './gather'
 import { countRaw } from './tokens'
@@ -68,8 +68,8 @@ function recorder() {
   return { events, emit, done }
 }
 
-function start(w: ReturnType<typeof setup>, emit: Emit, modelId = 'fake/writer', kind: 'custom' | 'openrouter' = 'custom') {
-  const input = gatherContextInput(w.db, w.second.id, { direction: 'End on the knock.' }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
+function start(w: ReturnType<typeof setup>, emit: Emit, modelId = 'fake/writer', kind: 'custom' | 'openrouter' = 'custom', options: Partial<DraftOptions> = {}) {
+  const input = gatherContextInput(w.db, w.second.id, { direction: 'End on the knock.', ...options }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
   const preview = assembleContext(input, countRaw)
   return {
     input,
@@ -139,7 +139,10 @@ describe('drafting', () => {
     expect(rec.status).toBe('complete')
     expect(rec.messages).toEqual(preview.messages)
     expect(rec.blocks.map((b) => b.id)).toEqual(preview.blocks.map((b) => b.id))
-    expect(rec.params).toMatchObject({ temperature: 0.6, top_p: 0.9, creativity: 'steady', targetWords: 600, max_tokens: preview.budget.reserved })
+    // The reply limit leaves headroom beyond the reply room (target + 40%), so a long scene isn't cut off.
+    expect(rec.params).toMatchObject({ temperature: 0.6, top_p: 0.9, creativity: 'steady', targetWords: 600, max_tokens: replyTokenLimit(preview.budget).limit })
+    expect(rec.params.max_tokens).toBeGreaterThan(preview.budget.reserved)
+    expect(fake.lastRequest()!.body.max_tokens).toBe(rec.params.max_tokens)
     expect(rec.direction).toBe('End on the knock.')
     expect(rec.promptTokens).toBeGreaterThan(0)
     expect(rec.cost).toBeCloseTo(rec.promptTokens! * 0.000003 + rec.completionTokens! * 0.000015, 10)
@@ -158,6 +161,16 @@ describe('drafting', () => {
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({ id: generationId, status: 'complete', modelId: 'fake/writer', providerName: 'Fake' })
     expect(list[0].words).toBeGreaterThan(50)
+  })
+
+  it('asks with the plain reply room if the model cannot write that much, and records it', async () => {
+    const { emit, done } = recorder()
+    const { generationId, preview } = start(w, emit, 'fake/max-output', 'custom', { targetWords: 400 })
+    const end = await done(generationId)
+    expect(end.status).toBe('complete')
+    const rec = gens.getGeneration(w.db, generationId)
+    expect(rec.params.max_tokens).toBe(preview.budget.reserved)
+    expect(fake.lastRequest()!.body.max_tokens).toBe(preview.budget.reserved)
   })
 
   it('stops on request and keeps the text so far', async () => {

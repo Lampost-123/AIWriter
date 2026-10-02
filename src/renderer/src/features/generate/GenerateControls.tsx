@@ -3,7 +3,7 @@
 // streams the button becomes Stop (Esc also stops) and the text so far stays.
 import * as P from '@radix-ui/react-popover'
 import { ChevronDown, Sparkles, Square } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { AppEvents } from '@shared/api'
 import type { Creativity, DraftOptions, ID } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
@@ -42,6 +42,26 @@ type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
 
+/** Below this header width the writer model's name is left out, so Generate always fits. */
+const COMPACT_BELOW = 600
+
+/** True when the header around `ref` is too narrow for the model name next to Generate. */
+function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false)
+  // Measured before paint, so the header never shows one layout and then jumps to the other.
+  useLayoutEffect(() => {
+    const el = ref.current
+    const host = el?.closest('header') ?? el?.parentElement
+    if (!host) return
+    const measure = (): void => setNarrow(host.getBoundingClientRect().width < COMPACT_BELOW)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(host)
+    return () => ro.disconnect()
+  }, [ref])
+  return narrow
+}
+
 /** Something else (a menu, a dialog, a popover) is open and should get Esc first. */
 const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
 
@@ -57,6 +77,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [retrying, setRetrying] = useState<string | null>(null)
   const [popover, setPopover] = useState<'options' | 'need-model' | null>(null)
   const [estimate, setEstimate] = useState<number | null>(null)
+  /** Bumped when the card may have changed, so the estimate is worked out again. */
+  const [estimateRev, setEstimateRev] = useState(0)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const compact = useNarrowHeader(rootRef)
 
   const session = useRef<Session | null>(null)
   const phaseRef = useRef(phase)
@@ -78,6 +102,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     (force = false) => {
       if (!force && Date.now() - lastCardLoad.current < 5000) return
       lastCardLoad.current = Date.now()
+      setEstimateRev((n) => n + 1)
       api
         .getScene(sceneId)
         .then((s) => {
@@ -111,9 +136,13 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   // ---------- Estimated cost (only for models with prices) ----------
 
-  const hasPrices = writer?.promptPrice != null && writer?.completionPrice != null
+  // Keyed on the values, not the settings object, which is replaced whenever any setting is saved.
+  const promptPrice = writer?.promptPrice ?? null
+  const completionPrice = writer?.completionPrice ?? null
+  const hasPrices = promptPrice != null && completionPrice != null
+  const writerKey = writer ? `${writer.providerId}/${writer.modelId}/${writer.contextLength ?? ''}` : null
   useEffect(() => {
-    if (!writer || !hasPrices || targetWords == null) {
+    if (!writerKey || !hasPrices || targetWords == null) {
       setEstimate(null)
       return
     }
@@ -121,14 +150,14 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     const t = setTimeout(() => {
       api
         .previewContext(sceneId, { direction: opts.direction, targetWords, creativity })
-        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords, writer)))
+        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords, { promptPrice, completionPrice })))
         .catch(() => live && setEstimate(null))
     }, 400)
     return () => {
       live = false
       clearTimeout(t)
     }
-  }, [sceneId, writer, hasPrices, targetWords, opts.direction, creativity])
+  }, [sceneId, writerKey, hasPrices, promptPrice, completionPrice, targetWords, opts.direction, creativity, estimateRev])
 
   // ---------- Streaming ----------
 
@@ -296,36 +325,48 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const status = retrying ? 'Retrying…' : phase === 'stopping' ? 'Stopping…' : 'Writing…'
 
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="relative flex h-8 min-w-[104px] items-center justify-end">
-        <button
-          type="button"
-          onClick={openSettings}
-          tabIndex={busy ? -1 : 0}
-          title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings > Models.` : 'Choose a writer model in Settings > Models.'}
-          className={cn(
-            'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-            busy && 'invisible'
-          )}
-        >
-          <span className="truncate">{modelName ?? 'No writer model'}</span>
-          {writer && hasPrices ? (
-            <span className="w-[50px] shrink-0 text-left tabular-nums text-faint" title="Estimated cost of a draft">
-              {estimate != null ? `· ${formatCost(estimate)}` : ''}
+    <div ref={rootRef} className="flex items-center gap-1.5">
+      {compact ? (
+        // Narrow header: only the amber light while writing (its slot is always kept, so nothing moves).
+        <span role="status" title={busy ? (retrying ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
+          {busy ? (
+            <>
+              <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
+              <span className="sr-only">{status}</span>
+            </>
+          ) : null}
+        </span>
+      ) : (
+        <div className="relative flex h-8 min-w-[104px] items-center justify-end">
+          <button
+            type="button"
+            onClick={openSettings}
+            tabIndex={busy ? -1 : 0}
+            title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings > Models.` : 'Choose a writer model in Settings > Models.'}
+            className={cn(
+              'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
+              busy && 'invisible'
+            )}
+          >
+            <span className="truncate">{modelName ?? 'No writer model'}</span>
+            {writer && hasPrices ? (
+              <span className="w-[50px] shrink-0 text-left tabular-nums text-faint" title="Estimated cost of a draft">
+                {estimate != null ? `· ${formatCost(estimate)}` : ''}
+              </span>
+            ) : null}
+          </button>
+          {busy ? (
+            <span
+              role="status"
+              title={retrying ?? undefined}
+              className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
+            >
+              <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
+              {status}
             </span>
           ) : null}
-        </button>
-        {busy ? (
-          <span
-            role="status"
-            title={retrying ?? undefined}
-            className="absolute inset-y-0 right-0 flex items-center gap-2 pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
-          >
-            <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
-            {status}
-          </span>
-        ) : null}
-      </div>
+        </div>
+      )}
 
       <P.Root open={popover !== null} onOpenChange={(o) => !o && setPopover(null)}>
         <P.Anchor asChild>

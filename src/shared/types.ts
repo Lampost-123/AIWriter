@@ -195,6 +195,8 @@ export interface ModelInfo {
   /** USD per token, when known. */
   promptPrice: number | null
   completionPrice: number | null
+  /** The most the model will write in one reply (tokens), when the provider says. */
+  maxOutput?: number | null
 }
 
 export interface ModelChoice {
@@ -204,6 +206,8 @@ export interface ModelChoice {
   contextLength: number | null
   promptPrice: number | null
   completionPrice: number | null
+  /** The most the model will write in one reply (tokens), when the provider says. */
+  maxOutput?: number | null
 }
 
 export type Job = 'writer' | 'memory' | 'chat'

@@ -123,6 +123,19 @@ describe('streamChat', () => {
     expect(outcome.status).toBe('error')
     expect(outcome.text.length).toBeGreaterThan(20)
     expect(outcome.error).toContain('having trouble')
+    expect(outcome.error).toContain('The text that arrived is kept.')
+  })
+
+  it('asks again with the plain reply room when the model cannot write that much', async () => {
+    const { outcome, retries } = await run('fake/max-output', { body: { ...body('fake/max-output'), max_tokens: 3000 }, fallbackMaxTokens: 800 })
+    expect(outcome.status).toBe('complete')
+    expect(outcome.maxTokens).toBe(800)
+    expect(retries).toEqual([])
+    expect(fake.requestCounts()['fake/max-output']).toBe(2)
+    expect(fake.lastRequest()!.body.max_tokens).toBe(800)
+    // Without a smaller limit to fall back on, the problem is explained.
+    const plain = await run('fake/max-output', { body: { ...body('fake/max-output'), max_tokens: 3000 } })
+    expect(plain.outcome.error).toContain("can't write that much in one reply")
   })
 
   it('stops when asked and keeps what arrived', async () => {

@@ -75,13 +75,16 @@ export interface Finish {
   completionTokens: number | null
   cost: number | null
   finishedAt: string
+  /** The settings actually used, when they changed while the request was made (a smaller reply limit). */
+  params?: GenerationRecord['params']
 }
 
 export function finishGeneration(db: DB, id: ID, f: Finish): void {
   db.prepare(
-    `UPDATE generations SET status = ?, error = ?, response = ?, prompt_tokens = ?, completion_tokens = ?, cost = ?, finished_at = ?
+    `UPDATE generations SET status = ?, error = ?, response = ?, prompt_tokens = ?, completion_tokens = ?, cost = ?, finished_at = ?,
+       params_json = COALESCE(?, params_json)
      WHERE id = ?`
-  ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, id)
+  ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, f.params ? JSON.stringify(f.params) : null, id)
 }
 
 /** After a crash or a forced quit: drafts left 'streaming' become 'stopped', keeping their text. */

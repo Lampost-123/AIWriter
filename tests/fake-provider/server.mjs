@@ -21,6 +21,7 @@
 //   fake/empty             finishes without any text
 //   fake/missing           404 unknown model
 //   fake/toolong           400 context length exceeded
+//   fake/max-output        400 when max_tokens is over 1000 (a model with a small output limit)
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -118,6 +119,9 @@ export async function startFakeProvider(options = {}) {
     if (model === 'fake/credit') return json(res, 402, { error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/credits' } })
     if (model === 'fake/missing') return json(res, 404, { error: { code: 404, message: `No endpoints found for model ${model}` } })
     if (model === 'fake/toolong') return json(res, 400, { error: { code: 400, message: "This endpoint's maximum context length is 3000 tokens. However, you requested about 9000 tokens." } })
+    if (model === 'fake/max-output' && (body.max_tokens ?? 0) > 1000) {
+      return json(res, 400, { error: { code: 400, message: `max_tokens: ${body.max_tokens} > 1000, which is the maximum allowed number of output tokens for ${model}` } })
+    }
     if (model === 'fake/ratelimit-once' && n === 1) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' })
       return res.end(JSON.stringify({ error: { code: 429, message: 'Rate limit exceeded' } }))

@@ -6,7 +6,7 @@ describe('parseModelList', () => {
     const list = parseModelList(
       {
         data: [
-          { id: 'b/model', name: 'B: Model', context_length: 200000, pricing: { prompt: '0.000003', completion: '0.000015' } },
+          { id: 'b/model', name: 'B: Model', context_length: 200000, pricing: { prompt: '0.000003', completion: '0.000015' }, top_provider: { max_completion_tokens: 64000 } },
           { id: 'openrouter/auto', name: 'Auto Router', context_length: 2000000, pricing: { prompt: '-1', completion: '-1' } },
           { id: 'a/free', name: 'A: Free', top_provider: { context_length: 8192 }, pricing: { prompt: '0', completion: '0' } }
         ]
@@ -14,16 +14,20 @@ describe('parseModelList', () => {
       'openrouter'
     )
     expect(list.map((m) => m.id)).toEqual(['a/free', 'openrouter/auto', 'b/model'])
-    expect(list[2]).toEqual({ id: 'b/model', name: 'B: Model', contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015 })
+    expect(list[2]).toEqual({ id: 'b/model', name: 'B: Model', contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015, maxOutput: 64000 })
+    expect(list[0].maxOutput).toBeNull()
     expect(list[1].promptPrice).toBeNull()
     expect(list[0]).toMatchObject({ contextLength: 8192, promptPrice: 0, completionPrice: 0 })
   })
 
   it('reads plain id lists from other providers, without prices', () => {
-    const list = parseModelList({ object: 'list', data: [{ id: 'local-a', object: 'model' }, { id: 'local-b', context_window: 32768 }, { id: 'local-a' }] }, 'custom')
+    const list = parseModelList(
+      { object: 'list', data: [{ id: 'local-a', object: 'model' }, { id: 'local-b', context_window: 32768, max_completion_tokens: 8192 }, { id: 'local-a' }] },
+      'custom'
+    )
     expect(list).toEqual([
-      { id: 'local-a', name: 'local-a', contextLength: null, promptPrice: null, completionPrice: null },
-      { id: 'local-b', name: 'local-b', contextLength: 32768, promptPrice: null, completionPrice: null }
+      { id: 'local-a', name: 'local-a', contextLength: null, promptPrice: null, completionPrice: null, maxOutput: null },
+      { id: 'local-b', name: 'local-b', contextLength: 32768, promptPrice: null, completionPrice: null, maxOutput: 8192 }
     ])
   })
 

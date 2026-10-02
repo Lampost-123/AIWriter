@@ -5,7 +5,16 @@
 // fake provider in tests/fake-provider.
 
 import type { ChatMessage, ProviderKind } from '@shared/types'
-import { describeFailure, extractProviderMessage, looksLikeContextTooLong, networkCode, retryReason, type Failure, type ProviderRef } from './errors'
+import {
+  describeFailure,
+  extractProviderMessage,
+  looksLikeContextTooLong,
+  looksLikeReplyLimitRejected,
+  networkCode,
+  retryReason,
+  type Failure,
+  type ProviderRef
+} from './errors'
 import { parseRetryAfter, retryDelay, shouldRetry, type RetryCause } from './retry'
 import { parsePayload, SseParser } from './sse'
 import { ThinkFilter } from './think'
@@ -77,6 +86,11 @@ export interface StreamChatOptions {
   headersTimeoutMs?: number
   /** How long the stream may stay silent before giving up. */
   idleTimeoutMs?: number
+  /**
+   * A smaller max_tokens to ask with once if the provider rejects `body.max_tokens`
+   * (some models can't write that much in one reply).
+   */
+  fallbackMaxTokens?: number
 }
 
 export interface StreamOutcome {
@@ -92,6 +106,8 @@ export interface StreamOutcome {
   cost: number | null
   finishReason: string | null
   retries: number
+  /** The max_tokens the reply was finally asked with. */
+  maxTokens: number
 }
 
 type Attempt =
@@ -118,6 +134,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let filter = new ThinkFilter()
   let usageMode: UsageMode = o.target.kind === 'openrouter' ? 'openrouter' : 'stream_options'
   let retries = 0
+  let maxTokens = o.body.max_tokens
 
   const emit = (raw: string): void => {
     const t = filter.push(raw)
@@ -132,16 +149,20 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       s.text += rest
       o.onText(rest)
     }
+    let error = failure ? describeFailure(failure, ref, { during: 'draft', modelId: o.body.model }) : null
+    // Whatever went wrong, the text that already arrived stays in the scene; say so.
+    if (error && s.text.trim() && failure?.type !== 'dropped') error += ' The text that arrived is kept.'
     return {
       status,
       text: s.text,
-      error: failure ? describeFailure(failure, ref, { during: 'draft', modelId: o.body.model }) : null,
+      error,
       failure,
       promptTokens: s.promptTokens,
       completionTokens: s.completionTokens,
       cost: s.cost,
       finishReason: s.finishReason,
-      retries
+      retries,
+      maxTokens
     }
   }
 
@@ -196,7 +217,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     }
     arm(headersTimeout)
     try {
-      const payload: Record<string, unknown> = { ...o.body, stream: true }
+      const payload: Record<string, unknown> = { ...o.body, max_tokens: maxTokens, stream: true }
       if (usageMode === 'openrouter') payload.usage = { include: true }
       if (usageMode === 'stream_options') payload.stream_options = { include_usage: true }
       let res: Response
@@ -220,7 +241,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         }
         if (o.signal.aborted) return { kind: 'stopped' }
         const message = extractProviderMessage(bodyText)
-        const rejectedUsageOption = usageMode === 'stream_options' && (res.status === 400 || res.status === 422) && !looksLikeContextTooLong(message)
+        const rejectedUsageOption =
+          usageMode === 'stream_options' && (res.status === 400 || res.status === 422) && !looksLikeContextTooLong(message) && !looksLikeReplyLimitRejected(res.status, message)
         return {
           kind: 'fail',
           failure: { type: 'http', status: res.status, message },
@@ -293,6 +315,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   }
 
   let triedWithoutUsage = false
+  let triedSmallerReply = false
   for (;;) {
     if (o.signal.aborted) return finish('stopped', null)
     const r = await attemptOnce()
@@ -306,6 +329,18 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       }
       if (!s.text.trim()) return finish('error', { type: 'empty' })
       return finish('complete', null)
+    }
+    if (
+      !triedSmallerReply &&
+      o.fallbackMaxTokens &&
+      maxTokens > o.fallbackMaxTokens &&
+      r.failure.type === 'http' &&
+      looksLikeReplyLimitRejected(r.failure.status, r.failure.message)
+    ) {
+      // The model can't write that much in one go (or the briefing plus the reply is too long): ask with the plain reply room.
+      triedSmallerReply = true
+      maxTokens = o.fallbackMaxTokens
+      continue
     }
     if (r.rejectedUsageOption && !triedWithoutUsage) {
       // Some servers reject stream_options: ask once more without it (usage then isn't reported).

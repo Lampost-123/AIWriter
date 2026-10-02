@@ -76,6 +76,20 @@ function clip(s: string, n = 220): string {
 export const looksLikeContextTooLong = (msg: string): boolean =>
   /context (length|window|size)|maximum context|too many tokens|too long|token limit|max(imum)?[_ ]?(prompt )?tokens|reduce the length|exceeds the (model|maximum|limit)|input is too large/i.test(msg)
 
+/** The message is about how much the model may write in one reply (max_tokens), not about the briefing. */
+const mentionsReplyLimit = (msg: string): boolean =>
+  /max_tokens|max_completion_tokens|max_output_tokens|maximum (allowed )?(number of )?(output|completion) tokens|(output|completion) tokens/i.test(msg)
+
+/**
+ * The provider turned the request down because of the reply limit, or because
+ * the briefing plus the reply doesn't fit: asking again with a smaller
+ * max_tokens can help.
+ */
+export function looksLikeReplyLimitRejected(status: number, msg: string): boolean {
+  if (status !== 400 && status !== 413 && status !== 422) return false
+  return mentionsReplyLimit(msg) || looksLikeContextTooLong(msg)
+}
+
 export const looksLikeRefusal = (msg: string): boolean => /moderation|flagged|content (policy|filter|management)|safety|refus/i.test(msg)
 
 const quoted = (msg: string): string => (msg ? ` It said: “${msg.replace(/[.\s]+$/, '')}”.` : '')
@@ -154,6 +168,9 @@ function describeStatus(
     return local
       ? `${who} didn't answer in time. If the model is still loading, wait a moment and try again.`
       : `${who} didn't answer in time. Try again in a moment.`
+  }
+  if ((status === 400 || status === 422) && mentionsReplyLimit(msg) && !/context (length|window|size)|maximum context/i.test(msg)) {
+    return `This model can't write that much in one reply. Lower the length in the draft options, or pick another writer model in ${SETTINGS}.`
   }
   if (status === 413 || ((status === 400 || status === 422) && looksLikeContextTooLong(msg))) {
     return `The briefing is too long for this model. Pick a model that can read more in ${SETTINGS}, or shorten the scene card.`

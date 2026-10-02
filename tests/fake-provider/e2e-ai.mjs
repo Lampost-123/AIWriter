@@ -152,7 +152,8 @@ try {
   // ----- Draft options -----
   await win.click('button[aria-label="Draft options"]')
   await win.waitForSelector('text=Draft options')
-  await win.fill('textarea', 'Make it tense, end on the knock at the door')
+  // The direction box in the options popover (the scene card panel has text boxes of its own).
+  await win.fill('[data-radix-popper-content-wrapper] textarea', 'Make it tense, end on the knock at the door')
   await shot('09-draft-options-light')
   await theme('dark')
   await shot('10-draft-options-dark')
@@ -195,7 +196,8 @@ try {
   check(sentText.includes('The Binding'), 'hard-rule lore in the briefing')
   check(sentText.includes('The Duke'), 'mentioned entry in the briefing')
   check(sentText.includes('She left the docks at dusk'), 'previous scene in the briefing')
-  check(sentText.includes('Make it tense, end on the knock at the door'), 'direction in the briefing')
+  check(sent.messages[1].content.includes("The author's direction for this draft:\nMake it tense, end on the knock at the door"), 'direction in the briefing')
+  check(!sent.messages[1].content.includes('1. Make it tense'), 'direction not typed into the beats')
   check(!sentText.includes('PRIVATE'), 'private notes never sent')
   check(sent.temperature === 0.85 && sent.stream === true, 'creativity and streaming')
 

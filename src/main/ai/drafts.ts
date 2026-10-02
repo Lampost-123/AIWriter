@@ -10,9 +10,10 @@ import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
 import { streamChat, type ChatTarget, type StreamOutcome } from './client'
-import { sentEntryIds, TOKENS_PER_WORD } from './context'
+import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
 
 type DB = Database.Database
+type GenerationParams = { temperature: number; top_p: number; max_tokens: number; creativity: DraftOptions['creativity']; targetWords: number }
 export type Emit = <E extends keyof AppEvents>(event: E, payload: AppEvents[E]) => void
 
 /** Text goes to the window at most this often (not once per token). */
@@ -70,10 +71,11 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   }
   const id = newId()
   const preset = CREATIVITY_PRESETS[req.options.creativity] ?? CREATIVITY_PRESETS.balanced
+  const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput)
   const params = {
     temperature: preset.temperature,
     top_p: preset.top_p,
-    max_tokens: req.preview.budget.reserved,
+    max_tokens: reply.limit,
     creativity: req.options.creativity,
     targetWords: req.options.targetWords
   }
@@ -95,11 +97,11 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 
   const job: Job = { id, sceneId: req.sceneId, db: req.db, controller: new AbortController(), text: '', closed: false, done: Promise.resolve() }
   active.set(id, job)
-  job.done = run(job, req, params)
+  job.done = run(job, req, params, reply.fallback)
   return { generationId: id }
 }
 
-async function run(job: Job, req: DraftRequest, params: { temperature: number; top_p: number; max_tokens: number }): Promise<void> {
+async function run(job: Job, req: DraftRequest, params: GenerationParams, fallbackMaxTokens: number): Promise<void> {
   const { db, emit } = req
   let pending = ''
   let chunkTimer: ReturnType<typeof setTimeout> | null = null
@@ -141,6 +143,7 @@ async function run(job: Job, req: DraftRequest, params: { temperature: number; t
         saveTimer ??= setTimeout(save, SAVE_INTERVAL_MS)
       },
       onRetry: (info) => emit('generation:retrying', { generationId: job.id, ...info }),
+      fallbackMaxTokens,
       fetchImpl: req.fetchImpl,
       delays: req.retryDelays
     })
@@ -156,7 +159,8 @@ async function run(job: Job, req: DraftRequest, params: { temperature: number; t
       completionTokens: null,
       cost: null,
       finishReason: null,
-      retries: 0
+      retries: 0,
+      maxTokens: params.max_tokens
     }
   }
 
@@ -175,7 +179,9 @@ async function run(job: Job, req: DraftRequest, params: { temperature: number; t
         promptTokens: outcome.promptTokens,
         completionTokens: outcome.completionTokens,
         cost,
-        finishedAt: now()
+        finishedAt: now(),
+        // The reply limit actually used, if the provider asked for a smaller one.
+        params: outcome.maxTokens !== params.max_tokens ? { ...params, max_tokens: outcome.maxTokens } : undefined
       })
     } catch (e) {
       console.error('Could not finish the draft record', e)

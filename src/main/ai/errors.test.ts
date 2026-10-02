@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeFailure, extractProviderMessage, isLocalUrl, networkCode, retryReason, type ProviderRef } from './errors'
+import { describeFailure, extractProviderMessage, isLocalUrl, looksLikeReplyLimitRejected, networkCode, retryReason, type ProviderRef } from './errors'
 
 const openrouter: ProviderRef = { name: 'OpenRouter', kind: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', hasKey: true }
 const lmstudio: ProviderRef = { name: 'LM Studio', kind: 'custom', baseUrl: 'http://localhost:1234/v1', hasKey: false }
@@ -30,6 +30,23 @@ describe('describeFailure', () => {
     const msg = "This endpoint's maximum context length is 8192 tokens. However, you requested about 9000 tokens."
     expect(describeFailure(http(400, msg), openrouter)).toContain('The briefing is too long for this model')
     expect(describeFailure(http(413), deepseek)).toContain('The briefing is too long for this model')
+  })
+
+  it('tells a reply that is too long apart from a briefing that is too long', () => {
+    const limit = 'max_tokens: 5670 > 4096, which is the maximum allowed number of output tokens for this model'
+    expect(describeFailure(http(400, limit), openrouter)).toBe(
+      "This model can't write that much in one reply. Lower the length in the draft options, or pick another writer model in Settings > Models."
+    )
+    expect(describeFailure(http(400, 'Invalid max_tokens value, the valid range of max_tokens is [1, 8192]'), deepseek)).toContain("can't write that much")
+    const ctx = "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (6000 in the messages, 3000 in the completion)."
+    expect(describeFailure(http(400, ctx), deepseek)).toContain('The briefing is too long for this model')
+  })
+
+  it('knows when asking for a shorter reply could help', () => {
+    expect(looksLikeReplyLimitRejected(400, 'max_tokens is too large: 5670. This model supports at most 4096 completion tokens')).toBe(true)
+    expect(looksLikeReplyLimitRejected(400, "This endpoint's maximum context length is 3000 tokens.")).toBe(true)
+    expect(looksLikeReplyLimitRejected(422, 'Unrecognized request argument supplied: stream_options')).toBe(false)
+    expect(looksLikeReplyLimitRejected(401, 'max_tokens')).toBe(false)
   })
 
   it('points to another model when the model refuses', () => {

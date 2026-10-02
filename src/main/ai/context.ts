@@ -70,6 +70,32 @@ export function computeBudget(contextLength: number | null, targetWords: number)
   return { contextLength: length, reserved, available }
 }
 
+/** Beyond the room kept for the reply, extra headroom is only given up to this many tokens. */
+export const REPLY_LIMIT_CAP = 8192
+
+/**
+ * The reply limit (max_tokens) for a draft, and a smaller one to fall back on
+ * if the provider rejects it.
+ *
+ * The room kept for the reply (target length + 40%) is what the briefing is
+ * budgeted around, but used as a hard limit it cuts off a scene that runs a
+ * little long, and models that think before writing (their thinking counts
+ * against the limit) can run out before the scene is done. So when the model
+ * has room, the limit goes up to twice the reply room (no higher than
+ * REPLY_LIMIT_CAP unless the reply room itself is bigger), never past what
+ * the context window has left after the briefing, and never past the model's
+ * own output limit when the provider says what it is.
+ */
+export function replyTokenLimit(budget: Pick<ContextBudget, 'contextLength' | 'reserved' | 'used'>, maxOutput?: number | null): { limit: number; fallback: number } {
+  const out = maxOutput && maxOutput > 0 ? maxOutput : Infinity
+  const fallback = Math.max(1, Math.min(budget.reserved, out))
+  const wanted = Math.max(budget.reserved, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP))
+  // What the window has left after the briefing, keeping 5% spare since providers count differently.
+  const room = budget.contextLength - budget.used - Math.ceil(budget.contextLength * 0.05)
+  if (room <= fallback) return { limit: fallback, fallback }
+  return { limit: Math.max(fallback, Math.min(wanted, room, out)), fallback }
+}
+
 /** Token estimate with a 10% allowance, since providers count differently. */
 export const withAllowance = (rawTokens: number): number => Math.ceil(rawTokens * 1.1)
 
@@ -360,7 +386,8 @@ export function prepareContext(input: ContextInput): PreparedContext {
 
 /**
  * Measures, drops whole blocks from priority 10 upward until the briefing fits
- * (blocks 1 and 2 are never dropped), and builds the messages.
+ * (blocks 1 and 2 are never dropped), puts back any dropped block that fits
+ * once a bigger one has gone, and builds the messages.
  * `rawCounts` are plain token counts for `prepared.texts`, in order.
  */
 export function finishContext(prepared: PreparedContext, rawCounts: number[]): ContextPreview {
@@ -384,6 +411,16 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (used <= budget.available) break
     b.dropped = true
     used = measure()
+  }
+  // Dropping one big block (often the previous scene) can free room for
+  // smaller, less important ones dropped before it. Put those back, most
+  // important first, as long as the briefing still fits.
+  for (const b of [...droppable].reverse()) {
+    if (!b.dropped) continue
+    b.dropped = false
+    const next = measure()
+    if (next <= budget.available) used = next
+    else b.dropped = true
   }
 
   const sent = blocks.filter((b) => !b.dropped)

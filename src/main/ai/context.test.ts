@@ -11,6 +11,8 @@ import {
   mentions,
   parentChain,
   prepareContext,
+  REPLY_LIMIT_CAP,
+  replyTokenLimit,
   sceneTail,
   sentEntryIds,
   type ContextInput
@@ -99,6 +101,32 @@ describe('budget', () => {
   it('uses 16,000 when the context length is unknown', () => {
     expect(computeBudget(null, 1000).contextLength).toBe(DEFAULT_CONTEXT_LENGTH)
     expect(computeBudget(0, 1000).contextLength).toBe(DEFAULT_CONTEXT_LENGTH)
+  })
+})
+
+describe('replyTokenLimit', () => {
+  it('gives the reply headroom beyond the reply room when the model has space', () => {
+    // 1,500 words: 2,835 tokens of reply room.
+    const { limit, fallback } = replyTokenLimit({ contextLength: 128000, reserved: 2835, used: 4000 })
+    expect(fallback).toBe(2835)
+    expect(limit).toBe(5670)
+  })
+
+  it('stops at the cap unless the reply room itself is bigger', () => {
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 6000, used: 3000 }).limit).toBe(REPLY_LIMIT_CAP)
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 12000, used: 3000 }).limit).toBe(12000)
+  })
+
+  it('never goes past what the context window has left after the briefing', () => {
+    // 3,000-token model, 756 kept for the reply, 1,500 used: 3000 - 1500 - 150 = 1,350 left.
+    expect(replyTokenLimit({ contextLength: 3000, reserved: 756, used: 1500 })).toEqual({ limit: 1350, fallback: 756 })
+    // A briefing that is already over budget keeps the plain reply room.
+    expect(replyTokenLimit({ contextLength: 3000, reserved: 756, used: 2900 })).toEqual({ limit: 756, fallback: 756 })
+  })
+
+  it("respects the model's own output limit when the provider gives one", () => {
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 2835, used: 3000 }, 4096)).toEqual({ limit: 4096, fallback: 2835 })
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 5670, used: 3000 }, 4096)).toEqual({ limit: 4096, fallback: 4096 })
   })
 })
 
