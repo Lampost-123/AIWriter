@@ -532,6 +532,8 @@ describe('summaries', () => {
     expect(nextRollUp(w.db, [w.storyId], label, o.model)?.level).not.toBe('story')
     expect(await writeRollUp(o, second)).toBe(false)
     expect(mem.getSummary(w.db, 'story', w.storyId)!.text).toBe('Adam’s story summary.')
+    // The model calls are recorded against the scene they were made from, never a chapter or story id.
+    expect(w.db.prepare("SELECT DISTINCT scene_id AS id FROM generations WHERE job = 'summary'").all()).toEqual([{ id: w.sceneId }])
   })
 
   it('undoing a summary brings back the old one and it is not written again from the same text', async () => {
