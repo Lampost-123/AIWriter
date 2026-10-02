@@ -35,3 +35,17 @@ export const markFresh = (id: ID): void => void fresh.add(id)
 export function takeFresh(id: ID): boolean {
   return fresh.delete(id)
 }
+
+// An entry replaced wholesale (an earlier version brought back, or that undone): any open form
+// for it drops what it holds and shows the entry as it is now.
+const replacedListeners = new Set<(e: Entry) => void>()
+
+export function onEntryReplaced(fn: (e: Entry) => void): () => void {
+  replacedListeners.add(fn)
+  return () => replacedListeners.delete(fn)
+}
+
+export function entryReplaced(e: Entry): void {
+  drafts.delete(e.id)
+  for (const fn of [...replacedListeners]) fn(e)
+}

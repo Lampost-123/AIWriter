@@ -1,0 +1,351 @@
+import { describe, expect, it } from 'vitest'
+import type { ChangeView, ExistsPoint, Outline, SourceLink } from '@shared/types'
+import {
+  changeWhere,
+  createKindsFor,
+  describeChange,
+  existsLine,
+  madeByNote,
+  orientRelationship,
+  relationPhrase,
+  relationshipInput,
+  sceneLabels,
+  sourceNote,
+  splitChanges
+} from './memoryLogic'
+
+const base = {
+  storyId: null,
+  sceneId: null,
+  position: 0,
+  origin: 'adam' as const,
+  runId: null,
+  createdAt: '2026-10-02T10:00:00.000Z',
+  updatedAt: '2026-10-02T10:00:00.000Z',
+  where: '',
+  links: [] as SourceLink[]
+}
+
+const rel = (
+  id: string,
+  entryId: string,
+  otherId: string,
+  extra: Partial<{ type: string; feels: string; otherFeels: string; ended: boolean }> = {},
+  anchor: ChangeView['anchor'] = 'baseline'
+): ChangeView => ({
+  ...base,
+  id,
+  entryId,
+  anchor,
+  kind: 'relationship',
+  payload: { otherId, type: '', feels: '', otherFeels: '', ...extra }
+})
+
+const knows = (id: string, entryId: string, fact: string, anchor: ChangeView['anchor'] = 'baseline', forgets = false): ChangeView => ({
+  ...base,
+  id,
+  entryId,
+  anchor,
+  kind: 'knowledge',
+  payload: { factId: `f-${fact}`, fact, forgets }
+})
+
+const NAMES: Record<string, string> = { mara: 'Mara', tobin: 'Tobin', sword: 'the Sword', guild: 'The Guild' }
+const nameOf = (id: string): string | null => NAMES[id] ?? null
+const label = (k: string): string => ({ hair: 'Hair', clothing: 'Typical clothing' })[k] ?? k
+
+describe('sceneLabels', () => {
+  it('counts chapters and scenes from 1, in order', () => {
+    const outline = {
+      story: { title: 'Book 1' },
+      chapters: [
+        { id: 'c2', position: 1 },
+        { id: 'c1', position: 0 }
+      ],
+      scenes: [
+        { id: 's3', chapterId: 'c2', position: 0 },
+        { id: 's2', chapterId: 'c1', position: 1 },
+        { id: 's1', chapterId: 'c1', position: 0 }
+      ]
+    } as unknown as Outline
+    const labels = sceneLabels(outline)
+    expect(labels.get('s1')).toBe('Book 1, Ch 1, Sc 1')
+    expect(labels.get('s2')).toBe('Book 1, Ch 1, Sc 2')
+    expect(labels.get('s3')).toBe('Book 1, Ch 2, Sc 1')
+  })
+})
+
+describe('existsLine', () => {
+  const names = {
+    story: (id: string) => ({ b1: 'Book 1', kell: "Kell's Road", young: "Mara's Youth" })[id],
+    scene: (id: string) => ({ s32: 'Book 1, Ch 3, Sc 2', s312: 'Book 3, Ch 1, Sc 2' })[id]
+  }
+  const pt = (kind: ExistsPoint['kind'], storyId: string | null = null, sceneId: string | null = null): ExistsPoint => ({
+    id: `${kind}-${storyId}-${sceneId}`,
+    entryId: 'mara',
+    kind,
+    storyId,
+    sceneId,
+    byHand: false
+  })
+
+  it('says the world, a story start or a scene in plain words', () => {
+    expect(existsLine([pt('world')], names)).toBe('In the world from the start')
+    expect(existsLine([pt('scene', 'b1', 's32')], names)).toBe('First appears in Book 1, Ch 3, Sc 2')
+    expect(existsLine([pt('story-pre', 'kell')], names)).toBe("From the start of Kell's Road")
+    expect(existsLine([pt('story-post', 'kell')], names)).toBe("From the start of Kell's Road")
+  })
+
+  it('joins several points, and the beginning of the world covers everything', () => {
+    expect(existsLine([pt('story-pre', 'young'), pt('scene', 'b3', 's312')], names)).toBe(
+      "From the start of Mara's Youth, and from Book 3, Ch 1, Sc 2"
+    )
+    expect(existsLine([pt('scene', 'b1', 's32'), pt('world')], names)).toBe('In the world from the start')
+  })
+
+  it('waits until every place is known, rather than showing part of the line', () => {
+    expect(existsLine([pt('scene', 'b1', 'unknown')], names)).toBeNull()
+    expect(existsLine([], names)).toBeNull()
+  })
+})
+
+describe('madeByNote', () => {
+  it('speaks only for entries AI Write made and Adam has not touched', () => {
+    expect(madeByNote({ origin: 'text', byHand: false }, 'Book 1, Ch 2, Sc 1')).toBe(
+      "Added by AI Write from Book 1, Ch 2, Sc 1. Edit anything and it's yours."
+    )
+    expect(madeByNote({ origin: 'text', byHand: false }, null)).toBe("Added by AI Write from your story. Edit anything and it's yours.")
+    expect(madeByNote({ origin: 'ai', byHand: false }, null)).toBe("Drafted by AI. Edit anything and it's yours.")
+    expect(madeByNote({ origin: 'text', byHand: true }, 'Book 1, Ch 2, Sc 1')).toBeNull()
+    expect(madeByNote({ origin: 'adam', byHand: false }, null)).toBeNull()
+  })
+})
+
+describe('sourceNote', () => {
+  const link = (state: SourceLink['state'], quote = 'she lost her hand'): SourceLink => ({
+    id: `l-${state}-${quote}`,
+    factKind: 'field',
+    factId: 'mara',
+    field: 'marks',
+    sceneId: 's1',
+    sceneVersion: 3,
+    paragraphId: 'p1',
+    start: 0,
+    end: quote.length,
+    quote,
+    state
+  })
+
+  it('shows the words a text fact came from, preferring ones that are unchanged', () => {
+    expect(sourceNote('text', [link('changed', 'edited words'), link('ok')])).toEqual({
+      kind: 'words',
+      quote: 'she lost her hand',
+      sceneId: 's1',
+      changed: false,
+      more: 1
+    })
+  })
+
+  it('says when every passage it came from was deleted', () => {
+    expect(sourceNote('text', [link('gone')])).toEqual({ kind: 'gone', sceneId: 's1' })
+    expect(sourceNote('text', [])).toBeNull()
+  })
+
+  it('marks AI drafts and Adam’s own facts', () => {
+    expect(sourceNote('ai', [link('ok')])).toEqual({ kind: 'ai' })
+    expect(sourceNote('adam', [link('ok')])).toEqual({ kind: 'adam' })
+  })
+})
+
+describe('relationships from either side', () => {
+  it('reads a relationship written on this entry as it is', () => {
+    const c = rel('r1', 'mara', 'tobin', { type: 'sister', feels: 'protective', otherFeels: 'resentful' })
+    const v = orientRelationship(c as Extract<ChangeView, { kind: 'relationship' }>, 'mara')!
+    expect(v).toMatchObject({
+      mine: true,
+      otherId: 'tobin',
+      fromId: 'mara',
+      type: 'sister',
+      selfFeels: 'protective',
+      otherFeels: 'resentful'
+    })
+  })
+
+  it('reads one written on the other entry from this entry’s point of view', () => {
+    const c = rel('r1', 'mara', 'tobin', { type: 'sister', feels: 'protective', otherFeels: 'resentful' })
+    const v = orientRelationship(c as Extract<ChangeView, { kind: 'relationship' }>, 'tobin')!
+    expect(v).toMatchObject({
+      mine: false,
+      otherId: 'mara',
+      fromId: 'mara',
+      type: 'sister',
+      selfFeels: 'resentful',
+      otherFeels: 'protective'
+    })
+  })
+
+  it('saves edits back on the side it was written from', () => {
+    const c = rel('r1', 'mara', 'tobin', { type: 'sister', feels: 'protective', otherFeels: 'resentful' }) as Extract<
+      ChangeView,
+      { kind: 'relationship' }
+    >
+    const fromTobin = orientRelationship(c, 'tobin')!
+    expect(relationshipInput(fromTobin, { type: 'sister', selfFeels: 'grateful', otherFeels: 'protective' })).toEqual({
+      entryId: 'mara',
+      anchor: 'baseline',
+      storyId: null,
+      sceneId: null,
+      kind: 'relationship',
+      payload: { otherId: 'tobin', type: 'sister', feels: 'protective', otherFeels: 'grateful' }
+    })
+    const fromMara = orientRelationship(c, 'mara')!
+    expect(relationshipInput(fromMara, { type: 'rival', selfFeels: 'wary', otherFeels: 'resentful' }).payload).toEqual({
+      otherId: 'tobin',
+      type: 'rival',
+      feels: 'wary',
+      otherFeels: 'resentful'
+    })
+  })
+
+  it('ignores a relationship that does not involve the entry', () => {
+    const c = rel('r1', 'mara', 'tobin') as Extract<ChangeView, { kind: 'relationship' }>
+    expect(orientRelationship(c, 'guild')).toBeNull()
+  })
+})
+
+describe('relationPhrase', () => {
+  it('joins the type to the other entry in plain words', () => {
+    expect(relationPhrase('enemies', 'Tobin')).toBe('enemies with Tobin')
+    expect(relationPhrase('holds', 'the Sword')).toBe('holds the Sword')
+    expect(relationPhrase('member', 'The Guild')).toBe('member of The Guild')
+    expect(relationPhrase('member (lieutenant)', 'The Guild')).toBe('member of The Guild (lieutenant)')
+    expect(relationPhrase('involved in', 'the Fall')).toBe('involved in the Fall')
+    expect(relationPhrase('sister', 'Tobin')).toBe('sister of Tobin')
+    expect(relationPhrase('Sister', 'Tobin')).toBe('sister of Tobin')
+    expect(relationPhrase('married', 'Tobin')).toBe('married to Tobin')
+    expect(relationPhrase('mentor', 'Tobin')).toBe('mentor to Tobin')
+    expect(relationPhrase('estranged', 'Tobin')).toBe('estranged from Tobin')
+    expect(relationPhrase('in love', 'Tobin')).toBe('in love with Tobin')
+    expect(relationPhrase('at war', 'The Guild')).toBe('at war with The Guild')
+    expect(relationPhrase('owes money', 'Tobin')).toBe('owes money to Tobin')
+    expect(relationPhrase('boss', 'Tobin')).toBe('boss of Tobin')
+    expect(relationPhrase('Dark Lord', 'the North')).toBe('Dark Lord of the North')
+    expect(relationPhrase('', 'Tobin')).toBe('linked to Tobin')
+  })
+
+  it('puts "a" or "an" before a role when asked, but not before a name or "the ..."', () => {
+    const a = (type: string, other = 'Tobin'): string => relationPhrase(type, other, { article: true })
+    expect(a('enemy')).toBe('an enemy of Tobin')
+    expect(a('old friend')).toBe('an old friend of Tobin')
+    expect(a('member (lieutenant)', 'The Guild')).toBe('a member of The Guild (lieutenant)')
+    expect(a('one-time ally')).toBe('a one-time ally of Tobin')
+    expect(a('honoured guest')).toBe('an honoured guest of Tobin')
+    expect(a('the leader', 'The Guild')).toBe('the leader of The Guild')
+    expect(a('Dark Lord', 'the North')).toBe('Dark Lord of the North')
+    expect(a('enemies')).toBe('enemies with Tobin')
+    expect(a('mentor')).toBe('mentor to Tobin')
+    expect(a('part of', 'The Guild')).toBe('part of The Guild')
+  })
+
+  it('offers sensible kinds to create from a typed name', () => {
+    expect(createKindsFor('character')[0]).toBe('character')
+    expect(createKindsFor('event')).toContain('place')
+  })
+})
+
+describe('splitChanges', () => {
+  it('puts baseline relationships and knowledge on their own, and the rest in story order', () => {
+    const scene = { ...rel('r2', 'mara', 'tobin', { type: 'enemies' }, 'scene'), where: 'Book 1, Ch 12, Sc 3' }
+    const changes: ChangeView[] = [
+      rel('r1', 'mara', 'tobin', { type: 'sister' }),
+      rel('r3', 'guild', 'mara', { type: 'led by' }),
+      knows('k1', 'mara', 'The heir lives'),
+      knows('k2', 'mara', 'Forgotten', 'baseline', true),
+      scene,
+      knows('k3', 'mara', 'Mara is the heir', 'scene')
+    ]
+    const split = splitChanges(changes, 'mara')
+    expect(split.relationships.map((r) => [r.change.id, r.otherId, r.mine])).toEqual([
+      ['r1', 'tobin', true],
+      ['r3', 'guild', false]
+    ])
+    expect(split.knows.map((k) => k.id)).toEqual(['k1'])
+    expect(split.history.map((c) => c.id)).toEqual(['r2', 'k3'])
+  })
+
+  it('keeps one relationship per pair: the later one', () => {
+    const split = splitChanges([rel('r1', 'mara', 'tobin', { type: 'sister' }), rel('r2', 'tobin', 'mara', { type: 'brother' })], 'mara')
+    expect(split.relationships.map((r) => r.change.id)).toEqual(['r2'])
+  })
+})
+
+describe('describeChange', () => {
+  const say = (c: ChangeView, self = 'mara'): string | null => describeChange(c, self, nameOf, label)?.text ?? null
+
+  it('phrases updates from their note, or from what changed', () => {
+    const upd = (payload: object): ChangeView =>
+      ({ ...base, id: 'u', entryId: 'mara', anchor: 'scene', kind: 'update', payload: { note: '', ...payload } }) as ChangeView
+    expect(say(upd({ note: 'lost her left hand' }))).toBe('Lost her left hand')
+    expect(say(upd({ fields: { hair: 'cropped short', clothing: '' } }))).toBe('Hair: cropped short')
+    expect(say(upd({ description: 'Older now.' }))).toBe('A new description')
+  })
+
+  it('phrases relationships naturally, from either side', () => {
+    expect(say(rel('r', 'mara', 'tobin', { type: 'enemies' }, 'scene'))).toBe('Now enemies with Tobin')
+    expect(say(rel('r', 'mara', 'tobin', { type: 'enemies', ended: true }, 'scene'))).toBe('No longer enemies with Tobin')
+    expect(say(rel('r', 'mara', 'sword', { type: 'holds' }, 'scene'))).toBe('Now holds the Sword')
+    expect(say(rel('r', 'mara', 'sword', { type: 'holds' }, 'scene'), 'sword')).toBe('Mara: now holds the Sword')
+    expect(say(rel('r', 'tobin', 'mara', { type: 'enemies' }, 'scene'))).toBe('Tobin: now enemies with Mara')
+    expect(say(rel('r', 'tobin', 'mara', { type: 'enemy' }, 'scene'))).toBe('Tobin: now an enemy of Mara')
+    expect(say(rel('r', 'mara', 'tobin', { type: 'rival', ended: true }, 'scene'))).toBe('No longer a rival of Tobin')
+  })
+
+  it('adds how each feels, this entry first', () => {
+    const c = rel('r', 'tobin', 'mara', { type: 'enemies', feels: 'betrayed', otherFeels: 'guilty' }, 'scene')
+    expect(describeChange(c, 'mara', nameOf, label)?.detail).toBe('Mara feels: guilty · Tobin feels: betrayed')
+  })
+
+  it('leaves out a relationship with an entry that no longer exists', () => {
+    expect(say(rel('r', 'mara', 'gone', { type: 'enemies' }, 'scene'))).toBeNull()
+  })
+
+  it('phrases knowledge and plot threads', () => {
+    expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene'), 'tobin')).toBe('Learns: Mara is the heir')
+    expect(say(knows('k', 'tobin', 'Mara is the heir', 'scene', true), 'tobin')).toBe('Forgets: Mara is the heir')
+    const thread = (status: 'open' | 'resolved', note: string): ChangeView => ({
+      ...base,
+      id: 't',
+      entryId: 'heir',
+      anchor: 'scene',
+      kind: 'thread',
+      payload: { status, note }
+    })
+    expect(say(thread('resolved', 'the heir is found'), 'heir')).toBe('Thread resolved: the heir is found')
+    expect(say(thread('open', ''), 'heir')).toBe('Thread opened')
+  })
+
+  it('phrases a fresh description, and another entry’s that sets its relationship with this one', () => {
+    const full = (entryId: string): ChangeView => ({
+      ...base,
+      id: 'f',
+      entryId,
+      anchor: 'story-start',
+      kind: 'full',
+      payload: {
+        description: 'Young and reckless.',
+        summary: '',
+        knows: [],
+        relationships: [{ otherId: 'mara', type: 'rival', feels: 'jealous', otherFeels: '' }]
+      }
+    })
+    expect(say(full('mara'))).toBe('Described afresh: Young and reckless.')
+    expect(say(full('tobin'))).toBe('Tobin: rival of Mara')
+  })
+})
+
+describe('changeWhere', () => {
+  it('starts with a capital, and says when a change has no place', () => {
+    expect(changeWhere({ where: 'the start of Book 2', anchor: 'story-start' })).toBe('The start of Book 2')
+    expect(changeWhere({ where: '', anchor: 'baseline' })).toBe('From the start')
+  })
+})
