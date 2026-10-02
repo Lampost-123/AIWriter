@@ -243,6 +243,108 @@ is built on migrations 1 and 2.
   the New story dialog. The command palette, the shortcuts list and the New story dialog are mounted
   once in the workspace (App.tsx).
 
+### How the milestone 3 parts work
+
+**Character builder** (`src/main/builder/`, `features/builder/`)
+- `model.ts` `builderTarget()` is the only place its model is chosen (see "The character builder model"
+  above). `context.ts` is what the AI is told about the world (style guide with Adam's preferences,
+  lore with hard rules first, groups and characters, most recently worked on first, trimmed to fit);
+  `prompts.ts` system prompts start with `[AIWRITE-BUILDER v1] <job>`; `partial.ts` reads a reply still
+  arriving; `profile.ts` tidies fields and recognises Adam's words; `save.ts` sets origins; `jobs.ts`
+  streams the jobs, each call recorded with job `'builder'` and scene `''` (so no Drafts list shows it).
+- Quick start origins: the entry is `'adam'`. A field is `'adam'` when its words are copied from his
+  notes as whole words (never cut short); every other field is `'ai'`, cut to 300 characters on one
+  line or 6000 for longer text. It saves once the profile has a name, as each of the reply's two parts
+  ("fromNotes", "drafted") completes, at the end, on Stop and when the world closes, never over a field
+  someone changed meanwhile. Its state lives in `quickStartStore.ts` and outlives the screen.
+- Guided saves: `createBuilderEntry` makes the entry, then `updateEntry` as Adam (changed keys only);
+  `keepSuggestions` saves as AI; `restoreBuilderField` is Undo after picking an option. The interview
+  isn't stored.
+
+**Codex and entry pages** (`src/main/entryViews/`, `features/codex/`, `features/world/`)
+- Where an entry appears (`appearances.ts`, `mentions.ts`): the scene card, words named by the
+  keeper's rule (keep `mentions.ts` in step with `keeper/text.ts` `mentionAt`; its tests compare
+  them) and changes pinned to scenes. What each scene names is remembered per database handle until
+  its version changes; restored scenes are read again. Importance: point of view 3, present or
+  location 2, named or changed 1. `warm.ts` reads ahead 400 ms after a world opens, 100 scenes a slice.
+- Quotes are cut exactly from the scene's text; `quoteCut` tells the page where to add "…".
+- `setFirstExists` replaces the points; places in Recently deleted pass, only places deleted for good
+  are refused.
+- "You wrote this": one note under the name on Adam's own entries; on other entries, a note on each of
+  his fields, relationships and facts, also in the as-of view (matched to the change that set them).
+- `codexStore` holds filters, sort, the way back and `anchor` (the card opened, or the first in view,
+  and its offset). Cards use `content-visibility: auto` with a 104 px guess, so going back draws the
+  60 cards each side of the anchor, then scrolls it to its offset.
+
+**Names in the manuscript, the Cast tab and Add to memory** (`features/editor/names/`,
+`features/editor/selection/`, `features/peek/`, `features/cast/`)
+- One call per scene, `getSceneNames`, feeds the underlines, hover cards, Cast tab, the entry beside
+  the page and the Add to memory form (`names/sceneNames.ts`). It reloads 120 ms after the world,
+  `entriesRev`, `memoryRev`, `briefingRev`, a story's title or `outlineOrder()` changes, never on
+  `outlineRev` (that moves with every word count), and keeps the last 8 scenes.
+- `nameMatch.ts` copies `mentionAt` from `keeper/text.ts`: keep them in step. Underlines are
+  decorations with class `aw-name` and `data-name-of` (never `data-entry`, which lists and tests use).
+- Code that selects words to show Adam where something is sets the `REVEALED` meta
+  (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
+- The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
+  through; the bar's Esc calls `preventDefault` so a draft carries on; the Add to memory form is a
+  Radix Popover (so `layerOpen()` is true), placed once as it opens (`formPlace()`,
+  `avoidCollisions={false}`) so it never moves while in use. Pop-ups rendered inside the page's scroll
+  area stop `mousedown`, and `SceneView`'s `onPageMouseDown` ignores presses outside its own DOM.
+- The scene panel's tabs are Scene card, Context, Cast and Drafts; an entry shown beside the page
+  (`peekEntryId`) covers them until Back.
+- Narrow page: the workspace keeps `pageMinFor(fontSize, pageWidth)` for the page (about 55 characters
+  a line plus the narrow padding); the page gets 40 px padding only from `widePageFrom()` (measured
+  with a ResizeObserver in `SceneView`). When even both panels at their narrowest can't leave that,
+  the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
+  palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata
+  measurements are `PROSE_CHAR_EM` and `PROSE_CH_EM` in `fitPanels.ts`; re-measure if the font changes.
+- The shared toast takes a second button (`secondary`, "Open" beside "Undo").
+
+**Search and the command palette** (`src/main/search/`, `db/search.ts`, `features/palette/`)
+- `main/search/index.ts` keeps an in-memory index per world database, built once (about 70 ms for
+  320,000 words), then re-reads only rows that TEMP triggers (`db/search.ts`) marked changed, so code
+  that writes those tables needs nothing extra (a second connection writing world.db would go unseen).
+  If Adam's machine shows pauses on the first build, move it to a worker thread.
+- Order: entries, chapters and stories found by a name come before Scenes; entries found only in their
+  description, fields or memory, chapters and stories found by goal or premise, summaries, notes and the
+  style guide come after. "Mara's" is read as Mara; apostrophes inside words stay part of them.
+- A scene result's `card` part opens the Scene card at that part (`cardReveal.ts`, by
+  `data-card-part`, else by label); an entry result's `part` opens the entry's page there
+  (`entryReveal.ts`, by label or section title). Renaming those labels means changing `LABELS`,
+  `TOP_FIELDS`, `NOTES`, `sectionTitle` and `sectionLabel` in `main/search/index.ts`.
+- Every keyboard shortcut goes in `lib/shortcuts.ts`; `shortcuts.test.ts` scans the renderer and fails
+  if one the app handles isn't listed. Tooltips name keys with `withShortcut` or `shortcutText`.
+- A new screen or action needs an entry in `ACTIONS` (`paletteLogic.ts`) and a case in `runAction`
+  (`actions.ts`); an action that goes to another page sets `away`, and one that ends on the writing
+  page asks for the caret with `requestEditorFocus`.
+
+**Stories** (`src/main/stories/`, `db/stories.ts`, `features/stories/`)
+- The rules (`rules.ts`, `points.ts`) are pure over `WorldShape`; the SQL is in `db/stories.ts`.
+  `followers(shape, id)` lists books written before a story that now continue after it;
+  `declineFollow` keeps or clears Adam's No as a `'follow-declined'` answer, so it travels with backups.
+- Editing or undoing a placement always starts from the one the memory has (`StoryDetails.placement`).
+  The shelf order comes from `listShelf().order`, for display only (`stories.position` is never
+  written for it).
+- `storyActions.ts`: `openStorySettings(storyId, section?)` (through `useSectionRequest`); after a Yes
+  whose Undo has gone, `moveToFollow` starts `sortStartChanges` only if the same world is still open.
+- `flows.ts` is the flows' quiet line for the open world only (cleared when the world changes), with
+  `runFlow`, `retryFlow`, `stopFlow` and `loadFlows` (`listStoryFlows`).
+- A scroll area holding `sr-only` inputs must be `relative`.
+
+**Story flows** (`src/main/storyFlows/`)
+- A run is a `memory_runs` row with `scene_id = ''`; its lines' `undo_json` starts with
+  `{"op":"story-flow"`, and `keeper/undo.ts` hands those to `storyFlows/lines.ts`. Generation records
+  use job `'story'` and scene `''`; prompts start with `[AIWRITE-STORY-FLOW v1] <flow>`. The model is
+  `flowTarget()`: the memory model (else the writer model) with the memory's Thinking.
+- Everything drafted is `'ai'`; nothing automatic overwrites or removes an `'adam'` change ("When did
+  these happen?" may move his changes but keeps their origin). Changes of entries in Recently deleted
+  are ignored, as the memory ignores them.
+- Order at a story's start (`order.ts`): time gap and moved changes go before the changes already there
+  about the same entries; a drafted starting description goes before the changes about its entry;
+  relationships are never copied to the other side. Positions can be fractions (SQLite REAL).
+- Undo and answers only bring back a change the line's own answer took out (`removedByLine`).
+
 ### Who builds what (parallel build, milestone 3)
 
 | Part | Owns |
