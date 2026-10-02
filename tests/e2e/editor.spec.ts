@@ -93,7 +93,7 @@ test('a scene added from a row menu keeps its name box, even if it opens before 
     // The menu hands focus back a moment after it closes. Usually the new scene's name box opens
     // later than that, but not always: make that moment come late every time.
     await win.evaluate(() => {
-      const w = window as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      const w = globalThis as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
       const plain = (w.plainTimeout = w.setTimeout)
       w.setTimeout = ((fn: () => void, ms?: number) => plain(fn, ms || 300)) as typeof setTimeout
     })
@@ -102,7 +102,7 @@ test('a scene added from a row menu keeps its name box, even if it opens before 
     await expect(box).toBeFocused()
     await win.waitForTimeout(500)
     await win.evaluate(() => {
-      const w = window as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      const w = globalThis as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
       w.setTimeout = w.plainTimeout!
     })
     await expect(box).toBeFocused()
