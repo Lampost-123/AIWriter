@@ -6,7 +6,7 @@
 import { TextSelection } from '@tiptap/pm/state'
 import type { Editor } from '@tiptap/core'
 import type { ID } from '@shared/types'
-import { toast } from '@/components/ui'
+import { toast, useToasts } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
@@ -29,6 +29,9 @@ export const sceneHasText = (sceneId: ID): boolean => {
   const bridge = editorBridge()
   return !!bridge && bridge.sceneId === sceneId && bridge.hasText()
 }
+
+/** The message about the last text put into a scene from here (with its Undo), while it may still show. */
+let lastPut: number | null = null
 
 /** The nearest scrolling box around an element (the writing page's). */
 function scrollerOf(el: HTMLElement): HTMLElement | null {
@@ -95,7 +98,9 @@ export async function putInScene(
   useApp.getState().navigate({ kind: 'write' })
   const undo = `${modKey()}+Z`
   const it = o.plural ? 'them' : 'it'
-  toast(
+  // The message about the text put in before goes: its Undo would bring back an older page than this one's.
+  if (lastPut !== null) useToasts.getState().dismiss(lastPut)
+  lastPut = toast(
     !filled
       ? `${o.what} went into the scene. ${undo} takes ${it} out again.`
       : added

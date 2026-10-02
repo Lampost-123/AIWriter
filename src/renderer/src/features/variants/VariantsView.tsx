@@ -14,8 +14,9 @@ import { Button, EmptyState } from '@/components/ui'
 import { isTyping } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
-import { formatCost, relativeTime } from '@/features/generate/format'
+import { relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
+import { costWords } from './cost'
 import { blocksWords, pickedBlocks, variantBlocks, type VariantBlock } from './merge'
 import { StartPanel } from './StartPanel'
 import { clearPicks, isWriting, loadVariants, setOf, stopAll, useVariants, type LiveSet } from './store'
@@ -193,9 +194,9 @@ function SetView({
   const anyParagraph = useMemo(() => [...blocks.values()].some((bs) => bs.some((b) => b.kind === 'paragraph')), [blocks])
 
   const known = variants.filter((v) => v.cost != null)
-  const cost = known.length
-    ? `${known.some((v) => v.costEstimated) ? 'about ' : ''}${formatCost(known.reduce((n, v) => n + (v.cost ?? 0), 0))}`
-    : null
+  const estimated = known.some((v) => v.costEstimated)
+  const spent = known.reduce((n, v) => n + (v.cost ?? 0), 0)
+  const cost = known.length ? costWords(spent, estimated) : null
   const meta = [
     writing ? 'Being written now' : `${anyParagraph ? 'Written' : 'Tried'} ${relativeTime(set.createdAt, now)}`,
     set.creativity && set.creativity in CREATIVITY_PRESETS ? `Creativity: ${CREATIVITY_PRESETS[set.creativity].label}` : null,
@@ -212,7 +213,7 @@ function SetView({
         {cost ? (
           <span
             className="ml-auto shrink-0 tabular-nums"
-            title={known.some((v) => v.costEstimated) ? "Partly AI Write's estimate: the provider didn't say" : 'What the provider charged'}
+            title={estimated ? "Partly AI Write's estimate: the provider didn't say" : 'What the provider charged'}
           >
             Cost: {cost}
           </span>

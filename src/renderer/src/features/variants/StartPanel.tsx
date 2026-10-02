@@ -11,8 +11,9 @@ import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
-import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from '@/features/generate/format'
+import { CREATIVITY_HINTS, estimateDraftCost, shortModelName } from '@/features/generate/format'
 import { Segmented } from '@/features/generate/parts'
+import { costLabel } from './cost'
 import { clearProblem, startVariants, useVariants } from './store'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
@@ -313,7 +314,7 @@ export function StartPanel({
             </span>
             {estimate != null ? (
               <span className="shrink-0 tabular-nums" title="The briefing and the length, for each variant, at the writer model's prices">
-                About {formatCost(estimate * count)} for {howMany}
+                {costLabel(estimate * count, true)} for {howMany}
               </span>
             ) : null}
           </div>

@@ -210,6 +210,9 @@ test('three variants are written side by side from one briefing; one stops on it
     await expect(
       toasts(win).getByText("The picked paragraphs went in below the scene's text, after a scene break. Ctrl+Z takes them out again.")
     ).toBeVisible()
+    // Only the last one's message, with its Undo, shows: the one before (whose Undo is out of date) has gone.
+    await expect(toastSaying(win, 'Variant 1 took the place of the scene')).toHaveCount(0)
+    await expect(toasts(win).getByRole('button', { name: 'Undo', exact: true })).toHaveCount(1)
     await expect.poll(() => savedText(win, knock)).toMatch(new RegExp(`^${OLD.join('\n\n')}\n\n\\* \\* \\*\n\n${P2}.*\n\n${P1}`))
     await expect.poll(async () => (await snapshots()).length).toBe(2)
     expect((await snapshots())[1]).toMatchObject({ sceneId: knock, label: 'Before a variant', generationId: null, text: OLD.join('\n\n') })

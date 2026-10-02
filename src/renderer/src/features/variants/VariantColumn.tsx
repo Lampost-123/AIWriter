@@ -12,9 +12,9 @@ import { Button, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { FollowScroll } from '@/features/editor/followScroll'
-import { formatCost } from '@/features/generate/format'
 import type { MarkedPiece } from '@/features/editor/streamText'
 import { openVariantRecord } from './back'
+import { costLabel, costWords } from './cost'
 import { fixesFor } from './fixes'
 import { blocksWords, pickNumber, variantBlocks, type Pick } from './merge'
 import { pickParagraph, stopVariant, type LiveVariant } from './store'
@@ -218,15 +218,15 @@ export function VariantColumn({
       : variant.retrying
         ? 'Retrying…'
         : 'Writing…'
-  const cost = variant.cost != null ? `${variant.costEstimated ? 'about ' : ''}${formatCost(variant.cost)}` : null
+  const cost = variant.cost != null ? costLabel(variant.cost, variant.costEstimated) : null
   // The cost goes in the header when there's room for it (a finished variant); otherwise it's said on hover.
   const endTitle =
     status === 'complete' && !variant.cutOff
       ? variant.costEstimated
         ? "AI Write's estimate: the provider didn't say"
         : undefined
-      : cost
-        ? `It cost ${cost}.`
+      : variant.cost != null
+        ? `Cost: ${costWords(variant.cost, variant.costEstimated)}`
         : undefined
   // The ways to fix it that its words name: the length first (as Generate offers it), then Settings.
   const fixes = error ? fixesFor(error) : []
