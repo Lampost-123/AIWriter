@@ -14,6 +14,8 @@ import { useDelayed } from '@/features/generate/parts'
 import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stopRun, updateTheMemory } from './actions'
 import { KIND_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues } from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
+import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
+import type { LiveKind } from '@shared/liveChecks'
 
 export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const { issues, error, retry } = useSceneIssues(sceneId)
@@ -24,8 +26,7 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div className="flex min-h-full flex-col">
-      {/* Live checks (milestone 5): "On this page: …" (useLiveFlagCounts / revealLiveFlag from
-          features/liveChecks/liveFlags.ts) goes here, above the check's own bar, when the parts are joined. */}
+      <OnThisPage />
       <CheckBar sceneId={sceneId} issues={issues} run={run} />
       {failed ? (
         <div className="px-4 pb-2">
@@ -88,6 +89,40 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
           ) : null}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** What each kind of underline in the page is called here, one and many. */
+const LIVE_WORDS: Record<LiveKind, [string, string]> = {
+  spelling: ['possible misspelt name', 'possible misspelt names'],
+  phrase: ['phrase to avoid', 'phrases to avoid'],
+  repetition: ['repeated word', 'repeated words']
+}
+const LIVE_ORDER: LiveKind[] = ['spelling', 'phrase', 'repetition']
+
+/**
+ * The live checks' underlines in the page now (phrases to avoid, repeated words, names that look misspelt),
+ * each a link to the next one. Nothing when there are none.
+ */
+function OnThisPage(): React.JSX.Element | null {
+  const counts = useLiveFlagCounts()
+  const kinds = LIVE_ORDER.filter((k) => counts[k] > 0)
+  if (!kinds.length) return null
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-2.5 text-[12.5px]">
+      <span className="text-muted">Underlined in the page:</span>
+      {kinds.map((k) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => revealLiveFlag(k)}
+          title="Show the next one in the page"
+          className="text-accent hover:underline"
+        >
+          {counts[k]} {LIVE_WORDS[k][counts[k] === 1 ? 0 : 1]}
+        </button>
+      ))}
     </div>
   )
 }
