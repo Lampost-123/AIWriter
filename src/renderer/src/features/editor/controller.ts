@@ -276,7 +276,8 @@ export class SceneController {
       unsaved.dispose()
       this.dropLeaving(unsaved)
     }
-    // Every paragraph has a stable id; a scene from before ids existed gets them now, and they are saved.
+    // Every paragraph has a stable id; a scene from before ids existed gets them now, and (if it has
+    // words) they are saved.
     const { doc, filled } = withParagraphIds(unsaved?.doc ?? streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text))
     const mem = memory.get(scene.id)
     let selection: Selection = Selection.atStart(doc)
@@ -310,7 +311,9 @@ export class SceneController {
     if (unsaved) {
       this.session.changed()
       app().setSceneWords(countWords(streamDoc.sceneText(doc)))
-    } else if (filled) {
+    } else if (filled && doc.textContent.trim()) {
+      // Only a scene with words in it: an empty one gets its ids saved with the first thing typed,
+      // so merely opening it never writes over the stored copy.
       this.session.changed()
     }
     // The caret goes into the page when asked (opening a scene from the binder), and whenever
