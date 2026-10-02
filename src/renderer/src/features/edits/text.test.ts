@@ -118,10 +118,33 @@ describe('where Continue carries on', () => {
     expect(wordsIn(doc, end - 1, end)).toBeNull()
   })
 
+  it('carries on after the whole word when the cursor is inside one', () => {
+    const doc = docFromText(schema, 'She watched the door. I don’t know, said the well-known man')
+    const door = rangeOf(doc, 'door')
+    expect(continuePlace(doc, door.from + 2)).toEqual({ at: door.to, mode: 'inline' })
+    // Right at a word's end, or between words, it stays where it is.
+    expect(continuePlace(doc, door.to)).toEqual({ at: door.to, mode: 'inline' })
+    expect(continuePlace(doc, door.from - 1)).toEqual({ at: door.from - 1, mode: 'inline' })
+    const dont = rangeOf(doc, 'don’t')
+    expect(continuePlace(doc, dont.from + 3)).toEqual({ at: dont.to, mode: 'inline' })
+    const known = rangeOf(doc, 'well-known')
+    expect(continuePlace(doc, known.from + 4)).toEqual({ at: known.to, mode: 'inline' })
+    // The last word of a paragraph: after it, at the paragraph's end.
+    const man = rangeOf(doc, 'man')
+    expect(continuePlace(doc, man.from + 1)).toEqual({ at: man.to, mode: 'inline' })
+    const done = docFromText(schema, 'She sat down.\n\nNobody moved.')
+    expect(continuePlace(done, rangeOf(done, 'down.').from + 2)).toEqual({ at: rangeOf(done, 'down').to, mode: 'inline' })
+  })
+
   it('needs words before the cursor', () => {
     const doc = docFromText(schema, '')
     expect(continuePlace(doc, 1)).toEqual({
       problem: 'There’s nothing to carry on from yet. Write a line or two first, or press Generate to draft the scene.'
+    })
+    // At the very start of a scene with words, it says where to put the cursor instead.
+    const scene = docFromText(schema, 'Mara pushed the door open.\n\nNobody looked up.')
+    expect(continuePlace(scene, 1)).toEqual({
+      problem: 'Continue carries on from the words before the cursor. Put the cursor after some words, such as at the end of the scene.'
     })
   })
 

@@ -134,23 +134,35 @@ export interface ContinuePlace {
 /** A paragraph that ends a sentence: its last words end with . ! ? or … (and maybe a closing quotation mark or bracket). */
 const endsSentence = (text: string): boolean => /[.!?…]["'”’»)\]]*\s*$/.test(text) || /^\s*(\*\s*){3,}$/.test(text)
 
+/** The rest of a word from a place inside it: letters and digits, and an apostrophe or hyphen inside it ("don’t"). */
+const WORD_REST = /^(?:[\p{L}\p{N}]|['’-](?=[\p{L}\p{N}]))+/u
+
 /**
  * Where Continue carries on from a position (the cursor, or the end of the selected words), or a problem
- * in plain words when there's nothing before it to carry on from.
+ * in plain words when there's nothing before it to carry on from. From inside a word, it carries on after
+ * the whole word.
  */
 export function continuePlace(doc: PMNode, pos: number): ContinuePlace | { problem: string } {
   const $pos = doc.resolve(pos)
   if (!$pos.parent.isTextblock) return { problem: 'Put the cursor in the text where the AI should carry on.' }
   if (!doc.textBetween(0, pos, '\n', '\n').trim()) {
-    return { problem: 'There’s nothing to carry on from yet. Write a line or two first, or press Generate to draft the scene.' }
+    return doc.textBetween(pos, doc.content.size, '\n', '\n').trim()
+      ? {
+          problem: 'Continue carries on from the words before the cursor. Put the cursor after some words, such as at the end of the scene.'
+        }
+      : { problem: 'There’s nothing to carry on from yet. Write a line or two first, or press Generate to draft the scene.' }
   }
   const para = $pos.parent
-  const before = para.textBetween(0, $pos.parentOffset, undefined, '\n')
-  const after = para.textBetween($pos.parentOffset, para.content.size, undefined, '\n')
+  let offset = $pos.parentOffset
+  if (/[\p{L}\p{N}]$/u.test(para.textBetween(0, offset, undefined, '\n'))) {
+    offset += WORD_REST.exec(para.textBetween(offset, para.content.size, undefined, '\n'))?.[0].length ?? 0
+  }
+  const before = para.textBetween(0, offset, undefined, '\n')
+  const after = para.textBetween(offset, para.content.size, undefined, '\n')
   // At the start of a paragraph with words: the text before ends with the paragraph (or scene break) before
   // it, so the AI writes new paragraphs, and they go in ahead of this one, which stays as it is.
   if (!before.trim() && after.trim()) return { at: $pos.start(), mode: 'before' }
-  if (after.trim() || !before.trim() || !endsSentence(before)) return { at: pos, mode: 'inline' }
+  if (after.trim() || !before.trim() || !endsSentence(before)) return { at: $pos.start() + offset, mode: 'inline' }
   return { at: $pos.end(), mode: 'paragraph' }
 }
 

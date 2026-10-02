@@ -15,6 +15,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { snapshotBefore } from '@/features/history/snapshot'
+import { revealEntryPart } from '@/features/palette/entryReveal'
 import {
   acceptSuggestion,
   activeSuggestion,
@@ -39,6 +40,9 @@ const DROPPED: Partial<Record<GoneReason | 'scene', string>> = {
   draft: 'A new draft started, so the AI’s change was dropped.',
   scene: 'The AI’s change was dropped because you opened another scene.'
 }
+
+/** Said when a change is stopped (or rejected) before any of its words came. */
+const NOTHING_CHANGED = 'Stopped. Nothing in the text was changed.'
 
 /** The note on a change stopped before its end. */
 const stoppedNote = (tool: EditTool): string =>
@@ -127,6 +131,8 @@ export function attachEditor(e: Editor): () => void {
 
 /** Another scene is showing in the page: a suggestion from the last one has gone with it. */
 export function sceneShown(): void {
+  // A change rejected in the last scene can't come back in this one: its message (with Undo) goes.
+  dropRejectedToast()
   // The scene's name shows a moment before its text replaces the page's (with no transaction): look after.
   queueMicrotask(() => notice('scene'))
 }
@@ -233,7 +239,13 @@ function finish(d: Pick<TaskDone, 'text' | 'status' | 'error' | 'cutOff'>): void
         action: settingsAction(d.error ?? '') ?? retry
       })
     else if (d.status === 'complete')
-      toast('The AI didn’t write anything for these words. Try again, or try another tool.', { action: retry })
+      toast(
+        l.tool === 'continue'
+          ? 'The AI didn’t write anything to carry on with. Try again.'
+          : 'The AI didn’t write anything for these words. Try again, or try another tool.',
+        { action: retry }
+      )
+    else toast(NOTHING_CHANGED)
     return
   }
   const notes = [l.note]
@@ -366,7 +378,11 @@ export async function startTool(tool: EditTool, o: { direction?: string; range?:
       const open = entryId
         ? {
             label: `Open ${entryName ?? 'their page'}`,
-            run: () => useApp.getState().navigate({ kind: 'entries', entryKind: 'character', entryId })
+            run: () => {
+              useApp.getState().navigate({ kind: 'entries', entryKind: 'character', entryId })
+              // Their page opens at Voice, where how they speak goes.
+              revealEntryPart(entryId, 'character', { kind: 'field', key: 'speech' }, null)
+            }
           }
         : undefined
       toast(res.problem, { action: open })
@@ -422,6 +438,7 @@ export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void
   if (!v || !s || (id && s.id !== id) || s.status === 'accepting') return
   if (s.status === 'starting') {
     drop(s.id)
+    toast(NOTHING_CHANGED)
     return
   }
   const writing = s.status === 'writing' || s.status === 'stopping'
@@ -435,7 +452,7 @@ export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void
   if (useApp.getState().view.kind === 'write' && how !== 'undo') v.focus()
   dropRejectedToast()
   if (!kept) {
-    toast('Stopped. Nothing in the text was changed.')
+    toast(NOTHING_CHANGED)
     return
   }
   const message =
@@ -473,6 +490,7 @@ export function stop(id?: ID): void {
   if (!s || (id && s.id !== id)) return
   if (s.status === 'starting') {
     drop(s.id)
+    toast(NOTHING_CHANGED)
     return
   }
   if (s.status !== 'writing') return

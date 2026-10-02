@@ -119,6 +119,9 @@ const CARET = `(i, end) => {
   return empty && $head.index(0) === i && $head.parentOffset === (end ? $head.parent.content.size : 0)
 }`
 
+/** Where the caret is in its paragraph (run in the window, as text). */
+const HEAD = `document.querySelector('.scene-prose').editor.state.selection.$head.parentOffset`
+
 /** Puts the caret at the end of paragraph `i` (or its start). */
 async function caretAt(win: Page, i: number, where: 'end' | 'start' = 'end'): Promise<void> {
   await paras(win).nth(i).click()
@@ -441,13 +444,26 @@ test('Continue from the cursor writes the next paragraphs; at the start of one, 
     await win.keyboard.press('Control+z')
     await expect(paras(win)).toHaveText(TEXT)
 
-    // Part-way through a paragraph, from the AI tools over the words before: it carries on the sentence.
+    // Part-way through a paragraph, from inside a word: it carries on after the whole word.
     await caretAt(win, 1)
     await win.keyboard.press('Enter')
     await win.keyboard.type('She waited')
+    await win.keyboard.press('ArrowLeft')
+    await win.keyboard.press('ArrowLeft')
+    await expect.poll(() => win.evaluate(HEAD)).toBe('She wait'.length)
+    await win.keyboard.press('Control+k')
+    await win.getByRole('combobox', { name: 'Search, or find an action' }).fill('Continue from the cursor')
+    await win.getByRole('option', { name: /Continue from the cursor/ }).click()
+    const on = 'and then, without a word, she sat down across from him.'
+    await expect(newWords(win)).toHaveText(on)
+    await expect(acceptButton(win)).toBeVisible()
+    await expect(paras(win).nth(2)).toHaveText(`She waited ${on}`)
+    await win.keyboard.press('Escape')
+    await expect(change(win)).toBeHidden()
+
+    // Part-way through a paragraph, from the AI tools over the words before: it carries on the sentence.
     await selectWords(win, 'She waited')
     await runTool(win, 'Continue after these words')
-    const on = 'and then, without a word, she sat down across from him.'
     await expect(newWords(win)).toHaveText(on)
     await expect(oldWords(win)).toHaveCount(0)
     await expect(acceptButton(win)).toBeVisible()
@@ -494,6 +510,55 @@ test('Stop while the AI writes keeps the words that came, to accept or reject; E
     await acceptButton(win).click()
     await expect(paras(win).first()).toHaveText(came)
     await expect.poll(() => savedText(win, sceneId)).toBe([came, P2].join('\n\n'))
+
+    // Stopped before any words came (a model that thinks first): nothing to keep, and it says so.
+    const { models } = await invoke(win, 'getSettings')
+    await invoke(win, 'updateSettings', { models: { writer: { ...models.writer, modelId: 'fake/wait', label: 'fake/wait' } } })
+    await selectWords(win, P2)
+    await runTool(win, 'Condense')
+    await expect(change(win)).toContainText('Condensing…')
+    await win.keyboard.press('Escape')
+    await expect(toasts(win).getByText('Stopped. Nothing in the text was changed.')).toBeVisible()
+    await expect(change(win)).toBeHidden()
+    await expect(paras(win)).toHaveText([came, P2])
+  } finally {
+    await fake.close()
+  }
+})
+
+test('while the AI writes, the page stays where Adam scrolls to; a message says when the change is ready, and Show it goes to it', async ({
+  launch
+}) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(QUIET)
+    const filler = Array.from({ length: 24 }, (_, i) => `Filler paragraph ${i + 1}. The rain went on over the roofs of Lowtown all night.`)
+    const last = 'She watched the door.'
+    await setUp(win, fake, { model: 'fake/slow', text: [P1, P2, ...filler, last] })
+
+    // The change at the end of the scene, followed into view while its words come.
+    await selectWords(win, last)
+    await runTool(win, 'Expand')
+    await expect(newWords(win)).toContainText('She let the silence')
+    await expect(stopButton(win)).toBeInViewport()
+
+    // Adam scrolls back to the start of the scene: the page stays there, even once the change is ready.
+    const box = (await prose(win).boundingBox())!
+    await win.mouse.move(box.x + 100, 400)
+    await win.mouse.wheel(0, -100000)
+    await expect(paras(win).first()).toBeInViewport()
+    await expect(acceptButton(win)).toBeVisible({ timeout: 20000 })
+    await expect(toasts(win).getByText('The AI’s change is ready.')).toBeVisible()
+    await expect(paras(win).first()).toBeInViewport()
+    await expect(acceptButton(win)).not.toBeInViewport()
+
+    // Show it goes to the change.
+    await toasts(win).getByRole('button', { name: 'Show it' }).click()
+    await expect(acceptButton(win)).toBeInViewport()
+    await expect(toasts(win).getByText('The AI’s change is ready.')).toBeHidden()
+    await win.keyboard.press('Escape')
+    await expect(change(win)).toBeHidden()
+    await expect(paras(win).last()).toHaveText(last)
   } finally {
     await fake.close()
   }
@@ -591,6 +656,8 @@ test('Fix voice matches a speaker’s voice, says whose, and says plainly what t
     await expect(change(win)).toBeHidden()
     await toasts(win).getByRole('button', { name: 'Open Tobin' }).click()
     await expect(win.locator('main').getByRole('textbox', { name: 'Name' })).toHaveValue('Tobin')
+    // His page opens at Voice, where how he speaks goes.
+    await expect(win.locator('main').getByLabel('How they speak')).toBeInViewport()
   } finally {
     await fake.close()
   }

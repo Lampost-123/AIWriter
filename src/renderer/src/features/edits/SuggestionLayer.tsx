@@ -8,6 +8,7 @@ import type { Transaction } from '@tiptap/pm/state'
 import { Check, Layers, ListRestart, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
+import { toast, useToasts } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { parseEmphasis } from '@/features/editor/streamText'
@@ -52,10 +53,17 @@ export function SuggestionLayer({
   const panelRef = useRef<HTMLDivElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   /**
-   * The page keeps the change in view while its words arrive (until Adam scrolls, clicks in the page or
-   * types), and once more when it is ready.
+   * The page keeps the change in view while its words arrive, and once more when it is ready, until Adam
+   * scrolls, clicks in the page, moves about it with the keys or types: from then on the page stays where
+   * he puts it, and a message says when the change is ready out of sight.
    */
   const follow = useRef(false)
+  /** Adam has moved about the page or typed since the change started (or was last shown to him). */
+  const moved = useRef(false)
+  /** The status the change had, to tell when it has just become ready. */
+  const was = useRef<Suggestion['status'] | null>(null)
+  /** The message saying the change is ready out of sight, while it shows. */
+  const readyToast = useRef<number | null>(null)
 
   useEffect(() => attachEditor(editor), [editor])
   useEffect(() => sceneShown(), [sceneId])
@@ -102,31 +110,82 @@ export function SuggestionLayer({
     if (s.status === 'ready' || s.status === 'accepting') follow.current = false
   }, [editor, scrollerRef])
 
-  // A new change: follow it into view. Adam scrolling the page, clicking in it or typing stops that.
+  /** Shows the change: the writing page, scrolled to its buttons, with the caret in the page. */
+  const reveal = useCallback(() => {
+    if (useApp.getState().view.kind !== 'write') useApp.getState().navigate({ kind: 'write' })
+    follow.current = true
+    moved.current = false
+    requestAnimationFrame(() => {
+      const panel = panelRef.current
+      const scroller = scrollerRef.current
+      if (!panel || !scroller) return
+      const top = panel.offsetTop
+      if (top < scroller.scrollTop || top + panel.offsetHeight > scroller.scrollTop + scroller.clientHeight) {
+        scroller.scrollTop = Math.max(0, top - scroller.clientHeight / 2)
+      }
+      editor.view.focus()
+    })
+  }, [editor, scrollerRef])
+
+  // A new change: follow it into view. Adam moving about the page or typing stops that.
   const id = s?.id ?? null
   const status = s?.status ?? null
   useLayoutEffect(() => {
-    if (id) follow.current = true
+    if (id) {
+      follow.current = true
+      moved.current = false
+    }
+    return () => {
+      // Accepted, rejected or gone: the message saying it is ready goes with it.
+      if (readyToast.current !== null) useToasts.getState().dismiss(readyToast.current)
+      readyToast.current = null
+    }
   }, [id])
   useLayoutEffect(() => {
-    if (status === 'ready') follow.current = true
-  }, [status])
+    const before = was.current
+    was.current = status
+    if (status !== 'ready' || before === 'ready') return
+    if (!moved.current) {
+      follow.current = true
+      return
+    }
+    // Just written (not back from Accept), while Adam is elsewhere in the page: the page stays where he
+    // is, and if the change is out of sight a message says it's ready.
+    const panel = panelRef.current
+    const scroller = scrollerRef.current
+    if (!panel || !scroller || !writing || before === 'accepting') return
+    const box = scroller.getBoundingClientRect()
+    const r = panel.getBoundingClientRect()
+    if (r.bottom > box.top && r.top < box.bottom) return
+    const current = suggestionsOf(editor.state).active
+    readyToast.current = toast(current && picking(current) ? 'The three versions are ready to pick from.' : 'The AI’s change is ready.', {
+      action: { label: 'Show it', run: reveal }
+    })
+  }, [status, editor, reveal, scrollerRef, writing])
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
     const off = (): void => {
       follow.current = false
+      moved.current = true
     }
     const press = (e: MouseEvent): void => {
       if (!(e.target as Element | null)?.closest?.('[data-ai-change]')) off()
     }
+    // Keys that move about the page (not the arrows among Alternatives' versions).
+    const keys = (e: KeyboardEvent): void => {
+      if ((e.target as Element | null)?.closest?.('[data-ai-change]')) return
+      if (/^(PageUp|PageDown|ArrowUp|ArrowDown)$/.test(e.key) || ((e.ctrlKey || e.metaKey) && /^(Home|End)$/.test(e.key))) off()
+    }
     scroller.addEventListener('wheel', off, { passive: true })
     scroller.addEventListener('touchmove', off, { passive: true })
     scroller.addEventListener('mousedown', press)
+    scroller.addEventListener('keydown', keys)
     return () => {
       scroller.removeEventListener('wheel', off)
       scroller.removeEventListener('touchmove', off)
       scroller.removeEventListener('mousedown', press)
+      scroller.removeEventListener('keydown', keys)
     }
   }, [scrollerRef])
 
@@ -136,7 +195,10 @@ export function SuggestionLayer({
     place()
     // The words arriving change only what shows; a change to the text itself is Adam typing.
     const onTransaction = ({ transaction }: { transaction: Transaction }): void => {
-      if (transaction.docChanged) follow.current = false
+      if (transaction.docChanged) {
+        follow.current = false
+        moved.current = true
+      }
       place()
     }
     editor.on('transaction', onTransaction)
@@ -168,23 +230,10 @@ export function SuggestionLayer({
   useEffect(() => {
     setLayerHooks({
       focusPicker: () => pickerRef.current?.querySelector<HTMLButtonElement>('button[data-version]:not(:disabled)')?.focus(),
-      reveal: () => {
-        if (useApp.getState().view.kind !== 'write') useApp.getState().navigate({ kind: 'write' })
-        follow.current = true
-        requestAnimationFrame(() => {
-          const panel = panelRef.current
-          const scroller = scrollerRef.current
-          if (!panel || !scroller) return
-          const top = panel.offsetTop
-          if (top < scroller.scrollTop || top + panel.offsetHeight > scroller.scrollTop + scroller.clientHeight) {
-            scroller.scrollTop = Math.max(0, top - scroller.clientHeight / 2)
-          }
-          editor.view.focus()
-        })
-      }
+      reveal
     })
     return () => setLayerHooks(null)
-  }, [editor, scrollerRef])
+  }, [reveal])
 
   if (!s || !sceneId) return null
   return (
