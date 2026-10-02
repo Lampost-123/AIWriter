@@ -26,3 +26,5 @@ export function fakeMemoryReply(user: string): string
 /** A deterministic summary of a summary request (its user message). */
 export function fakeSummary(user: string): string
 export function startFakeProvider(options?: FakeProviderOptions): Promise<FakeProvider>
+/** A deterministic reply to a builder request (see the end of server.mjs), or null when the request isn't one. */
+export function fakeBuilderReply(system: string, messages: { role: string; content: string }[], model?: string): string | null
