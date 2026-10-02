@@ -270,6 +270,18 @@ describe('undoing a build', () => {
     expect(mem.changesForEntry(t.db, tobin.id).filter((c) => c.kind === 'relationship')).toHaveLength(2)
   })
 
+  it('leaves a page Adam deleted himself deleted when the whole build is brought back', async () => {
+    const t = setup()
+    const done = await t.build(SUMMARY)
+    const saltmarsh = t.named('Saltmarsh')
+    repo.deleteEntry(t.db, saltmarsh.id, { origin: 'adam' })
+    const { lineIds } = t.db.transaction(() => undoBuild(t.db, done.runId!))()
+    expect(lineIds).toHaveLength(12)
+    t.db.transaction(() => redoBuild(t.db, done.runId!, lineIds))()
+    expect(t.names()).toHaveLength(9)
+    expect(t.names('place')).toEqual(['The Grey Coast'])
+  })
+
   it('shows the newest build again after a restart, with what it made as it is now', async () => {
     const t = setup()
     const done = await t.build(SUMMARY)

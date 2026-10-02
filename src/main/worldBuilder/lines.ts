@@ -69,18 +69,25 @@ export const isWorldLine = (row: Pick<LogRow, 'undo'>): boolean => isWorldUndo(r
 
 const ADAM = { origin: 'adam' as const }
 
-function removeChange(db: DB, id: ID, out: WorldOutcome): void {
+/** Deletes one of the build's changes. False when it was gone already. */
+function removeChange(db: DB, id: ID, out: WorldOutcome): boolean {
   const at = anyChange(db, id)
-  if (!at || at.deleted) return
+  if (!at || at.deleted) return false
   const c = mem.getChange(db, id)
   mem.deleteChange(db, id, ADAM)
   out.entryIds.push(...mem.entriesTouched(c))
+  return true
 }
 
-/** Takes away what one line added (and, for an entry, the build's relationships with it, whose lines are undone with it). */
-function takeAway(db: DB, row: LogRow, u: WorldUndo, out: WorldOutcome): void {
+/**
+ * Takes away what one line added (and, for an entry, the build's relationships with it, whose lines are
+ * undone with it). False when what it added was gone already (Adam deleted or changed it since), so
+ * bringing the build back doesn't bring that back either.
+ */
+function takeAway(db: DB, row: LogRow, u: WorldUndo, out: WorldOutcome): boolean {
   switch (u.did) {
     case 'entry': {
+      const live = entryState(db, u.entryId) === 'live'
       for (const id of u.changeIds) removeChange(db, id, out)
       for (const l of kdb.logForRun(db, row.runId)) {
         const lu = l.undo
@@ -89,17 +96,17 @@ function takeAway(db: DB, row: LogRow, u: WorldUndo, out: WorldOutcome): void {
         removeChange(db, lu.changeId, out)
         kdb.markUndone(db, l.id)
       }
-      if (entryState(db, u.entryId) === 'live') repo.deleteEntry(db, u.entryId, ADAM)
+      if (live) repo.deleteEntry(db, u.entryId, ADAM)
       out.entryIds.push(u.entryId)
-      break
+      return live
     }
     case 'relationship':
-      removeChange(db, u.changeId, out)
-      break
+      return removeChange(db, u.changeId, out)
     case 'meta':
       // Back to empty, unless it has been changed since.
-      if ((repo.getMeta(db, u.key) ?? '') === u.after) repo.setMeta(db, u.key, u.before)
-      break
+      if ((repo.getMeta(db, u.key) ?? '') !== u.after) return false
+      repo.setMeta(db, u.key, u.before)
+      return true
   }
 }
 
@@ -128,9 +135,10 @@ export function undoBuild(db: DB, runId: ID): WorldOutcome & { lineIds: ID[] } {
     // An entry's line undoes the build's relationships with it, so each line is read as it is now.
     const now = kdb.getLog(db, l.id)
     if (!now || now.undone) continue
-    takeAway(db, now, l.undo, out)
+    const took = takeAway(db, now, l.undo, out)
     kdb.markUndone(db, l.id)
-    out.lineIds.push(l.id)
+    // Only what this Undo took away comes back with the Undo on it: never a page Adam had deleted himself.
+    if (took) out.lineIds.push(l.id)
   }
   return out
 }
