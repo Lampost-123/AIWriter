@@ -15,7 +15,7 @@ import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
 import { setBeforeDraft } from '../ai/gather'
 import { emit } from '../events'
-import { Keeper, idleStatus } from './engine'
+import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 
 let keeper: Keeper | null = null
@@ -24,9 +24,15 @@ let keeper: Keeper | null = null
 export function memoryModel(): MemoryModel | { error: string } {
   const s = getSettings()
   const choice = s.models.memory ?? s.models.writer
-  if (!choice) return { error: 'Choose a memory model in Settings > Models so the memory can keep up.' }
+  if (!choice) return { error: NO_MODEL }
   const provider = getProvider(choice.providerId)
-  if (!provider) return { error: "The memory model's provider has been removed. Choose a memory model in Settings > Models." }
+  if (!provider) {
+    return {
+      error: s.models.memory
+        ? "The memory keeper's model came from a provider that has been removed. Pick another model for the memory keeper in Settings > Models."
+        : "The writer model's provider has been removed. Choose a writer model in Settings > Models to keep the memory up to date."
+    }
+  }
   const target = providerTarget(provider)
   if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
     return { error: `${providerWho(provider)} needs an API key for the memory to keep up. Add it in Settings > Models.` }

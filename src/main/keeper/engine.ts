@@ -18,6 +18,9 @@ import { askSummaryRefresh, nextRollUp, rollUpKey, sceneSummaryDue, writeRollUp,
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
 
+/** What the keeper says when there is no model to use (none for the memory keeper, and no writer model). */
+export const NO_MODEL = 'Choose a writer model in Settings > Models to keep the memory up to date.'
+
 type DB = Database.Database
 
 export interface KeeperDeps {
@@ -354,7 +357,7 @@ export class Keeper {
     switch (outcome.status) {
       case 'no-model':
         // Everything waits until there is a memory model; scenes stay "waiting" (not failed).
-        this.noModel = 'error' in m ? m.error : 'Choose a memory model in Settings > Models so the memory can keep up.'
+        this.noModel = 'error' in m ? m.error : NO_MODEL
         this.queue = []
         this.urgent = []
         this.giveUpWaiting()
