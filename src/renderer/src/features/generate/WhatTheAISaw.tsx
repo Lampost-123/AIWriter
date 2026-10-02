@@ -2,15 +2,16 @@
 // it was given. This is how Adam finds out why the AI got something wrong:
 // whether a fact was missing, out of date, or ignored.
 import * as S from '@radix-ui/react-switch'
-import { ArrowLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Copy, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ContextBlock, GenerationRecord, ID } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { countWords } from '@shared/defaults'
-import { Button, Card, Notice, SectionTitle } from '@/components/ui'
-import { api, onEvent } from '@/lib/api'
+import { Button, Card, Notice, SectionTitle, toast } from '@/components/ui'
+import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { requestPutBack } from '@/features/editor/putBack'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
@@ -23,6 +24,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   const [rec, setRec] = useState<GenerationRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sceneTitle, setSceneTitle] = useState<string | null>(null)
+  /** The draft's scene couldn't be opened (deleted since, perhaps). */
+  const [sceneGone, setSceneGone] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
 
@@ -30,6 +33,7 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     let live = true
     setRec(null)
     setError(null)
+    setSceneGone(false)
     api
       .getGeneration(generationId)
       .then((r) => {
@@ -38,7 +42,11 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
         api
           .getScene(r.sceneId)
           .then((s) => live && setSceneTitle(s.title || 'Untitled scene'))
-          .catch(() => live && setSceneTitle(null))
+          .catch(() => {
+            if (!live) return
+            setSceneTitle(null)
+            setSceneGone(true)
+          })
       })
       .catch((e: Error) => live && setError(e.message))
     return () => {
@@ -96,14 +104,29 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
             <Skeleton className="h-[52px] w-full rounded-xl" />
           </div>
         ) : (
-          <DraftRecord rec={rec} sceneTitle={sceneTitle} modelLabel={writer?.modelId === rec.modelId ? writer.label : null} />
+          <DraftRecord
+            rec={rec}
+            sceneTitle={sceneTitle}
+            sceneGone={sceneGone}
+            modelLabel={writer?.modelId === rec.modelId ? writer.label : null}
+          />
         )}
       </div>
     </div>
   )
 }
 
-function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; sceneTitle: string | null; modelLabel: string | null }): React.JSX.Element {
+function DraftRecord({
+  rec,
+  sceneTitle,
+  sceneGone,
+  modelLabel
+}: {
+  rec: GenerationRecord
+  sceneTitle: string | null
+  sceneGone: boolean
+  modelLabel: string | null
+}): React.JSX.Element {
   const [open, setOpenState] = useState<Set<string>>(() => openParts.get(rec.id) ?? new Set(['scene-card']))
   const setOpen = (next: Set<string> | ((s: Set<string>) => Set<string>)): void =>
     setOpenState((s) => {
@@ -152,6 +175,8 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
           </Notice>
         ) : null}
       </div>
+
+      <ReplacedText rec={rec} sceneGone={sceneGone} />
 
       <Card className="mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
         {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
@@ -277,6 +302,67 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * The scene's text this draft took the place of (Adam chose "Replace it"), kept with its record: to read,
+ * copy, or put back in the scene, even long after Ctrl+Z could.
+ */
+function ReplacedText({ rec, sceneGone }: { rec: GenerationRecord; sceneGone: boolean }): React.JSX.Element | null {
+  const selectScene = useApp((s) => s.selectScene)
+  const replaced = rec.replacedText
+  if (!replaced) return null
+  const words = countWords(replaced.text)
+  const writing = rec.status === 'streaming'
+  const copy = (): void => {
+    navigator.clipboard.writeText(replaced.text).then(
+      () => toast('Copied the text this draft replaced.'),
+      () => toast(`Couldn't copy the text. Select it and press ${modKey()}+C instead.`, { tone: 'danger' })
+    )
+  }
+  const putBack = (): void => {
+    requestPutBack({ sceneId: rec.sceneId, doc: replaced.doc, text: replaced.text })
+    selectScene(rec.sceneId)
+  }
+  return (
+    <section className="mt-6">
+      <SectionTitle
+        actions={
+          <div className="flex items-center gap-2">
+            <span className="mr-1 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
+            <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={copy}>
+              Copy
+            </Button>
+            <Button
+              size="sm"
+              icon={<Undo2 size={13} />}
+              onClick={putBack}
+              disabled={writing || sceneGone}
+              title={
+                sceneGone
+                  ? "The scene this draft was written for couldn't be opened, so the text can't be put back in it. Copy it instead."
+                  : writing
+                    ? 'The draft is still being written. Stop it or let it finish first.'
+                    : "Put this text back in the scene, in place of what's there now"
+              }
+            >
+              Put it back
+            </Button>
+          </div>
+        }
+      >
+        The text this draft replaced
+      </SectionTitle>
+      <Card className="px-6 py-5">
+        <div className="max-h-[260px] max-w-[68ch] select-text overflow-auto whitespace-pre-wrap font-serif text-[15px] leading-[1.75] text-fg">
+          {replaced.text}
+        </div>
+      </Card>
+      <p className="mt-2 text-[12px] text-faint">
+        Kept when the draft's first words took its place. Put it back replaces what's in the scene now with this text, and {modKey()}+Z undoes that.
+      </p>
+    </section>
   )
 }
 

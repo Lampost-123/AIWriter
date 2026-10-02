@@ -68,6 +68,12 @@
   pointer-events: none;
 }
 
+/* While a new draft that replaces the scene's text waits for its first words, the old text is
+   held as it is (nothing can change it) and dimmed, to show it is about to be replaced. */
+.scene-prose.replace-waiting {
+  opacity: 0.5;
+}
+
 .scene-prose ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
 }

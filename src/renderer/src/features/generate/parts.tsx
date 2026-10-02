@@ -47,12 +47,19 @@ export function PopoverPanel({
   children,
   className,
   align = 'end',
-  onOpenAutoFocus
+  onOpenAutoFocus,
+  onCloseAutoFocus,
+  onEscapeKeyDown,
+  onKeyDown
 }: {
   children: ReactNode
   className?: string
   align?: 'start' | 'center' | 'end'
   onOpenAutoFocus?: (e: Event) => void
+  onCloseAutoFocus?: (e: Event) => void
+  /** Esc in the panel; preventing it keeps the panel open. */
+  onEscapeKeyDown?: (e: KeyboardEvent) => void
+  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
 }): React.JSX.Element {
   return (
     <P.Portal>
@@ -61,6 +68,9 @@ export function PopoverPanel({
         sideOffset={6}
         collisionPadding={12}
         onOpenAutoFocus={onOpenAutoFocus}
+        onCloseAutoFocus={onCloseAutoFocus}
+        onEscapeKeyDown={onEscapeKeyDown}
+        onKeyDown={onKeyDown}
         className={cn('z-50 rounded-xl border border-line bg-surface p-4 shadow-pop focus:outline-none data-[state=open]:animate-pop-in', className)}
       >
         {children}

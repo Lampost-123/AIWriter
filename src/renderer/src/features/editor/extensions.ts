@@ -8,9 +8,13 @@ import { ParagraphIds } from './paragraphIds'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
-/** Keeps track of a streaming draft (see streamDoc.ts). */
+/**
+ * Keeps track of a streaming draft (see streamDoc.ts). Ahead of the undo keys and the history's own
+ * handling, so an undo while a draft replaces the scene's text is dealt with first.
+ */
 const StreamTracking = Extension.create({
   name: 'aiwriteStream',
+  priority: 1000,
   addProseMirrorPlugins: () => [streamPlugin]
 })
 

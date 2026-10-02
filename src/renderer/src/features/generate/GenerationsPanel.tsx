@@ -106,6 +106,11 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   {model}
                 </span>
                 <StatusBadge status={g.status} live={streaming} />
+                {g.replaced ? (
+                  <span className="shrink-0" title="This draft took the place of the scene's text. Its record keeps that text, to copy or put back.">
+                    <Badge className="text-[11px]">Replaced</Badge>
+                  </span>
+                ) : null}
                 <span className="ml-auto shrink-0 whitespace-nowrap text-[11.5px] text-faint" title={fullDate(g.createdAt)}>
                   {relativeTime(g.createdAt, now)}
                 </span>
