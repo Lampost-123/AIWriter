@@ -11,6 +11,7 @@ import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
 import { entryInitial, filterEntries, keepRowOrder, kindNoun, kindNounMany, placePath, withArticle } from './entryLogic'
 import { KIND_ICONS } from './kindIcons'
+import { useKeepFocusInPlace } from './parts/useKeepFocusInPlace'
 import { useSlow } from './parts/useSlow'
 
 const TEACH: Record<EntryKind, { text: string; button: string }> = {
@@ -133,6 +134,9 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
 
   // Another entry's page opens at its top, not partway down where the last one was left.
   const pageRef = useRef<HTMLDivElement>(null)
+  const pageContentRef = useRef<HTMLDivElement>(null)
+  // The memory can add to a page while Adam types on it: the field he's in stays where it is.
+  useKeepFocusInPlace(pageRef, pageContentRef, list.length > 0)
   useLayoutEffect(() => {
     if (pageRef.current) pageRef.current.scrollTop = 0
   }, [entryId])
@@ -307,38 +311,40 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
       </div>
 
       <div ref={pageRef} className="min-w-0 flex-1 overflow-y-auto">
-        {from ? (
-          <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<ArrowLeft size={14} />}
-              className="-ml-2.5"
-              onClick={() => navigate({ kind: 'generation', generationId: from.generationId })}
-            >
-              Back to What the AI saw
-            </Button>
-          </div>
-        ) : null}
-        {selected ? (
-          <EntryForm
-            key={selected.id}
-            initial={selected}
-            others={others}
-            places={places}
-            onLiveChange={onLiveChange}
-            onDeleted={onDeleted}
-            onOpen={onOpen}
-          />
-        ) : all === null || (entryId && loadedRev !== entriesRev) ? null : entryId ? (
-          <EmptyState icon={<Icon size={20} />} title={`This ${noun} can't be found`} className="mt-[10vh]">
-            It may have been deleted. Anything deleted can be brought back from Settings › Recently deleted for 30 days.
-          </EmptyState>
-        ) : (
-          <EmptyState icon={<Icon size={20} />} title={`Choose ${withArticle(noun)}`} className="mt-[10vh]">
-            Pick one from the list to see and edit it, or press New {kind === 'lore' ? 'lore' : noun} to add another.
-          </EmptyState>
-        )}
+        <div ref={pageContentRef}>
+          {from ? (
+            <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                className="-ml-2.5"
+                onClick={() => navigate({ kind: 'generation', generationId: from.generationId })}
+              >
+                Back to What the AI saw
+              </Button>
+            </div>
+          ) : null}
+          {selected ? (
+            <EntryForm
+              key={selected.id}
+              initial={selected}
+              others={others}
+              places={places}
+              onLiveChange={onLiveChange}
+              onDeleted={onDeleted}
+              onOpen={onOpen}
+            />
+          ) : all === null || (entryId && loadedRev !== entriesRev) ? null : entryId ? (
+            <EmptyState icon={<Icon size={20} />} title={`This ${noun} can't be found`} className="mt-[10vh]">
+              It may have been deleted. Anything deleted can be brought back from Settings › Recently deleted for 30 days.
+            </EmptyState>
+          ) : (
+            <EmptyState icon={<Icon size={20} />} title={`Choose ${withArticle(noun)}`} className="mt-[10vh]">
+              Pick one from the list to see and edit it, or press New {kind === 'lore' ? 'lore' : noun} to add another.
+            </EmptyState>
+          )}
+        </div>
       </div>
     </div>
   )
