@@ -5,6 +5,7 @@ import { ModelsSettings } from './ModelsSettings'
 import { PreferencesSettings } from './PreferencesSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { BackupsSettings } from './BackupsSettings'
+import { RecentlyDeleted } from './RecentlyDeleted'
 import { AboutSettings } from './AboutSettings'
 
 const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
@@ -12,6 +13,11 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
   { id: 'preferences', label: 'My writing preferences', blurb: 'Your own defaults, used in every world. Each world can override them.' },
   { id: 'appearance', label: 'Appearance', blurb: 'Theme, text size and page width.' },
   { id: 'backups', label: 'Backups', blurb: 'Automatic copies of the open world, and restoring one.' },
+  {
+    id: 'trash',
+    label: 'Recently deleted',
+    blurb: 'Scenes, chapters and entries deleted from the open world. Each is kept for 30 days, then removed for good.'
+  },
   { id: 'about', label: 'About and updates', blurb: 'Version, library folder and updates.' }
 ]
 
@@ -43,6 +49,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
           {current.id === 'preferences' && <PreferencesSettings />}
           {current.id === 'appearance' && <AppearanceSettings />}
           {current.id === 'backups' && <BackupsSettings />}
+          {current.id === 'trash' && <RecentlyDeleted />}
           {current.id === 'about' && <AboutSettings />}
         </div>
       </div>

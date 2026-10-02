@@ -4,7 +4,7 @@ import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { api } from './api'
 
-export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'backups' | 'about'
+export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'backups' | 'trash' | 'about'
 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =

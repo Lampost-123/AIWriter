@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/cn'
+import { registerFlusher } from '@/lib/flush'
 
 /**
  * An in-place title editor that takes the exact spot of the text it replaces,
- * so nothing moves. Enter or leaving the field saves; Esc cancels.
+ * so nothing moves. Enter or leaving the field saves; Esc cancels. A title still
+ * being typed is saved too when the window closes or the world changes.
  */
 export function InlineTitle({
   value,
@@ -13,7 +15,8 @@ export function InlineTitle({
   label
 }: {
   value: string
-  onCommit: (title: string) => void
+  /** Saves the title. Return the save, so closing the window waits for it. */
+  onCommit: (title: string) => void | Promise<unknown>
   /** Called after saving or cancelling. */
   onDone: () => void
   className?: string
@@ -21,21 +24,32 @@ export function InlineTitle({
 }): React.JSX.Element {
   const ref = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
+  // The flusher is registered once, so it reads the latest props through here.
+  const props = useRef({ value, onCommit, onDone })
+  props.current = { value, onCommit, onDone }
+
+  const finish = (save: boolean): Promise<unknown> | void => {
+    if (finished.current) return
+    finished.current = true
+    const { value: before, onCommit: commit, onDone: done } = props.current
+    const next = ref.current?.value.trim() ?? ''
+    const saving = save && next && next !== before ? commit(next) : undefined
+    done()
+    return saving
+  }
+  const finishRef = useRef(finish)
+  finishRef.current = finish
 
   useEffect(() => {
     const el = ref.current
-    if (!el) return
-    el.focus()
-    el.select()
+    if (el) {
+      el.focus()
+      el.select()
+    }
+    return registerFlusher(async () => {
+      await finishRef.current(true)
+    })
   }, [])
-
-  const finish = (save: boolean): void => {
-    if (finished.current) return
-    finished.current = true
-    const next = ref.current?.value.trim() ?? ''
-    if (save && next && next !== value) onCommit(next)
-    onDone()
-  }
 
   return (
     <input
@@ -47,13 +61,13 @@ export function InlineTitle({
         e.stopPropagation()
         if (e.key === 'Enter') {
           e.preventDefault()
-          finish(true)
+          void finish(true)
         } else if (e.key === 'Escape') {
           e.preventDefault()
-          finish(false)
+          void finish(false)
         }
       }}
-      onBlur={() => finish(true)}
+      onBlur={() => void finish(true)}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}

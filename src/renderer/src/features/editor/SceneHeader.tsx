@@ -19,7 +19,8 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
         className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg"
       >
         <StatusDot status={status} />
-        <span className="w-[52px] text-left">{STATUS_LABELS[status]}</span>
+        {/* In a narrow header the status shows as its dot alone, leaving the room to the scene's title. */}
+        <span className="hidden w-[52px] text-left @min-[420px]:inline-block">{STATUS_LABELS[status]}</span>
         <ChevronDown size={12} className="text-faint" />
       </M.Trigger>
       <M.Portal>
@@ -65,18 +66,19 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
   const status = meta?.status ?? fallbackStatus
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
+    // Sized by its own width (both side panels change it), the story and chapter make way for the scene's title.
+    <header className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
         {story ? (
           <>
-            <span className="hidden max-w-[22%] shrink truncate text-faint lg:inline">{story.title}</span>
-            <span className="hidden text-line-strong lg:inline">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[4] truncate text-faint @min-[680px]:inline">{story.title}</span>
+            <span className="hidden text-line-strong @min-[680px]:inline">/</span>
           </>
         ) : null}
         {chapter ? (
           <>
-            <span className="max-w-[28%] shrink truncate text-faint">{chapter.title}</span>
-            <span className="text-line-strong">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[4] truncate text-faint @min-[520px]:inline">{chapter.title}</span>
+            <span className="hidden text-line-strong @min-[520px]:inline">/</span>
           </>
         ) : null}
         {editing ? (
@@ -85,7 +87,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
               label="Scene title"
               value={title}
               className="h-7 text-[14px] font-semibold"
-              onCommit={(t) => void actions.renameScene(sceneId, t)}
+              onCommit={(t) => actions.renameScene(sceneId, t)}
               onDone={() => setEditing(false)}
             />
           </div>
@@ -94,7 +96,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
             type="button"
             title="Rename this scene"
             onClick={() => setEditing(true)}
-            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 @min-[520px]:max-w-[65%]"
           >
             {title || 'Untitled scene'}
           </button>

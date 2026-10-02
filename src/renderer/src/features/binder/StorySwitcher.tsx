@@ -49,7 +49,7 @@ export function StorySwitcher(): React.JSX.Element {
             label="Story title"
             value={story.title}
             className="h-7 text-[13.5px] font-semibold"
-            onCommit={(t) => void actions.renameStory(story.id, t)}
+            onCommit={(t) => actions.renameStory(story.id, t)}
             onDone={() => setRenaming(false)}
           />
         </div>

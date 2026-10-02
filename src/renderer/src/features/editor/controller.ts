@@ -67,7 +67,8 @@ class SceneSession {
         if (this.closing) this.finish()
       }
     })
-    this.recovery = debounce(() => this.writeRecovery(), 250, 2000)
+    // The recovery file is at most half a second behind while Adam types, so a crash loses almost nothing.
+    this.recovery = debounce(() => this.writeRecovery(), 150, 500)
   }
 
   get doc(): PMNode {
@@ -122,8 +123,9 @@ class SceneSession {
     const text = streamDoc.sceneText(doc)
     const res = await api.saveSceneText(this.id, doc.toJSON(), text)
     const meta = useOutlineStore.getState().outline?.scenes.find((s) => s.id === this.id)
-    const statusChanges = meta?.status === 'planned' && res.wordCount > 0
-    if (res.wordCount !== this.wordCount || statusChanges) {
+    // Saving moves a planned scene to drafted once it has words, and back when emptied.
+    const statusChanged = !!meta && meta.status !== res.status
+    if (res.wordCount !== this.wordCount || statusChanged) {
       this.wordCount = res.wordCount
       app().bumpOutline()
     }
@@ -232,13 +234,20 @@ export class SceneController {
     void this.open(id)
   }
 
+  /** Remembers where Adam is in the open scene (scroll and caret), so coming back puts him there. */
+  remember(): void {
+    const s = this.session
+    if (!s || this.destroyed) return
+    const { anchor, head } = this.editor.state.selection
+    memory.set(s.id, { scrollTop: this.scroller()?.scrollTop ?? 0, anchor, head })
+  }
+
   private show(scene: Scene, worldId: ID): void {
     const view = this.editor.view
     const el = this.scroller()
     const prev = this.session
     if (prev) {
-      const { anchor, head } = this.editor.state.selection
-      memory.set(prev.id, { scrollTop: el?.scrollTop ?? 0, anchor, head })
+      this.remember()
       prev.leave(this.editor.state.doc)
       this.leaving.add(prev)
       void prev.close()
@@ -285,7 +294,10 @@ export class SceneController {
       this.session.changed()
       app().setSceneWords(countWords(streamDoc.sceneText(doc)))
     }
-    if (takeFocusRequest(scene.id)) this.focus()
+    // The caret goes into the page when asked (opening a scene from the binder), and whenever
+    // nothing else has focus (launch, a new world), so typing straight away is never lost.
+    const idle = !document.activeElement || document.activeElement === document.body
+    if (takeFocusRequest(scene.id) || idle) this.focus()
   }
 
   focus(): void {

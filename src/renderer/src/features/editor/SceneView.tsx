@@ -1,6 +1,6 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import { FilePlus2, Feather, RotateCcw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
 import { Button, EmptyState, Spinner } from '@/components/ui'
@@ -91,6 +91,10 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   useEffect(() => {
     void ctrlRef.current?.open(sceneId)
   }, [sceneId, worldId, editor])
+
+  // Leaving the page (for a world page, Settings, What the AI saw...) keeps Adam's place. This runs
+  // as the view goes, while the page is still on screen; the cleanup above runs once it has gone.
+  useLayoutEffect(() => () => ctrlRef.current?.remember(), [])
 
   // Ctrl+S saves straight away (it already saves on its own; this is for peace of mind).
   useEffect(() => {

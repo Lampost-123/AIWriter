@@ -276,7 +276,7 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
           <EntryForm key={selected.id} initial={selected} others={others} places={places} onLiveChange={onLiveChange} onDeleted={onDeleted} onOpen={onOpen} />
         ) : all === null || (entryId && loadedRev !== entriesRev) ? null : entryId ? (
           <EmptyState icon={<Icon size={20} />} title={`This ${noun} can't be found`} className="mt-[10vh]">
-            It may have been deleted. If you just deleted it, use Undo in the message at the bottom right.
+            It may have been deleted. Deleted entries can be brought back from Settings › Recently deleted for 30 days.
           </EmptyState>
         ) : (
           <EmptyState icon={<Icon size={20} />} title={`Choose a ${noun}`} className="mt-[10vh]">

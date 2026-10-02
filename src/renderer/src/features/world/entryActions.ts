@@ -3,6 +3,7 @@ import { KIND_LABELS } from '@shared/fields'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { announceDelete } from '@/lib/undoDelete'
 import { forgetDraft, markFresh } from './entryDrafts'
 
 /** What goes to the database from a form's copy of an entry. */
@@ -31,7 +32,7 @@ export async function createEntry(kind: EntryKind, name?: string): Promise<Entry
 
 const label = (e: Entry): string => (e.name.trim() ? `"${e.name.trim()}"` : `the ${KIND_LABELS[e.kind].one.toLowerCase()}`)
 
-/** Deletes straight away and offers Undo in a toast. Returns false if it couldn't be deleted. */
+/** Deletes straight away and offers Undo in a toast (and in Recently deleted). Returns false if it couldn't be deleted. */
 export async function deleteEntryWithUndo(e: Entry): Promise<boolean> {
   try {
     await api.deleteEntry(e.id)
@@ -41,20 +42,19 @@ export async function deleteEntryWithUndo(e: Entry): Promise<boolean> {
   }
   forgetDraft(e.id)
   useApp.getState().bumpEntries()
-  toast(`Deleted ${label(e)}.`, {
-    action: {
-      label: 'Undo',
-      run: () => {
-        api
-          .restoreDeleted('entry', e.id)
-          .then(() => {
-            const app = useApp.getState()
-            app.bumpEntries()
-            if (app.view.kind === 'entries' && app.view.entryKind === e.kind) app.navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id })
-          })
-          .catch((err: Error) => toast(`Couldn't bring back ${label(e)}. ${err.message}`, { tone: 'danger' }))
-      }
-    }
+  const noun = KIND_LABELS[e.kind].one.toLowerCase()
+  announceDelete({
+    message: `Deleted ${label(e)}.`,
+    noun: e.kind === 'lore' ? ['lore entry', 'lore entries'] : [noun, `${noun}s`],
+    undo: () =>
+      api
+        .restoreDeleted('entry', e.id)
+        .then(() => {
+          const app = useApp.getState()
+          app.bumpEntries()
+          if (app.view.kind === 'entries' && app.view.entryKind === e.kind) app.navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id })
+        })
+        .catch((err: Error) => void toast(`Couldn't bring back ${label(e)}. ${err.message}`, { tone: 'danger' }))
   })
   return true
 }

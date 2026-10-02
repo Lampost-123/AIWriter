@@ -57,7 +57,7 @@ function WorldMenu(): React.JSX.Element {
           label="World name"
           value={world.name}
           className="h-6 text-[13px] font-semibold"
-          onCommit={(n) => void renameWorld(n)}
+          onCommit={(n) => renameWorld(n)}
           onDone={() => setRenaming(false)}
         />
       </div>

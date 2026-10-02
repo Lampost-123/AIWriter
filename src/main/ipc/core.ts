@@ -20,7 +20,7 @@ type CoreMethods =
   | 'getOutline' | 'createChapter' | 'updateChapter' | 'deleteChapter' | 'moveChapter'
   | 'createScene' | 'getScene' | 'updateScene' | 'saveSceneText' | 'updateSceneCard' | 'deleteScene' | 'moveScene'
   | 'listEntries' | 'getEntry' | 'createEntry' | 'updateEntry' | 'deleteEntry'
-  | 'restoreDeleted'
+  | 'restoreDeleted' | 'listDeleted'
   | 'writeRecovery' | 'listRecovery' | 'clearRecovery'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
@@ -101,6 +101,7 @@ export const coreHandlers: Handlers<CoreMethods> = {
   updateEntry: (id, patch) => write(() => repo.updateEntry(world.db(), id, patch)),
   deleteEntry: (id) => write(() => repo.deleteEntry(world.db(), id)),
   restoreDeleted: (kind, id) => write(() => repo.restoreDeleted(world.db(), kind, id)),
+  listDeleted: () => repo.listDeleted(world.db()),
 
   writeRecovery: (item) => {
     writeFileAtomic(join(recoveryDir(), `${item.sceneId}.json`), JSON.stringify(item))

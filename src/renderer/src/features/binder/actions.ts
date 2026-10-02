@@ -1,11 +1,13 @@
 // What the binder (and the scene header) do to chapters and scenes. Each action
 // updates the tree straight away, calls the API, then reloads the outline.
-// Deletes are immediate and undoable from a toast; there are no confirmations.
+// Deletes are immediate and undoable from a toast (and from Recently deleted for 30 days);
+// there are no confirmations.
 
 import type { ID, SceneStatus } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
+import { announceDelete } from '@/lib/undoDelete'
 import { useApp } from '@/lib/store'
 import { neighbourAfterRemoval, readingOrder } from './outlineModel'
 import { useOutlineStore } from './outlineStore'
@@ -163,18 +165,17 @@ export async function deleteScene(id: ID): Promise<void> {
   const wasOpen = moveSelectionAway([id])
   removeFromOutline([id])
   app().bumpOutline()
-  toast(`“${scene?.title ?? 'Scene'}” deleted.`, {
-    action: {
-      label: 'Undo',
-      run: () =>
-        void api
-          .restoreDeleted('scene', id)
-          .then(() => {
-            app().bumpOutline()
-            if (wasOpen && storyId && app().storyId === storyId) app().selectScene(id, storyId)
-          })
-          .catch((e: Error) => toast(e.message, { tone: 'danger' }))
-    }
+  announceDelete({
+    message: `“${scene?.title || 'Untitled scene'}” deleted.`,
+    noun: ['scene', 'scenes'],
+    undo: () =>
+      api
+        .restoreDeleted('scene', id)
+        .then(() => {
+          app().bumpOutline()
+          if (wasOpen && storyId && app().storyId === storyId) app().selectScene(id, storyId)
+        })
+        .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
 }
 
@@ -196,18 +197,17 @@ export async function deleteChapter(id: ID): Promise<void> {
   app().bumpOutline()
   const count = sceneIds.length
   const what = count === 0 ? '' : count === 1 ? ' and its scene' : ` and its ${count} scenes`
-  toast(`“${chapter?.title ?? 'Chapter'}”${what} deleted.`, {
-    action: {
-      label: 'Undo',
-      run: () =>
-        void api
-          .restoreDeleted('chapter', id)
-          .then(() => {
-            app().bumpOutline()
-            if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
-          })
-          .catch((e: Error) => toast(e.message, { tone: 'danger' }))
-    }
+  announceDelete({
+    message: `“${chapter?.title || 'Untitled chapter'}”${what} deleted.`,
+    noun: ['chapter', 'chapters'],
+    undo: () =>
+      api
+        .restoreDeleted('chapter', id)
+        .then(() => {
+          app().bumpOutline()
+          if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
+        })
+        .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
 }
 

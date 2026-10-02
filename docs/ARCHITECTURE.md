@@ -52,6 +52,8 @@ src/renderer/src/
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
+  Deletes are announced with `announceDelete` (`lib/undoDelete.ts`): one Undo toast that
+  gathers deletes made while it shows, and Settings › Recently deleted for 30 days after.
 - **Words.** On screen, use Adam's words: world, story, chapter, scene, character, place,
   lore, draft. Never "line", "main history", "entity", "generation" or "LLM".
 - **Never lose a keystroke.** Anything holding unsaved work registers with

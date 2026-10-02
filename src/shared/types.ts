@@ -373,3 +373,20 @@ export interface RecoveryItem {
   text: string
   savedAt: string
 }
+
+/** Something in the Trash (Recently deleted): kept for 30 days, then removed for good. */
+export interface DeletedItem {
+  kind: 'story' | 'chapter' | 'scene' | 'entry'
+  id: ID
+  /** Its title or name, as it was. */
+  title: string
+  deletedAt: string
+  /** For an entry: character, place, lore... */
+  entryKind: EntryKind | null
+  /** The story a chapter or scene was in, and the chapter a scene was in. */
+  storyId: ID | null
+  storyTitle: string | null
+  chapterTitle: string | null
+  /** For a chapter: the scenes deleted along with it (they come back with it). */
+  sceneCount: number
+}

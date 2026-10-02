@@ -19,11 +19,13 @@ const toCss = (t: Transform | null): string | undefined => (t ? `translate3d(${M
 
 /** Callbacks shared by every row; kept stable so rows only re-render when their own data changes. */
 export interface RowHandlers {
-  select(sceneId: ID): void
+  /** Opens the scene and puts the caret in its page. */
+  open(sceneId: ID): void
   toggle(chapterId: ID): void
   startRename(kind: 'scene' | 'chapter', id: ID): void
   stopRename(): void
-  rename(kind: 'scene' | 'chapter', id: ID, title: string): void
+  /** Saves a new title; resolves once it is stored. */
+  rename(kind: 'scene' | 'chapter', id: ID, title: string): Promise<void>
   openMenu(kind: 'scene' | 'chapter', id: ID, at: { x: number; y: number }): void
   addScene(chapterId: ID): void
 }
@@ -155,7 +157,7 @@ export const SceneRow = memo(function SceneRow({ scene, selected, quiet, renamin
       data-row="scene"
       data-id={scene.id}
       style={{ transform: toCss(transform), transition }}
-      onClick={() => h.select(scene.id)}
+      onClick={() => h.open(scene.id)}
       onDoubleClick={() => h.startRename('scene', scene.id)}
       onContextMenu={(e) => {
         e.preventDefault()

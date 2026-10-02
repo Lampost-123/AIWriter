@@ -9,6 +9,7 @@ import type {
   Chapter,
   ContextPreview,
   DeepPartial,
+  DeletedItem,
   DraftOptions,
   Entry,
   EntryInput,
@@ -77,8 +78,8 @@ export interface AppApi {
   createScene(chapterId: ID, input?: { title?: string; afterId?: ID | null }): Promise<SceneMeta>
   getScene(id: ID): Promise<Scene>
   updateScene(id: ID, patch: { title?: string; status?: SceneStatus }): Promise<SceneMeta>
-  /** Saves the editor content. Returns the new word count and time. */
-  saveSceneText(id: ID, doc: unknown, text: string): Promise<{ wordCount: number; updatedAt: string }>
+  /** Saves the editor content. Returns the new word count, time and status (planned and drafted follow the text). */
+  saveSceneText(id: ID, doc: unknown, text: string): Promise<{ wordCount: number; updatedAt: string; status: SceneStatus }>
   updateSceneCard(id: ID, card: SceneCard): Promise<SceneCard>
   deleteScene(id: ID): Promise<void>
   /** Moves a scene to `index` within `chapterId` (which may be a different chapter). */
@@ -91,8 +92,10 @@ export interface AppApi {
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
 
-  /** Undoes a delete (deleted items stay in the trash for 30 days). Used by "Undo" toasts. */
+  /** Undoes a delete (deleted items stay in the trash for 30 days). Used by "Undo" toasts and Recently deleted. */
   restoreDeleted(kind: 'story' | 'chapter' | 'scene' | 'entry', id: ID): Promise<void>
+  /** What is in the trash of the open world, newest first. Scenes deleted with their chapter are counted in it. */
+  listDeleted(): Promise<DeletedItem[]>
 
   // ----- Crash recovery of unsaved editor text -----
   writeRecovery(item: RecoveryItem): Promise<void>

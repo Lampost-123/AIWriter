@@ -143,6 +143,88 @@ describe('deleting and restoring', () => {
     expect(outline.scenes.map((s) => s.id)).toEqual([s1.id])
   })
 
+  it('restoring a scene whose chapter was deleted later brings back that chapter, but not its other scenes', async () => {
+    const db = memoryWorld()
+    const story = firstStory(db)
+    const [ch1] = repo.getOutline(db, story.id).chapters
+    const [s1] = repo.getOutline(db, story.id).scenes
+    const s2 = repo.createScene(db, ch1.id)
+    repo.deleteScene(db, s2.id)
+    await new Promise((r) => setTimeout(r, 5))
+    repo.deleteChapter(db, ch1.id)
+
+    repo.restoreDeleted(db, 'scene', s2.id)
+    const outline = repo.getOutline(db, story.id)
+    expect(outline.chapters.map((c) => c.id)).toEqual([ch1.id])
+    expect(outline.scenes.map((s) => s.id)).toEqual([s2.id])
+    expect(outline.scenes[0].position).toBe(0)
+    // The scene deleted with the chapter is still in the trash, now on its own.
+    expect(repo.listDeleted(db).map((d) => [d.kind, d.id])).toEqual([['scene', s1.id]])
+  })
+
+  it('a restored scene takes a clear place among scenes added since', () => {
+    const db = memoryWorld()
+    const story = firstStory(db)
+    const [ch1] = repo.getOutline(db, story.id).chapters
+    const [s1] = repo.getOutline(db, story.id).scenes
+    const s2 = repo.createScene(db, ch1.id)
+    repo.deleteScene(db, s1.id)
+    const s3 = repo.createScene(db, ch1.id)
+    repo.restoreDeleted(db, 'scene', s1.id)
+    const scenes = repo.getOutline(db, story.id).scenes
+    expect(scenes.map((s) => s.position)).toEqual([0, 1, 2])
+    expect(new Set(scenes.map((s) => s.id))).toEqual(new Set([s1.id, s2.id, s3.id]))
+  })
+
+  it('a restored chapter takes a clear place among chapters added since, also when a scene brings it back', () => {
+    const db = memoryWorld()
+    const story = firstStory(db)
+    const [ch1] = repo.getOutline(db, story.id).chapters
+    const [s1] = repo.getOutline(db, story.id).scenes
+    repo.createChapter(db, story.id)
+    repo.deleteChapter(db, ch1.id)
+    repo.createChapter(db, story.id)
+    repo.restoreDeleted(db, 'scene', s1.id)
+    const chapters = repo.getOutline(db, story.id).chapters
+    expect(chapters.map((c) => c.position)).toEqual([0, 1, 2])
+    expect(chapters.map((c) => c.id)).toContain(ch1.id)
+
+    repo.deleteChapter(db, ch1.id)
+    repo.createChapter(db, story.id)
+    repo.restoreDeleted(db, 'chapter', ch1.id)
+    expect(repo.getOutline(db, story.id).chapters.map((c) => c.position)).toEqual([0, 1, 2, 3])
+  })
+
+  it('lists the trash newest first, with where each thing was', async () => {
+    const db = memoryWorld()
+    const story = firstStory(db)
+    const [ch1] = repo.getOutline(db, story.id).chapters
+    const [s1] = repo.getOutline(db, story.id).scenes
+    repo.updateScene(db, s1.id, { title: 'The ford' })
+    const ch2 = repo.createChapter(db, story.id, { title: 'The Keep' })
+    repo.createScene(db, ch2.id)
+    repo.createScene(db, ch2.id)
+    const mara = repo.createEntry(db, 'character', { name: 'Mara' })
+    expect(repo.listDeleted(db)).toEqual([])
+
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+    repo.deleteScene(db, s1.id)
+    await tick()
+    repo.deleteChapter(db, ch2.id)
+    await tick()
+    repo.deleteEntry(db, mara.id)
+
+    const trash = repo.listDeleted(db)
+    expect(trash.map((d) => d.kind)).toEqual(['entry', 'chapter', 'scene'])
+    expect(trash[0]).toMatchObject({ id: mara.id, title: 'Mara', entryKind: 'character', storyId: null })
+    expect(trash[1]).toMatchObject({ id: ch2.id, title: 'The Keep', storyId: story.id, storyTitle: 'Book 1', sceneCount: 2 })
+    expect(trash[2]).toMatchObject({ id: s1.id, title: 'The ford', storyTitle: 'Book 1', chapterTitle: 'Chapter 1' })
+    expect(ch1.title).toBe('Chapter 1')
+
+    repo.restoreDeleted(db, 'chapter', ch2.id)
+    expect(repo.listDeleted(db).map((d) => d.kind)).toEqual(['entry', 'scene'])
+  })
+
   it('restoring something that never existed is a plain error', () => {
     const db = memoryWorld()
     expect(() => repo.restoreDeleted(db, 'entry', 'nope')).toThrow('That item could not be found to restore.')
@@ -208,6 +290,21 @@ describe('scene text', () => {
     repo.updateScene(db, s.id, { status: 'revised' })
     repo.saveSceneText(db, s.id, null, 'More words here')
     expect(repo.getScene(db, s.id).status).toBe('revised')
+  })
+
+  it('moves a drafted scene back to planned when its text is all gone, but never a revised or done one', () => {
+    const db = memoryWorld()
+    const [s] = repo.getOutline(db, firstStory(db).id).scenes
+    expect(repo.saveSceneText(db, s.id, null, 'A whole draft').status).toBe('drafted')
+    const emptied = repo.saveSceneText(db, s.id, null, '')
+    expect(emptied.status).toBe('planned')
+    expect(repo.getScene(db, s.id).status).toBe('planned')
+
+    for (const status of ['revised', 'done'] as const) {
+      repo.updateScene(db, s.id, { status })
+      expect(repo.saveSceneText(db, s.id, null, '').status).toBe(status)
+      expect(repo.getScene(db, s.id).status).toBe(status)
+    }
   })
 
   it('keeps the scene card with defaults filled in', () => {

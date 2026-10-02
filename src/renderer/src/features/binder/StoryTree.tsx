@@ -22,6 +22,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ID, Outline } from '@shared/types'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
+import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
@@ -121,12 +122,17 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
     }
   })
 
-  const h = useMemo<RowHandlers>(
-    () => ({
-      select: (id) => {
-        const { storyId, sceneId: open, view, navigate, selectScene } = useApp.getState()
-        if (id !== open) selectScene(id, storyId ?? undefined)
-        else if (view.kind !== 'write') navigate({ kind: 'write' })
+  const h = useMemo<RowHandlers>(() => {
+    const select = (id: ID): void => {
+      const { storyId, sceneId: open, view, navigate, selectScene } = useApp.getState()
+      if (id !== open) selectScene(id, storyId ?? undefined)
+      else if (view.kind !== 'write') navigate({ kind: 'write' })
+    }
+    return {
+      open: (id) => {
+        // Opening a scene puts the caret in its page, so typing goes straight into it.
+        select(id)
+        requestEditorFocus(id)
       },
       toggle: (id) => toggle(id),
       startRename: (kind, id) => setRenaming({ kind, id }),
@@ -136,22 +142,41 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
           return null
         })
       },
-      rename: (kind, id, title) => void (kind === 'scene' ? actions.renameScene(id, title) : actions.renameChapter(id, title)),
+      rename: (kind, id, title) => (kind === 'scene' ? actions.renameScene(id, title) : actions.renameChapter(id, title)),
       openMenu: (kind, id, at) => setMenu({ kind, id, ...at }),
       addScene: (chapterId) => {
         toggle(chapterId, false)
         void actions.addScene(chapterId).then((id) => id && setRenaming({ kind: 'scene', id }))
       }
-    }),
-    [toggle]
-  )
+    }
+  }, [toggle])
+
+  /** A chapter just added: once it has rendered, scroll so all of it shows, not only its title. */
+  const revealNext = useRef<ID | null>(null)
+  const addChapterRef = useRef<HTMLButtonElement>(null)
 
   const addChapter = useCallback(
     (afterId?: ID | null) => {
-      void actions.addChapter(outline.story.id, afterId).then((id) => id && setRenaming({ kind: 'chapter', id }))
+      void actions.addChapter(outline.story.id, afterId).then((id) => {
+        if (!id) return
+        revealNext.current = id
+        setRenaming({ kind: 'chapter', id })
+      })
     },
     [outline.story.id]
   )
+
+  useLayoutEffect(() => {
+    const id = revealNext.current
+    if (!id) return
+    const row = treeRef.current?.querySelector<HTMLElement>(`[data-row="chapter"][data-id="${CSS.escape(id)}"]`)
+    if (!row) return
+    revealNext.current = null
+    // The last chapter: show it down to the Add chapter button. Otherwise its block (title and Add a scene).
+    const last = order.chapters[order.chapters.length - 1] === id
+    const target = last ? addChapterRef.current : row.closest<HTMLElement>('[role="group"]')
+    target?.scrollIntoView({ block: 'nearest' })
+  })
 
   const remove = useCallback(
     (t: Target) => {
@@ -210,10 +235,8 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       case 'Enter':
         if (!id) return
         e.preventDefault()
-        if (kind === 'scene') {
-          h.select(id)
-          requestEditorFocus(id)
-        } else toggle(id)
+        if (kind === 'scene') h.open(id)
+        else toggle(id)
         return
       case 'F2':
         if (!id || !kind) return
@@ -224,6 +247,11 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         if (!id || !kind) return
         e.preventDefault()
         remove({ kind, id })
+        return
+      case 'z':
+      case 'Z':
+        // Ctrl+Z in the binder undoes the last delete (while its toast still offers Undo).
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && undoLastDelete()) e.preventDefault()
         return
     }
   }
@@ -413,6 +441,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       </DndContext>
 
       <button
+        ref={addChapterRef}
         type="button"
         onClick={() => addChapter()}
         className="mt-1 flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint hover:bg-surface-2 hover:text-muted"
