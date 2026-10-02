@@ -483,7 +483,7 @@ export function listEntries(db: DB, kind?: EntryKind): Entry[] {
 
 export function getEntry(db: DB, id: ID): Entry {
   const r = db.prepare('SELECT * FROM entries WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
-  if (!r) throw new UserError('That entry no longer exists.')
+  if (!r) throw new UserError('That page no longer exists. It may have been deleted.')
   return toEntry(r)
 }
 
@@ -546,7 +546,7 @@ const entryName = (name: string | undefined): string => (name ?? '').trim() || '
 
 /**
  * The keys an entry patch changes, as field-origin keys (field keys, or 'name', 'aliases', 'summary',
- * 'description', 'tags'). A field left out of a patch's fields is emptied, so it counts as changed too.
+ * 'description', 'tags'). Only the fields a patch names count: the rest are kept as saved.
  */
 function changedKeys(before: Entry, patch: EntryInput): string[] {
   const keys: string[] = []
@@ -554,12 +554,7 @@ function changedKeys(before: Entry, patch: EntryInput): string[] {
   for (const k of ['aliases', 'summary', 'description', 'tags'] as const) {
     if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) keys.push(k)
   }
-  if (patch.fields) {
-    const fields = patch.fields
-    for (const k of new Set([...Object.keys(before.fields), ...Object.keys(fields)])) {
-      if ((before.fields[k] ?? '') !== (fields[k] ?? '')) keys.push(k)
-    }
-  }
+  for (const [k, v] of Object.entries(patch.fields ?? {})) if ((before.fields[k] ?? '') !== (v ?? '')) keys.push(k)
   return keys
 }
 
@@ -568,10 +563,12 @@ function changedKeys(before: Entry, patch: EntryInput): string[] {
  * every field he changed his ('adam'), so the memory keeper never changes those fields, and mark the
  * entry as touched by hand, so it is never removed automatically. The memory keeper passes
  * `{ origin: 'text' }` (or 'ai') with its run, and only for fields that aren't Adam's.
+ * `fields` is merged into the saved fields (a field is emptied by sending ''), so a field the memory
+ * keeper filled in just before a page's save isn't lost because the page didn't know of it.
  */
 export function updateEntry(db: DB, id: ID, patch: EntryInput, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): Entry {
   const before = getEntry(db, id)
-  const e = { ...before, ...patch }
+  const e = { ...before, ...patch, fields: patch.fields ? { ...before.fields, ...patch.fields } : before.fields }
   if (e.parentId === id) e.parentId = null
   const keys = changedKeys(before, patch)
   // Saving what is already there changes nothing, so it writes no version (the history lists real changes only).
@@ -620,10 +617,10 @@ export function deleteEntry(db: DB, id: ID, by: { origin: Origin; runId?: ID | n
  */
 export function restoreEntryVersion(db: DB, entryId: ID, versionId: ID): Entry {
   const v = getVersion(db, versionId)
-  if (!v || v.factKind !== 'entry' || v.factId !== entryId) throw new UserError('That earlier version could not be found.')
-  if (!v.data || typeof v.data !== 'object') throw new UserError('That version is from when the entry was removed. Pick an earlier one.')
+  if (!v || v.factKind !== 'entry' || v.factId !== entryId) throw new UserError('That earlier copy of this page could not be found.')
+  if (!v.data || typeof v.data !== 'object') throw new UserError('That is from when this page was deleted. Pick an earlier one.')
   if (!db.prepare('SELECT 1 FROM entries WHERE id = ?').get(entryId)) {
-    throw new UserError('That entry has been removed for good, so it can’t be brought back.')
+    throw new UserError('That page has been deleted for good, so it can’t be brought back.')
   }
   const old = v.data as Partial<Entry>
   const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [])

@@ -207,7 +207,7 @@ describe('changes', () => {
     expect(full.kind === 'full' && full.payload.knows).toEqual([{ factId: 'f', fact: 'Kept.' }])
     expect(check({ kind: 'thread', payload: { status: 'nonsense' as 'open', note: '' } }).payload).toEqual({ status: 'open', note: '' })
     expect(() => mem.cleanChangeInput(w.db, { ...base, entryId: 'gone', kind: 'update', payload: { note: 'x' } })).toThrow(
-      'That entry no longer exists.'
+      'That page no longer exists. It may have been deleted.'
     )
     expect(
       mem.entriesTouched({ entryId: w.mara, kind: 'relationship', payload: { otherId: w.tobin, type: '', feels: '', otherFeels: '' } })
@@ -561,7 +561,7 @@ describe('summaries, pins and block modes', () => {
     expect(mem.pinsForScene(w.db, w.b2sc)).toEqual([])
     expect(() => mem.setPin(w.db, w.mara, 'everywhere' as 'world', null, 'pin')).toThrow(UserError)
     expect(() => mem.setPin(w.db, w.mara, 'world', null, 'love' as 'pin')).toThrow(UserError)
-    expect(() => mem.setPin(w.db, 'gone', 'world', null, 'pin')).toThrow('That entry no longer exists.')
+    expect(() => mem.setPin(w.db, 'gone', 'world', null, 'pin')).toThrow('That page no longer exists. It may have been deleted.')
     mem.setPin(w.db, w.mara, 'story', w.b1, null)
     expect(mem.pinsForScene(w.db, w.sc[0][0])).toEqual([])
     mem.setBlockMode(w.db, w.sc[0][0], 'previous', 'short')
@@ -610,13 +610,20 @@ describe('memory history of an entry', () => {
     expect(entryVersions(w.db, kell.id)[0]).toEqual([5, 'adam', null, { eyes: 'green' }])
   })
 
-  it('a field left out of a save is emptied, and becomes Adam’s', () => {
+  it('a save that leaves a field out keeps it as saved, so a memory update made just before isn’t lost', () => {
     const w = small()
     const e = repo.createEntry(w.db, 'character', { name: 'Mara' }, { origin: 'text', originSceneId: w.sc[0][0] })
-    repo.updateEntry(w.db, e.id, { fields: { eyes: 'grey', hair: 'dark' } }, { origin: 'text' })
-    const after = repo.updateEntry(w.db, e.id, { fields: { eyes: 'grey' } })
-    expect(after.fields).toEqual({ eyes: 'grey' })
-    expect(after.fieldOrigins).toEqual({ eyes: 'text', hair: 'adam' })
+    repo.updateEntry(w.db, e.id, { fields: { eyes: 'grey' } }, { origin: 'text' })
+    // The page read Mara with grey eyes; then the memory keeper filled in her hair, and the page saved.
+    const page = repo.getEntry(w.db, e.id)
+    repo.updateEntry(w.db, e.id, { fields: { ...page.fields, hair: 'dark' } }, { origin: 'text' })
+    const after = repo.updateEntry(w.db, e.id, { fields: { ...page.fields, eyes: 'green' } })
+    expect(after.fields).toEqual({ eyes: 'green', hair: 'dark' })
+    expect(after.fieldOrigins).toEqual({ eyes: 'adam', hair: 'text' })
+    // A field is emptied by sending it empty, and then it is Adam's.
+    const cleared = repo.updateEntry(w.db, e.id, { fields: { hair: '' } })
+    expect(cleared.fields).toEqual({ eyes: 'green', hair: '' })
+    expect(cleared.fieldOrigins).toEqual({ eyes: 'adam', hair: 'adam' })
   })
 
   it('brings back an earlier version exactly, even after the keeper changed it and it was deleted', () => {
@@ -626,12 +633,13 @@ describe('memory history of an entry', () => {
     const read = entryHistory(w.db, kell.id)[0]
     repo.updateEntry(w.db, kell.id, { fields: { eyes: 'green' }, summary: 'A smuggler.' })
     const mine = entryHistory(w.db, kell.id)[0]
-    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'blue' } }, { origin: 'text', runId: 'run-2' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'blue', scar: 'left cheek' } }, { origin: 'text', runId: 'run-2' })
     repo.deleteEntry(w.db, kell.id, { origin: 'text', runId: 'run-3' })
 
-    // Back from Recently deleted, as the keeper read it: the eyes follow the text again.
+    // Back from Recently deleted, as the keeper read it: the eyes follow the text again, and the scar read later goes.
     const back = repo.restoreEntryVersion(w.db, kell.id, read.id)
     expect(repo.getEntry(w.db, kell.id)).toMatchObject({ fields: { eyes: 'grey' }, summary: '', byHand: true })
+    expect(back.fields).toEqual({ eyes: 'grey' })
     expect(back.fieldOrigins).toEqual({ eyes: 'text' })
     expect(entryHistory(w.db, kell.id)[0]).toMatchObject({ factKind: 'entry', origin: 'adam', data: back })
 
@@ -641,8 +649,8 @@ describe('memory history of an entry', () => {
 
     const removed = entryHistory(w.db, kell.id).find((v) => v.data === null)!
     expect(() => repo.restoreEntryVersion(w.db, kell.id, removed.id)).toThrow(
-      'That version is from when the entry was removed. Pick an earlier one.'
+      'That is from when this page was deleted. Pick an earlier one.'
     )
-    expect(() => repo.restoreEntryVersion(w.db, w.mara, read.id)).toThrow('That earlier version could not be found.')
+    expect(() => repo.restoreEntryVersion(w.db, w.mara, read.id)).toThrow('That earlier copy of this page could not be found.')
   })
 })

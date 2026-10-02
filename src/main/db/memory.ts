@@ -209,7 +209,7 @@ const liveEntry = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM entri
  */
 export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
   if (!input || typeof input !== 'object') throw new UserError('That change is empty.')
-  if (!liveEntry(db, input.entryId)) throw new UserError('That entry no longer exists.')
+  if (!liveEntry(db, input.entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   const other = (otherId: ID | undefined): ID => {
     if (!otherId) throw new UserError('Pick who or what this relationship is with.')
     if (otherId === input.entryId) throw new UserError('A relationship needs two different entries.')
@@ -899,7 +899,7 @@ export function setPin(db: DB, entryId: ID, scope: PinScope, scopeId: ID | null,
   if (action !== null && action !== 'pin' && action !== 'hide') throw new UserError("That briefing choice isn't known.")
   const sid = scope === 'world' ? '' : (scopeId ?? '')
   if (scope !== 'world' && !sid) throw new UserError('Pick the scene or story to pin this to.')
-  if (action !== null && !liveEntry(db, entryId)) throw new UserError('That entry no longer exists.')
+  if (action !== null && !liveEntry(db, entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   if (action === null) {
     db.prepare('DELETE FROM pins WHERE scope = ? AND scope_id = ? AND entry_id = ?').run(scope, sid, entryId)
     return
