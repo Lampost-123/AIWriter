@@ -148,20 +148,7 @@ export function insertChange(db: DB, c: NewChange): Change {
   db.prepare(
     `INSERT INTO changes (id, entry_id, anchor, story_id, scene_id, kind, payload_json, position, origin, run_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    c.entryId,
-    c.anchor,
-    storyId,
-    sceneId,
-    c.kind,
-    JSON.stringify(c.payload ?? {}),
-    position,
-    c.origin,
-    c.runId ?? null,
-    t,
-    t
-  )
+  ).run(id, c.entryId, c.anchor, storyId, sceneId, c.kind, JSON.stringify(c.payload ?? {}), position, c.origin, c.runId ?? null, t, t)
   const change = getChange(db, id)
   recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: c.origin, runId: c.runId })
   return change
@@ -424,8 +411,10 @@ export function defaultExistsPoint(
 
 /**
  * Works out every entry's default first-exists point again (after a story's kind or start changed).
- * Points Adam set by hand are kept, and an entry with only his points is left alone. Returns the
- * entries whose points changed.
+ * The default is the first point the app gave the entry; it is changed in place, so it stays first.
+ * Points Adam set by hand are kept, and so are points the memory keeper added later ("first seen
+ * elsewhere": a scene other than the one the entry was found in), which are not defaults. An entry
+ * with no default left is left alone. Returns the entries whose points changed.
  */
 export function refreshDefaultExistsPoints(db: DB): ID[] {
   const first = firstStoryId(db)
@@ -436,26 +425,32 @@ export function refreshDefaultExistsPoints(db: DB): ID[] {
     .all() as Row[]
   const same = (a: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>, b: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>): boolean =>
     a.kind === b.kind && (a.storyId ?? null) === (b.storyId ?? null) && (a.sceneId ?? null) === (b.sceneId ?? null)
+  const move = db.prepare('UPDATE exists_points SET kind = ?, story_id = ?, scene_id = ? WHERE id = ?')
+  const remove = db.prepare('DELETE FROM exists_points WHERE id = ?')
   const changed: ID[] = []
   db.transaction(() => {
     for (const r of rows) {
       const id = r.id as string
+      const foundIn = (r.origin_scene_id as string) ?? null
       const mine = points.get(id) ?? []
-      const defaults = mine.filter((p) => !p.byHand)
-      if (mine.length && !defaults.length) continue
+      // Oldest first: the default, unless Adam set it by hand or the keeper added it at another scene.
+      const current = mine.find((p) => !p.byHand && (p.kind !== 'scene' || p.sceneId === foundIn))
+      if (mine.length && !current) continue
       const want = defaultExistsPoint(
         db,
         {
           kind: r.kind as Entry['kind'],
           origin: ((r.origin as string) ?? 'adam') as Origin,
           originStoryId: (r.origin_story_id as string) ?? null,
-          originSceneId: (r.origin_scene_id as string) ?? null,
+          originSceneId: foundIn,
           originStart: !!r.origin_start
         },
         first
       )
-      if (defaults.length === 1 && same(defaults[0], want)) continue
-      setDefaultExistsPoints(db, id, [want])
+      if (current && same(current, want)) continue
+      if (!current) addExistsPoint(db, { ...want, entryId: id, byHand: false })
+      else if (mine.some((p) => p !== current && same(p, want))) remove.run(current.id)
+      else move.run(want.kind, want.storyId, want.sceneId, current.id)
       changed.push(id)
     }
   })()
@@ -672,7 +667,14 @@ export function putSummary(
        source_hash = excluded.source_hash, generation_id = excluded.generation_id, updated_at = excluded.updated_at`
   ).run(s.level, s.targetId, s.text, s.origin, s.sourceHash ?? '', s.generationId ?? null, now())
   const summary = getSummary(db, s.level, s.targetId)!
-  recordVersion(db, { factKind: 'summary', factId: `${s.level}:${s.targetId}`, entryId: null, data: summary, origin: s.origin, runId: s.runId })
+  recordVersion(db, {
+    factKind: 'summary',
+    factId: `${s.level}:${s.targetId}`,
+    entryId: null,
+    data: summary,
+    origin: s.origin,
+    runId: s.runId
+  })
   return summary
 }
 

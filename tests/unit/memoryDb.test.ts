@@ -245,6 +245,42 @@ describe('where entries first exist', () => {
     expect(mem.listExistsPoints(w.db, inBook1).map((p) => [p.kind, p.storyId])).toEqual([['story-pre', w.b1]])
     expect(mem.listExistsPoints(w.db, mine).map((p) => [p.kind, p.byHand])).toEqual([['scene', true]])
   })
+
+  it('keeps the points the memory keeper added when it works defaults out again, and changes the default in place', () => {
+    const w = small()
+    const found = repo.createEntry(
+      w.db,
+      'character',
+      { name: 'Kell' },
+      { origin: 'text', originStoryId: w.b1, originSceneId: w.sc[0][1] }
+    ).id
+    const made = repo.createEntry(w.db, 'character', { name: 'Wren', originStoryId: w.b1 }).id
+    // "First seen elsewhere": the keeper linked a later mention in Book 2 to each of them.
+    for (const id of [found, made]) mem.addExistsPoint(w.db, { entryId: id, kind: 'scene', storyId: w.b2, sceneId: w.b2sc, byHand: false })
+    const before = mem.listExistsPoints(w.db, made)
+
+    const changed = mem.setStoryPlacement(w.db, w.b1, {
+      kind: 'own',
+      startStoryId: null,
+      startAt: 'end',
+      startRefId: null,
+      endAt: null,
+      endRefId: null,
+      leadsIntoId: null
+    })
+    expect(changed).toEqual([made])
+    const points = (id: ID) => mem.listExistsPoints(w.db, id).map((p) => [p.kind, p.storyId, p.sceneId])
+    expect(points(found)).toEqual([
+      ['scene', w.b1, w.sc[0][1]],
+      ['scene', w.b2, w.b2sc]
+    ])
+    expect(points(made)).toEqual([
+      ['story-pre', w.b1, null],
+      ['scene', w.b2, w.b2sc]
+    ])
+    // The same rows: the keeper's own undo still finds its point by id.
+    expect(mem.listExistsPoints(w.db, made).map((p) => p.id)).toEqual(before.map((p) => p.id))
+  })
 })
 
 describe('story placement', () => {
