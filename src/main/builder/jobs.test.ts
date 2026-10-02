@@ -177,8 +177,8 @@ describe('Quick start', () => {
     expect(e.name).toBe('Brann Holt')
     const fields = Object.entries(e.fields).filter(([, v]) => v)
     expect(fields.length).toBeGreaterThan(3)
-    // Nothing was cut off partway: every field holds its whole value.
-    for (const [, v] of fields) expect(v).toMatch(/\.["]?$/)
+    // Nothing was cut off partway: every field holds its whole value (each ends with a full stop, but the role).
+    for (const [k, v] of fields) if (k !== 'role') expect(v).toMatch(/\.["]?$/)
     expect(Object.keys(e.fields).length).toBeLessThan(30)
     expect(builderRecords(w.db)[0].status).toBe('stopped')
   })

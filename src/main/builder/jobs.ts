@@ -214,7 +214,8 @@ async function ask(
   )
   run.records.delete(id)
   const status = run.closed ? 'stopped' : outcome.status
-  const error = outcome.status === 'error' ? (outcome.failure ? builderFailure(outcome.failure, model.target, model.choice.modelId) : outcome.error) : null
+  const error =
+    outcome.status === 'error' ? (outcome.failure ? builderFailure(outcome.failure, model.target, model.choice.modelId) : outcome.error) : null
   const c = model.choice
   const cost =
     outcome.cost ??
@@ -243,7 +244,15 @@ async function ask(
 /** Starts a job in the background. */
 function begin(ctx: JobContext, jobId: ID, job: BuilderJob, work: (run: Run) => Promise<BuilderDone>): void {
   if (!jobId || running.has(jobId)) throw new UserError('That is already being written. Stop it first, or wait for it to finish.')
-  const run: Run = { id: jobId, job, db: ctx.db, controller: new AbortController(), closed: false, records: new Map(), done: Promise.resolve() }
+  const run: Run = {
+    id: jobId,
+    job,
+    db: ctx.db,
+    controller: new AbortController(),
+    closed: false,
+    records: new Map(),
+    done: Promise.resolve()
+  }
   running.set(jobId, run)
   run.done = work(run)
     .catch(
@@ -264,7 +273,8 @@ const whyOf = (text: string, fallback: string): string => {
   return p.ok ? fallback : p.why
 }
 
-const asObject = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
+const asObject = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
 
 /** The whole reply when it reads as JSON, else as much of it as had arrived. */
 function finalValue(text: string): Record<string, unknown> | null {
@@ -338,7 +348,11 @@ async function quickStart(ctx: JobContext, run: Run, input: QuickStartInput, not
     view = quickStartView(kind, notes, { value: finalValue(text), open: null })
     // Nothing usable came back: ask once more, saying why.
     if (asked.status === 'complete' && !view.values.name && !state.entryId && attempt === 0) {
-      messages = [...messages, { role: 'assistant', content: text }, { role: 'user', content: retryMessage(whyOf(text, 'it had no "name"'), QUICK_SHAPE) }]
+      messages = [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: retryMessage(whyOf(text, 'it had no "name"'), QUICK_SHAPE) }
+      ]
       view = { values: {}, fromNotes: [], writing: null }
       ctx.emit('builder:progress', progress())
       continue
@@ -363,7 +377,14 @@ export function startFleshOut(ctx: JobContext, input: FleshOutInput, brief: Worl
   begin(ctx, input.jobId, 'flesh-out', (run) => fleshOut(ctx, run, input, values, targets, brief))
 }
 
-async function fleshOut(ctx: JobContext, run: Run, input: FleshOutInput, values: BuilderValues, targets: string[], brief: WorldBrief): Promise<BuilderDone> {
+async function fleshOut(
+  ctx: JobContext,
+  run: Run,
+  input: FleshOutInput,
+  values: BuilderValues,
+  targets: string[],
+  brief: WorldBrief
+): Promise<BuilderDone> {
   const kind = input.kind
   const system = fleshOutSystem(kind)
   const space = room(ctx.model, 'flesh-out', estimateTokens(system) + estimateTokens(profileText(kind, values)) + 200)
@@ -391,7 +412,11 @@ async function fleshOut(ctx: JobContext, run: Run, input: FleshOutInput, values:
     found = fleshOutValues(kind, finalValue(text), targets)
     if (asked.status === 'complete' && !Object.keys(found).length && attempt === 0) {
       const shape = `{${targets.map((k) => `"${k}": "..."`).join(', ')}}`
-      messages = [...messages, { role: 'assistant', content: text }, { role: 'user', content: retryMessage(whyOf(text, 'it had none of the fields asked for'), shape) }]
+      messages = [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: retryMessage(whyOf(text, 'it had none of the fields asked for'), shape) }
+      ]
       ctx.emit('builder:progress', progressOf(run))
       continue
     }
@@ -437,8 +462,14 @@ async function options(ctx: JobContext, run: Run, input: OptionsInput, values: B
     if (!list.length) list = optionsFromText(kind, key, text)
     const three = pickThree(list)
     if (asked.status === 'complete' && !three && attempt === 0) {
-      const why = list.length ? `it gave ${list.length === 1 ? 'one option' : `${list.length} different options`} rather than three` : whyOf(text, 'it had no options in it')
-      messages = [...messages, { role: 'assistant', content: text }, { role: 'user', content: retryMessage(why, '{"options": ["first", "second", "third"]}') }]
+      const why = list.length
+        ? `it gave ${list.length === 1 ? 'one option' : `${list.length} different options`} rather than three`
+        : whyOf(text, 'it had no options in it')
+      messages = [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: retryMessage(why, '{"options": ["first", "second", "third"]}') }
+      ]
       ctx.emit('builder:progress', progressOf(run))
       continue
     }
@@ -465,7 +496,14 @@ export function startInterview(ctx: JobContext, input: InterviewInput, brief: Wo
   begin(ctx, input.jobId, 'interview', (run) => interview(ctx, run, input, values, question.slice(0, 2000), brief))
 }
 
-async function interview(ctx: JobContext, run: Run, input: InterviewInput, values: BuilderValues, question: string, brief: WorldBrief): Promise<BuilderDone> {
+async function interview(
+  ctx: JobContext,
+  run: Run,
+  input: InterviewInput,
+  values: BuilderValues,
+  question: string,
+  brief: WorldBrief
+): Promise<BuilderDone> {
   const name = values.name
   const turns = (input.turns ?? []).filter((t) => t && typeof t.text === 'string')
   const fixed = estimateTokens(profileText('character', values)) + estimateTokens(turns.map((t) => t.text).join('\n')) + 600

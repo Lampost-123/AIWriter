@@ -2,7 +2,14 @@
 // messages talk about scenes and draft options). Pure.
 
 import type { ChatTarget } from '../ai/client'
-import { describeFailure, looksLikeContextTooLong, looksLikeRefusal, looksLikeReplyLimitRejected, providerWho, type Failure } from '../ai/errors'
+import {
+  describeFailure,
+  looksLikeContextTooLong,
+  looksLikeRefusal,
+  looksLikeReplyLimitRejected,
+  providerWho,
+  type Failure
+} from '../ai/errors'
 
 const SETTINGS = 'Settings › Models'
 
@@ -27,7 +34,8 @@ export function builderFailure(f: Failure, target: ChatTarget, modelId: string):
         return `This model can't write that much in one reply. Pick another writer model in ${SETTINGS}.`
       }
   }
-  return describeFailure(f, { name: target.name, kind: target.kind, baseUrl: target.baseUrl, hasKey: !!target.apiKey }, { during: 'draft', modelId })
+  const provider = { name: target.name, kind: target.kind, baseUrl: target.baseUrl, hasKey: !!target.apiKey }
+  return describeFailure(f, provider, { during: 'draft', modelId })
     .replace(/ The text that arrived is kept\.$/, '')
     .replace(/This model refused the scene\./, 'The writer model turned this down.')
 }
