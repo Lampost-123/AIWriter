@@ -23,7 +23,8 @@ function decodeEntities(s: string): string {
 
 /** Turns release notes (HTML or Markdown from GitHub, or a list of notes) into a short plain-text note. */
 export function releaseNotesText(notes: string | { version?: string; note?: string | null }[] | null | undefined, max = 600): string {
-  const raw = Array.isArray(notes) ? notes.map((n) => n.note ?? '').join('\n') : (notes ?? '')
+  // Windows line endings would let the multi-line patterns below run lines together.
+  const raw = (Array.isArray(notes) ? notes.map((n) => n.note ?? '').join('\n') : (notes ?? '')).replace(/\r\n?/g, '\n')
   let t = raw
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<li[^>]*>/gi, '\n• ')

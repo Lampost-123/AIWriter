@@ -38,6 +38,18 @@ jobs:
             exit 1
           fi
 
+      # The notes are what Adam reads on the release page and under "What's new" in the app, so a
+      # version can't go out with the previous version's notes.
+      - name: Check the release notes are for this version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          first=$(head -n 1 build/release-notes.md | tr -d '\r')
+          if [ "$first" != "<!-- version: $version -->" ]; then
+            echo "::error::build/release-notes.md isn't for $version. Write this version's notes there, starting with the line <!-- version: $version -->."
+            exit 1
+          fi
+
       - name: Install
         run: npm ci
 
@@ -50,7 +62,8 @@ jobs:
       # release doesn't exist yet, each upload tries to create it and only the first succeeds
       # ("Published releases must have a valid tag"). So start the release as a draft first: every
       # upload goes to it, and it's published only once all three files are there, so installed
-      # copies never see a half-uploaded version.
+      # copies never see a half-uploaded version. Its text is build/release-notes.md, which
+      # electron-builder also puts in latest.yml for the app's "What's new".
       - name: Start the release as a draft
         shell: bash
         env:
@@ -58,7 +71,9 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           if ! gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "v$version" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "$version" --notes ""
+            gh release create "v$version" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "$version" --notes-file build/release-notes.md
+          else
+            gh release edit "v$version" --repo "$GITHUB_REPOSITORY" --notes-file build/release-notes.md
           fi
 
       - name: Build and publish
