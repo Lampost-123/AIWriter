@@ -10,6 +10,14 @@ export interface StoryDraft {
   title: string
   seriesId: ID | null
   placement: StoryPlacement
+  /** Other side stories to end after a chapter first (the New story dialog's "End Ash after Ch 1", applied on Create). */
+  endFirst?: EndFirst[]
+}
+
+/** A still-running side story ended after a chapter of its book, so a new story starting there knows it. */
+export interface EndFirst {
+  storyId: ID
+  endRefId: ID
 }
 
 /**
@@ -27,8 +35,11 @@ export interface StoryWarning {
 export interface StillRunning {
   storyId: ID
   title: string
-  /** Where it could end so that it ends before this story starts ("End Ash after Ch 1"); null when no chapter ends early enough. */
-  endFirst: { endRefId: ID; label: string } | null
+  /**
+   * Where it could end so that it ends before this story starts: the button's label ("End Ash after Ch 1")
+   * and the chapter ("Ch 1"); null when no chapter ends early enough.
+   */
+  endFirst: { endRefId: ID; label: string; chapter: string } | null
 }
 
 /** What a story would know with a placement, worked out without saving anything. */
@@ -60,6 +71,8 @@ export interface NewStoryInput {
   placement: StoryPlacement
   /** Time since the previous story, such as "200 years". */
   timeGap?: string
+  /** Side stories still running where it starts that end after a chapter first, in the same go. */
+  endFirst?: EndFirst[]
 }
 
 /** A story in another's question or note: its id and title. */
@@ -74,16 +87,27 @@ export interface CreatedStory {
   sceneId: ID
   /** "Should Book 2 now continue after it?": earlier books of its series that continue after the same story. */
   mightFollow: StoryRef[]
+  /** The side stories it ended first ("Ash now ends after Ch 1"), with what each was before, for Undo. */
+  endedFirst: (StoryRef & { chapter: string; was: StoryPlacement })[]
 }
 
 /** What story settings shows about a story beyond its own fields. */
 export interface StoryDetails {
   story: Story
+  /**
+   * What it is now, as the memory has it: a start or end at a deleted story, chapter or scene is already
+   * moved to where it now is (the story's own fields still point at what was deleted, so restoring it
+   * puts things back). Edit and undo from this one; setStoryPlacement refuses the other.
+   */
+  placement: StoryPlacement
   /** What it knows with its saved placement. */
   preview: StoryPreview
   /** Stories that start in this one, with where each would start if this one were deleted ("after Book 1, Ch 1"). */
   startingHere: (StoryRef & { wouldStart: string })[]
-  /** "Should Book 2 now continue after it?": earlier books of its series that continue after the same story. */
+  /**
+   * "Should Book 2 now continue after it?": earlier books of its series that continue after the same
+   * story, until Adam answers No here (declineFollow).
+   */
   mightFollow: StoryRef[]
   /** For a prequel and the stories that continue after it: the book they lead into and which story leads in. */
   leadsInto: { book: StoryRef; leader: StoryRef; marked: boolean } | null
@@ -106,8 +130,15 @@ export interface StoriesApi {
   /** Makes a story with its placement, its first chapter and scene (and a new series, if named) in one go. */
   createStoryAs(input: NewStoryInput): Promise<CreatedStory>
   getStoryDetails(storyId: ID): Promise<StoryDetails>
-  /** The grey line on each story's card, by story id; stories that simply continue have none. */
-  listStoryLabels(): Promise<Record<ID, string>>
+  /** What a story is now, as the memory has it (see StoryDetails.placement): the one to change or put back. */
+  getStoryPlacement(storyId: ID): Promise<StoryPlacement>
+  /**
+   * The story cards: every story in reading order ("Shelf order is reading order", for display only),
+   * and the grey line on each card by story id (stories that simply continue have none).
+   */
+  listShelf(): Promise<{ order: ID[]; labels: Record<ID, string> }>
+  /** Adam's "No" to "Should Book 2 now continue after it?" for this story: story settings stops asking. */
+  declineFollow(storyId: ID): Promise<void>
   createSeries(name: string): Promise<Series>
   updateSeries(id: ID, patch: Partial<Pick<Series, 'name' | 'themes' | 'tone'>>): Promise<Series>
   /** Marks this story as the one that leads into its prequel chain's book (on), or goes back to the last one in the chain (off). */

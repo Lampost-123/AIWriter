@@ -3,16 +3,30 @@
 // the value and the preview (usePreview) so both screens show the same sentence and warnings.
 import { useId, type ReactNode } from 'react'
 import type { StoryPlacement } from '@shared/api'
-import type { StillRunning, StoryPreview, StoryWarning } from '@shared/contracts/stories'
+import type { StillRunning, StoryPreview, StoryRef, StoryWarning } from '@shared/contracts/stories'
 import type { ID, Outline, StoryKind } from '@shared/types'
 import { Button, Notice, Select } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useStoryOutline } from './hooks'
-import { endOptions, endValue, firstBookOf, KINDS, pointValue, startOptions, switchKind, withEnd, withStart, withStartStory } from './storiesLogic'
+import {
+  endOptions,
+  endValue,
+  firstBookOf,
+  KINDS,
+  pointValue,
+  startOptions,
+  switchKind,
+  withEnd,
+  withStart,
+  withStartStory
+} from './storiesLogic'
 
 /** The "Story" choice for starting at the beginning of the world. */
 const WORLD = '__world__'
+
+/** A side story the New story dialog will end first when the story is created ("Ash", "Ch 1"). */
+export type PendingEnd = StoryRef & { endRefId: ID; chapter: string }
 
 export function PlacementEditor({
   storyId,
@@ -22,6 +36,8 @@ export function PlacementEditor({
   preview,
   current,
   onEndFirst,
+  pendingEnds,
+  onKeepRunning,
   hideLegend
 }: {
   /** The story being changed (it can't start in itself); null for a new story. */
@@ -33,6 +49,9 @@ export function PlacementEditor({
   /** Whether the preview is for this value yet (the last one stays on screen meanwhile). */
   current: boolean
   onEndFirst?: (r: StillRunning) => void
+  /** Side stories that will end first once the story is created, each with a button to keep it running. */
+  pendingEnds?: PendingEnd[]
+  onKeepRunning?: (storyId: ID) => void
   /** For a page whose heading already asks "What is it?" (it stays for screen readers). */
   hideLegend?: boolean
 }): React.JSX.Element {
@@ -144,15 +163,20 @@ export function PlacementEditor({
         )}
       </div>
 
-      <Knows preview={preview} current={current} onEndFirst={onEndFirst} />
+      <Knows preview={preview} current={current} onEndFirst={onEndFirst} pendingEnds={pendingEnds} onKeepRunning={onKeepRunning} />
     </div>
   )
 }
 
-/** The start choices, keeping the saved one listed while the story's chapters load. */
+/**
+ * The start choices, keeping the current one listed: while the story's chapters load, and for a side
+ * story that starts at its book's end (it took over the start of a deleted story that continued there).
+ */
 function startChoices(outline: Outline | null, kind: StoryKind, start: string): { value: string; label: string }[] {
   const options = startOptions(outline, kind)
-  if (!options.some((o) => o.value === start)) options.push({ value: start, label: outline ? 'Where it was' : 'Loading…' })
+  if (!options.some((o) => o.value === start)) {
+    options.push({ value: start, label: start === 'end' ? 'After its end' : outline ? 'Where it was' : 'Loading…' })
+  }
   return options
 }
 
@@ -169,18 +193,21 @@ function Picker({ label, id, children }: { label: string; id: string; children: 
 
 /**
  * The live sentence: what the story will know, or why it can't be saved. The last sentence stays
- * (a little faded) while the next one is worked out, and the box keeps its height.
+ * (a little faded) while the next one is worked out, and the box keeps its height. Below it, a button
+ * to end first each side story still running here, and for the New story dialog, the ones it will end.
  */
 export function Knows({
   preview,
   current,
   onEndFirst,
-  className
+  pendingEnds = [],
+  onKeepRunning
 }: {
   preview: StoryPreview | null
   current: boolean
   onEndFirst?: (r: StillRunning) => void
-  className?: string
+  pendingEnds?: PendingEnd[]
+  onKeepRunning?: (storyId: ID) => void
 }): React.JSX.Element {
   const ends = preview && !preview.problem ? preview.stillRunning.filter((r) => r.endFirst) : []
   return (
@@ -194,6 +221,18 @@ export function Knows({
       <p aria-live="polite" className="text-fg">
         {preview ? (preview.problem ?? preview.knows) : <span className="text-faint">Working out what this story will know…</span>}
       </p>
+      {pendingEnds.length && onKeepRunning && !preview?.problem
+        ? pendingEnds.map((e) => (
+            <p key={e.storyId} className="mt-1.5 flex flex-wrap items-center gap-x-2 text-muted">
+              <span>
+                Creating this story also ends {e.title} after {e.chapter}.
+              </span>
+              <Button type="button" size="sm" variant="ghost" onClick={() => onKeepRunning(e.storyId)}>
+                Keep {e.title} running
+              </Button>
+            </p>
+          ))
+        : null}
       {ends.length && onEndFirst ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {ends.map((r) => (
@@ -208,7 +247,13 @@ export function Knows({
 }
 
 /** Warnings about choices that would quietly lose history, each with its likely alternatives. */
-export function Warnings({ warnings, onPick }: { warnings: StoryWarning[]; onPick: (p: StoryPlacement) => void }): React.JSX.Element | null {
+export function Warnings({
+  warnings,
+  onPick
+}: {
+  warnings: StoryWarning[]
+  onPick: (p: StoryPlacement) => void
+}): React.JSX.Element | null {
   if (!warnings.length) return null
   return (
     <div className="flex flex-col gap-2">

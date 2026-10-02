@@ -8,7 +8,9 @@ import {
   firstBookOf,
   flowLine,
   gapLabel,
+  inShelfOrder,
   KINDS,
+  noGapReason,
   pointValue,
   readPoint,
   samePlacement,
@@ -136,9 +138,25 @@ describe('changing what a story is', () => {
   })
 
   it('starts again from the new story’s beginning (or end, for "Continues after")', () => {
-    const side: StoryPlacement = { ...continuesAfter('b1'), kind: 'side', startAt: 'chapter', startRefId: 'c1', endAt: 'chapter', endRefId: 'c2' }
-    expect(withStartStory(side, 'b2')).toMatchObject({ startStoryId: 'b2', startAt: 'post', startRefId: null, endAt: 'end', endRefId: null })
-    expect(withStartStory({ ...continuesAfter('b1'), startAt: 'chapter', startRefId: 'c1' }, 'b2')).toMatchObject({ startAt: 'end', startRefId: null })
+    const side: StoryPlacement = {
+      ...continuesAfter('b1'),
+      kind: 'side',
+      startAt: 'chapter',
+      startRefId: 'c1',
+      endAt: 'chapter',
+      endRefId: 'c2'
+    }
+    expect(withStartStory(side, 'b2')).toMatchObject({
+      startStoryId: 'b2',
+      startAt: 'post',
+      startRefId: null,
+      endAt: 'end',
+      endRefId: null
+    })
+    expect(withStartStory({ ...continuesAfter('b1'), startAt: 'chapter', startRefId: 'c1' }, 'b2')).toMatchObject({
+      startAt: 'end',
+      startRefId: null
+    })
   })
 
   it('compares only what matters for each kind', () => {
@@ -205,9 +223,40 @@ describe('the story flows’ quiet line', () => {
   it('says what is happening, then how it went', () => {
     expect(flowLine({ flow: 'time-gap', state: 'running', message: null }, '200 years')).toBe('Working out what changed in the 200 years…')
     expect(flowLine({ flow: 'time-gap', state: 'running', message: null })).toBe('Working out what changed before this story starts…')
+    expect(flowLine({ flow: 'time-gap', state: 'running', message: null }, 'a decade')).toBe('Working out what changed over a decade…')
     expect(flowLine({ flow: 'starting-cast', state: 'running', message: null })).toBe('Drafting how each of them starts…')
-    expect(flowLine({ flow: 'when', state: 'done', message: 'Added 4 changes, listed under What changed' })).toBe('Added 4 changes, listed under What changed')
+    expect(flowLine({ flow: 'when', state: 'running', message: null }, 'Book 2')).toBe(
+      'Working out when the changes at the start of Book 2 happened…'
+    )
+    expect(flowLine({ flow: 'when', state: 'done', message: 'Added 4 changes, listed under What changed' })).toBe(
+      'Added 4 changes, listed under What changed'
+    )
     expect(flowLine({ flow: 'when', state: 'failed', message: 'This isn’t ready yet.' })).toBe('This isn’t ready yet.')
     expect(flowLine({ flow: 'when', state: 'failed', message: null })).toMatch(/Try again/)
+  })
+})
+
+describe('the story menu', () => {
+  it('lists the stories in reading order, with any the order doesn’t know yet after the others', () => {
+    const stories = ['b1', 'b2', 'qy', 'new'].map((id) => story(id))
+    expect(inShelfOrder(stories, ['b1', 'qy', 'b2']).map((s) => s.id)).toEqual(['b1', 'qy', 'b2', 'new'])
+    expect(inShelfOrder(stories, []).map((s) => s.id)).toEqual(['b1', 'b2', 'qy', 'new'])
+  })
+})
+
+describe('the line in place of the time gap', () => {
+  it('says why there is no gap to fill in', () => {
+    const p: StoryPlacement = {
+      kind: 'side',
+      startStoryId: 'b1',
+      startAt: 'post',
+      startRefId: null,
+      endAt: 'end',
+      endRefId: null,
+      leadsIntoId: null
+    }
+    expect(noGapReason(p)).toMatch(/^A side story runs alongside its story/)
+    expect(noGapReason({ ...p, kind: 'prequel', startAt: 'pre' })).toMatch(/^A prequel is set before its book/)
+    expect(noGapReason({ ...p, kind: 'own', startStoryId: null })).toMatch(/^It starts at the beginning of the world/)
   })
 })

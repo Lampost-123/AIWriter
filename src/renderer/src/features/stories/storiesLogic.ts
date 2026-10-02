@@ -11,7 +11,11 @@ export const KINDS: { kind: StoryKind; label: string; help: string }[] = [
   { kind: 'continues', label: 'Continues after', help: 'Starts after that story ends and knows everything before it.' },
   { kind: 'side', label: 'Side story during', help: 'Runs alongside that story. Later books know what happened in it.' },
   { kind: 'prequel', label: 'Prequel to', help: 'Set before that book but written after it. The book stays as written.' },
-  { kind: 'own', label: 'Own version of events', help: 'A what-if, or a story that shares only the setting. Nothing in it reaches other stories.' }
+  {
+    kind: 'own',
+    label: 'Own version of events',
+    help: 'A what-if, or a story that shares only the setting. Nothing in it reaches other stories.'
+  }
 ]
 
 /** What a story is now, as a placement to edit. */
@@ -61,7 +65,9 @@ function afterLabels(outline: Outline): { chapters: Map<ID, string>; scenes: Map
     chapters.set(c.id, `After Ch ${n}${isDefault(c.title, 'Chapter', n) ? '' : `: ${c.title.trim()}`}`)
     outline.scenes
       .filter((s) => s.chapterId === c.id)
-      .forEach((s, si) => scenes.set(s.id, `After Ch ${n}, Sc ${si + 1}${isDefault(s.title, 'Scene', si + 1) ? '' : `: ${s.title.trim()}`}`))
+      .forEach((s, si) =>
+        scenes.set(s.id, `After Ch ${n}, Sc ${si + 1}${isDefault(s.title, 'Scene', si + 1) ? '' : `: ${s.title.trim()}`}`)
+      )
   })
   return { chapters, scenes }
 }
@@ -133,7 +139,15 @@ export function switchKind(p: StoryPlacement, kind: StoryKind, fallback: ID | nu
 /** The placement with another story to start in: back to its beginning (or end, for "Continues after"). */
 export function withStartStory(p: StoryPlacement, storyId: ID | null): StoryPlacement {
   const at: StartAt = p.kind === 'continues' ? 'end' : p.kind === 'prequel' ? 'pre' : p.kind === 'side' ? 'post' : 'end'
-  return { ...p, startStoryId: storyId, startAt: at, startRefId: null, endAt: p.kind === 'side' ? 'end' : null, endRefId: null, leadsIntoId: null }
+  return {
+    ...p,
+    startStoryId: storyId,
+    startAt: at,
+    startRefId: null,
+    endAt: p.kind === 'side' ? 'end' : null,
+    endRefId: null,
+    leadsIntoId: null
+  }
 }
 
 /** The placement with a new start point (a side story's end goes back to its book's end if it would now come first). */
@@ -158,12 +172,32 @@ export function gapLabel(p: StoryPlacement, stories: Pick<Story, 'id' | 'title'>
   return p.startAt === 'end' ? `Time since ${title} ended` : 'Time since that point'
 }
 
+/** Why there is no time gap to fill in, for the quiet line the New story dialog shows in its place. */
+export function noGapReason(p: StoryPlacement): string {
+  if (p.kind === 'side') return 'A side story runs alongside its story, so there is no time gap to fill in.'
+  if (p.kind === 'prequel') return 'A prequel is set before its book, so there is no time gap to fill in.'
+  if (!p.startStoryId) return 'It starts at the beginning of the world, so there is no time gap to fill in.'
+  return 'There is no time gap to fill in.'
+}
+
 /** The first book of a series on the shelf, for "Prequel to" (a story that starts in another series' book counts). */
 export function firstBookOf(stories: Story[], seriesId: ID | null): ID | null {
   const inSeries = stories.filter((s) => s.seriesId === seriesId && s.kind === 'continues')
   const byId = new Map(stories.map((s) => [s.id, s]))
   const first = inSeries.find((s) => !s.startStoryId || byId.get(s.startStoryId)?.seriesId !== seriesId)
   return first?.id ?? inSeries[0]?.id ?? null
+}
+
+/**
+ * The stories in reading order, as the main process sends it (shelf order is reading order). Any the
+ * order doesn't list yet, such as a story just made, keep their place after the others.
+ */
+export function inShelfOrder<T extends { id: ID }>(stories: T[], order: ID[]): T[] {
+  const at = new Map(order.map((id, i) => [id, i]))
+  return stories
+    .map((s, i) => ({ s, key: at.get(s.id) ?? order.length + i }))
+    .sort((a, b) => a.key - b.key)
+    .map((x) => x.s)
 }
 
 // ---------- The style the AI gets ----------
@@ -226,13 +260,19 @@ export function styleRules(prefs: WritingPrefs, world: StyleGuide, story: Partia
 
 /**
  * The quiet line for a story flow in story settings: "Working out what changed in the 200 years…",
- * then the result ("Added 4 changes"), or what went wrong.
+ * then the result ("Added 4 changes"), or what went wrong. `about` is what the flow was started about:
+ * the time gap, or for "When did these happen?" the book that now continues after the story.
  */
-export function flowLine(status: Pick<StoryFlowStatus, 'flow' | 'state' | 'message'>, gap = ''): string {
+export function flowLine(status: Pick<StoryFlowStatus, 'flow' | 'state' | 'message'>, about = ''): string {
+  const what = about.trim()
   if (status.state === 'running') {
-    if (status.flow === 'time-gap') return gap.trim() ? `Working out what changed in the ${gap.trim()}…` : 'Working out what changed before this story starts…'
+    if (status.flow === 'time-gap') {
+      if (!what) return 'Working out what changed before this story starts…'
+      // "in the 200 years", but "over a decade" and "over the long winter".
+      return `Working out what changed ${/^\d/.test(what) ? `in the ${what}` : `over ${what}`}…`
+    }
     if (status.flow === 'starting-cast') return 'Drafting how each of them starts…'
-    return 'Working out when the start-of-story changes happened…'
+    return `Working out when the changes at the start of ${what || 'the next book'} happened…`
   }
   const message = status.message?.trim()
   if (status.state === 'failed') return message || 'That didn’t work. Try again in a moment.'

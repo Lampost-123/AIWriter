@@ -1,26 +1,37 @@
 // The New story dialog (spec, "What Adam sees"): the title and series, then one line such as "Continues
 // after Book 2" with Change. For a normal series Adam just clicks Create. Change shows the four answers
 // to "What is it?" with the live sentence; warnings sit inline before Create, never in a second dialog.
+// Nothing in the world changes until Create, including ending a still-running side story first.
 // Opened with useApp().setNewStoryOpen(true) (the story menu, the command palette).
 import { ChevronDown, Plus, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { StoryPlacement } from '@shared/api'
-import type { StorySuggestion } from '@shared/contracts/stories'
+import type { StillRunning, StorySuggestion } from '@shared/contracts/stories'
+import type { ID } from '@shared/types'
 import { Button, Dialog, IconButton, Input, Notice, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { usePreview } from './hooks'
-import { PlacementEditor, Warnings } from './PlacementEditor'
+import { PlacementEditor, Warnings, type PendingEnd } from './PlacementEditor'
 import { useSeriesList } from './series'
-import { createStory, endFirst } from './storyActions'
-import { gapLabel, samePlacement } from './storiesLogic'
+import { createStory } from './storyActions'
+import { gapLabel, noGapReason, samePlacement } from './storiesLogic'
 
 export function NewStoryDialog(): React.JSX.Element | null {
   const open = useApp((s) => s.newStoryOpen)
   const worldId = useApp((s) => s.world?.id ?? null)
   // A fresh form each time it opens.
   return open && worldId ? <NewStoryForm key={worldId} /> : null
+}
+
+/** Brings an element into view inside the form's own scroll area, below the pinned line, scrolling nothing else. */
+function reveal(area: HTMLElement | null, el: HTMLElement | null, pinned: number): void {
+  if (!area || !el) return
+  const a = area.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  const down = Math.min(r.bottom - a.bottom + 8, r.top - a.top - pinned - 8)
+  if (down > 0) area.scrollTop += down
 }
 
 function NewStoryForm(): React.JSX.Element {
@@ -45,8 +56,11 @@ function NewStoryForm(): React.JSX.Element {
   const [changing, setChanging] = useState(false)
   const [gap, setGap] = useState('')
   const [busy, setBusy] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   // The dialog appears with its suggestion in place (it takes a few milliseconds), or after a moment without it.
   const [ready, setReady] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
+  const pinnedRef = useRef<HTMLDivElement>(null)
 
   const seriesId = isNew ? null : seriesChoice
 
@@ -81,9 +95,16 @@ function NewStoryForm(): React.JSX.Element {
           .catch(() => {
             if (mine !== ticket.current || placementTouched.current) return
             const last = storiesNow.current[storiesNow.current.length - 1]
-            setPlacementState(
-              (p) => p ?? { kind: 'continues', startStoryId: last?.id ?? null, startAt: 'end', startRefId: null, endAt: null, endRefId: null, leadsIntoId: null }
-            )
+            const after: StoryPlacement = {
+              kind: 'continues',
+              startStoryId: last?.id ?? null,
+              startAt: 'end',
+              startRefId: null,
+              endAt: null,
+              endRefId: null,
+              leadsIntoId: null
+            }
+            setPlacementState((p) => p ?? after)
           })
           .finally(() => setReady(true))
       },
@@ -116,10 +137,24 @@ function NewStoryForm(): React.JSX.Element {
     setPlacementState(p)
   }
 
+  // "End Ash after Ch 1" is held here and done on Create. It belongs to where this story starts, so
+  // choosing another start drops it (the button comes back if Ash is still running there).
+  const placementKey = placement ? JSON.stringify(placement) : ''
+  const [ending, setEnding] = useState<{ key: string; items: PendingEnd[] }>({ key: '', items: [] })
+  const pending = ending.key === placementKey ? ending.items : []
+  const endFirst = pending.map(({ storyId, endRefId }) => ({ storyId, endRefId }))
+  const endBefore = (r: StillRunning): void => {
+    if (!r.endFirst) return
+    const item: PendingEnd = { storyId: r.storyId, title: r.title, endRefId: r.endFirst.endRefId, chapter: r.endFirst.chapter }
+    setEnding({ key: placementKey, items: [...pending.filter((e) => e.storyId !== r.storyId), item] })
+  }
+  const keepRunning = (storyId: ID): void => setEnding({ key: placementKey, items: pending.filter((e) => e.storyId !== storyId) })
+
   // The story's own title never changes what it knows, so typing it doesn't work the sentence out again.
-  const live = usePreview(placement ? { storyId: null, title: '', seriesId, placement } : null)
+  const live = usePreview(placement ? { storyId: null, title: '', seriesId, placement, endFirst } : null)
   // Until the first preview arrives, the suggestion's own preview says the same thing.
-  const fromSuggestion = !live.current && suggested && placement && samePlacement(placement, suggested.placement) ? suggested.preview : null
+  const fromSuggestion =
+    !live.current && !pending.length && suggested && placement && samePlacement(placement, suggested.placement) ? suggested.preview : null
   const preview = fromSuggestion ?? live.preview
   const current = live.current || !!fromSuggestion
   const gapFor = placement ? gapLabel(placement, stories) : null
@@ -129,7 +164,7 @@ function NewStoryForm(): React.JSX.Element {
   const warningsRef = useRef<HTMLDivElement>(null)
   const warningKinds = current && preview && !preview.problem ? preview.warnings.map((w) => w.kind).join() : ''
   useEffect(() => {
-    if (warningKinds) warningsRef.current?.scrollIntoView({ block: 'nearest' })
+    if (warningKinds) reveal(formRef.current, warningsRef.current, pinnedRef.current?.offsetHeight ?? 0)
   }, [warningKinds])
 
   const submit = async (): Promise<void> => {
@@ -141,17 +176,22 @@ function NewStoryForm(): React.JSX.Element {
     }
     if (blocked) return
     setBusy(true)
-    const ok = await createStory(
+    setCreateError(null)
+    const error = await createStory(
       {
         title: title.trim() || suggested?.title || 'Untitled story',
         seriesId,
         newSeries: isNew ? seriesName.trim() : undefined,
         placement,
-        timeGap: gapFor ? gap.trim() : ''
+        timeGap: gapFor ? gap.trim() : '',
+        ...(endFirst.length ? { endFirst } : {})
       },
       () => setOpen(false)
     )
-    if (!ok) setBusy(false)
+    if (error) {
+      setBusy(false)
+      setCreateError(error)
+    }
   }
 
   const seriesOptions = (series ?? []).map((s) => ({ value: s.id, label: s.name.trim() || 'Untitled series' }))
@@ -173,13 +213,17 @@ function NewStoryForm(): React.JSX.Element {
         </>
       }
     >
+      {/* The form scrolls inside the dialog (whose title, padding and buttons take about 122px of its 76vh),
+          with the line saying what the story is pinned at its top, so that line and Create stay in view
+          however much Change shows. It is positioned so the hidden radio buttons scroll with it. */}
       <form
+        ref={formRef}
         id={`${id}-form`}
         onSubmit={(e) => {
           e.preventDefault()
           void submit()
         }}
-        className="flex flex-col gap-4"
+        className="relative -mx-5 -my-1 flex max-h-[calc(76vh-124px)] flex-col gap-3.5 overflow-y-auto px-5 py-1"
       >
         <div className="flex flex-col gap-1">
           <label htmlFor={`${id}-title`} className="text-[12px] font-medium text-muted">
@@ -223,7 +267,14 @@ function NewStoryForm(): React.JSX.Element {
               </>
             ) : (
               <>
-                <Select id={`${id}-series`} value={seriesChoice} options={seriesOptions} allowNone noneLabel="No series" onChange={setSeriesChoice} />
+                <Select
+                  id={`${id}-series`}
+                  value={seriesChoice}
+                  options={seriesOptions}
+                  allowNone
+                  noneLabel="No series"
+                  onChange={setSeriesChoice}
+                />
                 <Button type="button" variant="ghost" icon={<Plus size={14} />} onClick={() => newSeries(true)}>
                   New series
                 </Button>
@@ -237,21 +288,23 @@ function NewStoryForm(): React.JSX.Element {
           ) : null}
         </div>
 
-        <div className="flex min-h-[44px] items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2">
-          <p className="min-w-0 flex-1 text-[13.5px] font-medium text-fg" aria-live="polite">
-            {preview?.summary ?? ''}
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            aria-expanded={changing}
-            aria-controls={`${id}-change`}
-            onClick={() => setChanging((c) => !c)}
-            icon={<ChevronDown size={14} className={cn('transition-transform duration-150', changing && 'rotate-180')} />}
-          >
-            {changing ? 'Done' : 'Change'}
-          </Button>
+        <div ref={pinnedRef} className="sticky -top-1 z-10 -mx-5 -mt-1 bg-surface px-5 pt-1">
+          <div className="flex min-h-[44px] items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-1.5">
+            <p className="min-w-0 flex-1 text-[13.5px] font-medium text-fg" aria-live="polite">
+              {preview?.summary ?? ''}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-expanded={changing}
+              aria-controls={`${id}-change`}
+              onClick={() => setChanging((c) => !c)}
+              icon={<ChevronDown size={14} className={cn('transition-transform duration-150', changing && 'rotate-180')} />}
+            >
+              {changing ? 'Done' : 'Change'}
+            </Button>
+          </div>
         </div>
 
         {changing && placement ? (
@@ -263,7 +316,9 @@ function NewStoryForm(): React.JSX.Element {
               onChange={setPlacement}
               preview={preview}
               current={current}
-              onEndFirst={(r) => r.endFirst && void endFirst(r.storyId, r.endFirst.endRefId, r.endFirst.label)}
+              onEndFirst={endBefore}
+              pendingEnds={pending}
+              onKeepRunning={keepRunning}
             />
           </div>
         ) : null}
@@ -274,25 +329,26 @@ function NewStoryForm(): React.JSX.Element {
             <Warnings warnings={preview.warnings} onPick={setPlacement} />
           </div>
         ) : null}
+        {createError ? <Notice tone="danger">Couldn’t make this story. {createError}</Notice> : null}
 
-        {/* Kept in place (hidden) when there is nothing to come after, so the dialog doesn't change height. */}
-        <div className={cn('flex flex-col gap-1', !gapFor && 'invisible')} aria-hidden={!gapFor}>
-          <label htmlFor={`${id}-gap`} className="text-[12px] font-medium text-muted">
-            {gapFor ?? 'Time since the previous story'}
-          </label>
-          <Input
-            id={`${id}-gap`}
-            value={gap}
-            disabled={!gapFor}
-            placeholder="Optional, such as 200 years"
-            onChange={(e) => setGap(e.target.value)}
-          />
-          <p className="text-[12px] text-faint">After a long gap, the AI fills in what changed in between.</p>
+        {/* The time gap, or a line saying why there is none, then the line about new worlds. */}
+        <div className="flex flex-col gap-3">
+          {gapFor ? (
+            <div className="flex flex-col gap-1">
+              <label htmlFor={`${id}-gap`} className="text-[12px] font-medium text-muted">
+                {gapFor}
+              </label>
+              <Input id={`${id}-gap`} value={gap} placeholder="Optional, such as 200 years" onChange={(e) => setGap(e.target.value)} />
+              <p className="text-[12px] text-faint">After a long gap, the AI fills in what changed in between.</p>
+            </div>
+          ) : placement ? (
+            <p className="text-[12px] leading-relaxed text-faint">{noGapReason(placement)}</p>
+          ) : null}
+          <p className="text-[12px] leading-relaxed text-faint">
+            A story with nothing in common with this world belongs in a new world. Worlds never read each other, so nothing leaks either
+            way.
+          </p>
         </div>
-
-        <p className="text-[12px] leading-relaxed text-faint">
-          A story with nothing in common with this world belongs in a new world. Worlds never read each other, so nothing leaks either way.
-        </p>
       </form>
     </Dialog>
   )

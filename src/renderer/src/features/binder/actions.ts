@@ -135,9 +135,12 @@ export async function newStory(): Promise<ID | null> {
 /**
  * What a move or delete does to other stories that start or end there ("This moved “The ferry” before
  * where Mara's Hand starts, so that story now includes it."). Asked before the change; a failure to ask
- * never stops the change itself.
+ * never stops the change itself. A delete's notes go in its own toast, so Undo takes them away with it.
  */
 const notesFor = (ask: () => Promise<string[]>): Promise<string[]> => ask().catch(() => [])
+
+/** "“Ashore” deleted." with where another story now starts or ends: "Kell's Road now starts after Book 1, Ch 1 instead." */
+const deletedWith = (message: string, notes: string[]): string => [message, ...notes].join(' ')
 
 /** Tells Adam what a move changed for other stories, with Undo (moving it back). */
 function tellMoved(notes: string[], undo: () => Promise<void>): void {
@@ -188,7 +191,7 @@ export async function deleteScene(id: ID): Promise<void> {
   removeFromOutline([id])
   app().bumpOutline()
   announceDelete({
-    message: `“${scene?.title || 'Untitled scene'}” deleted.`,
+    message: deletedWith(`“${scene?.title || 'Untitled scene'}” deleted.`, notes),
     noun: ['scene', 'scenes'],
     undo: () =>
       api
@@ -199,7 +202,6 @@ export async function deleteScene(id: ID): Promise<void> {
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
-  if (notes.length) toast(notes.join(' '))
 }
 
 export async function deleteChapter(id: ID): Promise<void> {
@@ -222,7 +224,7 @@ export async function deleteChapter(id: ID): Promise<void> {
   const count = sceneIds.length
   const what = count === 0 ? '' : count === 1 ? ' and its scene' : ` and its ${count} scenes`
   announceDelete({
-    message: `“${chapter?.title || 'Untitled chapter'}”${what} deleted.`,
+    message: deletedWith(`“${chapter?.title || 'Untitled chapter'}”${what} deleted.`, notes),
     noun: ['chapter', 'chapters'],
     undo: () =>
       api
@@ -233,7 +235,6 @@ export async function deleteChapter(id: ID): Promise<void> {
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
-  if (notes.length) toast(notes.join(' '))
 }
 
 export async function moveScene(id: ID, chapterId: ID, index: number): Promise<void> {

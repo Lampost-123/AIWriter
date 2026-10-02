@@ -5,6 +5,7 @@ import { BookOpen, Check, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { StoryPlacement } from '@shared/api'
 import type { StoryDetails, StoryRef } from '@shared/contracts/stories'
+import type { StoryFlowStatus } from '@shared/contracts/storyFlows'
 import type { Entry, ID, Series, Story } from '@shared/types'
 import { Badge, Button, EmptyState, Field, IconButton, Input, Notice, Select, SettingsSection, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -17,20 +18,11 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { Switch } from '@/features/world/parts/Switch'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
-import { retryFlow, runFlow, useFlows } from './flows'
+import { flowRunning, retryFlow, runFlow, useFlowAbout, useFlows } from './flows'
 import { usePreview } from './hooks'
 import { PlacementEditor, Warnings } from './PlacementEditor'
 import { useSeries, useSeriesList } from './series'
-import {
-  deleteStory,
-  dismissFollowQuestion,
-  editStoryStyle,
-  endFirst,
-  followQuestionAnswered,
-  moveToFollow,
-  savePlacement,
-  takePendingSection
-} from './storyActions'
+import { declineFollow, deleteStory, editStoryStyle, endFirst, moveToFollow, savePlacement, takePendingSection } from './storyActions'
 import { flowLine, gapLabel, placementOf, samePlacement, styleRules } from './storiesLogic'
 
 const failed = (e: unknown): string => (e as Error).message || 'That didn’t work. Please try again.'
@@ -62,14 +54,21 @@ export function StorySettings({ storyId }: { storyId: ID }): React.JSX.Element {
   const { details, error, retry } = useDetails(storyId)
   const slow = useSlow(!!story && !details && !error)
   const [section] = useState(takePendingSection)
+  const pageRef = useRef<HTMLDivElement>(null)
+  const opened = useRef(false)
 
-  // Opened at a section ("Choose cast" in a toast): bring it into view and start there.
+  // Opened at a section ("Choose cast" in a toast): bring it into view and start there, once (the details
+  // reload as Adam types). Only the page scrolls: scrollIntoView and a plain focus() would also scroll the
+  // window itself, pushing the top bar out of view.
   useEffect(() => {
-    if (!details || !section) return
+    if (!details || !section || opened.current) return
+    opened.current = true
+    const page = pageRef.current
     const el = document.getElementById(`story-${section}`)
-    el?.scrollIntoView({ block: 'start' })
-    const field = el?.querySelector<HTMLElement>('input') ?? el?.querySelector<HTMLElement>('button')
-    field?.focus()
+    if (!page || !el) return
+    page.scrollTop += el.getBoundingClientRect().top - page.getBoundingClientRect().top - 24
+    const field = el.querySelector<HTMLElement>('input') ?? el.querySelector<HTMLElement>('button')
+    field?.focus({ preventScroll: true })
   }, [details, section])
 
   if (!story) {
@@ -110,7 +109,7 @@ export function StorySettings({ storyId }: { storyId: ID }): React.JSX.Element {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div ref={pageRef} className="relative h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[680px] animate-fade-in flex-col gap-10 px-8 pb-24 pt-8">
         <AboutStory key={story.id} story={story} summary={details.preview.summary} />
         <SeriesPart story={story} />
@@ -123,9 +122,19 @@ export function StorySettings({ storyId }: { storyId: ID }): React.JSX.Element {
   )
 }
 
-function Part({ id, title, description, children }: { id?: string; title: string; description?: ReactNode; children: ReactNode }): React.JSX.Element {
+function Part({
+  id,
+  title,
+  description,
+  children
+}: {
+  id?: string
+  title: string
+  description?: ReactNode
+  children: ReactNode
+}): React.JSX.Element {
   return (
-    <div id={id} className="scroll-mt-6">
+    <div id={id}>
       <SettingsSection title={title} description={description} className="border-t border-line pt-6">
         <div className="flex flex-col gap-4">{children}</div>
       </SettingsSection>
@@ -148,7 +157,8 @@ function AboutStory({ story, summary }: { story: Story; summary: string }): Reac
   const autosave = useAutosave<AboutDraft>(
     async (d) => {
       // A title left empty keeps the one it had.
-      await api.updateStory(story.id, { ...(d.title.trim() ? { title: d.title.trim() } : {}), premise: d.premise, themes: d.themes, tone: d.tone })
+      const title = d.title.trim()
+      await api.updateStory(story.id, { ...(title ? { title } : {}), premise: d.premise, themes: d.themes, tone: d.tone })
       await useApp.getState().refreshStories()
     },
     { what: story.title.trim() ? `“${story.title.trim()}”` : 'this story' }
@@ -174,7 +184,9 @@ function AboutStory({ story, summary }: { story: Story; summary: string }): Reac
         </div>
         <SaveNote status={autosave.status} error={autosave.error} className="mt-6" />
       </header>
-      <Field label="Title">{(id) => <Input id={id} value={draft.title} placeholder="Untitled story" onChange={(e) => update({ title: e.target.value })} />}</Field>
+      <Field label="Title">
+        {(id) => <Input id={id} value={draft.title} placeholder="Untitled story" onChange={(e) => update({ title: e.target.value })} />}
+      </Field>
       <Field label="Premise" hint="What this story is about, in a few sentences. The AI keeps it in mind for every scene.">
         {(id) => (
           <AutoTextarea
@@ -199,7 +211,11 @@ function AboutStory({ story, summary }: { story: Story; summary: string }): Reac
           />
         )}
       </Field>
-      <Field label="Tone">{(id) => <Input id={id} value={draft.tone} placeholder="How this story should feel" onChange={(e) => update({ tone: e.target.value })} />}</Field>
+      <Field label="Tone">
+        {(id) => (
+          <Input id={id} value={draft.tone} placeholder="How this story should feel" onChange={(e) => update({ tone: e.target.value })} />
+        )}
+      </Field>
     </div>
   )
 }
@@ -254,7 +270,10 @@ function SeriesPart({ story }: { story: Story }): React.JSX.Element {
   }
 
   return (
-    <Part title="Series" description="A series holds themes and tone for its books. Which series a story is in never changes what it knows.">
+    <Part
+      title="Series"
+      description="A series holds themes and tone for its books. Which series a story is in never changes what it knows."
+    >
       <div className="flex flex-col gap-1">
         <label htmlFor={naming ? `${id}-name` : `${id}-series`} className="text-[12px] font-medium text-muted">
           {naming ? 'New series name' : 'Series'}
@@ -347,45 +366,63 @@ function SeriesFields({ series }: { series: Series }): React.JSX.Element {
           />
         )}
       </Field>
-      <Field label="Series tone">{(id) => <Input id={id} value={draft.tone} placeholder="How the series should feel" onChange={(e) => update({ tone: e.target.value })} />}</Field>
+      <Field label="Series tone">
+        {(id) => (
+          <Input id={id} value={draft.tone} placeholder="How the series should feel" onChange={(e) => update({ tone: e.target.value })} />
+        )}
+      </Field>
     </div>
   )
 }
 
 // ---------- What is it? ----------
 
+const sameFields = (a: StoryPlacement, b: StoryPlacement): boolean => JSON.stringify(a) === JSON.stringify(b)
+
 function WhatIsIt({ story, details }: { story: Story; details: StoryDetails }): React.JSX.Element {
   const stories = useApp((s) => s.stories)
-  const saved = placementOf(story)
+  // What it is as the memory has it: a start or end at a deleted story, chapter or scene has moved to
+  // where it now is. Until the details catch up with a change just saved, the story's own fields are it.
+  const raw = placementOf(story)
+  const saved = sameFields(placementOf(details.story), raw) ? details.placement : raw
+  const savedRef = useRef(saved)
+  savedRef.current = saved
   const [edit, setEdit] = useState<StoryPlacement | null>(null)
   const [saving, setSaving] = useState(false)
+  // A change that couldn't be saved, and why: it waits for Try again rather than being tried over and over.
+  const [failure, setFailure] = useState<{ placement: StoryPlacement; error: string } | null>(null)
   const value = edit ?? saved
   const live = usePreview({ storyId: story.id, title: story.title, seriesId: story.seriesId, placement: value })
   // Until the first preview arrives, the saved one says the same thing.
   const fromDetails = !live.current && !edit ? details.preview : null
   const preview = fromDetails ?? live.preview
   const current = live.current || !!fromDetails
+  const saveError = edit && failure && samePlacement(edit, failure.placement) ? failure.error : null
 
-  const change = (p: StoryPlacement): void => setEdit(samePlacement(p, saved) ? null : p)
+  const change = (p: StoryPlacement): void => {
+    setFailure(null)
+    setEdit(samePlacement(p, savedRef.current) ? null : p)
+  }
 
   const save = useCallback(
     async (p: StoryPlacement, summary: string): Promise<void> => {
       setSaving(true)
-      const done = await savePlacement(story, p, summary)
+      const done = await savePlacement(story, savedRef.current, p, summary)
       setSaving(false)
+      if (done.error) setFailure({ placement: p, error: done.error })
       // Kept if Adam changed it again meanwhile: that change is saved next.
-      if (done) setEdit((cur) => (cur && samePlacement(cur, p) ? null : cur))
+      else setEdit((cur) => (cur && samePlacement(cur, p) ? null : cur))
     },
     [story]
   )
 
   // A change saves straight away (Undo is in the toast) unless it would lose history or can't be saved.
   useEffect(() => {
-    if (!edit || saving || !live.current || !live.preview || live.preview.problem || live.preview.warnings.length) return
+    if (!edit || saving || saveError || !live.current || !live.preview || live.preview.problem || live.preview.warnings.length) return
     void save(edit, live.preview.summary)
-  }, [edit, saving, live.current, live.preview, save])
+  }, [edit, saving, saveError, live.current, live.preview, save])
 
-  const [answered, setAnswered] = useState(() => followQuestionAnswered(story.id))
+  const [answered, setAnswered] = useState(false)
   const follow = !answered ? details.mightFollow[0] : undefined
   const gapFor = gapLabel(saved, stories)
 
@@ -404,38 +441,46 @@ function WhatIsIt({ story, details }: { story: Story; details: StoryDetails }): 
           onChange={change}
           preview={preview}
           current={current}
-          onEndFirst={(r) => r.endFirst && void endFirst(r.storyId, r.endFirst.endRefId, r.endFirst.label)}
+          onEndFirst={(r) => r.endFirst && void endFirst(r.storyId, r.endFirst.endRefId, r.endFirst.chapter)}
         />
-        {edit && current && preview && !preview.problem && preview.warnings.length ? (
+        {edit && current && preview && !preview.problem && preview.warnings.length && !saveError ? (
           <>
             <Warnings warnings={preview.warnings} onPick={change} />
             <div className="flex gap-2">
               <Button variant="primary" size="sm" loading={saving} onClick={() => void save(edit, preview.summary)}>
                 Keep it this way
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setEdit(null)}>
+              <Button variant="ghost" size="sm" onClick={() => change(saved)}>
                 Put it back
               </Button>
             </div>
           </>
         ) : null}
+        {saveError ? (
+          <Notice
+            tone="danger"
+            action={
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" loading={saving} onClick={() => setFailure(null)}>
+                  Try again
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => change(saved)}>
+                  Put it back
+                </Button>
+              </div>
+            }
+          >
+            Couldn’t save this. {saveError}
+          </Notice>
+        ) : null}
         {edit && current && preview?.problem ? (
           <div>
-            <Button size="sm" onClick={() => setEdit(null)}>
+            <Button size="sm" onClick={() => change(saved)}>
               Put it back
             </Button>
           </div>
         ) : null}
-        {follow ? (
-          <FollowQuestion
-            story={story}
-            book={follow}
-            onNo={() => {
-              dismissFollowQuestion(story.id)
-              setAnswered(true)
-            }}
-          />
-        ) : null}
+        {follow ? <FollowQuestion story={story} book={follow} onNo={() => setAnswered(true)} /> : null}
         <FlowLine storyId={story.id} flow="when" onRetry={() => retryFlow(story.id, 'when')} />
         {details.leadsInto ? <LeadsIn story={story} leadsInto={details.leadsInto} /> : null}
       </Part>
@@ -445,7 +490,7 @@ function WhatIsIt({ story, details }: { story: Story; details: StoryDetails }): 
 }
 
 function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; onNo: () => void }): React.JSX.Element {
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'yes' | 'no' | null>(null)
   return (
     <Notice
       action={
@@ -453,15 +498,27 @@ function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; o
           <Button
             size="sm"
             variant="primary"
-            loading={busy}
+            loading={busy === 'yes'}
+            disabled={!!busy}
             onClick={() => {
-              setBusy(true)
-              void moveToFollow(story, book).finally(() => setBusy(false))
+              setBusy('yes')
+              void moveToFollow(story, book).finally(() => setBusy(null))
             }}
           >
             Yes
           </Button>
-          <Button size="sm" onClick={onNo}>
+          <Button
+            size="sm"
+            loading={busy === 'no'}
+            disabled={!!busy}
+            onClick={() => {
+              setBusy('no')
+              void declineFollow(story.id).then((ok) => {
+                setBusy(null)
+                if (ok) onNo()
+              })
+            }}
+          >
             No
           </Button>
         </div>
@@ -471,8 +528,8 @@ function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; o
         Should {book.title} now continue after {story.title}?
       </p>
       <p className="mt-0.5 text-muted">
-        {book.title} also continues after the same story. If yes, {book.title} will know what happens in {story.title}, and the AI sorts which of its
-        start-of-story changes happened before, during or after it.
+        {book.title} also continues after the same story. If yes, {book.title} will know what happens in {story.title}, and the AI works out
+        which of the changes at the start of {book.title} happened before, during or after {story.title}.
       </p>
     </Notice>
   )
@@ -498,8 +555,8 @@ function LeadsIn({ story, leadsInto }: { story: Story; leadsInto: NonNullable<St
       <p className="flex items-start gap-2 rounded-lg border border-line px-3 py-2.5 text-[12.5px] leading-relaxed text-muted">
         <Check size={14} className="mt-0.5 shrink-0 text-success" aria-hidden />
         <span>
-          <span className="font-medium text-fg">Leads into {book}.</span> Its ending leads into the opening of {book}, as the last story before it. To
-          have another story lead in, turn it on in that story’s settings.
+          <span className="font-medium text-fg">Leads into {book}.</span> Its ending leads into the opening of {book}, as the last story
+          before it. To have another story lead in, turn it on in that story’s settings.
         </span>
       </p>
     )
@@ -526,23 +583,40 @@ function LeadsIn({ story, leadsInto }: { story: Story; leadsInto: NonNullable<St
 
 function TimeGap({ story, label }: { story: Story; label: string }): React.JSX.Element {
   const [value, setValue] = useState(story.timeGap)
-  const [error, setError] = useState<string | null>(null)
+  const latest = useRef(value)
   const status = useFlows((s) => s.byStory[story.id]?.['time-gap'])
-  const fill = (): void => runFlow(story.id, 'time-gap', () => api.fillTimeGap(story.id))
-
-  const commit = async (): Promise<void> => {
-    const next = value.trim()
-    if (next === story.timeGap.trim()) return
-    setError(null)
-    try {
-      await api.updateStory(story.id, { timeGap: next })
+  // Saved as Adam types, like the rest of the page, and before the window closes or the world switches.
+  const autosave = useAutosave<string>(
+    async (gap) => {
+      await api.updateStory(story.id, { timeGap: gap.trim() })
       await useApp.getState().refreshStories()
-    } catch (e) {
-      setError(failed(e))
-      return
-    }
-    // A new gap: fill in what changed in it.
-    if (next) fill()
+    },
+    { what: 'the time since the previous story' }
+  )
+  // The gap the AI was last asked to fill in, so leaving the box again doesn't start it twice.
+  const filledFor = useRef(story.timeGap.trim())
+
+  /** Fills in what changed in the saved gap; false when that is already under way. */
+  const fill = (): boolean => {
+    if (flowRunning(story.id, 'time-gap')) return false
+    runFlow(story.id, 'time-gap', () => api.fillTimeGap(story.id), latest.current.trim())
+    return true
+  }
+
+  // Leaving the box (or Enter) fills in a new gap once it is saved; typing alone only saves it.
+  const commit = async (): Promise<void> => {
+    await autosave.flush()
+    const gap = latest.current.trim()
+    const { stories } = useApp.getState()
+    const saved = stories.find((s) => s.id === story.id)?.timeGap.trim()
+    if (!gap || gap !== saved || gap === filledFor.current) return
+    if (fill()) filledFor.current = gap
+  }
+
+  // The button fills in the gap as it is now (saved first), even one filled in before.
+  const fillNow = async (): Promise<void> => {
+    await autosave.flush()
+    if (fill()) filledFor.current = latest.current.trim()
   }
 
   return (
@@ -551,13 +625,17 @@ function TimeGap({ story, label }: { story: Story; label: string }): React.JSX.E
       title="Before this story starts"
       description="After a long gap, the AI fills in what changed in between, such as “Mara: died long ago”, and lists it under What changed."
     >
-      <Field label={label} error={error}>
+      <Field label={label}>
         {(id) => (
           <Input
             id={id}
             value={value}
             placeholder="Optional, such as 200 years"
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              latest.current = e.target.value
+              setValue(e.target.value)
+              autosave.schedule(e.target.value)
+            }}
             onBlur={() => void commit()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -569,10 +647,11 @@ function TimeGap({ story, label }: { story: Story; label: string }): React.JSX.E
         )}
       </Field>
       <div className="flex min-h-7 flex-wrap items-center gap-3">
-        <Button size="sm" onClick={fill} disabled={status?.state === 'running'}>
+        <Button size="sm" onClick={() => void fillNow()} disabled={status?.state === 'running'}>
           What changed before this story starts?
         </Button>
-        <FlowLine storyId={story.id} flow="time-gap" gap={story.timeGap} onRetry={fill} />
+        <FlowLine storyId={story.id} flow="time-gap" onRetry={() => void fillNow()} />
+        <SaveNote status={autosave.status} error={autosave.error} className="ml-auto" />
       </div>
     </Part>
   )
@@ -618,8 +697,9 @@ function StartingCast({ story, cast }: { story: Story; cast: ID[] }): React.JSX.
       title="Starting cast"
       description="A prequel needs younger versions of its cast and setting. Choose the characters, places, groups and items it uses, and the AI drafts how each of them was back then. You can edit any of them."
     >
-      <p className="text-[13px] text-fg">
-        {names.length ? (
+      {/* Nothing until the entries are in, so a prequel that has a cast never flashes "No one yet." */}
+      <p className="min-h-5 text-[13px] text-fg">
+        {entries === null ? null : names.length ? (
           <>
             Starts with: {joinNames(names)}.{' '}
             <button
@@ -658,7 +738,8 @@ function StartingCast({ story, cast }: { story: Story; cast: ID[] }): React.JSX.
   )
 }
 
-const joinNames = (names: string[]): string => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? ''))
+const joinNames = (names: string[]): string =>
+  names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '')
 
 // ---------- The style the AI gets ----------
 
@@ -671,7 +752,10 @@ function StyleForStory({ story }: { story: Story }): React.JSX.Element {
   const rules = useMemo(() => (prefs && world ? styleRules(prefs, world.style, story.style ?? {}) : null), [prefs, world, story.style])
 
   return (
-    <Part title="Style the AI gets for this story" description="Your own preferences, then the world’s style guide, then this story’s own changes. Later ones win.">
+    <Part
+      title="Style the AI gets for this story"
+      description="Your own preferences, then the world’s style guide, then this story’s own changes. Later ones win."
+    >
       {rules === null ? null : rules.length ? (
         <ul className="divide-y divide-line rounded-lg border border-line" aria-label="Style rules">
           {rules.map((r) => (
@@ -702,19 +786,23 @@ function StyleForStory({ story }: { story: Story }): React.JSX.Element {
 
 function DeletePart({ story, startingHere }: { story: Story; startingHere: StoryDetails['startingHere'] }): React.JSX.Element {
   const [busy, setBusy] = useState(false)
+  const title = story.title.trim() || 'this story'
+  // Every story that starts in this one takes over where this one starts, so they all start at the same place.
+  const [one] = startingHere
   return (
     <Part title="Delete this story" description="It stays in Recently deleted (Settings) for 30 days, and Undo brings it straight back.">
-      {startingHere.length ? (
+      {startingHere.length === 1 ? (
+        <Notice>
+          {one.title} starts in {title}. If you delete {title}, {one.title} will start {one.wouldStart} instead. A backup is made first.
+        </Notice>
+      ) : startingHere.length ? (
         <Notice>
           <p>
-            {startingHere.length === 1 ? 'This story starts in it' : 'These stories start in it'}, so {startingHere.length === 1 ? 'it takes' : 'they take'} over
-            where it starts. A backup is made first.
+            These stories start in {title}. If you delete {title}, they will start {one.wouldStart} instead. A backup is made first.
           </p>
-          <ul className="mt-1.5 list-disc pl-5">
+          <ul className="mt-1.5 list-disc pl-5" aria-label={`Stories that start in ${title}`}>
             {startingHere.map((s) => (
-              <li key={s.storyId}>
-                {s.title} will start {s.wouldStart} instead.
-              </li>
+              <li key={s.storyId}>{s.title}</li>
             ))}
           </ul>
         </Notice>
@@ -738,13 +826,29 @@ function DeletePart({ story, startingHere }: { story: Story; startingHere: Story
 
 // ---------- The flows' quiet line ----------
 
-function FlowLine({ storyId, flow, gap = '', onRetry }: { storyId: ID; flow: 'time-gap' | 'starting-cast' | 'when'; gap?: string; onRetry: () => void }): React.JSX.Element | null {
+function FlowLine({
+  storyId,
+  flow,
+  onRetry
+}: {
+  storyId: ID
+  flow: StoryFlowStatus['flow']
+  onRetry: () => void
+}): React.JSX.Element | null {
   const status = useFlows((s) => s.byStory[storyId]?.[flow])
+  const about = useFlowAbout(storyId, flow)
   if (!status) return null
   return (
-    <p role="status" className={cn('flex items-center gap-2 text-[12.5px] animate-fade-in', status.state === 'failed' ? 'text-fg' : 'text-muted')}>
-      {status.state === 'running' ? <Spinner size={12} /> : status.state === 'done' ? <Check size={13} className="text-success" aria-hidden /> : null}
-      <span>{flowLine(status, gap)}</span>
+    <p
+      role="status"
+      className={cn('flex items-center gap-2 text-[12.5px] animate-fade-in', status.state === 'failed' ? 'text-fg' : 'text-muted')}
+    >
+      {status.state === 'running' ? (
+        <Spinner size={12} />
+      ) : status.state === 'done' ? (
+        <Check size={13} className="text-success" aria-hidden />
+      ) : null}
+      <span>{flowLine(status, about)}</span>
       {status.state === 'failed' ? (
         <Button size="sm" variant="ghost" onClick={onRetry}>
           Try again

@@ -8,6 +8,7 @@ import {
   mightFollow,
   placementOf,
   previewStory,
+  readingOrder,
   seriesChain,
   startingHere,
   suggestStart,
@@ -29,8 +30,13 @@ const after = (id: string): StoryPlacement => placed({ kind: 'continues', startS
 /** The fixed test world without some of its stories. */
 const without = (...keys: string[]): WorldSpec => ({ ...theWorld, stories: theWorld.stories.filter((s) => !keys.includes(s.key)) })
 
-const preview = (shape: WorldShape, storyId: string | null, placement: StoryPlacement, title = 'New story', seriesId: string | null = 'reach') =>
-  previewStory(shape, { storyId, title, seriesId, placement })
+const preview = (
+  shape: WorldShape,
+  storyId: string | null,
+  placement: StoryPlacement,
+  title = 'New story',
+  seriesId: string | null = 'reach'
+) => previewStory(shape, { storyId, title, seriesId, placement })
 
 describe('the preview sentence', () => {
   it('says what every story of the test world knows at its start, as the spec writes it', () => {
@@ -56,9 +62,9 @@ describe('the preview sentence', () => {
   it('updates as the choice changes, without saving anything', () => {
     const w = pureWorld()
     const before = JSON.stringify(w.shape)
-    expect(preview(w.shape, null, placed({ kind: 'side', startStoryId: 'b2', startAt: 'chapter', startRefId: 'b2.c3', endAt: 'end' })).knows).toBe(
-      "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 3; Ash; Ember."
-    )
+    expect(
+      preview(w.shape, null, placed({ kind: 'side', startStoryId: 'b2', startAt: 'chapter', startRefId: 'b2.c3', endAt: 'end' })).knows
+    ).toBe("This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 3; Ash; Ember.")
     expect(preview(w.shape, null, placed({ kind: 'side', startStoryId: 'b1', startAt: 'chapter', startRefId: 'b1.c2' })).knows).toBe(
       "This story knows what happened in: Book 1 up to the end of Ch 2; Kell's Road."
     )
@@ -80,7 +86,41 @@ describe('the still-running note', () => {
   it('names a side story of the same book still running where this one starts, with where it could end first', () => {
     const w = pureWorld()
     const ember = preview(w.shape, 'ember', placementOf(w.shape.stories.find((s) => s.id === 'ember')!), 'Ember')
-    expect(ember.stillRunning).toEqual([{ storyId: 'ash', title: 'Ash', endFirst: { endRefId: 'b2.c1', label: 'End Ash after Ch 1' } }])
+    expect(ember.stillRunning).toEqual([
+      { storyId: 'ash', title: 'Ash', endFirst: { endRefId: 'b2.c1', label: 'End Ash after Ch 1', chapter: 'Ch 1' } }
+    ])
+  })
+
+  it('is gone from a new story’s preview once Adam chooses to end that story first, which the sentence then knows', () => {
+    const w = pureWorld()
+    const draft = {
+      storyId: null,
+      title: 'Thorn',
+      seriesId: 'reach',
+      placement: placementOf(w.shape.stories.find((s) => s.id === 'ember')!)
+    }
+    expect(previewStory(w.shape, draft).stillRunning.map((r) => r.title)).toEqual(['Ash', 'Ember'])
+    const ended = previewStory(w.shape, { ...draft, endFirst: [{ storyId: 'ash', endRefId: 'b2.c1' }] })
+    expect(ended.stillRunning.map((r) => r.title)).toEqual(['Ember'])
+    expect(ended.knows).toBe(
+      "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 1; Ash. Does not know: Ember, which is still running here."
+    )
+    const both = previewStory(w.shape, {
+      ...draft,
+      endFirst: [
+        { storyId: 'ash', endRefId: 'b2.c1' },
+        { storyId: 'ember', endRefId: 'b2.c1' }
+      ]
+    })
+    expect(both.stillRunning).toEqual([])
+    expect(both.knows).toBe(
+      "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 1; Ash; Ember."
+    )
+    // Only side stories end first; nothing is saved.
+    expect(previewStory(w.shape, { ...draft, endFirst: [{ storyId: 'b3', endRefId: 'b2.c1' }] }).knows).toBe(
+      previewStory(w.shape, draft).knows
+    )
+    expect(w.shape.stories.find((s) => s.id === 'ash')!.endRefId).toBe('b2.c3')
   })
 
   it('is gone once that story ends first, and the sentence then knows it', () => {
@@ -144,7 +184,8 @@ describe('warnings', () => {
 
 describe('the grey line on a card', () => {
   const w = pureWorld()
-  const line = (key: string): { summary: string; label: string | null } => describeStory(w.shape, w.shape.stories.find((s) => s.id === key)!)
+  const line = (key: string): { summary: string; label: string | null } =>
+    describeStory(w.shape, w.shape.stories.find((s) => s.id === key)!)
 
   it('is not there for stories that simply continue', () => {
     expect(line('b2')).toEqual({ summary: 'Continues after The Quiet Year', label: null })
@@ -164,8 +205,54 @@ describe('the grey line on a card', () => {
   })
 
   it('comes with every preview', () => {
-    expect(preview(w.shape, null, placed({ kind: 'own', startStoryId: 'b1', startAt: 'end' })).label).toBe('Own version of events, after Book 1')
+    expect(preview(w.shape, null, placed({ kind: 'own', startStoryId: 'b1', startAt: 'end' })).label).toBe(
+      'Own version of events, after Book 1'
+    )
     expect(preview(w.shape, null, after('b4')).label).toBeNull()
+  })
+})
+
+describe('shelf order', () => {
+  it('is reading order: prequels before their book, side stories after their book and before the next, other beginnings by creation', () => {
+    const w = pureWorld()
+    expect(readingOrder(w.shape).map((id) => w.shape.stories.find((s) => s.id === id)!.title)).toEqual([
+      'Young Mara',
+      'Young Mara II',
+      'Young Mara III',
+      'Book 1',
+      "Kell's Road",
+      "Kell's Return",
+      'Mara Keeps Her Hand',
+      'The Quiet Year',
+      'Book 2',
+      'Ash',
+      'Ember',
+      'Wolf Winter',
+      'Book 3',
+      'Book 4',
+      'Before the Dark',
+      'The Long Dark',
+      'Lantern',
+      'Another Reach',
+      'North 1',
+      'South 1',
+      'North 2',
+      'South 2',
+      'North 3',
+      'South 3',
+      'South 4'
+    ])
+  })
+
+  it('moves a book after the story it now continues after, and lists every story once', () => {
+    const w = pureWorld({
+      ...theWorld,
+      stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s))
+    })
+    const order = readingOrder(w.shape)
+    expect(order.indexOf('b2')).toBeLessThan(order.indexOf('qy'))
+    const loop: WorldShape = { ...w.shape, stories: w.shape.stories.map((s) => (s.id === 'b1' ? { ...s, startStoryId: 'b4' } : s)) }
+    expect([...readingOrder(loop)].sort()).toEqual(w.shape.stories.map((s) => s.id).sort())
   })
 })
 
@@ -179,17 +266,20 @@ describe('the suggested start in the New story dialog', () => {
   })
 
   it('follows the first on the shelf where two books continue after the same one', () => {
-    const w = pureWorld({ ...theWorld, stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s)) })
+    const w = pureWorld({
+      ...theWorld,
+      stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s))
+    })
     expect(seriesChain(w.shape, 'reach').map((s) => s.id)).toEqual(['b1', 'b2', 'b3', 'b4'])
   })
 
   it('for a series running alongside another, is a side story during that series’ next book, from its start', () => {
     const w = pureWorld(without('s3', 's4'))
-    expect(suggestStart(w.shape, 'south', null)).toEqual(
-      placed({ kind: 'side', startStoryId: 'n3', startAt: 'post', endAt: 'end' })
-    )
+    expect(suggestStart(w.shape, 'south', null)).toEqual(placed({ kind: 'side', startStoryId: 'n3', startAt: 'post', endAt: 'end' }))
     // Kell's Road runs during Book 1, so the Kell series runs alongside The Reach.
-    expect(suggestStart(pureWorld().shape, 'kell', null)).toEqual(placed({ kind: 'side', startStoryId: 'qy', startAt: 'post', endAt: 'end' }))
+    expect(suggestStart(pureWorld().shape, 'kell', null)).toEqual(
+      placed({ kind: 'side', startStoryId: 'qy', startAt: 'post', endAt: 'end' })
+    )
   })
 
   it('continues after that series’ last book when it has no next one, and after its own books from then on', () => {
@@ -230,7 +320,10 @@ describe('the suggested start in the New story dialog', () => {
 
 describe('what story settings shows', () => {
   it('asks "Should Book 2 now continue after it?" of an earlier book of the series that continues after the same story', () => {
-    const before = pureWorld({ ...theWorld, stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s)) })
+    const before = pureWorld({
+      ...theWorld,
+      stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s))
+    })
     expect(mightFollow(before.shape, 'qy')).toEqual([{ storyId: 'b2', title: 'Book 2' }])
     expect(mightFollow(before.shape, 'b2')).toEqual([])
     // Once Book 2 continues after The Quiet Year, there is nothing to ask.
@@ -241,7 +334,10 @@ describe('what story settings shows', () => {
     const w = pureWorld()
     const shape: WorldShape = {
       ...w.shape,
-      stories: [...w.shape.stories, { ...w.shape.stories.find((s) => s.id === 'b4')!, id: 'b5', title: 'Book 5', startStoryId: 'b4', createdOrder: 99 }]
+      stories: [
+        ...w.shape.stories,
+        { ...w.shape.stories.find((s) => s.id === 'b4')!, id: 'b5', title: 'Book 5', startStoryId: 'b4', createdOrder: 99 }
+      ]
     }
     expect(mightFollow(shape, 'b5')).toEqual([])
   })

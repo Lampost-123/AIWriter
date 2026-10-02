@@ -7,7 +7,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as stories from '../db/stories'
 import * as world from '../world'
-import { describe, mightFollow, previewStory, suggestion } from '../stories/rules'
+import { describe, mightFollow, previewStory, readingOrder, suggestion } from '../stories/rules'
 import { deleteNotes, previewMove } from '../stories/points'
 import { emit } from '../events'
 import { UserError } from '../util'
@@ -27,22 +27,25 @@ const shape = (): ReturnType<typeof mem.loadShape> => mem.loadShape(world.db())
 
 export const storiesHandlers: Handlers<keyof StoriesApi> = {
   previewStory: (draft) => previewStory(shape(), draft),
-  suggestStart: (input) => suggestion(shape(), { seriesId: input?.seriesId ?? null, newSeries: input?.newSeries, fromStoryId: input?.fromStoryId ?? null }),
+  suggestStart: (input) =>
+    suggestion(shape(), { seriesId: input?.seriesId ?? null, newSeries: input?.newSeries, fromStoryId: input?.fromStoryId ?? null }),
   createStoryAs: (input) => {
     const made = write(() => stories.createStoryAs(world.db(), input))
     memoryChanged(made.entryIds)
-    return { story: made.story, sceneId: made.sceneId, mightFollow: mightFollow(shape(), made.story.id) }
+    return { story: made.story, sceneId: made.sceneId, mightFollow: mightFollow(shape(), made.story.id), endedFirst: made.endedFirst }
   },
   getStoryDetails: (storyId) => stories.storyDetails(world.db(), storyId),
-  listStoryLabels: () => {
+  getStoryPlacement: (storyId) => stories.storyPlacement(world.db(), storyId),
+  listShelf: () => {
     const s = shape()
-    const out: Record<ID, string> = {}
+    const labels: Record<ID, string> = {}
     for (const node of s.stories) {
       const { label } = describe(s, node)
-      if (label) out[node.id] = label
+      if (label) labels[node.id] = label
     }
-    return out
+    return { order: readingOrder(s), labels }
   },
+  declineFollow: (storyId) => write(() => stories.declineFollow(world.db(), storyId)),
   createSeries: (name) => write(() => stories.createSeries(world.db(), name)),
   updateSeries: (id, patch) => write(() => stories.updateSeries(world.db(), id, patch ?? {})),
   setLeadsIn: (storyId, on) => {

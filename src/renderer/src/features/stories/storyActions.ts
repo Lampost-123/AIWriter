@@ -1,8 +1,10 @@
 // What the story screens do: make a story and then ask what follows from it, change what a story is
 // with Undo, answer "Should Book 2 now continue after it?", end a still-running side story first, and
 // delete a story with Undo. Each updates the story list and leaves the screen in a sensible place.
+// Undo always puts back what a story was as the memory had it (getStoryPlacement): a start or end at
+// something deleted has moved, and the stored one would be refused.
 import type { StoryPlacement } from '@shared/api'
-import type { NewStoryInput, StoryRef } from '@shared/contracts/stories'
+import type { CreatedStory, NewStoryInput, StoryRef } from '@shared/contracts/stories'
 import type { ID, Story } from '@shared/types'
 import { toast, useToasts } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
@@ -12,11 +14,31 @@ import { announceDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { runFlow } from './flows'
-import { placementOf } from './storiesLogic'
 
 const app = useApp.getState
 
-const failed = (e: unknown): void => void toast((e as Error).message || 'That didn’t work. Please try again.', { tone: 'danger' })
+const reason = (e: unknown): string => (e as Error)?.message || 'That didn’t work. Please try again.'
+const failed = (e: unknown): void => void toast(reason(e), { tone: 'danger' })
+const refresh = (): Promise<void> =>
+  app()
+    .refreshStories()
+    .catch(() => undefined)
+
+/** Undo: puts a story's placement back, then reloads the stories. */
+const putBack = (storyId: ID, was: StoryPlacement): void =>
+  void api
+    .setStoryPlacement(storyId, was)
+    .then(() => refresh())
+    .catch(failed)
+
+/** Runs `then` once a toast has gone: timed out, closed, or cleared by a world switch. */
+function afterToast(toastId: number, then: () => void): void {
+  const off = useToasts.subscribe((s) => {
+    if (s.items.some((t) => t.id === toastId)) return
+    off()
+    then()
+  })
+}
 
 /** Story settings opens at a section once (after "Choose cast" in a toast). */
 let pendingSection: string | null = null
@@ -42,28 +64,30 @@ export async function openStory(storyId: ID): Promise<void> {
 }
 
 /**
- * Makes the story (with its first chapter and scene) and opens it, then, where it applies: fills in
- * what changed in its time gap, asks "Should Book 2 now continue after it?", and asks for a prequel's
- * cast. `onMade` runs as soon as it exists (the dialog closes then, so the new scene keeps the focus).
- * Returns false (having said why) when it couldn't be made.
+ * Makes the story (with its first chapter and scene, ending first any side story Adam chose to) and
+ * opens it, then, where it applies: says which stories now end first (with Undo), fills in what changed
+ * in its time gap, asks "Should Book 2 now continue after it?", and asks for a prequel's cast. `onMade`
+ * runs as soon as it exists (the dialog closes then, so the new scene keeps the focus). Returns why it
+ * couldn't be made, in plain words, for the dialog to show; null once it is made.
  */
-export async function createStory(input: NewStoryInput, onMade?: () => void): Promise<boolean> {
-  let made: Awaited<ReturnType<typeof api.createStoryAs>>
+export async function createStory(input: NewStoryInput, onMade?: () => void): Promise<string | null> {
+  let made: CreatedStory
   try {
     await editorBridge()?.flush()
     made = await api.createStoryAs(input)
   } catch (e) {
-    failed(e)
-    return false
+    return reason(e)
   }
   const { story, sceneId } = made
   onMade?.()
-  await app()
-    .refreshStories()
-    .catch(() => undefined)
+  await refresh()
   app().selectScene(sceneId, story.id)
   requestEditorFocus(sceneId)
-  if (story.timeGap.trim()) runFlow(story.id, 'time-gap', () => api.fillTimeGap(story.id))
+  for (const e of made.endedFirst) {
+    toast(`${e.title} now ends after ${e.chapter}.`, { action: { label: 'Undo', run: () => putBack(e.storyId, e.was) } })
+  }
+  const gap = story.timeGap.trim()
+  if (gap) runFlow(story.id, 'time-gap', () => api.fillTimeGap(story.id), gap)
   const follow = made.mightFollow[0]
   if (follow) askToFollow(story, follow)
   if (story.kind === 'prequel') {
@@ -71,7 +95,7 @@ export async function createStory(input: NewStoryInput, onMade?: () => void): Pr
       action: { label: 'Choose cast', run: () => openStorySettings(story.id, 'cast') }
     })
   }
-  return true
+  return null
 }
 
 /** "Should Book 2 now continue after it?", as a question in a toast. Story settings asks it too, until answered. */
@@ -82,34 +106,54 @@ export function askToFollow(story: Pick<Story, 'id' | 'title'>, book: StoryRef):
 }
 
 /**
- * Adam's yes: the book now continues after the new story, and the start-of-story changes of the book
- * are sorted into before, during and after it. Undo puts the book back where it was.
+ * Adam's yes: the book now continues after the new story, with Undo. The AI sorts the book's
+ * start-of-story changes into before, during and after the new story ("When did these happen?") only
+ * once Undo is no longer offered, so an Undo never leaves them sorted for a book that went back.
  */
 export async function moveToFollow(story: Pick<Story, 'id' | 'title'>, book: StoryRef): Promise<void> {
-  const before = app().stories.find((s) => s.id === book.storyId)
-  if (!before) return
-  const was = placementOf(before)
+  const worldId = app().world?.id
+  let was: StoryPlacement
   try {
-    await api.setStoryPlacement(book.storyId, { ...was, kind: 'continues', startStoryId: story.id, startAt: 'end', startRefId: null, endAt: null, endRefId: null })
+    was = await api.getStoryPlacement(book.storyId)
+    await api.setStoryPlacement(book.storyId, {
+      ...was,
+      kind: 'continues',
+      startStoryId: story.id,
+      startAt: 'end',
+      startRefId: null,
+      endAt: null,
+      endRefId: null
+    })
   } catch (e) {
     failed(e)
     return
   }
-  dismissFollowQuestion(story.id)
-  await app()
-    .refreshStories()
-    .catch(() => undefined)
-  runFlow(story.id, 'when', () => api.sortStartChanges(story.id, book.storyId))
-  toast(`${book.title} now continues after ${story.title}.`, {
+  await refresh()
+  let undone = false
+  const shown = toast(`${book.title} now continues after ${story.title}.`, {
     action: {
       label: 'Undo',
-      run: () =>
-        void api
-          .setStoryPlacement(book.storyId, was)
-          .then(() => app().refreshStories())
-          .catch(failed)
+      run: () => {
+        undone = true
+        putBack(book.storyId, was)
+      }
     }
   })
+  afterToast(shown, () => {
+    if (undone || app().world?.id !== worldId) return
+    runFlow(story.id, 'when', () => api.sortStartChanges(story.id, book.storyId), book.title)
+  })
+}
+
+/** Adam's "No" to "Should Book 2 now continue after it?": kept with the world, so story settings stops asking. */
+export async function declineFollow(storyId: ID): Promise<boolean> {
+  try {
+    await api.declineFollow(storyId)
+    return true
+  } catch (e) {
+    failed(e)
+    return false
+  }
 }
 
 /**
@@ -131,31 +175,6 @@ export async function editStoryStyle(storyId: ID): Promise<void> {
   requestAnimationFrame(focusTab)
 }
 
-// ---------- "No" to the question, remembered on this computer ----------
-
-const NO_KEY = 'aiwrite.stories.followAnswered'
-
-function answered(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(NO_KEY) ?? '[]') as unknown
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-/** Adam answered "Should Book 2 now continue after it?" for this story, so story settings stops asking. */
-export function dismissFollowQuestion(storyId: ID): void {
-  try {
-    const list = answered().filter((x) => x !== storyId)
-    localStorage.setItem(NO_KEY, JSON.stringify([...list, storyId].slice(-200)))
-  } catch {
-    // Asked again next time; nothing else to do.
-  }
-}
-
-export const followQuestionAnswered = (storyId: ID): boolean => answered().includes(storyId)
-
 // ---------- Changing what a story is ----------
 
 /** The placement changes shown in one toast while it is up, so Undo puts back how the story was before all of them. */
@@ -164,24 +183,29 @@ let batch: { toastId: number; storyId: ID; before: StoryPlacement } | null = nul
 const liveBatch = (storyId: ID): typeof batch =>
   batch && batch.storyId === storyId && useToasts.getState().items.some((t) => t.id === batch!.toastId) ? batch : null
 
-/** Saves what a story is (the memory is worked out fresh) and offers Undo. Returns the saved story, or null when refused. */
-export async function savePlacement(story: Story, next: StoryPlacement, summary: string): Promise<Story | null> {
-  const before = placementOf(story)
+/**
+ * Saves what a story is (the memory is worked out fresh) and offers Undo, which puts back `before`: what
+ * it was as the memory had it. Returns the saved story, or the plain-words reason it couldn't be saved
+ * (shown where the change was made, not in a toast).
+ */
+export async function savePlacement(
+  story: Story,
+  before: StoryPlacement,
+  next: StoryPlacement,
+  summary: string
+): Promise<{ saved: Story; error?: undefined } | { saved?: undefined; error: string }> {
   let saved: Story
   try {
     saved = await api.setStoryPlacement(story.id, next)
   } catch (e) {
-    failed(e)
-    return null
+    return { error: reason(e) }
   }
-  await app()
-    .refreshStories()
-    .catch(() => undefined)
+  await refresh()
   const message = `${saved.title}: ${summary}.`
   const live = liveBatch(story.id)
   if (live) {
     useToasts.getState().update(live.toastId, { message })
-    return saved
+    return { saved }
   }
   const mine = { toastId: 0, storyId: story.id, before }
   mine.toastId = toast(message, {
@@ -189,42 +213,27 @@ export async function savePlacement(story: Story, next: StoryPlacement, summary:
       label: 'Undo',
       run: () => {
         if (batch === mine) batch = null
-        void api
-          .setStoryPlacement(story.id, mine.before)
-          .then(() => app().refreshStories())
-          .catch(failed)
+        putBack(story.id, mine.before)
       }
     }
   })
   batch = mine
-  return saved
+  return { saved }
 }
 
-/** "End Ash after Ch 1": a still-running side story ends before this one starts, so this one knows it. */
-export async function endFirst(storyId: ID, endRefId: ID, label: string): Promise<void> {
-  const story = app().stories.find((s) => s.id === storyId)
-  if (!story) return
-  const was = placementOf(story)
+/** "End Ash after Ch 1" in story settings: a still-running side story ends before this one starts, so this one knows it. */
+export async function endFirst(storyId: ID, endRefId: ID, chapter: string): Promise<void> {
+  let was: StoryPlacement
+  let ended: Story
   try {
-    await api.setStoryPlacement(storyId, { ...was, endAt: 'chapter', endRefId })
+    was = await api.getStoryPlacement(storyId)
+    ended = await api.setStoryPlacement(storyId, { ...was, endAt: 'chapter', endRefId })
   } catch (e) {
     failed(e)
     return
   }
-  await app()
-    .refreshStories()
-    .catch(() => undefined)
-  // "End Ash after Ch 1" → "Ash now ends after Ch 1."
-  toast(`${label.replace(/^End (.*) after (Ch \d+)$/, '$1 now ends after $2')}.`, {
-    action: {
-      label: 'Undo',
-      run: () =>
-        void api
-          .setStoryPlacement(storyId, was)
-          .then(() => app().refreshStories())
-          .catch(failed)
-    }
-  })
+  await refresh()
+  toast(`${ended.title} now ends after ${chapter}.`, { action: { label: 'Undo', run: () => putBack(storyId, was) } })
 }
 
 // ---------- Deleting a story ----------
@@ -244,9 +253,7 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
     failed(e)
     return
   }
-  await app()
-    .refreshStories()
-    .catch(() => undefined)
+  await refresh()
   const next = app().stories[0]
   if (wasOpen) {
     if (next) await openStory(next.id).catch(() => app().selectStory(next.id))

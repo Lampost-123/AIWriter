@@ -1,33 +1,37 @@
-// The grey line on each story's card ("Side story during Book 2, after Ch 5"), kept for the story menu
-// so it opens with every line already there. Reloads when the stories, their chapters or what they
-// know change; the last lines stay meanwhile.
+// The story cards in the story menu: every story in reading order ("Shelf order is reading order", for
+// display only) with its grey line ("Side story during Book 2, after Ch 5"), kept here so the menu opens
+// with them already there. Reloads when the stories, their chapters or what they know change; the last
+// ones stay meanwhile.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { ID } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 
-interface LabelState {
+interface ShelfState {
+  /** Story ids in reading order. */
+  order: ID[]
   labels: Record<ID, string>
   load(): Promise<void>
 }
 
 let latest = 0
 
-export const useStoryLabels = create<LabelState>((set) => ({
+export const useStoryLabels = create<ShelfState>((set) => ({
+  order: [],
   labels: {},
   async load() {
     const ticket = ++latest
     try {
-      const labels = await api.listStoryLabels()
-      if (ticket === latest) set({ labels })
+      const shelf = await api.listShelf()
+      if (ticket === latest) set({ order: shelf.order, labels: shelf.labels })
     } catch {
       // Not shown this time: the menu still lists every story.
     }
   }
 }))
 
-/** Keeps the lines in step with the open world. */
+/** Keeps the shelf in step with the open world. */
 export function useStoryLabelsLoader(): void {
   const stories = useApp((s) => s.stories)
   const outlineRev = useApp((s) => s.outlineRev)
@@ -35,6 +39,6 @@ export function useStoryLabelsLoader(): void {
   const worldId = useApp((s) => s.world?.id ?? null)
   useEffect(() => {
     if (worldId) void useStoryLabels.getState().load()
-    else useStoryLabels.setState({ labels: {} })
+    else useStoryLabels.setState({ order: [], labels: {} })
   }, [stories, outlineRev, memoryRev, worldId])
 }

@@ -1,26 +1,29 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import { BookOpen, Check, ChevronsUpDown, PenLine, Plus, Settings2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { installFlowEvents } from '@/features/stories/flows'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { openStory, openStorySettings } from '@/features/stories/storyActions'
+import { inShelfOrder } from '@/features/stories/storiesLogic'
 import * as actions from './actions'
 import { InlineTitle } from './InlineTitle'
 
 const item = 'flex h-8 items-center gap-2 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
 
 /**
- * The open story's title, with a menu to switch stories (each with its grey line when it doesn't simply
- * continue, and its settings), start a new one (the New story dialog) or rename this one.
+ * The open story's title, with a menu to switch stories (in reading order, each with its grey line when
+ * it doesn't simply continue, and its settings), start a new one (the New story dialog) or rename this one.
  */
 export function StorySwitcher(): React.JSX.Element {
   const stories = useApp((s) => s.stories)
   const storyId = useApp((s) => s.storyId)
   const story = stories.find((s) => s.id === storyId) ?? null
   const labels = useStoryLabels((s) => s.labels)
+  const order = useStoryLabels((s) => s.order)
+  const shelf = useMemo(() => inShelfOrder(stories, order), [stories, order])
   const [renaming, setRenaming] = useState(false)
   useStoryLabelsLoader()
   // The story flows report how they are doing from the background; listen from the start.
@@ -47,9 +50,7 @@ export function StorySwitcher(): React.JSX.Element {
         </div>
       ) : (
         <M.Root modal={false}>
-          <M.Trigger
-            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2"
-          >
+          <M.Trigger className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2">
             <BookOpen size={14} className="shrink-0 text-muted" />
             <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-semibold', story ? 'text-fg' : 'text-faint')}>
               {story?.title ?? 'No story yet'}
@@ -63,8 +64,10 @@ export function StorySwitcher(): React.JSX.Element {
               collisionPadding={8}
               className="z-50 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[340px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
             >
-              <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Stories in this world</M.Label>
-              {stories.map((s) => {
+              <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+                Stories in this world
+              </M.Label>
+              {shelf.map((s) => {
                 const title = s.title.trim() || 'Untitled story'
                 return (
                   <div key={s.id} className="group/row flex items-stretch gap-0.5">

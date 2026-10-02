@@ -75,7 +75,8 @@ export function previewMove(shape: WorldShape, move: OutlineMove): { notes: stri
       const gained = minus(now, was)
       const lost = minus(was, now)
       if (isMoved(gained) && !lost.size) notes.push(`This moved ${what} before where ${t.title} starts, so that story now includes it.`)
-      else if (isMoved(lost) && !gained.size) notes.push(`This moved ${what} after where ${t.title} starts, so that story no longer includes it.`)
+      else if (isMoved(lost) && !gained.size)
+        notes.push(`This moved ${what} after where ${t.title} starts, so that story no longer includes it.`)
       else {
         if (gained.size) notes.push(`${t.title} now includes ${more(gained.size)} of ${before.title}.`)
         if (lost.size) notes.push(`${t.title} no longer includes ${scenes(lost.size)} of ${before.title}.`)
@@ -88,11 +89,15 @@ export function previewMove(shape: WorldShape, move: OutlineMove): { notes: stri
       const now = minus(all, scenesUpTo(after, sideAddStep(stepsAfter, t)))
       const gained = minus(now, was)
       const lost = minus(was, now)
-      if (isMoved(gained) && !lost.size) notes.push(`This moved ${what} after where ${t.title} ends, so it now knows what happened in ${t.title}.`)
-      else if (isMoved(lost) && !gained.size) notes.push(`This moved ${what} before where ${t.title} ends, so it no longer knows what happened in ${t.title}.`)
+      if (isMoved(gained) && !lost.size)
+        notes.push(`This moved ${what} after where ${t.title} ends, so it now knows what happened in ${t.title}.`)
+      else if (isMoved(lost) && !gained.size)
+        notes.push(`This moved ${what} before where ${t.title} ends, so it no longer knows what happened in ${t.title}.`)
       else {
-        if (gained.size) notes.push(`${more(gained.size)} of ${before.title} now ${gained.size === 1 ? 'knows' : 'know'} what happened in ${t.title}.`)
-        if (lost.size) notes.push(`${scenes(lost.size)} of ${before.title} no longer ${lost.size === 1 ? 'knows' : 'know'} what happened in ${t.title}.`)
+        if (gained.size)
+          notes.push(`${more(gained.size)} of ${before.title} now ${gained.size === 1 ? 'knows' : 'know'} what happened in ${t.title}.`)
+        if (lost.size)
+          notes.push(`${scenes(lost.size)} of ${before.title} no longer ${lost.size === 1 ? 'knows' : 'know'} what happened in ${t.title}.`)
       }
     }
   }
@@ -102,7 +107,8 @@ export function previewMove(shape: WorldShape, move: OutlineMove): { notes: stri
 /**
  * Where the stories that start or end after a scene or chapter will start or end once it is deleted,
  * worked out as loadShape does: the scene before it in its chapter, else the end of the chapter before,
- * else the story's start (after its start-of-story changes).
+ * else the story's start (after its start-of-story changes). Each note follows "“Ashore” deleted." in
+ * the delete toast: "Kell's Road now starts after Book 1, Ch 1 instead."
  */
 export function deleteNotes(shape: WorldShape, kind: 'scene' | 'chapter', id: ID): string[] {
   const at = locate(shape, kind, id)
@@ -120,20 +126,21 @@ export function deleteNotes(shape: WorldShape, kind: 'scene' | 'chapter', id: ID
   const notes: string[] = []
   for (const t of shape.stories) {
     if (t.id === story.id || t.startStoryId !== story.id) continue
-    const startGone = (t.startAt === 'chapter' && kind === 'chapter' && t.startRefId === id) || (t.startAt === 'scene' && !!t.startRefId && gone.has(t.startRefId))
+    const startGone =
+      (t.startAt === 'chapter' && kind === 'chapter' && t.startRefId === id) ||
+      (t.startAt === 'scene' && !!t.startRefId && gone.has(t.startRefId))
     if (startGone) {
       let point: { at: 'chapter' | 'scene' | 'post'; refId: ID | null }
       const earlier = kind === 'scene' ? at.chapter.scenes.slice(0, at.index) : []
       if (t.startAt === 'scene' && kind === 'scene' && earlier.length) point = { at: 'scene', refId: earlier[earlier.length - 1].id }
-      else if (t.startAt === 'scene' && kind === 'scene') point = chapterBefore ? { at: 'chapter', refId: chapterBefore } : { at: 'post', refId: null }
+      else if (t.startAt === 'scene' && kind === 'scene')
+        point = chapterBefore ? { at: 'chapter', refId: chapterBefore } : { at: 'post', refId: null }
       else point = chapterBefore ? { at: 'chapter', refId: chapterBefore } : { at: 'post', refId: null }
-      notes.push(`${t.title} now starts ${where(point)}, because the ${t.startAt === 'scene' ? 'scene' : 'chapter'} it started after was deleted.`)
+      notes.push(`${t.title} now starts ${where(point)} instead.`)
     }
     if (t.kind === 'side' && t.endAt === 'chapter' && kind === 'chapter' && t.endRefId === id) {
       notes.push(
-        chapterBefore
-          ? `${t.title} now ends after ${story.title}, Ch ${chapterIndex}, because the chapter it ended after was deleted.`
-          : `${t.title} now ends at the beginning of ${story.title}, because the chapter it ended after was deleted.`
+        `${t.title} now ends ${chapterBefore ? `after ${story.title}, Ch ${chapterIndex}` : `at the beginning of ${story.title}`} instead.`
       )
     }
   }

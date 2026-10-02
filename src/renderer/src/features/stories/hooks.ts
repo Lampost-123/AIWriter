@@ -45,7 +45,10 @@ export function useStoryOutline(storyId: ID | null): Outline | null {
  * stays while the next is worked out (a quick pause first while a title is typed), and an answer for
  * an older draft is dropped.
  */
-export function usePreview(draft: StoryDraft | null, initial: StoryPreview | null = null): { preview: StoryPreview | null; current: boolean } {
+export function usePreview(
+  draft: StoryDraft | null,
+  initial: StoryPreview | null = null
+): { preview: StoryPreview | null; current: boolean } {
   const [state, setState] = useState<{ key: string; preview: StoryPreview | null }>({ key: '', preview: initial })
   const ticket = useRef(0)
   const memoryRev = useApp((s) => s.memoryRev)

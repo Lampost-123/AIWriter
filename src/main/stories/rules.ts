@@ -20,7 +20,15 @@
 
 import type { ID, StartAt } from '@shared/types'
 import type { StoryPlacement } from '@shared/api'
-import type { StillRunning, StoryDetails, StoryDraft, StoryPreview, StoryRef, StorySuggestion, StoryWarning } from '@shared/contracts/stories'
+import type {
+  StillRunning,
+  StoryDetails,
+  StoryDraft,
+  StoryPreview,
+  StoryRef,
+  StorySuggestion,
+  StoryWarning
+} from '@shared/contracts/stories'
 import type { Line, StoryNode, WorldShape } from '../memory/types'
 import { buildLine, knowsSentence, placementProblem } from '../memory/line'
 import { leadsIntoBook } from '../memory/scene'
@@ -106,7 +114,10 @@ const continuesAfter = (id: ID | null): StoryPlacement => ({
   leadsIntoId: null
 })
 
-/** A placement as setStoryPlacement stores it (src/main/db/memory.ts): a prequel starts before its book's start-of-story changes, and so on. */
+/**
+ * A placement as setStoryPlacement stores it (src/main/db/memory.ts): a prequel starts before its book's
+ * start-of-story changes, and so on.
+ */
 export function normalizePlacement(p: StoryPlacement): StoryPlacement {
   const start = p.startStoryId ?? null
   const startAt: StartAt = !start ? 'end' : p.kind === 'prequel' ? 'pre' : p.startAt === 'pre' ? 'post' : p.startAt
@@ -125,11 +136,15 @@ export function normalizePlacement(p: StoryPlacement): StoryPlacement {
 /** The id a new story has in a preview, before it exists. */
 export const NEW_STORY: ID = 'new-story'
 
-/** The shape with the draft in it: a new story added on the shelf, or the story's placement, title and series changed. */
+/**
+ * The shape with the draft in it: a new story added on the shelf, or the story's placement, title and
+ * series changed; and any side story it ends first ending after its chapter.
+ */
 export function withDraft(shape: WorldShape, draft: StoryDraft): { shape: WorldShape; node: StoryNode } {
   const p = normalizePlacement(draft.placement)
   const id = draft.storyId ?? NEW_STORY
   const old = shape.stories.find((s) => s.id === id)
+  const ends = new Map((Array.isArray(draft.endFirst) ? draft.endFirst : []).map((e) => [e.storyId, e.endRefId]))
   const node: StoryNode = {
     id,
     chapters: old?.chapters ?? [],
@@ -146,7 +161,11 @@ export function withDraft(shape: WorldShape, draft: StoryDraft): { shape: WorldS
     endRefId: p.endRefId,
     leadsIntoId: p.leadsIntoId
   }
-  const stories = old ? shape.stories.map((s) => (s.id === id ? node : s)) : [...shape.stories, node]
+  const ended = (s: StoryNode): StoryNode => {
+    const endRefId = ends.get(s.id)
+    return endRefId && s.kind === 'side' && s.id !== id ? { ...s, endAt: 'chapter', endRefId } : s
+  }
+  const stories = old ? shape.stories.map((s) => (s.id === id ? node : ended(s))) : [...shape.stories.map(ended), node]
   return { shape: { ...shape, stories }, node }
 }
 
@@ -182,6 +201,43 @@ export function describe(shape: WorldShape, s: StoryNode): { summary: string; la
   }
 }
 
+// ---------- The shelf ----------
+
+/**
+ * Shelf order is reading order (spec, Multi-story rules; for display only, it never changes what the AI
+ * sees): stories that start at the beginning of the world by creation order, each followed by the
+ * stories that start in it, in the order they start there (by creation order at the same point), except
+ * that a prequel, with the stories that follow it, comes just before its book. So a book's side stories
+ * come after it and before the book that continues after it, as the "knows" sentence lists them.
+ */
+export function readingOrder(shape: WorldShape): ID[] {
+  const byId = new Map(shape.stories.map((s) => [s.id, s]))
+  const starting = new Map<ID, StoryNode[]>()
+  const roots: StoryNode[] = []
+  for (const s of shape.stories) {
+    const start = s.startStoryId && s.startStoryId !== s.id ? byId.get(s.startStoryId) : undefined
+    if (start) starting.set(start.id, [...(starting.get(start.id) ?? []), s])
+    else roots.push(s)
+  }
+  const byCreation = (a: StoryNode, b: StoryNode): number => a.createdOrder - b.createdOrder
+  const out: ID[] = []
+  const seen = new Set<ID>()
+  const visit = (s: StoryNode): void => {
+    if (seen.has(s.id)) return
+    seen.add(s.id)
+    const steps = stepsOf(s)
+    const at = (x: StoryNode): number => (x.kind === 'prequel' ? -1 : startStep(steps, x.startAt, x.startRefId))
+    const here = [...(starting.get(s.id) ?? [])].sort((a, b) => at(a) - at(b) || byCreation(a, b))
+    for (const x of here) if (x.kind === 'prequel') visit(x)
+    out.push(s.id)
+    for (const x of here) if (x.kind !== 'prequel') visit(x)
+  }
+  for (const s of [...roots].sort(byCreation)) visit(s)
+  // Stories in a loop (which the rules refuse) still get a place, at the end.
+  for (const s of [...shape.stories].sort(byCreation)) visit(s)
+  return out
+}
+
 // ---------- Warnings and the still-running note ----------
 
 /** Choices that would quietly lose history, each with the likely alternatives. */
@@ -197,7 +253,15 @@ export function warningsFor(shape: WorldShape, s: StoryNode): StoryWarning[] {
       if (endNo) {
         options.push({
           label: `Make it a side story during ${host.title}, after Ch ${endNo}`,
-          placement: { kind: 'side', startStoryId: host.id, startAt: 'chapter', startRefId: start.endRefId, endAt: 'end', endRefId: null, leadsIntoId: null }
+          placement: {
+            kind: 'side',
+            startStoryId: host.id,
+            startAt: 'chapter',
+            startRefId: start.endRefId,
+            endAt: 'end',
+            endRefId: null,
+            leadsIntoId: null
+          }
         })
       }
       out.push({
@@ -241,10 +305,11 @@ export function stillRunningAt(shape: WorldShape, s: StoryNode, line: Line): Sti
         const step = hs.chapterEndStep.get(c.id)!
         return step <= at && step >= from
       })
+      const ch = chapter ? `Ch ${chapterNo(host, chapter.id)}` : ''
       return {
         storyId: x.id,
         title: x.title,
-        endFirst: chapter ? { endRefId: chapter.id, label: `End ${x.title} after Ch ${chapterNo(host, chapter.id)}` } : null
+        endFirst: chapter ? { endRefId: chapter.id, label: `End ${x.title} after ${ch}`, chapter: ch } : null
       }
     })
 }
@@ -261,7 +326,14 @@ export function previewStory(shape: WorldShape, draft: StoryDraft): StoryPreview
   const problem = placementProblem(next, node.id, normalizePlacement(draft.placement))
   if (problem) return { knows: '', problem, warnings: [], stillRunning: [], summary, label }
   const line = buildLine(next, { storyId: node.id, through: 'start' })
-  return { knows: knowsSentence(next, line), problem: null, warnings: warningsFor(next, node), stillRunning: stillRunningAt(next, node, line), summary, label }
+  return {
+    knows: knowsSentence(next, line),
+    problem: null,
+    warnings: warningsFor(next, node),
+    stillRunning: stillRunningAt(next, node, line),
+    summary,
+    label
+  }
 }
 
 /** The placement a story has now, as a draft placement. */
@@ -293,7 +365,11 @@ function apartFromBooks(shape: WorldShape): (s: StoryNode) => boolean {
 /** Whether a story starts in a side story, or in a story that does. */
 function builtOnSide(byId: Map<ID, StoryNode>, s: StoryNode): boolean {
   const seen = new Set<ID>([s.id])
-  for (let cur = s.startStoryId ? byId.get(s.startStoryId) : undefined; cur && !seen.has(cur.id); cur = cur.startStoryId ? byId.get(cur.startStoryId) : undefined) {
+  for (
+    let cur = s.startStoryId ? byId.get(s.startStoryId) : undefined;
+    cur && !seen.has(cur.id);
+    cur = cur.startStoryId ? byId.get(cur.startStoryId) : undefined
+  ) {
     seen.add(cur.id)
     if (cur.kind === 'side') return true
   }
@@ -363,7 +439,8 @@ function suggestFor(shape: WorldShape, seriesId: ID | null): StoryPlacement | nu
     }
     if (furthest >= 0) {
       const next = other[furthest + 1]
-      if (next) return { kind: 'side', startStoryId: next.id, startAt: 'post', startRefId: null, endAt: 'end', endRefId: null, leadsIntoId: null }
+      if (next)
+        return { kind: 'side', startStoryId: next.id, startAt: 'post', startRefId: null, endAt: 'end', endRefId: null, leadsIntoId: null }
       return continuesAfter(last.id)
     }
   }

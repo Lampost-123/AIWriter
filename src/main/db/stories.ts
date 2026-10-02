@@ -1,9 +1,11 @@
 // SQL for the story screens (milestone 3): series, making a story with its placement in one go, which
-// story leads into a prequel chain's book, and a prequel's starting cast. Built on the tables of
-// migrations 1 and 2; no Electron imports, so it is tested against an in-memory world.
+// story leads into a prequel chain's book, a prequel's starting cast, and Adam's "No" to "Should Book 2
+// now continue after it?". Built on the tables of migrations 1 and 2; no Electron imports, so it is
+// tested against an in-memory world.
 import type Database from 'better-sqlite3'
-import type { ID, Series, Story } from '@shared/types'
-import type { NewStoryInput, StoryDetails } from '@shared/contracts/stories'
+import type { StoryPlacement } from '@shared/api'
+import type { AnswerKind, ID, Series, Story } from '@shared/types'
+import type { CreatedStory, NewStoryInput, StoryDetails } from '@shared/contracts/stories'
 import * as repo from './repo'
 import * as mem from './memory'
 import { newId, now, UserError } from '../util'
@@ -46,22 +48,39 @@ export function updateSeries(db: DB, id: ID, patch: Partial<Pick<Series, 'name' 
 
 // ---------- Making a story ----------
 
+type Made = { story: Story; sceneId: ID; entryIds: ID[]; endedFirst: CreatedStory['endedFirst'] }
+
 /**
  * Makes a story with its placement, its first chapter and scene, and a new series if one is named, all
- * or nothing: a placement the rules refuse leaves no half-made story behind. Returns the story, its
- * first scene and the entries whose first-exists points changed.
+ * or nothing: a placement the rules refuse leaves no half-made story behind. Side stories it ends first
+ * ("End Ash after Ch 1" in the New story dialog) end after their chapter in the same go; one that is no
+ * longer there to end is left as it is. Returns the story, its first scene, the entries whose
+ * first-exists points changed, and the stories ended first with what each was before.
  */
-export function createStoryAs(db: DB, input: NewStoryInput): { story: Story; sceneId: ID; entryIds: ID[] } {
-  return db.transaction(() => {
-    const seriesId = cleanName(input.newSeries) ? createSeries(db, input.newSeries!).id : input.seriesId ? getSeries(db, input.seriesId).id : null
+export function createStoryAs(db: DB, input: NewStoryInput): Made {
+  return db.transaction((): Made => {
+    const named = cleanName(input.newSeries)
+    const seriesId = named ? createSeries(db, named).id : input.seriesId ? getSeries(db, input.seriesId).id : null
     const title = typeof input.title === 'string' ? input.title : ''
     const made = repo.createStory(db, { title, seriesId, startStoryId: null })
     const entryIds = mem.setStoryPlacement(db, made.id, input.placement)
+    const endedFirst: Made['endedFirst'] = []
+    for (const e of Array.isArray(input.endFirst) ? input.endFirst : []) {
+      const shape = mem.loadShape(db)
+      const other = shape.stories.find((s) => s.id === e?.storyId && s.kind === 'side' && s.id !== made.id)
+      const n = other
+        ? (shape.stories.find((s) => s.id === other.startStoryId)?.chapters.findIndex((c) => c.id === e.endRefId) ?? -1) + 1
+        : 0
+      if (!other || !n) continue
+      const was = placementOf(other)
+      entryIds.push(...mem.setStoryPlacement(db, other.id, { ...was, endAt: 'chapter', endRefId: e.endRefId }))
+      endedFirst.push({ storyId: other.id, title: other.title, chapter: `Ch ${n}`, was })
+    }
     const gap = typeof input.timeGap === 'string' ? input.timeGap.trim() : ''
     if (gap) repo.updateStory(db, made.id, { timeGap: gap })
     const chapter = repo.createChapter(db, made.id, {})
     const scene = repo.createScene(db, chapter.id, {})
-    return { story: repo.getStory(db, made.id), sceneId: scene.id, entryIds }
+    return { story: repo.getStory(db, made.id), sceneId: scene.id, entryIds, endedFirst }
   })()
 }
 
@@ -99,17 +118,43 @@ export function storyCast(db: DB, storyId: ID): ID[] {
   return rows.map((r) => r.id as string)
 }
 
+// ---------- "Should Book 2 now continue after it?" ----------
+
+// Adam's "No" is kept with the world (so it travels with backups and restores), keyed by the story
+// asked about. AnswerKind doesn't list this kind yet (see the report's "Needs from integration"); the
+// answers table takes any kind, and the memory only reads the kinds it knows.
+const FOLLOW_DECLINED = 'follow-declined' as AnswerKind
+
+/** Adam said No to "Should Book 2 now continue after it?" for this story, so story settings stops asking. */
+export function declineFollow(db: DB, storyId: ID): void {
+  repo.getStory(db, storyId)
+  mem.setAnswer(db, FOLLOW_DECLINED, storyId, true)
+}
+
+export const followDeclined = (db: DB, storyId: ID): boolean =>
+  !!db.prepare('SELECT 1 FROM answers WHERE kind = ? AND key = ?').get(FOLLOW_DECLINED, storyId)
+
 // ---------- Story settings ----------
+
+/** A story's placement as the memory has it, a start or end at something deleted already moved (loadShape). */
+export function storyPlacement(db: DB, storyId: ID): StoryPlacement {
+  repo.getStory(db, storyId)
+  const node = mem.loadShape(db).stories.find((s) => s.id === storyId)
+  if (!node) throw new UserError('That story no longer exists.')
+  return placementOf(node)
+}
 
 export function storyDetails(db: DB, storyId: ID): StoryDetails {
   const story = repo.getStory(db, storyId)
   const shape = mem.loadShape(db)
   const node = shape.stories.find((s) => s.id === storyId)!
+  const placement = placementOf(node)
   return {
     story,
-    preview: previewStory(shape, { storyId, title: node.title, seriesId: node.seriesId, placement: placementOf(node) }),
+    placement,
+    preview: previewStory(shape, { storyId, title: node.title, seriesId: node.seriesId, placement }),
     startingHere: startingHere(shape, storyId),
-    mightFollow: mightFollow(shape, storyId),
+    mightFollow: followDeclined(db, storyId) ? [] : mightFollow(shape, storyId),
     leadsInto: leadsInto(shape, storyId),
     cast: node.kind === 'prequel' ? storyCast(db, storyId) : []
   }
