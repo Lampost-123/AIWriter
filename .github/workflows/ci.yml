@@ -69,6 +69,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The release workflow runs these on Windows too, so a Windows-only failure shows up here first.
+      - name: Unit tests on Windows
+        run: npx vitest run
+
       - name: Build the installer
         run: npm run dist:win
 
