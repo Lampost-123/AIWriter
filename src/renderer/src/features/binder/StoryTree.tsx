@@ -25,6 +25,7 @@ import {
   ListTree,
   PenLine,
   Plus,
+  SearchCheck,
   Target as TargetIcon,
   Trash2
 } from 'lucide-react'
@@ -35,6 +36,7 @@ import { useApp } from '@/lib/store'
 import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openOutlineHelper } from '@/features/outline/open'
+import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
 import {
@@ -105,6 +107,8 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const sceneId = useApp((s) => s.sceneId)
   const writing = useApp((s) => s.view.kind === 'write')
   const { collapsed, toggle } = useCollapsed()
+  // Milestone 5: the scenes' issue badges follow the story, and issues:changed.
+  useIssueCounts(outline.story.id)
   const [renaming, setRenaming] = useState<Target | null>(null)
   // The row menu hands focus back a moment after it has closed, from a render before it closed: by
   // then a scene or chapter it added may already have its name box open, so it reads this instead.
@@ -629,6 +633,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             >
               Add scene after
             </RowMenuItem>
+            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkScene(menu.id, outline.story.id)}>
+              Check this scene
+            </RowMenuItem>
             <RowMenuSeparator />
             <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'scene', id: menu.id })}>
               Delete scene
@@ -659,6 +666,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
                 ))}
               </RowMenuSub>
             ) : null}
+            <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkChapter(menu.id, outline.story.id)}>
+              Check this chapter
+            </RowMenuItem>
             <RowMenuSeparator />
             <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'chapter', id: menu.id })}>
               Delete chapter

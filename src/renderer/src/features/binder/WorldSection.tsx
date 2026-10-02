@@ -1,4 +1,4 @@
-import { CalendarRange, History, LayoutGrid, Network, Palette, Spool, WandSparkles } from 'lucide-react'
+import { CalendarRange, History, LayoutGrid, Network, Palette, SearchCheck, Spool, WandSparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
@@ -8,6 +8,7 @@ import { watchMoreBelow } from '@/lib/moreBelow'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { openConsistency } from '@/features/consistency/checkStore'
 
 type Counts = Partial<Record<EntryKind, number>>
 
@@ -86,6 +87,7 @@ function Link({
 export function WorldSection(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const navigate = useApp((s) => s.navigate)
+  const storyId = useApp((s) => s.storyId)
   const counts = useEntryCounts()
 
   return (
@@ -131,6 +133,15 @@ export function WorldSection(): React.JSX.Element {
         active={view.kind === 'threads'}
         onClick={() => navigate({ kind: 'threads' })}
       />
+      {/* Milestone 5: the open story's issues and reports. */}
+      {storyId ? (
+        <Link
+          icon={<SearchCheck size={15} />}
+          label="Consistency"
+          active={view.kind === 'consistency'}
+          onClick={() => openConsistency(storyId)}
+        />
+      ) : null}
       <Link icon={<Palette size={15} />} label="Style guide" active={view.kind === 'style'} onClick={() => navigate({ kind: 'style' })} />
       <Link
         icon={<History size={15} />}
