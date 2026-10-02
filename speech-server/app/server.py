@@ -35,8 +35,8 @@ from .engines import EngineError
 from .lifeline import end_with
 
 MAX_CHARS = 4000
-# About four minutes of 16 kHz mono 16-bit audio, with room to spare.
-MAX_CLIP_BYTES = 10_000_000
+# Poor Man's Holodeck's limit: about four minutes of 16 kHz mono 16-bit audio.
+MAX_CLIP_BYTES = 8_000_000
 STARTED = time.time()
 
 
@@ -255,7 +255,7 @@ async def transcribe(request: Request) -> dict:
     except ImportError:
         raise HTTPException(
             503,
-            "That dictation engine isn't downloaded. In Settings, Read aloud and dictation, download it or pick the other one.",
+            "That dictation model is not installed. In Settings, Read aloud and dictation, download it or pick the other one.",
         )
     except Exception as exc:  # noqa: BLE001 — AI Write shows this to Adam
         raise HTTPException(503, f"Dictation failed: {exc}")

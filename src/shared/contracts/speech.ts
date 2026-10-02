@@ -6,25 +6,122 @@
 // The server, its Python environments and models live in the app's user data folder (never in the app,
 // git or backups) and listen on 127.0.0.1:8766. Settings › Read aloud and dictation can point at another
 // speech server on this computer (loopback only).
-/** What the badge in Settings says, and whether reading aloud and dictation can be used now. */
+
+/** Whether the speech server answers ('connected'), is being started ('starting'), or isn't running ('not-running'). */
+export type SpeechServerState = 'connected' | 'starting' | 'not-running'
+
+/** The two dictation models: Parakeet (sharper, about 1 GB) and Whisper (smaller). Both English only, on the processor. */
+export type DictationModel = 'parakeet' | 'whisper'
+
+/** What can be downloaded: the server itself (with its Python environment), the voices (Breeze TTS 2), or a dictation model. */
+export type SpeechDownloadKind = 'server' | 'voices' | DictationModel
+
+/** One download as Settings shows it: its step, a progress bar, the latest line of output, Cancel and Try again. */
+export interface SpeechDownload {
+  kind: SpeechDownloadKind
+  /** 'running' while a step works; 'failed' and 'cancelled' wait for Try again (or Dismiss); 'done' shows briefly. */
+  state: 'running' | 'failed' | 'cancelled' | 'done'
+  /** The step in plain words ("Downloading PyTorch for the graphics card"). */
+  step: string
+  /** Which step it is (from 1) of how many. */
+  stepIndex: number
+  stepCount: number
+  /** How far the step is, 0 to 100, or null when it can't be told (the bar then shows it's busy). */
+  percent: number | null
+  /** How much has come so far ("1.2 GB of 3.1 GB"), when it's known. */
+  amount: string
+  /** The latest line of the step's output. */
+  line: string
+  /** What went wrong and how to fix it, in plain words ('' unless it failed). */
+  error: string
+  /**
+   * A problem with a fix Settings offers: Python to install with one click ('python', Windows' own
+   * installer), Python to install from its website ('python-manual'), or a licence to accept on
+   * Hugging Face before the voices can download ('licence', with the Hugging Face key box).
+   */
+  need: 'python' | 'python-manual' | 'licence' | null
+  /** The page that fixes it (Hugging Face's licence page, or python.org); '' when there is none. */
+  link: string
+}
+
+/** What Settings shows about the speech engine, and whether reading aloud and dictation can be used now. */
 export interface SpeechStatus {
   /** The server answers ('connected'), is being started ('starting'), or isn't running ('not-running'). */
-  server: 'connected' | 'starting' | 'not-running'
+  server: SpeechServerState
   /** Voices can be spoken now: Breeze is installed and the server answers. */
   voicesReady: boolean
-  /** Dictation can be used now: a dictation model is installed and the server answers. */
+  /** Dictation can be used now: the chosen dictation model is installed and the server answers. */
   dictationReady: boolean
-  // The Speech engine part adds the rest (the device, what is installed and loaded, downloads...).
+  /** AI Write starts and stops the server itself ("Start with AI Write" is on). */
+  managed: boolean
+  /** Why the server isn't running when it should be, in plain words with the fix; '' when nothing is wrong. */
+  problem: string
+  /** What is downloaded on this computer. `voices` says whose copy: AI Write's own or MCreader's. */
+  installed: { server: boolean; voices: 'own' | 'mcreader' | null; parakeet: boolean; whisper: boolean }
+  /** What the server holds in memory now (a model unused for five minutes is let go). */
+  loaded: { voices: boolean; dictation: DictationModel | null }
+  /** What the voices run on: the graphics card's name, or 'Processor'; '' while the server isn't answering. */
+  device: string
+  /** The NVIDIA graphics card on this computer ('' when there is none); null until it has been looked for. */
+  nvidia: string | null
+  /** MCreader v2's copy of the voices, when it is complete on this computer (so the 12 GB isn't fetched twice). */
+  mcreader: { folder: string } | null
+  /** The download running, or stopped on a problem or by Cancel; null when there's none to show. */
+  download: SpeechDownload | null
+  /** Downloads waiting for the one running to finish, in order. */
+  queued: SpeechDownloadKind[]
+  /** A Hugging Face key is saved (the key itself never leaves the main process). */
+  hfKey: boolean
+  /** The speech folder in AI Write's user data, where everything downloaded is kept. */
+  folder: string
+  /** The server's address in use (Settings' own when it's on this computer). */
+  address: string
+}
+
+/** What the speech folder holds, for "Where things are kept". */
+export interface SpeechStorage {
+  folder: string
+  /** Each part's size on disk, in bytes; 0 when it isn't downloaded. */
+  parts: { kind: SpeechDownloadKind; bytes: number }[]
+  total: number
 }
 
 export interface SpeechApi {
   /** Where the speech server stands now. */
   getSpeechStatus(): Promise<SpeechStatus>
-  // The Speech engine part adds the rest here (downloads, start and stop, Check, the Hugging Face token...).
+  /** Check: asks the server again (and starts it when "Start with AI Write" is on and it isn't running). */
+  checkSpeech(): Promise<SpeechStatus>
+  /** "Start with AI Write": on starts the server (downloading it the first time); off stops it. */
+  setSpeechStartWithApp(on: boolean): Promise<SpeechStatus>
+  /** The server's address. Must be on this computer (localhost, 127.0.0.1 or ::1), or it is refused in plain words. */
+  setSpeechServerUrl(url: string): Promise<SpeechStatus>
+  /** The dictation model, remembered and loaded at start; picking one that isn't downloaded starts its download. */
+  setDictationEngine(engine: 'none' | DictationModel): Promise<SpeechStatus>
+  /** Starts a download, or queues it behind the one running. Also Try again. */
+  downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechStatus>
+  /** Cancel: stops the download running (nothing half-made is kept as done) and the ones queued. */
+  cancelSpeechDownload(): Promise<SpeechStatus>
+  /** Hides a download that failed, was cancelled or finished. */
+  dismissSpeechDownload(): Promise<SpeechStatus>
+  /** Installs Python with Windows' own installer (winget), then carries on with the speech engine's download. */
+  installPython(): Promise<SpeechStatus>
+  /** Uses MCreader v2's copy of the voices in place of downloading them. */
+  useMCreaderVoices(): Promise<SpeechStatus>
+  /** Asks where MCreader v2 is (a folder picker) when it wasn't found; uses its voices if they're complete there. */
+  findMCreaderVoices(): Promise<SpeechStatus>
+  /** Saves the Hugging Face key (kept like the AI keys), or removes it with null. Only the voices' download uses it. */
+  setHuggingFaceKey(key: string | null): Promise<SpeechStatus>
+  /** How much each download takes on disk. */
+  getSpeechStorage(): Promise<SpeechStorage>
+  /** Opens the speech folder in the file manager. */
+  showSpeechFolder(): Promise<void>
+  /** Removes everything downloaded (never MCreader's copy) and turns "Start with AI Write" off. Undo puts it back. */
+  removeSpeechDownloads(): Promise<SpeechStatus>
+  /** Undo for removeSpeechDownloads, while the removed files are still kept aside. */
+  undoRemoveSpeechDownloads(): Promise<SpeechStatus>
 }
 
 export interface SpeechEvents {
-  /** The speech server's status changed (started, stopped, a download finished...). */
+  /** The speech server's status changed (started, stopped, a download moved on or finished...). */
   'speech:status': SpeechStatus
-  // The Speech engine part adds the rest here (download progress...).
 }

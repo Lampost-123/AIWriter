@@ -28,8 +28,8 @@ _parakeet = None
 _last_used = 0.0
 
 # Only sounds that are never words ("um", "umm", "uh", "er", "erm"). "Ah", "hmm" and "mm" stay: in a
-# story they are often meant, and so are "uh-huh" and "uh-oh", which the hyphen keeps.
-_FILLER = re.compile(r"(?:\s*,\s*)?(?<!-)\b(?:u+m+|u+h+|er|erm+)\b(?!-)\s*,?", re.IGNORECASE)
+# story they are often meant, and so are "uh-huh" and "uh-oh" (hyphen or not).
+_FILLER = re.compile(r"(?:\s*,\s*)?(?<!-)\b(?:u+m+|u+h+(?!\s+oh\b)|er|erm+)\b(?!-)\s*,?", re.IGNORECASE)
 # A stutter is a small word said twice ("the the", "I I"). Other doubles ("had had", "that that",
 # "was was", "very very", "no no") are often meant, so they stay.
 _STUTTER_WORDS = (
@@ -103,7 +103,7 @@ def statuses() -> list[dict]:
             "ready": _parakeet_ready(),
             "loaded": _parakeet is not None and picked == "parakeet",
             "voices": 0,
-            "detail": "tdt-0.6b · int8" if _parakeet_ready() else "Not downloaded. Download it in AI Write's Settings, Read aloud and dictation.",
+            "detail": "tdt-0.6b · int8" if _parakeet_ready() else "Not installed. Download it in AI Write's Settings, Read aloud and dictation.",
         },
         {
             "id": "whisper",
@@ -112,7 +112,7 @@ def statuses() -> list[dict]:
             "ready": _whisper_ready(),
             "loaded": _whisper is not None and picked == "whisper",
             "voices": 0,
-            "detail": WHISPER_MODEL if _whisper_ready() else "Not downloaded. Download it in AI Write's Settings, Read aloud and dictation.",
+            "detail": WHISPER_MODEL if _whisper_ready() else "Not installed. Download it in AI Write's Settings, Read aloud and dictation.",
         },
     ]
 
@@ -121,6 +121,8 @@ def clean(text: str) -> str:
     s = _FILLER.sub(" ", text or "")
     s = _REPEAT.sub(r"\1", s)
     s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    # A filler between two pauses ("Wait... um... what?") leaves one pause, not two run together.
+    s = re.sub(r"(\.\.\.|…)(?:\s*(?:\.\.\.|…))+", r"\1", s)
     # The commas a filler leaves behind: two in a row, or one before the end of the sentence. An
     # ellipsis ("um...") is kept.
     s = re.sub(r",(?:\s*,)+", ",", s)
@@ -135,7 +137,7 @@ def clean(text: str) -> str:
 
 def _load_whisper():
     if not _whisper_ready():
-        raise DictationError("Whisper isn't downloaded. Download it in Settings, Read aloud and dictation.")
+        raise DictationError("Whisper is not installed. Download it in Settings, Read aloud and dictation.")
     from faster_whisper import WhisperModel
 
     # From the copy on this computer only: nothing is fetched while the server runs.
@@ -145,7 +147,7 @@ def _load_whisper():
 def _load_parakeet():
     folder = _parakeet_dir()
     if not _has("sherpa_onnx") or folder is None:
-        raise DictationError("Parakeet isn't downloaded. Download it in Settings, Read aloud and dictation.")
+        raise DictationError("Parakeet is not installed. Download it in Settings, Read aloud and dictation.")
     import sherpa_onnx
 
     return sherpa_onnx.OfflineRecognizer.from_transducer(
@@ -235,7 +237,7 @@ def transcribe(path: str | Path) -> str:
         elif _choice == "parakeet":
             raw = _hear_parakeet(path)
         else:
-            raise DictationError("No dictation engine is chosen. Pick Parakeet or Whisper in Settings, Read aloud and dictation.")
+            raise DictationError("No dictation model is loaded. Pick Parakeet or Whisper in Settings, Read aloud and dictation.")
     return clean(raw)
 
 
