@@ -8,9 +8,12 @@ import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { requestReveal } from '@/features/editor/reveal'
 
-/** Opens a scene with the words selected (or the caret in the page when there are none to show). */
-export function openWords(sceneId: ID, storyId: ID, words: string): void {
-  if (words.trim()) requestReveal(sceneId, words)
+/**
+ * Opens a scene with the words selected (or the caret in the page when there are none to show).
+ * `wholeWord`: a repeated word or phrase, never found inside a longer word ("rain" in "brain").
+ */
+export function openWords(sceneId: ID, storyId: ID, words: string, opts: { wholeWord?: boolean } = {}): void {
+  if (words.trim()) requestReveal(sceneId, words, opts)
   else requestEditorFocus(sceneId)
   useApp.getState().selectScene(sceneId, storyId)
 }

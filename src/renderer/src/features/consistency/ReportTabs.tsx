@@ -56,7 +56,7 @@ export function RepetitionTab({
     )
   }
   const open = (item: RepetitionItem): void => {
-    if (item.sceneId) openWords(item.sceneId, storyId, item.phrase)
+    if (item.sceneId) openWords(item.sceneId, storyId, item.phrase, { wholeWord: true })
   }
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-12 pt-5">

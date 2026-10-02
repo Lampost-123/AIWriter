@@ -11,10 +11,10 @@ export interface Loaded<T> {
 /**
  * Loads something for the Consistency page, and again whenever `deps` change. The last answer stays on
  * screen while the next one loads, so nothing flickers; nothing is asked until `enabled` (a tab not
- * opened yet waits).
+ * opened yet waits). `initial`: an answer kept from before, shown at once and refreshed quietly.
  */
-export function useLoad<T>(load: () => Promise<T>, deps: unknown[], enabled = true): Loaded<T> {
-  const [state, setState] = useState<{ data: T | null; error: string | null }>({ data: null, error: null })
+export function useLoad<T>(load: () => Promise<T>, deps: unknown[], enabled = true, initial: T | null = null): Loaded<T> {
+  const [state, setState] = useState<{ data: T | null; error: string | null }>({ data: initial, error: null })
   const [attempt, setAttempt] = useState(0)
   const ticket = useRef(0)
   const loader = useRef(load)

@@ -137,11 +137,11 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     const tryReveal = (): void => {
       const ctrl = ctrlRef.current
       if (!ctrl || !shown || shown.id !== ctrl.sceneId || useApp.getState().view.kind !== 'write') return
-      const quote = takeReveal(ctrl.sceneId)
-      if (!quote) return
+      const asked = takeReveal(ctrl.sceneId)
+      if (!asked) return
       // After this frame's focus and scroll restore, so they don't undo it.
       requestAnimationFrame(() => {
-        if (!ctrl.revealWords(quote)) toast("Those words aren't in the scene any more.")
+        if (!ctrl.revealWords(asked.quote, { wholeWord: asked.wholeWord })) toast("Those words aren't in the scene any more.")
       })
     }
     tryReveal()

@@ -113,17 +113,37 @@ export async function startCheck(target: CheckTarget, storyId: ID, checks?: Chec
   const runId = crypto.randomUUID()
   const run: CheckRun = { runId, target, storyId, what: '', done: null, total: null, current: null, stopping: false }
   set({ run, failure: null })
+  /** This run while it is still the one showing (the world changing clears it). */
+  const mine = (): CheckRun | null => (get().run?.runId === runId ? get().run : null)
+  /** Stop was pressed before the check went out: it never starts. */
+  const calledOff = (): boolean => {
+    const now = mine()
+    if (now && !now.stopping) return false
+    if (now) {
+      set({ run: null })
+      toast(`Check of ${now.what || 'it'} stopped.`)
+    }
+    return true
+  }
   try {
-    run.what = await whatOf(target, storyId)
-    if (get().run?.runId === runId) set({ run: { ...get().run!, what: run.what } })
+    const what = await whatOf(target, storyId)
+    if (mine()) set({ run: { ...mine()!, what } })
     // The checks read the scenes as saved: words typed a moment ago go in first.
     await flushAll()
+    if (calledOff()) return
     await api.startCheck({ runId, target, checks: checks ?? (target.scope === 'scene' ? ALL_CHECKS : DONE_CHECKS) })
+    sent.add(runId)
+    // Stop pressed (or the world changed) while it was being started: stop it now it can be.
+    if (!mine() || mine()!.stopping) await api.stopCheck(runId).catch(() => undefined)
   } catch (e) {
-    if (get().run?.runId === runId) set({ run: null })
+    if (!mine()) return
+    set({ run: null })
     failed(storyId, plainReason(e))
   }
 }
+
+/** Runs the main process has been asked to start: until then, Stop only marks the run, and it never starts. */
+const sent = new Set<ID>()
 
 export const checkScene = (sceneId: ID, storyId: ID): Promise<void> => startCheck({ scope: 'scene', id: sceneId }, storyId)
 export const checkChapter = (chapterId: ID, storyId: ID): Promise<void> => startCheck({ scope: 'chapter', id: chapterId }, storyId)
@@ -133,6 +153,7 @@ export async function stopCheck(): Promise<void> {
   const run = get().run
   if (!run || run.stopping) return
   set({ run: { ...run, stopping: true } })
+  if (!sent.has(run.runId)) return
   try {
     await api.stopCheck(run.runId)
   } catch (e) {
@@ -174,6 +195,7 @@ function listen(): void {
   })
   onEvent('checks:done', (d) => {
     const run = get().run
+    sent.delete(d.runId)
     if (run?.runId !== d.runId) return
     set({ run: null })
     if (d.status === 'error') return failed(run.storyId, d.error || 'The check stopped with a problem. Please try again.')
@@ -190,6 +212,10 @@ function listen(): void {
   })
   // The badges (useIssueCounts) and the Consistency page reload from this.
   onEvent('issues:changed', () => set({ issuesRev: get().issuesRev + 1 }))
+  // A check and its failure belong to the world they were started in.
+  useApp.subscribe((now, before) => {
+    if (now.world?.id !== before.world?.id) set({ run: null, failure: null, counts: { storyId: null, byScene: {} } })
+  })
 }
 
 const found = (n: number): string => (n === 1 ? '1 new issue' : `${n} new issues`)

@@ -6,20 +6,21 @@ import type { ID } from '@shared/types'
 /** Marks the transaction that selects the words being shown, so the page doesn't offer to add them to memory. */
 export const REVEALED = 'aiwriteRevealed'
 
-let pending: { sceneId: ID; quote: string } | null = null
+let pending: { sceneId: ID; quote: string; wholeWord: boolean } | null = null
 const listeners = new Set<() => void>()
 
-export function requestReveal(sceneId: ID, quote: string): void {
-  pending = { sceneId, quote }
+/** `wholeWord`: never select the words inside a longer word (the Consistency page's repeated words). */
+export function requestReveal(sceneId: ID, quote: string, opts: { wholeWord?: boolean } = {}): void {
+  pending = { sceneId, quote, wholeWord: !!opts.wholeWord }
   listeners.forEach((l) => l())
 }
 
 /** The words to show (once) if a reveal was requested for this scene. */
-export function takeReveal(sceneId: ID | null): string | null {
+export function takeReveal(sceneId: ID | null): { quote: string; wholeWord: boolean } | null {
   if (!sceneId || pending?.sceneId !== sceneId) return null
-  const { quote } = pending
+  const { quote, wholeWord } = pending
   pending = null
-  return quote
+  return { quote, wholeWord }
 }
 
 export function onRevealRequest(fn: () => void): () => void {
