@@ -4,12 +4,13 @@
 // keeper keeps working. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { EntryState, ID } from '@shared/types'
+import type { EntryState, ExistsPoint, ID } from '@shared/types'
 import type { MemoryData, SceneMemory, WorldShape } from '../memory/types'
 import * as scene from '../memory/scene'
 import * as line from '../memory/line'
 import * as state from '../memory/state'
 import * as repo from '../db/repo'
+import * as mem from '../db/memory'
 import type { SideClashes } from './apply'
 
 type DB = Database.Database
@@ -71,6 +72,57 @@ export function scenesBefore(db: DB, sceneId: ID): ID[] {
   } catch (e) {
     console.warn('The memory keeper could not work out the scenes before this one', e)
     return []
+  }
+}
+
+/**
+ * Whether an entry already existed at an earlier scene on this scene's line (where the memory core
+ * puts its exists points). A detail read here about such an entry counts from here on, not from its
+ * start. Null when the memory core can't answer.
+ */
+export function existedEarlier(db: DB, shape: WorldShape | null, sceneId: ID): ((entryId: ID) => boolean) | null {
+  if (!shape) return null
+  try {
+    const story = line.storyOfScene(shape, sceneId)
+    if (!story) return null
+    const walk = line.buildLine(shape, { storyId: story.id, before: sceneId })
+    const pre = new Map<ID, number>()
+    const post = new Map<ID, number>()
+    const scenes = new Map<ID, number>()
+    let last = -1
+    walk.steps.forEach((step, i) => {
+      if (step.type === 'start') pre.set(step.storyId, i)
+      else if (step.type === 'start-changes') post.set(step.storyId, i)
+      else if (step.type === 'scene') {
+        scenes.set(step.sceneId, i)
+        last = i
+      }
+    })
+    if (last < 0) return () => false
+    const points = new Map<ID, ExistsPoint[]>()
+    for (const p of mem.listExistsPoints(db)) points.set(p.entryId, [...(points.get(p.entryId) ?? []), p])
+    const at = (p: ExistsPoint): number | undefined =>
+      p.kind === 'world'
+        ? -1
+        : p.kind === 'story-pre' && p.storyId
+          ? pre.get(p.storyId)
+          : p.kind === 'story-post' && p.storyId
+            ? post.get(p.storyId)
+            : p.kind === 'scene' && p.sceneId
+              ? scenes.get(p.sceneId)
+              : undefined
+    return (id) => {
+      const ps = points.get(id)
+      // No exists points: it has been there from the beginning of the world.
+      if (!ps?.length) return true
+      return ps.some((p) => {
+        const pos = at(p)
+        return pos !== undefined && pos <= last
+      })
+    }
+  } catch (e) {
+    console.warn('The memory keeper could not work out where an entry first exists', e)
+    return null
   }
 }
 

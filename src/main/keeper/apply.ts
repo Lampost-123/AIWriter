@@ -24,7 +24,9 @@ import { bool, str, strList, type ReadingReply } from './json'
 import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, spotIn, type ReadPlan, type Spot } from './track'
+import { existedEarlier } from './places'
 import {
+  changeContent,
   changeWords,
   factContent,
   factFingerprint,
@@ -36,7 +38,7 @@ import {
   removedWords,
   type SceneFact
 } from './facts'
-import { findQuote, likeness, locateQuote, plain, type Para } from './text'
+import { findQuote, likeness, locateQuote, plain, sameFact, sceneParagraphs, type Para } from './text'
 
 type DB = Database.Database
 
@@ -188,13 +190,18 @@ const wordsOf = (s: string): string => plain(s)
 class Run {
   readonly lines: NewLog[] = []
   readonly touched = new Set<ID>()
-  private readonly created: { fp: string; content: string }[] = []
+  /** Facts already in the scene, and those this run added: a new one like them is a duplicate. */
+  private readonly created: { fp: string; content: string; changeId?: ID }[] = []
   private readonly suppressions: { fingerprint: string; words: string }[]
   private entries: Entry[]
   private readonly here: Set<ID> | null
   private readonly firstSeenDone = new Set<ID>()
   private readonly madeHere = new Set<ID>()
   private readonly removedChangeEntries = new Set<ID>()
+  private readonly adamDeleted = new Map<EntryKind, { id: ID; name: string; aliases: string[] }[]>()
+  private earlier: ((entryId: ID) => boolean) | null | undefined
+  /** Values offered for Adam's fields in this run's "Keep your words?" questions. */
+  private readonly offered = new Set<string>()
 
   constructor(
     readonly db: DB,
@@ -205,9 +212,10 @@ class Run {
     this.entries = repo.listEntries(db)
     this.here = ctx.memory ? new Set(ctx.memory.entries.map((e) => e.id)) : null
     // Facts already in the scene (any origin, including changes Adam pinned to it) count as there.
-    for (const f of plan.found) this.created.push({ fp: factFingerprint(f), content: factContent(f) })
+    for (const f of plan.found)
+      this.created.push({ fp: factFingerprint(f), content: factContent(f), changeId: f.kind === 'change' ? f.change.id : undefined })
     for (const c of mem.changesInScene(db, plan.scene.sceneId)) {
-      this.created.push({ fp: fingerprint({ type: 'change', entryId: c.entryId, change: c }), content: changeContent(c) })
+      this.created.push({ fp: fingerprint({ type: 'change', entryId: c.entryId, change: c }), content: changeContent(c), changeId: c.id })
     }
   }
 
@@ -239,13 +247,53 @@ class Run {
     return this.suppressions.some((s) => s.fingerprint === fp && s.words === w)
   }
 
-  duplicate(fp: string, content: string): boolean {
-    const c = plain(content)
-    return this.created.some((x) => x.fp === fp && (plain(x.content) === c || likeness(x.content, content) >= 0.5))
+  /**
+   * True when Adam himself deleted an entry of this kind and name that was read from the paragraph
+   * at `s`, and the words it was read from are still there: it isn't made again from them (as after
+   * an undo). New words, in another paragraph or scene, can make it again.
+   */
+  deletedByAdam(kind: EntryKind, name: string, s: Spot): boolean {
+    const n = plain(name)
+    // Without paragraph ids, the words are looked for anywhere in the scene.
+    const texts = s.paragraphId
+      ? this.plan.paras.filter((p) => p.pid === s.paragraphId).map((p) => p.text)
+      : this.plan.paras.map((p) => p.text)
+    if (!texts.length) return false
+    if (!this.adamDeleted.has(kind)) this.adamDeleted.set(kind, kdb.entriesAdamDeleted(this.db, kind))
+    for (const d of this.adamDeleted.get(kind)!) {
+      if (plain(d.name) !== n && !d.aliases.some((a) => plain(a) === n)) continue
+      const links = hist.linksForEntry(this.db, d.id).filter((l) => l.sceneId === this.scene.sceneId && l.paragraphId === s.paragraphId)
+      if (links.some((l) => texts.some((t) => findQuote(t, l.quote)))) return true
+    }
+    return false
   }
 
-  remember(fp: string, content: string): void {
-    this.created.push({ fp, content })
+  /** The fact already in the scene (or added by this run) that this one repeats, or null. */
+  duplicate(fp: string, content: string): { changeId?: ID } | null {
+    return this.created.find((x) => x.fp === fp && sameFact(x.content, content)) ?? null
+  }
+
+  /** A fact now in the scene (a change this run added, or one it updated: its old words no longer count). */
+  remember(fp: string, content: string, changeId?: ID): void {
+    if (changeId) for (let i = this.created.length - 1; i >= 0; i--) if (this.created[i].changeId === changeId) this.created.splice(i, 1)
+    this.created.push({ fp, content, changeId })
+  }
+
+  /**
+   * Words that say a text change of this scene again also support it, so it stays until the last
+   * passage that says it goes. Nothing is added when its words in the same paragraph already do.
+   */
+  alsoSupports(changeId: ID, s: Spot): void {
+    let c: Change
+    try {
+      c = mem.getChange(this.db, changeId)
+    } catch {
+      return
+    }
+    if (c.origin !== 'text' || c.sceneId !== this.scene.sceneId) return
+    const links = hist.linksForFact(this.db, 'change', changeId).filter((l) => l.state === 'ok')
+    if (links.some((l) => l.quote === s.quote || (s.paragraphId && l.paragraphId === s.paragraphId))) return
+    this.addLink('change', changeId, null, s)
   }
 
   /** The exact words in the scene a quote stands for: in the chunk's paragraphs first, then anywhere. */
@@ -372,26 +420,57 @@ class Run {
     return true
   }
 
+  /**
+   * True when a detail about this entry, read here, must count only in this scene's story: the story
+   * is an own version of events or a prequel (or follows on from one), whose events reach no other
+   * story, and the entry isn't one of its own. Writing such a detail on the entry's page would show
+   * it in every story.
+   */
+  keepsToItsStory(e: Entry): boolean {
+    if (e.originStoryId === this.scene.storyId || this.madeHere.has(e.id)) return false
+    const byId = new Map((this.ctx.shape?.stories ?? []).map((s) => [s.id, s]))
+    const seen = new Set<ID>()
+    for (
+      let cur = byId.get(this.scene.storyId);
+      cur && !seen.has(cur.id);
+      cur = cur.startStoryId ? byId.get(cur.startStoryId) : undefined
+    ) {
+      seen.add(cur.id)
+      if (cur.kind === 'own' || cur.kind === 'prequel') return true
+    }
+    return false
+  }
+
+  /**
+   * True when a detail about this entry, read here, is news from this scene on rather than part of
+   * who it is from the start: the entry already existed at an earlier scene on this scene's line, and
+   * wasn't first read in this scene. Written on the entry, it would show when drafting those earlier
+   * scenes.
+   */
+  laterDetail(e: Entry): boolean {
+    if (this.madeHere.has(e.id) || e.originSceneId === this.scene.sceneId) return false
+    if (this.earlier === undefined) this.earlier = existedEarlier(this.db, this.ctx.shape, this.scene.sceneId)
+    return this.earlier?.(e.id) ?? false
+  }
+
+  /** Notes a value offered for one of Adam's fields, so the same words don't raise an issue as well. */
+  offer(entryId: ID, field: string, value: string): void {
+    this.offered.add(`${entryId}|${field}|${plain(value)}`)
+  }
+  wasOffered(entryId: ID, field: string, value: string): boolean {
+    return this.offered.has(`${entryId}|${field}|${plain(value)}`)
+  }
+
+  /** The entry as it is at this scene (with the changes that count here), or null. */
+  stateHere(id: ID): Entry | null {
+    return this.ctx.memory?.entries.find((x) => x.id === id) ?? null
+  }
+
   noteRemovedChange(entryId: ID): void {
     this.removedChangeEntries.add(entryId)
   }
   get removedChanges(): Set<ID> {
     return this.removedChangeEntries
-  }
-}
-
-const changeContent = (c: ChangeData): string => {
-  switch (c.kind) {
-    case 'update':
-      return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')}`
-    case 'relationship':
-      return `${c.payload.type} ${c.payload.ended ? 'ended' : ''}`
-    case 'knowledge':
-      return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : ''}`
-    case 'thread':
-      return `${c.payload.status} ${c.payload.note}`
-    case 'full':
-      return c.payload.description
   }
 }
 
@@ -461,9 +540,37 @@ function linksHere(f: SceneFact, run: Run): SourceLink[] {
   return f.links.filter((l) => l.sceneId === run.scene.sceneId)
 }
 
+/**
+ * The fact as it is now, or null when it is gone. The plan was made before the memory model was
+ * asked, and Adam may have edited (made his own) or removed the fact meanwhile; an earlier step of
+ * this run may also have changed the same entry. Every write starts from this, never from the plan.
+ */
+function freshFact(run: Run, f: SceneFact): SceneFact | null {
+  if (f.kind === 'change') {
+    let change: Change
+    try {
+      change = mem.getChange(run.db, f.change.id)
+    } catch {
+      return null
+    }
+    const entry = run.entry(change.entryId)
+    return entry ? { ...f, change, entry, origin: change.origin } : null
+  }
+  const entry = run.entry(f.entry.id)
+  if (!entry) return null
+  if (f.kind === 'field') return { ...f, entry, origin: fieldOrigin(entry, f.field) }
+  if (f.kind === 'voice') return { ...f, entry, origin: fieldOrigin(entry, 'sampleLines') }
+  return { ...f, entry, origin: entry.origin }
+}
+
 /** Adam's fact lost its words: keep it, and offer to refresh it from the scene (once per set of words). */
 function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refresh' }>['proposal'], s: Spot | null): void {
   if (f.kind !== 'field' && f.kind !== 'change') return
+  // The scene's new words are this question's offer: they aren't added as a second fact, or raised as an issue, too.
+  if (f.kind === 'change' && proposal && 'change' in proposal) {
+    run.remember(fingerprint({ type: 'change', entryId: f.change.entryId, change: proposal.change }), changeContent(proposal.change))
+  }
+  if (f.kind === 'field' && proposal && 'value' in proposal) run.offer(f.entry.id, f.field, proposal.value)
   const key = `refresh:${f.key}:${s ? wordsOf(s.quote) : 'gone'}`
   if (kdb.questionAsked(run.db, key)) return
   const entry = f.entry
@@ -508,8 +615,10 @@ function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refre
 }
 
 /** Removes a text (or AI-drafted) fact whose words are gone or no longer say it. */
-function removeFact(run: Run, f: SceneFact, why: string): void {
+function removeFact(run: Run, planned: SceneFact, why: string): void {
   const db = run.db
+  const f = freshFact(run, planned)
+  if (!f) return
   if (f.origin === 'adam') return askRefresh(run, f, null, null)
   const quote = f.links[0]?.quote ?? ''
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
@@ -580,9 +689,11 @@ function removeFact(run: Run, f: SceneFact, why: string): void {
   }
 }
 
-function applyVerdict(run: Run, f: SceneFact, v: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
+function applyVerdict(run: Run, planned: SceneFact, v: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const verdict = str(v.do ?? v.verdict ?? v.action, 20).toLowerCase()
   const db = run.db
+  const f = freshFact(run, planned)
+  if (!f) return
   const links = linksHere(f, run)
   if (verdict === 'remove' || verdict === 'delete') return removeFact(run, f, 'the scene no longer says this')
   const s = run.place(v.quote, chunk.paras)
@@ -640,6 +751,7 @@ function applyVerdict(run: Run, f: SceneFact, v: Record<string, unknown>, chunk:
   if (same) return
   const version = kdb.latestVersion(db, 'change', c.id)
   mem.replaceChange(db, c.id, { ...changeInput(c, data), origin: 'text', runId: run.ctx.runId })
+  run.remember(fp, changeContent(data), c.id)
   run.log({
     action: 'updated',
     what: 'change',
@@ -683,7 +795,7 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     return
   }
   const fp = fingerprint({ type: 'entry', kind, name })
-  if (run.suppressed(fp, s.quote)) return
+  if (run.suppressed(fp, s.quote) || run.deletedByAdam(kind, name, s)) return
   const fields: Record<string, string> = {}
   const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
   for (const [k, v] of Object.entries(given)) {
@@ -715,9 +827,14 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
 }
 
 /** Adds a change pinned to this scene, with its link, unless it is already there or Adam undid it from these words. */
-function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | null {
+function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot, text?: string): Change | null {
   const fp = fingerprint({ type: 'change', entryId: entry.id, change: data })
-  if (run.suppressed(fp, s.quote) || run.duplicate(fp, changeContent(data))) return null
+  if (run.suppressed(fp, s.quote)) return null
+  const same = run.duplicate(fp, changeContent(data))
+  if (same) {
+    if (same.changeId) run.alsoSupports(same.changeId, s)
+    return null
+  }
   const c = mem.insertChange(run.db, {
     ...data,
     entryId: entry.id,
@@ -727,7 +844,7 @@ function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | 
     runId: run.ctx.runId
   })
   run.addLink('change', c.id, null, s)
-  run.remember(fp, changeContent(data))
+  run.remember(fp, changeContent(data), c.id)
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
   run.log({
     action: 'added',
@@ -735,7 +852,7 @@ function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | 
     entryId: entry.id,
     factId: c.id,
     entryName: entry.name,
-    text: changeWords(data, nameOf),
+    text: text ?? changeWords(data, nameOf),
     before: '',
     after: '',
     quote: s.quote,
@@ -761,12 +878,20 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
     return
   }
   if (run.suppressed(fp, s.quote)) return
-  if (adamField(e, field)) return clash(run, e, field, before, value, s)
+  if (adamField(e, field)) {
+    if (!run.wasOffered(e.id, field, value)) clash(run, e, field, before, value, s)
+    return
+  }
   if (before.trim() && fieldOrigin(e, field) === 'text') {
     // Words elsewhere still say the old value: that is a clash between scenes, not a change.
     const support = hist.linksForEntry(db, e.id).filter((l) => l.factKind === 'field' && l.field === field && l.state === 'ok')
     if (support.some((l) => l.sceneId !== run.scene.sceneId)) return clash(run, e, field, before, value, s)
   }
+  // An own version of events or a prequel (no other story sees it), or an entry that was already
+  // there in earlier scenes (drafting those doesn't see it): the detail is a change in this scene.
+  // An AI-drafted value on the entry gives way to the text instead.
+  const aiValue = !!before.trim() && fieldOrigin(e, field) === 'ai'
+  if (run.keepsToItsStory(e) || (run.laterDetail(e) && !aiValue)) return pinDetail(run, e, field, value, before, s)
   repo.updateEntry(db, e.id, patchFor(e, field, value), run.by)
   const link = run.addLink('field', e.id, field, s)
   run.log({
@@ -791,6 +916,23 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
   })
 }
 
+/**
+ * A detail that counts from this scene on: a change pinned here, not written on the entry. When the
+ * memory here already says something else because of an earlier scene's change, the text
+ * contradicts it, and an issue is raised instead.
+ */
+function pinDetail(run: Run, e: Entry, field: string, value: string, before: string, s: Spot): void {
+  const here = run.stateHere(e.id)
+  const now = here ? fieldValue(here, field) : before
+  if (plain(now) === plain(value)) return
+  if (now.trim() && plain(now) !== plain(before)) return raiseClash(run, e, field, now, value, s)
+  const data: ChangeData =
+    field === 'summary' || field === 'description'
+      ? { kind: 'update', payload: { note: '', [field]: value } }
+      : { kind: 'update', payload: { note: '', fields: { [field]: value } } }
+  addChange(run, e, data, s, `${fieldLabel(e, field)}: ${value}`)
+}
+
 /** The text disagrees with the memory: AI-drafted fields give way; Adam's facts (and other scenes' words) raise an issue. */
 function clash(run: Run, e: Entry, field: string | null, memory: string, text: string, s: Spot): void {
   if (field && fieldOrigin(e, field) === 'ai' && e.fieldOrigins?.[field] !== 'adam' && text) {
@@ -798,6 +940,10 @@ function clash(run: Run, e: Entry, field: string | null, memory: string, text: s
     if (updated) addDetail(run, updated, field, text, s)
     return
   }
+  raiseClash(run, e, field, memory, text, s)
+}
+
+function raiseClash(run: Run, e: Entry, field: string | null, memory: string, text: string, s: Spot): void {
   const about = field ? fieldLabel(e, field).toLowerCase() : 'this'
   kdb.raiseIssue(run.db, {
     sceneId: run.scene.sceneId,
@@ -828,7 +974,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       return
     }
     const fp = fingerprint({ type: 'event', name })
-    if (run.suppressed(fp, s.quote)) return
+    if (run.suppressed(fp, s.quote) || run.deletedByAdam('event', name, s)) return
     const e = repo.createEntry(
       db,
       'event',
@@ -875,7 +1021,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     if (!thread) {
       if (!name) return
       const fp = fingerprint({ type: 'entry', kind: 'thread', name })
-      if (run.suppressed(fp, s.quote)) return
+      if (run.suppressed(fp, s.quote) || run.deletedByAdam('thread', name, s)) return
       thread = repo.createEntry(
         db,
         'thread',
@@ -955,10 +1101,22 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const e = run.entry(entry.id)
       if (!e || e.kind !== 'character' || adamField(e, 'sampleLines')) return
       const line = s.quote.trim()
-      const lines = sampleLines(e)
+      // Like a detail: a line from a later scene (or a what-if) counts from this scene on.
+      const pinned = run.keepsToItsStory(e) || run.laterDetail(e)
+      const lines = sampleLines(pinned ? (run.stateHere(e.id) ?? e) : e)
       if (lines.length >= MAX_SAMPLE_LINES || lines.some((l) => plain(l) === plain(line))) return
       const fp = fingerprint({ type: 'voice', entryId: e.id })
       if (run.suppressed(fp, line)) return
+      if (pinned) {
+        addChange(
+          run,
+          e,
+          { kind: 'update', payload: { note: '', fields: { sampleLines: [...lines, line].join('\n') } } },
+          s,
+          'New sample line'
+        )
+        return
+      }
       repo.updateEntry(db, e.id, { fields: { ...e.fields, sampleLines: [...lines, line].join('\n') } }, run.by)
       const link = run.addLink('voice', e.id, 'sampleLines', s)
       run.log({
@@ -1010,6 +1168,21 @@ function linkMentions(run: Run): void {
   }
 }
 
+/** Where the text still mentions the entry (in any live scene, read or not), or null. */
+function mentionedSomewhere(db: DB, e: Entry): { scene: KeeperScene; spot: Spot } | null {
+  const names = [e.name, ...e.aliases].filter((n) => n.trim().length >= 2)
+  const longestWord = (n: string): string =>
+    n
+      .trim()
+      .split(/\s+/)
+      .sort((a, b) => b.length - a.length)[0] ?? n
+  for (const scene of kdb.scenesWithWords(db, names.map(longestWord))) {
+    const spot = findMention(names, sceneParagraphs(scene.doc, scene.text))
+    if (spot) return { scene, spot }
+  }
+  return null
+}
+
 /** Text entries whose last mention is gone, which Adam never edited, move to Trash (with their own text changes). */
 function trashForgotten(run: Run): void {
   const db = run.db
@@ -1027,6 +1200,19 @@ function trashForgotten(run: Run): void {
       else unsupported.push(c.id)
     }
     if (supported || kdb.entryReferenced(db, id, unsupported)) continue
+    // Another scene still names it (one read before the entry existed, or not read yet): it stays, linked there.
+    const still = mentionedSomewhere(db, e)
+    if (still) {
+      hist.addLink(db, {
+        factKind: 'entry',
+        factId: id,
+        field: null,
+        sceneId: still.scene.sceneId,
+        sceneVersion: still.scene.textVersion,
+        ...still.spot
+      })
+      continue
+    }
     for (const cid of unsupported) mem.deleteChange(db, cid, run.by)
     repo.deleteEntry(db, id, run.by)
     run.log({

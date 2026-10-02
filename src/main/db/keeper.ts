@@ -84,8 +84,12 @@ const toKeeperScene = (r: Row): KeeperScene => ({
   acceptedAt: (r.accepted_at as string | null) ?? null
 })
 
-const LIVE_SCENES = `SELECT s.*, c.story_id FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+const LIVE = `FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
   WHERE s.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL`
+const LIVE_SCENES = `SELECT s.*, c.story_id ${LIVE}`
+/** Ids only: a scene's text and document are never read just to check its state. */
+const LIVE_IDS = `SELECT s.id ${LIVE}`
+const BEHIND = "(s.memory_status <> 'current' OR s.text_version > s.memory_version)"
 const READING_ORDER = 'ORDER BY st.created_order, c.position, s.position'
 
 /** One live scene, or null when it (or its chapter or story) is deleted. */
@@ -96,19 +100,29 @@ export function keeperScene(db: DB, sceneId: ID): KeeperScene | null {
 
 /** Live scenes the memory hasn't caught up with (waiting, or "Memory not updated"), in reading order. */
 export function scenesToRead(db: DB): ID[] {
-  return (
-    db.prepare(`${LIVE_SCENES} AND (s.memory_status <> 'current' OR s.text_version > s.memory_version) ${READING_ORDER}`).all() as Row[]
-  ).map((r) => r.id as string)
+  return (db.prepare(`${LIVE_IDS} AND ${BEHIND} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
 /** True when a live scene's latest text hasn't been read (or its last read failed). */
 export function needsReading(db: DB, sceneId: ID): boolean {
-  return !!db.prepare(`${LIVE_SCENES} AND s.id = ? AND (s.memory_status <> 'current' OR s.text_version > s.memory_version)`).get(sceneId)
+  return !!db.prepare(`${LIVE_IDS} AND s.id = ? AND ${BEHIND}`).get(sceneId)
+}
+
+/**
+ * Live scenes whose text may hold one of these words (letters A to Z in any case), in reading order.
+ * A quick filter by index-free LIKE; the caller checks each for a real mention.
+ */
+export function scenesWithWords(db: DB, words: string[]): KeeperScene[] {
+  const ws = [...new Set(words.map((w) => w.trim()).filter((w) => w.length >= 2))]
+  if (!ws.length) return []
+  const like = ws.map(() => "s.text LIKE ? ESCAPE '\\'").join(' OR ')
+  const args = ws.map((w) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+  return (db.prepare(`${LIVE_SCENES} AND (${like}) ${READING_ORDER}`).all(...args) as Row[]).map(toKeeperScene)
 }
 
 /** Every live scene id, in reading order. */
 export function liveSceneIds(db: DB): ID[] {
-  return (db.prepare(`${LIVE_SCENES} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
+  return (db.prepare(`${LIVE_IDS} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
 /** A save moved the scene's text on: its memory is waiting to be read ("Memory not updated" stays until a read works). */
@@ -302,13 +316,14 @@ export function listLog(db: DB, o: { sceneId?: ID; entryId?: ID; limit?: number 
     args.push(o.entryId)
   }
   const limit = Math.max(1, Math.min(Math.floor(o.limit ?? 200), 1000))
-  // Runs newest first (by their last line); a run's own lines in the order they were made.
+  // Runs newest first (by their last line shown); a run's own lines in the order they were made.
+  const filter = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const rows = db
     .prepare(
-      `SELECT l.* FROM memory_log l JOIN (SELECT run_id, MAX(rowid) AS last FROM memory_log GROUP BY run_id) r ON r.run_id = l.run_id
+      `SELECT l.* FROM memory_log l JOIN (SELECT run_id, MAX(rowid) AS last FROM memory_log ${filter} GROUP BY run_id) r ON r.run_id = l.run_id
        ${where.length ? `WHERE ${where.map((w) => `l.${w}`).join(' AND ')}` : ''} ORDER BY r.last DESC, l.rowid ASC LIMIT ${limit}`
     )
-    .all(...args) as Row[]
+    .all(...args, ...args) as Row[]
   return rows.map(toLog)
 }
 
@@ -328,15 +343,19 @@ export function setLogQuestion(db: DB, id: ID, question: LogRow['question'], und
   )
 }
 
-/** The last run that changed something, for the quiet "Memory updated" note. */
+/**
+ * The last run that changed something, for the quiet "Memory updated" note. Asked after every save,
+ * so it reads only the newest line and its run's lines (by index), never the whole list.
+ */
 export function lastUpdate(db: DB): { at: string; runId: ID; changes: number } | null {
+  const last = db.prepare("SELECT run_id FROM memory_log WHERE action <> 'failed' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as
+    | Row
+    | undefined
+  if (!last) return null
   const r = db
-    .prepare(
-      `SELECT run_id, MAX(created_at) AS at, COUNT(*) AS n FROM memory_log WHERE action <> 'failed'
-       GROUP BY run_id ORDER BY at DESC LIMIT 1`
-    )
-    .get() as Row | undefined
-  return r ? { at: r.at as string, runId: r.run_id as string, changes: r.n as number } : null
+    .prepare("SELECT MAX(created_at) AS at, COUNT(*) AS n FROM memory_log WHERE run_id = ? AND action <> 'failed'")
+    .get(last.run_id) as Row
+  return { at: r.at as string, runId: last.run_id as string, changes: r.n as number }
 }
 
 // ---------- Suppressions: facts Adam undid, not added again from the same words ----------
@@ -461,6 +480,17 @@ export function versionData(
     .prepare('SELECT data_json, origin FROM fact_versions WHERE fact_kind = ? AND fact_id = ? AND version = ?')
     .get(factKind, factId, version) as Row | undefined
   return r ? { data: json<unknown>(r.data_json, null), origin: r.origin as Origin } : null
+}
+
+/** Entries of this kind Adam moved to Trash himself (not the keeper), with their names. */
+export function entriesAdamDeleted(db: DB, kind: string): { id: ID; name: string; aliases: string[] }[] {
+  const rows = db.prepare('SELECT id, name, aliases_json FROM entries WHERE deleted_at IS NOT NULL AND kind = ?').all(kind) as Row[]
+  return rows
+    .filter((r) => {
+      const last = versionData(db, 'entry', r.id as string, latestVersion(db, 'entry', r.id as string))
+      return !!last && last.data == null && last.origin === 'adam'
+    })
+    .map((r) => ({ id: r.id as string, name: r.name as string, aliases: json<string[]>(r.aliases_json, []) }))
 }
 
 /** True when a line already asks this question (by the key in its undo data). */

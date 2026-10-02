@@ -8,7 +8,7 @@ import type { ChatMessage, ContextBlock, EntryState, ID, ModelChoice, SceneCard 
 import type { SceneMemory } from '../memory/types'
 import { READING_SYSTEM } from './prompts'
 import { changeWords, fieldValue, type SceneFact } from './facts'
-import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, type Para } from './text'
+import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, words, type Para } from './text'
 import { DEFAULT_MEMORY_CONTEXT } from './model'
 
 /** How much of the model's window each request may use. */
@@ -88,7 +88,12 @@ export function planChunks(all: Para[], toRead: Para[], atRisk: SceneFact[], bud
     }
   }
   flush()
-  // Each fact whose words changed goes with the chunk holding its paragraph, or the most alike text.
+  giveAtRisk(chunks, atRisk)
+  return chunks
+}
+
+/** Each fact whose words changed goes with the chunk holding its paragraph, or the most alike text. */
+function giveAtRisk(chunks: ReadingChunk[], atRisk: SceneFact[]): void {
   for (const f of atRisk) {
     const link = f.links[0]
     let best = link?.paragraphId ? chunks.findIndex((c) => c.paras.some((p) => p.pid === link.paragraphId)) : -1
@@ -104,7 +109,43 @@ export function planChunks(all: Para[], toRead: Para[], atRisk: SceneFact[], bud
     }
     chunks[Math.max(0, best)].atRisk.push(f)
   }
-  return chunks
+}
+
+/**
+ * A chunk in two halves of about the same size, for when the model's reply to it ran past the reply
+ * limit; null when it is too small to split.
+ */
+export function splitChunk(chunk: ReadingChunk): [ReadingChunk, ReadingChunk] | null {
+  let pieces = chunk.pieces
+  const reading = pieces.filter((p) => p.para)
+  if (reading.length === 1) {
+    // One paragraph (or part of one): split its text, keeping the surrounding text either side.
+    const one = reading[0]
+    const parts = splitLong(one.text, Math.ceil(estimateTokens(one.text) / 2))
+    if (parts.length < 2) return null
+    const at = pieces.indexOf(one)
+    pieces = [...pieces.slice(0, at), ...parts.map((text) => ({ ...one, text })), ...pieces.slice(at + 1)]
+  }
+  const cost = (p: Piece): number => (p.para ? estimateTokens(p.text) + 4 : 0)
+  const total = pieces.reduce((n, p) => n + cost(p), 0)
+  // Cut before the paragraph piece that would take the first half past the middle (never before the first).
+  let used = 0
+  let cut = -1
+  let seen = 0
+  for (let i = 0; i < pieces.length; i++) {
+    if (!pieces[i].para) continue
+    if (seen > 0 && used + cost(pieces[i]) / 2 > total / 2) {
+      cut = i
+      break
+    }
+    used += cost(pieces[i])
+    seen++
+  }
+  if (cut < 0) return null
+  const half = (ps: Piece[]): ReadingChunk => ({ pieces: ps, paras: [...new Set(ps.flatMap((p) => (p.para ? [p.para] : [])))], atRisk: [] })
+  const halves: [ReadingChunk, ReadingChunk] = [half(pieces.slice(0, cut)), half(pieces.slice(cut))]
+  giveAtRisk(halves, chunk.atRisk)
+  return halves
 }
 
 /** Short ids for one request, and what they stand for. */
@@ -115,6 +156,10 @@ export class Ids {
   readonly known = new Map<string, ID>()
   readonly knownText = new Map<string, string>()
 
+  /** The short id an entry has, or would get next (without giving it one). */
+  peek(id: ID): string {
+    return this.byEntry.get(id) ?? `E${this.byEntry.size + 1}`
+  }
   entry(id: ID): string {
     let e = this.byEntry.get(id)
     if (!e) {
@@ -193,6 +238,13 @@ function mentioned(e: EntryState, text: string): boolean {
   return [e.name, ...e.aliases].some((n) => mentionAt(text, n) !== null)
 }
 
+/**
+ * Room for the names of entries the chunk doesn't mention. They help the model reuse an entry the
+ * text calls something else ("the Duke" for Duke Aldric), but a run should send only what the
+ * changed paragraphs need, never every name in a big world on each pause in typing.
+ */
+export const NAMES_TOKENS = 1500
+
 /** Lines added while they fit the room left. */
 class Room {
   constructor(public left: number) {}
@@ -244,17 +296,22 @@ export function buildRequest(r: RequestInput): ReadingRequest {
   const shown = new Set<ID>()
   const relevant = here.filter((e) => onCard.has(e.id) || mentioned(e, chunkText) || r.chunk.atRisk.some((f) => f.entry.id === e.id))
   for (const e of relevant) {
-    const line = entryLine(e, ids.entry(e.id), true)
+    const line = entryLine(e, ids.peek(e.id), true)
     if (room.take(line)) {
+      ids.entry(e.id)
       memoryLines.push(line)
       shown.add(e.id)
     }
   }
-  // Facts already read from this scene (so they aren't repeated), nearest the chunk first.
+  // Facts already read from this scene (so they aren't repeated): those in the chunk's paragraphs,
+  // then those about the entries it mentions.
   const foundLines: string[] = []
   const pids = new Set(r.chunk.paras.map((p) => p.pid).filter(Boolean))
   const near = (f: SceneFact): number => (f.links.some((l) => l.paragraphId && pids.has(l.paragraphId)) ? 0 : 1)
-  const found = [...r.found].sort((a, b) => near(a) - near(b))
+  const about = new Set(relevant.map((e) => e.id))
+  const found = r.found
+    .filter((f) => near(f) === 0 || about.has(f.entry.id) || (f.kind === 'change' && about.has(f.change.entryId)))
+    .sort((a, b) => near(a) - near(b))
   for (const f of found) {
     const line = `- ${ids.fact(f)} ${describeFact(f, ids)} | words: ${q(f.links.find((l) => l.state === 'ok')?.quote ?? f.links[0]?.quote ?? '')}`
     if (!room.take(line)) break
@@ -289,15 +346,22 @@ export function buildRequest(r: RequestInput): ReadingRequest {
   const elsewhereLines: string[] = []
   for (const x of sm?.elsewhere ?? []) {
     if (!mentioned(x.entry, chunkText)) continue
-    const line = `${entryLine(x.entry, ids.entry(x.entry.id), false)}: ${x.label}`
-    if (room.take(line)) elsewhereLines.push(line)
+    const line = `${entryLine(x.entry, ids.peek(x.entry.id), false)}: ${x.label}`
+    if (!room.take(line)) continue
+    ids.entry(x.entry.id)
+    elsewhereLines.push(line)
   }
-  // Names of everything else here, while there is room, so a new entry isn't a duplicate.
+  // Names of other entries here, so a new entry isn't a duplicate: first those sharing a word with
+  // the chunk, then the rest, within a small allowance.
   const nameLines: string[] = []
-  for (const e of here) {
-    if (shown.has(e.id) || e.kind === 'thread' || e.kind === 'event') continue
-    const line = entryLine(e, ids.entry(e.id), false)
-    if (!room.take(line)) break
+  const nameRoom = new Room(Math.min(room.left, NAMES_TOKENS))
+  const chunkWords = new Set(words(chunkText).filter((w) => w.length >= 4))
+  const shares = (e: EntryState): boolean => [e.name, ...e.aliases].some((n) => words(n).some((w) => chunkWords.has(w)))
+  const others = here.filter((e) => !shown.has(e.id) && e.kind !== 'thread' && e.kind !== 'event')
+  for (const e of [...others.filter(shares), ...others.filter((e) => !shares(e))]) {
+    const line = entryLine(e, ids.peek(e.id), false)
+    if (!nameRoom.take(line) || !room.take(line)) break
+    ids.entry(e.id)
     nameLines.push(line)
   }
 

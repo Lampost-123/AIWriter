@@ -1,8 +1,9 @@
 // One memory keeper run for one scene: plan what changed, ask the memory model about the new and
-// changed paragraphs (in chunks that fit it), repair or retry a reply that can't be read once, then
-// apply everything in one transaction and mark the scene version processed. A failure leaves the
-// memory as it was, marks the scene "Memory not updated" and lists it in What changed; it is tried
-// again on the next trigger and at app start. Re-running a processed version changes nothing.
+// changed paragraphs (in chunks that fit it; one whose reply ran past the reply limit is read again
+// in halves), repair or retry a reply that can't be read once, then apply everything in one
+// transaction and mark the scene version processed. A failure leaves the memory as it was, marks the
+// scene "Memory not updated" and lists it in What changed; it is tried again on the next trigger and
+// at app start. Re-running a processed version changes nothing.
 // Never writes once the world has closed. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -11,13 +12,17 @@ import * as kdb from '../db/keeper'
 import * as repo from '../db/repo'
 import { applyRead, type ChunkReply } from './apply'
 import { callModel, type CallResult, type MemoryModel } from './model'
-import { parseLenient, readingReply, type ReadingReply } from './json'
+import { CUT_OFF, parseLenient, readingReply, type ReadingReply } from './json'
 import { retryMessage } from './prompts'
-import { buildRequest, planChunks, readingBudget } from './request'
+import { buildRequest, planChunks, readingBudget, splitChunk, type ReadingChunk } from './request'
+import { estimateTokens } from './text'
 import { nothingToDo, planRead } from './track'
 import { loadShapeSafe, memoryAt, placeWords, sideClashesFor } from './places'
 
 type DB = Database.Database
+
+/** How many times one run may split a chunk whose reply ran past the reply limit. */
+const MAX_SPLITS = 16
 
 export interface RunOptions {
   db: DB
@@ -162,7 +167,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
 
   const budget = readingBudget(model.choice)
   if (!budget) {
-    return fail('The memory model can take too little text at once, so pick another memory model in Settings > Models.')
+    return fail('The memory model can take too little text at once, so pick another model for the memory keeper in Settings > Models.')
   }
   const memory = memoryAt(db, scene.storyId, sceneId)
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)
@@ -171,7 +176,9 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   o.onReading?.()
 
   const replies: ChunkReply[] = []
-  for (const chunk of chunks) {
+  let splits = 0
+  while (chunks.length) {
+    const chunk = chunks.shift()!
     const req = buildRequest({ where, title: scene.title, card, chunk, found: plan.found, memory, budget })
     const ask = (messages: ChatMessage[]): Promise<CallResult> =>
       callModel({
@@ -190,6 +197,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         retryDelays: o.retryDelays
       })
     let reply: ReadingReply | null = null
+    let halves: ReadingChunk[] | null = null
     let messages = req.messages
     for (let attempt = 0; attempt < 2 && !reply; attempt++) {
       const call = await ask(messages)
@@ -202,12 +210,22 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         reply = checked.reply
         break
       }
+      // A long reply cut off by the reply limit: asking again would be cut off the same way, so the
+      // chunk is read in two smaller halves instead.
+      const cutOff = checked.why === CUT_OFF && estimateTokens(call.text) >= budget.reply * 0.6
+      halves = cutOff && splits < MAX_SPLITS ? splitChunk(chunk) : null
+      if (halves) break
       // Asked once more, saying what was wrong.
       messages = [...req.messages, { role: 'assistant', content: call.text }, { role: 'user', content: retryMessage(checked.why) }]
     }
+    if (halves) {
+      splits++
+      chunks.unshift(...halves)
+      continue
+    }
     if (!reply) {
       return fail(
-        "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings > Models."
+        "The memory model's reply wasn't in the right format; it will try again, or you can pick another model for the memory keeper in Settings > Models."
       )
     }
     replies.push({ ids: req.ids, reply, paras: chunk.paras })

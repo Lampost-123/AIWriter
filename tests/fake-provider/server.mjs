@@ -37,6 +37,7 @@
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
+//   A reply longer than max_tokens (at about 4 characters a token) is cut off there, with finish_reason "length".
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -276,8 +277,10 @@ export async function startFakeProvider(options = {}) {
       memory = broken ? 'Here you go: {"facts": [ {"id": ' : fakeMemoryReply(firstUser)
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
+    // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
+    const cut = memory !== null && memory.length > limit * 4
     // A reply that runs into the limit stops mid-sentence.
-    const prose = model === 'fake/length' ? full.slice(0, Math.floor(full.length * 0.7)).replace(/\s+\S*$/, '') : full
+    const prose = cut ? memory.slice(0, limit * 4) : model === 'fake/length' ? full.slice(0, Math.floor(full.length * 0.7)).replace(/\s+\S*$/, '') : full
     const promptChars = JSON.stringify(body.messages ?? []).length
     const usage = { prompt_tokens: Math.ceil(promptChars / 4), completion_tokens: Math.ceil(words * 1.3) }
     usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
@@ -332,7 +335,7 @@ export async function startFakeProvider(options = {}) {
       if (i % 7 === 3) res.write(`: keep-alive${nl}${nl}`)
       if (delay) await sleep(delay)
     }
-    send(chunk({}, model === 'fake/length' ? 'length' : 'stop'))
+    send(chunk({}, model === 'fake/length' || cut ? 'length' : 'stop'))
     if (body.usage?.include || body.stream_options?.include_usage) send({ id: 'fake-1', object: 'chat.completion.chunk', model, choices: [], usage })
     send('[DONE]')
     res.end()

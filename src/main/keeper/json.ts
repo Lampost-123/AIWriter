@@ -4,6 +4,9 @@
 
 export type Parsed = { ok: true; value: unknown } | { ok: false; why: string }
 
+/** Why a reply that ends before its JSON object does can't be read (it may have run into the reply limit). */
+export const CUT_OFF = 'it stopped before the JSON object was finished'
+
 /** The first balanced {...} in the text, or why there isn't one. */
 function firstObject(text: string): { ok: true; json: string } | { ok: false; why: string } {
   const start = text.indexOf('{')
@@ -26,7 +29,7 @@ function firstObject(text: string): { ok: true; json: string } | { ok: false; wh
       if (depth === 0) return { ok: true, json: text.slice(start, i + 1) }
     }
   }
-  return { ok: false, why: 'it stopped before the JSON object was finished' }
+  return { ok: false, why: CUT_OFF }
 }
 
 /** Removes // and /* *\/ comments and commas before a closing bracket, outside strings. */
