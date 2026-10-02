@@ -103,6 +103,11 @@ export interface OutlineApi {
   placeChapter(chapterId: ID, place: ChapterPlace): Promise<void>
 
   // ----- The outline helper -----
+  /**
+   * The story has nothing planned or written yet: at most the empty "Chapter 1" and "Scene 1" it was made
+   * with. The helper then plans it from the premise, and its page says so. One rule for both (src/main/outline/context.ts).
+   */
+  outlineBlank(storyId: ID): Promise<boolean>
   /** Asks for an outline; it streams as task events with job 'outline'. Throws (plain words) only before it starts. */
   startOutline(input: OutlineRequest): Promise<{ generationId: ID }>
   /** Adds what Adam kept to the story, with each scene's card filled; says what was made from each item. */

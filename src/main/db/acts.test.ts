@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import * as repo from './repo'
 import * as acts from './acts'
+import { purgeTrash } from './trash'
 import { memoryWorld } from '../../../tests/unit/helpers'
 
 // A story's order is its chapters' order: the chapters with no act first, then each act's chapters
@@ -247,6 +248,50 @@ describe('deleting an act', () => {
     expectInOrder(db)
   })
 
+  it('waits in Recently deleted with the chapters and scenes deleted with it, and comes back from there', () => {
+    const db = memoryWorld()
+    const { id, made, chapters } = threeActs(db)
+    repo.deleteChapter(db, chapters.A)
+    acts.deleteAct(db, made[1].id)
+    const empty = acts.createAct(db, id, { title: 'Empty' })
+    acts.deleteAct(db, empty.id)
+    const trash = repo.listDeleted(db)
+    // B and C went with their act, so they are listed in it, not on their own; A went by itself.
+    expect(trash.map((t) => [t.kind, t.title, t.chapterCount ?? null, t.sceneCount]).sort()).toEqual([
+      ['act', 'Empty', 0, 0],
+      ['act', 'Two', 2, 2],
+      ['chapter', 'A', null, 1]
+    ])
+    expect(trash.find((t) => t.title === 'Two')).toMatchObject({ storyId: id, storyTitle: repo.getStory(db, id).title })
+    acts.restoreAct(db, made[1].id)
+    expect(shape(db)).toEqual(['-: Chapter 1', 'One: ', 'Two: B, C', 'Three: D'])
+    expect(
+      repo
+        .listDeleted(db)
+        .map((t) => [t.kind, t.title])
+        .sort()
+    ).toEqual([
+      ['act', 'Empty'],
+      ['chapter', 'A']
+    ])
+  })
+
+  it('goes for good after 30 days in Recently deleted, with the chapters and scenes deleted with it', () => {
+    const db = memoryWorld()
+    const { id, made, chapters } = threeActs(db)
+    acts.deleteAct(db, made[1].id)
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
+    db.prepare('UPDATE acts SET deleted_at = ? WHERE id = ?').run(old, made[1].id)
+    db.prepare('UPDATE chapters SET deleted_at = ? WHERE act_id = ?').run(old, made[1].id)
+    db.prepare('UPDATE scenes SET deleted_at = ? WHERE chapter_id IN (?, ?)').run(old, chapters.B, chapters.C)
+    // Deleted later: it stays for now.
+    acts.deleteAct(db, made[2].id)
+    expect(purgeTrash(db, 30)).toMatchObject({ chapters: 2, scenes: 2 })
+    expect(db.prepare('SELECT id FROM acts WHERE story_id = ?').all(id)).toHaveLength(2)
+    expect(repo.listDeleted(db).map((t) => [t.kind, t.title])).toEqual([['act', 'Three']])
+    expect(() => acts.restoreAct(db, made[1].id)).toThrow('That act could not be found to restore.')
+  })
+
   it('treats a chapter whose act is gone as having none', () => {
     const db = memoryWorld()
     const { id, made, chapters } = threeActs(db)
@@ -310,9 +355,8 @@ describe('taking back what the outline helper kept', () => {
     repo.saveSceneText(db, s1.id, null, 'The rain had not let up.')
     acts.takeBackKept(db, items)
     const trash = repo.listDeleted(db)
-    // The chapter holds a scene with words, so it waits in Recently deleted with it (and so does its act).
-    expect(trash.map((t) => [t.kind, t.title])).toEqual([['chapter', 'Kept chapter']])
-    expect(trash[0].sceneCount).toBe(1)
+    // The chapter holds a scene with words, so it waits in Recently deleted with it, in its act.
+    expect(trash.map((t) => [t.kind, t.title, t.chapterCount, t.sceneCount])).toEqual([['act', 'Kept act', 1, 1]])
     repo.restoreDeleted(db, 'chapter', chapter.id)
     expect(shape(db)).toEqual(['-: Chapter 1', 'Kept act: Kept chapter'])
     expect(repo.getOutline(db, book(db)).scenes.map((s) => s.title)).toEqual(['Scene 1', 'Kept 1'])
@@ -323,7 +367,7 @@ describe('taking back what the outline helper kept', () => {
     const { items, chapter } = kept(db)
     repo.updateChapter(db, chapter.id, { title: 'Renamed' })
     acts.takeBackKept(db, items)
-    expect(repo.listDeleted(db).map((t) => [t.kind, t.title])).toEqual([['chapter', 'Renamed']])
+    expect(repo.listDeleted(db).map((t) => [t.kind, t.title, t.chapterCount])).toEqual([['act', 'Kept act', 1]])
   })
 
   it('skips what is already gone', () => {

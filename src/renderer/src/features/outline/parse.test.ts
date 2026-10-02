@@ -156,6 +156,45 @@ describe('reading an outline', () => {
     ])
   })
 
+  it('reads scenes written as list items under a chapter, with what happens after the title', () => {
+    const o = parseOutline(
+      [
+        '## Chapter 1: Rain on the Narrows',
+        'Goal: Mara finds her footing.',
+        '- **Scene 1: Docks** — Mara lands.',
+        '- **Scene 2: The bargain** — Tobin offers a deal.',
+        '  - Tobin names his price',
+        '  - Mara haggles and loses',
+        '- Scene 3: Pursuit through the market - The guild chases her.',
+        '## Chapter 2: Lanterns',
+        '1. Scene: The market — Mara runs.',
+        '2. Act fast: she grabs the ledger',
+        '- Scene shifts to the bridge'
+      ].join('\n'),
+      true
+    )
+    expect(show(o)).toEqual([
+      'c0 Rain on the Narrows | Mara finds her footing.',
+      '  c0s0 Docks | Mara lands. | ',
+      '  c0s1 The bargain | Tobin offers a deal. | Tobin names his price; Mara haggles and loses',
+      '  c0s2 Pursuit through the market | The guild chases her. | ',
+      'c1 Lanterns | ',
+      '  c1s0 The market | Mara runs. | Act fast: she grabs the ledger; Scene shifts to the bridge'
+    ])
+  })
+
+  it('reads acts and chapters written as list items too', () => {
+    const o = parseOutline(
+      [
+        '- **Act 1: The Arrival** — Mara reaches the city.',
+        '  - **Chapter 1: Rain** — She finds her footing.',
+        '    - **Scene 1: Docks**'
+      ].join('\n'),
+      true
+    )
+    expect(show(o)).toEqual(['a0 The Arrival | Mara reaches the city.', '  a0c0 Rain | She finds her footing.', '    a0c0s0 Docks |  | '])
+  })
+
   it('gives a scene with no chapter heading a chapter of its own', () => {
     const o = parseOutline('### Scene: Alone\n- Beat', true)
     expect(show(o)).toEqual(['c0 Chapter 1 | ', '  c0s0 Alone |  | Beat'])
@@ -228,6 +267,52 @@ A child brings a message.
       { title: 'The door', summary: 'She goes in.', beats: ['Door'], complete: true },
       { title: 'The debt', summary: 'Tobin asks.', beats: ['Ferry'], complete: true },
       { title: 'The messenger', summary: 'A child comes.', beats: ['Note', 'Raid'], complete: true }
+    ])
+  })
+
+  it('reads ideas numbered with no “##”, telling them from numbered beats', () => {
+    const text = [
+      'Here are three directions for the scene:',
+      '',
+      '1. The door left open',
+      'Mara finds the guild house unguarded.',
+      '- Mara finds the side door unlatched',
+      '- She overhears Tobin',
+      '',
+      '2. A debt called in — Tobin calls in the favour.',
+      '1. Tobin waits at the ferry',
+      '2. He names the job',
+      '3. Mara says yes',
+      '',
+      '3. **The wrong messenger**',
+      'A child brings a message.',
+      '- A soaked child presses a note into her hand'
+    ].join('\n')
+    expect(parseIdeas(text, true)).toEqual([
+      {
+        title: 'The door left open',
+        summary: 'Mara finds the guild house unguarded.',
+        beats: ['Mara finds the side door unlatched', 'She overhears Tobin'],
+        complete: true
+      },
+      {
+        title: 'A debt called in',
+        summary: 'Tobin calls in the favour.',
+        beats: ['Tobin waits at the ferry', 'He names the job', 'Mara says yes'],
+        complete: true
+      },
+      {
+        title: 'The wrong messenger',
+        summary: 'A child brings a message.',
+        beats: ['A soaked child presses a note into her hand'],
+        complete: true
+      }
+    ])
+    // While it arrives, the one being written is not complete yet.
+    const cut = text.slice(0, text.indexOf('2. He names'))
+    expect(parseIdeas(cut, false).map((i) => [i.title, i.beats.length, i.complete])).toEqual([
+      ['The door left open', 2, true],
+      ['A debt called in', 1, false]
     ])
   })
 

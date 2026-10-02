@@ -1,9 +1,10 @@
 // Reading the outline helper's and next scene ideas' answers as they arrive. The AI is asked for a fixed
 // plain-text form (src/main/outline/prompts.ts: "# Act:", "## Chapter:", "### Scene:", "Purpose:",
 // "Goal:", "Summary:", "- beat"; ideas as "## 1. Title", a sentence and "- beat" lines), but models
-// wander: numbered or bold headings ("**Act 1: The Arrival**"), "Act One —", "*" bullets, a chatty
-// first or last line, code fences. This reads all of those, line by line, and works on a reply cut
-// off anywhere (a stream still arriving, or stopped): the last thing read is simply not complete yet.
+// wander: numbered or bold headings ("**Act 1: The Arrival**"), "Act One —", scenes as list items
+// ("- **Scene 1: Docks** — Mara lands."), ideas numbered with no "##", "*" bullets, a chatty first or
+// last line, code fences. This reads all of those, line by line, and works on a reply cut off anywhere
+// (a stream still arriving, or stopped): the last thing read is simply not complete yet.
 // No React, so it is unit-tested.
 
 export interface SuggestedScene {
@@ -92,13 +93,21 @@ const NUMBER = `(?:\\d{1,3}|${NUMBER_WORDS.join('|')}|[ivxlc]{1,6}(?=\\s*(?:[:.)
 
 type Level = 'act' | 'chapter' | 'scene'
 
+/** A heading's level and title; `text`: a line on the same line after the title (see listedHeading). */
+interface Heading {
+  level: Level
+  title: string
+  number: string
+  text?: string
+}
+
 const HEADING = new RegExp(
   `^(?:#{1,6}\\s*)?(?:\\d{1,2}[.)]\\s+)?(act|part|chapter|scene)\\b\\s*(${NUMBER})?\\s*(?:[:.)\\-–—]\\s*|\\s+|$)(.*)$`,
   'i'
 )
 
 /** A heading line ("## Chapter 3 – Rain", "**Act One: The Arrival**"): its level and title. */
-function heading(line: string): { level: Level; title: string; number: string } | null {
+function heading(line: string): Heading | null {
   const raw = line.trim()
   // Plain prose that happens to start with "Act" or "Scene" isn't a heading: a heading is marked
   // (#, bold or a number), has a number, or puts a colon or dash after the word.
@@ -112,6 +121,28 @@ function heading(line: string): { level: Level; title: string; number: string } 
   const level: Level = /^(act|part)$/i.test(word) ? 'act' : (word.toLowerCase() as Level)
   const title = plain(rest.replace(/^(?:title\s*:\s*)/i, '')).replace(/[:\s]+$/, '')
   return { level, title, number }
+}
+
+/**
+ * A heading written as a list item ("- **Scene 1: Docks** — Mara lands.", "2. Chapter: Lanterns"). Only
+ * when it is clearly one (in bold, numbered, or with a colon or dash straight after the word), as a beat
+ * may well start with "Act" or "Scene". What follows the title after a dash or colon is its line: a
+ * scene's summary, a chapter's goal, an act's purpose.
+ */
+function listedHeading(item: string): Heading | null {
+  const raw = item.trim()
+  const bold = raw.match(/^(\*\*|__)(.+?)\1\s*(.*)$/)
+  const h = heading(bold ? `**${bold[2]}**` : raw)
+  if (!h) return null
+  if (!bold && !h.number && !/^(?:act|part|chapter|scene)\s*[:：—–-]/i.test(plain(raw))) return null
+  const after = bold ? plain(bold[3].replace(/^[:：—–-]\s*/, '')) : ''
+  return after ? { ...h, text: after } : { ...h, ...splitTitle(h.title) }
+}
+
+/** "Docks — Mara lands.": a title and the line after it, split at the first dash or colon with a space after it. */
+function splitTitle(s: string): { title: string; text: string } {
+  const m = s.match(/^(.+?)(?:\s+[—–-]\s+|\s*[:：]\s+)(.+)$/)
+  return m ? { title: plain(m[1]), text: plain(m[2]) } : { title: s, text: '' }
 }
 
 /** "Purpose: …", "**Goal:** …", "Summary — …": the label (lower case) and what follows. */
@@ -168,18 +199,21 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
 
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim() || isNoise(line)) continue
-    const h = heading(line)
+    const bullet = line.match(BULLET)
+    // A list item is a heading only when it is clearly one; otherwise it is a beat.
+    const h = bullet ? listedHeading(bullet[1]) : heading(line)
     if (h) {
       const title = h.title || fallbackTitle(h.level, h.number)
+      const said = h.text ?? ''
       if (h.level === 'act') {
         closeAct()
-        act = { key: `a${out.acts.length}`, title, purpose: '', chapters: [], complete: false }
+        act = { key: `a${out.acts.length}`, title, purpose: said, chapters: [], complete: false }
         out.acts.push(act)
       } else if (h.level === 'chapter') {
         closeChapter()
         const list: SuggestedChapter[] = act ? (act as SuggestedAct).chapters : out.chapters
         const prefix = act ? (act as SuggestedAct).key : ''
-        chapter = { key: `${prefix}c${list.length}`, title, goal: '', scenes: [], complete: false }
+        chapter = { key: `${prefix}c${list.length}`, title, goal: said, scenes: [], complete: false }
         list.push(chapter)
       } else {
         closeScene()
@@ -191,14 +225,13 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
           list.push(chapter)
         }
         const c = chapter as SuggestedChapter
-        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: '', beats: [], complete: false }
+        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: said, beats: [], complete: false }
         c.scenes.push(scene)
       }
       continue
     }
 
     const field = labelled(line)
-    const bullet = line.match(BULLET)
     const s = scene as SuggestedScene | null
     const c = chapter as SuggestedChapter | null
     const a = act as SuggestedAct | null
@@ -275,19 +308,39 @@ function ideaHeading(line: string): string | null {
   return plain(m[2].replace(/^(?:title\s*:\s*)/i, '')).replace(/[:\s]+$/, '')
 }
 
+/** "2. A debt called in": a numbered line at the start of the line, its number and the rest. */
+const NUMBERED = /^(\d{1,2})[.)]\s+(.*)$/
+
 /** Reads next scene ideas, whole or so far: at most three. */
 export function parseIdeas(text: string, done: boolean): SceneIdea[] {
   const ideas: SceneIdea[] = []
   let idea: SceneIdea | null = null
   let sawBeat = false
+  /** The number of the open idea's last numbered beat ("2. She doubles back"); 0 if it has none. */
+  let beatNumber = 0
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim() || isNoise(line)) continue
-    const title = ideaHeading(line)
+    let title = ideaHeading(line)
+    let summary = ''
+    // Numbered with no "##" ("1. The door left open"): the next idea's number starts the next idea,
+    // unless it carries on the open idea's own numbered beats.
+    const numbered = title === null ? line.match(NUMBERED) : null
+    if (numbered) {
+      const n = Number(numbered[1])
+      const nextIdea = n === ideas.length + 1 && (!idea || !!idea.summary || idea.beats.length > 0)
+      const carriesOn = !!idea && beatNumber > 0 && n === beatNumber + 1
+      if (nextIdea && !carriesOn) {
+        const split = splitTitle(plain(numbered[2]))
+        title = split.title
+        summary = split.text
+      }
+    }
     if (title !== null) {
       if (idea) idea.complete = true
-      idea = { title, summary: '', beats: [], complete: false }
+      idea = { title, summary, beats: [], complete: false }
       ideas.push(idea)
       sawBeat = false
+      beatNumber = 0
       continue
     }
     if (!idea) continue
@@ -307,6 +360,7 @@ export function parseIdeas(text: string, done: boolean): SceneIdea[] {
       const beat = plain(bullet[1])
       if (beat) idea.beats.push(beat)
       sawBeat = true
+      beatNumber = Number(line.match(/^\s*(\d{1,2})[.)]/)?.[1] ?? 0)
     } else if (!idea.summary && !sawBeat && !isLabel(line)) {
       idea.summary = plain(line)
     }

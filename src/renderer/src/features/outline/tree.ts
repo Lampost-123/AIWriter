@@ -103,6 +103,13 @@ export function findNode(tree: TreeNode[], key: string): TreeNode | null {
 
 export const isOpen = (decisions: Decisions, key: string): boolean => !decisions[key]
 
+/** The suggestion being written while the answer arrives: the last one in reading order (the deepest of the last). */
+export function lastNodeKey(tree: TreeNode[]): string | null {
+  const last = tree[tree.length - 1]
+  if (!last) return null
+  return last.children.length ? lastNodeKey(last.children) : last.key
+}
+
 /** The node, then everything under it, in reading order. */
 function within(node: TreeNode): TreeNode[] {
   return [node, ...node.children.flatMap(within)]

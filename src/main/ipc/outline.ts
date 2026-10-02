@@ -14,6 +14,7 @@ import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
 import { actDeleteNotes, createChapterAt, keepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
+import { isBlankPlan, storyPlan } from '../outline/context'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {
@@ -54,6 +55,7 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
   createChapterAt: (storyId, place) => write(() => createChapterAt(world.db(), storyId, place ?? { actId: null })),
   placeChapter: (chapterId, place) => write(() => acts.placeChapter(world.db(), chapterId, place ?? { actId: null })),
 
+  outlineBlank: (storyId) => isBlankPlan(storyPlan(world.db(), storyId)),
   startOutline: (input) => startOutlineJob(jobDeps(), input),
   keepOutline: (storyId, items) => write(() => keepOutline(world.db(), storyId, items ?? [])),
   unkeepOutline: (kept) => {

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AppEvents } from '@shared/api'
+import { emptySceneCard } from '@shared/defaults'
 import type { ModelChoice } from '@shared/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
@@ -10,6 +11,7 @@ import type { Emit } from '../ai/tasks'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { fitBlocks, planText, type BlockDraft, type PlanAct } from './brief'
+import { isBlankPlan, storyPlan } from './context'
 import { briefingBudget, outlineReplyTokens, startIdeasJob, startOutlineJob } from './jobs'
 import { cleanSize, MARKER, outlineAsk } from './prompts'
 
@@ -65,6 +67,18 @@ describe('what the outline helper asks', () => {
     expect(outlineReplyTokens({ acts: 3, chapters: 9, scenes: 3 })).toBe(3465)
     expect(outlineReplyTokens({ acts: 6, chapters: 30, scenes: 6 })).toBe(12000)
     expect(briefingBudget({ choice: choice(32000), thinking: 'off' }, 3465)).toBe(32000 - 3465 - 1600)
+  })
+
+  it('never asks for more scene cards than the reply has room for', () => {
+    expect(cleanSize({ acts: 6, chapters: 30, scenes: 6 })).toEqual({ acts: 6, chapters: 30, scenes: 3 })
+    expect(cleanSize({ acts: 2, chapters: 16, scenes: 6 })).toEqual({ acts: 2, chapters: 16, scenes: 6 })
+    for (let chapters = 1; chapters <= 30; chapters++)
+      for (let scenes = 1; scenes <= 6; scenes++) {
+        const size = cleanSize({ acts: 6, chapters, scenes })
+        expect(size.chapters * size.scenes).toBeLessThanOrEqual(100)
+        // Room for every card it asks for: the reply is never cut short by its own limit.
+        expect(300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 95).toBeLessThanOrEqual(12_000)
+      }
   })
 })
 
@@ -242,6 +256,49 @@ describe('asking for an outline', () => {
     )
     expect(again.record.messages[1].content).toContain('## What the story has so far\nChapter: Chapter 1\n  - The north road')
     expect(again.record.messages[1].content).toContain('They come after everything the story already has, and carry it on.')
+  })
+
+  it('counts a story as having nothing planned only while it has just its empty “Chapter 1” and “Scene 1”', () => {
+    const w = dbWorld()
+    const story = repo.createStory(w.db, { title: 'Book 6' })
+    const blank = (): boolean => isBlankPlan(storyPlan(w.db, story.id))
+    expect(blank()).toBe(true)
+    const chapter = repo.createChapter(w.db, story.id, { title: 'Chapter 1' })
+    const scene = repo.createScene(w.db, chapter.id, { title: 'Scene 1' })
+    expect(blank()).toBe(true)
+    // Something on the scene's card is a plan to carry on from, as is a goal for the chapter.
+    repo.updateSceneCard(w.db, scene.id, { ...emptySceneCard(), goal: 'Mara leaves home' })
+    expect(blank()).toBe(false)
+    repo.updateSceneCard(w.db, scene.id, emptySceneCard())
+    expect(blank()).toBe(true)
+    repo.updateChapter(w.db, chapter.id, { goal: 'She sets out' })
+    expect(blank()).toBe(false)
+    repo.updateChapter(w.db, chapter.id, { goal: '' })
+    acts.createAct(w.db, story.id, { title: 'The Arrival' })
+    expect(blank()).toBe(false)
+  })
+
+  it('says so before asking when the outline is longer than the model can write in one answer', async () => {
+    const w = dbWorld()
+    const short: JobModel = { ...model(), choice: { ...choice(), maxOutput: 4096 } }
+    expect(() =>
+      startOutlineJob(
+        { db: w.db, model: short, emit: () => undefined },
+        { taskId: 't6', storyId: w.id('b1'), premise: '', size: { acts: 3, chapters: 12, scenes: 4 } }
+      )
+    ).toThrow(
+      'That is more than the chat and brainstorm model can answer in one go. Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.'
+    )
+    // A size its answer holds goes ahead.
+    const { record } = await run(
+      (emit) =>
+        startOutlineJob(
+          { db: w.db, model: short, emit },
+          { taskId: 't7', storyId: w.id('b1'), premise: '', size: { acts: 3, chapters: 9, scenes: 3 } }
+        ),
+      w.db
+    )
+    expect(record.status).toBe('complete')
   })
 
   it('says plainly when the model can’t read enough to plan', () => {

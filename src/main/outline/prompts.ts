@@ -7,10 +7,13 @@ import type { OutlineSize } from '@shared/contracts/outline'
 
 export const MARKER = '[AIWRITE-OUTLINE v1]'
 
-/** The most the helper asks for at once, so a reply always fits. */
-export const SIZE_LIMITS = { acts: 6, chapters: 30, scenes: 6 }
+/** The most the helper asks for at once, so a reply always fits: `cards` is scene cards in all (chapters × scenes). */
+export const SIZE_LIMITS = { acts: 6, chapters: 30, scenes: 6, cards: 100 }
 
-/** A size within the limits: whole numbers, at least one chapter and one scene, at most one act per chapter. */
+/**
+ * A size within the limits: whole numbers, at least one chapter and one scene, at most one act per
+ * chapter, and fewer scenes in each chapter when there would be too many in all.
+ */
 export function cleanSize(size: Partial<OutlineSize> | null | undefined): OutlineSize {
   const n = (v: unknown, lo: number, hi: number, d: number): number => {
     const x = Math.round(Number(v))
@@ -20,7 +23,7 @@ export function cleanSize(size: Partial<OutlineSize> | null | undefined): Outlin
   return {
     acts: Math.min(n(size?.acts, 0, SIZE_LIMITS.acts, 3), chapters),
     chapters,
-    scenes: n(size?.scenes, 1, SIZE_LIMITS.scenes, 3)
+    scenes: Math.min(n(size?.scenes, 1, SIZE_LIMITS.scenes, 3), Math.max(1, Math.floor(SIZE_LIMITS.cards / chapters)))
   }
 }
 

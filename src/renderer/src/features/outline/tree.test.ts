@@ -9,6 +9,7 @@ import {
   goneIds,
   keepPlan,
   keptMessage,
+  lastNodeKey,
   outlineTree,
   withDiscarded,
   withKept,
@@ -74,6 +75,16 @@ describe('the suggestions as a tree', () => {
       text: 'Tobin offers a deal.',
       beats: ['Tobin names his price']
     })
+  })
+
+  it('knows which suggestion is being written while the answer arrives', () => {
+    const at = (end: string): string | null => lastNodeKey(outlineTree(parseOutline(REPLY.slice(0, REPLY.indexOf(end)), false)))
+    expect(at('Purpose: Mara reaches')).toBe('a0')
+    expect(at('Goal: Mara finds')).toBe('a0c0')
+    expect(at('- Tobin names')).toBe('a0c0s1')
+    expect(at('# Act: The Turning')).toBe('a0c1s0')
+    expect(at('Goal: Mara follows')).toBe('a1c0')
+    expect(lastNodeKey([])).toBe(null)
   })
 
   it('puts chapters with no act at the top', () => {

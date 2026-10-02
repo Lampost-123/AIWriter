@@ -7,6 +7,9 @@ const range = (from: number, to: number): number[] => Array.from({ length: to - 
 /** The most it asks for at once, as the main process allows (src/main/outline/prompts.ts, SIZE_LIMITS). */
 export const SIZE_CHOICES = { acts: range(0, 6), chapters: range(1, 30), scenes: range(1, 6) }
 
+/** Scene cards in all, at most: more than one answer can hold. */
+export const MOST_SCENES = 100
+
 /**
  * Where the helper starts: a whole story in three acts for a story with no chapters yet; otherwise a
  * few chapters more, in a new act when the story has acts, else chapters only.
@@ -18,7 +21,10 @@ export function defaultSize(chapters: number, acts: number): OutlineSize {
 
 const clamp = (n: number, list: number[]): number => Math.min(list[list.length - 1], Math.max(list[0], Math.round(n) || list[0]))
 
-/** The size after one choice changes, keeping at least one chapter for each act: the other number moves to fit. */
+/**
+ * The size after one choice changes, keeping at least one chapter for each act and no more than
+ * MOST_SCENES scene cards in all: the other number moves to fit.
+ */
 export function fitSize(size: OutlineSize, patch: Partial<OutlineSize>): OutlineSize {
   const next = {
     acts: clamp(patch.acts ?? size.acts, SIZE_CHOICES.acts),
@@ -28,6 +34,12 @@ export function fitSize(size: OutlineSize, patch: Partial<OutlineSize>): Outline
   if (next.acts > next.chapters) {
     if (patch.chapters !== undefined && patch.acts === undefined) next.acts = next.chapters
     else next.chapters = next.acts
+  }
+  if (next.chapters * next.scenes > MOST_SCENES) {
+    if (patch.scenes !== undefined && patch.chapters === undefined) {
+      next.chapters = Math.floor(MOST_SCENES / next.scenes)
+      next.acts = Math.min(next.acts, next.chapters)
+    } else next.scenes = Math.max(1, Math.floor(MOST_SCENES / next.chapters))
   }
   return next
 }

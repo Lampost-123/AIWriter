@@ -64,9 +64,14 @@ export interface HelperSession {
   problem: Problem | null
   /** What was kept but has since been deleted from the story (in the binder): it waits for a decision again. */
   gone: ID[]
+  /**
+   * The story has nothing planned or written yet, so the AI plans it from the premise, as the page says.
+   * The main process decides, by the rule it uses for what the AI is told (api.outlineBlank). Null until known.
+   */
+  blank: boolean | null
 }
 
-const fresh = (): HelperSession => ({ size: null, run: null, problem: null, gone: [] })
+const fresh = (): HelperSession => ({ size: null, run: null, problem: null, gone: [], blank: null })
 
 /** The decisions as the page shows them and its buttons go by: the run's, less what has left the story since. */
 export const decisionsOf = (s: HelperSession): Decisions => (s.run ? withoutGone(s.run.decisions, s.gone) : {})
@@ -118,12 +123,36 @@ function listen(): void {
   })
   // Whenever the binder changes (a delete, its Undo), what was kept is looked for again, so the page
   // never says "Kept" for something the story no longer has, even when it wasn't showing at the time.
+  // Whether the story has anything planned yet is asked again too.
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
-    for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions))
-      if (key.startsWith(prefix) && (s.gone.length || hasKept(s.run))) void checkKept(key.slice(prefix.length))
+    for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
+      if (!key.startsWith(prefix)) continue
+      const storyId = key.slice(prefix.length)
+      if (s.gone.length || hasKept(s.run)) void checkKept(storyId)
+      void checkBlank(storyId)
+    }
   })
+}
+
+/** How many asks each session has started, so only the latest one's answer counts. */
+const blankChecks = new Map<string, number>()
+
+/** Asks whether the story has anything planned or written yet (see HelperSession.blank). */
+export async function checkBlank(storyId: ID): Promise<void> {
+  listen()
+  const key = keyOf(storyId)
+  const turn = (blankChecks.get(key) ?? 0) + 1
+  blankChecks.set(key, turn)
+  let blank: boolean
+  try {
+    blank = await api.outlineBlank(storyId)
+  } catch {
+    // The story may have gone (the page says so); otherwise the page carries on from what it knew.
+    blank = get(key).blank ?? false
+  }
+  if (blankChecks.get(key) === turn && get(key).blank !== blank) put(key, { blank })
 }
 
 const hasKept = (run: HelperRun | null): boolean => !!run && Object.values(run.decisions).some((d) => d.status === 'kept')
@@ -190,14 +219,15 @@ const dropReplaced = (): void => {
 
 /**
  * Asks for an outline from the premise as it is in the box. Suggestions still waiting for a decision
- * give way to the new ones, and Undo in a toast brings them back.
+ * give way to the new ones, and Undo in a toast brings them back. A story with nothing planned yet is
+ * planned from its premise alone, so that needs a word or two first (a hint, not a failure: 'no-premise').
  */
-export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize, storyHasChapters: boolean): Promise<void> {
+export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize): Promise<void> {
   const key = keyOf(storyId)
   const s = get(key)
   if (s.run?.status === 'running') return
-  if (!premise.trim() && !storyHasChapters) {
-    put(key, { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.' } })
+  if (!premise.trim() && s.blank !== false) {
+    put(key, { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.', code: 'no-premise' } })
     return
   }
   const taskId = crypto.randomUUID()
@@ -353,9 +383,10 @@ function announceKept(b: Omit<KeepBatch, 'toastId'>, message: string): void {
 /** Undo for Keep: takes what was added back out of the story, and the suggestions are open again. */
 async function undoKeep(b: KeepBatch): Promise<void> {
   await inTurn(b.key, async () => {
-    const sceneIds = b.kept.filter((k) => k.kind === 'scene').map((k) => k.id)
+    // The open scene may go with what is taken back: a kept chapter or act takes the scenes in it,
+    // even ones added since. What Adam typed last is saved first.
     const bridge = editorBridge()
-    if (bridge?.sceneId && sceneIds.includes(bridge.sceneId)) await bridge.flush()
+    if (bridge?.sceneId) await bridge.flush()
     let gone: ID[]
     try {
       gone = (await api.unkeepOutline(b.kept)).sceneIds

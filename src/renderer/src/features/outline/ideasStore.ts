@@ -1,7 +1,8 @@
 // Next scene ideas while the app is open, one list for each scene in each world: the three directions
 // as they arrive, and whether they still show (using one, or closing the list, hides them; Undo after
 // using one shows them again). A request keeps going when Adam moves to another scene, so coming back
-// shows it. SceneIdeas.tsx draws it at the top of the scene card.
+// shows it. Asking for other ideas never loses the ones on screen: if the new request fails or brings
+// none, they come back. SceneIdeas.tsx draws it at the top of the scene card.
 import { create } from 'zustand'
 import { emptySceneCard } from '@shared/defaults'
 import type { ID, SceneCard } from '@shared/types'
@@ -10,12 +11,19 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { renameScene } from '@/features/binder/actions'
 import { useOutlineStore } from '@/features/binder/outlineStore'
-import { isPlainTitle } from './ideasLogic'
-import type { SceneIdea } from './parse'
+import { ideaOnCard, isPlainTitle } from './ideasLogic'
+import { parseIdeas, type SceneIdea } from './parse'
 
 export interface IdeasProblem {
   message: string
   code?: string
+}
+
+/** The ideas on screen when other ones were asked for: they come back if the new request brings none. */
+interface Earlier {
+  text: string
+  generationId: ID | null
+  cutOff: boolean
 }
 
 export interface IdeasSession {
@@ -27,6 +35,10 @@ export interface IdeasSession {
   cutOff: boolean
   retrying: string | null
   problem: IdeasProblem | null
+  /** A quiet line when the answer brought no ideas and the earlier ones are back. */
+  note: string | null
+  /** While a request runs: the ideas it was asked to replace. */
+  earlier: Earlier | null
   /** Put away: one was used, or the list was closed. */
   hidden: boolean
 }
@@ -55,6 +67,31 @@ function findTask(taskId: ID): string | null {
   return null
 }
 
+/**
+ * A request has ended: what it brought stays (even part of an idea, if it was stopped or the connection
+ * dropped). One that brought no ideas at all gives the earlier ones back, with its problem or a word on why.
+ */
+function finish(key: string, taskId: ID, end: Pick<IdeasSession, 'text' | 'generationId' | 'status' | 'cutOff' | 'problem'>): void {
+  const s = get(key)
+  if (!s || s.taskId !== taskId) return
+  const earlier = s.earlier
+  if (earlier && !parseIdeas(end.text, true).length) {
+    const note = end.status === 'complete' ? 'The AI’s answer didn’t come as ideas, so the earlier ones are still here.' : null
+    put(key, {
+      ...s,
+      ...end,
+      text: earlier.text,
+      generationId: earlier.generationId,
+      cutOff: earlier.cutOff,
+      retrying: null,
+      note,
+      earlier: null
+    })
+    return
+  }
+  put(key, { ...s, ...end, retrying: null, note: null, earlier: null })
+}
+
 let listening = false
 /** Follows ideas requests for as long as the window is open. */
 function listen(): void {
@@ -73,12 +110,11 @@ function listen(): void {
     if (d.job !== 'ideas') return
     const key = findTask(d.taskId)
     if (!key) return
-    patch(key, d.taskId, {
+    finish(key, d.taskId, {
       text: d.text,
       generationId: d.generationId,
       status: d.status,
       cutOff: d.cutOff,
-      retrying: null,
       problem: d.status === 'error' ? { message: d.error ?? 'Something went wrong while the ideas were written. Please try again.' } : null
     })
   })
@@ -87,19 +123,42 @@ function listen(): void {
 /** The scene's ideas, if any were asked for. */
 export const ideasFor = (sceneId: ID): IdeasSession | undefined => get(keyOf(sceneId))
 
-/** Asks for three directions for the scene. A request already running for it carries on instead. */
+/**
+ * Asks for three directions for the scene. A request already running for it carries on instead. The
+ * ideas on screen make room for the new ones, and come back if the request brings none.
+ */
 export async function askIdeas(sceneId: ID): Promise<void> {
   listen()
   const key = keyOf(sceneId)
-  if (get(key)?.status === 'running') return
+  const s = get(key)
+  if (s?.status === 'running') return
   const taskId = crypto.randomUUID()
-  put(key, { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, problem: null, hidden: false })
+  const earlier =
+    s && !s.hidden && parseIdeas(s.text, true).length ? { text: s.text, generationId: s.generationId, cutOff: s.cutOff } : null
+  put(key, {
+    taskId,
+    generationId: null,
+    text: '',
+    status: 'running',
+    cutOff: false,
+    retrying: null,
+    problem: null,
+    note: null,
+    earlier,
+    hidden: false
+  })
   try {
     const { generationId } = await api.startSceneIdeas({ taskId, sceneId })
-    const s = get(key)
-    if (s?.taskId === taskId && !s.generationId) patch(key, taskId, { generationId })
+    const now = get(key)
+    if (now?.taskId === taskId && !now.generationId) patch(key, taskId, { generationId })
   } catch (e) {
-    patch(key, taskId, { status: 'error', problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
+    finish(key, taskId, {
+      text: '',
+      generationId: null,
+      status: 'error',
+      cutOff: false,
+      problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined }
+    })
   }
 }
 
@@ -147,7 +206,8 @@ async function patchCard(sceneId: ID, p: Partial<SceneCard>): Promise<void> {
 
 /**
  * "Use this": the idea fills the card (its line on what happens as the goal, and its beats), and a scene
- * still called "Scene 3" takes the idea's title. Undo in the toast puts the card and title back and
+ * still called "Scene 3" takes the idea's title. On a card Adam has started, his words stay and the
+ * idea's beats go after his (ideasLogic.ideaOnCard). Undo in the toast puts the card and title back and
  * shows the ideas again.
  */
 export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard): void {
@@ -158,23 +218,30 @@ export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard): void {
   const oldTitle = scene?.title ?? null
   const newTitle = idea.title.trim()
   const rename = oldTitle !== null && isPlainTitle(oldTitle) && !!newTitle && !/^idea \d+$/i.test(newTitle)
+  const fill = ideaOnCard(card, idea)
 
-  void patchCard(sceneId, { goal: idea.summary.trim(), beats: idea.beats.map((b) => b.trim()).filter(Boolean) })
+  void patchCard(sceneId, { goal: fill.goal, beats: fill.beats })
   if (rename) void renameScene(sceneId, newTitle)
   // The others are no longer needed: the request stops if it is still writing them.
   if (s?.status === 'running') stopIdeas(sceneId)
   if (s) put(key, { ...s, hidden: true })
 
   const named = newTitle ? `“${newTitle}”` : 'that idea'
-  toast(rename ? `Filled the scene card with ${named}, and named the scene after it.` : `Filled the scene card with ${named}.`, {
-    action: {
-      label: 'Undo',
-      run: () => {
-        void patchCard(sceneId, before).catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-        if (rename && oldTitle) void renameScene(sceneId, oldTitle)
-        const now = get(key)
-        if (now && s && now.taskId === s.taskId) put(key, { ...now, hidden: false })
+  const renamed = rename ? ', and named the scene after it' : ''
+  toast(
+    fill.kept
+      ? `Added ${named} to the scene card, after what was already on it${renamed}.`
+      : `Filled the scene card with ${named}${renamed}.`,
+    {
+      action: {
+        label: 'Undo',
+        run: () => {
+          void patchCard(sceneId, before).catch((e: Error) => void toast(e.message, { tone: 'danger' }))
+          if (rename && oldTitle) void renameScene(sceneId, oldTitle)
+          const now = get(key)
+          if (now && s && now.taskId === s.taskId) put(key, { ...now, hidden: false })
+        }
       }
     }
-  })
+  )
 }

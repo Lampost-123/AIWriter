@@ -509,7 +509,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             ) : null
           })}
         </SortableContext>
-        {!isCollapsed && ids.length === 0 ? <EmptyChapterRow chapterId={chapterId} h={h} /> : null}
+        {!isCollapsed && ids.length === 0 ? <EmptyChapterRow chapterId={chapterId} level={level} h={h} /> : null}
       </ChapterBlock>
     )
   }
@@ -556,9 +556,16 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
           )
         })}
         <DragOverlay dropAnimation={dropAnimation} modifiers={[keepInTree]}>
-          {activeScene ? <SceneDragPreview scene={activeScene} /> : null}
+          {activeScene ? (
+            <SceneDragPreview scene={activeScene} level={actOfChapter.get(findChapterOf(order.scenes, activeScene.id) ?? '') ? 3 : 2} />
+          ) : null}
           {activeChapter ? (
-            <ChapterDragPreview chapter={activeChapter.chapter} words={activeChapter.words} sceneCount={(order.scenes[activeChapter.chapter.id] ?? []).length} />
+            <ChapterDragPreview
+              chapter={activeChapter.chapter}
+              words={activeChapter.words}
+              sceneCount={(order.scenes[activeChapter.chapter.id] ?? []).length}
+              level={actOfChapter.get(activeChapter.chapter.id) ? 2 : 1}
+            />
           ) : null}
         </DragOverlay>
       </DndContext>

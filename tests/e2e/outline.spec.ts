@@ -3,25 +3,27 @@
 // Arrival", "The Turning"...; chapters "Rain on the Narrows", "The Ferryman's Price", "Lanterns at Low
 // Tide"...; scenes "Arrival at the docks", "A bargain at the docks"...; and three scene ideas).
 //
-//  1. The outline helper suggests acts, chapters and scene cards from the story's premise, and nothing is
-//     added until Adam clicks. He changes a scene, discards a chapter (Undo brings it back), keeps one
-//     scene (its chapter and act come with it; Undo takes them out again), then keeps all that's left.
-//     What he kept is in the binder under its acts, in order, each scene's card filled in. The empty
-//     Chapter 1 the story was made with is one click from gone; What the AI saw and back; Start writing.
-//     Asked again, it carries on from what the story has.
+//  1. The outline helper suggests acts, chapters and scene cards from the story's premise (an empty
+//     premise gets a quiet word, not an error), and nothing is added until Adam clicks. He changes a
+//     scene, discards a chapter (Undo brings it back), keeps one scene (its chapter and act come with
+//     it; Undo takes them out again), then keeps all that's left. What he kept is in the binder under
+//     its acts, in order, each scene's card filled in. From the first Keep, the empty Chapter 1 the
+//     story was made with is one click from gone; What the AI saw and back; Start writing. Asked again,
+//     it carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
 //     kept. One that fails says why in plain words, and Undo brings back the suggestions it replaced.
 //     What was kept and is then deleted in the binder waits for a decision again. Replaced suggestions
 //     can be brought back until one of the new ones is kept.
 //  3. Acts in the binder: a story without acts looks as it always has; acts fold and unfold, are
 //     renamed and given a purpose, get a new chapter, take a chapter moved from another act (with
-//     Undo), and are deleted with their chapters (with Undo).
+//     Undo), and are deleted with their chapters (with Undo, and from Recently deleted).
 //  4. Next scene ideas: an empty scene card offers three directions; Use this fills the card and names
-//     a scene still called "Scene 1", with Undo; Stop keeps what arrived; from the palette too; What
-//     the AI saw and back.
+//     a scene still called "Scene 1", with Undo; other ideas that fail leave the ones on screen; Stop
+//     keeps what arrived; the button stays put while the card is filled in; from the palette too, where
+//     Use this adds to what the card has; What the AI saw and back.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
 
 const PREMISE =
   'Mara, a ferryman who owes the Duke more than she can pay, is hired to smuggle the heir out of Varn before the river freezes.'
@@ -94,7 +96,18 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     // ----- From the story menu, with the story's premise; a new story is planned from the start -----
     await openHelper(win)
     await expect(heading(win)).toHaveText('Plan the story from its premise')
-    await expect(main(win).getByLabel('Premise', { exact: true })).toHaveValue(PREMISE)
+    const premiseBox = main(win).getByLabel('Premise', { exact: true })
+    await expect(premiseBox).toHaveValue(PREMISE)
+
+    // With no premise, a quiet word on what to write first: nothing has gone wrong.
+    await premiseBox.fill('')
+    await expect(premiseBox).toHaveAttribute('placeholder', /^For example: /)
+    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
+    await expect(main(win).getByText('Write the premise first: a line or two on what the story is about is enough.')).toBeVisible()
+    await expect(main(win).getByRole('alert')).toHaveCount(0)
+    await expect(premiseBox).toBeFocused()
+    await premiseBox.fill(PREMISE)
+    await expect(main(win).getByText('Write the premise first', { exact: false })).toHaveCount(0)
     await expect(main(win).getByRole('combobox', { name: 'Acts', exact: true })).toHaveText('3 acts')
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')
@@ -174,10 +187,14 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(actBlock(win, 'The Arrival').locator('[data-row="chapter"]')).toContainText(['Rain on the Narrows'])
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toHaveCount(1)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['A bargain at the docks'])
+    // From the first Keep, the empty Chapter 1 the story was made with (now ahead of it) is one click from gone.
+    const removeStarter = main(win).getByRole('button', { name: 'Remove the empty “Chapter 1”' })
+    await expect(removeStarter).toBeVisible()
 
     // Undo takes them out of the story again, and they wait for a decision once more.
     await undoIn(win, keptOne).click()
     await expect(actRows(win)).toHaveCount(0)
+    await expect(removeStarter).toHaveCount(0)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
 
@@ -230,11 +247,10 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     })
 
     // ----- The empty Chapter 1 the story was made with is one click from gone, and the page stays -----
-    await expect(main(win).getByText('The story still starts with “Chapter 1”, the empty chapter it was made with.')).toBeVisible()
-    await main(win).getByRole('button', { name: 'Remove it' }).click()
+    await removeStarter.click()
     await expect(toastWith(win, '“Chapter 1” and its scene deleted.')).toBeVisible()
     await expect(chapterRow(win, 'Chapter 1')).toHaveCount(0)
-    await expect(main(win).getByRole('button', { name: 'Remove it' })).toHaveCount(0)
+    await expect(removeStarter).toHaveCount(0)
     await expect(main(win).getByText('Everything is decided.', { exact: false })).toBeVisible()
 
     // ----- What the AI saw, and back -----
@@ -375,10 +391,13 @@ test('acts in the binder fold, are renamed and given a purpose, take chapters, a
   await win.reload()
   await expect(actRows(win)).toHaveCount(2)
   await expect(actRows(win)).toContainText(['Act One', 'Act Two'])
-  // The chapter written before the story had acts comes first; an act's chapters sit a level in.
+  // The chapter written before the story had acts comes first; an act's chapters sit a level in, drawn one step further right.
   await expect(chapterRow(win, 'Chapter 1')).toHaveAttribute('aria-level', '1')
   await expect(chapterRow(win, 'The Docks')).toHaveAttribute('aria-level', '2')
   await expect(actBlock(win, 'Act One').locator('[data-row="scene"]')).toContainText(['Landing'])
+  const leftOf = async (row: ReturnType<typeof chapterRow>): Promise<number> =>
+    (await row.getByRole('button', { name: 'Hide scenes' }).boundingBox())!.x
+  expect((await leftOf(chapterRow(win, 'The Docks'))) - (await leftOf(chapterRow(win, 'Chapter 1')))).toBe(12)
 
   // ----- Fold and unfold -----
   await actRow(win, 'Act One').getByRole('button', { name: 'Hide chapters' }).click()
@@ -415,7 +434,8 @@ test('acts in the binder fold, are renamed and given a purpose, take chapters, a
   await purpose.fill('Mara reaches the city and learns what the guild wants.')
   await purpose.press('Enter')
   await expect(purpose).toHaveCount(0)
-  await expect(actRow(win, 'The Arrival')).toHaveAttribute('title', 'Mara reaches the city and learns what the guild wants.')
+  await expect(actRow(win, 'The Arrival')).toHaveAttribute('title', 'The Arrival: Mara reaches the city and learns what the guild wants.')
+  await expect(actRow(win, 'Act Two')).toHaveAttribute('title', 'Act Two')
   await expect
     .poll(async () => (await invoke(win, 'getOutline', story.id)).acts![0].purpose)
     .toBe('Mara reaches the city and learns what the guild wants.')
@@ -456,6 +476,20 @@ test('acts in the binder fold, are renamed and given a purpose, take chapters, a
   await expect(actRow(win, 'Act Two')).toBeVisible()
   await expect(actBlock(win, 'Act Two').locator('[data-row="scene"]')).toContainText(['The climb'])
   expect((await invoke(win, 'getOutline', story.id)).acts!.map((a) => a.title)).toEqual(['The Arrival', 'Act Two'])
+
+  // ----- Once its toast is gone, Recently deleted still has the act, with what went with it -----
+  await actRow(win, 'Act Two').click({ button: 'right' })
+  await win.getByRole('menuitem', { name: 'Delete act' }).click()
+  await toastWith(win, gone).getByRole('button', { name: 'Dismiss' }).click()
+  await expect(actRow(win, 'Act Two')).toHaveCount(0)
+  await openSettings(win, 'Recently deleted')
+  const trash = win.getByRole('list', { name: 'Recently deleted' })
+  await expect(trash.getByRole('listitem')).toHaveCount(1)
+  await expect(trash).toContainText('Act in Book 1, with its chapter and 1 scene')
+  await trash.getByRole('button', { name: 'Restore “Act Two”' }).click()
+  await expect(win.getByText('Nothing deleted lately')).toBeVisible()
+  await expect(actRow(win, 'Act Two')).toBeVisible()
+  await expect(actBlock(win, 'Act Two').locator('[data-row="scene"]')).toContainText(['The climb'])
 })
 
 // ---------- Next scene ideas ----------
@@ -514,21 +548,39 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.goal).toBe('')
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).title).toBe('Scene 1')
 
+    // ----- Other ideas that fail: the ideas on screen stay, under the reason in plain words -----
+    await setModel(win, 'fake/credit')
+    await ideasList(win).getByRole('button', { name: 'Other ideas' }).click()
+    await expect(ideasList(win).getByRole('alert')).toContainText('out of credit')
+    await expect(ideasList(win).getByRole('alert').getByRole('button', { name: 'Try again' })).toBeVisible()
+    await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
+    await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' })).toBeVisible()
+
     // ----- Other ideas, stopped part way: what arrived stays -----
     await setModel(win, 'fake/slow')
     await ideasList(win).getByRole('button', { name: 'Other ideas' }).click()
     await expect(ideasList(win).getByRole('status')).toBeVisible()
+    await expect(ideasList(win).getByRole('alert')).toHaveCount(0)
     await expect(ideasList(win).locator('[data-idea]').first()).toContainText('Mara finds the guild house unguarded')
     await ideasList(win).getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(ideasList(win).getByRole('button', { name: 'Use “The door left open” for this scene' })).toBeVisible()
     await expect(ideasList(win).getByRole('button', { name: 'Use “The wrong messenger” for this scene' })).toHaveCount(0)
     await expect(ideasList(win).getByRole('button', { name: 'Other ideas' })).toBeVisible()
 
-    // ----- Closed, then asked from the palette with another tab showing: the card comes up and asks -----
+    // ----- Closed: the quiet button is back, and stays put while Adam starts filling the card -----
     await setModel(win, 'fake/writer')
     await ideasList(win).getByRole('button', { name: 'Close the ideas' }).click()
     await expect(ideasList(win)).toHaveCount(0)
-    await expect(sceneCard(win).getByRole('button', { name: 'Ideas for this scene' })).toBeVisible()
+    const askButton = sceneCard(win).getByRole('button', { name: 'Ideas for this scene' })
+    await expect(askButton).toBeVisible()
+    const goal = sceneCard(win).getByLabel('Goal', { exact: true })
+    const goalTop = (await goal.boundingBox())!.y
+    await goal.pressSequentially('Get the ledger back')
+    await expect(askButton).toBeVisible()
+    expect((await goal.boundingBox())!.y).toBe(goalTop)
+    await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.goal).toBe('Get the ledger back')
+
+    // ----- Asked from the palette with another tab showing: the card comes up and asks -----
     await win.getByRole('tab', { name: 'Drafts' }).click()
     await win.keyboard.press('Control+K')
     await win.keyboard.type('Ideas for this scene')
@@ -543,6 +595,21 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await main(win).getByRole('button', { name: 'Back to “Scene 1”' }).click()
     await expect(win.locator('.scene-prose')).toBeVisible()
     await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
+
+    // ----- Use this on a card Adam has started: his goal stays, and the idea's beats are added -----
+    await ideasList(win).getByRole('button', { name: 'Use “The wrong messenger” for this scene' }).click()
+    const added = 'Added “The wrong messenger” to the scene card, after what was already on it, and named the scene after it.'
+    await expect(toastWith(win, added)).toBeVisible()
+    await expect(sceneCard(win).getByLabel('Goal', { exact: true })).toHaveValue('Get the ledger back')
+    await expect(sceneCard(win).getByRole('textbox', { name: 'Beats', exact: true })).toHaveValue(
+      'A soaked child presses a note into her hand'
+    )
+    await expect
+      .poll(async () => (await invoke(win, 'getScene', scene.id)).card)
+      .toMatchObject({ goal: 'Get the ledger back', beats: expect.arrayContaining(["The note names tonight's raid on the Narrows"]) })
+    await undoIn(win, added).click()
+    await expect(sceneCard(win).getByLabel('Goal', { exact: true })).toHaveValue('Get the ledger back')
+    await expect(sceneCard(win).getByRole('textbox', { name: 'Beats', exact: true })).toHaveValue('')
   } finally {
     await fake.close()
   }

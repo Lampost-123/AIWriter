@@ -21,7 +21,7 @@ import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
 import { buildLine, previousSceneStep } from '../memory/line'
 import { getVersion, recordVersion } from './history'
-import { chapterCreated, chapterMoved, chapterRestored, listActs } from './acts'
+import { chapterCreated, chapterMoved, chapterRestored, deletedActs, listActs } from './acts'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
 // handle, with no Electron imports, so they can be unit-tested in plain Node.
@@ -286,9 +286,12 @@ export function listDeleted(db: DB): DeletedItem[] {
      WHERE s.deleted_at IS NOT NULL AND (c.deleted_at IS NULL OR c.deleted_at <> s.deleted_at)`
   )
   const entries = all('SELECT id, name AS title, kind AS entry_kind, deleted_at FROM entries WHERE deleted_at IS NOT NULL')
+  // Milestone 4: deleted acts, holding the chapters deleted along with them.
+  const acted = deletedActs(db)
   return [
     ...stories.map((r) => item(r, 'story')),
-    ...chapters.map((r) => item(r, 'chapter')),
+    ...acted.items,
+    ...chapters.filter((r) => !acted.chapterIds.has(r.id as string)).map((r) => item(r, 'chapter')),
     ...scenes.map((r) => item(r, 'scene')),
     ...entries.map((r) => item(r, 'entry'))
   ].sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : a.deletedAt > b.deletedAt ? -1 : 0))

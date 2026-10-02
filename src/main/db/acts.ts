@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { Act, ID } from '@shared/types'
+import type { Act, DeletedItem, ID } from '@shared/types'
 import type { ChapterPlace, KeptItem } from '@shared/contracts/outline'
 import { newId, now, UserError } from '../util'
 
@@ -180,6 +180,56 @@ export function restoreAct(db: DB, id: ID): void {
     renumberActs(db, storyId)
     settle(db, storyId)
   })()
+}
+
+/**
+ * The acts in Recently deleted (repo.listDeleted), each with the chapters and scenes deleted along with
+ * it, which come back with it (restoreAct). Those chapters are listed in their act, not on their own.
+ */
+export function deletedActs(db: DB): { items: DeletedItem[]; chapterIds: Set<ID> } {
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.title, a.deleted_at, a.story_id, st.title AS story_title,
+         (SELECT COUNT(*) FROM chapters c WHERE c.act_id = a.id AND c.deleted_at = a.deleted_at) AS chapter_count,
+         (SELECT COUNT(*) FROM scenes s JOIN chapters c ON c.id = s.chapter_id
+           WHERE c.act_id = a.id AND c.deleted_at = a.deleted_at AND s.deleted_at = a.deleted_at) AS scene_count
+       FROM acts a JOIN stories st ON st.id = a.story_id
+       WHERE a.deleted_at IS NOT NULL`
+    )
+    .all() as Row[]
+  const items = rows.map(
+    (r): DeletedItem => ({
+      kind: 'act',
+      id: r.id as string,
+      title: (r.title as string) ?? '',
+      deletedAt: r.deleted_at as string,
+      entryKind: null,
+      storyId: r.story_id as string,
+      storyTitle: (r.story_title as string) ?? null,
+      chapterTitle: null,
+      sceneCount: (r.scene_count as number) ?? 0,
+      chapterCount: (r.chapter_count as number) ?? 0
+    })
+  )
+  const chapterIds = new Set(
+    ids(db, 'SELECT c.id FROM chapters c JOIN acts a ON a.id = c.act_id WHERE a.deleted_at IS NOT NULL AND c.deleted_at = a.deleted_at')
+  )
+  return { items, chapterIds }
+}
+
+/**
+ * Removes for good the acts that have been in Recently deleted since before `cutoff` (the chapters
+ * deleted with them go in the same purge, being as old). Runs inside db/trash.ts purgeTrash.
+ */
+export function purgeActs(db: DB, cutoff: string): number {
+  const gone = ids(db, 'SELECT id FROM acts WHERE deleted_at IS NOT NULL AND deleted_at < ?', cutoff)
+  const unlink = db.prepare('UPDATE chapters SET act_id = NULL WHERE act_id = ?')
+  const remove = db.prepare('DELETE FROM acts WHERE id = ?')
+  for (const id of gone) {
+    unlink.run(id)
+    remove.run(id)
+  }
+  return gone.length
 }
 
 /** Puts a chapter into an act (or among the chapters with no act): see settle for where. */

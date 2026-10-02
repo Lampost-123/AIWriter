@@ -18,6 +18,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import {
+  checkBlank,
   checkKept,
   dismissProblem,
   helperKey,
@@ -40,12 +41,14 @@ export function OutlineHelper({ storyId }: { storyId: string }): React.JSX.Eleme
   const session = useOutlineHelper((st) => st.sessions[helperKey(worldId, storyId)])
   const story = useApp((s) => s.stories.find((st) => st.id === storyId) ?? null)
   const [opened, setOpened] = useState(false)
-  // Once each time the page opens, before anything is drawn, so the first frame is the right one.
+  // Once each time the page opens, before anything is drawn, so the first frame is the right one. Whether
+  // the story has anything planned yet is asked again (openOutlineHelper asks before the page opens).
   useLayoutEffect(() => {
     openHelper(storyId)
+    void checkBlank(storyId)
     setOpened(true)
   }, [storyId])
-  if (!opened || !session) return <div className="h-full" />
+  if (!opened || !session || session.blank === null) return <div className="h-full" />
   if (!story) {
     return (
       <div className="flex h-full items-start justify-center pt-[16vh]">
@@ -67,8 +70,9 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const shape = outline?.story.id === story.id ? outline : null
   const acts: Act[] = shape?.acts ?? []
   const chapterCount = shape?.chapters.length ?? 0
-  // Nothing planned or written yet (perhaps only the empty "Chapter 1" a new story starts with): plan it all.
-  const fresh = !!shape && isFresh(shape)
+  // Nothing planned or written yet (perhaps only the empty "Chapter 1" a new story starts with): plan it
+  // all from the premise. The main process says, by the rule it uses for what the AI is told.
+  const fresh = s.blank === true
   const size = s.size ?? defaultSize(fresh ? 0 : chapterCount, acts.length)
   const run = s.run
   // As the page shows it: anything kept but deleted from the story since waits for a decision again.
@@ -93,13 +97,13 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const changePremise = (value: string): void => {
     setPremise(value)
     autosave.schedule(value)
-    if (s.problem && !s.run) dismissProblem(story.id)
+    if (s.problem && (!s.run || s.problem.code === 'no-premise')) dismissProblem(story.id)
   }
 
   const suggest = useCallback(() => {
     if (!premise.trim()) premiseBox.current?.focus()
-    void suggestOutline(story.id, premise, size, !fresh)
-  }, [story.id, premise, size, fresh])
+    void suggestOutline(story.id, premise, size)
+  }, [story.id, premise, size])
 
   const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, fitSize(size, patch))
 
@@ -148,18 +152,19 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
 
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
-      <div className="mx-auto w-full max-w-[720px] px-8 pb-16 pt-10">
+      {/* Room at the foot, so the end of the page scrolls clear of the Undo toasts in the corner. */}
+      <div className="mx-auto w-full max-w-[720px] px-8 pb-48 pt-10">
         <div className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
           <Sparkles size={12} className="text-ai" aria-hidden />
           Outline helper
         </div>
         <h1 className="mt-1 font-serif text-[26px] font-semibold leading-tight text-fg">
-          {fresh || !shape ? 'Plan the story from its premise' : 'Plan what comes next'}
+          {fresh ? 'Plan the story from its premise' : 'Plan what comes next'}
         </h1>
         <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
           AI Write suggests acts, chapters and scene cards for {story.title.trim() ? `“${story.title.trim()}”` : 'this story'}
-          {fresh || !shape ? '' : ', carrying on from what it has so far'}. Keep, change or discard each one: nothing is added to the story
-          until you keep it.
+          {fresh ? '' : ', carrying on from what it has so far'}. Keep, change or discard each one: nothing is added to the story until you
+          keep it.
         </p>
 
         <div className="mt-5 flex items-end justify-between gap-2">
@@ -174,8 +179,8 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           value={premise}
           minRows={3}
           maxRows={12}
-          placeholder="A ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
-          className="mt-1 font-serif text-[15px] leading-[1.6]"
+          placeholder="For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
+          className="mt-1 font-serif text-[15px] leading-[1.6] placeholder:font-sans placeholder:text-[13.5px]"
           onChange={(e) => changePremise(e.target.value)}
           onBlur={() => void autosave.flush()}
           onKeyDown={(e) => {
@@ -268,7 +273,12 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
         <div className="flex flex-col gap-2 empty:hidden">
           {s.problem ? (
             <div className="mt-2">
-              <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={s.run || !premise.trim() ? undefined : suggest} />
+              {s.problem.code === 'no-premise' ? (
+                // Nothing went wrong: the premise box just needs a word or two first.
+                <Notice>{s.problem.message}</Notice>
+              ) : (
+                <ProblemNotice message={s.problem.message} code={s.problem.code} onRetry={s.run ? undefined : suggest} />
+              )}
             </div>
           ) : null}
           {ended && run.cutOff && !nothingRead ? (
@@ -307,20 +317,6 @@ const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${on
 
 /** A title a chapter or scene was given when it was made ("Chapter 1", "Scene 1"). */
 const PLAIN_TITLE = /^\s*(chapter|scene)\s*\d*\s*$/i
-
-/**
- * Nothing planned or written: at most the empty "Chapter 1" and "Scene 1" a new story is made with. The
- * AI is then asked to plan the story from its premise (src/main/outline/context.ts, isBlankPlan).
- */
-function isFresh(o: Outline): boolean {
-  return (
-    !(o.acts ?? []).length &&
-    o.chapters.length <= 1 &&
-    o.scenes.length <= 1 &&
-    o.scenes.every((sc) => sc.wordCount === 0 && PLAIN_TITLE.test(sc.title)) &&
-    o.chapters.every((c) => PLAIN_TITLE.test(c.title) && !c.goal.trim())
-  )
-}
 
 /**
  * After keeping, the story may still start with the empty "Chapter 1" (and its empty scene) it was made

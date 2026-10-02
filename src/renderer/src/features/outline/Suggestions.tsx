@@ -1,7 +1,8 @@
 // The outline helper's suggestions as a tree: acts, the chapters in them, and their scene cards. Each
 // one still waiting for a decision is amber, with Keep, Edit and Discard; a kept one turns plain with a
 // tick. Keep on an act or chapter keeps what is inside it too, and keeping a scene keeps the chapter
-// and act it needs. While the answer arrives, suggestions appear in order and the buttons keep their room.
+// and act it needs. While the answer arrives, suggestions appear in order and the buttons keep their
+// room; the one being written has the caret.
 import { Check } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Chapter, ID } from '@shared/types'
@@ -13,7 +14,7 @@ import { MarkLine, SuggestionButton } from '@/features/builder/parts'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { discardSuggestion, keepSuggestions, saveEdit, type HelperRun } from './helperStore'
-import { countNodes, totalOf, type NodeEdit, type NodeKind, type TreeNode } from './tree'
+import { countNodes, lastNodeKey, totalOf, type NodeEdit, type NodeKind, type TreeNode } from './tree'
 
 const KIND_LABELS: Record<NodeKind, string> = { act: 'Act', chapter: 'Chapter', scene: 'Scene' }
 const TEXT_LABELS: Record<NodeKind, string> = { act: 'Purpose', chapter: 'Goal', scene: 'What happens' }
@@ -22,6 +23,8 @@ const TITLE_SIZES: Record<NodeKind, string> = { act: 'text-[18px]', chapter: 'te
 interface TreeProps {
   storyId: ID
   run: HelperRun
+  /** While the answer arrives: the suggestion being written now. */
+  current: string | null
   editing: string | null
   setEditing: (key: string | null) => void
 }
@@ -47,20 +50,36 @@ export function Suggestions({
   const kept = totalOf(countNodes(tree, run.decisions, 'kept'))
   const shown = tree.filter((n) => run.decisions[n.key]?.status !== 'discarded')
   const decided = !running && open === 0 && tree.length > 0
+  const current = running ? lastNodeKey(tree) : null
+  const starterTitle = starter?.title.trim() || 'Chapter 1'
 
-  const summary = running ? '' : open ? `${open} left to decide${kept ? `, ${kept} kept` : ''}` : kept ? `${kept} kept` : ''
+  // Short, so it fits beside both buttons in a small window.
+  const summary = running ? '' : open ? `${open} to decide${kept ? `, ${kept} kept` : ''}` : kept ? `${kept} kept` : ''
 
   return (
     <section aria-label="Suggestions" aria-busy={running} className="mt-5">
-      {/* Stays at the top while the list scrolls, so "Keep all that's left" is always at hand. */}
+      {/* Stays at the top while the list scrolls, so "Keep all that's left" is always at hand, and so is
+          removing the empty chapter the story was made with once something is kept after it. That one sits
+          by the count, never where "Keep all that's left" was: a double click on that doesn't remove it. */}
       <div className="sticky top-0 z-10 -mx-3 flex h-11 items-center gap-3 bg-bg/95 px-3 backdrop-blur-sm">
-        <h2 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">Suggestions</h2>
+        <h2 className="shrink-0 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Suggestions</h2>
         <span className="truncate text-[12px] tabular-nums text-faint">{summary}</span>
-        <div className="flex-1" />
+        {starter && !running ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="-ml-1"
+            onClick={() => void deleteChapter(starter.id, { stay: true })}
+            title={`The story still starts with “${starterTitle}”, the empty chapter it was made with, ahead of what you kept. Undo brings it back.`}
+          >
+            Remove the empty “{starterTitle}”
+          </Button>
+        ) : null}
         {!running && open > 0 ? (
           <Button
             size="sm"
             icon={<Check size={13} />}
+            className="ml-auto"
             onClick={() => void keepSuggestions(storyId, 'all')}
             title="Add every suggestion you haven't discarded to the story"
           >
@@ -78,12 +97,12 @@ export function Suggestions({
       ) : (
         <div className="flex flex-col gap-3" data-suggestions>
           {shown.map((n) => (
-            <NodeView key={n.key} node={n} storyId={storyId} run={run} editing={editing} setEditing={setEditing} />
+            <NodeView key={n.key} node={n} storyId={storyId} run={run} current={current} editing={editing} setEditing={setEditing} />
           ))}
         </div>
       )}
 
-      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} starter={starter} /> : null}
+      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} /> : null}
     </section>
   )
 }
@@ -111,14 +130,15 @@ function NodeView({ node, ...props }: TreeProps & { node: TreeNode }): React.JSX
   )
 }
 
-function NodeBox({ node, storyId, run, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
+function NodeBox({ node, storyId, run, current, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   const decision = run.decisions[node.key]
   const kept = decision?.status === 'kept'
   const edit = run.edits[node.key]
   const words = edit ?? node
   const running = run.status === 'running'
-  const writing = running && !node.complete
+  // Only the suggestion arriving now has the caret, not the act and chapter it is in.
+  const writing = running && node.key === current
   const title = words.title.trim()
 
   const focused = (): boolean => !!box.current?.contains(document.activeElement)
@@ -336,23 +356,8 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
   )
 }
 
-/**
- * Every suggestion is decided: what was kept is in the binder, and one click starts writing it. The empty
- * chapter a new story is made with, if it is still ahead of what was kept, is one click from gone.
- */
-function AllDecided({
-  run,
-  tree,
-  storyId,
-  kept,
-  starter
-}: {
-  run: HelperRun
-  tree: TreeNode[]
-  storyId: ID
-  kept: number
-  starter: Chapter | null
-}): React.JSX.Element {
+/** Every suggestion is decided: what was kept is in the binder, and one click starts writing it. */
+function AllDecided({ run, tree, storyId, kept }: { run: HelperRun; tree: TreeNode[]; storyId: ID; kept: number }): React.JSX.Element {
   const firstScene = (nodes: TreeNode[]): ID | null => {
     for (const n of nodes) {
       const d = run.decisions[n.key]
@@ -383,16 +388,6 @@ function AllDecided({
           </Button>
         ) : null}
       </div>
-      {starter ? (
-        <div className="mt-2.5 flex items-center gap-3 border-t border-success/20 pl-7 pt-2.5">
-          <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muted">
-            The story still starts with “{starter.title.trim()}”, the empty chapter it was made with.
-          </p>
-          <Button size="sm" variant="ghost" onClick={() => void deleteChapter(starter.id, { stay: true })}>
-            Remove it
-          </Button>
-        </div>
-      ) : null}
     </div>
   )
 }

@@ -69,13 +69,24 @@ const messagesOf = (system: string, fitted: FittedBriefing): ChatMessage[] => [
 
 const castForms = (cast: CastLine[]): string[] => [castText(cast, 40), castText(cast, 15), castText(cast, 30, true)]
 
-/** Asks for an outline. Throws (plain words) only before it starts: no model, or a story too big for the model. */
+/**
+ * Asks for an outline. Throws (plain words) only before it starts: no model, more than the model can
+ * answer in one go, or a story too big for it to read.
+ */
 export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generationId: ID } {
   const size = cleanSize(input.size)
+  const reply = outlineReplyTokens(size)
+  // An answer the model can't write in full would stop part way every time: better to say so first.
+  const most = deps.model.choice.maxOutput
+  if (most && most > 0 && reply > most) {
+    throw new UserError(
+      `That is more than the ${MODEL_NAMES.chat} can answer in one go. Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.`,
+      'reply-too-long'
+    )
+  }
   const premise = (input.premise ?? '').slice(0, 6000)
   const facts = outlineFacts(deps.db, input.storyId, premise)
   const system = outlineSystem(size.acts > 0)
-  const reply = outlineReplyTokens(size)
   const drafts: BlockDraft[] = [
     { id: 'story', title: 'The story', priority: 1, forms: [storyText(facts.story)] },
     { id: 'earlier', title: 'Earlier stories', priority: 4, forms: [earlierText(facts.earlier), earlierText(facts.earlier, 2)] },
