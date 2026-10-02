@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import type { Entry, EntryKind, StyleGuide } from '@shared/types'
+import { describe, expect, it, vi } from 'vitest'
+import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide } from '@shared/types'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
+import type { SceneMemory, StorySoFar } from '../memory/types'
 import {
   assembleContext,
   buildBlocks,
+  cachedCounter,
   computeBudget,
   DEFAULT_CONTEXT_LENGTH,
+  effectivePins,
   finishContext,
   formatProfile,
   lengthTooLong,
@@ -18,13 +21,20 @@ import {
   replyTokens,
   THINKING_ROOM,
   sceneTail,
+  selectEntries,
   sentEntryIds,
-  type ContextInput
+  sentEntryVersions,
+  storySoFarText,
+  type ContextInput,
+  type PreparedContext
 } from './context'
+import { trimPassage } from './prompts'
 import { countRaw } from './tokens'
 
+// ---------- Fixtures ----------
+
 let seq = 0
-const entry = (kind: EntryKind, name: string, extra: Partial<Entry> = {}): Entry => ({
+const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): EntryState => ({
   id: `e${++seq}`,
   kind,
   name,
@@ -44,10 +54,38 @@ const entry = (kind: EntryKind, name: string, extra: Partial<Entry> = {}): Entry
   byHand: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
+  happened: [],
+  changed: [],
   ...extra
 })
 
-const style = (s: Partial<StyleGuide> = {}): StyleGuide => ({ ...defaultStyleGuide(), pov: 'Close third person', tense: 'Past tense', spelling: 'UK', ...s })
+const style = (s: Partial<StyleGuide> = {}): StyleGuide => ({
+  ...defaultStyleGuide(),
+  pov: 'Close third person',
+  tense: 'Past tense',
+  spelling: 'UK',
+  ...s
+})
+
+const noStory = (): StorySoFar => ({ scenes: [], chapters: [], stories: [], series: [], leadsInto: null })
+
+function memoryOf(entries: EntryState[], over: Partial<SceneMemory> = {}): SceneMemory {
+  return {
+    storyId: 'book-2',
+    sceneId: 'scene-9',
+    knows: 'This story knows what happened in: Book 1.',
+    previous: { sceneId: 'scene-8', title: 'The docks', text: 'She left the docks at dusk.' },
+    entries,
+    firstHere: [],
+    elsewhere: [],
+    relationships: [],
+    facts: [],
+    threads: [],
+    storySoFar: noStory(),
+    bringAbout: [],
+    ...over
+  }
+}
 
 function world() {
   const mara = entry('character', 'Mara Venn', {
@@ -55,20 +93,47 @@ function world() {
     summary: 'A disgraced heir turned smuggler.',
     description: 'Lost her left hand in the siege.',
     notes: 'PRIVATE: maybe kill her off in book 4',
-    fields: { pronouns: 'she/her', speech: 'Short, dry sentences.', sampleLines: '"Don\'t."\n"I\'ve had worse."', origin: 'Born in the Narrows.' }
+    fields: {
+      pronouns: 'she/her',
+      speech: 'Short, dry sentences.',
+      sampleLines: '"Don\'t."\n"I\'ve had worse."',
+      origin: 'Born in the Narrows.'
+    }
   })
-  const tobin = entry('character', 'Tobin', { summary: 'A ferryman who owes Mara.', fields: { speech: 'Rambling, warm.' } })
+  const tobin = entry('character', 'Tobin', {
+    summary: 'A ferryman who owes Mara.',
+    fields: { speech: 'Rambling, warm.', traits: 'Loyal to a fault.' }
+  })
   const duke = entry('character', 'The Duke', { summary: 'Rules Varn.' })
   const varn = entry('place', 'Varn', { summary: 'The river capital.' })
   const lowtown = entry('place', 'Lowtown', { summary: 'The docks district.', parentId: varn.id })
-  const eel = entry('place', 'The Gilded Eel', { summary: 'A smoky tavern.', parentId: lowtown.id, fields: { atmosphere: 'Smoke and wet wool.' } })
-  const binding = entry('lore', 'The Binding', { summary: 'Oaths bind magically.', hardRule: true, fields: { rules: 'A broken oath burns the breaker.' } })
+  const eel = entry('place', 'The Gilded Eel', {
+    summary: 'A smoky tavern.',
+    parentId: lowtown.id,
+    fields: { atmosphere: 'Smoke and wet wool.', history: 'Built on a wreck.' }
+  })
+  const binding = entry('lore', 'The Binding', {
+    summary: 'Oaths bind magically.',
+    hardRule: true,
+    fields: { rules: 'A broken oath burns the breaker.' }
+  })
   const ferry = entry('place', "Tobin's Ferry", { summary: 'A flat-bottomed ferry.', description: 'Moored below the Narrows.' })
   const softLore = entry('lore', 'River songs', { summary: 'Songs of the river folk.' })
-  return { mara, tobin, duke, varn, lowtown, eel, binding, ferry, softLore, all: [mara, tobin, duke, varn, lowtown, eel, binding, ferry, softLore] }
+  return {
+    mara,
+    tobin,
+    duke,
+    varn,
+    lowtown,
+    eel,
+    binding,
+    ferry,
+    softLore,
+    all: [mara, tobin, duke, varn, lowtown, eel, binding, ferry, softLore]
+  }
 }
 
-function input(over: Partial<ContextInput> = {}): ContextInput {
+function input(over: Partial<ContextInput> = {}, memory: Partial<SceneMemory> = {}): ContextInput {
   const w = world()
   return {
     style: style({ samplePassage: 'The river kept its own counsel.', avoidPhrases: ['suddenly'] }),
@@ -89,17 +154,83 @@ function input(over: Partial<ContextInput> = {}): ContextInput {
         notes: 'Keep the hand subtle.'
       }
     },
-    previousText: 'She left the docks at dusk.',
-    entries: w.all,
+    memory: memoryOf(w.all, memory),
+    pins: [],
+    blockModes: {},
     world: { themes: 'Debt and loyalty', tone: 'Grim but warm' },
-    story: { title: 'Book 1', premise: 'A smuggler must cross the river.', themes: '', tone: '' },
+    series: null,
+    story: { title: 'Book 2', premise: 'A smuggler must cross the river.', themes: '', tone: '' },
     options: { direction: 'Make it tense, end on the knock at the door', targetWords: 1200, creativity: 'balanced' },
     contextLength: 32000,
     ...over
   }
 }
 
+const named = (inp: ContextInput, name: string): EntryState => {
+  const e = [...inp.memory.entries, ...inp.memory.elsewhere.map((x) => x.entry)].find((x) => x.name === name)
+  if (!e) throw new Error(`No ${name}`)
+  return e
+}
+const pin = (entryId: string, scope: Pin['scope'], action: Pin['action'] = 'pin'): Pin => ({
+  id: `p-${entryId}-${scope}`,
+  scope,
+  scopeId: scope === 'world' ? null : 'x',
+  entryId,
+  action
+})
 const words = (n: number, word = 'word'): string => Array.from({ length: n }, () => word).join(' ')
+const blockOf = (inp: ContextInput, id: string) => buildBlocks(inp).find((b) => b.id === id)
+
+/**
+ * A scene with every kind of block: a long sample passage and previous scene (so both have short
+ * forms), a group, a plot thread, relationships and knowledge, story so far, a pin and themes.
+ */
+function richInput(over: Partial<ContextInput> = {}): ContextInput {
+  const inp = input({ style: style({ samplePassage: words(300, 'river.'), avoidPhrases: ['suddenly'] }) })
+  const mara = named(inp, 'Mara Venn')
+  const tobin = named(inp, 'Tobin')
+  const guild = entry('group', 'The Tide Guild', { summary: "A smugglers' guild.", description: 'Runs the night boats.' })
+  const crown = entry('thread', 'The stolen crown', { summary: 'Who took the crown?', description: 'Stolen in Book 1.' })
+  const ana = entry('character', 'Ana Venn', { summary: "Mara's sister." })
+  const m = inp.memory
+  m.entries.push(guild, crown, ana)
+  m.previous = { sceneId: 'scene-8', title: 'The docks', text: Array.from({ length: 12 }, (_, i) => `P${i} ${words(99)}.`).join('\n\n') }
+  m.relationships = [
+    {
+      aId: mara.id,
+      bId: tobin.id,
+      type: 'now enemies',
+      aFeels: 'Contempt, but she needs his boat',
+      bFeels: 'Guilt',
+      where: 'Book 2, Ch 1, Sc 2'
+    },
+    { aId: mara.id, bId: guild.id, type: 'member (lieutenant)', aFeels: '', bFeels: '', where: '' },
+    { aId: mara.id, bId: ana.id, type: 'sister', aFeels: 'Fierce love', bFeels: 'Worry', where: '' }
+  ]
+  m.facts = [
+    { factId: 'f1', fact: 'Mara is the heir', knownBy: [mara.id] },
+    { factId: 'f2', fact: 'The ferry leaks', knownBy: [mara.id, tobin.id] }
+  ]
+  m.threads = [{ entryId: crown.id, status: 'open', setUp: 'Book 1, Ch 2, Sc 1', paidOff: '' }]
+  m.storySoFar = {
+    scenes: Array.from({ length: 7 }, (_, i) => ({
+      sceneId: `s${i + 1}`,
+      chapterId: i < 4 ? 'c1' : 'c2',
+      label: `Ch ${i < 4 ? 1 : 2}, Sc ${i < 4 ? i + 1 : i - 3}`,
+      text: `Scene summary ${i + 1}.`
+    })),
+    chapters: [{ chapterId: 'c1', label: 'Ch 1', text: 'Chapter one summary.' }],
+    stories: [{ storyId: 'book-1', title: 'Book 1', meanwhile: false, cut: false, text: 'Book one summary.' }],
+    series: [{ seriesId: 'sr', name: 'The River Books', storyIds: ['book-1'], text: 'Series roll-up.' }],
+    leadsInto: null
+  }
+  inp.scene.card.paysOffIds = [crown.id]
+  inp.pins = [pin(named(inp, 'River songs').id, 'story')]
+  inp.series = { name: 'The River Books', themes: 'What we owe', tone: 'Wry' }
+  return { ...inp, ...over }
+}
+
+// ---------- Budget ----------
 
 describe('budget', () => {
   it('is the context length minus the reply room and a 10% margin', () => {
@@ -157,109 +288,190 @@ describe('maxTargetWords', () => {
   })
 })
 
-describe('buildBlocks', () => {
-  it('builds the blocks with their fixed priorities, in the order they are sent: the same-every-time ones first', () => {
-    const blocks = buildBlocks(input())
-    expect(blocks.map((b) => [b.id, b.priority])).toEqual([
-      ['instructions', 1],
-      ['world-rules', 7],
-      ['themes', 10],
-      ['setting', 7],
-      ['pov', 4],
-      ['present', 5],
-      ['mentioned', 9],
-      ['previous-scene', 3],
-      ['scene-card', 2]
-    ])
-  })
+// ---------- Selection ----------
 
-  it('records which entries each block includes', () => {
+describe('selection', () => {
+  const why = (inp: ContextInput) => Object.fromEntries(prepareContext(inp).entries.map((e) => [e.name, e.why]))
+
+  it('says why each entry is in the briefing, in plain words', () => {
     const inp = input()
-    const w = inp.entries
-    const byName = (n: string): string => w.find((e) => e.name === n)!.id
+    inp.scene.card.notes = 'Keep the hand subtle. The Duke is watching.'
+    expect(why(inp)).toEqual({
+      'Mara Venn': 'On the scene card',
+      Tobin: 'On the scene card',
+      'The Gilded Eel': 'Where the scene happens',
+      Lowtown: "Around the scene's location",
+      Varn: "Around the scene's location",
+      'The Binding': 'A world rule',
+      "Tobin's Ferry": 'Named in the beats',
+      'The Duke': 'Named in the scene notes'
+    })
+    const viaDirection = input({ options: { direction: 'Have her think of the duke.', targetWords: 1000, creativity: 'balanced' } })
+    expect(why(viaDirection)['The Duke']).toBe('Named in your direction')
+    // Each entry is listed with the block it is in.
+    const entries = prepareContext(inp).entries
+    expect(entries.find((e) => e.name === 'Mara Venn')).toMatchObject({
+      blockId: 'pov',
+      kind: 'character',
+      hidden: false,
+      pinned: null,
+      label: null
+    })
+    expect(entries.find((e) => e.name === 'Varn')!.blockId).toBe('setting')
+  })
+
+  it('counts only entries that exist at this scene', () => {
+    const inp = input()
+    const later = entry('lore', 'The Salt Law', { summary: 'Found in Book 3.', hardRule: true })
+    const kell = entry('character', 'Kell', { summary: 'A drifter.' })
+    inp.memory.elsewhere = [
+      { entry: later, label: 'not in the story yet at this point' },
+      { entry: kell, label: "from Kell's Road, not in this story so far" }
+    ]
+    inp.scene.card.beats.push('Kell watches from the door')
+    const sel = selectEntries(inp)
+    expect(sel.chosen.has(later.id)).toBe(false)
+    expect(sel.chosen.has(kell.id)).toBe(false)
+    expect(
+      buildBlocks(inp)
+        .map((b) => b.text)
+        .join('\n')
+    ).not.toContain('Salt Law')
+  })
+
+  it('sends an entry that does not exist here when it is on the card or pinned, with its label', () => {
+    const inp = input()
+    const kell = entry('character', 'Kell', { summary: 'A drifter.', fields: { speech: 'Clipped.' } })
+    const salt = entry('lore', 'The Salt Law', { summary: 'No salt on the river.' })
+    inp.memory.elsewhere = [
+      { entry: kell, label: "from Kell's Road, not in this story so far" },
+      { entry: salt, label: 'not in the story yet at this point' }
+    ]
+    inp.scene.card.presentIds.push(kell.id)
+    inp.pins = [pin(salt.id, 'scene')]
     const blocks = buildBlocks(inp)
-    const get = (id: string) => blocks.find((b) => b.id === id)!
-    expect(get('pov').entryIds).toEqual([byName('Mara Venn')])
-    expect(get('present').entryIds).toEqual([byName('Tobin')])
-    expect(get('setting').entryIds).toEqual([byName('The Gilded Eel'), byName('Lowtown'), byName('Varn')])
-    expect(get('world-rules').entryIds).toEqual([byName('The Binding')])
-    expect(get('mentioned').entryIds).toEqual([byName("Tobin's Ferry")])
-    expect(get('instructions').entryIds).toEqual([])
+    const card = blocks.find((b) => b.id === 'scene-card')!.text
+    expect(card).toContain("Also in the scene: Tobin, Kell (from Kell's Road, not in this story so far)")
+    expect(blocks.find((b) => b.id === 'present')!.text).toContain("### Kell (from Kell's Road, not in this story so far)")
+    const also = blocks.find((b) => b.id === 'mentioned')!
+    expect(also.title).toBe('Also relevant')
+    expect(also.text).toContain('### The Salt Law (lore; not in the story yet at this point)')
+    const entries = prepareContext(inp).entries
+    expect(entries.find((e) => e.entryId === kell.id)).toMatchObject({
+      why: 'On the scene card',
+      label: "from Kell's Road, not in this story so far",
+      blockId: 'present'
+    })
+    expect(entries.find((e) => e.entryId === salt.id)).toMatchObject({
+      why: 'Pinned for this scene',
+      pinned: 'scene',
+      blockId: 'mentioned'
+    })
   })
 
-  it('puts the style guide, sample passage and phrases to avoid in the instructions', () => {
-    const text = buildBlocks(input())[0].text
-    expect(text).toContain('Point of view: Close third person')
-    expect(text).toContain('Tense: Past tense')
-    expect(text).toContain('UK English')
-    expect(text).toContain('The river kept its own counsel.')
-    expect(text).toContain('- suddenly')
-  })
-
-  it('puts the whole scene card and the direction in block 2', () => {
-    const text = buildBlocks(input()).find((b) => b.id === 'scene-card')!.text
-    for (const s of [
-      'Scene: The knock',
-      'When: Day 12, dusk',
-      'Point of view: Mara Venn',
-      'Also in the scene: Tobin',
-      'Where: The Gilded Eel',
-      '1. Mara arrives at the tavern',
-      "2. Tobin offers passage on Tobin's Ferry",
-      'Goal: Get passage out of Varn',
-      'Conflict: Tobin wants a favour first',
-      'Outcome: She agrees, then someone knocks',
-      'Mood: Tense',
-      'Length: about 1,200 words',
-      'Keep the hand subtle.',
-      'Make it tense, end on the knock at the door'
-    ]) {
-      expect(text).toContain(s)
-    }
-  })
-
-  it('gives the point-of-view character a full profile, grouped and labelled, without private notes', () => {
-    const pov = buildBlocks(input()).find((b) => b.id === 'pov')!
-    expect(pov.title).toBe('Point-of-view character: Mara Venn')
-    expect(pov.text).toContain('Also called: the Heir')
-    expect(pov.text).toContain('In short: A disgraced heir turned smuggler.')
-    expect(pov.text).toContain('Lost her left hand in the siege.')
-    expect(pov.text).toContain('Basics\n- Pronouns: she/her')
-    expect(pov.text).toContain('Backstory\n- Origin: Born in the Narrows.')
-    expect(pov.text).toContain('Voice\n- How they speak: Short, dry sentences.')
-    expect(pov.text).toContain('- Sample lines of dialogue:\n    "Don\'t."\n    "I\'ve had worse."')
-    const all = buildBlocks(input())
-      .map((b) => b.text)
-      .join('\n')
-    expect(all).not.toContain('PRIVATE')
-  })
-
-  it('lists the places around the location as one-liners, safely even with a loop', () => {
-    const blocks = buildBlocks(input())
-    const setting = blocks.find((b) => b.id === 'setting')!
-    expect(setting.title).toBe('Setting')
-    expect(setting.text).toContain('### Where: The Gilded Eel')
-    expect(setting.text).toContain('It lies within:\n- Lowtown: The docks district.\n- Varn: The river capital.')
-    // The world's hard rules keep their "never break" label even when there is a location.
-    const rules = blocks.find((b) => b.id === 'world-rules')!
-    expect(rules.title).toBe('World rules (never break these)')
-    expect(rules.text).toContain('### World rule: The Binding')
-    expect(rules.text).toContain('A broken oath burns the breaker.')
-
-    const a = entry('place', 'A', { parentId: 'b' })
-    const b = entry('place', 'B', { id: 'b', parentId: a.id })
-    const byId = new Map([a, b].map((e) => [e.id, e]))
-    expect(parentChain(a, byId).map((e) => e.name)).toEqual(['B'])
-  })
-
-  it('always includes hard-rule lore, but not other lore unless it is mentioned', () => {
-    const inp = input({ scene: { title: '', card: { ...emptySceneCard() } }, options: { direction: '', targetWords: 800, creativity: 'steady' } })
+  it('marks an entry that first appears in this scene', () => {
+    const inp = input()
+    const tobin = named(inp, 'Tobin')
+    inp.memory.firstHere = [tobin.id]
     const blocks = buildBlocks(inp)
-    expect(blocks.find((b) => b.id === 'setting')).toBeUndefined()
-    const rules = blocks.find((b) => b.id === 'world-rules')!
-    expect(rules.title).toBe('World rules (never break these)')
-    expect(rules.text).toContain('The Binding')
-    expect(blocks.map((b) => b.text).join('\n')).not.toContain('River songs')
+    expect(blocks.find((b) => b.id === 'scene-card')!.text).toContain('Also in the scene: Tobin (first appears in this scene)')
+    expect(blocks.find((b) => b.id === 'present')!.text).toContain('### Tobin (first appears in this scene)')
+    expect(prepareContext(inp).entries.find((e) => e.entryId === tobin.id)!.label).toBe('first appears in this scene')
+  })
+
+  it('leaves out what Adam kept out, and lists it so he can bring it back; the closest pin wins', () => {
+    const inp = input()
+    const tobin = named(inp, 'Tobin')
+    const binding = named(inp, 'The Binding')
+    const duke = named(inp, 'The Duke')
+    inp.pins = [
+      pin(tobin.id, 'world'),
+      pin(tobin.id, 'scene', 'hide'),
+      pin(binding.id, 'story', 'hide'),
+      pin(duke.id, 'world', 'hide'),
+      pin(duke.id, 'scene')
+    ]
+    expect(effectivePins(inp.pins).get(tobin.id)!.action).toBe('hide')
+    const blocks = buildBlocks(inp)
+    expect(blocks.find((b) => b.id === 'present')).toBeUndefined()
+    expect(blocks.find((b) => b.id === 'world-rules')).toBeUndefined()
+    // The card is Adam's: it still names who is there.
+    expect(blocks.find((b) => b.id === 'scene-card')!.text).toContain('Also in the scene: Tobin')
+    expect(blocks.flatMap((b) => b.entryIds)).not.toContain(tobin.id)
+    const entries = prepareContext(inp).entries
+    expect(entries.filter((e) => e.hidden).map((e) => [e.name, e.why, e.blockId])).toEqual([
+      ['Tobin', 'Kept out of this scene', null],
+      ['The Binding', 'Kept out of this story', null]
+    ])
+    expect(entries.find((e) => e.entryId === duke.id)).toMatchObject({
+      why: 'Pinned for this scene',
+      pinned: 'scene',
+      hidden: false,
+      blockId: 'mentioned'
+    })
+  })
+
+  it("brings in pins for the scene, the story and every scene, and notes a pin on an entry that's there anyway", () => {
+    const inp = input()
+    const songs = named(inp, 'River songs')
+    const duke = named(inp, 'The Duke')
+    const mara = named(inp, 'Mara Venn')
+    inp.pins = [pin(songs.id, 'story'), pin(duke.id, 'world'), pin(mara.id, 'scene')]
+    const entries = prepareContext(inp).entries
+    expect(entries.find((e) => e.entryId === songs.id)).toMatchObject({
+      why: 'Pinned for this story',
+      pinned: 'story',
+      blockId: 'mentioned'
+    })
+    expect(entries.find((e) => e.entryId === duke.id)).toMatchObject({ why: 'Pinned for every scene', pinned: 'world' })
+    expect(entries.find((e) => e.entryId === mara.id)).toMatchObject({ why: 'On the scene card', pinned: 'scene', blockId: 'pov' })
+    const also = blockOf(inp, 'mentioned')!
+    expect(also.text).toContain('### River songs (lore)')
+    expect(also.text).toContain('### The Duke (character)')
+  })
+
+  it('finds the groups the people present belong to, as one-liners in the setting', () => {
+    const inp = richInput()
+    const setting = blockOf(inp, 'setting')!
+    expect(setting.text).toContain(
+      "Groups the people here belong to:\n- The Tide Guild: A smugglers' guild. (Mara Venn: member (lieutenant))"
+    )
+    expect(setting.text).not.toContain('Runs the night boats')
+    expect(prepareContext(inp).entries.find((e) => e.name === 'The Tide Guild')).toMatchObject({
+      why: 'A group someone here belongs to',
+      blockId: 'setting'
+    })
+
+    // With no location, the groups still come, under their own title.
+    inp.scene.card.locationId = null
+    const groups = blockOf(inp, 'setting')!
+    expect(groups.title).toBe('Groups')
+    expect(groups.text).toContain('The Tide Guild')
+  })
+
+  it('takes the plot threads on the card that are still open here', () => {
+    const inp = richInput()
+    const crown = named(inp, 'The stolen crown')
+    const old = entry('thread', 'The lost map', { summary: 'Where is the map?' })
+    const fresh = entry('thread', 'The new debt', { summary: 'What does Mara owe?' })
+    inp.memory.entries.push(old, fresh)
+    inp.memory.threads.push({ entryId: old.id, status: 'resolved', setUp: 'Book 1, Ch 1, Sc 1', paidOff: 'Book 1, Ch 9, Sc 2' })
+    inp.scene.card.paysOffIds = [crown.id, old.id]
+    inp.scene.card.setsUpIds = [fresh.id]
+    const threads = blockOf(inp, 'threads')!
+    expect(threads.title).toBe('Plot threads in this scene')
+    expect(threads.entryIds).toEqual([fresh.id, crown.id])
+    expect(threads.text).toContain('### The new debt (this scene sets it up)')
+    expect(threads.text).toContain('### The stolen crown (this scene pays it off)')
+    expect(threads.text).toContain('Set up in Book 1, Ch 2, Sc 1.')
+    expect(threads.text).not.toContain('The lost map')
+    expect(threads.short).toBe(
+      '- The new debt (this scene sets it up): What does Mara owe?\n- The stolen crown (this scene pays it off): Who took the crown?'
+    )
+    // The card still lists them all.
+    const card = blockOf(inp, 'scene-card')!.text
+    expect(card).toContain('Sets up: The new debt')
+    expect(card).toContain('Pays off: The stolen crown, The lost map')
   })
 
   it('finds mentions by whole name or alias, ignoring case, in beats, notes and direction', () => {
@@ -277,50 +489,21 @@ describe('buildBlocks', () => {
     expect(mentions('Will finds the horse', 'Will')).toBe(true)
     expect(mentions('because of the Tide Laws', 'The Tide Laws')).toBe(true)
 
-    const inp = input({ options: { direction: 'Have her think of the duke.', targetWords: 1000, creativity: 'balanced' } })
-    const duke = inp.entries.find((e) => e.name === 'The Duke')!
-    const mentioned = buildBlocks(inp).find((b) => b.id === 'mentioned')!
+    const inp = input({ options: { direction: 'Have her think of   the duke.', targetWords: 1000, creativity: 'balanced' } })
+    const duke = named(inp, 'The Duke')
+    const mentioned = blockOf(inp, 'mentioned')!
     expect(mentioned.entryIds).toContain(duke.id)
+    expect(mentioned.title).toBe('Also mentioned')
     expect(mentioned.text).toContain('### The Duke (character)\nIn short: Rules Varn.')
   })
 
-  it('sends the facts of mentioned lore and places, and how mentioned characters look', () => {
-    const tide = entry('lore', 'The Tide Laws', { fields: { category: 'Law', rules: 'No boats after the night bell without a token.', limits: 'A token costs two silver.' } })
-    const market = entry('place', 'The Fish Market', { fields: { atmosphere: 'Gulls, brine and shouting.' } })
-    const will = entry('character', 'Will', {
-      summary: 'A stable boy.',
-      fields: { build: 'Wiry', hair: 'Red', traits: 'Nosy', origin: 'Born in a barn.' }
-    })
-    const inp = input()
-    inp.entries = [...inp.entries, tide, market, will]
-    inp.scene.card.beats = ['Tobin can’t take her because of the Tide Laws', 'They pass the Fish Market', 'Will brings the horses']
-    const text = buildBlocks(inp).find((b) => b.id === 'mentioned')!.text
-    expect(text).toContain('### The Tide Laws (lore)\n\n- Category: Law\n- How it works: No boats after the night bell without a token.\n- Limits and costs: A token costs two silver.')
-    expect(text).toContain('### The Fish Market (place)\n\n- Atmosphere: Gulls, brine and shouting.')
-    expect(text).toContain('### Will (character)\nIn short: A stable boy.')
-    expect(text).toContain('Looks\n- Build: Wiry\n- Hair: Red')
-    expect(text).not.toContain('Nosy')
-    expect(text).not.toContain('Born in a barn')
-  })
-
   it('does not repeat an entry that is already in an earlier block', () => {
-    const inp = input()
-    inp.scene.card.beats.push('Mara thinks of Lowtown and the Binding')
-    const blocks = buildBlocks(inp)
-    const ids = blocks.flatMap((b) => b.entryIds)
+    const inp = richInput()
+    inp.scene.card.beats.push('Mara thinks of Lowtown, the Tide Guild and the Binding')
+    const ids = buildBlocks(inp)
+      .filter((b) => b.id !== 'relationships')
+      .flatMap((b) => b.entryIds)
     expect(new Set(ids).size).toBe(ids.length)
-  })
-
-  it('leaves out blocks with nothing in them', () => {
-    const inp = input({
-      previousText: '   ',
-      entries: [],
-      world: { themes: '', tone: '' },
-      story: { title: 'Book 1', premise: '', themes: '', tone: '' },
-      scene: { title: '', card: emptySceneCard() },
-      options: { direction: '', targetWords: 1500, creativity: 'balanced' }
-    })
-    expect(buildBlocks(inp).map((b) => b.id)).toEqual(['instructions', 'scene-card'])
   })
 
   it('skips characters on the card that have been deleted', () => {
@@ -332,6 +515,550 @@ describe('buildBlocks', () => {
     expect(blocks.find((b) => b.id === 'present')!.entryIds).toHaveLength(2)
   })
 })
+
+// ---------- Blocks, full and short ----------
+
+describe('blocks', () => {
+  it('builds the blocks with their fixed priorities, in the order they are sent: the same-every-time ones first', () => {
+    expect(buildBlocks(richInput()).map((b) => [b.id, b.priority])).toEqual([
+      ['instructions', 1],
+      ['world-rules', 7],
+      ['themes', 10],
+      ['setting', 7],
+      ['pov', 4],
+      ['present', 5],
+      ['relationships', 6],
+      ['mentioned', 9],
+      ['threads', 7],
+      ['story-so-far', 8],
+      ['previous-scene', 3],
+      ['scene-card', 2]
+    ])
+  })
+
+  it('records which entries each block includes', () => {
+    const inp = input()
+    const id = (n: string): string => named(inp, n).id
+    const blocks = buildBlocks(inp)
+    const get = (b: string) => blocks.find((x) => x.id === b)!
+    expect(get('pov').entryIds).toEqual([id('Mara Venn')])
+    expect(get('present').entryIds).toEqual([id('Tobin')])
+    expect(get('setting').entryIds).toEqual([id('The Gilded Eel'), id('Lowtown'), id('Varn')])
+    expect(get('world-rules').entryIds).toEqual([id('The Binding')])
+    expect(get('mentioned').entryIds).toEqual([id("Tobin's Ferry")])
+    expect(get('instructions').entryIds).toEqual([])
+  })
+
+  it('leaves out blocks with nothing in them', () => {
+    const inp = input({
+      world: { themes: '', tone: '' },
+      story: { title: 'Book 1', premise: '', themes: '', tone: '' },
+      scene: { title: '', card: emptySceneCard() },
+      options: { direction: '', targetWords: 1500, creativity: 'balanced' }
+    })
+    inp.memory = memoryOf([], { previous: null })
+    expect(buildBlocks(inp).map((b) => b.id)).toEqual(['instructions', 'scene-card'])
+  })
+
+  it('block 1: the style guide, sample passage and phrases to avoid; short: the sample passage trimmed', () => {
+    const block = blockOf(input(), 'instructions')!
+    expect(block.text).toContain('Point of view: Close third person')
+    expect(block.text).toContain('Tense: Past tense')
+    expect(block.text).toContain('UK English')
+    expect(block.text).toContain('The river kept its own counsel.')
+    expect(block.text).toContain('- suddenly')
+    // A short sample passage has nothing to trim.
+    expect(block.short).toBeNull()
+
+    const sample = Array.from({ length: 40 }, (_, i) => `Sentence ${i} runs on a little.`).join(' ')
+    const long = blockOf(input({ style: style({ samplePassage: sample, avoidPhrases: ['suddenly'] }) }), 'instructions')!
+    expect(long.text).toContain('Sentence 39 runs on a little.')
+    expect(long.short).toContain('Sentence 0 runs on a little.')
+    expect(long.short).not.toContain('Sentence 39')
+    expect(long.short).toContain('- suddenly')
+    expect(long.short!.length).toBeLessThan(long.text.length)
+  })
+
+  it('trims a passage at a sentence end near the length asked for', () => {
+    expect(trimPassage('One two. Three four.', 10)).toBe('One two. Three four.')
+    const text = Array.from({ length: 30 }, (_, i) => `S${i} a b c.`).join(' ')
+    const short = trimPassage(text, 22)
+    expect(short).toBe('S0 a b c. S1 a b c. S2 a b c. S3 a b c. S4 a b c.')
+    expect(trimPassage(words(50), 10)).toBe(`${words(10)}…`)
+  })
+
+  it('block 2: the whole scene card and the direction, with no short form', () => {
+    const block = blockOf(input(), 'scene-card')!
+    for (const s of [
+      'Scene: The knock',
+      'When: Day 12, dusk',
+      'Point of view: Mara Venn',
+      'Also in the scene: Tobin',
+      'Where: The Gilded Eel',
+      '1. Mara arrives at the tavern',
+      "2. Tobin offers passage on Tobin's Ferry",
+      'Goal: Get passage out of Varn',
+      'Conflict: Tobin wants a favour first',
+      'Outcome: She agrees, then someone knocks',
+      'Mood: Tense',
+      'Length: about 1,200 words',
+      'Keep the hand subtle.',
+      'Make it tense, end on the knock at the door'
+    ]) {
+      expect(block.text).toContain(s)
+    }
+    expect(block.short).toBeNull()
+    expect(block.text).not.toContain('bring about')
+  })
+
+  it('block 2 on a redraft: what this scene should bring about, as aims rather than facts', () => {
+    const inp = input()
+    const mara = named(inp, 'Mara Venn')
+    const tobin = named(inp, 'Tobin')
+    const base = {
+      anchor: 'scene',
+      storyId: 'book-2',
+      sceneId: 'scene-9',
+      position: 0,
+      origin: 'text',
+      runId: null,
+      createdAt: '',
+      updatedAt: ''
+    } as const
+    const changes: Change[] = [
+      { ...base, id: 'c1', entryId: mara.id, kind: 'update', payload: { note: 'Loses her temper with Tobin' } },
+      {
+        ...base,
+        id: 'c2',
+        entryId: mara.id,
+        kind: 'relationship',
+        payload: { otherId: tobin.id, type: 'enemies', feels: 'Betrayed', otherFeels: '' }
+      },
+      { ...base, id: 'c3', entryId: tobin.id, kind: 'knowledge', payload: { factId: 'f1', fact: 'Mara is the heir' } }
+    ]
+    inp.memory.bringAbout = changes
+    const text = blockOf(inp, 'scene-card')!.text
+    expect(text).toContain(
+      'What this scene should bring about (aims for this draft, not facts yet):\n- Mara Venn: Loses her temper with Tobin\n- Mara Venn and Tobin: enemies. Mara Venn feels: Betrayed.\n- Tobin learns: Mara is the heir'
+    )
+    const preview = assembleContext(inp, countRaw)
+    expect(preview.messages[1].content).toContain('Make the scene bring about what the scene card says it should.')
+    // Changes pinned to this scene are never sent as facts.
+    expect(preview.messages[1].content).not.toContain('What has happened so far')
+  })
+
+  it('block 3: the end of the previous scene on the line; short: the last 200 words', () => {
+    const inp = richInput()
+    const block = blockOf(inp, 'previous-scene')!
+    const count = (t: string): number => t.split(/\s+/).length
+    expect(count(block.text)).toBe(600)
+    expect(count(block.short!)).toBe(200)
+    expect(block.short!.startsWith('P10 ')).toBe(true)
+    // None at the start of the line.
+    inp.memory.previous = null
+    expect(blockOf(inp, 'previous-scene')).toBeUndefined()
+    expect(assembleContext(inp, countRaw).messages[1].content).not.toContain('Continue seamlessly')
+  })
+
+  it('block 4: the point-of-view character as of this scene; short: without backstory', () => {
+    const inp = richInput()
+    const mara = named(inp, 'Mara Venn')
+    mara.happened = Array.from({ length: 7 }, (_, i) => ({
+      note: `Change ${i + 1}`,
+      where: `Book 2, Ch 1, Sc ${i + 1}`,
+      changeId: `c${i}`
+    }))
+    const pov = blockOf(inp, 'pov')!
+    expect(pov.title).toBe('Point-of-view character: Mara Venn')
+    expect(pov.text).toContain('Also called: the Heir')
+    expect(pov.text).toContain('In short: A disgraced heir turned smuggler.')
+    expect(pov.text).toContain('Lost her left hand in the siege.')
+    expect(pov.text).toContain('Basics\n- Pronouns: she/her')
+    expect(pov.text).toContain('Backstory\n- Origin: Born in the Narrows.')
+    expect(pov.text).toContain('Voice\n- How they speak: Short, dry sentences.')
+    expect(pov.text).toContain('- Sample lines of dialogue:\n    "Don\'t."\n    "I\'ve had worse."')
+    expect(pov.text).toContain('What has happened so far:\n- Change 1 (Book 2, Ch 1, Sc 1)')
+    expect(pov.text).toContain('What Mara Venn knows:\n- Mara is the heir.\n- The ferry leaks.')
+    expect(pov.text).toContain(
+      'Ties to people and groups not in the scene:\n- Mara Venn and The Tide Guild: member (lieutenant).\n- Mara Venn and Ana Venn: sister. Mara Venn feels: Fierce love. Ana Venn feels: Worry.'
+    )
+    // Tobin is in the scene, so their relationship is in block 6 instead.
+    expect(pov.text).not.toContain('now enemies')
+
+    expect(pov.short).toContain('Voice\n- How they speak: Short, dry sentences.')
+    expect(pov.short).toContain('What Mara Venn knows:')
+    expect(pov.short).not.toContain('Born in the Narrows')
+    expect(pov.short).not.toContain('Ties to people')
+    expect(pov.short).not.toContain('Change 2 (')
+    expect(pov.short).toContain('Change 3 (')
+    expect(pov.short).toContain('Change 7 (')
+    const all = buildBlocks(inp)
+      .map((b) => b.text + (b.short ?? ''))
+      .join('\n')
+    expect(all).not.toContain('PRIVATE')
+  })
+
+  it('block 4: a point-of-view character with nothing filled in yet is still there', () => {
+    const inp = input()
+    const kell = entry('character', 'Kell')
+    inp.memory.entries.push(kell)
+    inp.memory.firstHere = [kell.id]
+    inp.scene.card.povId = kell.id
+    expect(blockOf(inp, 'pov')).toMatchObject({
+      title: 'Point-of-view character: Kell (first appears in this scene)',
+      text: 'Kell.',
+      short: null
+    })
+    expect(prepareContext(inp).entries.find((e) => e.entryId === kell.id)!.blockId).toBe('pov')
+  })
+
+  it('block 5: the others present as of this scene; short: summary plus voice', () => {
+    const inp = input()
+    named(inp, 'Tobin').happened = [{ note: 'Sold his second boat', where: 'Book 2, Ch 1, Sc 1', changeId: 'c1' }]
+    const present = blockOf(inp, 'present')!
+    expect(present.title).toBe('Also in the scene')
+    expect(present.text).toContain('### Tobin\nIn short: A ferryman who owes Mara.')
+    expect(present.text).toContain('Personality\n- Core traits: Loyal to a fault.')
+    expect(present.text).toContain('What has happened so far:\n- Sold his second boat (Book 2, Ch 1, Sc 1)')
+    expect(present.short).toBe('### Tobin\nIn short: A ferryman who owes Mara.\n\nVoice\n- How they speak: Rambling, warm.')
+  })
+
+  it('block 6: relationships and who knows what among those present, with no short form', () => {
+    const inp = richInput()
+    const block = blockOf(inp, 'relationships')!
+    expect(block.title).toBe('Relationships and who knows what')
+    expect(block.text).toBe(
+      "- Mara Venn and Tobin: now enemies. Mara Venn feels: Contempt, but she needs his boat. Tobin feels: Guilt.\n\nFacts some of them know and others don't:\n- Tobin does not know: Mara is the heir. (Mara Venn knows it.)"
+    )
+    expect(block.short).toBeNull()
+    expect(block.entryIds).toEqual([named(inp, 'Mara Venn').id, named(inp, 'Tobin').id])
+
+    // Alone, there is nobody to compare with.
+    inp.scene.card.presentIds = [named(inp, 'Mara Venn').id]
+    expect(blockOf(inp, 'relationships')).toBeUndefined()
+  })
+
+  it('block 7: the setting with the places around it; short: one line each', () => {
+    const inp = input()
+    named(inp, 'The Gilded Eel').happened = [{ note: 'The back room burned', where: 'Book 2, Ch 1, Sc 4', changeId: 'c9' }]
+    const setting = blockOf(inp, 'setting')!
+    expect(setting.title).toBe('Setting')
+    expect(setting.text).toContain('### Where: The Gilded Eel')
+    expect(setting.text).toContain('Smoke and wet wool.')
+    expect(setting.text).toContain('Built on a wreck.')
+    expect(setting.text).toContain('What has happened so far:\n- The back room burned (Book 2, Ch 1, Sc 4)')
+    expect(setting.text).toContain('It lies within:\n- Lowtown: The docks district.\n- Varn: The river capital.')
+    expect(setting.short).toBe(
+      '### Where: The Gilded Eel\nIn short: A smoky tavern.\n\nIt lies within:\n- Lowtown: The docks district.\n- Varn: The river capital.'
+    )
+
+    const a = entry('place', 'A', { parentId: 'b' })
+    const b = entry('place', 'B', { id: 'b', parentId: a.id })
+    const byId = new Map([a, b].map((e) => [e.id, e]))
+    expect(parentChain(a, byId).map((e) => e.name)).toEqual(['B'])
+  })
+
+  it('block 7: places around the location only as far as they exist here', () => {
+    const inp = input()
+    const varn = named(inp, 'Varn')
+    inp.memory.entries = inp.memory.entries.filter((e) => e.id !== varn.id)
+    inp.memory.elsewhere = [{ entry: varn, label: 'not in the story yet at this point' }]
+    const setting = blockOf(inp, 'setting')!
+    expect(setting.text).toContain('Lowtown')
+    expect(setting.text).not.toContain('Varn')
+  })
+
+  it("block 7: the world's hard rules, always; short: one line each", () => {
+    const inp = input({
+      scene: { title: '', card: { ...emptySceneCard() } },
+      options: { direction: '', targetWords: 800, creativity: 'steady' }
+    })
+    const blocks = buildBlocks(inp)
+    expect(blocks.find((b) => b.id === 'setting')).toBeUndefined()
+    const rules = blocks.find((b) => b.id === 'world-rules')!
+    expect(rules.title).toBe('World rules (never break these)')
+    expect(rules.text).toContain('### World rule: The Binding')
+    expect(rules.text).toContain('A broken oath burns the breaker.')
+    expect(rules.short).toBe('- The Binding: Oaths bind magically.')
+    expect(blocks.map((b) => b.text).join('\n')).not.toContain('River songs')
+  })
+
+  it('block 8: recent scenes, earlier chapters, earlier stories; short: fewer scenes and series roll-ups', () => {
+    const inp = richInput()
+    const block = blockOf(inp, 'story-so-far')!
+    expect(block.title).toBe('The story so far')
+    expect(block.text).toBe(
+      [
+        '### Book 1\nBook one summary.',
+        '### Earlier in Book 2\nCh 1: Chapter one summary.',
+        '### Most recently\nCh 1, Sc 3: Scene summary 3.\n\nCh 1, Sc 4: Scene summary 4.\n\nCh 2, Sc 1: Scene summary 5.\n\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
+      ].join('\n\n')
+    )
+    expect(block.short).toBe(
+      [
+        '### The River Books\nSeries roll-up.',
+        '### Earlier in Book 2\nCh 1: Chapter one summary.',
+        '### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
+      ].join('\n\n')
+    )
+  })
+
+  it('block 8: side stories under "Meanwhile", a story cut short, and the "Leads into" target', () => {
+    const s: StorySoFar = {
+      scenes: [{ sceneId: 's1', chapterId: 'c1', label: 'Ch 1, Sc 1', text: 'Young Mara steals a boat.' }],
+      chapters: [],
+      stories: [
+        { storyId: 'b1', title: 'Book 1', meanwhile: false, cut: true, text: 'Book one up to chapter five.' },
+        { storyId: 'k', title: "Kell's Road", meanwhile: true, cut: false, text: 'Kell walks south.' }
+      ],
+      series: [],
+      leadsInto: { storyId: 'b1', title: 'Book 1', text: 'Mara is twenty and owns nothing.' }
+    }
+    const text = storySoFarText(s, 'Mara’s Youth', false)
+    expect(text).toContain('### Book 1, up to where this story starts\nBook one up to chapter five.')
+    expect(text).toContain("### Meanwhile: Kell's Road\nKell walks south.")
+    expect(text).toContain('### Most recently\nCh 1, Sc 1: Young Mara steals a boat.')
+    expect(
+      text.endsWith(
+        '### Leads into Book 1\nThis story leads into Book 1. Below is how Book 1 begins: a target to steer towards over the story, not events to mention or bring about in this scene.\nMara is twenty and owns nothing.'
+      )
+    ).toBe(true)
+    // A chapter whose every summarised scene is shown isn't told twice.
+    expect(storySoFarText({ ...s, chapters: [{ chapterId: 'c1', label: 'Ch 1', text: 'Chapter one.' }] }, 'X', false)).not.toContain(
+      'Chapter one.'
+    )
+    expect(storySoFarText({ scenes: [], chapters: [], stories: [], series: [], leadsInto: null }, 'X', false)).toBe('')
+  })
+
+  it('block 9: other entries named or pinned; short: one line each', () => {
+    const tide = entry('lore', 'The Tide Laws', {
+      summary: 'Boats and bells.',
+      fields: { category: 'Law', rules: 'No boats after the night bell without a token.', limits: 'A token costs two silver.' }
+    })
+    const market = entry('place', 'The Fish Market', { fields: { atmosphere: 'Gulls, brine and shouting.' } })
+    const will = entry('character', 'Will', {
+      summary: 'A stable boy.',
+      fields: { build: 'Wiry', hair: 'Red', traits: 'Nosy', origin: 'Born in a barn.' }
+    })
+    const inp = input()
+    inp.memory.entries.push(tide, market, will)
+    inp.scene.card.beats = ['Tobin can’t take her because of the Tide Laws', 'They pass the Fish Market', 'Will brings the horses']
+    const block = blockOf(inp, 'mentioned')!
+    expect(block.text).toContain(
+      '### The Tide Laws (lore)\nIn short: Boats and bells.\n\n- Category: Law\n- How it works: No boats after the night bell without a token.\n- Limits and costs: A token costs two silver.'
+    )
+    expect(block.text).toContain('### The Fish Market (place)\n\n- Atmosphere: Gulls, brine and shouting.')
+    expect(block.text).toContain('### Will (character)\nIn short: A stable boy.')
+    expect(block.text).toContain('Looks\n- Build: Wiry\n- Hair: Red')
+    expect(block.text).not.toContain('Nosy')
+    expect(block.text).not.toContain('Born in a barn')
+    expect(block.short).toBe('- The Tide Laws (lore): Boats and bells.\n- The Fish Market (place)\n- Will (character): A stable boy.')
+  })
+
+  it('block 10: themes and tone of the story, series and world; short: one line', () => {
+    const inp = richInput()
+    inp.story.tone = 'Bleak. Then hopeful.'
+    const block = blockOf(inp, 'themes')!
+    expect(block.text).toBe(
+      'Story premise: A smuggler must cross the river.\nStory tone: Bleak. Then hopeful.\nSeries themes: What we owe\nSeries tone: Wry\nWorld themes: Debt and loyalty\nWorld tone: Grim but warm'
+    )
+    expect(block.short).toBe('Themes: What we owe. Tone: Bleak.')
+  })
+})
+
+// ---------- Fitting the briefing to the model ----------
+
+/** Counts for a prepared briefing: every full form `full`, every short form `short`, the closing instruction 0. */
+function counts(prepared: PreparedContext, full: (id: string) => number, short: (id: string) => number = () => 100): number[] {
+  const n = prepared.blocks.length
+  return prepared.texts.map((_, i) =>
+    i < n ? full(prepared.blocks[i].id) : i < 2 * n ? (prepared.blocks[i - n].short == null ? 0 : short(prepared.blocks[i - n].id)) : 0
+  )
+}
+
+/** A context length that leaves exactly `available` tokens for the briefing. */
+function lengthFor(available: number, targetWords: number): number {
+  let length = Math.floor((available + replyTokens(targetWords)) / 0.9) - 5
+  while (computeBudget(length, targetWords).available < available) length++
+  expect(computeBudget(length, targetWords).available).toBe(available)
+  return length
+}
+
+describe('fitting the briefing to the model', () => {
+  const fit = (prepared: PreparedContext, available: number, c: number[], modes: Record<string, BlockMode> = {}) =>
+    finishContext({ ...prepared, modes, contextLength: lengthFor(available, prepared.targetWords) }, c)
+  const ids = (p: ReturnType<typeof fit>, test: (b: (typeof p.blocks)[number]) => boolean | undefined) =>
+    p.blocks.filter(test).map((b) => b.id)
+
+  // 12 blocks of 1,100 tokens each (1,000 plus the 10% allowance), short forms of 110; 10 have a short form.
+  const prepared = prepareContext(richInput())
+  const c = counts(prepared, () => 1000)
+  const total = 12 * 1100 + 8
+
+  it('every block of the rich scene has a short form except the scene card and relationships', () => {
+    expect(prepared.blocks.filter((b) => b.short == null).map((b) => b.id)).toEqual(['relationships', 'scene-card'])
+  })
+
+  it('sends everything in full when it fits', () => {
+    const p = fit(prepared, total, c)
+    expect(ids(p, (b) => b.dropped || b.short)).toEqual([])
+    expect(p.budget.used).toBe(total)
+    expect(p.blocks.every((b) => b.mode === 'auto')).toBe(true)
+    expect(p.blocks.find((b) => b.id === 'pov')).toMatchObject({ hasShort: true, short: false, tokens: 1100 })
+    expect(p.blocks.find((b) => b.id === 'relationships')).toMatchObject({ hasShort: false, short: false })
+  })
+
+  it('switches blocks to their short form from the bottom up before dropping anything', () => {
+    const p = fit(prepared, total - 3 * 990, c)
+    expect(ids(p, (b) => b.short)).toEqual(['themes', 'mentioned', 'story-so-far'])
+    expect(ids(p, (b) => b.dropped)).toEqual([])
+    expect(p.blocks.find((b) => b.id === 'themes')).toMatchObject({
+      tokens: 110,
+      text: prepared.blocks.find((b) => b.id === 'themes')!.short
+    })
+
+    // Within priority 7, the plot threads go short first and the hard rules last.
+    const q = fit(prepared, total - 5 * 990, c)
+    expect(ids(q, (b) => b.short)).toEqual(['themes', 'setting', 'mentioned', 'threads', 'story-so-far'])
+    expect(q.messages[1].content).toContain('## World rules (never break these)\n\n### World rule: The Binding')
+  })
+
+  it('shortens block 1 only once blocks 3 to 10 are all short', () => {
+    const p = fit(prepared, total - 9 * 990, c)
+    expect(ids(p, (b) => b.short)).not.toContain('instructions')
+    expect(ids(p, (b) => b.short)).toHaveLength(9)
+    const q = fit(prepared, total - 10 * 990, c)
+    expect(ids(q, (b) => b.short)).toContain('instructions')
+    expect(q.messages[0].content).toBe(prepared.blocks[0].short)
+    expect(ids(q, (b) => b.dropped)).toEqual([])
+  })
+
+  it('drops whole blocks from priority 10 upward only when everything is short, never 1 or 2', () => {
+    // All short: 10 x 110 + the scene card and relationships in full.
+    const allShort = 10 * 110 + 2 * 1100 + 8
+    const p = fit(prepared, allShort - 300, c)
+    expect(ids(p, (b) => b.dropped)).toEqual(['themes', 'mentioned', 'story-so-far'])
+    expect(ids(p, (b) => !b.dropped && !b.short)).toEqual(['relationships', 'scene-card'])
+    expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
+    // Dropped blocks stay in the record but aren't sent.
+    expect(p.blocks).toHaveLength(12)
+    expect(p.messages[1].content).not.toContain('## Themes and tone')
+    expect(p.messages[1].content).toContain('## Also in the scene')
+
+    // Far too small: everything droppable goes, blocks 1 and 2 stay.
+    const tiny = fit(prepared, 500, c)
+    expect(ids(tiny, (b) => !b.dropped)).toEqual(['instructions', 'scene-card'])
+    expect(tiny.messages[1].content).not.toContain('Continue seamlessly')
+  })
+
+  it('puts back smaller blocks once a big one has gone, then gives back full forms that fit, most important first', () => {
+    // Short forms the same size as full ones; relationships (no short form) is huge.
+    const big = counts(
+      prepared,
+      (id) => (id === 'relationships' ? 5000 : 100),
+      () => 100
+    )
+    const p = fit(prepared, 1500, big)
+    expect(ids(p, (b) => b.dropped)).toEqual(['relationships'])
+    expect(ids(p, (b) => b.short)).toEqual([])
+
+    // Room to re-expand one block after everything is short: the most important one gets it.
+    const q = fit(prepared, 10 * 110 + 2 * 1100 + 8 + 990, c)
+    expect(ids(q, (b) => !b.short && b.hasShort)).toEqual(['instructions'])
+    const r = fit(prepared, 10 * 110 + 2 * 1100 + 8 + 2 * 990, c)
+    expect(ids(r, (b) => !b.short && b.hasShort)).toEqual(['instructions', 'previous-scene'])
+  })
+
+  it("follows Adam's choice: 'full' is never shortened, 'short' is always short", () => {
+    // Point of view short by choice saves one block's worth; then 9 and 8 go short, skipping 10.
+    const p = fit(prepared, total - 3 * 990, c, { themes: 'full', pov: 'short' })
+    expect(ids(p, (b) => b.short)).toEqual(['pov', 'mentioned', 'story-so-far'])
+    expect(p.blocks.find((b) => b.id === 'themes')).toMatchObject({ mode: 'full', short: false, dropped: false })
+    expect(p.blocks.find((b) => b.id === 'pov')).toMatchObject({ mode: 'short', short: true })
+
+    // 'short' even when there is plenty of room.
+    const roomy = fit(prepared, 100_000, c, { pov: 'short', 'scene-card': 'short' })
+    expect(ids(roomy, (b) => b.short)).toEqual(['pov'])
+    expect(roomy.blocks.find((b) => b.id === 'scene-card')!.mode).toBe('short')
+  })
+
+  it('drops a block Adam wants in full only as a last resort', () => {
+    const allShortButThemes = 9 * 110 + 3 * 1100 + 8
+    const p = fit(prepared, allShortButThemes - 1000, c, { themes: 'full' })
+    expect(p.blocks.find((b) => b.id === 'themes')).toMatchObject({ dropped: false, short: false })
+    expect(ids(p, (b) => b.dropped)).toContain('relationships')
+    const tiny = fit(prepared, 500, c, { themes: 'full' })
+    expect(tiny.blocks.find((b) => b.id === 'themes')!.dropped).toBe(true)
+  })
+
+  it('lists only the entries that were actually sent', () => {
+    const tiny = fit(prepared, 500, c)
+    expect(sentEntryIds(tiny.blocks)).toEqual([])
+    const all = fit(prepared, total, c)
+    const inp = richInput()
+    expect(sentEntryIds(all.blocks).length).toBe(prepared.entries.filter((e) => !e.hidden).length)
+    expect(sentEntryVersions(inp.memory, tiny.blocks).size).toBe(0)
+  })
+
+  it('a small-context model and a large-context model both get a sensible briefing for the same scene', () => {
+    // Ordinary prose: a 300-word sample passage and a 720-word previous scene.
+    const sample = Array.from({ length: 25 }, () => 'Mara did not hurry, and the river did not wait for her either.').join(' ')
+    const scene = (contextLength: number): ContextInput => {
+      const inp = richInput({ contextLength, options: { direction: 'End on the knock.', targetWords: 400, creativity: 'balanced' } })
+      inp.style = style({ samplePassage: sample, avoidPhrases: ['suddenly'] })
+      // A full profile, as Adam would fill it in.
+      Object.assign(named(inp, 'Mara Venn').fields, {
+        age: '31',
+        role: 'protagonist',
+        build: 'Wiry, all tendon',
+        hair: 'Black, cropped with a knife',
+        marks: 'The stump of her left wrist, kept wrapped',
+        traits: 'Proud, quick, slow to trust',
+        fears: 'Owing anyone anything',
+        desires: 'To buy back her name',
+        pastEvents: 'The siege of Varn, the fall of her house, two years rowing contraband for the Tide Guild.',
+        secrets: 'She signed the order that opened the river gate.',
+        arcStart: 'Alone and certain she needs no one.',
+        arcEnd: 'Trusting Tobin with the truth.',
+        wants: 'Passage out of Varn',
+        motivation: 'The Duke has learnt who she is.'
+      })
+      inp.memory.previous = {
+        sceneId: 'scene-8',
+        title: 'The docks',
+        text: Array.from(
+          { length: 12 },
+          (_, i) =>
+            `Paragraph ${i}. ${Array.from({ length: 5 }, () => 'The rain came off the river in sheets and Mara kept walking.').join(' ')}`
+        ).join('\n\n')
+      }
+      return inp
+    }
+    const small = assembleContext(scene(3000), countRaw)
+    const sent = (id: string) => small.blocks.find((b) => b.id === id)!
+    expect(small.budget.used).toBeLessThanOrEqual(small.budget.available)
+    expect(sent('instructions')).toMatchObject({ dropped: false, short: true })
+    expect(sent('scene-card').dropped).toBe(false)
+    expect(sent('pov')).toMatchObject({ dropped: false, short: true })
+    expect(sent('story-so-far')).toMatchObject({ dropped: false, short: true })
+    expect(sent('previous-scene')).toMatchObject({ dropped: false, short: true })
+    const user = small.messages[1].content
+    expect(user).toContain('### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.')
+    expect(user).toContain('## Point-of-view character: Mara Venn')
+    expect(user).toContain('Voice\n- How they speak: Short, dry sentences.')
+    expect(user).not.toContain('Born in the Narrows')
+    expect(user).toContain('Write the scene now.')
+
+    const large = assembleContext(scene(128_000), countRaw)
+    expect(large.blocks.filter((b) => b.dropped || b.short)).toEqual([])
+    expect(large.blocks).toHaveLength(12)
+    expect(large.messages[0].content).toContain(sample)
+    expect(large.messages[1].content).toContain('Born in the Narrows')
+    expect(large.messages[1].content).toContain('Ch 1, Sc 3: Scene summary 3.')
+  })
+})
+
+// ---------- The previous scene's ending ----------
 
 describe('sceneTail', () => {
   it('returns short scenes whole', () => {
@@ -365,9 +1092,11 @@ describe('sceneTail', () => {
   })
 })
 
+// ---------- Messages ----------
+
 describe('assembleContext', () => {
   it('sends block 1 as the system message and the rest in order under headings', () => {
-    const preview = assembleContext(input(), countRaw)
+    const preview = assembleContext(richInput(), countRaw)
     expect(preview.messages).toHaveLength(2)
     expect(preview.messages[0]).toEqual({ role: 'system', content: preview.blocks[0].text })
     const user = preview.messages[1].content
@@ -377,7 +1106,10 @@ describe('assembleContext', () => {
       '## Setting',
       '## Point-of-view character: Mara Venn',
       '## Also in the scene',
-      '## Also mentioned',
+      '## Relationships and who knows what',
+      '## Also relevant',
+      '## Plot threads in this scene',
+      '## The story so far',
       '## End of the previous scene',
       '## Scene card',
       'Write the scene now.'
@@ -396,15 +1128,39 @@ describe('assembleContext', () => {
     expect(user).toContain('Never contradict the facts given above.')
   })
 
+  it('returns the "knows what happened in" sentence and every entry with why, for the Context tab', () => {
+    const preview = assembleContext(richInput(), countRaw)
+    expect(preview.knows).toBe('This story knows what happened in: Book 1.')
+    expect(preview.entries!.map((e) => [e.name, e.blockId])).toEqual([
+      ['Mara Venn', 'pov'],
+      ['Tobin', 'present'],
+      ['The Binding', 'world-rules'],
+      ['The Gilded Eel', 'setting'],
+      ['Lowtown', 'setting'],
+      ['Varn', 'setting'],
+      ['The Tide Guild', 'setting'],
+      ['The stolen crown', 'threads'],
+      ["Tobin's Ferry", 'mentioned'],
+      ['River songs', 'mentioned']
+    ])
+  })
+
   it('keeps the system message identical between scenes, so providers can cache it', () => {
     const a = assembleContext(input(), countRaw)
-    const b = assembleContext(input({ previousText: 'Something else entirely.', options: { direction: '', targetWords: 900, creativity: 'steady' } }), countRaw)
+    const b = assembleContext(
+      input(
+        { options: { direction: '', targetWords: 900, creativity: 'steady' } },
+        { previous: { sceneId: 'x', title: '', text: 'Something else entirely.' } }
+      ),
+      countRaw
+    )
     expect(a.messages[0].content).toBe(b.messages[0].content)
   })
 
   it('keeps the briefing the same up to the scene card when only the direction changes', () => {
     const a = assembleContext(input(), countRaw).messages[1].content
-    const b = assembleContext(input({ options: { direction: 'Slower, more rain.', targetWords: 1200, creativity: 'balanced' } }), countRaw).messages[1].content
+    const b = assembleContext(input({ options: { direction: 'Slower, more rain.', targetWords: 1200, creativity: 'balanced' } }), countRaw)
+      .messages[1].content
     const head = (t: string): string => t.slice(0, t.indexOf('## Scene card'))
     expect(head(a).length).toBeGreaterThan(200)
     expect(head(a)).toBe(head(b))
@@ -420,59 +1176,46 @@ describe('assembleContext', () => {
     expect(preview.blocks.every((b) => !b.dropped)).toBe(true)
   })
 
-  it('drops whole blocks from priority 10 upward until it fits, never 1 or 2', () => {
-    const inp = input()
-    const prepared = prepareContext(inp)
-    // Make every block cost 1000 tokens: with 8 blocks the briefing needs about 8000.
-    const counts = prepared.texts.map(() => 909)
-    const fits = (contextLength: number) => finishContext({ ...prepared, contextLength }, counts)
-
-    const roomy = fits(32000)
-    expect(roomy.blocks.filter((b) => b.dropped)).toEqual([])
-
-    // Room for 5 blocks and the closing instruction (6008 tokens), not 6. Least important go first;
-    // of the two priority-7 blocks, the setting goes before the world's hard rules.
-    const tight = fits(9742)
-    expect(tight.budget.available).toBe(6499)
-    expect(tight.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['world-rules', 'themes', 'setting', 'mentioned'])
-    const room = fits(10742)
-    expect(room.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['themes', 'setting', 'mentioned'])
-    expect(tight.budget.used).toBeLessThanOrEqual(tight.budget.available)
-    // Dropped blocks stay in the record but aren't sent.
-    expect(tight.blocks).toHaveLength(roomy.blocks.length)
-    expect(tight.messages[1].content).not.toContain('## Themes and tone')
-    expect(tight.messages[1].content).toContain('## Also in the scene')
-
-    // Far too small: everything droppable goes, blocks 1 and 2 stay.
-    const tiny = fits(3000)
-    expect(tiny.blocks.filter((b) => !b.dropped).map((b) => b.id)).toEqual(['instructions', 'scene-card'])
-    expect(tiny.messages[1].content).not.toContain('Continue seamlessly')
-  })
-
-  it('lists only the entries that were actually sent', () => {
-    const inp = input()
-    const prepared = prepareContext(inp)
-    const counts = prepared.texts.map(() => 909)
-    const tight = finishContext({ ...prepared, contextLength: 9742 }, counts)
-    const sent = sentEntryIds(tight.blocks)
-    expect(sent).toHaveLength(2)
-  })
-
   it('formats a profile with its heading by default', () => {
     const w = world()
     expect(formatProfile(w.tobin).startsWith('### Tobin\nIn short: A ferryman who owes Mara.')).toBe(true)
   })
 })
 
+describe('cachedCounter', () => {
+  it('counts each text once, and only the new ones on the next call', async () => {
+    const count = vi.fn(async (texts: string[]) => texts.map((t) => t.length))
+    const cached = cachedCounter(count, 3)
+    expect(await cached(['aa', 'bbb', '', 'aa'])).toEqual([2, 3, 0, 2])
+    expect(count).toHaveBeenCalledWith(['aa', 'bbb'])
+    expect(await cached(['bbb', 'cccc'])).toEqual([3, 4])
+    expect(count).toHaveBeenLastCalledWith(['cccc'])
+    // Keeps only the most recently used.
+    await cached(['d'])
+    count.mockClear()
+    await cached(['aa'])
+    expect(count).toHaveBeenCalledWith(['aa'])
+  })
+})
+
+// ---------- The writer instructions ----------
+
 describe('the writer instructions', () => {
-  const system = (over: Partial<StyleGuide> = {}): string => assembleContext(input({ style: style({ samplePassage: 'Mara did not hurry.', ...over }) }), countRaw).messages[0].content
+  const system = (over: Partial<StyleGuide> = {}): string =>
+    assembleContext(input({ style: style({ samplePassage: 'Mara did not hurry.', ...over }) }), countRaw).messages[0].content
   const user = (card: Partial<ContextInput['scene']['card']>, direction = ''): string =>
-    assembleContext(input({ scene: { title: 'The knock', card: { ...emptySceneCard(), ...card } }, options: { direction, targetWords: 1000, creativity: 'balanced' } }), countRaw).messages[1].content
+    assembleContext(
+      input({
+        scene: { title: 'The knock', card: { ...emptySceneCard(), ...card } },
+        options: { direction, targetWords: 1000, creativity: 'balanced' }
+      }),
+      countRaw
+    ).messages[1].content
 
   it('follows the point of view the style guide sets', () => {
     expect(system()).toContain('In a close third-person, first-person or second-person point of view')
     expect(system({ pov: 'Omniscient, roving between the crew' })).toContain('Keep to the omniscient point of view the style guide sets')
-    expect(system({ pov: 'Omniscient' })).not.toContain('other people\'s thoughts show only through')
+    expect(system({ pov: 'Omniscient' })).not.toContain("other people's thoughts show only through")
   })
 
   it("asks for the sample passage's voice without forbidding its names", () => {
@@ -483,6 +1226,10 @@ describe('the writer instructions', () => {
 
   it('asks for plain text, with asterisks only for italics', () => {
     expect(system()).toContain('wrap them in single *asterisks*')
+  })
+
+  it('says aims and targets are where the story is heading, not what has happened', () => {
+    expect(system()).toContain('is where the story is heading, not something that has already happened')
   })
 
   it('aims the scene at whatever the card holds', () => {
