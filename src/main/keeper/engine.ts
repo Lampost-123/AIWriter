@@ -148,7 +148,9 @@ export class Keeper {
    */
   async catchUpBefore(sceneId: ID): Promise<void> {
     if (this.closed) return
-    const ids = scenesBefore(this.db, sceneId).filter((id) => kdb.needsReading(this.db, id))
+    // One query for the scenes left behind, not one per earlier scene (a long series has thousands).
+    const behind = new Set(kdb.scenesToRead(this.db))
+    const ids = behind.size ? scenesBefore(this.db, sceneId).filter((id) => behind.has(id)) : []
     if (!ids.length) return
     if ('error' in this.deps.model()) return
     for (const id of ids) this.clearTimer(id)

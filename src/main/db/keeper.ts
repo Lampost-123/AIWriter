@@ -84,8 +84,12 @@ const toKeeperScene = (r: Row): KeeperScene => ({
   acceptedAt: (r.accepted_at as string | null) ?? null
 })
 
-const LIVE_SCENES = `SELECT s.*, c.story_id FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
+const LIVE = `FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id
   WHERE s.deleted_at IS NULL AND c.deleted_at IS NULL AND st.deleted_at IS NULL`
+const LIVE_SCENES = `SELECT s.*, c.story_id ${LIVE}`
+/** Ids only: a scene's text and document are never read just to check its state. */
+const LIVE_IDS = `SELECT s.id ${LIVE}`
+const BEHIND = "(s.memory_status <> 'current' OR s.text_version > s.memory_version)"
 const READING_ORDER = 'ORDER BY st.created_order, c.position, s.position'
 
 /** One live scene, or null when it (or its chapter or story) is deleted. */
@@ -96,19 +100,17 @@ export function keeperScene(db: DB, sceneId: ID): KeeperScene | null {
 
 /** Live scenes the memory hasn't caught up with (waiting, or "Memory not updated"), in reading order. */
 export function scenesToRead(db: DB): ID[] {
-  return (
-    db.prepare(`${LIVE_SCENES} AND (s.memory_status <> 'current' OR s.text_version > s.memory_version) ${READING_ORDER}`).all() as Row[]
-  ).map((r) => r.id as string)
+  return (db.prepare(`${LIVE_IDS} AND ${BEHIND} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
 /** True when a live scene's latest text hasn't been read (or its last read failed). */
 export function needsReading(db: DB, sceneId: ID): boolean {
-  return !!db.prepare(`${LIVE_SCENES} AND s.id = ? AND (s.memory_status <> 'current' OR s.text_version > s.memory_version)`).get(sceneId)
+  return !!db.prepare(`${LIVE_IDS} AND s.id = ? AND ${BEHIND}`).get(sceneId)
 }
 
 /** Every live scene id, in reading order. */
 export function liveSceneIds(db: DB): ID[] {
-  return (db.prepare(`${LIVE_SCENES} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
+  return (db.prepare(`${LIVE_IDS} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
 }
 
 /** A save moved the scene's text on: its memory is waiting to be read ("Memory not updated" stays until a read works). */
