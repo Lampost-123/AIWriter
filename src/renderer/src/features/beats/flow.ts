@@ -18,7 +18,7 @@
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
-import { closeHistory, isHistoryTransaction, redo, undo } from '@tiptap/pm/history'
+import { closeHistory, isHistoryTransaction, redo, redoNoScroll, undoDepth, undoNoScroll } from '@tiptap/pm/history'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import type { AppEvents } from '@shared/api'
 import type { SoFarEnd } from '@shared/contracts/beats'
@@ -27,7 +27,7 @@ import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
 import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
-import { isShortcut } from '@/lib/shortcuts'
+import { isShortcut, shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { activeStream, streamKey } from '@/features/editor/streamDoc'
 import { resolveDraftOptions } from '@/features/generate/draftOptions'
@@ -84,6 +84,10 @@ interface Run {
   cancelled: boolean
   /** Some of the beat's words reached the page. */
   wrote: boolean
+  /** The page's undo steps when it began (or once the beat as it was made way): any above are Adam's own changes since. */
+  depth: number
+  /** Adam has changed the page himself since it began, so redo reaches only his own changes (see undoMidBeat). */
+  own: boolean
 }
 
 let run: Run | null = null
@@ -108,6 +112,31 @@ const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.c
 /** The key was pressed in the bar, but not in its box with a note typed in it (Ctrl+Z there undoes the typing). */
 const inBarNotTyping = (t: EventTarget | null): boolean =>
   t instanceof Element && !!t.closest('[data-beat-bar]') && !(t instanceof HTMLTextAreaElement && t.value !== '')
+
+/**
+ * Undo pressed here reaches the page: in the page itself, or on the writing page with nothing else open,
+ * in the bar (not in its box with a note typed), on Generate's buttons, or with the keyboard nowhere in particular.
+ */
+function reachesPage(t: EventTarget | null): boolean {
+  if (inPage(t)) return true
+  if (useApp.getState().view.kind !== 'write' || layerOpen()) return false
+  if (!t || t === document.body || t === document.documentElement) return true
+  return inBarNotTyping(t) || (t instanceof Element && !!t.closest('[data-generate-controls]'))
+}
+
+/** Undo (Ctrl+Z) or redo (Ctrl+Y, or Ctrl+Shift+Z) as the page takes them, or null for any other key. */
+function historyKeyOf(e: KeyboardEvent): 'undo' | 'redo' | null {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.isComposing) return null
+  const key = e.key.toLowerCase()
+  if (key === 'z' || key === 'я') return e.shiftKey ? 'redo' : 'undo'
+  return key === 'y' && !e.shiftKey ? 'redo' : null
+}
+
+/** The key is dealt with here: nothing else (the page included) acts on it. */
+function swallow(e: Event): void {
+  e.preventDefault()
+  e.stopImmediatePropagation()
+}
 
 // ---------- Starting ----------
 
@@ -333,6 +362,8 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
   const steer = s.steer.trim()
   const soFar = index > 1 ? soFarText(doc, s.mode, s.paragraphs, again ? index : undefined) : ''
   const soFarEnds = soFar ? howSoFarEnds(s, doc, index, again) : undefined
+  // Anything Adam types from here is an undo step of its own, so undo can tell his changes from the beat's (see undoMidBeat).
+  ed.view.dispatch(closeHistory(ed.state.tr))
   // From now until the first words arrive, text about to be replaced is held as it is (as for Generate).
   if (replace && !bridge.holdForReplace(s.sceneId)) {
     toast("The editor wasn't ready for this scene, so nothing was sent. Try again in a moment.")
@@ -355,7 +386,9 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     early: [],
     earlyDone: null,
     cancelled: false,
-    wrote: false
+    wrote: false,
+    depth: undoDepth(ed.state),
+    own: false
   }
   run = r
   dismissBeatToast()
@@ -477,19 +510,22 @@ function makeWay(r: Run, bridge: EditorBridge, ed: Editor): boolean {
   const id = r.generationId!
   if (unchangedSince(ed.state, r.oldRecord ? marks.get(r.oldRecord) : null)) {
     holdHeight(ed.view.dom)
-    // Nothing of the new version is on the page yet, so ending its stream changes nothing.
+    // Nothing of the new version is on the page yet, so ending its stream changes nothing. The page
+    // stays where it is (an undo would otherwise show the caret, wherever that is).
     bridge.endStream(id)
-    undo(ed.state, ed.view.dispatch)
+    undoNoScroll(ed.state, ed.view.dispatch)
     // A first beat that had replaced the scene's text takes its place again; a first beat below the
     // old text goes under a scene break again.
     const replace = r.index === 1 && useBeats.getState().session?.mode === 'whole' && bridge.hasText()
     if (!bridge.beginStream(r.sceneId, id, { replace, noBreak: !replace && r.index > 1, quiet: true })) {
-      redo(ed.state, ed.view.dispatch)
+      redoNoScroll(ed.state, ed.view.dispatch)
       void api.stopGeneration(id).catch(() => undefined)
       return false
     }
     r.replace = replace
     r.undone = true
+    r.depth = undoDepth(ed.state)
+    r.own = false
     return true
   }
   if (!r.replace) {
@@ -500,6 +536,9 @@ function makeWay(r: Run, bridge: EditorBridge, ed: Editor): boolean {
       // Anything typed straight after is a step of its own.
       ed.view.dispatch(closeHistory(ed.state.tr))
       r.removed = true
+      // Taking the beat as it was out is the new version's to undo, not one of Adam's changes.
+      r.depth = undoDepth(ed.state)
+      r.own = false
     }
   }
   return true
@@ -575,6 +614,75 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
     )
   }
   // Ready for the next note, if the keyboard was in the bar (or nowhere in particular).
+  const here = document.activeElement
+  if (!here || here === document.body || here.closest('[data-beat-bar]')) focusBar()
+}
+
+// ---------- Undo while a beat is written ----------
+
+/**
+ * Undo or redo, while a beat is being written or getting ready, where it reaches the page. Adam's own
+ * changes since the beat began undo and redo as usual. Past them, undo takes the beat out (see takeOut)
+ * rather than reaching the beats before it while it writes, and redo brings back nothing from before
+ * it. A beat taking the place of the page's text is the page's to take out, as for Generate's Replace
+ * it. True when it was dealt with here (the page's own undo or redo mustn't run).
+ */
+function undoMidBeat(action: 'undo' | 'redo'): boolean {
+  const r = run
+  const bridge = editorBridge()
+  const ed = r && !r.cancelled && bridge?.sceneId === r.sceneId ? bridge.editor : null
+  if (!r || !ed) return false
+  const info = activeStream(ed.state)
+  // Replacing the page's text, or over (its words have stopped coming in) and only waiting to be told so.
+  if (info?.replace || (r.generationId && info?.generationId !== r.generationId)) return false
+  if (action === 'redo') return !r.own
+  if (undoDepth(ed.state) > r.depth) return false
+  takeOut(r)
+  return true
+}
+
+/**
+ * Ctrl+Z on a beat being written: it stops, and the words it has written so far come out in one step
+ * (Ctrl+Y puts them back, and its record keeps them). The bar goes back to that beat, with its note back
+ * in the box. A beat still getting ready is called off, as Stop does.
+ */
+function takeOut(r: Run): void {
+  const bridge = editorBridge()
+  const ed = bridge?.editor
+  const id = r.generationId
+  if (!id) return stopBeat()
+  if (!bridge || !ed) return
+  run = null
+  r.cancelled = true
+  void api.stopGeneration(id).catch(() => undefined)
+  note(r)
+  const depth = undoDepth(ed.state)
+  bridge.endStream(id)
+  const app = useApp.getState()
+  if (app.activeGeneration?.id === id) app.setActiveGeneration(null)
+  // Its words are one undo step now. The page as they left it is marked (for Write it again, once Ctrl+Y
+  // puts them back), then they come out, and the page stays where it is.
+  let out = false
+  if (r.wrote && undoDepth(ed.state) > depth) {
+    marks.set(id, markPage(ed.state))
+    out = undoNoScroll(ed.state, ed.view.dispatch)
+  }
+  patchSession((x) => ({
+    phase: 'paused',
+    current: null,
+    retrying: null,
+    // None of the beat is on the page: its note goes back in the box, unless a new one has been typed.
+    steer: (out || !r.wrote) && !x.steer.trim() && x.current ? x.current.steer : x.steer,
+    // Put back, it shows as a beat that stopped part-way.
+    partWay: r.wrote ? [...x.partWay, id] : x.partWay,
+    below: null
+  }))
+  recount()
+  settleHeight()
+  if (out) {
+    const before = r.removed ? ` Pressed again, ${shortcutText('undo')} puts the beat back as it was.` : ''
+    beatToast = toast(`Beat ${r.index} stopped, and its words so far are taken out. ${shortcutText('redo')} puts them back.${before}`)
+  }
   const here = document.activeElement
   if (!here || here === document.body || here.closest('[data-beat-bar]')) focusBar()
 }
@@ -661,6 +769,12 @@ export async function reloadBeats(sceneId: ID): Promise<void> {
   }
 }
 
+/** True when Adam changed the page himself (typing, pasting...) as a step of its own: not a beat's words, nor an undo or redo. */
+function byAdam(tr: Transaction): boolean {
+  const root = (tr.getMeta('appendedTransaction') as Transaction | undefined) ?? tr
+  return tr.docChanged && !isHistoryTransaction(root) && !root.getMeta(streamKey) && root.getMeta('addToHistory') !== false
+}
+
 /** True when a change put other text in place of the whole scene at once (a picked variant, a restored snapshot...). */
 function replacesAll(tr: Transaction): boolean {
   if (!tr.docChanged || isHistoryTransaction(tr) || tr.getMeta(streamKey) || tr.steps.length !== 1) return false
@@ -683,6 +797,8 @@ export function watchPage(editor: Editor): () => void {
     })
   }
   const onTransaction = ({ transaction }: { transaction: Transaction }): void => {
+    // Adam changed the page himself while a beat is written: from here, redo only reaches his own changes.
+    if (run && byAdam(transaction)) run.own = true
     const s = useBeats.getState().session
     if (!s || run || editorBridge()?.sceneId !== s.sceneId || !replacesAll(transaction)) return
     if (s.written > 0 && beatsOnPage(editor.state.doc, s.paragraphs) === 0) end()
@@ -753,24 +869,22 @@ function glide(el: HTMLElement, to: number): void {
 }
 
 /**
- * A beat starting where Adam is reading the end of the scene, behind the bar: the page glides down to
- * the end, so the beat is written above the bar, and the page follows it as it grows. Reading further
- * up, the page stays where it is.
+ * A beat starting where Adam can see the end of the scene (above the bar, or behind it): the page glides
+ * down as far as it goes, so the beat is written above the bar, and the page follows it as it grows (it
+ * only follows from there: otherwise the words would go on under the bar). Reading further up, with the
+ * end out of sight, the page stays where it is.
  */
 function keepInView(): void {
   const ed = editorBridge()?.editor
-  const bar = document.querySelector('[data-beat-bar]')
   const scroller = ed ? scrollerOf(ed.view.dom) : null
-  if (!ed || !bar || !scroller) return
+  if (!ed || !scroller || !document.querySelector('[data-beat-bar]')) return
   let end: number
   try {
     end = ed.view.coordsAtPos(ed.state.doc.content.size).bottom
   } catch {
     return
   }
-  const barTop = bar.getBoundingClientRect().top
-  const bottom = scroller.getBoundingClientRect().bottom
-  if (end > barTop - 12 && end < bottom + 32) glide(scroller, scroller.scrollHeight - scroller.clientHeight)
+  if (end < scroller.getBoundingClientRect().bottom + 32) glide(scroller, scroller.scrollHeight - scroller.clientHeight)
 }
 
 /** Writing a beat again: the page's height while its old version goes and the new one comes. */
@@ -835,6 +949,26 @@ function install(): void {
       if (p.sceneId === r.sceneId) r.earlyDone = p
     } else if (p.generationId === r.generationId) finishBeat(r, p)
   })
+
+  // Undo and redo while a beat is being written or getting ready: before the page's own keys (and the
+  // bar's and Generate's below), so they never reach the beats before it (see undoMidBeat).
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      const action = historyKeyOf(e)
+      if (action && !e.defaultPrevented && reachesPage(e.target) && undoMidBeat(action)) swallow(e)
+    },
+    true
+  )
+  // The same from the Mac's Edit menu, which undoes in the page when it has the keyboard.
+  window.addEventListener(
+    'beforeinput',
+    (e) => {
+      const action = e.inputType === 'historyUndo' ? 'undo' : e.inputType === 'historyRedo' ? 'redo' : null
+      if (action && inPage(e.target) && undoMidBeat(action)) swallow(e)
+    },
+    true
+  )
 
   window.addEventListener('keydown', (e) => {
     const s = useBeats.getState().session

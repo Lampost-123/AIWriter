@@ -97,8 +97,8 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
   const briefingRev = useApp((x) => x.briefingRev)
   const boxRef = useRef<HTMLTextAreaElement>(null)
   const barRef = useRef<HTMLElement>(null)
-  // Messages show above the bar while it does, so none covers its buttons (or the Undo in one covers it).
-  useToastsAbove(barRef)
+  // The writing page shows (the bar is kept, hidden with it, while another page does).
+  const onPage = useApp((x) => x.view.kind === 'write')
 
   // The beats on the page are counted as it changes (Ctrl+Z on a beat takes the bar back a beat).
   useEffect(() => {
@@ -234,7 +234,7 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
           <Textarea
             ref={boxRef}
             minRows={1}
-            maxRows={4}
+            maxRows={3}
             maxLength={MAX_NOTE_CHARS}
             value={s.steer}
             onChange={(e) => patchSession({ steer: e.target.value })}
@@ -284,6 +284,14 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
           </P.Root>
         </div>
       </section>
+      {/* After the bar, so it is there to measure. */}
+      {onPage ? <ToastsAbove bar={barRef} /> : null}
     </div>
   )
+}
+
+/** Messages show above the bar while it shows, so none covers its buttons (or the Undo in one covers it). */
+function ToastsAbove({ bar }: { bar: React.RefObject<HTMLElement | null> }): null {
+  useToastsAbove(bar)
+  return null
 }
