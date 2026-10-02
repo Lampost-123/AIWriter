@@ -29,6 +29,7 @@ function jobDeps(): JobDeps {
 }
 
 export const outlineHandlers: Handlers<keyof OutlineApi> = {
+  createAct: (storyId, input) => write(() => acts.createAct(world.db(), storyId, { title: input?.title, afterId: input?.afterId ?? null })),
   updateAct: (id, patch) => write(() => acts.updateAct(world.db(), id, patch ?? {})),
   deleteAct: (id) => {
     const out = write(() => acts.deleteAct(world.db(), id))

@@ -88,6 +88,8 @@ export interface KeptItem {
 
 export interface OutlineApi {
   // ----- Acts in the binder -----
+  /** A new act with no chapters (titled "Act N" unless given a title): just after the act `afterId`, else after every act. */
+  createAct(storyId: ID, input?: { title?: string; afterId?: ID | null }): Promise<Act>
   updateAct(id: ID, patch: Partial<Pick<Act, 'title' | 'purpose'>>): Promise<Act>
   /** Deletes an act with its chapters and their scenes (to Recently deleted, as a chapter goes). Says what was deleted with it. */
   deleteAct(id: ID): Promise<{ chapterIds: ID[]; sceneIds: ID[] }>

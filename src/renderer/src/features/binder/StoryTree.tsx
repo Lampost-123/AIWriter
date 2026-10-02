@@ -17,28 +17,33 @@ import {
   type UniqueIdentifier
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { FilePlus2, FolderPlus, PenLine, Plus, Trash2 } from 'lucide-react'
+import { FilePlus2, FolderInput, FolderPlus, ListTree, PenLine, Plus, Target as TargetIcon, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID, Outline } from '@shared/types'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
+import { openOutlineHelper } from '@/features/outline/open'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
 import {
+  actOf,
   applyTreeOrder,
   arrayMove,
+  chapterRuns,
   findChapterOf,
   groupOutline,
   moveSceneTo,
   scenePlace,
+  shownOrder,
   treeOrder,
   type TreeOrder
 } from './outlineModel'
 import { useOutlineStore } from './outlineStore'
-import { RowMenu, RowMenuItem, RowMenuSeparator } from './RowMenu'
+import { RowMenu, RowMenuItem, RowMenuSeparator, RowMenuSub } from './RowMenu'
 import {
+  ActBlock,
   ChapterBlock,
   ChapterDragPreview,
   chapterDndId,
@@ -47,15 +52,17 @@ import {
   SceneDragPreview,
   sceneDndId,
   SceneRow,
-  type RowHandlers
+  type RowHandlers,
+  type RowKind
 } from './TreeRows'
 
-type Kind = 'scene' | 'chapter'
 interface Target {
-  kind: Kind
+  kind: RowKind
   id: ID
 }
-interface DragState extends Target {
+interface DragState {
+  kind: 'scene' | 'chapter'
+  id: ID
   order: TreeOrder
 }
 
@@ -76,7 +83,13 @@ const dropAnimation =
     ? null
     : { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
 
-/** The chapters and scenes of the open story, with drag and drop, inline rename and a context menu. */
+const MENU_LABELS: Record<RowKind, string> = { scene: 'Scene actions', chapter: 'Chapter actions', act: 'Act actions' }
+
+/**
+ * The chapters and scenes of the open story, with drag and drop, inline rename and a context menu. In a
+ * story with acts (milestone 4), each act heads its chapters and folds like a chapter; chapters are
+ * dragged within their act and moved to another one from their menu.
+ */
 export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
   const writing = useApp((s) => s.view.kind === 'write')
@@ -86,6 +99,10 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   // then a scene or chapter it added may already have its name box open, so it reads this instead.
   const renamingRef = useRef(renaming)
   renamingRef.current = renaming
+  /** The act whose purpose box is open. */
+  const [purposeFor, setPurposeFor] = useState<ID | null>(null)
+  const purposeRef = useRef(purposeFor)
+  purposeRef.current = purposeFor
   const [menu, setMenu] = useState<(Target & { x: number; y: number }) | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
@@ -93,14 +110,22 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const focusNext = useRef<ID | null>(null)
 
   const groups = useMemo(() => groupOutline(outline), [outline])
-  const base = useMemo(() => treeOrder(outline), [outline])
+  // Chapters in the order shown: each act's together (the order the story itself keeps).
+  const base = useMemo<TreeOrder>(() => {
+    const t = treeOrder(outline)
+    return { ...t, chapters: shownOrder(outline, t.chapters) }
+  }, [outline])
   const order = drag?.order ?? base
+  const runs = useMemo(() => chapterRuns(outline, order.chapters), [outline, order.chapters])
+  const hasActs = (outline.acts?.length ?? 0) > 0
   const chapterById = useMemo(() => new Map(groups.map((g) => [g.chapter.id, g])), [groups])
   const sceneById = useMemo(() => new Map(outline.scenes.map((s) => [s.id, s])), [outline])
+  /** Each chapter's act (in a story with acts). */
+  const actOfChapter = useMemo(() => new Map(outline.chapters.map((c) => [c.id, actOf(outline, c.id)])), [outline])
 
-  // Live values for the drag callbacks, which dnd-kit holds on to.
-  const live = useRef({ order, drag, collapsed })
-  live.current = { order, drag, collapsed }
+  // Live values for the drag callbacks, which dnd-kit holds on to, and for the stable row handlers.
+  const live = useRef({ order, drag, collapsed, actOfChapter, outline })
+  live.current = { order, drag, collapsed, actOfChapter, outline }
   const lastOver = useRef<UniqueIdentifier | null>(null)
   const movedAcross = useRef(false)
   useEffect(() => {
@@ -120,11 +145,15 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
     if (!focusNext.current) return
     const id = focusNext.current
     const el = treeRef.current?.querySelector<HTMLElement>(`[data-row][data-id="${CSS.escape(id)}"]`)
-    if (el && !renaming) {
+    if (el && !renaming && !purposeFor) {
       focusNext.current = null
       el.focus()
     }
   })
+
+  /** A chapter just added: once it has rendered, scroll so all of it shows, not only its title. */
+  const revealNext = useRef<ID | null>(null)
+  const addChapterRef = useRef<HTMLButtonElement>(null)
 
   const h = useMemo<RowHandlers>(() => {
     const select = (id: ID): void => {
@@ -146,18 +175,29 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
           return null
         })
       },
-      rename: (kind, id, title) => (kind === 'scene' ? actions.renameScene(id, title) : actions.renameChapter(id, title)),
+      rename: (kind, id, title) =>
+        kind === 'scene' ? actions.renameScene(id, title) : kind === 'chapter' ? actions.renameChapter(id, title) : actions.renameAct(id, title),
       openMenu: (kind, id, at) => setMenu({ kind, id, ...at }),
       addScene: (chapterId) => {
         toggle(chapterId, false)
         void actions.addScene(chapterId).then((id) => id && setRenaming({ kind: 'scene', id }))
+      },
+      addChapter: (actId) => {
+        toggle(actId, false)
+        void actions.addChapterToAct(live.current.outline.story.id, actId).then((id) => {
+          if (!id) return
+          revealNext.current = id
+          setRenaming({ kind: 'chapter', id })
+        })
+      },
+      finishPurpose: (actId, purpose) => {
+        setPurposeFor(null)
+        focusNext.current = actId
+        const was = live.current.outline.acts?.find((a) => a.id === actId)?.purpose ?? ''
+        if (purpose !== null && purpose.replace(/\s+/g, ' ').trim() !== was.trim()) void actions.setActPurpose(actId, purpose)
       }
     }
   }, [toggle])
-
-  /** A chapter just added: once it has rendered, scroll so all of it shows, not only its title. */
-  const revealNext = useRef<ID | null>(null)
-  const addChapterRef = useRef<HTMLButtonElement>(null)
 
   const addChapter = useCallback(
     (afterId?: ID | null) => {
@@ -168,6 +208,23 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       })
     },
     [outline.story.id]
+  )
+
+  const addAct = useCallback(
+    (afterId: ID) => {
+      void actions.addAct(outline.story.id, afterId).then((id) => id && setRenaming({ kind: 'act', id }))
+    },
+    [outline.story.id]
+  )
+
+  const moveToAct = useCallback(
+    (chapterId: ID, actId: ID) => {
+      // Shown in its new act, and keeps the keyboard where it was.
+      toggle(actId, false)
+      focusNext.current = chapterId
+      void actions.moveChapterToAct(chapterId, actId)
+    },
+    [toggle]
   )
 
   useLayoutEffect(() => {
@@ -189,24 +246,31 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       const i = rows.findIndex((r) => r.dataset.id === t.id)
       const hadFocus = rows[i] && rows[i].contains(document.activeElement)
       if (hadFocus) {
-        const skip = t.kind === 'chapter' ? new Set([t.id, ...(base.scenes[t.id] ?? [])]) : new Set([t.id])
+        const inAct = t.kind === 'act' ? base.chapters.filter((c) => actOfChapter.get(c) === t.id) : []
+        const skip =
+          t.kind === 'chapter'
+            ? new Set([t.id, ...(base.scenes[t.id] ?? [])])
+            : t.kind === 'act'
+              ? new Set([t.id, ...inAct, ...inAct.flatMap((c) => base.scenes[c] ?? [])])
+              : new Set([t.id])
         const neighbour = rows.slice(i + 1).find((r) => !skip.has(r.dataset.id!)) ?? rows.slice(0, i).reverse().find((r) => !skip.has(r.dataset.id!))
         neighbour?.focus()
       }
-      void (t.kind === 'scene' ? actions.deleteScene(t.id) : actions.deleteChapter(t.id))
+      void (t.kind === 'scene' ? actions.deleteScene(t.id) : t.kind === 'chapter' ? actions.deleteChapter(t.id) : actions.deleteAct(t.id))
     },
-    [base]
+    [base, actOfChapter]
   )
 
   // ---------- Keyboard ----------
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (renaming || drag) return
+    if (renaming || drag || purposeFor) return
     const rows = [...(treeRef.current?.querySelectorAll<HTMLElement>('[data-row]') ?? [])]
     const current = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-row]')
     const i = current ? rows.indexOf(current) : -1
-    const kind = current?.dataset.row as Kind | undefined
+    const kind = current?.dataset.row as RowKind | undefined
     const id = current?.dataset.id
+    const folds = kind === 'chapter' || kind === 'act'
     const move = (to: number): void => {
       e.preventDefault()
       rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus()
@@ -221,15 +285,19 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       case 'End':
         return move(rows.length - 1)
       case 'ArrowRight':
-        if (kind === 'chapter' && id && collapsed.has(id)) {
+        if (folds && id && collapsed.has(id)) {
           e.preventDefault()
           toggle(id, false)
-        } else if (kind === 'chapter') move(i + 1)
+        } else if (folds) move(i + 1)
         return
       case 'ArrowLeft':
-        if (kind === 'chapter' && id && !collapsed.has(id)) {
+        if (folds && id && !collapsed.has(id)) {
           e.preventDefault()
           toggle(id, true)
+        } else if (kind === 'chapter' && id && actOfChapter.get(id)) {
+          // A folded chapter in an act: up to its act.
+          e.preventDefault()
+          focusRow(actOfChapter.get(id) ?? null)
         } else if (kind === 'scene' && id) {
           e.preventDefault()
           const ch = findChapterOf(base.scenes, id)
@@ -265,10 +333,18 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const collision: CollisionDetection = useCallback((args) => {
-    const { drag: d, order: o, collapsed: c } = live.current
+    const { drag: d, order: o, collapsed: c, actOfChapter: acts } = live.current
     if (!d) return closestCenter(args)
     if (d.kind === 'chapter') {
-      return closestCenter({ ...args, droppableContainers: args.droppableContainers.filter((x) => parseDndId(x.id).kind === 'chapter') })
+      // A chapter moves among the chapters of its own act (another act is a menu choice).
+      const act = acts.get(d.id) ?? null
+      return closestCenter({
+        ...args,
+        droppableContainers: args.droppableContainers.filter((x) => {
+          const t = parseDndId(x.id)
+          return t.kind === 'chapter' && (acts.get(t.id) ?? null) === act
+        })
+      })
     }
     // A scene: find the row under the pointer; over a chapter, the nearest of its visible scenes.
     const pointer = pointerWithin(args)
@@ -294,7 +370,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
     setMenu(null)
     const t = parseDndId(active.id)
     lastOver.current = null
-    setDrag({ ...t, order: base })
+    setDrag({ kind: t.kind, id: t.id, order: base })
   }
 
   const onDragOver = ({ active, over }: DragOverEvent): void => {
@@ -365,11 +441,21 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
 
   // ---------- Render ----------
 
-  const tabbableId = sceneId && sceneById.has(sceneId) ? sceneId : (order.chapters[0] ?? null)
+  const firstRow = runs[0]?.act?.id ?? runs[0]?.chapters[0] ?? null
+  /** The one row Tab reaches: the open scene, or the nearest row of it that shows, else the first row. */
+  const tabbableId = (() => {
+    if (!sceneId || !sceneById.has(sceneId)) return firstRow
+    const ch = findChapterOf(base.scenes, sceneId)
+    const act = ch ? actOfChapter.get(ch) : null
+    if (act && collapsed.has(act)) return act
+    if (ch && collapsed.has(ch)) return ch
+    return sceneId
+  })()
   const activeScene = drag?.kind === 'scene' ? sceneById.get(drag.id) : undefined
   const activeChapter = drag?.kind === 'chapter' ? chapterById.get(drag.id) : undefined
+  const storyWords = outline.scenes.reduce((n, s) => n + s.wordCount, 0)
 
-  if (order.chapters.length === 0) {
+  if (order.chapters.length === 0 && !hasActs) {
     return (
       <div className="flex flex-col items-center px-4 py-10 text-center animate-fade-in">
         <p className="text-[13px] font-medium text-fg">No chapters yet</p>
@@ -377,9 +463,59 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         <Button size="sm" className="mt-3" icon={<Plus size={14} />} onClick={() => addChapter()}>
           Add chapter
         </Button>
+        <Button variant="ghost" size="sm" className="mt-1.5" icon={<ListTree size={14} />} onClick={() => openOutlineHelper(outline.story.id)}>
+          Plan it with the outline helper
+        </Button>
       </div>
     )
   }
+
+  const chapterBlock = (chapterId: ID, level: number): React.JSX.Element | null => {
+    const g = chapterById.get(chapterId)
+    if (!g) return null
+    const ids = order.scenes[chapterId] ?? []
+    const isCollapsed = collapsed.has(chapterId)
+    const shown = isCollapsed ? ids.filter((id) => drag?.kind === 'scene' && id === drag.id) : ids
+    const words = ids.reduce((n, id) => n + (sceneById.get(id)?.wordCount ?? 0), 0)
+    return (
+      <ChapterBlock
+        key={chapterId}
+        chapter={g.chapter}
+        level={level}
+        words={words}
+        sceneCount={ids.length}
+        collapsed={isCollapsed}
+        renaming={renaming?.kind === 'chapter' && renaming.id === chapterId}
+        tabbable={tabbableId === chapterId}
+        menuOpen={menu?.kind === 'chapter' && menu.id === chapterId}
+        lifted={drag?.kind === 'chapter' && drag.id === chapterId}
+        h={h}
+      >
+        <SortableContext items={shown.map(sceneDndId)} strategy={verticalListSortingStrategy}>
+          {shown.map((id) => {
+            const scene = sceneById.get(id)
+            return scene ? (
+              <SceneRow
+                key={id}
+                scene={scene}
+                level={level + 1}
+                selected={id === sceneId}
+                quiet={!writing}
+                renaming={renaming?.kind === 'scene' && renaming.id === id}
+                tabbable={tabbableId === id}
+                menuOpen={menu?.kind === 'scene' && menu.id === id}
+                h={h}
+              />
+            ) : null
+          })}
+        </SortableContext>
+        {!isCollapsed && ids.length === 0 ? <EmptyChapterRow chapterId={chapterId} h={h} /> : null}
+      </ChapterBlock>
+    )
+  }
+
+  const menuChapterAct = menu?.kind === 'chapter' ? (actOfChapter.get(menu.id) ?? null) : null
+  const otherActs = menu?.kind === 'chapter' ? (outline.acts ?? []).filter((a) => a.id !== menuChapterAct) : []
 
   return (
     <div ref={treeRef} role="tree" aria-label="Chapters and scenes" onKeyDown={onKeyDown} className="px-1.5 pb-3 pt-1">
@@ -393,49 +529,32 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         onDragEnd={onDragEnd}
         onDragCancel={() => finishDrag(null)}
       >
-        <SortableContext items={order.chapters.map(chapterDndId)} strategy={verticalListSortingStrategy}>
-          {order.chapters.map((chapterId) => {
-            const g = chapterById.get(chapterId)
-            if (!g) return null
-            const ids = order.scenes[chapterId] ?? []
-            const isCollapsed = collapsed.has(chapterId)
-            const shown = isCollapsed ? ids.filter((id) => drag?.kind === 'scene' && id === drag.id) : ids
-            const words = ids.reduce((n, id) => n + (sceneById.get(id)?.wordCount ?? 0), 0)
-            return (
-              <ChapterBlock
-                key={chapterId}
-                chapter={g.chapter}
-                words={words}
-                sceneCount={ids.length}
-                collapsed={isCollapsed}
-                renaming={renaming?.kind === 'chapter' && renaming.id === chapterId}
-                tabbable={tabbableId === chapterId}
-                menuOpen={menu?.kind === 'chapter' && menu.id === chapterId}
-                lifted={drag?.kind === 'chapter' && drag.id === chapterId}
-                h={h}
-              >
-                <SortableContext items={shown.map(sceneDndId)} strategy={verticalListSortingStrategy}>
-                  {shown.map((id) => {
-                    const scene = sceneById.get(id)
-                    return scene ? (
-                      <SceneRow
-                        key={id}
-                        scene={scene}
-                        selected={id === sceneId}
-                        quiet={!writing}
-                        renaming={renaming?.kind === 'scene' && renaming.id === id}
-                        tabbable={tabbableId === id}
-                        menuOpen={menu?.kind === 'scene' && menu.id === id}
-                        h={h}
-                      />
-                    ) : null
-                  })}
-                </SortableContext>
-                {!isCollapsed && ids.length === 0 ? <EmptyChapterRow chapterId={chapterId} h={h} /> : null}
-              </ChapterBlock>
-            )
-          })}
-        </SortableContext>
+        {runs.map((run) => {
+          const chapters = (
+            <SortableContext key={run.act?.id ?? 'no-act'} items={run.chapters.map(chapterDndId)} strategy={verticalListSortingStrategy}>
+              {run.chapters.map((chapterId) => chapterBlock(chapterId, run.act ? 2 : 1))}
+            </SortableContext>
+          )
+          if (!run.act) return chapters
+          const act = run.act
+          const words = run.chapters.reduce((n, c) => n + (order.scenes[c] ?? []).reduce((m, s) => m + (sceneById.get(s)?.wordCount ?? 0), 0), 0)
+          return (
+            <ActBlock
+              key={act.id}
+              act={act}
+              words={words}
+              chapterCount={run.chapters.length}
+              collapsed={collapsed.has(act.id) && !(drag?.kind === 'chapter' && actOfChapter.get(drag.id) === act.id)}
+              renaming={renaming?.kind === 'act' && renaming.id === act.id}
+              editingPurpose={purposeFor === act.id}
+              tabbable={tabbableId === act.id}
+              menuOpen={menu?.kind === 'act' && menu.id === act.id}
+              h={h}
+            >
+              {chapters}
+            </ActBlock>
+          )
+        })}
         <DragOverlay dropAnimation={dropAnimation} modifiers={[keepInTree]}>
           {activeScene ? <SceneDragPreview scene={activeScene} /> : null}
           {activeChapter ? (
@@ -453,13 +572,24 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         <Plus size={14} />
         Add chapter
       </button>
+      {storyWords === 0 ? (
+        // Nothing written yet: the outline helper can plan the story from its premise.
+        <button
+          type="button"
+          onClick={() => openOutlineHelper(outline.story.id)}
+          className="flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint animate-fade-in hover:bg-surface-2 hover:text-muted"
+        >
+          <ListTree size={14} />
+          Plan it with the outline helper
+        </button>
+      ) : null}
 
       <RowMenu
         at={menu}
-        label={menu?.kind === 'chapter' ? 'Chapter actions' : 'Scene actions'}
+        label={menu ? MENU_LABELS[menu.kind] : 'Actions'}
         onClose={() => setMenu(null)}
         onCloseFocus={() => {
-          if (menu && !renamingRef.current) focusRow(menu.id)
+          if (menu && !renamingRef.current && !purposeRef.current) focusRow(menu.id)
         }}
       >
         {menu?.kind === 'scene' ? (
@@ -481,7 +611,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
               Delete scene
             </RowMenuItem>
           </>
-        ) : menu ? (
+        ) : menu?.kind === 'chapter' ? (
           <>
             <RowMenuItem icon={<PenLine size={14} />} hint="F2" onSelect={() => setRenaming({ kind: 'chapter', id: menu.id })}>
               Rename
@@ -492,9 +622,43 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             <RowMenuItem icon={<FolderPlus size={14} />} onSelect={() => addChapter(menu.id)}>
               Add chapter after
             </RowMenuItem>
+            {otherActs.length > 0 ? (
+              <RowMenuSub icon={<FolderInput size={14} />} label="Move to act">
+                {otherActs.map((a) => (
+                  <RowMenuItem key={a.id} onSelect={() => moveToAct(menu.id, a.id)}>
+                    {a.title.trim() || 'Untitled act'}
+                  </RowMenuItem>
+                ))}
+              </RowMenuSub>
+            ) : null}
             <RowMenuSeparator />
             <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'chapter', id: menu.id })}>
               Delete chapter
+            </RowMenuItem>
+          </>
+        ) : menu?.kind === 'act' ? (
+          <>
+            <RowMenuItem icon={<PenLine size={14} />} hint="F2" onSelect={() => setRenaming({ kind: 'act', id: menu.id })}>
+              Rename
+            </RowMenuItem>
+            <RowMenuItem
+              icon={<TargetIcon size={14} />}
+              onSelect={() => {
+                toggle(menu.id, false)
+                setPurposeFor(menu.id)
+              }}
+            >
+              Edit purpose
+            </RowMenuItem>
+            <RowMenuItem icon={<FilePlus2 size={14} />} onSelect={() => h.addChapter(menu.id)}>
+              Add chapter
+            </RowMenuItem>
+            <RowMenuItem icon={<FolderPlus size={14} />} onSelect={() => addAct(menu.id)}>
+              Add act after
+            </RowMenuItem>
+            <RowMenuSeparator />
+            <RowMenuItem icon={<Trash2 size={14} />} hint="Del" danger onSelect={() => remove({ kind: 'act', id: menu.id })}>
+              Delete act
             </RowMenuItem>
           </>
         ) : null}
