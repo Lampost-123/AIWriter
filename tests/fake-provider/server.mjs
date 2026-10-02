@@ -294,6 +294,7 @@ export async function startFakeProvider(options = {}) {
       memory = broken ? 'Here you go: {"facts": [ {"id": ' : fakeMemoryReply(firstUser)
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
+    memory ??= fakeBuilderReply(system, messages, model)
     const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4
@@ -512,4 +513,70 @@ export function fakeStoryFlowReply(system, user) {
     return JSON.stringify({ changes: sorted }, null, 1)
   }
   return JSON.stringify({})
+}
+
+// ---------- Builder replies ----------
+// Builder requests (src/main/builder/prompts.ts) start their system prompt with "[AIWRITE-BUILDER v1] <job>".
+//   quick-start  The notes' first words before " runs", " is", " was" or a comma are the name (else "Corvin
+//                Ashe"). The notes' lines are copied word for word under "fromNotes", in order, into:
+//                character: summary, traits, marks, secrets; place: summary, atmosphere, history;
+//                group: summary, goals, history; item: summary, powers, origin. Every other field the
+//                prompt lists is under "drafted", as "<Label> of <name>, drafted to fit the world."
+//                Fields listed as saved already (finishing a profile) are left out.
+//   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
+//   options      Three options: "<Label>, first option: ...", "second", "third".
+//   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
+//                and I pay my debts." The model fake/empty sends back nothing for any of these.
+export function fakeBuilderReply(system, messages, model = '') {
+  const job = String(system).match(/^\[AIWRITE-BUILDER v1\] ([a-z-]+)/)?.[1]
+  if (!job) return null
+  if (model === 'fake/empty') return ''
+  const users = (messages ?? []).filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
+  const user = users[users.length - 1] ?? ''
+  const fields = [...String(system).matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)].map((m) => ({ key: m[1], label: m[2].trim() }))
+  const nameIn = (text) => text.match(/^Name: (.+)$/m)?.[1]?.trim() ?? 'them'
+  if (job === 'quick-start') {
+    const kind = String(system).match(/build the (\w+)s of a novel/)?.[1] ?? 'character'
+    const notes = (user.match(/"""\n([\s\S]*?)\n"""/)?.[1] ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+    const named = notes[0]?.match(/^([A-Z][\w'’-]*(?: [A-Z][\w'’-]*)?)(?:,| (?:runs|is|was|has)\b)/)?.[1]
+    const name = named ?? 'Corvin Ashe'
+    const SLOTS = {
+      character: ['summary', 'traits', 'marks', 'secrets'],
+      place: ['summary', 'atmosphere', 'history'],
+      group: ['summary', 'goals', 'history'],
+      item: ['summary', 'powers', 'origin']
+    }
+    const slots = SLOTS[kind] ?? ['summary']
+    // Finishing a profile: the fields saved already are listed by label after the notes.
+    const saved = new Set([...(user.split('These fields are saved already')[1] ?? '').matchAll(/^([^:\n]+): /gm)].map((m) => m[1].trim()))
+    const keep = (key) => !saved.has(fields.find((f) => f.key === key)?.label ?? key)
+    const fromNotes = named && keep('name') ? { name } : {}
+    notes.forEach((line, i) => {
+      if (slots[i] && keep(slots[i])) fromNotes[slots[i]] = line
+    })
+    const drafted = named || !keep('name') ? {} : { name }
+    for (const f of fields) {
+      if (f.key in fromNotes || f.key in drafted || !keep(f.key)) continue
+      if (f.key === 'aliases') drafted.aliases = `Old ${name.split(' ')[0]}`
+      else if (f.key === 'sampleLines') drafted.sampleLines = '"Pay first, then we talk."\n"The river doesn\'t wait, and neither do I."'
+      else if (f.key === 'role') drafted.role = 'supporting'
+      else drafted[f.key] = `${f.label} of ${name}, drafted to fit the world.`
+    }
+    return JSON.stringify({ fromNotes, drafted }, null, 1)
+  }
+  if (job === 'flesh-out') {
+    const name = nameIn(user)
+    const wanted = [...(user.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
+    return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], `Suggested ${m[2].trim().toLowerCase()} for ${name}.`])), null, 1)
+  }
+  if (job === 'options') {
+    const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'
+    const options = ['first', 'second', 'third'].map((n) => `${label}, ${n} option: something only ${nameIn(user)} would have.`)
+    return JSON.stringify({ options })
+  }
+  if (job === 'interview') {
+    const about = user.replace(/^\s*what do you (?:think|make) (?:of|about)\s+/i, '').replace(/[?.!\s]+$/, '') || 'that'
+    return `You want to know about ${about}? I'll say this once: I keep my own counsel, and I pay my debts.`
+  }
+  return null
 }

@@ -532,6 +532,8 @@ test('in a small window the New story dialog scrolls inside, keeping what the st
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 600))
   await expect.poll(() => win.locator('html').evaluate((html) => html.clientHeight)).toBe(600)
 
+  // In a window this small the binder floats over the page, shown with the top bar's binder button.
+  await win.getByRole('button', { name: 'Show or hide the binder' }).click()
   const dialog = await openNewStory(win, 'Book 1')
   const create = dialog.getByRole('button', { name: 'Create' })
   await expect(dialog.getByText('Continues after Book 1', { exact: true })).toBeVisible()
