@@ -23,6 +23,7 @@ import { kindWord } from '@/features/peek/entryView'
 import {
   ask,
   markSaved,
+  neverSent,
   newChat,
   openChat,
   refreshChats,
@@ -34,7 +35,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { answerParagraphs, citedTargets, nameIndex, plainAnswer, type LinkTarget } from './citations'
-import { EXAMPLES, answerNote, asOfHint, asOfText, chatWhen, savedMessage } from './askWords'
+import { EXAMPLES, NO_ANSWER, answerNote, asOfHint, asOfText, chatWhen, savedMessage } from './askWords'
 
 /** The last request for the box to take the keyboard that was carried out. */
 let focusHandled = 0
@@ -218,9 +219,6 @@ function ChatsMenu({ storyTitle }: { storyTitle: string | null }): React.JSX.Ele
 
 // ---------- The conversation ----------
 
-/** True for a turn that shows its question only: nothing came back. */
-const nothingBack = (t: ShownTurn): boolean => !!t.problem || (t.status === 'error' && !t.answer.trim())
-
 /** Every page in the world by name, for the links in answers; kept between openings of the panel. */
 let cachedIndex: { key: string; index: Map<string, LinkTarget> } | null = null
 
@@ -271,8 +269,9 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
     pinnedAt.current = el.scrollTop
   }
 
-  // A question that failed with nothing to show is kept only while it is the last (with Try again).
-  const shown = turns.filter((t, i) => !(nothingBack(t) && i < turns.length - 1))
+  // A question that never reached the AI is kept only while it is the last (with Try again). One the AI
+  // was asked stays, answered or not: it is in the chat's record.
+  const shown = turns.filter((t, i) => !(neverSent(t) && i < turns.length - 1))
   const lastAsked = turns[turns.length - 1]
 
   useLayoutEffect(() => {
@@ -344,7 +343,7 @@ function Starters({ onPick }: { onPick: (question: string) => void }): React.JSX
             key={q}
             type="button"
             onClick={() => onPick(q)}
-            className="max-w-full rounded-full border border-line px-3 py-1 text-left text-[12.5px] text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
+            className="max-w-full rounded-lg border border-line px-3 py-1.5 text-left text-[12.5px] leading-snug text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
           >
             {q}
           </button>
@@ -381,6 +380,9 @@ function TurnView({
   const hasAnswer = !!turn.answer.trim()
   const paragraphs = useMemo(() => answerParagraphs(turn.answer, index), [turn.answer, index])
   const recorded = !turn.problem && !turn.generationId.startsWith('pending:')
+  // What went wrong shows while this is the last question asked (with Try again); after that, quietly.
+  const notice = !!turn.problem || (turn.status === 'error' && canRetry)
+  const unanswered = recorded && turn.status === 'error' && !hasAnswer && !notice
   const note = answerNote(turn)
   const retry = (): void => void ask(turn.question, place)
 
@@ -422,10 +424,10 @@ function TurnView({
           />
         </div>
       ) : hasAnswer ? (
-        <SaveControl turn={turn} answerRef={answerRef} index={index} storyId={place.storyId} />
+        <SaveControl turn={turn} answerRef={answerRef} index={index} place={place} />
       ) : null}
 
-      {turn.problem || (turn.status === 'error' && canRetry) ? (
+      {notice ? (
         <div className="mt-2">
           <AskProblem
             message={turn.problem?.message ?? turn.error ?? 'Something went wrong while answering. Try again.'}
@@ -436,23 +438,42 @@ function TurnView({
       ) : null}
 
       {recorded ? (
-        <div className="flex min-h-5 flex-wrap items-center gap-x-1.5 px-1 text-[12px] leading-5 text-faint">
-          {note.map((n) => (
-            <span key={n} className="whitespace-nowrap tabular-nums">
+        // "What the AI saw" first, so it stays put when how the answer ended and its cost come after it.
+        <div
+          className={cn(
+            'flex min-h-5 flex-wrap items-center gap-x-1.5 px-1 text-[12px] leading-5 text-faint',
+            // Under a notice, or right under the question when nothing came back.
+            (notice || (!hasAnswer && !streaming)) && 'mt-1'
+          )}
+        >
+          {unanswered ? <LinePart dot>{NO_ANSWER}</LinePart> : null}
+          <LinePart dot={note.length > 0}>
+            <button
+              type="button"
+              onClick={() => useApp.getState().navigate({ kind: 'generation', generationId: turn.generationId })}
+              className="rounded-sm hover:text-fg hover:underline"
+            >
+              What the AI saw
+            </button>
+          </LinePart>
+          {note.map((n, i) => (
+            <LinePart key={n} dot={i < note.length - 1} className="tabular-nums">
               {n}
-              <span aria-hidden> ·</span>
-            </span>
+            </LinePart>
           ))}
-          <button
-            type="button"
-            onClick={() => useApp.getState().navigate({ kind: 'generation', generationId: turn.generationId })}
-            className="whitespace-nowrap rounded-sm hover:text-fg hover:underline"
-          >
-            What the AI saw
-          </button>
         </div>
       ) : null}
     </li>
+  )
+}
+
+/** One part of the quiet line under an answer, with the dot that parts it from the next (so a line that wraps never starts with one). */
+function LinePart({ dot, className, children }: { dot: boolean; className?: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span className={cn('flex items-center gap-x-1.5 whitespace-nowrap', className)}>
+      {children}
+      {dot ? <span aria-hidden>·</span> : null}
+    </span>
   )
 }
 
@@ -538,12 +559,12 @@ function SaveControl({
   turn,
   answerRef,
   index,
-  storyId
+  place
 }: {
   turn: ShownTurn
   answerRef: RefObject<HTMLDivElement | null>
   index: Map<string, LinkTarget>
-  storyId: ID | null
+  place: AskPlace
 }): React.JSX.Element {
   const cited = useMemo(() => citedTargets(turn.answer, index), [turn.answer, index])
   const selection = useSelectionIn(answerRef)
@@ -562,7 +583,13 @@ function SaveControl({
     if (busy) return
     setBusy(true)
     try {
-      const note = await api.saveAskNote({ text: words, entryId: target?.id ?? null, question: turn.question, storyId })
+      const note = await api.saveAskNote({
+        text: words,
+        entryId: target?.id ?? null,
+        question: turn.question,
+        storyId: place.storyId,
+        sceneId: place.sceneId
+      })
       markSaved(turn.generationId, note)
       toast(savedMessage(note), {
         tone: 'success',
@@ -583,7 +610,7 @@ function SaveControl({
     : first
       ? `Save to ${first.name}`
       : 'Save to Lore'
-  const hint = `${selection ? 'Adds the words you selected' : 'Adds this answer'} to ${first ? `${first.name}’s description` : 'a new page in Lore'}, as your own note. Nothing else changes.`
+  const hint = `${selection ? 'Adds the words you selected' : 'Adds this answer'} to ${first ? `the memory for ${first.name}` : 'a new page in Lore'}, as your own note. Nothing else changes.`
 
   return (
     <div className="mt-1.5 flex h-7 min-w-0 items-center">

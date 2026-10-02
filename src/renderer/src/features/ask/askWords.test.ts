@@ -26,12 +26,18 @@ describe('Ask the world’s words', () => {
   })
 
   it('say what saving did', () => {
-    expect(savedMessage({ name: 'Mara Venn', created: false, onlyIn: null })).toBe('Saved to memory for Mara Venn, as your own note.')
-    expect(savedMessage({ name: 'Mara Venn', created: false, onlyIn: 'Mara Keeps Her Hand' })).toBe(
-      'Saved to memory for Mara Venn, in Mara Keeps Her Hand only.'
-    )
-    expect(savedMessage({ name: 'Tavern names that fit the north', created: true, onlyIn: null })).toBe(
+    const note = { name: 'Mara Venn', created: false, onlyIn: null, asOf: null }
+    expect(savedMessage(note)).toBe('Saved to memory for Mara Venn, as your own note.')
+    expect(savedMessage({ ...note, onlyIn: 'Mara Keeps Her Hand' })).toBe('Saved to memory for Mara Venn, in Mara Keeps Her Hand only.')
+    // On the description a prequel starts her with, or a detail from a scene on.
+    expect(savedMessage({ ...note, asOf: 'the start of Young Mara' })).toBe('Saved to memory for Mara Venn, as of the start of Young Mara.')
+    expect(savedMessage({ ...note, asOf: 'Book 2, Ch 3, Sc 1' })).toBe('Saved to memory for Mara Venn, as of Book 2, Ch 3, Sc 1.')
+    expect(savedMessage({ ...note, name: 'Tavern names that fit the north', created: true })).toBe(
       'Saved to your lore as “Tavern names that fit the north”.'
+    )
+    // In an own version of events, as a page of its own there.
+    expect(savedMessage({ ...note, name: 'Mara Venn: What would she do', created: true, onlyIn: 'Mara Keeps Her Hand' })).toBe(
+      'Saved to your lore as “Mara Venn: What would she do”, in Mara Keeps Her Hand only.'
     )
   })
 })

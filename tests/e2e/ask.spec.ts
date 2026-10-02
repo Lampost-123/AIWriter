@@ -1,8 +1,9 @@
 // Ask the world (milestone 4): the chat beside the page that can see the memory. Opened from the top
 // bar, a question's answer streams in with links to the entries it cites (a name that isn't in the
 // world stays plain words); a cited entry shows beside the page; an answer is saved to the memory as
-// Adam's own note, with Undo; Stop keeps what arrived; New chat starts afresh, and the last chat is
-// there again after a restart. The fake provider answers as tests/fake-provider/m4/ask.mjs says.
+// Adam's own note, with Undo; Stop keeps what arrived; a question that got no answer stays in the chat;
+// New chat starts afresh (an answer not yet started stops as it starts), and the last chat is there
+// again after a restart. The fake provider answers as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
 import type { ModelChoice } from '@shared/types'
 import { closeWindow, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
@@ -57,7 +58,7 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(answer.getByRole('button', { name: 'Tobin' })).toBeVisible()
     await expect(answer.locator('[data-entry-id]')).toHaveCount(2)
     await expect(answer).not.toContainText('[[')
-    await expect(turns(win).first()).toContainText('What the AI saw')
+    await expect(turns(win).first().getByRole('button', { name: 'What the AI saw' })).toBeVisible()
     // It was asked from the open scene, with the marker, and the entries it names in full.
     const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[] }
     expect(sent.messages[0].content.startsWith('[AIWRITE-ASK v1] answer\n')).toBe(true)
@@ -104,7 +105,8 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     await expect(second.getByRole('status')).toContainText('Answering…')
     await expect(second.locator('[data-answer]')).toContainText('Idea 1:')
     await panel(win).getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(second).toContainText('Stopped')
+    // Under it, "What the AI saw" first: how the answer ended (and its cost) come after it, so it never moves.
+    await expect(second).toContainText('What the AI saw·Stopped')
     await expect(panel(win).getByRole('button', { name: 'Ask', exact: true })).toBeVisible()
     const kept = await second.locator('[data-answer]').innerText()
     expect(kept).toContain('Answer 2 in this chat.')
@@ -112,6 +114,22 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     // The second question carried the first turn with it.
     const slow = fake.lastRequest()!.body as { messages: { role: string; content: string }[] }
     expect(slow.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
+
+    // A question the AI was asked that got no answer stays, as it does in the chat's record: while it is
+    // the last, it says why, with Try again; once another question follows, it says so quietly.
+    await invoke(win, 'updateSettings', { models: { chat: choice(providerId, 'fake/credit') } })
+    await box(win).fill('Who keeps the ferry these days?')
+    await box(win).press('Enter')
+    const third = turns(win).nth(2)
+    await expect(third.getByRole('alert')).toContainText('credit')
+    await expect(third.getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    await invoke(win, 'updateSettings', { models: { chat: choice(providerId, 'fake/writer') } })
+    await third.getByRole('alert').getByRole('button', { name: 'Try again' }).click()
+    await expect(turns(win)).toHaveCount(4)
+    await expect(turns(win).nth(3).locator('[data-answer]')).toContainText('they meet at The Grey Ferry at dusk')
+    await expect(third.getByRole('alert')).toHaveCount(0)
+    await expect(third).toContainText('Didn’t get an answer')
+    await expect(third.getByRole('button', { name: 'What the AI saw' })).toBeVisible()
 
     // New chat starts afresh; the first is in the list of earlier chats.
     await panel(win).getByRole('button', { name: 'New chat' }).click()
@@ -131,16 +149,18 @@ test('Ask the world: ask, cited entries, save to memory, Stop, New chat, and the
     const again = await launch({ dataDir: first.dataDir })
     await expect(again.win.locator('.scene-prose')).toBeVisible()
     await again.win.getByRole('button', { name: 'Ask the world', exact: true }).click()
-    await expect(turns(again.win)).toHaveCount(2)
+    await expect(turns(again.win)).toHaveCount(4)
     await expect(turns(again.win).first()).toContainText('What would Mara do if Tobin lied to her?')
     await expect(turns(again.win).first().locator('[data-answer]').getByRole('button', { name: 'Mara Venn' })).toBeVisible()
     await expect(turns(again.win).nth(1)).toContainText('Stopped')
+    await expect(turns(again.win).nth(2)).toContainText('Didn’t get an answer')
+    await expect(turns(again.win).nth(2).getByRole('alert')).toHaveCount(0)
   } finally {
     await fake.close()
   }
 })
 
-test('Ask the world opens on the writing page with no scene open, says plainly when no model is set up, and Esc stops an answer', async ({
+test('Ask the world opens on the writing page with no scene open, says plainly when no model is set up, and stops an answer on Esc or a new chat', async ({
   launch
 }) => {
   const { win } = await launch()
@@ -155,6 +175,16 @@ test('Ask the world opens on the writing page with no scene open, says plainly w
   const ask = win.getByRole('complementary', { name: 'Ask the world' }).getByRole('region', { name: 'Ask the world' })
   await expect(ask).toBeVisible()
   await expect(ask.getByText('As of the end of Book 1')).toBeVisible()
+  // The top bar's panel button hides and shows it, as it does the scene panel.
+  const side = win.getByRole('complementary', { name: 'Ask the world' })
+  const panelButton = win.getByRole('button', { name: 'Show or hide the scene panel' })
+  await expect(panelButton).toBeEnabled()
+  await panelButton.click()
+  // Closed, it takes no room (bar its 1px edge).
+  await expect.poll(async () => (await side.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1)
+  await panelButton.click()
+  await expect.poll(async () => (await side.boundingBox())?.width ?? 0).toBeGreaterThan(200)
+  await expect(ask).toBeVisible()
   await box(win).fill('Did I already say how old the Duke is?')
   await box(win).press('Enter')
   // No model yet: the question stays, with what to do in plain words.
@@ -174,6 +204,29 @@ test('Ask the world opens on the writing page with no scene open, says plainly w
     await box(win).press('Escape')
     await expect(turns(win).first()).toContainText('Stopped')
     expect(await turns(win).first().locator('[data-answer]').innerText()).not.toContain('Idea 20:')
+
+    // Asked, and left at once for a new chat before the answer has started: it stops as soon as it
+    // starts, rather than going on being written where it can't be seen. The chat it was asked in
+    // keeps it, stopped.
+    const question = 'Who keeps the ferry these days?'
+    await box(win).fill(question)
+    await win.evaluate(`(() => {
+      const panel = document.querySelector('section[aria-label="Ask the world"]')
+      panel.querySelector('form').requestSubmit()
+      panel.querySelector('button[aria-label="New chat"]').click()
+    })()`)
+    await expect(ask.getByText('Try asking')).toBeVisible()
+    await expect
+      .poll(
+        async () => {
+          const [latest] = await invoke(win, 'listChats', story.id)
+          const asked = latest ? (await invoke(win, 'getChat', latest.chatId)).find((t) => t.question === question) : undefined
+          return asked?.status ?? 'not asked yet'
+        },
+        { timeout: 15000 }
+      )
+      .toBe('stopped')
+    await expect(conversation(win)).toHaveCount(0)
   } finally {
     await fake.close()
   }

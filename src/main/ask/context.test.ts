@@ -7,6 +7,7 @@ import { defaultWritingPrefs } from '@shared/defaults'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
+import * as mem from '../db/memory'
 import { countRaw } from '../ai/tokens'
 import { assembleAsk, MAX_TURNS, NOT_YET, searchTerms, standsAlone, type AskBriefing } from './context'
 import { loadShape } from '../memory/scene'
@@ -26,12 +27,24 @@ function brief(
   turns: PastTurn[] = [],
   contextLength: number | null = null
 ): AskBriefing {
+  return briefIn(w, question, story, scene, turns, contextLength)
+}
+
+/** The same, in a world of the test's own (for a test that changes it). */
+function briefIn(
+  world: ReturnType<typeof dbWorld>,
+  question: string,
+  story: string | null,
+  scene: string | null = null,
+  turns: PastTurn[] = [],
+  contextLength: number | null = null
+): AskBriefing {
   return assembleAsk(
-    w.db,
+    world.db,
     {
       question,
-      storyId: story ? w.id(story) : null,
-      sceneId: scene ? w.id(scene) : null,
+      storyId: story ? world.id(story) : null,
+      sceneId: scene ? world.id(scene) : null,
       turns,
       prefs: defaultWritingPrefs(),
       contextLength
@@ -111,6 +124,32 @@ describe('stories that are not one series', () => {
     expect(b.label).toBe('End of Mara Keeps Her Hand')
   })
 
+  it('only names an entry from a main book’s later chapters, seen from a what-if or a prequel', () => {
+    const v = dbWorld()
+    const sable = repo.createEntry(
+      v.db,
+      'character',
+      { name: 'Sable Thorn', description: 'Betrays the Duke at the weir.' },
+      { origin: 'adam', originStoryId: v.id('b1') }
+    )
+    // First in Book 1, Ch 3: past where the what-if leaves Book 1, and after the prequel is over.
+    mem.setDefaultExistsPoints(v.db, sable.id, [{ kind: 'scene', storyId: v.id('b1'), sceneId: v.id('b1.c3.s1') }])
+    const places: [string, string | null][] = [
+      ['keep', null],
+      ['keep', 'keep.c1.s1'],
+      ['ym', null]
+    ]
+    for (const [story, scene] of places) {
+      const b = briefIn(v, 'Who is Sable Thorn?', story, scene)
+      expect(textOf(b, 'named'), story).toBe('### Sable Thorn (character; from Book 1, not in this story so far)')
+      expect(systemOf(b), story).not.toContain('Betrays the Duke')
+    }
+    // Earlier in Book 1 itself, it comes later in this very story: sent in full, labelled so.
+    const early = textOf(briefIn(v, 'Who is Sable Thorn?', 'b1', 'b1.c1.s1'), 'named')
+    expect(early).toContain(`### Sable Thorn (character; ${NOT_YET})`)
+    expect(early).toContain('Betrays the Duke at the weir.')
+  })
+
   it('knows what an own version is, and what follows on from one', () => {
     const shape = loadShape(w.db)
     expect(standsAlone(shape, w.id('keep'))).toBe(true)
@@ -176,6 +215,36 @@ describe('the words searched for', () => {
     expect(searchTerms('Did I already say how old the Duke is?')).toEqual(['duke'])
     expect(searchTerms('Give me ten tavern names that fit the north')).toEqual(['tavern', 'north'])
     expect(searchTerms("What would Mara's brother do?")).toEqual(['mara', 'brother'])
+  })
+})
+
+describe('what Adam keeps out', () => {
+  it('leaves an entry kept out of a story out of its chats, unless the question names it', () => {
+    const v = dbWorld()
+    mem.setPin(v.db, v.id('tobin'), 'story', v.id('b1'), 'hide')
+    const oath = repo.createEntry(v.db, 'lore', {
+      name: 'The Iron Oath',
+      description: 'No oath sworn on iron is ever broken.',
+      hardRule: true
+    })
+    mem.setPin(v.db, oath.id, 'story', v.id('b1'), 'hide')
+
+    for (const question of ['How is Mara doing?', 'What should happen next?', 'Who looks after the ferry these days?']) {
+      const b = briefIn(v, question, 'b1', 'b1.c3.s1')
+      // Not in the list of everything else, nor in Mara's ties, nor as a world rule.
+      expect(systemOf(b), question).not.toMatch(/\bTobin\b/)
+      expect(systemOf(b), question).not.toContain('Iron Oath')
+      expect(sentIds(b), question).not.toContain(v.id('tobin'))
+      expect(sentIds(b), question).not.toContain(oath.id)
+    }
+
+    // Asked about by name, he comes in after all.
+    const asked = briefIn(v, 'What would Tobin do now?', 'b1', 'b1.c3.s1')
+    expect(textOf(asked, 'named')).toContain('### Tobin (character)')
+    // Book 1's pin doesn't reach another story.
+    const b2 = briefIn(v, 'What should happen next?', 'b2')
+    expect(textOf(b2, 'catalogue')).toMatch(/\bTobin\b/)
+    expect(textOf(b2, 'world-rules')).toContain('No oath sworn on iron is ever broken.')
   })
 })
 

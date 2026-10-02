@@ -199,8 +199,18 @@ export async function refreshChats(): Promise<void> {
 
 // ---------- Asking ----------
 
-/** True while the turn shows the question only (it failed before any answer came). */
-const failedEmpty = (t: ShownTurn): boolean => !!t.problem || (t.status === 'error' && !t.answer.trim())
+/**
+ * True for a question that never reached the AI (nothing could be sent: no model set up, say), so there
+ * is no record of it. It gives way to the next question; one the AI was asked stays, even unanswered.
+ */
+export const neverSent = (t: ShownTurn): boolean => !!t.problem && t.generationId.startsWith('pending:')
+
+/**
+ * Answers still on their way to starting (askWorld hasn't come back yet, so there is no task to stop),
+ * and whether Stop was asked for meanwhile: by Stop, a new chat, another chat or story. They stop as soon
+ * as they start, so no answer goes on being written (and paid for) where Adam can't see it.
+ */
+const starting = new Map<ID, boolean>()
 
 /**
  * Asks a question in the chat on show (a new chat when none is). The question shows at once; the
@@ -227,19 +237,24 @@ export async function ask(question: string, place: AskPlace): Promise<boolean> {
     cutOff: false,
     createdAt: new Date().toISOString()
   }
-  // A question that failed with nothing to show gives way to the new one (asked again, or another).
-  set({ turns: [...s.turns.filter((t) => !failedEmpty(t)), pending], running: { taskId, stopping: false, retrying: null } })
+  // A question that never reached the AI gives way to the new one (asked again, or another).
+  set({ turns: [...s.turns.filter((t) => !neverSent(t)), pending], running: { taskId, stopping: false, retrying: null } })
+  starting.set(taskId, false)
   try {
     const turn = await api.askWorld({ taskId, chatId, question: text, storyId: place.storyId, sceneId: place.sceneId })
+    // Stop asked for before the answer had started (or it no longer shows here): it stops now. The
+    // record keeps what arrived, and the chat shows it, stopped, when opened again.
+    const stop = starting.get(taskId) || get().running?.taskId !== taskId
+    starting.delete(taskId)
+    if (stop) void api.stopTask(taskId).catch(() => undefined)
     if (get().storyKey !== key) return true
     // The answer may have arrived already: only the turn's ids come from here.
     updateTask(taskId, (t) => ({ ...t, generationId: turn.generationId, chatId: turn.chatId, createdAt: turn.createdAt }))
     if (!get().chatId && get().turns.some((t) => t.taskId === taskId)) set({ chatId: turn.chatId })
-    const r = get().running
-    if (r?.taskId === taskId && r.stopping) void api.stopTask(taskId).catch(() => undefined)
     if (!get().running || get().running?.taskId !== taskId) void settle(turn.chatId)
     return true
   } catch (e) {
+    starting.delete(taskId)
     if (get().storyKey !== key) return false
     updateTask(taskId, (t) => ({ ...t, status: 'error', problem: errorOf(e) }))
     if (get().running?.taskId === taskId) set({ running: null })
@@ -247,11 +262,12 @@ export async function ask(question: string, place: AskPlace): Promise<boolean> {
   }
 }
 
-/** Stops the answer being written; what arrived is kept. */
+/** Stops the answer being written; what arrived is kept. One that hasn't started yet stops as it starts. */
 export function stopAnswer(): void {
   const r = get().running
   if (!r) return
   set({ running: { ...r, stopping: true } })
+  if (starting.has(r.taskId)) starting.set(r.taskId, true)
   void api.stopTask(r.taskId).catch(() => undefined)
 }
 

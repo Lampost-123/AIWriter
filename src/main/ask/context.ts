@@ -16,8 +16,12 @@
 //   8 the story so far
 //   9 everything else in the memory, a line each (so any of it can be named)
 //  10 themes, tone and premise
-// Entries named in the question come in even when they come later in this story ("not in the story yet
-// at this point"), labelled so; nothing from a story this one doesn't know of ever does.
+// Entries named in the question come in even when they come later in this story itself ("not in the
+// story yet at this point"), labelled so. One that first exists in another story on this story's way,
+// past the point this story leaves it (a main book's later chapters, seen from a what-if or a prequel),
+// never comes in this story: it is only named, with drafting's label ("from Book 1, not in this story so
+// far"). Nothing from a story this one doesn't know of ever comes in. Entries Adam keeps out ('hide'
+// pins) are left out everywhere, as in a draft, unless the question names them.
 
 import type Database from 'better-sqlite3'
 import type {
@@ -102,8 +106,14 @@ export interface AskPoint {
   label: string
   /** Every entry that exists here, as of here. */
   here: Map<ID, EntryState>
-  /** Entries that come later on this story's way ("not in the story yet at this point"). */
+  /** Entries that come later in this story itself ("not in the story yet at this point"). */
   later: Map<ID, EntryState>
+  /**
+   * Entries from another story on this story's way that this story never reaches (that story goes on
+   * past the point this one leaves it), with drafting's label: "from Book 1, not in this story so far".
+   * Only ever named, never described: what they are belongs to events this story doesn't know.
+   */
+  elsewhere: Map<ID, { entry: EntryState; label: string }>
   relationships: RelationshipState[]
   facts: FactState[]
   threads: ThreadState[]
@@ -152,6 +162,24 @@ export function standsAlone(shape: WorldShape, storyId: ID | null): boolean {
 
 const lastScene = (story: StoryNode): ID | null => story.chapters.flatMap((c) => c.scenes).at(-1)?.id ?? null
 
+/** Where a question is asked from: a story and the point in it the memory is read at. */
+export interface AskedFrom {
+  story: StoryNode
+  /** The open scene, when it is in that story. */
+  sceneId: ID | null
+  /** Just after the open scene (its own changes included), else the story's end. */
+  at: AsOf
+}
+
+/** The open scene's story (else the open story) and the point in it; null with no story open. */
+export function askedFrom(shape: WorldShape, storyId: ID | null, sceneId: ID | null): AskedFrom | null {
+  const sceneStory = sceneId ? shape.stories.find((s) => s.chapters.some((c) => c.scenes.some((x) => x.id === sceneId))) : undefined
+  const story = sceneStory ?? (storyId ? shape.stories.find((s) => s.id === storyId) : undefined)
+  if (!story) return null
+  const open = sceneStory && sceneId ? sceneId : null
+  return { story, sceneId: open, at: open ? { kind: 'scene', storyId: story.id, sceneId: open } : { kind: 'end', storyId: story.id } }
+}
+
 /**
  * The memory at the point the question is asked from. `shape` and `data` may be passed in when
  * they have just been read.
@@ -164,9 +192,8 @@ export function askPoint(
   data: MemoryData = loadMemoryData(db)
 ): AskPoint {
   const names = new Map(data.entries.map((e) => [e.id, e.name]))
-  const sceneStory = sceneId ? shape.stories.find((s) => s.chapters.some((c) => c.scenes.some((x) => x.id === sceneId))) : undefined
-  const story = sceneStory ?? (storyId ? shape.stories.find((s) => s.id === storyId) : undefined) ?? null
-  if (!story) {
+  const place = askedFrom(shape, storyId, sceneId)
+  if (!place) {
     // No story open: the world as it was set up, before any story.
     const here = new Map<ID, EntryState>(data.entries.map((e) => [e.id, { ...e, happened: [], changed: [] }]))
     return {
@@ -175,6 +202,7 @@ export function askPoint(
       label: '',
       here,
       later: new Map(),
+      elsewhere: new Map(),
       relationships: [],
       facts: [],
       threads: [],
@@ -184,12 +212,15 @@ export function askPoint(
       names
     }
   }
-  const openScene = sceneStory && sceneId ? sceneId : null
-  const at: AsOf = openScene ? { kind: 'scene', storyId: story.id, sceneId: openScene } : { kind: 'end', storyId: story.id }
+  const { story, sceneId: openScene, at } = place
   const m = memoryAt(db, at, shape, data)
 
-  // Entries not there yet that come later on this story's way; never those from a story it doesn't know of.
+  // Entries not there yet. One that first exists later in this story itself comes in when named
+  // ("not in the story yet at this point"). One from another story on this story's way is somewhere
+  // this story never reaches (it leaves that story before it comes): only its name, with drafting's
+  // label. Never one from a story this one doesn't know of.
   const onWalk = new Set(m.line.segments.map((s) => s.storyId))
+  const titles = new Map(shape.stories.map((s) => [s.id, s.title]))
   const sceneStoryOf = new Map<ID, ID>()
   for (const s of shape.stories) for (const c of s.chapters) for (const sc of c.scenes) sceneStoryOf.set(sc.id, s.id)
   const homes = new Map<ID, (ID | null)[]>()
@@ -198,7 +229,16 @@ export function askPoint(
     homes.set(p.entryId, [...(homes.get(p.entryId) ?? []), home])
   }
   const later = new Map<ID, EntryState>()
-  for (const [id, e] of m.state.absent) if ((homes.get(id) ?? []).some((h) => !!h && onWalk.has(h))) later.set(id, e)
+  const elsewhere = new Map<ID, { entry: EntryState; label: string }>()
+  for (const [id, e] of m.state.absent) {
+    const where = homes.get(id) ?? []
+    if (where.includes(story.id)) {
+      later.set(id, e)
+      continue
+    }
+    const from = where.find((h): h is ID => !!h && onWalk.has(h) && titles.has(h))
+    if (from) elsewhere.set(id, { entry: e, label: `from ${titles.get(from)}, not in this story so far` })
+  }
 
   // The story so far: up to the open scene (or the story's last), then that scene's own summary.
   const upTo = openScene ?? lastScene(story)
@@ -210,6 +250,7 @@ export function askPoint(
     label: m.label,
     here: m.state.entries,
     later,
+    elsewhere,
     relationships: m.state.relationships,
     facts: m.state.facts,
     threads: m.state.threads,
@@ -225,8 +266,10 @@ export function askPoint(
 interface Chosen {
   entry: EntryState
   why: string
-  /** "not in the story yet at this point", for an entry that comes later. */
+  /** "not in the story yet at this point", or "from Book 1, not in this story so far". */
   label: string | null
+  /** Only its name is given (an entry from a story this one leaves before it comes). */
+  nameOnly?: boolean
 }
 
 const STOP = new Set(
@@ -279,28 +322,36 @@ interface Selection {
   cast: Chosen[]
   rules: Chosen[]
   related: Chosen[]
+  /** Entries Adam keeps out here ('hide' pins) that the question doesn't name: never sent, not even by name. */
+  keptOut: Set<ID>
 }
 
 function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTurn[]): Selection {
   const chosen = new Map<ID, Chosen>()
   /** Adds an entry to `list` for a reason, once. */
-  const take = (list: Chosen[], e: EntryState | undefined, why: string, label: string | null = null): void => {
+  const take = (list: Chosen[], e: EntryState | undefined, why: string, label: string | null = null, nameOnly = false): void => {
     if (!e || chosen.has(e.id)) return
-    const c = { entry: e, why, label }
+    const c: Chosen = nameOnly ? { entry: e, why, label, nameOnly } : { entry: e, why, label }
     chosen.set(e.id, c)
     list.push(c)
   }
   const pins = effectivePins(pinsAt(db, point))
   const hidden = (id: ID): boolean => pins.get(id)?.action === 'hide'
 
-  // Named in the question, in the order the question names them: what exists here, and what comes
-  // later in this story (labelled so). Adam asked about them, so a pin keeping one out doesn't count.
+  // Named in the question, in the order the question names them: what exists here, what comes later in
+  // this story (labelled so) and, by name only, what this story never reaches. Adam asked about them, so
+  // a pin keeping one out doesn't count.
   const named: Chosen[] = []
-  const inQuestion = [...point.here.values(), ...point.later.values()]
+  const away = [...point.elsewhere.values()]
+  const inQuestion = [...point.here.values(), ...point.later.values(), ...away.map((x) => x.entry)]
     .map((e) => ({ e, at: firstMention(question, e) }))
     .filter((x) => x.at < Infinity)
     .sort((a, b) => a.at - b.at)
-  for (const { e } of inQuestion) take(named, e, ASK_WHY.question, point.here.has(e.id) ? null : NOT_YET)
+  for (const { e } of inQuestion) {
+    const far = point.elsewhere.get(e.id)
+    if (far) take(named, e, ASK_WHY.question, far.label, true)
+    else take(named, e, ASK_WHY.question, point.here.has(e.id) ? null : NOT_YET)
+  }
   // Named in the last two turns, so "What would she do then?" still knows who she is.
   const recent = turns
     .slice(-2)
@@ -316,7 +367,7 @@ function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTur
   }
 
   const rules: Chosen[] = []
-  for (const e of point.here.values()) if (e.kind === 'lore' && e.hardRule) take(rules, e, ASK_WHY.rule)
+  for (const e of point.here.values()) if (e.kind === 'lore' && e.hardRule && !hidden(e.id)) take(rules, e, ASK_WHY.rule)
 
   // What the search finds for the question's words (found by more of the words first), then Adam's pins.
   const related: Chosen[] = []
@@ -337,7 +388,8 @@ function selectEntries(db: DB, point: AskPoint, question: string, turns: PastTur
   }
   for (const p of pins.values()) if (p.action === 'pin') take(related, point.here.get(p.entryId), WHY.pin[p.scope])
 
-  return { named, cast, rules, related }
+  const keptOut = new Set([...pins.values()].filter((p) => p.action === 'hide' && !chosen.has(p.entryId)).map((p) => p.entryId))
+  return { named, cast, rules, related, keptOut }
 }
 
 // ---------- The blocks ----------
@@ -367,6 +419,8 @@ function threadLine(point: AskPoint, e: EntryState): string {
  * it knows; 1 without the backstory, the last three things that happened and at most six ties and facts.
  */
 function profileText(point: AskPoint, c: Chosen, level: 0 | 1): string {
+  // From a story this one never reaches: what it is belongs to events this story doesn't know.
+  if (c.nameOnly) return heading(c)
   const e = c.entry
   const name = (id: ID): string => point.names.get(id) ?? 'Someone'
   const ties = point.relationships.filter((r) => r.aId === e.id || r.bId === e.id).map((r) => `- ${relationLine(r, name)}`)
@@ -383,8 +437,20 @@ function profileText(point: AskPoint, c: Chosen, level: 0 | 1): string {
 }
 
 const lineOf = (point: AskPoint, c: Chosen): string => {
+  const note = [kindWord(c.entry), c.label].filter(Boolean).join('; ')
+  if (c.nameOnly) return `- ${c.entry.name} (${note})`
   const status = threadLine(point, c.entry)
-  return `- ${oneLine(c.entry, [kindWord(c.entry), c.label].filter(Boolean).join('; '))}${status ? ` ${status}` : ''}`
+  return `- ${oneLine(c.entry, note)}${status ? ` ${status}` : ''}`
+}
+
+/** The point as the briefing shows it: what Adam keeps out here isn't named anywhere, not even in another entry's ties. */
+function withoutKeptOut(point: AskPoint, out: Set<ID>): AskPoint {
+  if (!out.size) return point
+  return {
+    ...point,
+    here: new Map([...point.here].filter(([id]) => !out.has(id))),
+    relationships: point.relationships.filter((r) => !out.has(r.aId) && !out.has(r.bId))
+  }
 }
 
 /** A block with its forms, longest first; each form is kept only when shorter than the one before. */
@@ -546,6 +612,8 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
 
   const ids = (cs: Chosen[]): ID[] => cs.map((c) => c.entry.id)
   const sent = new Set([...ids(sel.named), ...ids(sel.cast), ...ids(sel.rules), ...ids(sel.related)])
+  // What Adam keeps out here isn't named anywhere in what is sent, unless the question names it.
+  const shown = withoutKeptOut(point, sel.keptOut)
   const conversation = [turns, turns.slice(-6), turns.slice(-3), turns.slice(-1)]
     .filter((t, i, all) => t.length && (i === 0 || t.length < all[i - 1].length))
     .map((t) => ({ text: conversationText(t).trim(), turns: t }))
@@ -559,9 +627,9 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
           3,
           'Named in the question',
           [
-            sel.named.map((c) => profileText(point, c, 0)).join('\n\n'),
-            sel.named.map((c) => profileText(point, c, 1)).join('\n\n'),
-            sel.named.map((c) => lineOf(point, c)).join('\n')
+            sel.named.map((c) => profileText(shown, c, 0)).join('\n\n'),
+            sel.named.map((c) => profileText(shown, c, 1)).join('\n\n'),
+            sel.named.map((c) => lineOf(shown, c)).join('\n')
           ],
           ids(sel.named)
         )
@@ -577,7 +645,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
           'scene',
           5,
           'The open scene',
-          [0, 1, 2].map((l) => sceneText(db, point, sel.cast, l as 0 | 1 | 2)),
+          [0, 1, 2].map((l) => sceneText(db, shown, sel.cast, l as 0 | 1 | 2)),
           ids(sel.cast)
         )
       : null,
@@ -586,7 +654,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
           'world-rules',
           6,
           'World rules (never break these)',
-          [sel.rules.map((c) => profileText(point, c, 0)).join('\n\n'), sel.rules.map((c) => lineOf(point, c)).join('\n')],
+          [sel.rules.map((c) => profileText(shown, c, 0)).join('\n\n'), sel.rules.map((c) => lineOf(shown, c)).join('\n')],
           ids(sel.rules)
         )
       : null,
@@ -600,14 +668,14 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
               .map((c) =>
                 [
                   formatProfile(c.entry, heading(c), c.entry.kind === 'character' ? ['basics', 'looks'] : undefined),
-                  threadLine(point, c.entry),
+                  threadLine(shown, c.entry),
                   happenedText(c.entry, 3)
                 ]
                   .filter(Boolean)
                   .join('\n\n')
               )
               .join('\n\n'),
-            sel.related.map((c) => lineOf(point, c)).join('\n')
+            sel.related.map((c) => lineOf(shown, c)).join('\n')
           ],
           ids(sel.related)
         )
@@ -618,7 +686,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
       'The story so far',
       Array.from({ length: STORY_LEVELS }, (_, i) => storyText(point, i))
     ),
-    block('catalogue', 9, 'Everything else in the memory', [catalogueText(point, sent, false), catalogueText(point, sent, true)]),
+    block('catalogue', 9, 'Everything else in the memory', [catalogueText(shown, sent, false), catalogueText(shown, sent, true)]),
     block('themes', 10, 'Themes and tone', [themesText(db, point, false), themesText(db, point, true)])
   ]
     .filter((b): b is BlockDraft => !!b)
@@ -626,7 +694,7 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
 
   const versions = new Map<ID, string>()
   for (const id of sent) {
-    const e = point.here.get(id) ?? point.later.get(id)
+    const e = point.here.get(id) ?? point.later.get(id) ?? point.elsewhere.get(id)?.entry
     if (e) versions.set(id, e.updatedAt)
   }
   const targetWords = REPLY_WORDS

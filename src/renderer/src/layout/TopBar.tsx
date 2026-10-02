@@ -266,13 +266,15 @@ export function TopBar(): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
+  const askOpen = useApp((s) => s.askOpen)
   const drafting = useApp((s) => s.activeGeneration !== null)
   const hasWorld = useApp((s) => s.world !== null)
   const worldButton = useRef<HTMLButtonElement>(null)
   const layout = settings?.layout
   const floatingBinder = useFloatingBinder()
-  // The scene panel belongs to an open scene in the writing view; elsewhere the button rests.
-  const panelAvailable = view.kind === 'write' && !!sceneId
+  // The scene panel belongs to an open scene in the writing view (Ask the world shows there even without
+  // one); elsewhere the button rests.
+  const panelAvailable = view.kind === 'write' && (!!sceneId || askOpen)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

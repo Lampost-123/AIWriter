@@ -44,7 +44,10 @@ export function asOfHint(o: { hasScene: boolean; storyTitle: string | null }): s
   return 'No story is open, so answers come from your world as it was set up, before any story.'
 }
 
-/** The quiet line under an answer: how it ended, and what it cost ("Stopped · $0.002"). */
+/**
+ * The quiet words after "What the AI saw" under an answer: how it ended, and what it cost ("Stopped",
+ * "about $0.002"). They come once the answer has ended, after the link, so the link never moves.
+ */
 export function answerNote(t: { status: string; cutOff: boolean; cost: number | null; costEstimated: boolean; answer: string }): string[] {
   const parts: string[] = []
   if (t.status === 'stopped') parts.push('Stopped')
@@ -54,9 +57,13 @@ export function answerNote(t: { status: string; cutOff: boolean; cost: number | 
   return parts
 }
 
+/** Before "What the AI saw", for a question the AI was asked that got no answer, once the notice saying why has gone. */
+export const NO_ANSWER = 'Didn’t get an answer'
+
 /** What the toast says once a note is saved. */
-export function savedMessage(note: Pick<SavedNote, 'name' | 'created' | 'onlyIn'>): string {
-  if (note.created) return `Saved to your lore as “${note.name}”.`
+export function savedMessage(note: Pick<SavedNote, 'name' | 'created' | 'onlyIn' | 'asOf'>): string {
+  if (note.created) return `Saved to your lore as “${note.name}”${note.onlyIn ? `, in ${note.onlyIn} only` : ''}.`
+  if (note.asOf) return `Saved to memory for ${note.name}, as of ${note.asOf}.`
   if (note.onlyIn) return `Saved to memory for ${note.name}, in ${note.onlyIn} only.`
   return `Saved to memory for ${note.name}, as your own note.`
 }

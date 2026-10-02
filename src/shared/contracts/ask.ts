@@ -25,10 +25,12 @@ export interface AskApi {
   /** A chat's turns, oldest first. A turn still being answered has the text that has arrived so far. */
   getChat(chatId: ID): Promise<AskTurn[]>
   /**
-   * Saves words from an answer to the memory as Adam's own note: added to an entry's description (his
-   * words, marked as typed by him), or as a new note in the world (lore) when `entryId` is null. In an
-   * own version of events, a note added to an entry from outside it is kept for that story only, so it
-   * never reaches another story.
+   * Saves words from an answer to the memory as Adam's own note: added to the end of an entry's
+   * description as it stands where Adam is (the entry's own, or the one a change sets on this story's way,
+   * such as a prequel's starting description), marked as typed by him; or as a new note in the world
+   * (lore) when `entryId` is null. In an own version of events nothing reaches another story: when the
+   * entry's description there also counts elsewhere, the note becomes a page in Lore of its own that
+   * first exists in that story.
    */
   saveAskNote(input: SaveNoteInput): Promise<SavedNote>
   /** Takes a note saved with saveAskNote back out (the toast's Undo). */
@@ -87,6 +89,8 @@ export interface SaveNoteInput {
   question?: string
   /** The story Adam is working in, so a note saved in an own version of events stays in it. */
   storyId: ID | null
+  /** The open scene: the note goes on the entry as it is there (at the story's end when none is open). */
+  sceneId?: ID | null
 }
 
 export interface SavedNote {
@@ -96,8 +100,13 @@ export interface SavedNote {
   name: string
   /** A new note was made for it. */
   created: boolean
-  /** The note was kept for one story only (an own version of events): that story's title. */
+  /** Saved in an own version of events, so it reaches no other story: that story's title. */
   onlyIn: string | null
+  /**
+   * Added to the entry as it is from a point in a story (the description a change sets there), in plain
+   * words: "the start of Young Mara", "Book 2, Ch 3, Sc 1". Null when it went on the entry's own description.
+   */
+  asOf: string | null
   /** For undoAskNote. */
   undo: NoteUndo
 }
@@ -108,5 +117,5 @@ export type NoteUndo =
   | { kind: 'created'; entryId: ID }
   /** Words added to the end of a description: they come out again, and the description is as it was. */
   | { kind: 'added'; entryId: ID; text: string; before: string; origin: Origin | null; byHand: boolean }
-  /** Kept for one story only, as a start-of-story change: the change goes. */
-  | { kind: 'change'; entryId: ID; changeId: ID }
+  /** Words added to the end of the description a change sets: they come out again, and the change is as it was. */
+  | { kind: 'changed'; entryId: ID; changeId: ID; text: string; before: string; origin: Origin }
