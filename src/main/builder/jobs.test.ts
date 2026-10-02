@@ -161,7 +161,8 @@ describe('Thinking', () => {
 
 describe('Quick start', () => {
   it("builds and saves a whole character from a few lines: Adam's words as his, the rest drafted by AI", async () => {
-    const w = setup()
+    // A model that streams at a readable pace, so the progress checked below is seen however fast the machine is.
+    const w = setup({ modelId: 'fake/slow' })
     startQuickStart(w.ctx, { jobId: 'q1', kind: 'character', notes: NOTES, storyId: w.storyId }, w.brief())
     const done = await w.done('q1')
     expect(done.status).toBe('complete')
