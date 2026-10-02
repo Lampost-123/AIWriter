@@ -9,6 +9,8 @@ import * as actions from '@/features/binder/actions'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { useOutline } from '@/features/binder/outlineStore'
 import { STATUS_LABELS, STATUSES, StatusDot } from '@/features/binder/StatusDot'
+import { changeStatus } from './accept'
+import { AcceptButton } from './AcceptButton'
 
 function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   return (
@@ -33,13 +35,14 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
           {STATUSES.map((s) => (
             <M.Item
               key={s}
-              onSelect={() => s !== status && void actions.setSceneStatus(sceneId, s)}
+              // Done is the same as Accept; leaving Done reopens the scene.
+              onSelect={() => s !== status && void changeStatus(sceneId, status, s)}
               className="flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-fg outline-none data-[highlighted]:bg-surface-2"
             >
               <span className="flex w-3 justify-center">
                 <StatusDot status={s} />
               </span>
-              <span className="flex-1">{STATUS_LABELS[s]}</span>
+              <span className="flex-1">{s === 'done' ? 'Done (accepted)' : STATUS_LABELS[s]}</span>
               {s === status ? <Check size={14} className="text-accent" /> : null}
             </M.Item>
           ))}
@@ -103,6 +106,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
         )}
       </div>
       <StatusMenu sceneId={sceneId} status={status} />
+      <AcceptButton sceneId={sceneId} status={status} />
       <div className={cn('flex shrink-0 items-center')}>
         <GenerateControls sceneId={sceneId} />
       </div>

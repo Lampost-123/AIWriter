@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
 import { Extension } from '@tiptap/core'
+import { requestAccept } from './acceptRequest'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -10,6 +11,21 @@ export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and pre
 const StreamTracking = Extension.create({
   name: 'aiwriteStream',
   addProseMirrorPlugins: () => [streamPlugin]
+})
+
+/**
+ * Ctrl+Enter (Cmd+Enter on a Mac) accepts the scene, as everywhere else in the writing view.
+ * It runs before the line-break shortcut (Shift+Enter still makes a line break).
+ */
+const AcceptShortcut = Extension.create({
+  name: 'aiwriteAccept',
+  priority: 1000,
+  addKeyboardShortcuts: () => ({
+    'Mod-Enter': () => {
+      requestAccept()
+      return true
+    }
+  })
 })
 
 /**
@@ -33,6 +49,7 @@ export function sceneExtensions(): AnyExtension[] {
       dropcursor: { color: 'var(--accent)', width: 2 }
     }),
     Placeholder.configure({ placeholder: EDITOR_PLACEHOLDER }),
-    StreamTracking
+    StreamTracking,
+    AcceptShortcut
   ]
 }

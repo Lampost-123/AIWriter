@@ -15,6 +15,8 @@ import { EntriesView } from '@/features/world/EntriesView'
 import { StyleView } from '@/features/style/StyleView'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { WhatTheAISaw } from '@/features/generate/WhatTheAISaw'
+import { WhatChanged } from '@/features/memory/WhatChanged'
+import { installMemoryEvents } from '@/features/memory/events'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -27,7 +29,12 @@ export function App(): React.JSX.Element | null {
   useTheme(settings?.theme)
   useEffect(() => {
     void init()
-    return installFlushOnClose()
+    const offFlush = installFlushOnClose()
+    const offMemory = installMemoryEvents()
+    return () => {
+      offFlush()
+      offMemory()
+    }
   }, [init])
 
   // The window stays hidden until the first real frame (in the right theme) is painted, so
@@ -99,6 +106,7 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'style' && <StyleView />}
               {view.kind === 'settings' && <SettingsView tab={view.tab} />}
               {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
+              {view.kind === 'memory' && <WhatChanged sceneId={view.sceneId} />}
             </div>
           ) : null}
         </main>

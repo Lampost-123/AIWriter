@@ -9,6 +9,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
+import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { UpdateBanner } from './UpdateBanner'
 
 function SaveIndicator(): React.JSX.Element {
@@ -142,6 +143,7 @@ export function TopBar(): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
   const drafting = useApp((s) => s.activeGeneration !== null)
+  const hasWorld = useApp((s) => s.world !== null)
   const layout = settings?.layout
   // The scene panel belongs to an open scene in the writing view; elsewhere the button rests.
   const panelAvailable = view.kind === 'write' && !!sceneId
@@ -168,6 +170,8 @@ export function TopBar(): React.JSX.Element {
       <div className="flex min-w-0 flex-1 justify-center px-3">
         <UpdateBanner />
       </div>
+      {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
+      {hasWorld ? <KeeperStatus /> : null}
       {view.kind === 'write' ? (
         <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
       ) : drafting ? (
