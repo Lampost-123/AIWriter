@@ -5,7 +5,7 @@
 //
 // What a view reads (the stories, the memory, the scene cards) is kept for each open world until
 // anything is written to it, so moving between the views, or back to a story already seen, doesn't
-// read it all again. SQLite counts every row the connection changes (`total_changes()`), and the open
+// read it all again. SQLite counts every row the connection changes (`changesMade`), and the open
 // world has a single connection, so an unchanged count means nothing has changed.
 import type Database from 'better-sqlite3'
 import type { AsOf, ID } from '@shared/types'
@@ -14,7 +14,7 @@ import { asOfStops, memoryAt, type MemoryAt } from '../memory/asOf'
 import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { MemoryData, WorldShape } from '../memory/types'
-import { readMapLayout, sceneCards, writeMapLayout, type CardInfo } from '../db/worldViews'
+import { changesMade, readMapLayout, sceneCards, storyGaps, writeMapLayout, type CardInfo } from '../db/worldViews'
 import { UserError } from '../util'
 import { buildTimeline } from './timeline'
 import { buildBoard } from './threads'
@@ -28,6 +28,8 @@ interface Read {
   shape: WorldShape
   data: MemoryData
   cards: Map<ID, CardInfo> | null
+  /** Each story's time gap, for the ones that have one. */
+  gaps: Map<ID, string> | null
   /** The memory at each story's end. */
   ends: Map<ID, MemoryAt>
   timelines: Map<ID, Timeline>
@@ -36,14 +38,20 @@ interface Read {
 
 const reads = new WeakMap<DB, Read>()
 
-/** How many rows this connection has changed since the world was opened. */
-const changesMade = (db: DB): number => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
-
 function readWorld(db: DB, storyId: ID): Read {
   const changed = changesMade(db)
   let r = reads.get(db)
   if (!r || r.changed !== changed) {
-    r = { changed, shape: loadShape(db), data: loadMemoryData(db), cards: null, ends: new Map(), timelines: new Map(), boards: new Map() }
+    r = {
+      changed,
+      shape: loadShape(db),
+      data: loadMemoryData(db),
+      cards: null,
+      gaps: null,
+      ends: new Map(),
+      timelines: new Map(),
+      boards: new Map()
+    }
     reads.set(db, r)
   }
   if (!r.shape.stories.some((s) => s.id === storyId)) throw new UserError('That story no longer exists. Choose another story.')
@@ -62,7 +70,8 @@ export function timelineOf(db: DB, storyId: ID): Timeline {
   let t = r.timelines.get(storyId)
   if (!t) {
     const { shape, data, line, state, cards } = atEnd(db, r, storyId)
-    r.timelines.set(storyId, (t = buildTimeline({ storyId, shape, data, line, state, cards })))
+    const gaps = (r.gaps ??= storyGaps(db))
+    r.timelines.set(storyId, (t = buildTimeline({ storyId, shape, data, line, state, cards, gaps })))
   }
   return t
 }

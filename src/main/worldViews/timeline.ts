@@ -6,20 +6,23 @@
 // it first exists, or at the very start). Each When text is read with when.ts; the ones that can be read
 // are sorted by in-world date (reading order breaks ties), and each one that can't stays just after the
 // point before it in reading order, marked "No date". Nothing is ever given a date it doesn't have.
-// Each book that follows on has a calendar of its own (when.ts), so books that each count from "Day 1"
-// aren't mixed together; a side story shares its host's calendar.
+// What a text leaves out ("the next day", a day without its year) comes from its own story's scenes
+// before it, so a side story added whole partway through a book doesn't move the book's own count on:
+// a side story leans on its host where it starts, and a book that follows on leans on the book before
+// at its end, unless a time gap lies between them. Each book that follows on has a calendar of its own
+// (when.ts), so books that each count from "Day 1" aren't mixed together; a side story shares its host's.
 //
 // Clashes (spec: "a character in two places on the same day"): a character at the point of view or
 // present in scenes on the same named in-world day whose locations differ. A place inside another (a
 // hall inside the castle) isn't a different place for this.
-import type { Entry, ID, StoryKind } from '@shared/types'
+import type { Entry, ID } from '@shared/types'
 import type { Timeline, TimelineClash, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
-import type { Line, MemoryData, WorldShape } from '../memory/types'
+import type { Line, MemoryData, StoryNode, WorldShape } from '../memory/types'
 import type { MemoryStateAll } from '../memory/state'
 import { labeler } from '../memory/line'
 import type { CardInfo } from '../db/worldViews'
-import { compareKeys, dayName, placeWhens, type PlacedWhen, type WhenItem } from './when'
-import { existsStep, walkOf } from './walk'
+import { compareKeys, dayName, placeWhens, type PlacedWhen, type WhenItem, type WhenStory } from './when'
+import { existsStep, walkOf, type Walk } from './walk'
 
 export interface TimelineInput {
   storyId: ID
@@ -30,19 +33,24 @@ export interface TimelineInput {
   /** The memory at the story's end (which events exist, their When as of then, who is involved). */
   state: MemoryStateAll
   cards: Map<ID, CardInfo>
+  /** Each story's time gap since the story before ("200 years"), for the stories that have one. */
+  gaps: ReadonlyMap<ID, string>
 }
 
 /**
- * The order to show points in, as indexes into the reading-order list: dated points by date (reading
- * order breaking ties), each followed by the undated points after it in reading order. Undated points
- * before the first dated one come first.
+ * The order to show points in, as indexes into the reading-order list: points with a sort key by date
+ * (reading order breaking ties), each followed by the points after it in reading order that have none
+ * (undated, or dated in a way that can't be placed among the others). Those before the first point with
+ * a key come first.
  */
 export function timelineOrder(placed: (PlacedWhen | null)[]): number[] {
   const lead: number[] = []
   const after = new Map<number, number[]>()
+  const keyed: { key: number[]; i: number }[] = []
   let last = -1
   placed.forEach((p, i) => {
-    if (p) {
+    if (p?.key) {
+      keyed.push({ key: p.key, i })
       last = i
       return
     }
@@ -53,11 +61,25 @@ export function timelineOrder(placed: (PlacedWhen | null)[]): number[] {
       else after.set(last, [i])
     }
   })
-  const dated = placed
-    .map((p, i) => ({ p, i }))
-    .filter((x): x is { p: PlacedWhen; i: number } => !!x.p)
-    .sort((a, b) => compareKeys(a.p.key, b.p.key) || a.i - b.i)
-  return [...lead, ...dated.flatMap(({ i }) => [i, ...(after.get(i) ?? [])])]
+  keyed.sort((a, b) => compareKeys(a.key, b.key) || a.i - b.i)
+  return [...lead, ...keyed.flatMap(({ i }) => [i, ...(after.get(i) ?? [])])]
+}
+
+/** The step on the line where a side story starts in its host (as memory/line.ts reads its start point). */
+function sideStart(w: Walk, side: StoryNode, hostId: ID): number | undefined {
+  const post = w.post.get(hostId)
+  switch (side.startAt) {
+    case 'pre':
+      return w.start.get(hostId)
+    case 'post':
+      return post
+    case 'chapter':
+      return (side.startRefId ? w.chapterEnd.get(side.startRefId) : undefined) ?? post
+    case 'scene':
+      return (side.startRefId ? w.scene.get(side.startRefId) : undefined) ?? post
+    case 'end':
+      return w.end.get(hostId)
+  }
 }
 
 const joinAnd = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
@@ -83,7 +105,7 @@ function joined(a: readonly ID[], b: readonly ID[], keep: (id: ID) => boolean): 
 }
 
 export function buildTimeline(input: TimelineInput): Timeline {
-  const { storyId, shape, data, line, state, cards } = input
+  const { storyId, shape, data, line, state, cards, gaps } = input
   const label = labeler(shape)
   const w = walkOf(line)
   const byId = new Map(data.entries.map((e) => [e.id, e]))
@@ -130,28 +152,36 @@ export function buildTimeline(input: TimelineInput): Timeline {
   }
   for (const list of eventsAt.values()) list.sort((a, b) => a.title.localeCompare(b.title))
 
-  // Every point in reading order, with how its date is read: each book that follows on starts a
-  // calendar of its own, and events are read on their own.
-  const kindOf = new Map<ID, StoryKind>(shape.stories.map((s) => [s.id, s.kind]))
+  // Every point in reading order, with the story each is in. Each story says where it carries on from
+  // (when.ts): a side story from its host where it starts, a book from the book before as it stood
+  // where this one begins (nothing across a time gap). Events are read on their own.
+  const nodes = new Map<ID, StoryNode>(shape.stories.map((s) => [s.id, s]))
   const reading: Draft[] = []
   const items: WhenItem[] = []
-  let fresh = false
-  let started = false
-  const push = (d: Draft): void => {
+  const stories = new Map<ID, WhenStory>()
+  // How many points there were once each step had been read, for where a side story starts in its host.
+  const pointsBy: number[] = []
+  const push = (d: Draft, story: ID): void => {
     reading.push(d)
-    items.push({ text: d.when, fresh, aside: d.kind === 'event' })
-    fresh = false
+    items.push({ text: d.when, story, aside: d.kind === 'event' })
   }
-  for (const e of eventsAt.get(-1) ?? []) push(e)
+  for (const e of eventsAt.get(-1) ?? []) push(e, '')
   line.steps.forEach((step, i) => {
-    if (step.type === 'start' && kindOf.get(step.storyId) !== 'side') {
-      if (started) fresh = true
-      started = true
+    if (step.type === 'start') {
+      const node = nodes.get(step.storyId)
+      const from = node?.startStoryId
+      const side = node?.kind === 'side'
+      const at = side && node && from ? sideStart(w, node, from) : undefined
+      const leans = !!from && w.start.has(from) && (side || !gaps.get(step.storyId))
+      stories.set(step.storyId, {
+        from: leans ? { story: from!, at: at === undefined ? items.length : pointsBy[at] } : null,
+        fresh: !!from && !side
+      })
     } else if (step.type === 'scene') {
       const card = cards.get(step.sceneId)
       const threads = threadsAt.get(step.sceneId)
       const pov = card && isKind(card.povId, 'character') ? card.povId : null
-      push({
+      const scene: Draft = {
         kind: 'scene',
         id: step.sceneId,
         storyId: step.storyId,
@@ -164,12 +194,14 @@ export function buildTimeline(input: TimelineInput): Timeline {
         setsUpIds: joined(card?.setsUpIds ?? [], threads?.opened ?? [], known),
         paysOffIds: joined(card?.paysOffIds ?? [], threads?.resolved ?? [], known),
         step: i
-      })
+      }
+      push(scene, step.storyId)
     }
-    for (const e of eventsAt.get(i) ?? []) push(e)
+    for (const e of eventsAt.get(i) ?? []) push(e, step.storyId)
+    pointsBy[i] = items.length
   })
 
-  const placed = placeWhens(items)
+  const placed = placeWhens(items, stories)
   const points: TimelinePoint[] = timelineOrder(placed).map((i) => {
     const p = reading[i]
     return {

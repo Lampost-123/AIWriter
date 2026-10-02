@@ -1,5 +1,5 @@
-// Lookups over a story's line for the world views: where each scene, story start and chapter end
-// is on it, and where an entry first exists there (the same reading as memory/state.ts).
+// Lookups over a story's line for the world views: where each scene, story start, chapter end and
+// story end is on it, and where an entry first exists there (the same reading as memory/state.ts).
 import type { ID } from '@shared/types'
 import type { ExistsAt, Line, LineStep } from '../memory/types'
 
@@ -11,15 +11,18 @@ export interface Walk {
   start: Map<ID, number>
   post: Map<ID, number>
   chapterEnd: Map<ID, number>
+  /** Step index of each story's end. */
+  end: Map<ID, number>
 }
 
 export function walkOf(line: Line): Walk {
-  const w: Walk = { steps: line.steps, scene: new Map(), start: new Map(), post: new Map(), chapterEnd: new Map() }
+  const w: Walk = { steps: line.steps, scene: new Map(), start: new Map(), post: new Map(), chapterEnd: new Map(), end: new Map() }
   line.steps.forEach((step, i) => {
     if (step.type === 'scene') w.scene.set(step.sceneId, i)
     else if (step.type === 'start') w.start.set(step.storyId, i)
     else if (step.type === 'start-changes') w.post.set(step.storyId, i)
     else if (step.type === 'chapter-end') w.chapterEnd.set(step.chapterId, i)
+    else if (step.type === 'end') w.end.set(step.storyId, i)
   })
   return w
 }

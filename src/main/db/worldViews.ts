@@ -8,6 +8,18 @@ import { getMeta, setMeta } from './repo'
 type DB = Database.Database
 type Row = Record<string, unknown>
 
+/**
+ * How many rows this connection has changed since the world was opened. The views keep what they read
+ * until it moves: the open world has a single connection, so an unchanged count means nothing changed.
+ */
+export const changesMade = (db: DB): number => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
+
+/** Each live story's time gap since the story before ("200 years"), for the stories that have one. */
+export function storyGaps(db: DB): Map<ID, string> {
+  const rows = db.prepare("SELECT id, time_gap FROM stories WHERE deleted_at IS NULL AND trim(time_gap) != ''").all() as Row[]
+  return new Map(rows.map((r) => [r.id as ID, (r.time_gap as string).trim()]))
+}
+
 /** The parts of a scene card the views use. */
 export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds'> & { title: string }
 
