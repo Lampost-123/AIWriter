@@ -287,13 +287,21 @@ export const EntryForm = memo(function EntryForm({
   const setParent = useCallback((parentId: string | null) => update({ parentId }), [update])
   const setName = useCallback((name: string) => update({ name }), [update])
 
-  // A freshly created entry opens with its name selected, ready to type over.
+  // A freshly created entry opens with its name selected, ready to type over (back in editing, if
+  // Adam was looking at entries as of a scene).
+  const nameFocus = useRef(false)
+  const asOf = useAsOfMode((s) => s.on)
   useLayoutEffect(() => {
-    if (takeFresh(initial.id)) {
-      nameRef.current?.focus()
-      nameRef.current?.select()
-    }
+    if (!takeFresh(initial.id)) return
+    nameFocus.current = true
+    if (useAsOfMode.getState().on) setAsOfMode({ on: false })
   }, [initial.id])
+  useLayoutEffect(() => {
+    if (!nameFocus.current || asOf || !nameRef.current) return
+    nameFocus.current = false
+    nameRef.current.focus()
+    nameRef.current.select()
+  }, [asOf, initial.id])
 
   const dups = useMemo(
     () => findNearDuplicates({ id: draft.id, kind, name: draft.name, aliases: draft.aliases }, others),
@@ -410,7 +418,6 @@ export const EntryForm = memo(function EntryForm({
     }
   }
 
-  const asOf = useAsOfMode((s) => s.on)
   const asOfButton = useRef<HTMLButtonElement>(null)
   // Only a click on "View as of a scene" moves focus into the slider; opening another entry while
   // looking as of a scene leaves focus where Adam has it (in the list, say).

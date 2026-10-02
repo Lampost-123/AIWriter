@@ -132,6 +132,13 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await expect(nameBox(win)).toHaveValue('Tobin')
   await expect(main(win).getByRole('slider', { name: 'As of' })).toHaveCount(0)
   await expect(main(win).getByRole('button', { name: 'View as of a scene' })).toBeFocused()
+
+  // A new character made while looking as of a scene opens ready to type its name.
+  await main(win).getByRole('button', { name: 'View as of a scene' }).click()
+  await expect(main(win).getByRole('slider', { name: 'As of' })).toBeVisible()
+  await main(win).getByRole('button', { name: 'New character' }).click()
+  await expect(nameBox(win)).toBeFocused()
+  await expect(nameBox(win)).toHaveValue('New character')
 })
 
 test('the codex shows every entry with its portrait, filters and sorts them, and keeps them while Adam goes back and forth', async ({
