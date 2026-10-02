@@ -147,7 +147,7 @@ function FirstExistsEditor({ name, kind, points }: { name: string; kind: EntryKi
     <div>
       <h3 className="text-[13.5px] font-semibold text-fg">Where {entryName} first appears</h3>
       <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-        Before this, {entryName} isn't in the story: the AI isn't told about {them}, and the page shows "Not in the story yet" there.
+        Before this, {entryName} isn't in the story: the AI isn't told about {them}, and the page shows “Not in the story yet” there.
       </p>
       <ul aria-label="Where it first appears" className="mt-3 flex flex-col gap-1">
         {list.map((p) => (

@@ -10,6 +10,12 @@ import { appearancesOf } from '../entryViews/appearances'
 import { codexCards } from '../entryViews/codex'
 import { listFirstExists, setFirstExists } from '../entryViews/firstExists'
 import { keepEditFromStory } from '../entryViews/keepEdit'
+import { warmReadings } from '../entryViews/warm'
+
+// Once a world opens, its scenes' words are read ahead a slice at a time, so the first look at the
+// codex or an entry page is as quick as the next. Registered here, as this file is loaded at startup
+// before any world opens.
+world.onWorldOpened((w) => warmReadings(w.db, () => w.db.open && world.maybeCurrentWorld()?.db === w.db))
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {

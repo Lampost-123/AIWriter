@@ -17,7 +17,11 @@ type DB = Database.Database
  * The story a first-exists point belongs to: its own story (a scene's story as it is now), or the
  * world's first story for the beginning of the world. Null when there is none.
  */
-export function homeStory(p: Pick<ExistsPoint, 'kind' | 'storyId' | 'sceneId'>, firstStoryId: ID | null, sceneStory: Map<ID, ID>): ID | null {
+export function homeStory(
+  p: Pick<ExistsPoint, 'kind' | 'storyId' | 'sceneId'>,
+  firstStoryId: ID | null,
+  sceneStory: Map<ID, ID>
+): ID | null {
   if (p.kind === 'world') return firstStoryId
   if (p.kind === 'scene' && p.sceneId) return sceneStory.get(p.sceneId) ?? p.storyId
   return p.storyId

@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { memoryWorld } from '../../../tests/unit/helpers'
-import { appearancesOf, worldAppearances } from './appearances'
+import { appearancesOf, readAhead, worldAppearances } from './appearances'
 import { codexCards } from './codex'
+import { warmReadings } from './warm'
 
 type DB = Database.Database
 
@@ -25,9 +26,27 @@ function world(): { db: DB; s: Record<string, ID>; b1: ID; b2: ID } {
 }
 
 const text = (db: DB, id: ID, t: string): void => void repo.saveSceneText(db, id, null, t)
-const card = (db: DB, id: ID, c: Partial<ReturnType<typeof emptySceneCard>>): void => void repo.updateSceneCard(db, id, { ...emptySceneCard(), ...c })
+const card = (db: DB, id: ID, c: Partial<ReturnType<typeof emptySceneCard>>): void =>
+  void repo.updateSceneCard(db, id, { ...emptySceneCard(), ...c })
 const where = (db: DB, id: ID): [string, string[]][] =>
   appearancesOf(db, repo.getEntry(db, id), repo.listEntries(db)).map((a) => [a.label, a.how])
+
+/** How many times `fn` reads scenes' words (each time is one query, for one scene or many). */
+function wordReads(db: DB, fn: () => unknown): number {
+  const prepare = db.prepare.bind(db)
+  let n = 0
+  db.prepare = ((q: string) => {
+    if (/SELECT id, text\b/.test(q)) n++
+    return prepare(q)
+  }) as typeof db.prepare
+  try {
+    fn()
+  } finally {
+    db.prepare = prepare
+  }
+  return n
+}
+const readsWords = (db: DB, fn: () => unknown): boolean => wordReads(db, fn) > 0
 
 describe('where an entry appears', () => {
   it('counts the scene card, the words (names and aliases, by the memory keeper’s rule) and changes pinned there', () => {
@@ -38,7 +57,14 @@ describe('where an entry appears', () => {
     card(db, s.s11, { povId: mara, presentIds: [mara, tobin], locationId: eel })
     text(db, s.s12, 'Nobody spoke. The Ferrywoman waited at the steps.')
     text(db, s.s21, 'mara is not a name here, and nor is maraud.')
-    mem.insertChange(db, { entryId: tobin, anchor: 'scene', sceneId: s.s31, kind: 'relationship', payload: { otherId: mara, type: 'rival', feels: '', otherFeels: '' }, origin: 'adam' })
+    mem.insertChange(db, {
+      entryId: tobin,
+      anchor: 'scene',
+      sceneId: s.s31,
+      kind: 'relationship',
+      payload: { otherId: mara, type: 'rival', feels: '', otherFeels: '' },
+      origin: 'adam'
+    })
 
     expect(where(db, mara)).toEqual([
       ['Book 1, Ch 1, Sc 1', ['pov', 'present']],
@@ -96,19 +122,63 @@ describe('where an entry appears', () => {
     repo.createEntry(db, 'character', { name: 'Mara' })
     text(db, s.s11, 'Mara is here.')
     const entries = repo.listEntries(db)
-    worldAppearances(db, entries)
-    const prepare = db.prepare.bind(db)
-    const sql: string[] = []
-    db.prepare = ((q: string) => {
-      sql.push(q)
-      return prepare(q)
-    }) as typeof db.prepare
+    expect(readsWords(db, () => worldAppearances(db, entries))).toBe(true)
+    expect(readsWords(db, () => worldAppearances(db, entries))).toBe(false)
+  })
+})
+
+describe('reading scenes ahead', () => {
+  it('finds the same as the first look would, which then reads no words', () => {
+    const { db, s } = world()
+    const mara = repo.createEntry(db, 'character', { name: 'Mara', aliases: ['the ferrywoman'] }).id
+    text(db, s.s11, 'Mara is here.')
+    text(db, s.s21, 'The ferrywoman waited.')
+    const entries = repo.listEntries(db)
+    expect(readAhead(db, entries, [s.s11, s.s12])).toBe(true)
+    expect(readAhead(db, entries, [s.s21, s.s31])).toBe(true)
+    expect(readsWords(db, () => worldAppearances(db, entries))).toBe(false)
+    expect(where(db, mara).map(([l]) => l)).toEqual(['Book 1, Ch 1, Sc 1', 'Book 1, Ch 2, Sc 1'])
+  })
+
+  it('stops once the names change, leaving the rest to the next look', () => {
+    const { db, s } = world()
+    repo.createEntry(db, 'character', { name: 'Mara' })
+    text(db, s.s11, 'Mara is here.')
+    expect(readAhead(db, repo.listEntries(db), [s.s11])).toBe(true)
+    const kell = repo.createEntry(db, 'character', { name: 'Kell' }).id
+    text(db, s.s12, 'Kell rode in.')
+    expect(readsWords(db, () => expect(readAhead(db, repo.listEntries(db), [s.s12])).toBe(false))).toBe(false)
+    expect(where(db, kell).map(([l]) => l)).toEqual(['Book 1, Ch 1, Sc 2'])
+  })
+
+  it('happens a slice at a time once a world opens, so the codex then reads no words', () => {
+    vi.useFakeTimers()
     try {
-      worldAppearances(db, entries)
+      const { db, s } = world()
+      repo.createEntry(db, 'character', { name: 'Mara' })
+      text(db, s.s21, 'Mara is here.')
+      warmReadings(db, () => true, { delayMs: 50, slice: 1 })
+      expect(wordReads(db, () => vi.advanceTimersByTime(40))).toBe(0)
+      // Four scenes, one slice each.
+      expect(wordReads(db, () => vi.runAllTimers())).toBe(4)
+      expect(readsWords(db, () => codexCards(db))).toBe(false)
     } finally {
-      db.prepare = prepare
+      vi.useRealTimers()
     }
-    expect(sql.some((q) => /SELECT id, text\b/.test(q))).toBe(false)
+  })
+
+  it('stops once the world is closed', () => {
+    vi.useFakeTimers()
+    try {
+      const { db } = world()
+      let open = true
+      warmReadings(db, () => open, { delayMs: 0, slice: 2 })
+      expect(wordReads(db, () => vi.advanceTimersToNextTimer())).toBe(1)
+      open = false
+      expect(wordReads(db, () => vi.runAllTimers())).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

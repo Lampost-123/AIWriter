@@ -55,7 +55,9 @@ describe('where an entry first appears', () => {
       'Book 1, Ch 2, Sc 1'
     ])
     expect(placeChoices(stories, scenes, [], 'ferry').list.map((c) => [c.label, c.sub])).toEqual([['Book 1, Ch 1, Sc 1', 'The ferry']])
-    expect(placeChoices(stories, scenes, [], 'ch 1 sc 2').list.map((c) => c.point)).toEqual([{ kind: 'scene', storyId: 'b1', sceneId: 's2' }])
+    expect(placeChoices(stories, scenes, [], 'ch 1 sc 2').list.map((c) => c.point)).toEqual([
+      { kind: 'scene', storyId: 'b1', sceneId: 's2' }
+    ])
     expect(placeChoices(stories, scenes, [], 'book 1', 2)).toMatchObject({ more: 2 })
     expect(placeChoices(stories, scenes, [], 'start of book 1').list[0].point).toEqual({ kind: 'story-pre', storyId: 'b1', sceneId: null })
   })

@@ -26,11 +26,11 @@ import {
 } from './entryLogic'
 import { FirstAppears, homesOf } from './FirstAppears'
 import { EntryMemorySections } from './memory/EntryMemory'
-import { MadeByNote } from './memory/EntryNotes'
+import { MadeByNote, YouWroteNote } from './memory/EntryNotes'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
 import { fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
-import { beforeOf, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
+import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
 import { Section } from './parts/Section'
@@ -139,6 +139,13 @@ export interface EntryFormProps {
 
 const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
+/** The names an entry goes by, as one string: "Appears in" looks for them in the scenes' words. */
+const namesOf = (e: Pick<Entry, 'name' | 'aliases'>): string => [e.name, ...e.aliases].map((n) => n.trim()).join('\n')
+
+/** Whether anything is written in the entry besides its name. */
+const hasWords = (e: Entry): boolean =>
+  !!(e.summary.trim() || e.description.trim() || e.aliases.length || e.tags.length || Object.values(e.fields).some((v) => v.trim()))
+
 /** Who an entry's facts come from, as the page last heard from the database. */
 type Ownership = Pick<Entry, 'origin' | 'fieldOrigins' | 'byHand' | 'originSceneId'>
 const ownership = (e: Entry): Ownership => ({
@@ -173,6 +180,10 @@ export const EntryForm = memo(function EntryForm({
   const [sources, setSources] = useState(() => initial)
   // Whether AI Write made this entry and Adam hadn't touched it when the page opened (the note's line is kept while open).
   const [madeByAI] = useState(() => initial.origin !== 'adam' && !initial.byHand)
+  // Whether Adam made it himself and has written in it: then a note says so (also kept while open).
+  const [madeByAdam] = useState(() => initial.origin === 'adam' && hasWords(initial))
+  // The names it goes by as last saved, for reloading "Appears in" when they change.
+  const [savedNames, setSavedNames] = useState(() => namesOf(initial))
   // The newest saved copy this form knows of (and its time), so a newer one loaded from elsewhere
   // can be merged with what Adam has typed rather than overwrite it.
   const base = useRef(initial)
@@ -198,6 +209,7 @@ export const EntryForm = memo(function EntryForm({
     draftRef.current = shown
     setDraftState(shown)
     setOwner(ownership(saved))
+    setSavedNames(namesOf(saved))
     setSources((prev) => notesSource(prev, saved, noteKeysRef.current))
     // Lists typed as text keep their own words: start one again only when it changed.
     const aliases = !sameList(before.aliases, shown.aliases)
@@ -239,6 +251,7 @@ export const EntryForm = memo(function EntryForm({
         base.current = saved
       }
       setOwner(ownership(saved))
+      setSavedNames(namesOf(saved))
       useApp.getState().bumpEntries()
     },
     { what: draft.name.trim() ? `"${draft.name.trim()}"` : `this ${kindNoun(kind)}` }
@@ -343,9 +356,18 @@ export const EntryForm = memo(function EntryForm({
     }
     return m
   }, [sources, noteKeys])
+  // On an entry AI Write made, the fields that were Adam's own when the page opened say "You wrote
+  // this" (on his own entries the note at the top says it once). Decided when the page opens, so no
+  // line comes or goes while he types.
+  const byAdam = useMemo(() => {
+    const e = opened.current
+    if (e.origin === 'adam') return []
+    return noteKeys.filter((key) => fieldOrigin(e, key) === 'adam' && fieldText(e, key).trim())
+  }, [noteKeys])
   const links = useEntryData(() => api.listEntryLinks(initial.id), `links:${initial.id}`, fromAI.size > 0)
   const fieldNotes = useMemo(() => {
     const m = new Map<string, LineNote>()
+    for (const key of byAdam) m.set(key, { kind: 'adam' })
     for (const [key, origin] of fromAI) {
       // Adam has changed it since the page opened: it's his now, and the line says so rather than vanish.
       if (fieldOrigin(owner, key) === 'adam') m.set(key, { kind: 'edited' })
@@ -354,7 +376,7 @@ export const EntryForm = memo(function EntryForm({
       else m.set(key, sourceNote('text', linksFor(links.data ?? [], key)) ?? { kind: 'story' })
     }
     return m
-  }, [fromAI, owner, links.data, links.error])
+  }, [byAdam, fromAI, owner, links.data, links.error])
   const scenePlaces = useSceneLabels(!!links.data?.length)
   const hint = (key: string, text?: ReactNode): ReactNode => {
     const note = fieldNotes.get(key)
@@ -362,7 +384,7 @@ export const EntryForm = memo(function EntryForm({
     return (
       <>
         {text ? <span className="block">{text}</span> : null}
-        <SourceLine note={note} places={scenePlaces} className="flex" />
+        <SourceLine note={note} places={scenePlaces} showAdam className="flex" />
       </>
     )
   }
@@ -440,7 +462,8 @@ export const EntryForm = memo(function EntryForm({
   return (
     // Leaving any field writes straight away, so nothing waits on the timer.
     <div className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
-      {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a line of its own (kept free while it loads). */}
+      {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a
+          line of its own (kept free while it loads). */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">
         <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{KIND_LABELS[kind].one}</span>
         <FirstAppears
@@ -461,11 +484,15 @@ export const EntryForm = memo(function EntryForm({
         ) : null}
         <div className="min-w-0 flex-1">
           {asOf ? (
-            <h2 className="mt-1 break-words px-0 py-[5px] font-serif text-[28px] font-semibold leading-tight text-fg">{draft.name.trim() || 'Unnamed'}</h2>
+            <h2 className="mt-1 break-words px-0 py-[5px] font-serif text-[28px] font-semibold leading-tight text-fg">
+              {draft.name.trim() || 'Unnamed'}
+            </h2>
           ) : (
             <NameBox ref={nameRef} value={draft.name} onChange={setName} />
           )}
-          <div className="-ml-2.5 mt-0.5 flex h-7 flex-wrap items-center gap-1">
+          {/* Grows to a second row when the buttons don't fit side by side (the same in both modes, so
+              nothing moves between them). */}
+          <div className="-ml-2.5 mt-0.5 flex min-h-7 flex-wrap items-center gap-1">
             {/* Stays put (pressed) while looking as of a scene, so nothing beside it moves. */}
             <Button
               ref={asOfButton}
@@ -491,7 +518,7 @@ export const EntryForm = memo(function EntryForm({
         <EntryAsOfView entry={draft} others={others} firsts={firsts.data} onBack={backToEditing} onOpen={onOpen} autoFocus={focusSlider} />
       ) : (
         <>
-          <MadeByNote entry={owner} shown={madeByAI} />
+          {madeByAdam ? <YouWroteNote /> : <MadeByNote entry={owner} shown={madeByAI} />}
           <DuplicateHint dups={dups} kind={kind} onOpen={onOpen} />
 
           <div className="mt-3 flex flex-col gap-4">
@@ -578,7 +605,16 @@ export const EntryForm = memo(function EntryForm({
                 places={scenePlaces}
               />
             ))}
-            <EntryMemorySections now={draft} others={others} open={open} onToggle={toggle} onOpen={onOpen} beforeRestore={flush} />
+            <EntryMemorySections
+              now={draft}
+              names={savedNames}
+              ready={firsts.data !== null || firsts.error !== null}
+              others={others}
+              open={open}
+              onToggle={toggle}
+              onOpen={onOpen}
+              beforeRestore={flush}
+            />
           </div>
 
           <div className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface px-3 pb-3 pt-2.5">
@@ -604,7 +640,7 @@ export const EntryForm = memo(function EntryForm({
           story={reach.title}
           busy={keeping}
           onKeep={() => void keepFromHere()}
-          onDismiss={() => setReachFrom(profileOf(draftRef.current))}
+          onDismiss={() => setReachFrom((prev) => dismissProfile(prev, draftRef.current, owner.fieldOrigins))}
         />
       ) : null}
     </div>
@@ -780,7 +816,7 @@ const FieldInput = memo(function FieldInput({
     <Field
       label={def.label}
       className={wide ? '@lg:col-span-2' : undefined}
-      hint={note ? <SourceLine note={note} places={places} className="flex" /> : undefined}
+      hint={note ? <SourceLine note={note} places={places} showAdam className="flex" /> : undefined}
     >
       {(id) =>
         def.key === 'role' ? (

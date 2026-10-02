@@ -5,8 +5,9 @@
 //
 // Speed: the scenes' words are read in one pass with a first-word index of every name, and what
 // each scene names is remembered (per open world) until its words change. A name that is new since
-// (a new entry, a rename, an alias) is looked for in every scene once, on its own. So in a big world
-// only the first look reads every scene. No Electron imports.
+// (a new entry, a rename, an alias) is looked for in every scene once, on its own, after a quick look
+// for it. So in a big world only the first look reads every scene, and warm.ts does that a slice at a
+// time once a world opens. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID } from '@shared/types'
@@ -15,7 +16,17 @@ import type { WorldShape } from '../memory/types'
 import { compareOrder, labeler, storyOrder } from '../memory/line'
 import { loadShape } from '../memory/scene'
 import * as views from '../db/entryViews'
-import { buildNameIndex, findMentions, mentionEnd, patternKeys, quoteAround, type NameIndex, type Named } from './mentions'
+import {
+  buildNameIndex,
+  findMentions,
+  mentionEnd,
+  patternKeys,
+  quickCheck,
+  quoteAround,
+  type NameIndex,
+  type Named,
+  type Quote
+} from './mentions'
 
 type DB = Database.Database
 
@@ -24,8 +35,8 @@ interface SceneMemo {
   version: string
   /** Names (pattern keys) its words mention, each with where the first mention starts. */
   hits: Map<string, number>
-  /** The words around the first mention of a name, worked out when an entry page first asks. */
-  quotes: Map<string, string>
+  /** The words around the first mention of a name (null when there are none), worked out when an entry page first asks. */
+  quotes: Map<string, Quote | null>
   cast: views.SceneCast
 }
 
@@ -59,6 +70,15 @@ export interface WorldAppearances {
   memo: Memo
 }
 
+function memoOf(db: DB): Memo {
+  let memo = memos.get(db)
+  if (!memo) memos.set(db, (memo = { scanned: new Set(), scenes: new Map() }))
+  return memo
+}
+
+/** With this many new names or fewer, a quick look for them comes before reading a scene word by word. */
+const FEW_NEW_NAMES = 8
+
 /**
  * Brings the remembered readings up to date: scenes whose words changed are read again for every
  * name, and every other scene is read for names that are new since. One query for the words needed.
@@ -71,6 +91,8 @@ function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version:
   if (fresh.length || stale.length) {
     const staleSet = new Set(stale)
     const freshIndex = fresh.length ? buildNameIndex(entries, new Set(fresh)) : null
+    // A new entry or a new name: most scenes can't mention it, and a quick look says which to read.
+    const maybe = freshIndex && fresh.length <= FEW_NEW_NAMES ? quickCheck(freshIndex) : null
     // New names are looked for in every scene; otherwise only changed scenes are read.
     for (const s of views.sceneWords(db, freshIndex ? null : stale)) {
       if (staleSet.has(s.id) || !memo.scenes.has(s.id)) {
@@ -82,11 +104,32 @@ function refresh(db: DB, memo: Memo, liveIds: ID[], versions: Map<ID, { version:
         m.hits.delete(k)
         m.quotes.delete(k)
       }
+      if (maybe && !maybe(s.text)) continue
       for (const [k, at] of findMentions(freshIndex!, s.text)) m.hits.set(k, at)
     }
   }
   memo.scanned = keys
   return index
+}
+
+/**
+ * Reads some scenes' words ahead of time, for every name as it is now (warm.ts does this a slice at
+ * a time after a world opens, so the first look at the codex or an entry page needn't read them
+ * all). Scenes already read are skipped: if their words have changed since, the next look reads
+ * them again. Reads nothing and returns false when the names have changed since other scenes were
+ * read: the next look reads what it needs itself then.
+ */
+export function readAhead(db: DB, entries: Named[], ids: ID[]): boolean {
+  const memo = memoOf(db)
+  const index = buildNameIndex(entries)
+  const keys = new Set(index.patterns.keys())
+  if (memo.scenes.size && (keys.size !== memo.scanned.size || [...keys].some((k) => !memo.scanned.has(k)))) return false
+  const unread = ids.filter((id) => !memo.scenes.has(id))
+  for (const s of views.sceneWords(db, unread)) {
+    memo.scenes.set(s.id, { version: s.version, hits: findMentions(index, s.text), quotes: new Map(), cast: s.cast })
+  }
+  memo.scanned = keys
+  return true
 }
 
 /** Every live scene in reading order, with its place in plain words. */
@@ -97,10 +140,8 @@ function scenesInOrder(shape: WorldShape, versions: Map<ID, { title: string }>):
   for (const story of shape.stories)
     for (const c of story.chapters)
       for (const sc of c.scenes) {
-        list.push({
-          s: { id: sc.id, storyId: story.id, title: versions.get(sc.id)?.title ?? sc.title, label: label({ storyId: story.id, sceneId: sc.id }) },
-          key: order({ storyId: story.id, sceneId: sc.id })
-        })
+        const at = { storyId: story.id, sceneId: sc.id }
+        list.push({ s: { id: sc.id, storyId: story.id, title: versions.get(sc.id)?.title ?? sc.title, label: label(at) }, key: order(at) })
       }
   list.sort((a, b) => compareOrder(a.key, b.key))
   return list.map(({ s }, i) => ({ ...s, order: i }))
@@ -111,8 +152,7 @@ function scenesInOrder(shape: WorldShape, versions: Map<ID, { title: string }>):
  * and alias is looked for, so what each scene says stays remembered for all of them.
  */
 export function worldAppearances(db: DB, entries: Named[], shape: WorldShape = loadShape(db), only?: ID): WorldAppearances {
-  let memo = memos.get(db)
-  if (!memo) memos.set(db, (memo = { scanned: new Set(), scenes: new Map() }))
+  const memo = memoOf(db)
   const versions = views.sceneVersions(db)
   const scenes = scenesInOrder(shape, versions)
   const index = refresh(
@@ -166,7 +206,7 @@ export function appearancesOf(db: DB, entry: Pick<Entry, 'id' | 'name' | 'aliase
   // The words around the first mention, for scenes that name it. Remembered with the scene, so only
   // scenes not quoted before are read (in one query).
   const firstAt = new Map<ID, { key: string; at: number }>()
-  const quotes = new Map<ID, string>()
+  const quotes = new Map<ID, Quote | null>()
   for (const s of list) {
     const m = w.memo.scenes.get(s.id)
     if (!m) continue
@@ -184,18 +224,22 @@ export function appearancesOf(db: DB, entry: Pick<Entry, 'id' | 'name' | 'aliase
     for (const s of views.sceneWords(db, [...firstAt.keys()])) {
       const f = firstAt.get(s.id)!
       const end = mentionEnd(w.index, f.key, s.text, f.at)
-      const quote = end > f.at ? quoteAround(s.text, f.at, end) : ''
-      w.memo.scenes.get(s.id)!.quotes.set(f.key, quote)
-      quotes.set(s.id, quote)
+      const quote = end > f.at ? quoteAround(s.text, f.at, end) : null
+      w.memo.scenes.get(s.id)!.quotes.set(f.key, quote?.text ? quote : null)
+      quotes.set(s.id, quote?.text ? quote : null)
     }
-  return list.map((s) => ({
-    sceneId: s.id,
-    storyId: s.storyId,
-    label: s.label,
-    title: s.title,
-    how: HOW_ORDER.filter((h) => mine.get(s.id)!.has(h)),
-    quote: quotes.get(s.id) || null
-  }))
+  return list.map((s) => {
+    const q = quotes.get(s.id)
+    return {
+      sceneId: s.id,
+      storyId: s.storyId,
+      label: s.label,
+      title: s.title,
+      how: HOW_ORDER.filter((h) => mine.get(s.id)!.has(h)),
+      quote: q?.text ?? null,
+      quoteCut: { start: !!q?.cutStart, end: !!q?.cutEnd }
+    }
+  })
 }
 
 /** Forgets what the open world's scenes say (for tests that time a first look). */

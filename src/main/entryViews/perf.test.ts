@@ -1,7 +1,8 @@
 // Speed: the codex and an entry page must open in under 100 ms in a big world (10 books of 200
 // scenes, about a million words, 500 entries with aliases, 3,000 changes). Each scene's words are
-// read once and remembered, so only the first look reads them all; after that only scenes whose
-// words changed, or names that are new, are read again.
+// read once and remembered, and read ahead a slice at a time once a world opens (warm.ts), so even
+// the first look needn't read them all; after that only scenes whose words changed, or names that
+// are new, are read again.
 
 import { describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
@@ -11,8 +12,9 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { asOfStops, entryAsOf } from '../memory/asOf'
 import { changeViews } from '../memory/scene'
+import * as views from '../db/entryViews'
 import { memoryWorld } from '../../../tests/unit/helpers'
-import { appearancesOf, forgetReadings } from './appearances'
+import { appearancesOf, forgetReadings, readAhead } from './appearances'
 import { codexCards } from './codex'
 import { listFirstExists } from './firstExists'
 
@@ -26,7 +28,8 @@ function random(seed: number): () => number {
   }
 }
 
-const WORDS = 'the rain had not let up and she kept her hood low while he watched from the ferry steps across a grey river at dusk'.split(' ')
+const WORDS =
+  'the rain had not let up and she kept her hood low while he watched from the ferry steps across a grey river at dusk'.split(' ')
 
 function bigWorld(): { db: DB; scenes: ID[]; entries: ID[]; stories: ID[] } {
   const db = memoryWorld('Big')
@@ -62,7 +65,12 @@ function bigWorld(): { db: DB; scenes: ID[]; entries: ID[]; stories: ID[] } {
             paras.push(`${words.join(' ')}.`)
           }
           repo.saveSceneText(db, id, null, paras.join('\n\n'))
-          repo.updateSceneCard(db, id, { ...emptySceneCard(), povId: entries[Math.floor(rnd() * 5)], presentIds: [pick(entries), pick(entries)], locationId: entries[5 * Math.floor(rnd() * 100)] })
+          repo.updateSceneCard(db, id, {
+            ...emptySceneCard(),
+            povId: entries[Math.floor(rnd() * 5)],
+            presentIds: [pick(entries), pick(entries)],
+            locationId: entries[5 * Math.floor(rnd() * 100)]
+          })
         }
       }
       prev = story
@@ -80,15 +88,22 @@ function bigWorld(): { db: DB; scenes: ID[]; entries: ID[]; stories: ID[] } {
   return { db, scenes, entries, stories }
 }
 
-function median(fn: () => unknown): number {
-  const times: number[] = []
-  for (let i = 0; i < 5; i++) {
+/**
+ * The quickest of a few tries of `fn`, each after `setup`: what the work itself costs, without the
+ * pauses a busy test machine adds to some tries.
+ */
+function quickest(tries: number, setup: (i: number) => void, fn: () => unknown): number {
+  let best = Infinity
+  for (let i = 0; i < tries; i++) {
+    setup(i)
     const t = performance.now()
     fn()
-    times.push(performance.now() - t)
+    best = Math.min(best, performance.now() - t)
   }
-  return times.sort((a, b) => a - b)[2]
+  return best
 }
+
+const nothing = (): void => {}
 
 function queries(db: DB, fn: () => unknown): number {
   const prepare = db.prepare.bind(db)
@@ -122,42 +137,73 @@ describe('speed of the codex and entry pages', () => {
 
   it('opens the codex in a big world in well under 100 ms once its words have been read', () => {
     forgetReadings(db)
-    let t = performance.now()
     const cards = codexCards(db)
-    const cold = performance.now() - t
     expect(cards).toHaveLength(500)
     const busy = cards.find((c) => c.id === entries[0])!
     expect(busy.scenes).toBeGreaterThan(100)
     expect(busy.last?.label).toMatch(/^Book 10, /)
-    const warm = median(() => codexCards(db))
+    // The first look reads every scene's words (warm.ts reads them ahead, see below).
+    const cold = quickest(3, () => forgetReadings(db), () => codexCards(db))
+    const warm = quickest(5, nothing, () => codexCards(db))
     // One scene's words change: only that scene is read again.
-    repo.saveSceneText(db, scenes[10], null, 'Name1 and Name2 meet.')
-    t = performance.now()
-    codexCards(db)
-    const oneScene = performance.now() - t
+    const oneScene = quickest(
+      3,
+      (i) => repo.saveSceneText(db, scenes[10 + i], null, `Name1 and Name2 meet, ${i} times.`),
+      () => codexCards(db)
+    )
     // A new name: every scene is read for that name alone.
-    repo.createEntry(db, 'character', { name: 'Newcomer', aliases: ['the stranger'] })
-    t = performance.now()
-    codexCards(db)
-    const newName = performance.now() - t
+    const newName = quickest(
+      3,
+      (i) => repo.createEntry(db, 'character', { name: `Newcomer${i}`, aliases: [`the stranger ${i}`] }),
+      () => codexCards(db)
+    )
     console.log(
-      `codex in a big world: first look ${cold.toFixed(1)} ms, then ${warm.toFixed(1)} ms; one scene changed ${oneScene.toFixed(1)} ms; a new name ${newName.toFixed(1)} ms`
+      `codex in a big world: first look ${cold.toFixed(1)} ms, then ${warm.toFixed(1)} ms; ` +
+        `one scene changed ${oneScene.toFixed(1)} ms; a new name ${newName.toFixed(1)} ms`
     )
     // Generous, so a busy test machine doesn't fail it; typically far less.
+    expect(cold).toBeLessThan(500)
     expect(warm).toBeLessThan(250)
     expect(oneScene).toBeLessThan(250)
+    expect(newName).toBeLessThan(250)
     expect(queries(db, () => codexCards(db))).toBeLessThan(20)
   }, 120_000)
 
+  it('reads a big world’s words ahead in slices too short to hold anything up, so the first look is as quick as the next', () => {
+    const entries = repo.listEntries(db)
+    const ids = [...views.sceneVersions(db).keys()]
+    const slices: number[] = []
+    const readAll = (): void => {
+      forgetReadings(db)
+      for (let i = 0; i < ids.length; i += 100) {
+        const t = performance.now()
+        expect(readAhead(db, entries, ids.slice(i, i + 100))).toBe(true)
+        slices.push(performance.now() - t)
+      }
+    }
+    // The first look once every scene has been read ahead, each try after reading them afresh.
+    const codex = quickest(3, readAll, () => codexCards(db))
+    const page = quickest(3, readAll, () => entryPage(db, entries[0].id, lastStory, lastScene))
+    const typical = [...slices].sort((a, b) => a - b)[Math.floor(slices.length / 2)]
+    console.log(
+      `read ahead: a slice of 100 scenes ${typical.toFixed(1)} ms (slowest ${Math.max(...slices).toFixed(1)} ms); ` +
+        `then the codex ${codex.toFixed(1)} ms, a busy entry's page ${page.toFixed(1)} ms`
+    )
+    expect(typical).toBeLessThan(25)
+    expect(codex).toBeLessThan(250)
+    expect(page).toBeLessThan(250)
+  }, 120_000)
+
   it('opens a busy entry’s page (where it appears, first exists, changes, the as-of slider) in well under 100 ms', () => {
-    codexCards(db)
     const busy = entries[0]
+    const cold = quickest(3, () => forgetReadings(db), () => entryPage(db, busy, lastStory, lastScene))
     const list = appearancesOf(db, repo.getEntry(db, busy), repo.listEntries(db))
     expect(list.length).toBeGreaterThan(100)
     expect(list.filter((a) => a.quote).every((a) => a.quote!.includes('Name0'))).toBe(true)
-    const t = median(() => entryPage(db, busy, lastStory, lastScene))
-    console.log(`a busy entry's page in a big world: ${t.toFixed(1)} ms`)
-    expect(t).toBeLessThan(250)
+    const warm = quickest(5, nothing, () => entryPage(db, busy, lastStory, lastScene))
+    console.log(`a busy entry's page in a big world: first look ${cold.toFixed(1)} ms, then ${warm.toFixed(1)} ms`)
+    expect(cold).toBeLessThan(500)
+    expect(warm).toBeLessThan(250)
     expect(queries(db, () => entryPage(db, busy, lastStory, lastScene))).toBeLessThan(40)
   }, 120_000)
 })

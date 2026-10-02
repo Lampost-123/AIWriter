@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beforeOf, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase } from './reachLogic'
+import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase } from './reachLogic'
 
 const stories = [
   { id: 'b1', title: 'Book 1' },
@@ -22,7 +22,12 @@ describe('edits that reach other stories', () => {
   })
 
   it('find what was edited since the page opened, ignoring spaces at the ends', () => {
-    const before = profileOf({ summary: 'Ferrywoman', description: '', fields: { eyes: 'blue', hair: 'dark' }, fieldOrigins: { eyes: 'text' } })
+    const before = profileOf({
+      summary: 'Ferrywoman',
+      description: '',
+      fields: { eyes: 'blue', hair: 'dark' },
+      fieldOrigins: { eyes: 'text' }
+    })
     expect(editedKeys(before, { summary: 'Ferrywoman ', description: '', fields: { eyes: 'blue', hair: 'dark' } })).toEqual([])
     expect(editedKeys(before, { summary: 'Older now', description: '', fields: { eyes: 'green', hair: 'dark', scars: 'one' } })).toEqual([
       'summary',
@@ -44,11 +49,34 @@ describe('edits that reach other stories', () => {
     const since = profileOf({ summary: 'Ferrywoman', description: '', fields: { eyes: 'blue', hair: 'dark' }, fieldOrigins: {} })
     // Adam changed her eyes; meanwhile the memory keeper filled in her hair.
     const mine = { summary: 'Ferrywoman', description: '', fields: { eyes: 'green', hair: 'dark' } }
-    const theirs = { summary: 'Ferrywoman', description: '', fields: { eyes: 'green', hair: 'grey', scars: 'one' }, fieldOrigins: { hair: 'text' as const } }
+    const theirs = {
+      summary: 'Ferrywoman',
+      description: '',
+      fields: { eyes: 'green', hair: 'grey', scars: 'one' },
+      fieldOrigins: { hair: 'text' as const }
+    }
     const next = rebase(since, mine, theirs)
     expect(editedKeys(next, theirs)).toEqual(['eyes'])
     expect(next.fields).toEqual({ eyes: 'blue', hair: 'grey', scars: 'one' })
     expect(next.origins.hair).toBe('text')
+  })
+
+  it('once dismissed, take Adam’s edits as his, so keeping a later edit for one story puts back his words as his', () => {
+    const opened = profileOf({
+      summary: 'Ferrywoman',
+      description: '',
+      fields: { eyes: 'blue', hair: 'dark' },
+      fieldOrigins: { eyes: 'text' }
+    })
+    // He changed her eyes, then dismissed the note before hearing back from the save.
+    const now = { summary: 'Ferrywoman', description: '', fields: { eyes: 'green', hair: 'dark' } }
+    const next = dismissProfile(opened, now, { eyes: 'text' })
+    expect(editedKeys(next, now)).toEqual([])
+    expect(next.origins).toEqual({ summary: null, description: null, eyes: 'adam', hair: null })
+    // Later he changes them again and keeps that for Book 2 on: Book 1 has his green eyes, as his.
+    expect(beforeOf(next, ['eyes'])).toEqual({ fields: { eyes: 'green' }, origins: { eyes: 'adam' } })
+    // Saved meanwhile, his edit is his either way.
+    expect(dismissProfile(opened, now, { eyes: 'adam' }).origins.eyes).toBe('adam')
   })
 
   it('say so in plain words', () => {

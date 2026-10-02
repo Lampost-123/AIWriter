@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { ChangeInput, ChangeView, Entry, ExistsPoint, Outline, SourceLink } from '@shared/types'
+import type { ChangeInput, ChangeView, Entry, Outline, SourceLink } from '@shared/types'
 import {
   changeWhere,
   createKindsFor,
   describeChange,
-  existsLine,
   madeByNote,
   mergeRelationEdit,
   notesSource,
@@ -77,40 +76,6 @@ describe('sceneLabels', () => {
     expect(labels.get('s1')).toBe('Book 1, Ch 1, Sc 1')
     expect(labels.get('s2')).toBe('Book 1, Ch 1, Sc 2')
     expect(labels.get('s3')).toBe('Book 1, Ch 2, Sc 1')
-  })
-})
-
-describe('existsLine', () => {
-  const names = {
-    story: (id: string) => ({ b1: 'Book 1', kell: "Kell's Road", young: "Mara's Youth" })[id],
-    scene: (id: string) => ({ s32: 'Book 1, Ch 3, Sc 2', s312: 'Book 3, Ch 1, Sc 2' })[id]
-  }
-  const pt = (kind: ExistsPoint['kind'], storyId: string | null = null, sceneId: string | null = null): ExistsPoint => ({
-    id: `${kind}-${storyId}-${sceneId}`,
-    entryId: 'mara',
-    kind,
-    storyId,
-    sceneId,
-    byHand: false
-  })
-
-  it('says the world, a story start or a scene in plain words', () => {
-    expect(existsLine([pt('world')], names)).toBe('In the world from the start')
-    expect(existsLine([pt('scene', 'b1', 's32')], names)).toBe('First appears in Book 1, Ch 3, Sc 2')
-    expect(existsLine([pt('story-pre', 'kell')], names)).toBe("From the start of Kell's Road")
-    expect(existsLine([pt('story-post', 'kell')], names)).toBe("From the start of Kell's Road")
-  })
-
-  it('joins several points, and the beginning of the world covers everything', () => {
-    expect(existsLine([pt('story-pre', 'young'), pt('scene', 'b3', 's312')], names)).toBe(
-      "From the start of Mara's Youth, and from Book 3, Ch 1, Sc 2"
-    )
-    expect(existsLine([pt('scene', 'b1', 's32'), pt('world')], names)).toBe('In the world from the start')
-  })
-
-  it('waits until every place is known, rather than showing part of the line', () => {
-    expect(existsLine([pt('scene', 'b1', 'unknown')], names)).toBeNull()
-    expect(existsLine([], names)).toBeNull()
   })
 })
 

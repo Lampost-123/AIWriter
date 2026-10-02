@@ -2,7 +2,7 @@
 // point in the story, read-only, with what has changed by then marked. Tested in asOfViewLogic.test.ts.
 
 import { FIELD_GROUPS } from '@shared/fields'
-import type { AsOf, AsOfStop, EntryKind, EntryState, ID, RelationshipState } from '@shared/types'
+import type { AsOf, AsOfStop, EntryKind, EntryState, ID, Origin, RelationshipState } from '@shared/types'
 import { stopForScene, stopIndex } from '@/features/views/asOfLogic'
 import { relationPhrase, upperFirst } from './memoryLogic'
 
@@ -48,6 +48,35 @@ export function asOfProfile(state: Pick<EntryState, 'summary' | 'description' | 
   return { summary, description, groups, changedCount: all.filter((r) => r?.changed).length }
 }
 
+/**
+ * The line above the entry as of a point: whether what is shown has changed by then, and for an
+ * entry Adam made, that he wrote it. Always one line, so the page doesn't move as the slider does.
+ */
+export function asOfLead(p: Pick<AsOfProfile, 'changedCount'>, happened: number, mine: boolean): string {
+  if (mine) {
+    return p.changedCount
+      ? 'You wrote this. What has changed by this point is marked.'
+      : 'You wrote this, and none of it has changed by this point.'
+  }
+  if (p.changedCount) return 'What has changed by this point is marked.'
+  return happened ? 'Nothing written here has changed by this point.' : 'Nothing has changed by this point.'
+}
+
+/**
+ * Who each value shown as of a point came from, for a quiet note beside it, when it is still as
+ * written (a change hasn't set it by then: those are marked "Changed"). An entry Adam made says once
+ * that he wrote it (see asOfLead), so his own values there need no note.
+ */
+export function asOfOrigins(state: Pick<EntryState, 'origin' | 'fieldOrigins' | 'changed'>, p: AsOfProfile): Map<string, Origin> {
+  const out = new Map<string, Origin>()
+  for (const r of [p.summary, p.description, ...p.groups.flatMap((g) => g.rows)]) {
+    if (!r || r.changed) continue
+    const origin = state.fieldOrigins?.[r.key] ?? state.origin
+    if (origin !== 'adam' || state.origin !== 'adam') out.set(r.key, origin)
+  }
+  return out
+}
+
 export interface AsOfRelation {
   otherId: ID
   /** "Rival of Tobin", or written from the other side, "Tobin: sister of Mara". */
@@ -78,7 +107,8 @@ export function asOfRelations(rows: RelationshipState[], selfId: ID, nameOf: (id
         : `${other}: linked to ${self}`
     const selfFeels = (mine ? r.aFeels : r.bFeels).trim()
     const otherFeels = (mine ? r.bFeels : r.aFeels).trim()
-    const feels = [selfFeels && `${self} feels: ${selfFeels}`, otherFeels && `${other} feels: ${otherFeels}`].filter(Boolean).join(' · ') || null
+    const feels =
+      [selfFeels && `${self} feels: ${selfFeels}`, otherFeels && `${other} feels: ${otherFeels}`].filter(Boolean).join(' · ') || null
     out.push({ otherId, text, feels, where: r.where.trim() })
   }
   return out

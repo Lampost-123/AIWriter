@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
+import { purgeTrash } from '../db/trash'
 import { entryAsOf } from '../memory/asOf'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { listFirstExists, setFirstExists } from './firstExists'
@@ -54,14 +55,38 @@ describe('where an entry first exists, from its page', () => {
     expect(listFirstExists(db, mara).map((p) => [p.kind, p.storyId, p.byHand])).toEqual([['story-pre', b2, true]])
   })
 
-  it('refuses no point at all, or a place that no longer exists, in plain words', () => {
+  it('refuses no point at all, or a place gone for good, in plain words', () => {
     const { db, b2, s2, mara } = world()
     expect(() => setFirstExists(db, mara, [])).toThrow('Choose at least one place where it first appears.')
     repo.deleteScene(db, s2)
-    expect(() => setFirstExists(db, mara, [{ kind: 'scene', storyId: b2, sceneId: s2, byHand: true }])).toThrow('That scene no longer exists')
+    purgeTrash(db, 0, Date.now() + 60_000)
+    expect(() => setFirstExists(db, mara, [{ kind: 'scene', storyId: b2, sceneId: s2, byHand: true }])).toThrow(
+      'That scene no longer exists'
+    )
     expect(() => setFirstExists(db, mara, [{ kind: 'story-pre', storyId: 'gone', sceneId: null, byHand: true }])).toThrow(
       'That story no longer exists'
     )
+  })
+
+  it('lets Adam add a place beside a point on a scene deleted since, then remove that point, and Undo bring it back', () => {
+    const { db, b1, b2, s2, mara } = world()
+    // Found in Book 2's scene by the memory keeper, which Adam then deleted.
+    setFirstExists(db, mara, [{ kind: 'scene', storyId: b2, sceneId: s2, byHand: false }])
+    repo.deleteScene(db, s2)
+    const stale = listFirstExists(db, mara)
+    expect(stale.map((p) => p.label)).toEqual(['a deleted scene in Book 2'])
+    // The page sends every point as Adam's, the old one included.
+    const start = { kind: 'story-pre' as const, storyId: b1, sceneId: null, byHand: true }
+    const old = { kind: 'scene' as const, storyId: b2, sceneId: s2, byHand: true }
+    expect(setFirstExists(db, mara, [old, start]).map((p) => p.label)).toEqual(['a deleted scene in Book 2', 'the start of Book 1'])
+    expect(setFirstExists(db, mara, [start]).map((p) => p.label)).toEqual(['the start of Book 1'])
+    // Undo sends the points as they were: the scene is in Recently deleted, so its point can come back.
+    const undone = setFirstExists(
+      db,
+      mara,
+      stale.map((p) => ({ kind: p.kind, storyId: p.storyId, sceneId: p.sceneId, byHand: p.byHand }))
+    )
+    expect(undone.map((p) => [p.label, p.storyId, p.byHand])).toEqual([['a deleted scene in Book 2', b2, false]])
   })
 })
 
@@ -70,12 +95,20 @@ describe('"Only from <story> on"', () => {
     const { db, b1, b2, mara } = world()
     repo.updateEntry(db, mara, { fields: { eyes: 'green' }, summary: 'Older now' })
     expect(repo.getEntry(db, mara).fieldOrigins.eyes).toBe('adam')
-    const { entry, change } = keepEditFromStory(db, mara, b2, { fields: { eyes: 'blue' }, summary: '', origins: { eyes: null, summary: null } })
+    const { entry, change } = keepEditFromStory(db, mara, b2, {
+      fields: { eyes: 'blue' },
+      summary: '',
+      origins: { eyes: null, summary: null }
+    })
     expect(entry.fields.eyes).toBe('blue')
     expect(entry.summary).toBe('')
     expect(entry.fieldOrigins.eyes).toBeUndefined()
     expect(change).toMatchObject({ anchor: 'story-start', storyId: b2, origin: 'adam', kind: 'update', where: 'the start of Book 2' })
-    expect(change.kind === 'update' && change.payload).toEqual({ note: 'In short: Older now; Eyes: green', summary: 'Older now', fields: { eyes: 'green' } })
+    expect(change.kind === 'update' && change.payload).toEqual({
+      note: 'In short: Older now; Eyes: green',
+      summary: 'Older now',
+      fields: { eyes: 'green' }
+    })
     expect(mem.changesForEntry(db, mara)).toHaveLength(1)
     // Book 1 keeps her blue eyes; from Book 2 on they are green.
     expect(entryAsOf(db, mara, { kind: 'end', storyId: b1 }).state?.fields.eyes).toBe('blue')
@@ -92,7 +125,9 @@ describe('"Only from <story> on"', () => {
   it('describes the change the way entry pages do', () => {
     const { db, mara } = world()
     const e = repo.getEntry(db, mara)
-    expect(editSince({ ...e, fields: { eyes: 'grey' } }, { fields: { eyes: 'blue', hair: '' }, origins: {} })).toEqual({ fields: { eyes: 'grey' } })
+    expect(editSince({ ...e, fields: { eyes: 'grey' } }, { fields: { eyes: 'blue', hair: '' }, origins: {} })).toEqual({
+      fields: { eyes: 'grey' }
+    })
     expect(noteFor('character', { description: 'New', fields: { hair: '' } })).toBe('A new description; Hair left blank')
   })
 })

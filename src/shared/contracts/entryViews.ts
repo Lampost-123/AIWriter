@@ -52,7 +52,10 @@ export interface CodexCard {
   hardRule: boolean
   /** How many scenes it appears in. */
   scenes: number
-  /** For sorting by importance: scenes from its point of view count most, then being in a scene or its setting, then being named or changed. */
+  /**
+   * For sorting by importance: scenes from its point of view count most, then being in a scene or its
+   * setting, then being named or changed.
+   */
   importance: number
   /** Where it last appears in reading order (`order` sorts across stories); null when it appears in no scene yet. */
   last: { sceneId: ID; storyId: ID; label: string; order: number } | null
@@ -72,15 +75,23 @@ export interface Appearance {
   /** The scene's own title ('' when it has none). */
   title: string
   how: AppearanceHow[]
-  /** The words around its first mention, cut from the scene's text exactly (so the scene can open at them); null when it isn't named there. */
+  /**
+   * The words around its first mention, cut from the scene's text exactly (so the scene can open at
+   * them); null when it isn't named there.
+   */
   quote: string | null
+  /** Whether the sentence goes on before the quote, and after it (it is shown with "…" there). */
+  quoteCut: { start: boolean; end: boolean }
 }
 
 /** A first-exists point with its place in plain words. */
 export interface FirstExists extends ExistsPoint {
   /** "the beginning of the world", "the start of Book 2", "Book 1, Ch 3, Sc 2". */
   label: string
-  /** The story it belongs to: the point's story (a scene's story), or the world's first story for the beginning of the world. Null when there is none. */
+  /**
+   * The story it belongs to: the point's story (a scene's story), or the world's first story for the
+   * beginning of the world. Null when there is none.
+   */
   homeStoryId: ID | null
 }
 

@@ -14,7 +14,10 @@ function joinAnd(list: string[]): string {
   return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
 }
 
-/** "First appears: the start of Book 1"; with several, "First appears: the start of Mara's Youth and Book 3, Ch 1, Sc 2". Null with none. */
+/**
+ * "First appears: the start of Book 1"; with several, "First appears: the start of Mara's Youth and
+ * Book 3, Ch 1, Sc 2". Null with none.
+ */
 export function firstAppearsText(points: Pick<FirstExists, 'label'>[]): string | null {
   const labels = points.map((p) => p.label).filter((l, i, all) => l && all.indexOf(l) === i)
   return labels.length ? `First appears: ${joinAnd(labels)}` : null

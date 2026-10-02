@@ -5,24 +5,50 @@ import type { AsOf, AsOfStop, EntryAsOf, ID } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 
-/** The stops of a story's as-of slider (null until loaded). Reloads when the outline or the memory changes. */
-export function useAsOfStops(storyId: ID | null, entryId?: ID | null): AsOfStop[] | null {
+interface StopsState {
+  key: string | null
+  stops: AsOfStop[] | null
+  error: string | null
+}
+
+/**
+ * The stops of a story's as-of slider (null until loaded), or why they couldn't be loaded, with a way
+ * to try again. Reloads when the outline or the memory changes; the last stops stay on screen while
+ * newer ones load, and when reloading them fails.
+ */
+export function useAsOfStopsState(
+  storyId: ID | null,
+  entryId?: ID | null
+): { stops: AsOfStop[] | null; error: string | null; reload: () => void } {
   const outlineRev = useApp((s) => s.outlineRev)
   const memoryRev = useApp((s) => s.memoryRev)
   const entriesRev = useApp((s) => s.entriesRev)
-  const [stops, setStops] = useState<AsOfStop[] | null>(null)
+  const key = storyId ? `${storyId}|${entryId ?? ''}` : null
+  const [state, setState] = useState<StopsState>({ key, stops: null, error: null })
+  const [tries, setTries] = useState(0)
+  const reload = useCallback(() => setTries((n) => n + 1), [])
   useEffect(() => {
-    if (!storyId) return setStops(null)
+    if (!storyId) return setState({ key: null, stops: null, error: null })
     let live = true
     api
       .listAsOfStops(storyId, entryId ?? null)
-      .then((s) => live && setStops(s))
-      .catch(() => live && setStops([]))
+      .then((stops) => live && setState({ key, stops, error: null }))
+      .catch((e: Error) => {
+        if (!live) return
+        const error = e.message || 'Something went wrong.'
+        setState((s) => (s.key === key && s.stops ? { ...s, error } : { key, stops: null, error }))
+      })
     return () => {
       live = false
     }
-  }, [storyId, entryId, outlineRev, memoryRev, entriesRev])
-  return stops
+  }, [key, storyId, entryId, outlineRev, memoryRev, entriesRev, tries])
+  return { stops: state.stops, error: state.key === key ? state.error : null, reload }
+}
+
+/** The stops of a story's as-of slider (null until loaded, empty when they couldn't be loaded). */
+export function useAsOfStops(storyId: ID | null, entryId?: ID | null): AsOfStop[] | null {
+  const { stops, error } = useAsOfStopsState(storyId, entryId)
+  return stops ?? (error ? [] : null)
 }
 
 /** An entry as of a point (null until first loaded, or when `at` is null). Keeps the last answer while the next loads. */
@@ -32,7 +58,11 @@ export function useEntryAsOf(
 ): { data: EntryAsOf | null; loading: boolean; error: string | null; reload: () => void } {
   const memoryRev = useApp((s) => s.memoryRev)
   const entriesRev = useApp((s) => s.entriesRev)
-  const [state, setState] = useState<{ data: EntryAsOf | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null })
+  const [state, setState] = useState<{ data: EntryAsOf | null; loading: boolean; error: string | null }>({
+    data: null,
+    loading: false,
+    error: null
+  })
   const [tries, setTries] = useState(0)
   const reload = useCallback(() => setTries((n) => n + 1), [])
   const ticket = useRef(0)

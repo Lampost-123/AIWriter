@@ -97,6 +97,8 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await reload(win)
 
   await openEntry(win, 'Characters', 'Mara')
+  // Adam made her: the page says he wrote it.
+  await expect(main(win).getByText("You wrote this. AI Write won't change what you've written.")).toBeVisible()
   await main(win).getByRole('button', { name: 'View as of a scene' }).click()
   const slider = main(win).getByRole('slider', { name: 'As of' })
   await expect(slider).toBeFocused()
@@ -104,6 +106,7 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await expect(slider).toHaveAttribute('aria-valuetext', 'Book 1, Ch 1, Sc 1')
   await expect(main(win).getByText('blue', { exact: true })).toBeVisible()
   await expect(main(win).getByText('Changed', { exact: true })).toHaveCount(0)
+  await expect(main(win).getByText('You wrote this, and none of it has changed by this point.')).toBeVisible()
 
   // One scene on: the change shows, marked, with what happened.
   await slider.press('ArrowRight')
@@ -111,6 +114,7 @@ test('any entry can be viewed as of any scene', async ({ launch }) => {
   await expect(main(win).getByText('one grey eye', { exact: true })).toBeVisible()
   await expect(main(win).getByText('Changed', { exact: true })).toBeVisible()
   await expect(main(win).getByText('Loses her left eye')).toBeVisible()
+  await expect(main(win).getByText('You wrote this. What has changed by this point is marked.')).toBeVisible()
 
   // Back to the start of the story: as Adam wrote her. "Next change" jumps to where she changes.
   await slider.press('Home')
@@ -155,7 +159,12 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
     fields: { role: 'protagonist' },
     originStoryId: b1
   })
-  await invoke(win, 'createEntry', 'character', { name: 'Tobin', tags: ['family', 'the north'], fields: { role: 'antagonist' }, originStoryId: b1 })
+  await invoke(win, 'createEntry', 'character', {
+    name: 'Tobin',
+    tags: ['family', 'the north'],
+    fields: { role: 'antagonist' },
+    originStoryId: b1
+  })
   const kell = await invoke(win, 'createEntry', 'character', { name: 'Kell', originStoryId: b1 })
   await invoke(win, 'setFirstExists', kell.id, [{ kind: 'story-pre', storyId: b2.id, sceneId: null, byHand: true }])
   await invoke(win, 'createEntry', 'place', { name: 'Eelmouth', tags: ['the north'], originStoryId: b1 })
@@ -211,8 +220,16 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(1)
   await main(win).getByRole('textbox', { name: 'Search the codex' }).fill('nobody here')
   await expect(main(win).getByRole('heading', { name: 'Nothing matches' })).toBeVisible()
-  await main(win).getByRole('button', { name: 'Clear filters' }).first().click()
+  await expect(main(win).getByText('Nothing in the codex matches your search.')).toBeVisible()
+  // The search box's own clear button comes first; the one under "Nothing matches" last.
+  await main(win).getByRole('button', { name: 'Clear search' }).last().click()
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
+  await choose(win, 'Kind', 'Places')
+  await main(win).getByRole('textbox', { name: 'Search the codex' }).fill('Mara')
+  await expect(main(win).getByText('Nothing in the codex matches your search and this filter.')).toBeVisible()
+  await main(win).getByRole('button', { name: 'Clear filters' }).last().click()
+  await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
+  await expect(main(win).getByRole('textbox', { name: 'Search the codex' })).toHaveValue('')
 
   // A card opens the entry's page; going back finds the codex as it was left.
   await choose(win, 'Tag', 'family')
@@ -268,7 +285,9 @@ test('"Appears in" lists the scenes an entry is in, and opens one at its words',
   await rows.nth(1).click()
   // The scene opens with those words chosen.
   await expect(win.locator('.scene-prose')).toContainText('Rain fell all night.')
-  await expect.poll(() => win.evaluate(() => (globalThis as unknown as { getSelection(): { toString(): string } | null }).getSelection()?.toString() ?? '')).toBe('Mara kept her hood low, and waited for the ferry.')
+  const chosen = (): Promise<string> =>
+    win.evaluate(() => (globalThis as unknown as { getSelection(): { toString(): string } | null }).getSelection()?.toString() ?? '')
+  await expect.poll(chosen).toBe('Mara kept her hood low, and waited for the ferry.')
 })
 
 test('where an entry first appears can be changed from its page, and the change undone', async ({ launch }) => {
@@ -334,6 +353,51 @@ test('"As seen in" appears on entry pages once the world has a side story', asyn
   await win.getByRole('option', { name: 'The Ferrywoman' }).click()
   await expect(seenIn).toHaveText('The Ferrywoman')
   await expect(main(win).getByRole('slider', { name: 'As of' })).toHaveAttribute('aria-valuetext', /The Ferrywoman/)
+})
+
+test('in a small window the as-of bar and the page’s buttons keep their room, with "As seen in" there too', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Small')
+  const { b1 } = await bookOne(win)
+  await invoke(win, 'createEntry', 'character', { name: 'Mara', originStoryId: b1 })
+  const side = await invoke(win, 'createStory', { title: 'The Ferrywoman', startStoryId: b1 })
+  await invoke(win, 'setStoryPlacement', side.id, {
+    kind: 'side',
+    startStoryId: b1,
+    startAt: 'pre',
+    startRefId: null,
+    endAt: 'end',
+    endRefId: null,
+    leadsIntoId: null
+  })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 600))
+  await reload(win)
+
+  // The binder, the list of characters and Mara's page side by side.
+  await openEntry(win, 'Characters', 'Mara')
+  await expect(entryRows(win).filter({ hasText: 'Mara' })).toBeVisible()
+  const builder = main(win).getByRole('button', { name: 'Open in the builder' })
+  // The buttons under the name can be clicked: when they take two rows, their row grows to hold them.
+  const inRow = (): Promise<boolean> =>
+    builder.evaluate((b) => b.getBoundingClientRect().bottom <= b.parentElement!.getBoundingClientRect().bottom + 0.5)
+  await builder.click({ trial: true })
+  expect(await inRow()).toBe(true)
+
+  await main(win).getByRole('button', { name: 'View as of a scene' }).click()
+  await main(win).getByRole('combobox', { name: 'As seen in' }).click()
+  await win.getByRole('option', { name: 'The Ferrywoman' }).click()
+  const slider = main(win).getByRole('slider', { name: 'As of' })
+  await expect(slider).toHaveAttribute('aria-valuetext', /The Ferrywoman/)
+  // The slider is wide enough to drag, and says in full which scene it is at.
+  const room = await slider.evaluate((input) => {
+    const label = input.closest('.flex-col')?.querySelector('.truncate')
+    return { track: input.getBoundingClientRect().width, cut: !label || label.scrollWidth > label.clientWidth }
+  })
+  expect(room.track).toBeGreaterThan(180)
+  expect(room.cut).toBe(false)
+  await builder.click({ trial: true })
+  expect(await inRow()).toBe(true)
+  await main(win).getByRole('button', { name: 'Back to editing' }).click({ trial: true })
 })
 
 test('an edit made while working in a later story offers to keep it for that story on', async ({ launch }) => {

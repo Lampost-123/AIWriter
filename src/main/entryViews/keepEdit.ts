@@ -11,7 +11,7 @@ import { FIELD_GROUPS } from '@shared/fields'
 import { changeViews, loadShape } from '../memory/scene'
 import * as mem from '../db/memory'
 import * as repo from '../db/repo'
-import { restoreProfile } from '../db/entryViews'
+import { restoreProfile, storyIsLive } from '../db/entryViews'
 import { UserError } from '../util'
 
 type DB = Database.Database
@@ -25,7 +25,8 @@ const excerpt = (s: string, max: number): string => {
 export function noteFor(kind: Entry['kind'], p: Omit<UpdatePayload, 'note'>): string {
   const labels = new Map<string, string>()
   for (const g of FIELD_GROUPS[kind] ?? []) for (const f of g.fields) labels.set(f.key, f.label)
-  const parts = Object.entries(p.fields ?? {}).map(([k, v]) => (v.trim() ? `${labels.get(k) ?? k}: ${excerpt(v, 60)}` : `${labels.get(k) ?? k} left blank`))
+  const label = (k: string): string => labels.get(k) ?? k
+  const parts = Object.entries(p.fields ?? {}).map(([k, v]) => (v.trim() ? `${label(k)}: ${excerpt(v, 60)}` : `${label(k)} left blank`))
   if (p.summary !== undefined) parts.unshift(p.summary.trim() ? `In short: ${excerpt(p.summary, 60)}` : 'No short summary')
   if (p.description !== undefined) parts.unshift('A new description')
   return parts.join('; ')
@@ -44,9 +45,7 @@ export function editSince(entry: Entry, before: ProfileBefore): Omit<UpdatePaylo
 
 export function keepEditFromStory(db: DB, entryId: ID, storyId: ID, before: ProfileBefore): { entry: Entry; change: ChangeView } {
   const entry = repo.getEntry(db, entryId)
-  if (!db.prepare('SELECT 1 FROM stories WHERE id = ? AND deleted_at IS NULL').get(storyId)) {
-    throw new UserError('That story no longer exists, so the change can’t start there.')
-  }
+  if (!storyIsLive(db, storyId)) throw new UserError('That story no longer exists, so the change can’t start there.')
   const edit = editSince(entry, before ?? { origins: {} })
   if (!edit) throw new UserError('Nothing has changed here since, so there is nothing to keep for that story.')
   return db.transaction(() => {
@@ -59,9 +58,13 @@ export function keepEditFromStory(db: DB, entryId: ID, storyId: ID, before: Prof
       origin: 'adam'
     })
     // Only the fields the change now holds go back, each to who it came from before the edit.
+    const keys = [
+      ...Object.keys(edit.fields ?? {}),
+      ...(edit.summary !== undefined ? ['summary'] : []),
+      ...(edit.description !== undefined ? ['description'] : [])
+    ]
     const origins: Record<string, ProfileBefore['origins'][string]> = {}
-    for (const k of [...Object.keys(edit.fields ?? {}), ...(edit.summary !== undefined ? ['summary'] : []), ...(edit.description !== undefined ? ['description'] : [])])
-      origins[k] = before.origins?.[k] ?? null
+    for (const k of keys) origins[k] = before.origins?.[k] ?? null
     const fields: Record<string, string> = {}
     for (const k of Object.keys(edit.fields ?? {})) fields[k] = before.fields?.[k] ?? ''
     const restored = restoreProfile(

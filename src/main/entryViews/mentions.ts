@@ -38,6 +38,12 @@ export interface NameIndex {
   /** Case-sensitive patterns by the hash of their first word, and case-insensitive ones by the hash of their first word in lower case. */
   exact: Map<number, FirstWord>
   folded: Map<number, FirstWord>
+  /**
+   * A bit for each first word's hash (its low 16 bits) in `exact` and `folded`. Nearly every word in
+   * a scene starts no name, and a bit is much cheaper to check than the map.
+   */
+  exactBits: Uint32Array
+  foldedBits: Uint32Array
   /** Names that don't start with a letter or number ("'Bones'"): looked for wherever their first character is. */
   odd: Pattern[]
 }
@@ -155,17 +161,25 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   else map.set(key, [value])
 }
 
-function addFirst(map: Map<number, FirstWord>, hash: number, p: Pattern): void {
+function addFirst(map: Map<number, FirstWord>, bits: Uint32Array, hash: number, p: Pattern): void {
   let f = map.get(hash)
   if (!f) map.set(hash, (f = { single: [], phrases: new Map() }))
   if (p.second === null) f.single.push(p)
   else push(f.phrases, p.second, p)
+  bits[(hash & 0xffff) >>> 5] |= 1 << (hash & 31)
 }
 
 /** Indexes every entry's name and aliases. `only` keeps just those pattern keys (to read scenes again for new names only). */
 export function buildNameIndex(entries: Named[], only?: Set<string>): NameIndex {
   tables()
-  const ix: NameIndex = { patterns: new Map(), exact: new Map(), folded: new Map(), odd: [] }
+  const ix: NameIndex = {
+    patterns: new Map(),
+    exact: new Map(),
+    folded: new Map(),
+    exactBits: new Uint32Array(2048),
+    foldedBits: new Uint32Array(2048),
+    odd: []
+  }
   for (const e of entries) {
     for (const raw of [e.name, ...e.aliases]) {
       const p = patternFor(raw)
@@ -177,15 +191,55 @@ export function buildNameIndex(entries: Named[], only?: Set<string>): NameIndex 
       }
       ix.patterns.set(p.pattern.key, { pattern: p.pattern, entryIds: [e.id] })
       if (!p.first) ix.odd.push(p.pattern)
-      else addFirst(p.pattern.fold ? ix.folded : ix.exact, p.pattern.fold ? p.first.hl : p.first.h, p.pattern)
+      else if (p.pattern.fold) addFirst(ix.folded, ix.foldedBits, p.first.hl, p.pattern)
+      else addFirst(ix.exact, ix.exactBits, p.first.h, p.pattern)
     }
   }
   return ix
 }
 
+/** The parts of a name between its spaces ("the", "old", "woman"); each is in the text exactly as written wherever the name is. */
+function nameParts(name: string): string[] {
+  const parts: string[] = []
+  let start = -1
+  for (let k = 0; k <= name.length; k++) {
+    const space = k === name.length || isSpace(name.charCodeAt(k))
+    if (space && start >= 0) parts.push(name.slice(start, k))
+    if (space) start = -1
+    else if (start < 0) start = k
+  }
+  return parts
+}
+
+/**
+ * A quick first look for a few names (see appearances.ts: names new since the scenes were read):
+ * false when a text can't mention any of them, because some part of each name isn't in it. Only the
+ * texts that pass are read word by word. A name compared without minding case is looked for in the
+ * text in lower case; one with letters beyond plain English ones is always read word by word, since
+ * lower-casing a whole text can treat such letters differently.
+ */
+export function quickCheck(ix: NameIndex): (text: string) => boolean {
+  tables()
+  const exact: string[] = []
+  const folded: string[][] = []
+  let always = false
+  for (const { pattern: p } of ix.patterns.values()) {
+    if (!p.fold) exact.push(p.name)
+    else if (/[^\x20-\x7e]/.test(p.name.replace(/\s+/g, ' '))) always = true
+    else folded.push(nameParts(p.name.toLowerCase()))
+  }
+  return (text) => {
+    if (always) return true
+    for (const name of exact) if (text.includes(name)) return true
+    if (!folded.length) return false
+    const lower = text.toLowerCase()
+    return folded.some((parts) => parts.every((part) => lower.includes(part)))
+  }
+}
+
 /**
  * The names (pattern keys) the text mentions, each with where its first mention starts. One pass
- * over the words: a word whose hash isn't a first word of any name costs a map lookup and nothing else.
+ * over the words: a word that isn't the first word of any name costs a check of two bits and nothing else.
  */
 export function findMentions(ix: NameIndex, text: string): Map<string, number> {
   const hits = new Map<string, number>()
@@ -197,6 +251,8 @@ export function findMentions(ix: NameIndex, text: string): Map<string, number> {
   // Local copies of the tables, and the basic plane handled inline: this loop runs once per character.
   const W = WORD
   const L = LOWER
+  const EB = ix.exactBits
+  const FB = ix.foldedBits
   let i = 0
   while (i < n) {
     let c = text.charCodeAt(i)
@@ -223,8 +279,8 @@ export function findMentions(ix: NameIndex, text: string): Map<string, number> {
         j += 2
       }
     }
-    const a = hasExact ? ix.exact.get(h) : undefined
-    const b = hasFolded ? ix.folded.get(hl) : undefined
+    const a = hasExact && (EB[(h & 0xffff) >>> 5] & (1 << (h & 31))) !== 0 ? ix.exact.get(h) : undefined
+    const b = hasFolded && (FB[(hl & 0xffff) >>> 5] & (1 << (hl & 31))) !== 0 ? ix.folded.get(hl) : undefined
     if (a !== undefined || b !== undefined) {
       // The next word's lower-case hash, for phrases, worked out only when one starts here.
       let next: number | null = null
@@ -272,12 +328,19 @@ export function mentionEnd(ix: NameIndex, key: string, text: string, at: number)
   return end < 0 ? at : end
 }
 
+/** Words cut from a scene: exactly as the text has them, so the editor can find them again. */
+export interface Quote {
+  text: string
+  /** Whether its sentence goes on before these words, and after them (shown as "…"). */
+  cutStart: boolean
+  cutEnd: boolean
+}
+
 /**
  * The words around a mention, for showing it and for opening the scene at it: the sentence it is in,
- * within its paragraph, cut to a few words either side of the name on a long sentence. Exactly as
- * the text has them, so the editor can find them again.
+ * within its paragraph, cut to a few words either side of the name on a long sentence.
  */
-export function quoteAround(text: string, start: number, end: number = start, before = 10, after = 14): string {
+export function quoteAround(text: string, start: number, end: number = start, before = 10, after = 14): Quote {
   const lineStart = text.lastIndexOf('\n', start - 1) + 1
   const lineEndAt = text.indexOf('\n', start)
   const line = text.slice(lineStart, lineEndAt < 0 ? text.length : lineEndAt)
@@ -292,12 +355,12 @@ export function quoteAround(text: string, start: number, end: number = start, be
   const cm = close.exec(line)
   const e = cm ? cm.index + cm[0].length : line.length
   const words = [...line.slice(s, e).matchAll(/\S+/g)].map((w) => ({ start: s + (w.index ?? 0), end: s + (w.index ?? 0) + w[0].length }))
-  if (!words.length) return line.slice(from, to).trim()
+  if (!words.length) return { text: line.slice(from, to).trim(), cutStart: false, cutEnd: false }
   let k = words.findIndex((w) => w.end > from)
   if (k < 0) k = words.length - 1
   let last = words.findIndex((w) => w.end >= to)
   if (last < 0) last = words.length - 1
   const first = Math.max(0, k - before)
   const stop = Math.min(words.length - 1, last + after)
-  return line.slice(words[first].start, words[stop].end)
+  return { text: line.slice(words[first].start, words[stop].end), cutStart: first > 0, cutEnd: stop < words.length - 1 }
 }

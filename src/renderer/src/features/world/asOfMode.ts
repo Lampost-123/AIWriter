@@ -19,5 +19,7 @@ export const useAsOfMode = create<AsOfMode>(() => ({ on: false, at: null, seenIn
 export const setAsOfMode = (patch: Partial<AsOfMode>): void => useAsOfMode.setState(patch)
 
 useApp.subscribe((s, prev) => {
-  if (s.world?.id !== prev.world?.id || (s.view !== prev.view && s.view.kind !== 'entries')) useAsOfMode.setState({ on: false, at: null, seenIn: null })
+  if (s.world?.id !== prev.world?.id || (s.view !== prev.view && s.view.kind !== 'entries')) {
+    useAsOfMode.setState({ on: false, at: null, seenIn: null })
+  }
 })

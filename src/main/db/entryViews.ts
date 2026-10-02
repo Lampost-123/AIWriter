@@ -29,7 +29,9 @@ const json = <T>(s: unknown, fallback: T): T => {
  */
 export function sceneVersions(db: DB): Map<ID, { version: string; title: string }> {
   const rows = db.prepare('SELECT id, title, text_version, updated_at FROM scenes WHERE deleted_at IS NULL').all() as Row[]
-  return new Map(rows.map((r) => [r.id as string, { version: `${r.text_version as number}|${r.updated_at as string}`, title: r.title as string }]))
+  return new Map(
+    rows.map((r) => [r.id as string, { version: `${r.text_version as number}|${r.updated_at as string}`, title: r.title as string }])
+  )
 }
 
 /** What a scene's card says about who and where. */
@@ -83,6 +85,24 @@ export function sceneChangeEntries(db: DB): { sceneId: ID; entryIds: ID[] }[] {
       for (const rel of p.relationships as { otherId?: unknown }[]) if (typeof rel?.otherId === 'string') ids.add(rel.otherId)
     return { sceneId: r.scene_id as string, entryIds: [...ids] }
   })
+}
+
+// ---------- Stories and scenes, for checking a place ----------
+
+/** Whether a story is there and not deleted. */
+export const storyIsLive = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM stories WHERE id = ? AND deleted_at IS NULL').get(id)
+
+/**
+ * The story a place belongs to (a scene's story, or the story whose start it is) while that place is
+ * still in the world, in Recently deleted or not. Null when it is gone for good, or was never there.
+ */
+export function storyOfPlace(db: DB, p: { kind: string; storyId: ID | null; sceneId: ID | null }): ID | null {
+  if (p.kind !== 'scene') return p.storyId && db.prepare('SELECT 1 FROM stories WHERE id = ?').get(p.storyId) ? p.storyId : null
+  if (!p.sceneId) return null
+  const r = db.prepare('SELECT c.story_id AS storyId FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?').get(p.sceneId) as
+    | Row
+    | undefined
+  return r ? (r.storyId as string) : null
 }
 
 // ---------- First-exists points Adam changes ----------

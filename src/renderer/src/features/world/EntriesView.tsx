@@ -351,7 +351,13 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
             </div>
           ) : fromCodex ? (
             <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
-              <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} className="-ml-2.5" onClick={() => navigate({ kind: 'codex' })}>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                className="-ml-2.5"
+                onClick={() => navigate({ kind: 'codex' })}
+              >
                 Back to the codex
               </Button>
             </div>

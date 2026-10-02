@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { AsOfStop, RelationshipState } from '@shared/types'
-import { asOfProfile, asOfRelations, chosenStop } from './asOfViewLogic'
+import { asOfLead, asOfOrigins, asOfProfile, asOfRelations, chosenStop } from './asOfViewLogic'
 
 describe('an entry as of a point', () => {
   it('shows only what has something in it, by group, with what has changed by then marked', () => {
     const p = asOfProfile(
-      { summary: 'Older now', description: '', fields: { eyes: 'green', hair: '  ', role: 'protagonist', motivation: 'Find her brother' }, changed: ['eyes', 'summary'] },
+      {
+        summary: 'Older now',
+        description: '',
+        fields: { eyes: 'green', hair: '  ', role: 'protagonist', motivation: 'Find her brother' },
+        changed: ['eyes', 'summary']
+      },
       'character'
     )
     expect(p.summary).toEqual({ key: 'summary', label: 'Short summary', value: 'Older now', changed: true })
@@ -16,6 +21,36 @@ describe('an entry as of a point', () => {
       ['Goals and arc', [['Current motivation', 'Find her brother', false]]]
     ])
     expect(p.changedCount).toBe(2)
+  })
+
+  it('says above it whether anything has changed by then, and that Adam wrote it when he made it', () => {
+    expect(asOfLead({ changedCount: 2 }, 3, false)).toBe('What has changed by this point is marked.')
+    expect(asOfLead({ changedCount: 0 }, 1, false)).toBe('Nothing written here has changed by this point.')
+    // Never a claim that Adam wrote what the memory keeper found, and no name in the middle of the sentence.
+    expect(asOfLead({ changedCount: 0 }, 0, false)).toBe('Nothing has changed by this point.')
+    expect(asOfLead({ changedCount: 1 }, 1, true)).toBe('You wrote this. What has changed by this point is marked.')
+    expect(asOfLead({ changedCount: 0 }, 0, true)).toBe('You wrote this, and none of it has changed by this point.')
+  })
+
+  it('says who each value still as written came from: the story, the AI, or Adam where the entry isn’t his', () => {
+    const state = {
+      summary: 'Ferrywoman',
+      description: 'Tall',
+      fields: { eyes: 'one grey eye', hair: 'dark', motivation: 'Find her brother' },
+      changed: ['eyes']
+    }
+    const found = { ...state, origin: 'text' as const, fieldOrigins: { hair: 'adam' as const, motivation: 'ai' as const } }
+    const p = asOfProfile(found, 'character')
+    // Changed by then: marked "Changed" instead.
+    expect([...asOfOrigins(found, p)]).toEqual([
+      ['summary', 'text'],
+      ['description', 'text'],
+      ['hair', 'adam'],
+      ['motivation', 'ai']
+    ])
+    // An entry Adam made says once that he wrote it: only what came from elsewhere has a note.
+    const mine = { ...state, origin: 'adam' as const, fieldOrigins: { hair: 'text' as const } }
+    expect([...asOfOrigins(mine, asOfProfile(mine, 'character'))]).toEqual([['hair', 'text']])
   })
 
   it('reads relationships from the entry’s side, whichever side they were written from', () => {

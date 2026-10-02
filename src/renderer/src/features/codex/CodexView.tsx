@@ -20,11 +20,11 @@ import {
   SORTS,
   appearsLine,
   displayName,
-  filterCards,
   filtersOn,
   groupCards,
+  nothingMatches,
   roleChoices,
-  sortCards,
+  shownCards,
   tagChoices,
   tidyFilters,
   type Choice,
@@ -50,7 +50,8 @@ function useCodexCards(): { cards: CodexCard[] | null; error: string | null; ret
   return { ...state, retry: load }
 }
 
-const quickStart = (): void => useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
+const quickStart = (): void =>
+  useApp.getState().navigate({ kind: 'builder', entryKind: 'character', entryId: null, start: { mode: 'quick' } })
 
 export function CodexView(): React.JSX.Element {
   const { cards, error, retry } = useCodexCards()
@@ -72,7 +73,7 @@ export function CodexView(): React.JSX.Element {
         .map((s) => ({ value: s.id, label: s.title.trim() || 'Untitled story' })),
     [stories]
   )
-  const groups = useMemo(() => groupCards(sortCards(filterCards(all, filters), sort)), [all, filters, sort])
+  const groups = useMemo(() => groupCards(shownCards(all, filters, sort)), [all, filters, sort])
 
   // A filter for a tag, role or story that is no longer there would hide everything for no reason Adam can see.
   useEffect(() => {
@@ -165,12 +166,18 @@ export function CodexView(): React.JSX.Element {
             title="Nothing matches"
             className="mt-4"
             actions={
-              <Button size="sm" onClick={() => setFilters(NO_FILTERS)}>
-                Clear filters
-              </Button>
+              filtersOn({ ...filters, query: '' }) ? (
+                <Button size="sm" onClick={() => setFilters(NO_FILTERS)}>
+                  Clear filters
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => setFilters({ query: '' })}>
+                  Clear search
+                </Button>
+              )
             }
           >
-            No entries match {filtersOn(filters) > 1 ? 'all of these filters' : 'this filter'}.
+            {nothingMatches(filters)}
           </EmptyState>
         )}
       </>
@@ -180,7 +187,8 @@ export function CodexView(): React.JSX.Element {
   return (
     <div
       ref={scroller}
-      className="h-full overflow-y-auto"
+      // The scrollbar's room is kept when nothing scrolls (a filter that leaves a few cards), so the toolbar never shifts.
+      className="h-full overflow-y-auto [scrollbar-gutter:stable]"
       onScroll={(e) => {
         if (restored.current) useCodex.setState({ scroll: e.currentTarget.scrollTop })
       }}
@@ -296,7 +304,9 @@ function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; st
         none="All kinds"
         width={140}
       />
-      {tags.length ? <FilterSelect label="Tag" value={filters.tag} onChange={(tag) => setFilters({ tag })} options={tags} none="Any tag" /> : null}
+      {tags.length ? (
+        <FilterSelect label="Tag" value={filters.tag} onChange={(tag) => setFilters({ tag })} options={tags} none="Any tag" />
+      ) : null}
       {stories.length > 1 ? (
         <FilterSelect
           label="Story"
@@ -308,7 +318,14 @@ function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; st
         />
       ) : null}
       {roles.length ? (
-        <FilterSelect label="Role" value={filters.role} onChange={(role) => setFilters({ role })} options={roles} none="Any role" width={140} />
+        <FilterSelect
+          label="Role"
+          value={filters.role}
+          onChange={(role) => setFilters({ role })}
+          options={roles}
+          none="Any role"
+          width={140}
+        />
       ) : null}
       {filtersOn(filters) ? (
         <Button variant="ghost" size="sm" onClick={() => setFilters(NO_FILTERS)}>
@@ -319,7 +336,15 @@ function Toolbar({ tags, roles, stories }: { tags: Choice[]; roles: Choice[]; st
   )
 }
 
-const Group = memo(function Group({ label, cards, onOpen }: { label: string; cards: CodexCard[]; onOpen: (c: CodexCard) => void }): React.JSX.Element {
+const Group = memo(function Group({
+  label,
+  cards,
+  onOpen
+}: {
+  label: string
+  cards: CodexCard[]
+  onOpen: (c: CodexCard) => void
+}): React.JSX.Element {
   const id = useId()
   return (
     <section aria-labelledby={id} className="mt-4">
@@ -342,27 +367,39 @@ const Group = memo(function Group({ label, cards, onOpen }: { label: string; car
 const MAX_TAGS = 3
 
 const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c: CodexCard) => void }): React.JSX.Element {
-  const about = useId()
+  const ids = { rule: useId(), role: useId(), about: useId() }
   const name = displayName(card)
   const role = card.kind === 'character' && card.role ? card.role[0].toLocaleUpperCase() + card.role.slice(1) : ''
+  const hardRule = card.kind === 'lore' && card.hardRule
   const more = card.tags.length - MAX_TAGS
   return (
+    // Named by the entry's name; the hard-rule mark, role, one-liner, tags and where it appears describe it.
     <button
       type="button"
       data-codex-card={card.id}
       aria-label={name}
-      aria-describedby={about}
+      aria-describedby={[hardRule && ids.rule, role && ids.role, ids.about].filter(Boolean).join(' ')}
       onClick={() => onOpen(card)}
-      className="flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      // The focus ring is drawn inside the card: the list item around it clips anything outside.
+      className="flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
     >
       <Portrait entry={card} size={48} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className={cn('truncate text-[14px] font-semibold', card.name.trim() ? 'text-fg' : 'italic text-muted')}>{name}</span>
-          {card.kind === 'lore' && card.hardRule ? <ShieldCheck size={13} className="shrink-0 text-accent" aria-label="Hard rule" /> : null}
-          {role ? <span className="ml-auto shrink-0 pl-1 text-[11.5px] text-faint">{role}</span> : null}
+          {hardRule ? (
+            <span id={ids.rule} className="flex shrink-0 text-accent" title="Hard rule">
+              <ShieldCheck size={13} aria-hidden />
+              <span className="sr-only">Hard rule</span>
+            </span>
+          ) : null}
+          {role ? (
+            <span id={ids.role} className="ml-auto shrink-0 pl-1 text-[11.5px] text-faint">
+              {role}
+            </span>
+          ) : null}
         </span>
-        <span id={about} className="block">
+        <span id={ids.about} className="block">
           <span className={cn('mt-0.5 line-clamp-2 text-[12.5px] leading-snug', card.summary.trim() ? 'text-muted' : 'italic text-faint')}>
             {card.summary.trim() || 'No one-liner yet'}
           </span>

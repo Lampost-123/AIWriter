@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { CodexCard } from '@shared/contracts/entryViews'
-import { NO_FILTERS, appearsLine, filterCards, filtersOn, groupCards, roleChoices, sortCards, tagChoices, tidyFilters } from './codexLogic'
+import {
+  NO_FILTERS,
+  appearsLine,
+  filterCards,
+  filtersOn,
+  groupCards,
+  nothingMatches,
+  roleChoices,
+  shownCards,
+  sortCards,
+  tagChoices,
+  tidyFilters
+} from './codexLogic'
 
 let n = 0
 const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
@@ -21,8 +33,26 @@ const card = (c: Partial<CodexCard> & Pick<CodexCard, 'name'>): CodexCard => ({
 
 const last = (order: number) => ({ sceneId: `s${order}`, storyId: 'b1', label: `Book 1, Ch 1, Sc ${order + 1}`, order })
 
-const mara = card({ name: 'Mara', aliases: ['the ferrywoman'], tags: ['Family', 'the north'], role: 'protagonist', scenes: 3, importance: 9, last: last(4), storyIds: ['b1', 'b2'] })
-const tobin = card({ name: 'Tobin', summary: 'Runs the toll bridge', tags: ['family'], role: 'antagonist', scenes: 1, importance: 3, last: last(7), storyIds: ['b1'] })
+const mara = card({
+  name: 'Mara',
+  aliases: ['the ferrywoman'],
+  tags: ['Family', 'the north'],
+  role: 'protagonist',
+  scenes: 3,
+  importance: 9,
+  last: last(4),
+  storyIds: ['b1', 'b2']
+})
+const tobin = card({
+  name: 'Tobin',
+  summary: 'Runs the toll bridge',
+  tags: ['family'],
+  role: 'antagonist',
+  scenes: 1,
+  importance: 3,
+  last: last(7),
+  storyIds: ['b1']
+})
 const kell = card({ name: 'kell', role: 'Comic relief', storyIds: ['b2'] })
 const eel = card({ name: 'Eelmouth', kind: 'place', tags: ['the north'], scenes: 2, importance: 4, last: last(2), storyIds: ['b1'] })
 const rule = card({ name: 'Every spell costs a memory', kind: 'lore', hardRule: true })
@@ -56,7 +86,26 @@ describe('the codex', () => {
     expect(sortCards(list, 'importance').map((c) => c.name)).toEqual(['Mara', 'Eelmouth', 'Tobin', 'kell'])
     // Latest first; never seen last.
     expect(sortCards(list, 'last').map((c) => c.name)).toEqual(['Tobin', 'Mara', 'Eelmouth', 'kell'])
-    expect(sortCards([card({ name: 'Item 10' }), card({ name: 'Item 9' }), card({ name: '' })], 'name').map((c) => c.name)).toEqual(['Item 9', 'Item 10', ''])
+    const items = [card({ name: 'Item 10' }), card({ name: 'Item 9' }), card({ name: '' })]
+    expect(sortCards(items, 'name').map((c) => c.name)).toEqual(['Item 9', 'Item 10', ''])
+  })
+
+  it('shows a search sorted by name with matching names first, A to Z within each; other sorts order them all', () => {
+    const tess = card({ name: 'Tess', summary: 'Mara’s sister', importance: 5 })
+    const amaryllis = card({ name: 'Amaryllis' })
+    const marek = card({ name: 'Marek' })
+    const list = [tess, amaryllis, marek, mara, tobin]
+    const search = { ...NO_FILTERS, query: 'mar' }
+    expect(shownCards(list, search, 'name').map((c) => c.name)).toEqual(['Mara', 'Marek', 'Amaryllis', 'Tess'])
+    expect(shownCards(list, search, 'importance').map((c) => c.name)).toEqual(['Mara', 'Tess', 'Amaryllis', 'Marek'])
+    expect(shownCards(list, NO_FILTERS, 'name').map((c) => c.name)).toEqual(['Amaryllis', 'Mara', 'Marek', 'Tess', 'Tobin'])
+  })
+
+  it('says what matched nothing in plain words', () => {
+    expect(nothingMatches({ ...NO_FILTERS, query: 'zzz' })).toBe('Nothing in the codex matches your search.')
+    expect(nothingMatches({ ...NO_FILTERS, tag: 'x' })).toBe('Nothing in the codex matches this filter.')
+    expect(nothingMatches({ ...NO_FILTERS, tag: 'x', role: 'y' })).toBe('Nothing in the codex matches all of these filters.')
+    expect(nothingMatches({ ...NO_FILTERS, query: 'zzz', kind: 'place' })).toBe('Nothing in the codex matches your search and this filter.')
   })
 
   it('groups by kind in a fixed order, keeping the sort within each', () => {
@@ -81,7 +130,8 @@ describe('the codex', () => {
 
   it('drops a filter whose tag, role or story is gone, keeping the same object otherwise', () => {
     const f = { ...NO_FILTERS, tag: 'family', role: 'minor', storyId: 'b9' }
-    expect(tidyFilters(f, { tags: tagChoices(all), roles: roleChoices(all), storyIds: ['b1'] })).toEqual({ ...f, role: null, storyId: null })
+    const have = { tags: tagChoices(all), roles: roleChoices(all), storyIds: ['b1'] }
+    expect(tidyFilters(f, have)).toEqual({ ...f, role: null, storyId: null })
     const ok = { ...NO_FILTERS, tag: 'FAMILY' }
     expect(tidyFilters(ok, { tags: tagChoices(all), roles: [], storyIds: [] })).toBe(ok)
   })

@@ -64,7 +64,14 @@ const AppearRow = memo(function AppearRow({ a, kind }: { a: Appearance; kind: En
           {title ? <span className="min-w-0 truncate text-[12.5px] text-muted">{title}</span> : null}
           {how ? <span className="ml-auto shrink-0 pl-2 text-[11.5px] text-faint">{how}</span> : null}
         </span>
-        {a.quote ? <span className="mt-0.5 line-clamp-2 font-serif text-[13px] italic leading-snug text-muted">“{a.quote}”</span> : null}
+        {a.quote ? (
+          // "…" where the sentence goes on: the quote itself stays exactly as the scene has it.
+          <span className="mt-0.5 line-clamp-2 font-serif text-[13px] italic leading-snug text-muted">
+            “{a.quoteCut.start ? '…' : ''}
+            {a.quote}
+            {a.quoteCut.end ? '…' : ''}”
+          </span>
+        ) : null}
       </button>
     </li>
   )

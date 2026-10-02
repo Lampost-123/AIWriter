@@ -32,7 +32,9 @@ export function editedKeys(before: Profile, now: Pick<Entry, 'summary' | 'descri
   const out: string[] = []
   if (!same(before.summary, now.summary)) out.push('summary')
   if (!same(before.description, now.description)) out.push('description')
-  for (const k of new Set([...Object.keys(before.fields), ...Object.keys(now.fields)])) if (!same(before.fields[k], now.fields[k])) out.push(k)
+  for (const k of new Set([...Object.keys(before.fields), ...Object.keys(now.fields)])) {
+    if (!same(before.fields[k], now.fields[k])) out.push(k)
+  }
   return out
 }
 
@@ -41,15 +43,43 @@ export function editedKeys(before: Profile, now: Pick<Entry, 'summary' | 'descri
  * keeper changed a field, a picture was added): values Adam hasn't edited take the newer copy's, so
  * someone else's change is never taken for his edit. `mine` is what the page held just before.
  */
-export function rebase(since: Profile, mine: Pick<Entry, 'summary' | 'description' | 'fields'>, theirs: Parameters<typeof profileOf>[0]): Profile {
+export function rebase(
+  since: Profile,
+  mine: Pick<Entry, 'summary' | 'description' | 'fields'>,
+  theirs: Parameters<typeof profileOf>[0]
+): Profile {
   const edited = new Set(editedKeys(since, mine))
   const t = profileOf(theirs)
   const keep = (k: string): boolean => edited.has(k)
   const fields: Record<string, string> = {}
   const origins: Record<string, Origin | null> = {}
-  for (const k of new Set([...Object.keys(since.fields), ...Object.keys(t.fields)])) fields[k] = keep(k) ? (since.fields[k] ?? '') : (t.fields[k] ?? '')
-  for (const k of ['summary', 'description', ...Object.keys(fields)]) origins[k] = keep(k) ? (since.origins[k] ?? null) : (t.origins[k] ?? null)
-  return { summary: keep('summary') ? since.summary : t.summary, description: keep('description') ? since.description : t.description, fields, origins }
+  for (const k of new Set([...Object.keys(since.fields), ...Object.keys(t.fields)])) {
+    fields[k] = keep(k) ? (since.fields[k] ?? '') : (t.fields[k] ?? '')
+  }
+  for (const k of ['summary', 'description', ...Object.keys(fields)]) {
+    origins[k] = keep(k) ? (since.origins[k] ?? null) : (t.origins[k] ?? null)
+  }
+  return {
+    summary: keep('summary') ? since.summary : t.summary,
+    description: keep('description') ? since.description : t.description,
+    fields,
+    origins
+  }
+}
+
+/**
+ * The starting point again once Adam dismisses the note (keeping his edits for every story): the
+ * profile as it is now, each value he edited marked as his. `origins` are who each value came from
+ * as last saved; his edits are marked here too, as the page may not have heard back from saving them.
+ */
+export function dismissProfile(
+  since: Profile,
+  now: Pick<Entry, 'summary' | 'description' | 'fields'>,
+  origins: Entry['fieldOrigins'] | undefined
+): Profile {
+  const next = profileOf({ ...now, fieldOrigins: origins ?? {} })
+  for (const k of editedKeys(since, now)) next.origins[k] = 'adam'
+  return next
 }
 
 /** What "Only from <story> on" sends: the edited values as they were before, and who they came from. */

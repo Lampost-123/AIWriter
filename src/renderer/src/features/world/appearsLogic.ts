@@ -12,7 +12,10 @@ const WORDS: Record<AppearanceHow, string> = {
   changes: 'Changes here'
 }
 
-/** "Point of view · Named", in the order the main process gives (point of view first). Being named is left unsaid when the words are shown. */
+/**
+ * "Point of view · Named", in the order the main process gives (point of view first). Being named is
+ * left unsaid when the words are shown.
+ */
 export function howText(how: AppearanceHow[], quoted: boolean, kind: EntryKind): string {
   const shown = how.filter((h) => !(h === 'named' && quoted))
   return shown.map((h) => (h === 'changes' && kind !== 'character' ? 'Changed here' : WORDS[h])).join(' · ')

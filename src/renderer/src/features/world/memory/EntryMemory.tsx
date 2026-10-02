@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, ID } from '@shared/types'
 import { api } from '@/lib/api'
@@ -32,6 +32,8 @@ function fieldLabels(kind: Entry['kind']): (key: string) => string {
  */
 export const EntryMemorySections = memo(function EntryMemorySections({
   now,
+  names,
+  ready,
   others,
   open,
   onToggle,
@@ -40,6 +42,10 @@ export const EntryMemorySections = memo(function EntryMemorySections({
 }: {
   /** The entry as it is on the page now. */
   now: Entry
+  /** The names it goes by, as last saved (any string that changes when they do). */
+  names: string
+  /** False until where it first exists has loaded: that line at the top of the page is asked for first. */
+  ready: boolean
   /** Every other entry in the world. */
   others: Entry[]
   open: Set<string>
@@ -51,16 +57,11 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   const name = now.name.trim() || 'Unnamed'
   const data = useEntryData(() => api.listChanges(id), `changes:${id}`)
   const places = useSceneLabels(!!data.data?.some((c) => c.links.length > 0 || c.anchor === 'scene'))
-  const appears = useEntryData(() => api.listAppearances(id), `appears:${id}`)
-  // Where it appears also moves when the memory keeper pins a change to a scene.
+  // Where it appears changes with the memory (a scene read again, a change pinned to a scene), with the
+  // scenes themselves (moved, deleted) and with the names it goes by: not with every save of its profile.
   const memoryRev = useApp((s) => s.memoryRev)
-  const seenRev = useRef(memoryRev)
-  const reloadAppears = appears.reload
-  useEffect(() => {
-    if (seenRev.current === memoryRev) return
-    seenRev.current = memoryRev
-    reloadAppears()
-  }, [memoryRev, reloadAppears])
+  const outlineRev = useApp((s) => s.outlineRev)
+  const appears = useEntryData(() => api.listAppearances(id), `appears:${id}`, ready, `${memoryRev}|${outlineRev}|${names}`)
 
   const byId = useMemo(() => new Map(others.map((e) => [e.id, e])), [others])
   const nameOf = useCallback(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mentionAt } from '../keeper/text'
-import { buildNameIndex, findMentions, mentionEnd, patternKeys, quoteAround, type Named } from './mentions'
+import { buildNameIndex, findMentions, mentionEnd, patternKeys, quickCheck, quoteAround, type Named } from './mentions'
 
 const entry = (id: string, name: string, aliases: string[] = []): Named => ({ id, name, aliases })
 
@@ -19,39 +19,43 @@ const byKeeper = (entries: Named[], text: string): string[] =>
     .map((e) => e.id)
     .sort()
 
-describe('finding names in a scene', () => {
-  const people = [
-    entry('mara', 'Mara', ['the ferrywoman']),
-    entry('will', 'Will'),
-    entry('rose', 'Rose'),
-    entry('tobin', 'Tobin Ash'),
-    entry('kel', "Kel'oran"),
-    entry('venn', 'Dr. Venn'),
-    entry('eel', 'Eelmouth'),
-    entry('legion', '3rd Legion'),
-    entry('emil', 'Émile'),
-    entry('bones', "'Bones'"),
-    entry('new', 'New character')
-  ]
+const people = [
+  entry('mara', 'Mara', ['the ferrywoman']),
+  entry('will', 'Will'),
+  entry('rose', 'Rose'),
+  entry('tobin', 'Tobin Ash'),
+  entry('kel', "Kel'oran"),
+  entry('venn', 'Dr. Venn'),
+  entry('eel', 'Eelmouth'),
+  entry('legion', '3rd Legion'),
+  entry('emil', 'Émile'),
+  entry('bones', "'Bones'"),
+  entry('kelvin', 'kelso'),
+  entry('new', 'New character')
+]
 
+const cases = [
+  'Mara crossed the river.',
+  'mara crossed the river.',
+  'She will go, said the rose.',
+  'Will went with Rose.',
+  'THE FERRYWOMAN waited. tobin   ash did not.',
+  'Tobin Ashford was not Tobin.',
+  "Mara's hand. Maraud is no name.",
+  "The Kel'oran rose; Kel alone does not count.",
+  'Dr. Venn came. Dr Venn did not.',
+  'At Eelmouth2 nothing; at Eelmouth, everything.',
+  'The 3rd legion marched.',
+  'Émile et émile.',
+  "They called him 'Bones' at sea.",
+  // A Kelvin sign is a K without minding case.
+  'The road to \u212Aelso.',
+  'A New character appears.',
+  ''
+]
+
+describe('finding names in a scene', () => {
   it('follows the memory keeper’s rule: one capitalised word must be capitalised; phrases and lower-case aliases ignore case', () => {
-    const cases = [
-      'Mara crossed the river.',
-      'mara crossed the river.',
-      'She will go, said the rose.',
-      'Will went with Rose.',
-      'THE FERRYWOMAN waited. tobin   ash did not.',
-      'Tobin Ashford was not Tobin.',
-      "Mara's hand. Maraud is no name.",
-      "The Kel'oran rose; Kel alone does not count.",
-      'Dr. Venn came. Dr Venn did not.',
-      'At Eelmouth2 nothing; at Eelmouth, everything.',
-      'The 3rd legion marched.',
-      'Émile et émile.',
-      "They called him 'Bones' at sea.",
-      'A New character appears.',
-      ''
-    ]
     for (const text of cases) expect(named(people, text), text).toEqual(byKeeper(people, text))
     expect(named(people, 'Will went with Rose.')).toEqual(['rose', 'will'])
     expect(named(people, 'She will go, said the rose.')).toEqual([])
@@ -82,18 +86,44 @@ describe('finding names in a scene', () => {
   })
 })
 
+describe('the quick look for new names', () => {
+  it('never rules out a text that names one of them', () => {
+    for (const p of people) {
+      const ix = buildNameIndex([p])
+      const maybe = quickCheck(ix)
+      for (const text of cases) if (findMentions(ix, text).size) expect(maybe(text), `${p.name} in “${text}”`).toBe(true)
+    }
+    expect(named(people, 'The road to \u212Aelso.')).toEqual(['kelvin'])
+  })
+
+  it('rules out a text that is missing part of every name', () => {
+    const maybe = quickCheck(buildNameIndex([entry('tobin', 'Tobin Ash', ['the ferrywoman']), entry('mara', 'Mara')]))
+    expect(maybe('Tobin waited by the ferry.')).toBe(false)
+    expect(maybe('mara crossed.')).toBe(false)
+    expect(maybe('Mara crossed.')).toBe(true)
+    // Only a quick look: the parts are there, so the text is read word by word.
+    expect(maybe('Ash, said TOBIN.')).toBe(true)
+    expect(maybe('THE FERRYWOMAN waited.')).toBe(true)
+  })
+
+  it('reads every text for a name with letters beyond plain English ones that ignores case', () => {
+    expect(quickCheck(buildNameIndex([entry('x', 'the Ørsted twins')]))('Nothing here.')).toBe(true)
+    expect(quickCheck(buildNameIndex([entry('x', 'Ørsted')]))('Nothing here.')).toBe(false)
+  })
+})
+
 describe('the words around a mention', () => {
   it('is the sentence it is in, within its paragraph, exactly as written', () => {
     const text = 'The rain had not let up.\n\nMara kept her hood low. Tobin watched her go! Then the bell rang.'
     const at = text.indexOf('Tobin')
-    expect(quoteAround(text, at, at + 5)).toBe('Tobin watched her go!')
-    expect(quoteAround(text, text.indexOf('Mara'), text.indexOf('Mara') + 4)).toBe('Mara kept her hood low.')
+    expect(quoteAround(text, at, at + 5)).toEqual({ text: 'Tobin watched her go!', cutStart: false, cutEnd: false })
+    expect(quoteAround(text, text.indexOf('Mara'), text.indexOf('Mara') + 4).text).toBe('Mara kept her hood low.')
   })
 
   it('keeps a name with a full stop in it whole', () => {
     const text = 'They waited. At last Dr. Venn came in.'
     const at = text.indexOf('Dr.')
-    expect(quoteAround(text, at, at + 8)).toBe('At last Dr. Venn came in.')
+    expect(quoteAround(text, at, at + 8).text).toBe('At last Dr. Venn came in.')
   })
 
   it('cuts a long sentence to a few words either side', () => {
@@ -102,8 +132,12 @@ describe('the words around a mention', () => {
     const text = `${words.join(' ')}.`
     const at = text.indexOf('Mara')
     const q = quoteAround(text, at, at + 4)
-    expect(q.split(' ')).toHaveLength(25)
-    expect(q.startsWith('w10 ')).toBe(true)
-    expect(text.includes(q)).toBe(true)
+    expect(q.text.split(' ')).toHaveLength(25)
+    expect(q.text.startsWith('w10 ')).toBe(true)
+    expect(text.includes(q.text)).toBe(true)
+    // The sentence goes on either side, which is shown.
+    expect([q.cutStart, q.cutEnd]).toEqual([true, true])
+    const early = quoteAround(text, text.indexOf('w3 '), text.indexOf('w3 ') + 2)
+    expect([early.text.startsWith('w0 '), early.cutStart, early.cutEnd]).toEqual([true, false, true])
   })
 })

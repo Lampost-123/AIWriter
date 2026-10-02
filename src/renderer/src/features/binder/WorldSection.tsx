@@ -62,7 +62,11 @@ function Link({
       className={cn(
         'flex w-full items-center gap-2.5 rounded-md px-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
         nested ? 'h-7 text-[12.5px]' : 'h-8 text-[13px]',
-        active ? 'bg-accent-soft font-medium text-fg' : nested ? 'text-muted hover:bg-surface-2 hover:text-fg' : 'text-fg/90 hover:bg-surface-2'
+        active
+          ? 'bg-accent-soft font-medium text-fg'
+          : nested
+            ? 'text-muted hover:bg-surface-2 hover:text-fg'
+            : 'text-fg/90 hover:bg-surface-2'
       )}
     >
       <span className={cn('flex w-4 justify-center', active ? 'text-accent' : nested ? 'text-faint' : 'text-muted')}>{icon}</span>
@@ -100,11 +104,26 @@ export function WorldSection(): React.JSX.Element {
           />
         ))}
       </div>
-      <Link icon={<CalendarRange size={15} />} label="Timeline" active={view.kind === 'timeline'} onClick={() => navigate({ kind: 'timeline' })} />
+      <Link
+        icon={<CalendarRange size={15} />}
+        label="Timeline"
+        active={view.kind === 'timeline'}
+        onClick={() => navigate({ kind: 'timeline' })}
+      />
       <Link icon={<Network size={15} />} label="Relationship map" active={view.kind === 'map'} onClick={() => navigate({ kind: 'map' })} />
-      <Link icon={<Spool size={15} />} label="Plot threads board" active={view.kind === 'threads'} onClick={() => navigate({ kind: 'threads' })} />
+      <Link
+        icon={<Spool size={15} />}
+        label="Plot threads board"
+        active={view.kind === 'threads'}
+        onClick={() => navigate({ kind: 'threads' })}
+      />
       <Link icon={<Palette size={15} />} label="Style guide" active={view.kind === 'style'} onClick={() => navigate({ kind: 'style' })} />
-      <Link icon={<History size={15} />} label="What changed" active={view.kind === 'memory'} onClick={() => navigate({ kind: 'memory', sceneId: null })} />
+      <Link
+        icon={<History size={15} />}
+        label="What changed"
+        active={view.kind === 'memory'}
+        onClick={() => navigate({ kind: 'memory', sceneId: null })}
+      />
     </nav>
   )
 }

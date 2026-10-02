@@ -66,6 +66,23 @@ export function sortCards(cards: CodexCard[], sort: CodexSort): CodexCard[] {
   return list.sort(byName)
 }
 
+/**
+ * The cards the filters keep, in the chosen order. A search sorted by name puts the names that
+ * match first, then other names, then one-liners (A to Z within each), as the entry lists do.
+ */
+export function shownCards(cards: CodexCard[], f: CodexFilters, sort: CodexSort): CodexCard[] {
+  if (sort === 'name' && f.query.trim()) return filterCards(sortCards(cards, 'name'), f)
+  return sortCards(filterCards(cards, f), sort)
+}
+
+/** What "Nothing matches" says, by what is set: the search words, filters, or both. */
+export function nothingMatches(f: CodexFilters): string {
+  const filters = filtersOn({ ...f, query: '' })
+  if (!f.query.trim()) return `Nothing in the codex matches ${filters > 1 ? 'all of these filters' : 'this filter'}.`
+  if (!filters) return 'Nothing in the codex matches your search.'
+  return `Nothing in the codex matches your search and ${filters > 1 ? 'these filters' : 'this filter'}.`
+}
+
 export interface CodexGroup {
   kind: EntryKind
   /** "Characters", "Glossary". */
@@ -99,7 +116,9 @@ export function tagChoices(cards: CodexCard[]): Choice[] {
       if (key && !seen.has(key)) seen.set(key, t.trim())
     }
   }
-  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })).map((t) => ({ value: t, label: t }))
+  return [...seen.values()]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
+    .map((t) => ({ value: t, label: t }))
 }
 
 const ROLE_ORDER = ['protagonist', 'antagonist', 'supporting', 'minor']
