@@ -17,6 +17,7 @@ import {
   setSpeechServerUrl,
   setSpeechStartWithApp,
   showSpeechFolder,
+  undoRemoveHuggingFaceKey,
   undoRemoveSpeechDownloads,
   useMCreaderVoices
 } from '../speech'
@@ -34,6 +35,7 @@ export const speechHandlers: Handlers<keyof SpeechApi> = {
   useMCreaderVoices: () => useMCreaderVoices(),
   findMCreaderVoices: () => findMCreaderVoices(),
   setHuggingFaceKey: (key) => setHuggingFaceKey(typeof key === 'string' ? key : null),
+  undoRemoveHuggingFaceKey: () => undoRemoveHuggingFaceKey(),
   getSpeechStorage: () => getSpeechStorage(),
   showSpeechFolder: () => showSpeechFolder(),
   removeSpeechDownloads: () => removeSpeechDownloads(),

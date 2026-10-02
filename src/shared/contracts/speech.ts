@@ -21,7 +21,7 @@ export interface SpeechDownload {
   kind: SpeechDownloadKind
   /** 'running' while a step works; 'failed' and 'cancelled' wait for Try again (or Dismiss); 'done' shows briefly. */
   state: 'running' | 'failed' | 'cancelled' | 'done'
-  /** The step in plain words ("Downloading PyTorch for the graphics card"). */
+  /** The step in plain words ("Downloading the voice engine’s graphics card part"). */
   step: string
   /** Which step it is (from 1) of how many. */
   stepIndex: number
@@ -36,11 +36,12 @@ export interface SpeechDownload {
   error: string
   /**
    * A problem with a fix Settings offers: Python to install with one click ('python', Windows' own
-   * installer), Python to install from its website ('python-manual'), or a licence to accept on
-   * Hugging Face before the voices can download ('licence', with the Hugging Face key box).
+   * installer), Python to install from its website ('python-manual'), a licence to accept on Hugging
+   * Face before the voices can download ('licence', with the Hugging Face key box), or a Hugging Face
+   * key it turned down ('key', with the box for a new one).
    */
-  need: 'python' | 'python-manual' | 'licence' | null
-  /** The page that fixes it (Hugging Face's licence page, or python.org); '' when there is none. */
+  need: 'python' | 'python-manual' | 'licence' | 'key' | null
+  /** The page that fixes it (Hugging Face's licence or keys page, or python.org); '' when there is none. */
   link: string
 }
 
@@ -50,12 +51,20 @@ export interface SpeechStatus {
   server: SpeechServerState
   /** Voices can be spoken now: Breeze is installed and the server answers. */
   voicesReady: boolean
-  /** Dictation can be used now: the chosen dictation model is installed and the server answers. */
+  /**
+   * Dictation can be used now: the chosen dictation model is installed and the server answers with it. With
+   * none chosen in AI Write, the model a server AI Write didn't start has chosen for itself.
+   */
   dictationReady: boolean
   /** AI Write starts and stops the server itself ("Start with AI Write" is on). */
   managed: boolean
   /** Why the server isn't running when it should be, in plain words with the fix; '' when nothing is wrong. */
   problem: string
+  /**
+   * The fix for `problem` is downloading the speech engine again (part of it is missing or broken): Settings
+   * offers it with one click (downloadSpeech('server'); the voices and dictation models are kept).
+   */
+  repair: boolean
   /** What is downloaded on this computer. `voices` says whose copy: AI Write's own or MCreader's. */
   installed: { server: boolean; voices: 'own' | 'mcreader' | null; parakeet: boolean; whisper: boolean }
   /** What the server holds in memory now (a model unused for five minutes is let go). */
@@ -97,7 +106,12 @@ export interface SpeechApi {
   setSpeechServerUrl(url: string): Promise<SpeechStatus>
   /** The dictation model, remembered and loaded at start; picking one that isn't downloaded starts its download. */
   setDictationEngine(engine: 'none' | DictationModel): Promise<SpeechStatus>
-  /** Starts a download, or queues it behind the one running. Also Try again. */
+  /**
+   * Starts a download, or queues it behind the one running. Also Try again. The voices or a dictation model
+   * asked for before the speech engine is downloaded download it first (and turn "Start with AI Write" on
+   * when no other speech server answers). The speech engine asked for once it is downloaded is downloaded
+   * again: its environment is set up afresh (the repair Settings offers), the voices and models are kept.
+   */
   downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechStatus>
   /** Cancel: stops the download running (nothing half-made is kept as done) and the ones queued. */
   cancelSpeechDownload(): Promise<SpeechStatus>
@@ -111,6 +125,8 @@ export interface SpeechApi {
   findMCreaderVoices(): Promise<SpeechStatus>
   /** Saves the Hugging Face key (kept like the AI keys), or removes it with null. Only the voices' download uses it. */
   setHuggingFaceKey(key: string | null): Promise<SpeechStatus>
+  /** Undo for removing the Hugging Face key: puts it back, for a couple of minutes after (it never leaves the main process). */
+  undoRemoveHuggingFaceKey(): Promise<SpeechStatus>
   /** How much each download takes on disk. */
   getSpeechStorage(): Promise<SpeechStorage>
   /** Opens the speech folder in the file manager. */

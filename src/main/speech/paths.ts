@@ -66,3 +66,9 @@ export const breezeWeightsDir = (breezeRoot: string): string => join(breezeRoot,
 
 /** Breeze's inference code, unpacked from a pinned commit. */
 export const breezeCodeDir = (breezeRoot: string): string => join(breezeRoot, 'models', 'breeze', 'code')
+
+/**
+ * The mark the voices' last download step leaves once everything checked out (speech-server/tools/install.py,
+ * breeze-check): AI Write's own copy counts as downloaded only with it. Removed as the voices start downloading.
+ */
+export const breezeMark = (breezeRoot: string): string => join(breezeRoot, 'models', 'breeze', '.ready')

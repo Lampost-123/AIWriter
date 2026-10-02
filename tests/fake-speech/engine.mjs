@@ -7,37 +7,75 @@
 //   voices            Breeze is downloaded there (default true; voicesNotReady, the Read aloud part's, says no too)
 //   parakeet, whisper each dictation model is downloaded there (default true)
 //   home, breezeRoot  when set (AI Write started it as its own server), what isn't given above is read from
-//                     the files the fake downloads leave there (install.mjs), as the real server reads its own
+//                     the files the fake downloads leave there (install.mjs), with the real server's rules
+//                     (speech-server/app/downloaded.py): AI Write's own voices count with their mark, MCreader's
+//                     (breezeRoot) when their weights look whole, Parakeet with all four files in one folder,
+//                     Whisper with all of its files and nothing half-downloaded
 //   dictationEngine   the dictation model it starts with: 'parakeet' (default), 'whisper' or 'none'
 //   device            what the voices run on (default 'CUDA · NVIDIA GeForce RTX 4090'; 'CPU' for the processor)
 //   healthDelayMs     how long /health takes to answer (default 0)
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DICTATION = ['none', 'parakeet', 'whisper']
+const BREEZE_NEEDS = ['config.json', 'tokenizer.json', 'tokenizer_config.json', join('audio_tokenizer', 'model.safetensors')]
+const BREEZE_INDEX = 'model.safetensors.index.json'
+const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
+const WHISPER_FILES = ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']
 
-/** `file` is in `dir` or one folder down (how the models unpack). */
-function within(dir, file) {
-  if (existsSync(join(dir, file))) return true
+const folders = (dir) => {
   try {
-    return readdirSync(dir).some((d) => existsSync(join(dir, d, file)))
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+  } catch {
+    return []
+  }
+}
+
+const allIn = (dir, files) => files.every((f) => existsSync(join(dir, f)))
+
+/** A Hugging Face cache folder with nothing half-downloaded, and its snapshot with all of `files`. */
+function snapshotWith(cache, files) {
+  let half = false
+  try {
+    half = readdirSync(join(cache, 'blobs')).some((n) => n.endsWith('.incomplete'))
+  } catch {
+    /* no blobs */
+  }
+  if (half) return null
+  const name = folders(join(cache, 'snapshots')).find((n) => allIn(join(cache, 'snapshots', n), files))
+  return name ? join(cache, 'snapshots', name) : null
+}
+
+/** Breeze's weights at `root`: AI Write's own copy by its mark, MCreader's when every shard its index names is there. */
+function breezeWeights(root, own) {
+  const cache = join(root, 'models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2')
+  if (own) return existsSync(join(root, 'models', 'breeze', '.ready')) && !!snapshotWith(cache, ['config.json'])
+  const snapshot = snapshotWith(cache, [...BREEZE_NEEDS, BREEZE_INDEX])
+  if (!snapshot) return false
+  try {
+    const shards = Object.values(JSON.parse(readFileSync(join(snapshot, BREEZE_INDEX), 'utf8')).weight_map ?? {})
+    return shards.length > 0 && allIn(snapshot, shards.map(String))
   } catch {
     return false
   }
 }
 
-/** What is downloaded in AI Write's speech folder, from the same files AI Write checks. */
+/** What is downloaded in AI Write's speech folder, with the rules AI Write and the real server use. */
 function onDisk(options, id) {
   const home = options.home
   if (id === 'voices') {
     const root = options.breezeRoot || home
-    return (
-      existsSync(join(root, 'models', 'breeze', 'code', 'breeze_infer')) &&
-      within(join(root, 'models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2', 'snapshots'), 'config.json')
-    )
+    return existsSync(join(root, 'models', 'breeze', 'code', 'breeze_infer')) && breezeWeights(root, root === home)
   }
-  if (id === 'parakeet') return within(join(home, 'models', 'parakeet'), 'encoder.int8.onnx')
-  return within(join(home, 'models', 'whisper', 'models--Systran--faster-whisper-base.en', 'snapshots'), 'model.bin')
+  if (id === 'parakeet') {
+    const dir = join(home, 'models', 'parakeet')
+    // Itself or one folder down, never the one being unpacked.
+    const inside = folders(dir).filter((n) => n !== '.unpack')
+    return [dir, ...inside.map((n) => join(dir, n))].some((d) => allIn(d, PARAKEET_FILES))
+  }
+  return !!snapshotWith(join(home, 'models', 'whisper', 'models--Systran--faster-whisper-base.en'), WHISPER_FILES)
 }
 
 function engineOf(state) {

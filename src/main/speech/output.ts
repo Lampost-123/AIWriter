@@ -2,8 +2,9 @@
 // latest percentage wins) (Adam's rule, 2 October 2026: only speech code is reused).
 //
 // Reading what a download step prints: pip's "Progress <done> of <total>", the server's own install tool
-// ("@@progress", "@@licence", "@@gpu", "@@error", see speech-server/tools/install.py), Windows' installer's
-// bars, and plain lines worth showing as "the latest line". Then what went wrong, in plain words. Pure.
+// ("@@progress", "@@licence", "@@key", "@@gpu", "@@error", see speech-server/tools/install.py), Windows'
+// installer's bars, and plain lines worth showing as "the latest line". Then what went wrong, in plain words.
+// Pure.
 
 /** What one line of output says. */
 export type OutputEvent =
@@ -11,6 +12,8 @@ export type OutputEvent =
   | { kind: 'percent'; percent: number }
   | { kind: 'file'; name: string }
   | { kind: 'licence'; url: string }
+  /** Hugging Face turned the saved key down. */
+  | { kind: 'key' }
   | { kind: 'gpu'; name: string }
   | { kind: 'error'; message: string }
   | { kind: 'line'; text: string }
@@ -64,6 +67,7 @@ export function parseLine(raw: string): OutputEvent | null {
   if (m) return { kind: 'bytes', done: Number(m[1]), total: Number(m[2]) }
   m = /^@@licence\s+(\S+)/.exec(line)
   if (m) return { kind: 'licence', url: m[1] }
+  if (/^@@key$/.test(line)) return { kind: 'key' }
   m = /^@@gpu\s+(.+)$/.exec(line)
   if (m) return { kind: 'gpu', name: m[1].trim() === 'none' ? '' : m[1].trim() }
   m = /^@@error\s+(.+)$/.exec(line)
@@ -162,9 +166,12 @@ export class StepProgress {
 /** A step that failed, in plain words. */
 export interface Failure {
   error: string
-  need: 'python' | 'python-manual' | 'licence' | null
+  need: 'python' | 'python-manual' | 'licence' | 'key' | null
   link: string
 }
+
+/** Where Hugging Face's keys are made. */
+export const HF_KEYS_PAGE = 'https://huggingface.co/settings/tokens'
 
 const NO_SPACE = /No space left on device|Errno 28|not enough space on the disk|ENOSPC|disk is full/i
 const OFFLINE =
@@ -189,6 +196,7 @@ export function explainFailure(recent: readonly string[], fallback: string, plat
       link: licence.slice('@@licence '.length).trim()
     }
   }
+  if (recent.includes('@@key')) return { error: 'Hugging Face didn’t accept the saved key.', need: 'key', link: HF_KEYS_PAGE }
   if (NO_SPACE.test(text))
     return { error: 'There isn’t enough free space on the disk. Free some up, then Try again.', need: null, link: '' }
   if (own) return { error: own.slice('@@error '.length).trim(), need: null, link: '' }

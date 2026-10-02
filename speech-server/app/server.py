@@ -12,7 +12,9 @@ Poor Man's Holodeck's dictation: `/v1/audio/transcriptions` takes a WAV clip and
 AI Write's own: `/v1/dictation` says which dictation engine is chosen and loaded, and picks another.
 
 Everything is bound to this computer and holds no credentials, so requests are not authenticated;
-nothing here should ever be exposed to a network.
+nothing here should ever be exposed to a network. A web page open in a browser on this computer can't
+drive it either: `guard.Guard` checks every request's Host header, and takes a request that changes
+something only from a program that means to send it (AI Write's header, or a JSON or audio body).
 """
 
 import asyncio
@@ -20,6 +22,7 @@ import os
 import tempfile
 import threading
 import time
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
@@ -32,12 +35,20 @@ from . import engines as engine_pool
 from . import stt
 from .audio import SAMPLE_RATE, tail_silence, to_wav
 from .engines import EngineError
+from .guard import Guard
 from .lifeline import end_with
 
 MAX_CHARS = 4000
 # Poor Man's Holodeck's limit: about four minutes of 16 kHz mono 16-bit audio.
 MAX_CLIP_BYTES = 8_000_000
 STARTED = time.time()
+# What Adam reads when dictation fails in a way the engines don't explain (the details go to the log).
+DICTATION_FAILED = (
+    "Dictation couldn’t hear that clip. Try again; if it keeps happening, pick the other model in Settings › Read aloud and dictation."
+)
+LOAD_FAILED = (
+    "That dictation model couldn’t be loaded. Download it again in Settings › Read aloud and dictation, or pick the other one."
+)
 
 
 def _unload_everything() -> list[str]:
@@ -89,6 +100,8 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
+# Only programs on this computer that mean to talk to it (guard.py).
+app.add_middleware(Guard)
 
 
 class SpeechBody(BaseModel):
@@ -251,14 +264,17 @@ async def transcribe(request: Request) -> dict:
     try:
         text = await asyncio.to_thread(run)
     except stt.DictationError as exc:
+        # Already in plain words.
         raise HTTPException(503, str(exc)) from exc
     except ImportError:
         raise HTTPException(
             503,
             "That dictation model is not installed. In Settings, Read aloud and dictation, download it or pick the other one.",
         )
-    except Exception as exc:  # noqa: BLE001 — AI Write shows this to Adam
-        raise HTTPException(503, f"Dictation failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 — AI Write shows the answer to Adam: plain words, the details in the log
+        print("Dictation failed:", flush=True)
+        traceback.print_exc()
+        raise HTTPException(503, DICTATION_FAILED) from exc
     return {"text": text}
 
 
@@ -273,8 +289,13 @@ async def dictation_pick(body: dict = Body(default={})) -> dict:
     engine = str((body or {}).get("engine") or "none")
     try:
         await asyncio.to_thread(stt.use, engine)
-    except Exception as exc:  # noqa: BLE001 — Settings shows this
+    except stt.DictationError as exc:
+        # Already in plain words.
         raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — plain words for Settings, the details in the log
+        print(f"Dictation: could not load {engine}:", flush=True)
+        traceback.print_exc()
+        raise HTTPException(503, LOAD_FAILED) from exc
     return _dictation()
 
 

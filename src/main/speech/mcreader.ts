@@ -52,7 +52,7 @@ export function mcreaderCandidates(
 /** The tts folder in `dir` (MCreader's own folder, or its tts folder itself) when the voices are complete there; else null. */
 export function mcreaderVoicesIn(dir: string, platform: NodeJS.Platform = process.platform): string | null {
   for (const tts of [join(dir, 'tts'), dir]) {
-    if (existsSync(tts) && breezeComplete(tts, platform)) return tts
+    if (existsSync(tts) && breezeComplete(tts, platform, false)) return tts
   }
   return null
 }
@@ -65,7 +65,7 @@ export function findMCreader(
   guess = true
 ): string | null {
   for (const tts of mcreaderCandidates(env, home, platform, guess)) {
-    if (existsSync(tts) && breezeComplete(tts, platform)) return tts
+    if (existsSync(tts) && breezeComplete(tts, platform, false)) return tts
   }
   return null
 }

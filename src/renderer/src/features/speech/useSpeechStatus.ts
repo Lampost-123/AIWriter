@@ -1,8 +1,9 @@
 // The speech server's status, kept up to date (milestone 4). Owned by the Speech engine part.
 //
-// One copy for the whole window: the 'speech:status' events keep it current, and Settings also asks
-// again every few seconds while it shows (what the server holds in memory changes as models are let go).
-// A download that finishes says so in a toast, wherever Adam is by then.
+// One copy for the whole window: asked for as the window opens (so Settings has it before it shows, and
+// nothing jumps as it arrives), kept current by the 'speech:status' events, and asked again every few
+// seconds while Settings shows (what the server holds in memory changes as models are let go). A download
+// that finishes says so in a toast, wherever Adam is by then.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { SpeechDownloadKind, SpeechStatus } from '@shared/contracts/speech'
@@ -69,4 +70,15 @@ export function useSpeechStatus(opts: { poll?: boolean } = {}): SpeechStatus | n
     return () => clearInterval(timer)
   }, [poll])
   return useStore((s) => s.status)
+}
+
+/** The status as known now, without asking again: for the parts of Settings inside the speech engine's own. */
+export function useKnownSpeechStatus(): SpeechStatus | null {
+  return useStore((s) => s.status)
+}
+
+// As the window opens (Settings imports this): the main process answers at once from what it knows.
+if (typeof window !== 'undefined' && window.aiwrite) {
+  listen()
+  void loadSpeechStatus().catch(() => undefined)
 }

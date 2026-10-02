@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { request } from 'node:http'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +21,8 @@ function parts(over: Partial<StatusParts> = {}): StatusParts {
     starting: false,
     health: null,
     problem: '',
+    repair: false,
+    picked: 'none',
     installed: { server: false, voices: null, parakeet: false, whisper: false },
     nvidia: null,
     mcreader: null,
@@ -90,6 +93,28 @@ describe('what the server says about itself', () => {
     const refused = await fetch(`${rootOf((await start()).url)}/shutdown`, { method: 'POST', body: 'x' })
     expect(refused.status).toBe(415)
   })
+
+  it('is asked in a way a web page can’t copy: every request carries AI Write’s header', async () => {
+    // The fake refuses what the real server refuses (speech-server/app/guard.py).
+    const f = await start({ guard: true, dictationEngine: 'none' })
+    expect(await fetchHealth(f.url)).not.toBeNull()
+    expect(await pickDictation(f.url, 'whisper')).toEqual({ ok: true, detail: '' })
+    expect(f.requests().every((r) => r.ours)).toBe(true)
+    // A page's "simple" request, with no body type that needs asking first, is turned away...
+    expect((await fetch(`${f.url}/unload`, { method: 'POST' })).status).toBe(403)
+    expect((await fetch(`${f.url}/unload`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' })).status).toBe(403)
+    // ...and so is a request made through another name for this computer (a rebinding page's).
+    const status = await new Promise<number>((done, fail) => {
+      const req = request(`${f.url}/health`, { headers: { host: `evil.example:${f.port}` } }, (res) => {
+        res.resume()
+        done(res.statusCode ?? 0)
+      })
+      req.on('error', fail)
+      req.end()
+    })
+    expect(status).toBe(400)
+    expect(await askToShutDown(f.url)).toBe(true)
+  })
 })
 
 describe('the status Settings shows', () => {
@@ -119,7 +144,25 @@ describe('the status Settings shows', () => {
     })
   })
 
-  it('counts dictation ready only when the model the server picked is downloaded there', () => {
+  it('counts dictation ready only for the model picked in Settings, run by the server and downloaded there', () => {
+    const health = (engine: 'none' | 'parakeet' | 'whisper', parakeet: boolean, whisper: boolean) => ({
+      service: 'aiwrite-speech',
+      device: 'CPU',
+      voices: { ready: false, loaded: false },
+      dictation: { engine, loaded: engine === 'none' ? null : engine, parakeet, whisper }
+    })
+    // Whisper picked while it downloads: the server still holds Parakeet, which doesn't count.
+    expect(buildStatus(parts({ picked: 'whisper', health: health('parakeet', true, false) })).dictationReady).toBe(false)
+    expect(buildStatus(parts({ picked: 'whisper', health: health('parakeet', true, true) })).dictationReady).toBe(false)
+    // The server took the pick, but the model isn't all there.
+    expect(buildStatus(parts({ picked: 'whisper', health: health('whisper', true, false) })).dictationReady).toBe(false)
+    expect(buildStatus(parts({ picked: 'whisper', health: health('whisper', false, true) })).dictationReady).toBe(true)
+    expect(buildStatus(parts({ picked: 'parakeet', health: health('parakeet', true, false) })).dictationReady).toBe(true)
+    // What it holds in memory is reported as it is.
+    expect(buildStatus(parts({ picked: 'whisper', health: health('parakeet', true, false) })).loaded.dictation).toBe('parakeet')
+  })
+
+  it('with none picked in AI Write, counts the model a server AI Write didn’t start chose for itself', () => {
     const health = (engine: 'none' | 'parakeet' | 'whisper', parakeet: boolean) => ({
       service: 'aiwrite-speech',
       device: 'CPU',
@@ -138,6 +181,13 @@ describe('the status Settings shows', () => {
     expect(buildStatus(parts({ problem: 'It stopped.', starting: true })).problem).toBe('')
   })
 
+  it('offers downloading the speech engine again only with a problem that it fixes', () => {
+    expect(buildStatus(parts({ problem: 'Part of it is missing.', repair: true })).repair).toBe(true)
+    expect(buildStatus(parts({ problem: 'Part of it is missing.', repair: true, starting: true })).repair).toBe(false)
+    expect(buildStatus(parts({ problem: '', repair: true })).repair).toBe(false)
+    expect(buildStatus(parts({ problem: 'Another program is using port 8766.' })).repair).toBe(false)
+  })
+
   it('names the device in plain words', () => {
     expect(deviceName('CPU')).toBe('Processor')
     expect(deviceName('CUDA · NVIDIA GeForce RTX 3060')).toBe('NVIDIA GeForce RTX 3060')
@@ -146,13 +196,24 @@ describe('the status Settings shows', () => {
     expect(deviceName('')).toBe('')
   })
 
-  it('explains a server that stopped while starting, from its log', () => {
-    expect(startProblem('ERROR: [Errno 98] error while attempting to bind on address: address already in use', 8766)).toMatch(
-      /Another program is using port 8766/
+  it('explains a server that stopped while starting, from its log, and whether downloading it again fixes it', () => {
+    const port = startProblem('ERROR: [Errno 98] error while attempting to bind on address: address already in use', 8766)
+    expect(port.text).toMatch(/Another program is using port 8766/)
+    expect(port.repair).toBe(false)
+    expect(startProblem('[WinError 10048] Only one usage of each socket address', 8766).text).toMatch(/http:\/\/127\.0\.0\.1:8767\/v1/)
+    expect(startProblem("ModuleNotFoundError: No module named 'fastapi'", 8766)).toEqual({
+      text: 'Part of the speech engine is missing. Download it again below (about 150 MB); the voices are kept.',
+      repair: true
+    })
+    const other = startProblem('Traceback ... KeyError', 8766)
+    expect(other.text).toMatch(
+      /stopped while starting. Check again; if it keeps happening, download it again below \(about 150 MB\); the voices are kept\./
     )
-    expect(startProblem('[WinError 10048] Only one usage of each socket address', 8766)).toMatch(/http:\/\/127\.0\.0\.1:8767\/v1/)
-    expect(startProblem("ModuleNotFoundError: No module named 'fastapi'", 8766)).toMatch(/Part of the speech engine is missing/)
-    expect(startProblem('Traceback ... KeyError', 8766)).toMatch(/stopped while starting/)
+    expect(other.repair).toBe(true)
+    expect(startProblem('MemoryError', 8766).repair).toBe(false)
+    // Never the old advice to remove everything (the 12 GB of voices with it).
+    for (const log of ['ModuleNotFoundError', 'KeyError', 'MemoryError', 'address already in use'])
+      expect(startProblem(log, 8766).text).not.toMatch(/Remove/i)
   })
 })
 

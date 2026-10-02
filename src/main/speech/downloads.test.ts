@@ -26,6 +26,7 @@ interface FakeRun {
 function setup(plans: Partial<Record<SpeechDownloadKind, { steps: Step[] } | { failure: Failure }>> = {}) {
   const runs: FakeRun[] = []
   const finished: string[] = []
+  const failed: string[] = []
   let changes = 0
   const deps: DownloadDeps = {
     plan: async (kind) => plans[kind] ?? { steps: [step(`${kind}-1`), step(`${kind}-2`)] },
@@ -60,11 +61,14 @@ function setup(plans: Partial<Record<SpeechDownloadKind, { steps: Step[] } | { f
     finished: async (kind) => {
       finished.push(kind)
     },
+    failed: (kind, stepId) => {
+      failed.push(`${kind}:${stepId}`)
+    },
     changed: () => {
       changes++
     }
   }
-  return { d: new Downloads(deps), runs, finished, changes: () => changes }
+  return { d: new Downloads(deps), runs, finished, failed, changes: () => changes }
 }
 
 /** Lets the downloads' promises settle. */
@@ -159,6 +163,45 @@ describe('the speech downloads', () => {
     expect(d.queue).toEqual([])
     d.dismiss()
     expect(d.current).toBeNull()
+  })
+
+  it('say which step a download stopped at, so Try again can set a broken environment up afresh', async () => {
+    const { d, runs, failed } = setup()
+    d.start('server')
+    await settle()
+    runs[0].update({ stepId: 'check', label: 'Checking the speech engine', index: 4 })
+    runs[0].finish({ outcome: 'failed', failure: { error: 'The speech engine didn’t install properly.', need: null, link: '' } })
+    await settle()
+    expect(failed).toEqual(['server:check'])
+    // Stopped before its first step (Python missing): no step.
+    const python = setup({ server: { failure: { error: 'No Python.', need: 'python', link: '' } } })
+    python.d.start('server')
+    await settle()
+    expect(python.failed).toEqual(['server:'])
+    // Cancel isn't a failure.
+    const { d: e, runs: r, failed: none } = setup()
+    e.start('voices')
+    await settle()
+    r[0].update({ stepId: 'check' })
+    e.cancel()
+    await settle()
+    expect(none).toEqual([])
+  })
+
+  it('drop one waiting that is no longer wanted, and leave the rest', async () => {
+    const { d, runs } = setup()
+    d.start('server')
+    d.start('parakeet')
+    d.start('voices')
+    await settle()
+    d.unqueue('parakeet')
+    expect(d.queue).toEqual(['voices'])
+    d.unqueue('whisper')
+    expect(d.queue).toEqual(['voices'])
+    expect(d.pending('parakeet')).toBe(false)
+    runs[0].finish({ outcome: 'done', gpu: null })
+    await settle()
+    expect(d.current).toMatchObject({ kind: 'voices', state: 'running' })
   })
 
   it('stop before any step when Python is missing, asking to install it', async () => {

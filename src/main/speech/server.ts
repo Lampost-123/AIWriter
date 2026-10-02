@@ -10,6 +10,11 @@ import { createServer } from 'node:net'
 import { dirname } from 'node:path'
 import { killTree, ownGroup } from './processes'
 import { readHealth, type Health } from './status'
+import { SPEECH_HEADER } from './url'
+
+/** What every request to the server carries (url.ts), and with a JSON body its type. */
+const OURS: Record<string, string> = { [SPEECH_HEADER[0]]: SPEECH_HEADER[1] }
+const JSON_HEADERS = { ...OURS, 'content-type': 'application/json' }
 
 export interface ServerLaunch {
   command: string
@@ -81,7 +86,7 @@ export const rootOf = (base: string): string => base.replace(/\/v1\/?$/, '')
 /** What the server says about itself, or null when nothing answers in time. */
 export async function fetchHealth(base: string, timeoutMs = 1500): Promise<Health | null> {
   try {
-    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(timeoutMs) })
+    const res = await fetch(`${base}/health`, { headers: OURS, signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return null
     return readHealth(await res.json())
   } catch {
@@ -94,7 +99,7 @@ export async function askToShutDown(base: string): Promise<boolean> {
   try {
     const res = await fetch(`${rootOf(base)}/shutdown`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: JSON_HEADERS,
       body: '{}',
       signal: AbortSignal.timeout(5000)
     })
@@ -109,7 +114,7 @@ export async function pickDictation(base: string, engine: string, timeoutMs = 12
   try {
     const res = await fetch(`${base}/dictation`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ engine }),
       signal: AbortSignal.timeout(timeoutMs)
     })

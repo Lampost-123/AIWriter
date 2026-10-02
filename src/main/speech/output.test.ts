@@ -123,6 +123,19 @@ describe('what went wrong, in plain words', () => {
     expect(f.error).toMatch(/licence to be accepted/)
   })
 
+  it('asks for a new key when Hugging Face turned the saved one down, not for the licence again', () => {
+    const f = explainFailure(
+      [
+        'Downloading the voices',
+        '@@key',
+        '@@error Hugging Face didn’t accept the saved key. Make a new key with read access, save it, then Try again.'
+      ],
+      fallback
+    )
+    expect(f).toEqual({ error: 'Hugging Face didn’t accept the saved key.', need: 'key', link: 'https://huggingface.co/settings/tokens' })
+    expect(parseLine('@@key')).toEqual({ kind: 'key' })
+  })
+
   it('says when the disk is full, before anything else', () => {
     const f = explainFailure(
       ['ERROR: Could not install packages due to an OSError: [Errno 28] No space left on device', '@@error It stopped.'],

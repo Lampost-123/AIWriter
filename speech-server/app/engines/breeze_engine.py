@@ -5,7 +5,7 @@ Research and non-commercial licence for the weights and anything they speak: fin
 hearing your own manuscript, not for audio you sell.
 """
 
-from .. import config
+from .. import config, downloaded
 from ..config import VOICES
 from .worker_engine import WorkerEngine
 
@@ -13,7 +13,7 @@ from .worker_engine import WorkerEngine
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
 
 # The weights, as MCreader names them, so its copy on this computer can be used as it is.
-REPO = "BreezeBlue/breeze-tts-2"
+REPO = downloaded.BREEZE_REPO
 
 # id, name, gender, traits. The descriptions they are made from are in workers/breeze.py.
 PRESETS = [
@@ -29,12 +29,9 @@ PRESETS = [
 
 
 def weights_downloaded() -> bool:
-    """The weights are in the Hugging Face cache (any snapshot with its config), so Breeze can load offline."""
-    snapshots = config.BREEZE_HF_HOME / "hub" / f"models--{REPO.replace('/', '--')}" / "snapshots"
-    try:
-        return any((s / "config.json").is_file() for s in snapshots.iterdir())
-    except OSError:
-        return False
+    """All of the weights are here, so Breeze can load offline: AI Write's own copy once its download checked
+    out (it leaves a mark), MCreader's when every file looks whole. A download stopped part way never counts."""
+    return downloaded.breeze_complete(config.BREEZE_ROOT, own=downloaded.same_folder(config.BREEZE_ROOT, config.HOME))
 
 
 class BreezeEngine(WorkerEngine):

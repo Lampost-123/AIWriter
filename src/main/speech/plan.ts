@@ -4,7 +4,7 @@
 // The steps of each download, as program + argument list: never a shell command line, and nothing Adam
 // types (the Hugging Face key goes in the one step that needs it, as an environment variable). Each step
 // is safe to run again, so Try again simply starts the download over. Pure: tests read the plans.
-import type { SpeechDownloadKind } from '@shared/contracts/speech'
+import type { DictationModel, SpeechDownloadKind } from '@shared/contracts/speech'
 import { join } from 'node:path'
 import { venvPython, type SpeechPaths } from './paths'
 import { wingetArgs } from './system'
@@ -31,12 +31,14 @@ export interface PlanInput {
   platform: NodeJS.Platform
   /** The Python an environment is made with (its full path), when one has to be made. */
   basePython: string | null
-  /** The server's environment is there and its Python runs. */
+  /** The server's environment is there and its Python runs (false also sets it up afresh: a repair). */
   serverVenv: boolean
-  /** Breeze's environment is there, in AI Write's own copy. */
+  /** Breeze's environment is there, in AI Write's own copy (false also sets it up afresh). */
   breezeVenv: boolean
   /** The Hugging Face key, when one is saved. Only the voices' weights step gets it. */
   hfKey: string | null
+  /** The dictation models downloaded: their engines live in the server's environment, so setting it up afresh puts them back. */
+  dictation?: DictationModel[]
 }
 
 /** github.com/breezeblue-ai/breeze-tts was tested on this PyTorch; the CUDA 12.8 build covers NVIDIA cards from the RTX 20s to the 50s. */
@@ -113,9 +115,14 @@ const tool = (paths: SpeechPaths, python: string, step: string, extra: string[] 
   args: [join(paths.source, 'tools', 'install.py'), step, ...extra]
 })
 
-/** The server itself: its environment and packages (about 150 MB with Python's own). */
+/** Roughly how much each dictation model's engine downloads into the server's environment. */
+const DICTATION_BYTES: Record<DictationModel, number> = { parakeet: 40e6, whisper: 120e6 }
+
+/** The server itself: its environment and packages (about 150 MB with Python's own), with the engines of the dictation models downloaded. */
 function serverPlan(i: PlanInput): Step[] {
   const { paths } = i
+  const dictation = i.serverVenv ? [] : (i.dictation ?? [])
+  const engines = dictation.flatMap((m) => DICTATION_PACKAGES[m])
   const steps: Step[] = []
   if (!i.serverVenv) steps.push(venvStep('venv', 'Setting up Python for the speech engine', i.basePython, paths.venv))
   steps.push(pipUpgrade(paths.python))
@@ -123,9 +130,9 @@ function serverPlan(i: PlanInput): Step[] {
     id: 'packages',
     label: 'Downloading the speech engine',
     command: paths.python,
-    args: [...PIP, '--progress-bar', 'raw', '-r', join(paths.source, 'requirements.txt')],
+    args: [...PIP, '--progress-bar', 'raw', '-r', join(paths.source, 'requirements.txt'), ...engines],
     progress: 'files',
-    expect: 40e6,
+    expect: 40e6 + dictation.reduce((n, m) => n + DICTATION_BYTES[m], 0),
     fails: `The speech engine didn’t finish downloading. ${TRY_AGAIN}`
   })
   steps.push({
@@ -133,7 +140,8 @@ function serverPlan(i: PlanInput): Step[] {
     label: 'Checking the speech engine',
     ...tool(paths, paths.python, 'check-server'),
     progress: 'whole',
-    fails: 'The speech engine didn’t install properly. Try again; if it keeps failing, remove the downloads in More and download it again.'
+    // Try again after this step fails sets the environment up afresh (index.ts).
+    fails: 'The speech engine didn’t install properly. Try again to set it up afresh; the voices are kept.'
   })
   return steps
 }
@@ -152,13 +160,14 @@ function voicesPlan(i: PlanInput): Step[] {
   steps.push(pipUpgrade(python))
   steps.push({
     id: 'torch',
-    label: 'Downloading PyTorch for the graphics card',
+    // PyTorch, for the graphics card: a name Adam needn't know.
+    label: 'Downloading the voice engine’s graphics card part',
     command: python,
     // There is no CUDA build for the Mac; there it is PyTorch's own (the voices are far too slow without NVIDIA anyway).
     args: [...PIP, '--progress-bar', 'raw', ...TORCH, ...(i.platform === 'darwin' ? [] : ['--index-url', TORCH_INDEX])],
     progress: 'files',
     expect: 3.2e9,
-    fails: `PyTorch didn’t finish downloading. ${TRY_AGAIN}`
+    fails: `The voice engine’s graphics card part didn’t finish downloading. ${TRY_AGAIN}`
   })
   steps.push({
     id: 'packages',
@@ -172,10 +181,10 @@ function voicesPlan(i: PlanInput): Step[] {
   if (i.platform !== 'darwin') {
     steps.push({
       id: 'torch-check',
-      label: 'Checking PyTorch',
+      label: 'Checking the graphics card part',
       ...tool(paths, python, 'breeze-torch'),
       progress: 'files',
-      fails: `PyTorch for the graphics card couldn’t be put in place. ${TRY_AGAIN}`
+      fails: `The voice engine’s graphics card part couldn’t be put in place. ${TRY_AGAIN}`
     })
   }
   steps.push({
@@ -196,9 +205,11 @@ function voicesPlan(i: PlanInput): Step[] {
   steps.push({
     id: 'check',
     label: 'Checking the voices',
-    ...tool(paths, python, 'breeze-check'),
+    // Leaves the mark that says AI Write's own copy is complete (models/breeze/.ready).
+    ...tool(paths, python, 'breeze-check', ['--root', root]),
     progress: 'whole',
-    fails: 'The voices didn’t install properly. Try again; if it keeps failing, remove the downloads in More and download them again.'
+    // Try again after this step fails sets the voices' environment up afresh (index.ts).
+    fails: 'The voice engine didn’t install properly. Try again to set it up afresh; the voices already downloaded are kept.'
   })
   return steps
 }

@@ -6,12 +6,12 @@ import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'reac
 import type { DictationModel, SpeechDownload, SpeechDownloadKind, SpeechStatus, SpeechStorage } from '@shared/contracts/speech'
 import { SPEECH_SERVER_URL } from '@shared/defaults'
 import { Badge, Button, Card, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { Switch } from '@/features/world/parts/Switch'
 import { Segmented } from '@/features/generate/parts'
-import { setSpeechStatus, useSpeechStatus } from './useSpeechStatus'
+import { setSpeechStatus, useKnownSpeechStatus, useSpeechStatus } from './useSpeechStatus'
 
 /** What each download is called in Settings, and its size. */
 const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
@@ -42,9 +42,40 @@ async function refreshSettings(): Promise<void> {
   useApp.setState({ settings: await api.getSettings() })
 }
 
+/** A change a control already shows: if it couldn't be saved, the control goes back to what is saved. */
+async function change(run: () => Promise<SpeechStatus>): Promise<void> {
+  await act(run)
+  await refreshSettings().catch(() => undefined)
+}
+
+/** Starts a download, or tries one again. The voices or a dictation model download the engine first, which turns “Start with AI Write” on. */
+const download = (kind: SpeechDownloadKind): Promise<boolean> => act(() => api.downloadSpeech(kind), refreshSettings)
+
 export function SpeechEngineSettings({ section }: { section: 'everyday' | 'more' }): React.JSX.Element | null {
   const status = useSpeechStatus({ poll: true })
   return section === 'everyday' ? <Everyday status={status} /> : <More status={status} />
+}
+
+/** What the rows are drawn with, hidden, until the status is known (it usually is already), so nothing below them jumps. */
+function standIn(runServer: boolean): SpeechStatus {
+  return {
+    server: 'not-running',
+    voicesReady: false,
+    dictationReady: false,
+    managed: runServer,
+    problem: '',
+    repair: false,
+    installed: { server: runServer, voices: null, parakeet: false, whisper: false },
+    loaded: { voices: false, dictation: null },
+    device: '',
+    nvidia: null,
+    mcreader: null,
+    download: null,
+    queued: [],
+    hfKey: false,
+    folder: '',
+    address: SPEECH_SERVER_URL
+  }
 }
 
 // ---------- Everyday ----------
@@ -64,12 +95,14 @@ function StatusBadge({ status }: { status: SpeechStatus | null }): React.JSX.Ele
 }
 
 function Everyday({ status }: { status: SpeechStatus | null }): React.JSX.Element {
+  const runServer = useApp((s) => !!s.settings?.speech?.runServer)
   const [checking, setChecking] = useState(false)
   const check = async (): Promise<void> => {
     setChecking(true)
     await act(() => api.checkSpeech())
     setChecking(false)
   }
+  const shown = status ?? standIn(runServer)
   return (
     <SettingsSection
       title="Speech engine"
@@ -81,17 +114,11 @@ function Everyday({ status }: { status: SpeechStatus | null }): React.JSX.Elemen
         </Button>
       }
     >
-      <Card className={cn('divide-y divide-line', !status && 'invisible')}>
-        {status ? (
-          <>
-            <Readiness status={status} />
-            <StartWithApp status={status} />
-            <Voices status={status} />
-            <Dictation status={status} />
-          </>
-        ) : (
-          <div className="h-[420px]" aria-busy />
-        )}
+      <Card className={cn('divide-y divide-line', !status && 'invisible')} aria-hidden={status ? undefined : true}>
+        <Readiness status={shown} />
+        <StartWithApp status={shown} />
+        <Voices status={shown} />
+        <Dictation status={shown} />
       </Card>
     </SettingsSection>
   )
@@ -134,20 +161,24 @@ function voicesFact(s: SpeechStatus): { value: string; ready: boolean } {
 
 const modelName = (m: DictationModel): string => (m === 'parakeet' ? 'Parakeet' : 'Whisper')
 
+/**
+ * Always about the model picked. It is ready only when the server runs that very model (status.ts): another
+ * one the server still holds, while the picked one downloads, never counts.
+ */
 function dictationFact(s: SpeechStatus, picked: 'none' | DictationModel): { value: string; ready: boolean } {
-  const name = picked === 'parakeet' ? 'Parakeet' : picked === 'whisper' ? 'Whisper' : ''
-  if (!name) {
+  if (picked === 'none') {
     // A speech server AI Write didn't start may have its own model ready.
     if (s.server === 'connected' && s.dictationReady)
       return { value: s.loaded.dictation ? `${modelName(s.loaded.dictation)}, loaded` : 'Ready', ready: true }
     return { value: 'Not picked', ready: false }
   }
-  if (isPending(s, picked as DictationModel)) return { value: `${name}, downloading`, ready: false }
+  const name = modelName(picked)
+  if (isPending(s, picked)) return { value: `${name}, downloading`, ready: false }
   if (s.server === 'connected') {
-    if (s.dictationReady) return { value: s.loaded.dictation ? `${name}, loaded` : `${name}, ready`, ready: true }
-    return { value: s.installed[picked as DictationModel] ? `${name}, not ready` : `${name}, not downloaded`, ready: false }
+    if (s.dictationReady) return { value: s.loaded.dictation === picked ? `${name}, loaded` : `${name}, ready`, ready: true }
+    return { value: s.installed[picked] ? `${name}, not ready` : `${name}, not downloaded`, ready: false }
   }
-  return { value: s.installed[picked as DictationModel] ? `${name}, downloaded` : `${name}, not downloaded`, ready: false }
+  return { value: s.installed[picked] ? `${name}, downloaded` : `${name}, not downloaded`, ready: false }
 }
 
 function Readiness({ status }: { status: SpeechStatus }): React.JSX.Element {
@@ -167,7 +198,7 @@ function Readiness({ status }: { status: SpeechStatus }): React.JSX.Element {
   )
 }
 
-/** A sentence under the facts when there is something to say: starting, a problem, or how to start it. */
+/** A sentence under the facts when there is something to say: starting, a problem (with its fix), or how to start it. */
 function StatusLine({ status }: { status: SpeechStatus }): React.JSX.Element | null {
   const custom = status.address !== SPEECH_SERVER_URL
   const line = 'mt-3 text-[12.5px] leading-5'
@@ -183,7 +214,18 @@ function StatusLine({ status }: { status: SpeechStatus }): React.JSX.Element | n
       </p>
     )
   }
-  if (status.problem) return <p className={cn(line, 'text-danger')}>{status.problem}</p>
+  if (status.problem) {
+    return (
+      <div className="mt-3">
+        <p className="text-[12.5px] leading-5 text-danger">{status.problem}</p>
+        {status.repair ? (
+          <Button size="sm" className="mt-2.5" icon={<Download size={13} />} onClick={() => void download('server')}>
+            Download the speech engine again
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
   let text = 'Turn on “Start with AI Write” below to run it whenever AI Write is open.'
   if (status.managed) text = status.installed.server ? 'Press Check to start it.' : 'It starts once the speech engine is downloaded.'
   else if (custom) text = `Nothing answers at ${status.address}. Start that speech server, or turn on “Start with AI Write” below.`
@@ -224,9 +266,9 @@ function StartWithApp({ status }: { status: SpeechStatus }): React.JSX.Element {
   const id = useId()
   const toggle = async (next: boolean): Promise<void> => {
     setBusy(true)
-    // The switch moves at once; the status follows.
+    // The switch moves at once; the status follows (and the switch goes back if it couldn't be saved).
     useApp.setState((s) => (s.settings ? { settings: { ...s.settings, speech: { ...s.settings.speech, runServer: next } } } : {}))
-    await act(() => api.setSpeechStartWithApp(next), refreshSettings)
+    await change(() => api.setSpeechStartWithApp(next))
     setBusy(false)
   }
   return (
@@ -289,7 +331,7 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
               size="sm"
               variant={noCard ? 'secondary' : 'primary'}
               icon={<Download size={13} />}
-              onClick={() => void act(() => api.downloadSpeech('voices'))}
+              onClick={() => void download('voices')}
             >
               Download the voices
             </Button>
@@ -303,13 +345,7 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
       ) : null}
       {installed === 'mcreader' && !pending && !stopped ? (
         <div className="mt-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="-ml-2.5"
-            icon={<Download size={13} />}
-            onClick={() => void act(() => api.downloadSpeech('voices'))}
-          >
+          <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Download size={13} />} onClick={() => void download('voices')}>
             Download AI Write’s own copy
           </Button>
         </div>
@@ -328,11 +364,14 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   ]
   const pick = async (engine: 'none' | DictationModel): Promise<void> => {
     if (engine === picked) return
+    // The picker moves at once (and goes back if it couldn't be saved).
     useApp.setState((s) => (s.settings ? { settings: { ...s.settings, speech: { ...s.settings.speech, dictationEngine: engine } } } : {}))
-    await act(() => api.setDictationEngine(engine), refreshSettings)
+    await change(() => api.setDictationEngine(engine))
   }
   const chosen = picked === 'none' ? null : picked
   const missing = chosen && !status.installed[chosen] && !isPending(status, chosen) && status.download?.kind !== chosen
+  // Only the model picked, or one still downloading: a download stopped for a model Adam moved away from isn't offered again.
+  const shows = (m: DictationModel): boolean => m === chosen || isPending(status, m)
   return (
     <Row icon={<Mic size={16} />} title="Dictation">
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
@@ -348,14 +387,14 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
       />
       {missing ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-[12.5px] text-muted">{chosen === 'parakeet' ? 'Parakeet' : 'Whisper'} isn’t downloaded yet.</span>
-          <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => void act(() => api.downloadSpeech(chosen))}>
-            Download {chosen === 'parakeet' ? 'Parakeet' : 'Whisper'} ({KINDS[chosen].size})
+          <span className="text-[12.5px] text-muted">{modelName(chosen)} isn’t downloaded yet.</span>
+          <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => void download(chosen)}>
+            Download {modelName(chosen)} ({KINDS[chosen].size})
           </Button>
         </div>
       ) : null}
-      <DownloadFor kind="parakeet" status={status} />
-      <DownloadFor kind="whisper" status={status} />
+      {shows('parakeet') ? <DownloadFor kind="parakeet" status={status} /> : null}
+      {shows('whisper') ? <DownloadFor kind="whisper" status={status} /> : null}
     </Row>
   )
 }
@@ -364,6 +403,14 @@ const isPending = (s: SpeechStatus, kind: SpeechDownloadKind): boolean =>
   (s.download?.kind === kind && s.download.state === 'running') || s.queued.includes(kind)
 
 // ---------- Downloads ----------
+
+/** "The voices download next", "Parakeet downloads after the voices". */
+function comesNext(kind: SpeechDownloadKind, queued: SpeechDownloadKind[]): string {
+  const name = KINDS[kind].name
+  const at = queued.indexOf(kind)
+  const when = at > 0 ? `after ${KINDS[queued[at - 1]].name}` : 'next'
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind === 'voices' ? 'download' : 'downloads'} ${when}.`
+}
 
 /** The download card for `kind`: running, waiting, stopped by Cancel or failed. One that finished says so in a toast (useSpeechStatus). */
 function DownloadFor({ kind, status }: { kind: SpeechDownloadKind; status: SpeechStatus }): React.JSX.Element | null {
@@ -374,7 +421,7 @@ function DownloadFor({ kind, status }: { kind: SpeechDownloadKind; status: Speec
     return (
       <p className="mt-3 flex items-center gap-2 text-[12.5px] text-muted animate-fade-in">
         <Spinner size={12} />
-        Waiting for {ahead} to finish, then {KINDS[kind].name} download.
+        Waiting for {ahead} to finish. {comesNext(kind, status.queued)}
       </p>
     )
   }
@@ -418,7 +465,7 @@ function DownloadCard({ download: d }: { download: SpeechDownload }): React.JSX.
         </div>
         <div className="mt-2 flex items-center gap-3">
           <p className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-faint" title={d.line}>
-            {d.line || ' '}
+            {d.line || ' '}
           </p>
           {d.amount ? <span className="shrink-0 text-[12px] tabular-nums text-muted">{d.amount}</span> : null}
           <Button size="sm" variant="ghost" onClick={() => void act(() => api.cancelSpeechDownload())}>
@@ -435,7 +482,7 @@ function DownloadCard({ download: d }: { download: SpeechDownload }): React.JSX.
         <Notice
           action={
             <div className="flex shrink-0 gap-2">
-              <Button size="sm" onClick={() => void act(() => api.downloadSpeech(d.kind))}>
+              <Button size="sm" onClick={() => void download(d.kind)}>
                 Try again
               </Button>
               <Button size="sm" variant="ghost" onClick={() => void act(() => api.dismissSpeechDownload())}>
@@ -456,7 +503,7 @@ function DownloadCard({ download: d }: { download: SpeechDownload }): React.JSX.
 function Problem({ download: d }: { download: SpeechDownload }): React.JSX.Element {
   const [installing, setInstalling] = useState(false)
   const retry = (
-    <Button size="sm" onClick={() => void act(() => api.downloadSpeech(d.kind))}>
+    <Button size="sm" onClick={() => void download(d.kind)}>
       Try again
     </Button>
   )
@@ -492,6 +539,7 @@ function Problem({ download: d }: { download: SpeechDownload }): React.JSX.Eleme
     )
   }
   if (d.need === 'licence') return <Licence download={d} retry={retry} dismiss={dismiss} />
+  if (d.need === 'key') return <KeyRefused download={d} dismiss={dismiss} />
   return (
     <div className="mt-3">
       <Notice
@@ -515,8 +563,22 @@ function Problem({ download: d }: { download: SpeechDownload }): React.JSX.Eleme
   )
 }
 
-/** Hugging Face wants the voices' licence accepted: the page to do it, and the key box. */
+/** Where a Hugging Face key is made, as a link. */
+function KeysPageLink({ children }: { children: ReactNode }): React.JSX.Element {
+  return (
+    <a href={HF_KEYS_PAGE} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-1', linkClass)}>
+      {children}
+      <ExternalLink size={12} />
+    </a>
+  )
+}
+
+/**
+ * Hugging Face wants the voices' licence accepted: the page to do it, and the key box ("Save key and try
+ * again"). A separate Try again only once a key is saved (without one it would stop the same way).
+ */
 function Licence({ download: d, retry, dismiss }: { download: SpeechDownload; retry: ReactNode; dismiss: ReactNode }): React.JSX.Element {
+  const saved = !!useKnownSpeechStatus()?.hfKey
   return (
     <div className="mt-3 rounded-lg border border-line bg-surface-2/60 p-3 text-[13px] leading-relaxed animate-fade-in">
       <p className="font-medium text-fg">{d.error}</p>
@@ -535,34 +597,58 @@ function Licence({ download: d, retry, dismiss }: { download: SpeechDownload; re
           , sign in, and accept the licence.
         </li>
         <li>
-          <a href={HF_KEYS_PAGE} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-1', linkClass)}>
-            Make a key on Hugging Face
-            <ExternalLink size={12} />
-          </a>{' '}
-          (read access is enough) and paste it below.
+          <KeysPageLink>Make a key on Hugging Face</KeysPageLink> (read access is enough) and paste it below.
         </li>
       </ol>
       <div className="mt-3">
-        <HuggingFaceKey compact onSaved={() => void act(() => api.downloadSpeech(d.kind))} />
+        <HuggingFaceKey compact onSaved={() => void download(d.kind)} />
       </div>
       <div className="mt-3 flex gap-2">
-        {retry}
+        {saved ? retry : null}
         {dismiss}
       </div>
     </div>
   )
 }
 
-/** The Hugging Face key: saved like the AI keys, never shown again. In the licence card (`compact`), saving it tries the download again. */
-function HuggingFaceKey({ compact = false, onSaved }: { compact?: boolean; onSaved?: () => void }): React.JSX.Element {
-  const status = useSpeechStatus()
-  const saved = !!status?.hfKey
+/** Hugging Face turned the saved key down: where to make a new one, and the box for it. */
+function KeyRefused({ download: d, dismiss }: { download: SpeechDownload; dismiss: ReactNode }): React.JSX.Element {
+  return (
+    <div className="mt-3 rounded-lg border border-line bg-surface-2/60 p-3 text-[13px] leading-relaxed animate-fade-in">
+      <p className="font-medium text-fg">{d.error}</p>
+      <p className="mt-1.5 text-muted">
+        It may have been mistyped, deleted on Hugging Face, or made without read access.{' '}
+        <KeysPageLink>Make a new key on Hugging Face</KeysPageLink> (read access is enough) and paste it below.
+      </p>
+      <div className="mt-3">
+        <HuggingFaceKey compact replace onSaved={() => void download(d.kind)} />
+      </div>
+      <div className="mt-3 flex gap-2">{dismiss}</div>
+    </div>
+  )
+}
+
+/**
+ * The Hugging Face key: saved like the AI keys, never shown again. In a download's card (`compact`), saving it
+ * tries the download again; `replace` asks for a new one in place of the one saved.
+ */
+function HuggingFaceKey({
+  compact = false,
+  replace = false,
+  onSaved
+}: {
+  compact?: boolean
+  replace?: boolean
+  onSaved?: () => void
+}): React.JSX.Element {
+  const saved = !!useKnownSpeechStatus()?.hfKey
   const [key, setKey] = useState('')
   const [replacing, setReplacing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const id = useId()
-  const showForm = !saved || replacing
+  const showForm = !saved || replacing || replace
+  const asNew = saved && (replacing || replace)
 
   const save = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
@@ -585,8 +671,8 @@ function HuggingFaceKey({ compact = false, onSaved }: { compact?: boolean; onSav
   }
 
   const remove = async (): Promise<void> => {
-    await act(() => api.setHuggingFaceKey(null))
-    toast('Hugging Face key removed.')
+    if (!(await act(() => api.setHuggingFaceKey(null)))) return
+    toast('Hugging Face key removed.', { action: { label: 'Undo', run: () => void act(() => api.undoRemoveHuggingFaceKey()) } })
   }
 
   if (!showForm) {
@@ -604,7 +690,7 @@ function HuggingFaceKey({ compact = false, onSaved }: { compact?: boolean; onSav
       </div>
     )
   }
-  const label = replacing ? 'New Hugging Face key' : 'Hugging Face key'
+  const label = asNew ? 'New Hugging Face key' : 'Hugging Face key'
   const input = (id: string): React.JSX.Element => (
     <Input
       id={id}
@@ -668,26 +754,22 @@ function HuggingFaceKey({ compact = false, onSaved }: { compact?: boolean; onSav
 // ---------- More ----------
 
 function More({ status }: { status: SpeechStatus | null }): React.JSX.Element {
+  const runServer = useApp((s) => !!s.settings?.speech?.runServer)
+  const shown = status ?? standIn(runServer)
   return (
     <SettingsSection title="Speech engine" description="Where the speech engine is, the key for its downloads, and the space they take.">
-      <Card className={cn('divide-y divide-line', !status && 'invisible')}>
-        {status ? (
-          <>
-            <Address status={status} />
-            <div className="p-4">
-              <MoreTitle icon={<KeyRound size={14} />} title="Hugging Face key" />
-              <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
-                Only needed if Hugging Face asks for the voices’ licence to be accepted before they download. It is kept on this computer,
-                encrypted, like your AI keys, and used for that download only.
-              </p>
-              <HuggingFaceKey />
-            </div>
-            {!status.mcreader && status.installed.voices !== 'mcreader' ? <FindMCreader /> : null}
-            <Storage status={status} />
-          </>
-        ) : (
-          <div className="h-[360px]" aria-busy />
-        )}
+      <Card className={cn('divide-y divide-line', !status && 'invisible')} aria-hidden={status ? undefined : true}>
+        <Address status={shown} />
+        <div className="p-4">
+          <MoreTitle icon={<KeyRound size={14} />} title="Hugging Face key" />
+          <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+            Only needed if Hugging Face asks for the voices’ licence to be accepted before they download. It is kept on this computer,
+            encrypted, like your AI keys, and used for that download only.
+          </p>
+          <HuggingFaceKey />
+        </div>
+        {!shown.mcreader && shown.installed.voices !== 'mcreader' ? <FindMCreader /> : null}
+        <Storage status={shown} known={!!status} />
       </Card>
     </SettingsSection>
   )
@@ -794,13 +876,27 @@ const PART_NAMES: Record<SpeechDownloadKind, string> = {
   whisper: 'Whisper'
 }
 
-function Storage({ status }: { status: SpeechStatus }): React.JSX.Element {
+/** Undo for Remove downloads. If some files are still held for a moment, it says so and can be tried again. */
+async function undoRemove(): Promise<void> {
+  try {
+    setSpeechStatus(await api.undoRemoveSpeechDownloads())
+  } catch (e) {
+    const again = e instanceof ApiError && e.code === 'speech-in-use'
+    toast((e as Error).message, { tone: 'danger', action: again ? { label: 'Try again', run: () => void undoRemove() } : undefined })
+    return
+  }
+  await refreshSettings().catch(() => undefined)
+}
+
+function Storage({ status, known }: { status: SpeechStatus; known: boolean }): React.JSX.Element {
   const [storage, setStorage] = useState<SpeechStorage | null>(null)
   const [removing, setRemoving] = useState(false)
   const installedKey = JSON.stringify(status.installed)
   const busy = status.download?.state === 'running'
 
   useEffect(() => {
+    // Measured once the status is known (it walks the whole speech folder), and again as downloads come and go.
+    if (!known) return
     let live = true
     void api
       .getSpeechStorage()
@@ -809,7 +905,7 @@ function Storage({ status }: { status: SpeechStatus }): React.JSX.Element {
     return () => {
       live = false
     }
-  }, [installedKey])
+  }, [installedKey, known])
 
   const remove = async (): Promise<void> => {
     setRemoving(true)
@@ -817,12 +913,7 @@ function Storage({ status }: { status: SpeechStatus }): React.JSX.Element {
     setRemoving(false)
     if (!ok) return
     setStorage((s) => (s ? { ...s, total: 0, parts: s.parts.map((p) => ({ ...p, bytes: 0 })) } : s))
-    toast('Speech downloads removed.', {
-      action: {
-        label: 'Undo',
-        run: () => void act(() => api.undoRemoveSpeechDownloads(), refreshSettings)
-      }
-    })
+    toast('Speech downloads removed.', { action: { label: 'Undo', run: () => void undoRemove() } })
   }
 
   const total = storage?.total ?? 0
@@ -842,7 +933,7 @@ function Storage({ status }: { status: SpeechStatus }): React.JSX.Element {
         }
       />
       <p className="truncate text-[12.5px] text-muted" title={status.folder}>
-        {status.folder}
+        {status.folder || ' '}
       </p>
       <p className="mt-1 text-[12px] tabular-nums text-faint">
         {storage
@@ -850,7 +941,7 @@ function Storage({ status }: { status: SpeechStatus }): React.JSX.Element {
               .filter((p) => p.bytes > 0)
               .map((p) => `${PART_NAMES[p.kind]} ${formatSize(p.bytes)}`)
               .join(' · ') || 'Nothing downloaded yet.'
-          : ' '}
+          : ' '}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
         <p className="min-w-[220px] flex-1 text-[12.5px] leading-relaxed text-muted">

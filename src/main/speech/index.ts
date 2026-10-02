@@ -19,18 +19,19 @@ import { userDataDir } from '../paths'
 import { getSecret, hasSecret, setSecret } from '../secrets'
 import { getSettings, updateSettings } from '../settings'
 import { renameRetry, UserError } from '../util'
+import { speechFetch } from './client'
 import { Downloads } from './downloads'
-import { installedNow, readManifest, writeManifest, type SpeechManifest } from './installed'
+import { breezeComplete, installedNow, readManifest, writeManifest, type SpeechManifest } from './installed'
 import { findMCreader, mcreaderVoicesIn } from './mcreader'
 import { PYTHON_PAGE, type Failure } from './output'
-import { speechPaths, venvPython, type SpeechPaths } from './paths'
+import { breezeMark, speechPaths, venvPython, type SpeechPaths } from './paths'
 import { DROP_ENV, planFor, pythonStep, stepEnv, type Step } from './plan'
 import { childEnv } from './processes'
 import { StepRunner } from './runner'
 import { askToShutDown, fetchHealth, freePort, listenOn, logTail, pickDictation, portFree, ServerProcess } from './server'
 import { setStarting } from './starting'
 import { cleanHuggingFaceKey, HF_KEY_SECRET as HF_KEY } from './hfkey'
-import { buildStatus, startProblem, type Health } from './status'
+import { buildStatus, DOWNLOAD_AGAIN, startProblem, type Health } from './status'
 import { findNvidia, findPythons, findWinget, pickPython, PREFER, realSystem, type FoundPython } from './system'
 import { normaliseAddress, speechBase } from './url'
 
@@ -38,8 +39,10 @@ import { normaliseAddress, speechBase } from './url'
 const START_WAIT_MS = 90_000
 /** How often AI Write asks the server how it is (what is loaded changes as models are let go). */
 const POLL_MS = 10_000
-/** Removed downloads are kept aside this long, for Undo, then deleted. */
+/** Removed downloads, and a removed Hugging Face key, are kept this long for Undo; then they are gone. */
 const KEEP_REMOVED_MS = 120_000
+/** How long picking a dictation model waits for the server to switch before answering (it carries on after). */
+const SWITCH_WAIT_MS = 300
 
 const fake = {
   install: (): string => process.env.AIWRITE_FAKE_SPEECH_INSTALL ?? '',
@@ -47,6 +50,8 @@ const fake = {
   python: (): string => process.env.AIWRITE_FAKE_SPEECH_PYTHON ?? '',
   gpu: (): string | undefined => process.env.AIWRITE_FAKE_SPEECH_GPU
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 // ---------------------------------------------------------------------------------------------
 // Where things are
@@ -71,18 +76,35 @@ const address = (): string => speechBase(speechSettings()?.serverUrl)
 const server = new ServerProcess()
 let health: Health | null = null
 let starting: Promise<void> | null = null
+/** Counts starts: stopping the server (or a newer start) makes an older start give up at its next step. */
+let startGen = 0
+/** Counts stops: an answer to a question asked before the latest stop is old news. */
+let stopGen = 0
 let stopping = false
 /** The server AI Write started has answered since it was started (so an exit is a crash, not a failed start). */
 let answered = false
+/** Why the server isn't running when it should be, and whether downloading it again is the fix. */
 let problem = ''
+let problemRepair = false
+/** The server has been asked how it is at least once (Settings then answers at once and asks again meanwhile). */
+let checked = false
 let nvidia: string | null = null
 let lookingForCard: Promise<void> | null = null
 let mcreader: string | null | undefined
 let pythons: FoundPython[] | null = null
 let poll: ReturnType<typeof setInterval> | null = null
+/** Environments to set up afresh at their next download: the speech engine asked for again (the repair), or a check step that failed. */
+const rebuild = new Set<'server' | 'voices'>()
 let removed: { dir: string; runServer: boolean; timer: ReturnType<typeof setTimeout> } | null = null
+/** The Hugging Face key just removed, for Undo: only ever in the main process's memory, never shown or logged. */
+let removedKey: { key: string; timer: ReturnType<typeof setTimeout> } | null = null
 let emitTimer: ReturnType<typeof setTimeout> | null = null
 let lastEmit = 0
+
+function setProblem(text = '', repair = false): void {
+  problem = text
+  problemRepair = !!text && repair
+}
 
 function status(): SpeechStatus {
   const s = speechSettings()
@@ -93,6 +115,8 @@ function status(): SpeechStatus {
     starting: !!starting || (!!s?.runServer && downloads.pending('server')),
     health,
     problem,
+    repair: problemRepair,
+    picked: s?.dictationEngine ?? 'none',
     installed: installedNow(p, manifest),
     nvidia,
     mcreader: mcreader ?? null,
@@ -118,20 +142,29 @@ function changed(): void {
 
 /** Asks the server how it is; tells the window when that changed. */
 async function refresh(timeoutMs = 1500): Promise<Health | null> {
+  const asked = stopGen
   const before = JSON.stringify(health)
   const h = await fetchHealth(address(), timeoutMs)
+  // The server was stopped while it answered: what it said no longer holds.
+  if (asked !== stopGen) return health
   health = h
-  if (h) problem = ''
+  checked = true
+  if (h) setProblem()
   if (JSON.stringify(h) !== before) changed()
   return h
 }
 
-function lookForCard(): void {
-  if (nvidia !== null || lookingForCard) return
+/** Looks for an NVIDIA card once; `again` looks afresh (Check) but keeps what was found until there's an answer, so nothing flickers. */
+function lookForCard(again = false): void {
+  if ((nvidia !== null && !again) || lookingForCard) return
   lookingForCard = (async () => {
     const forced = fake.gpu()
-    nvidia = forced !== undefined ? forced : await findNvidia(realSystem()).catch(() => '')
-    changed()
+    const found = forced !== undefined ? forced : await findNvidia(realSystem()).catch(() => null)
+    const next = found ?? nvidia ?? ''
+    if (next !== nvidia) {
+      nvidia = next
+      changed()
+    }
   })().finally(() => {
     lookingForCard = null
   })
@@ -139,8 +172,11 @@ function lookForCard(): void {
 
 function lookForMCreader(): void {
   const s = realSystem()
+  // The copy in use is remembered (installed.json), wherever it was found: by the search or by hand ("Find its folder…").
+  const v = readManifest(manifestFile()).voices
+  const inUse = v?.from === 'mcreader' && breezeComplete(v.root, s.platform, false) ? v.root : null
   // The app's tests only look where MCREADER_TTS_DIR says, never in the real home folder.
-  mcreader = findMCreader(s.env, homedir(), s.platform, !fake.install())
+  mcreader = inUse ?? findMCreader(s.env, homedir(), s.platform, !fake.install())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -195,10 +231,22 @@ function fakeSteps(kind: SpeechDownloadKind | 'python', steps: Step[]): Step[] {
 let usedPython = ''
 
 async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { failure: Failure }> {
-  const p = paths()
+  const manifest = readManifest(manifestFile())
+  const p = paths(manifest)
+  const fresh = (kind === 'server' || kind === 'voices') && rebuild.has(kind)
+  // The server runs from its environment, so it stops while that is set up afresh (it starts again after).
+  if (kind === 'server' && fresh) await stopServer()
+  if (kind === 'voices') {
+    // AI Write's own copy counts as downloaded again only once this download's last step has checked it.
+    rmSync(breezeMark(p.home), { force: true })
+    // The voices' worker runs from their environment: the server lets go of it first.
+    if (fresh && p.breezeRoot === p.home && health) {
+      await speechFetch('/unload', { method: 'POST', timeoutMs: 15_000 }).catch(() => undefined)
+    }
+  }
   const breezePython = venvPython(join(p.home, 'venvs', 'breeze'))
-  const serverVenv = await venvWorks(p.python)
-  const breezeVenv = kind === 'voices' ? await venvWorks(breezePython) : false
+  const serverVenv = kind === 'server' && fresh ? false : await venvWorks(p.python)
+  const breezeVenv = kind === 'voices' && !fresh ? await venvWorks(breezePython) : false
   let basePython: string | null = null
   if ((kind === 'server' && !serverVenv) || (kind === 'voices' && !breezeVenv)) {
     const found = pickPython(await detectPythons(), PREFER[kind === 'server' ? 'server' : 'voices'])
@@ -215,8 +263,18 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
       }
     }
   }
+  const installed = installedNow(p, manifest)
   const hfKey = kind === 'voices' ? getSecret(HF_KEY) : null
-  const steps = planFor(kind, { paths: p, platform: process.platform, basePython, serverVenv, breezeVenv, hfKey })
+  const steps = planFor(kind, {
+    paths: p,
+    platform: process.platform,
+    basePython,
+    serverVenv,
+    breezeVenv,
+    hfKey,
+    // Set up afresh, the server's environment gets the dictation engines back too.
+    dictation: (['parakeet', 'whisper'] as const).filter((m) => installed[m])
+  })
   return { steps: fake.install() ? fakeSteps(kind, steps) : steps }
 }
 
@@ -252,17 +310,22 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   const manifest = readManifest(file)
   const at = new Date().toISOString()
   const before = paths(manifest)
-  if (kind === 'server') manifest.server = { at, python: usedPython }
+  if (kind === 'server') manifest.server = { at, python: usedPython || manifest.server?.python || '' }
   else if (kind === 'voices') manifest.voices = { at, from: 'own', root: before.home, gpu: result.gpu ?? '' }
   else manifest[kind] = { at }
   writeManifest(file, manifest)
+  if (kind === 'server' || kind === 'voices') rebuild.delete(kind)
   if (kind === 'voices' && result.gpu !== null && !nvidia) nvidia = result.gpu
   // pip's downloads and the steps' leftovers aren't needed once it worked.
   void rm(join(before.cache, 'pip'), { recursive: true, force: true }).catch(() => undefined)
   void rm(join(before.cache, 'tmp'), { recursive: true, force: true }).catch(() => undefined)
 
   const s = speechSettings()
-  if (kind === 'server' && s.runServer) void ensureRunning()
+  // The speech engine is (again) ready to start; or it was stopped while its environment was set up afresh.
+  if (kind === 'server' || (s.runServer && !server.running && !health)) {
+    if (s.runServer) void ensureRunning()
+    else void refresh()
+  }
   // The server was running MCreader's copy: it runs AI Write's own from now on.
   else if (kind === 'voices' && before.breezeRoot !== before.home) void restart()
   else if ((kind === 'parakeet' || kind === 'whisper') && s.dictationEngine === kind && health) void useDictation(kind)
@@ -270,7 +333,12 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   else void refresh()
 }
 
-const downloads = new Downloads({ plan, runner, finished, changed })
+/** A download stopped on a problem. Its environment didn't check out: Try again sets it up afresh. */
+function failed(kind: SpeechDownloadKind, stepId: string): void {
+  if (stepId === 'check' && (kind === 'server' || kind === 'voices')) rebuild.add(kind)
+}
+
+const downloads = new Downloads({ plan, runner, finished, failed, changed })
 
 // ---------------------------------------------------------------------------------------------
 // The server
@@ -313,9 +381,11 @@ function launch(p: SpeechPaths, host: string, port: number) {
 server.onExit(() => {
   health = null
   if (!stopping) {
-    problem = answered
-      ? 'The speech engine stopped unexpectedly. Check to start it again.'
-      : startProblem(logTail(join(paths().logs, 'server.log')), listenOn(address()).port)
+    if (answered) setProblem('The speech engine stopped unexpectedly. Check to start it again.')
+    else {
+      const why = startProblem(logTail(join(paths().logs, 'server.log')), listenOn(address()).port)
+      setProblem(why.text, why.repair)
+    }
   }
   answered = false
   changed()
@@ -325,78 +395,101 @@ server.onExit(() => {
 function ensureRunning(): Promise<void> {
   if (!speechSettings().runServer) return Promise.resolve()
   if (starting) return starting
-  starting = (async () => {
+  const gen = ++startGen
+  // Stopping the server, or a newer start, ends this one at its next step.
+  const live = (): boolean => gen === startGen
+  const run = (async () => {
     // After `starting` is set, so the window hears "Starting".
     await null
-    problem = ''
+    setProblem()
     changed()
-    if (await refresh()) return
+    if ((await refresh()) || !live()) return
     const p = paths()
     if (!installedNow(p, readManifest(p.manifest)).server) {
       // The first time: download it; it starts when the download finishes.
       if (!downloads.pending('server')) downloads.start('server')
       return
     }
+    // Being set up afresh: it starts when that finishes.
+    if (downloads.pending('server')) return
     if (!server.running) {
       let { host, port } = listenOn(address())
       if (!(await portFree(host, port))) {
         // Another program has the port (it isn't answering as a speech server): use the next free one, and keep Settings in step.
         const other = await freePort(host, port + 1, port + 40)
+        if (!live()) return
         if (other === null) {
-          problem = startProblem('address already in use', port)
+          const why = startProblem('address already in use', port)
+          setProblem(why.text, why.repair)
           return
         }
         port = other
         updateSettings({ speech: { serverUrl: `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}/v1` } })
       }
+      if (!live()) return
       mkdirSync(p.logs, { recursive: true })
       answered = false
       try {
         server.start(launch(p, host, port))
       } catch {
-        problem = 'The speech engine couldn’t be started. Remove its downloads in More and download it again.'
+        setProblem('Part of the speech engine is missing. Download it again below (about 150 MB); the voices are kept.', true)
         return
       }
     }
     const until = Date.now() + START_WAIT_MS
-    while (Date.now() < until && server.running) {
-      await new Promise((r) => setTimeout(r, 250))
+    while (Date.now() < until && server.running && live()) {
+      await sleep(250)
+      if (!live()) return
       if (await refresh(1000)) {
+        if (!live()) return
         answered = server.running
         syncDictation()
         return
       }
     }
-    if (server.running) problem = 'The speech engine is taking a long time to start. Check again in a moment.'
+    if (live() && server.running) setProblem('The speech engine is taking a long time to start. Check again in a moment.')
   })()
     .catch((e: unknown) => {
       console.warn('[speech] could not start the speech server', e)
-      problem =
-        'The speech engine couldn’t be started. Check again; if it keeps happening, remove its downloads in More and download it again.'
+      if (live()) setProblem(`The speech engine couldn’t be started. Check again; if it keeps happening, ${DOWNLOAD_AGAIN}.`, true)
     })
     .finally(() => {
-      starting = null
-      setStarting(null)
+      if (starting === run) {
+        starting = null
+        setStarting(null)
+      }
       changed()
     })
-  setStarting(starting)
-  return starting
+  starting = run
+  setStarting(run)
+  return run
 }
 
-/** Stops the server AI Write started: politely (it unloads its models), then by force. A server it didn't start is left alone. */
+/**
+ * Stops the server AI Write started: politely when it answers (it unloads its models), else at once. A start
+ * under way gives up at its next step, without being waited for. A server AI Write didn't start is left alone.
+ */
 async function stopServer(): Promise<void> {
-  await starting?.catch(() => undefined)
+  stopGen++
+  if (starting) {
+    startGen++
+    starting = null
+    setStarting(null)
+  }
   if (!server.running) return
   stopping = true
   try {
-    await askToShutDown(address())
-    for (let i = 0; i < 20 && server.running; i++) await new Promise((r) => setTimeout(r, 250))
+    if (answered) {
+      await askToShutDown(address())
+      for (let i = 0; i < 20 && server.running; i++) await sleep(250)
+    }
     server.stop()
   } finally {
     stopping = false
   }
+  answered = false
   health = null
-  problem = ''
+  setProblem()
   changed()
 }
 
@@ -406,10 +499,12 @@ async function restart(): Promise<void> {
   await ensureRunning()
 }
 
-/** The server is running another dictation model than the one picked: pick it there too. */
+/** The server is running another dictation model than the one picked, which is downloaded: it switches too. */
 function syncDictation(): void {
   const picked = speechSettings().dictationEngine
-  if (picked !== 'none' && health?.dictation && health.dictation.engine !== picked) void useDictation(picked)
+  if (picked === 'none' || !health?.dictation || health.dictation.engine === picked) return
+  const p = paths()
+  if (installedNow(p, readManifest(p.manifest))[picked]) void useDictation(picked)
 }
 
 async function useDictation(engine: 'none' | DictationModel): Promise<void> {
@@ -442,6 +537,14 @@ function deleteRemoved(): void {
   }
 }
 
+/** Deletes removed downloads once Undo can no longer bring them back. */
+function deleteLater(dir: string): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    if (removed?.dir === dir) removed = null
+    void rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
+  }, KEEP_REMOVED_MS)
+}
+
 // ---------------------------------------------------------------------------------------------
 // What the app calls
 
@@ -465,17 +568,20 @@ export function stopSpeech(): void {
 
 export async function getSpeechStatus(): Promise<SpeechStatus> {
   lookForCard()
-  if (!starting) await refresh()
+  // Once the server has been asked, Settings gets what is known at once; a change since arrives as speech:status.
+  if (!starting) {
+    if (checked) void refresh()
+    else await refresh()
+  }
   return status()
 }
 
 export async function checkSpeech(): Promise<SpeechStatus> {
   lookForMCreader()
-  nvidia = null
-  lookForCard()
+  lookForCard(true)
   if (starting) return status()
   const h = await refresh(3000)
-  if (!h && speechSettings().runServer && !downloads.busy) void ensureRunning()
+  if (!h && speechSettings().runServer && !downloads.pending('server')) void ensureRunning()
   return status()
 }
 
@@ -484,11 +590,12 @@ export async function setSpeechStartWithApp(on: boolean): Promise<SpeechStatus> 
   if (on) {
     void ensureRunning()
     // Show "Starting" (or the download) at once.
-    await new Promise((r) => setTimeout(r, 0))
+    await sleep(0)
   } else {
+    // Its download was for starting it (and what waits behind it needs it); set up afresh, it only waits.
     if (downloads.busy && downloads.current?.kind === 'server') downloads.cancel()
-    else if (downloads.queue.includes('server')) downloads.cancel()
-    problem = ''
+    else downloads.unqueue('server')
+    setProblem()
     await stopServer()
     await refresh()
   }
@@ -498,11 +605,10 @@ export async function setSpeechStartWithApp(on: boolean): Promise<SpeechStatus> 
 export async function setSpeechServerUrl(input: string): Promise<SpeechStatus> {
   const url = normaliseAddress(input)
   if (url === speechSettings().serverUrl) return checkSpeech()
-  const ours = server.running
-  if (ours) await stopServer()
+  await stopServer()
   updateSettings({ speech: { serverUrl: url } })
   health = null
-  problem = ''
+  setProblem()
   if (speechSettings().runServer) void ensureRunning()
   else await refresh()
   return status()
@@ -511,13 +617,23 @@ export async function setSpeechServerUrl(input: string): Promise<SpeechStatus> {
 export async function setDictationEngine(engine: 'none' | DictationModel): Promise<SpeechStatus> {
   if (engine !== 'none' && engine !== 'parakeet' && engine !== 'whisper') throw new UserError('Pick Parakeet, Whisper or None.')
   updateSettings({ speech: { dictationEngine: engine } })
+  // The other model is no longer wanted: its download waiting is dropped, and one that stopped stops showing.
+  for (const other of ['parakeet', 'whisper'] as const) {
+    if (other === engine) continue
+    downloads.unqueue(other)
+    if (downloads.current?.kind === other && !downloads.busy) downloads.dismiss()
+  }
   const p = paths()
   const installed = installedNow(p, readManifest(p.manifest))
   if (engine !== 'none' && !installed[engine]) {
     await downloadSpeech(engine)
     return status()
   }
-  if (health?.dictation) void useDictation(engine)
+  if (health?.dictation) {
+    // Usually quick; loading a model can take a few seconds, and the window hears when it's done.
+    await Promise.race([useDictation(engine), sleep(SWITCH_WAIT_MS)])
+    await refresh()
+  }
   return status()
 }
 
@@ -525,8 +641,16 @@ export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechSt
   if (!['server', 'voices', 'parakeet', 'whisper'].includes(kind)) throw new UserError('That isn’t something to download.')
   const p = paths()
   const installed = installedNow(p, readManifest(p.manifest))
-  // The voices and dictation run in the server, so it comes first.
-  if (kind !== 'server' && !installed.server && !downloads.pending('server')) downloads.start('server')
+  if (kind === 'server') {
+    // Downloaded already: this is the repair. Its environment is set up afresh; the voices and dictation models are kept.
+    if (installed.server && !downloads.pending('server')) rebuild.add('server')
+    setProblem()
+  } else if (!installed.server && !downloads.pending('server')) {
+    // The voices and dictation run in the server, so it comes first; and it starts once downloaded, unless another
+    // speech server already answers here.
+    if (!speechSettings().runServer && !health) updateSettings({ speech: { runServer: true } })
+    downloads.start('server')
+  }
   downloads.start(kind)
   return status()
 }
@@ -586,12 +710,38 @@ export async function findMCreaderVoices(): Promise<SpeechStatus> {
       'MCreader v2’s voices aren’t complete in that folder. Pick MCreader v2’s own folder (the one with “tts” inside), after its voices have downloaded there.'
     )
   }
+  // Remembered as the copy in use (installed.json), so Check and the next start find it again.
   mcreader = tts
   return useVoicesFrom(tts)
 }
 
 export async function setHuggingFaceKey(input: string | null): Promise<SpeechStatus> {
-  setSecret(HF_KEY, input === null ? null : cleanHuggingFaceKey(input) || null)
+  const key = input === null ? null : cleanHuggingFaceKey(input) || null
+  const before = key ? null : getSecret(HF_KEY)
+  setSecret(HF_KEY, key)
+  if (removedKey) clearTimeout(removedKey.timer)
+  removedKey = null
+  if (before) {
+    // Removed: kept a little while for Undo, then forgotten.
+    const timer = setTimeout(() => {
+      if (removedKey?.timer === timer) removedKey = null
+    }, KEEP_REMOVED_MS)
+    timer.unref?.()
+    removedKey = { key: before, timer }
+  }
+  return status()
+}
+
+export async function undoRemoveHuggingFaceKey(): Promise<SpeechStatus> {
+  const r = removedKey
+  if (!r) {
+    // A key saved since is the one kept.
+    if (hasSecret(HF_KEY)) return status()
+    throw new UserError('It’s too late to undo that. Paste the key again from Hugging Face.')
+  }
+  clearTimeout(r.timer)
+  removedKey = null
+  setSecret(HF_KEY, r.key)
   return status()
 }
 
@@ -663,19 +813,17 @@ export async function removeSpeechDownloads(): Promise<SpeechStatus> {
     console.warn('[speech] could not move the speech folder aside', e)
     throw new UserError('Some of the downloads are still in use. Wait a moment, then try again.', 'speech-in-use')
   }
+  rebuild.clear()
   const runServer = speechSettings().runServer
   updateSettings({ speech: { runServer: false } })
-  if (removed) clearTimeout(removed.timer)
-  removed = {
-    dir,
-    runServer,
-    timer: setTimeout(() => {
-      removed = null
-      void rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
-    }, KEEP_REMOVED_MS)
+  if (removed) {
+    // Removed before as well: Undo brings back only the latest, so the earlier ones go now.
+    clearTimeout(removed.timer)
+    void rm(removed.dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
   }
+  removed = { dir, runServer, timer: deleteLater(dir) }
   health = null
-  problem = ''
+  setProblem()
   await refresh()
   changed()
   return status()
@@ -684,15 +832,30 @@ export async function removeSpeechDownloads(): Promise<SpeechStatus> {
 export async function undoRemoveSpeechDownloads(): Promise<SpeechStatus> {
   const r = removed
   if (!r || !existsSync(r.dir)) throw new UserError('It’s too late to undo that: the downloads were already deleted.')
+  // Kept aside until they're back in place.
   clearTimeout(r.timer)
-  removed = null
-  const home = paths().home
-  if (downloads.busy) downloads.cancel()
-  // Only made since (a log or an empty folder): the removed downloads take its place.
-  if (existsSync(home)) rmSync(home, { recursive: true, force: true })
-  await renameRetry(r.dir, home, 24, 250)
+  try {
+    // Anything started since (a download, the server) lets go of the speech folder first.
+    downloads.cancel()
+    downloads.dismiss()
+    await stopServer()
+    const home = paths().home
+    // Only made since (a log, a download just begun): the removed downloads take its place.
+    if (existsSync(home)) await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 })
+    await renameRetry(r.dir, home, 24, 250)
+  } catch (e) {
+    console.warn('[speech] could not put the speech folder back', e)
+    // Undo can be tried again while they're kept aside.
+    if (removed === r) r.timer = deleteLater(r.dir)
+    throw new UserError('Some of the speech files are still in use. Wait a moment, then try again.', 'speech-in-use')
+  }
+  if (removed === r) removed = null
+  rebuild.clear()
   updateSettings({ speech: { runServer: r.runServer } })
+  health = null
+  setProblem()
   if (r.runServer) void ensureRunning()
+  else void refresh()
   changed()
   return status()
 }

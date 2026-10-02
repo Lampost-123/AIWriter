@@ -17,6 +17,8 @@ export interface DownloadDeps {
   runner(steps: Step[], onUpdate: (u: RunUpdate) => void): { run(): Promise<RunResult>; cancel(): void }
   /** After a download finished: record it, start or tell the server. */
   finished(kind: SpeechDownloadKind, result: { gpu: string | null }): Promise<void> | void
+  /** A download stopped on a problem, at the step with this id ('' when it stopped before its first step). */
+  failed?(kind: SpeechDownloadKind, stepId: string): void
   /** Something Settings shows changed. */
   changed(): void
 }
@@ -79,6 +81,13 @@ export class Downloads {
     this.deps.changed()
   }
 
+  /** Takes `kind` out of the downloads waiting (Adam picked the other dictation model before it began). */
+  unqueue(kind: SpeechDownloadKind): void {
+    if (!this.queue.includes(kind)) return
+    this.queue = this.queue.filter((k) => k !== kind)
+    this.deps.changed()
+  }
+
   /** Is `kind` running or waiting? */
   pending(kind: SpeechDownloadKind): boolean {
     return (this.busy && this.current?.kind === kind) || this.queue.includes(kind)
@@ -125,7 +134,9 @@ export class Downloads {
       steps = planned.steps
     }
 
+    let at = ''
     const runner = this.deps.runner(steps, (u) => {
+      if (this.token === token) at = u.stepId
       this.set(token, { step: u.label, stepIndex: u.index, stepCount: u.count, percent: u.percent, amount: u.amount, line: u.line })
     })
     this.running = runner
@@ -143,7 +154,7 @@ export class Downloads {
       this.set(token, { state: 'cancelled', percent: null })
       return
     }
-    if (result.outcome === 'failed') return this.fail(token, result.failure)
+    if (result.outcome === 'failed') return this.fail(token, result.failure, at)
 
     if (override) {
       // Python is installed: the server's own download starts now and takes over the card (it never shows as done).
@@ -188,9 +199,11 @@ export class Downloads {
     }, DONE_SHOWS_MS)
   }
 
-  private fail(token: object, failure: Failure): void {
+  private fail(token: object, failure: Failure, at = ''): void {
     // What was waiting waits for Try again too (the voices and dictation need the server), and the problem stays in view.
     this.queue = []
-    this.set(token, { state: 'failed', percent: null, error: failure.error, need: failure.need, link: failure.link })
+    const kind = this.current?.kind
+    if (!this.set(token, { state: 'failed', percent: null, error: failure.error, need: failure.need, link: failure.link })) return
+    if (kind) this.deps.failed?.(kind, at)
   }
 }

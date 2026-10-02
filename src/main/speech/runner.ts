@@ -6,7 +6,7 @@
 // line it prints goes to install.log and to Settings with the Hugging Face key hidden; the bar follows
 // its progress. No Electron here.
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
-import { explainFailure, LineSplitter, parseLine, scrub, StepProgress, type Failure } from './output'
+import { explainFailure, LineSplitter, parseLine, scrub, StepProgress, type Failure, type OutputEvent } from './output'
 import type { Step } from './plan'
 import { killTree, ownGroup } from './processes'
 
@@ -92,8 +92,9 @@ export class StepRunner {
       if (text.trim()) opts.log(`${text}\n`)
       const ev = parseLine(text)
       if (!ev) return
-      if (ev.kind === 'line' || ev.kind === 'error' || ev.kind === 'licence') {
-        recent.push(ev.kind === 'error' ? `@@error ${ev.message}` : ev.kind === 'licence' ? `@@licence ${ev.url}` : ev.text)
+      const kept = forExplaining(ev)
+      if (kept !== null) {
+        recent.push(kept)
         if (recent.length > 80) recent.shift()
       }
       if (ev.kind === 'line') line = ev.text
@@ -153,9 +154,18 @@ export class StepRunner {
   }
 }
 
+/** What a failure is worked out from (explainFailure): the lines a step printed, and what it said in its own words. */
+function forExplaining(ev: OutputEvent): string | null {
+  if (ev.kind === 'line') return ev.text
+  if (ev.kind === 'error') return `@@error ${ev.message}`
+  if (ev.kind === 'licence') return `@@licence ${ev.url}`
+  if (ev.kind === 'key') return '@@key'
+  return null
+}
+
 /** A step whose program couldn't even start. */
 function cantStart(step: Step): string {
   return step.id === 'python'
     ? 'Windows’ installer couldn’t be started. Install Python 3.13 from python.org, then Try again.'
-    : 'AI Write couldn’t run Python for this step. Try again; if it keeps failing, remove the speech downloads in More and download them again.'
+    : 'AI Write couldn’t run Python for this step (antivirus sometimes holds it for a moment). Try again.'
 }

@@ -19,7 +19,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import config
+from . import config, downloaded
 
 _lock = threading.Lock()
 _choice = "none"
@@ -61,8 +61,8 @@ def _has(module: str) -> bool:
 
 
 def _whisper_files() -> bool:
-    root = config.WHISPER_DIR
-    return root.is_dir() and any(root.glob("**/model.bin"))
+    # All of its files, so a download stopped part way never counts.
+    return downloaded.whisper_dir(config.WHISPER_DIR) is not None
 
 
 def _whisper_ready() -> bool:
@@ -70,9 +70,8 @@ def _whisper_ready() -> bool:
 
 
 def _parakeet_dir() -> Path | None:
-    root = config.PARAKEET_DIR
-    found = next(root.glob("**/encoder.int8.onnx"), None) if root.is_dir() else None
-    return found.parent if found else None
+    # All four of its files in one folder: one being unpacked (models/parakeet/.unpack) never counts.
+    return downloaded.parakeet_dir(config.PARAKEET_DIR)
 
 
 def _parakeet_ready() -> bool:

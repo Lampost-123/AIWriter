@@ -36,6 +36,8 @@ describe('the download steps', () => {
         expect(step.args).not.toContain('/c')
         expect(step.args).not.toContain('-c')
         expect(step.label).not.toMatch(/\b(LLM|API|token|prompt|generation|entity)\b/i)
+        // Names Adam needn't know stay out of what he reads.
+        expect(`${step.label} ${step.fails}`).not.toMatch(/PyTorch|torch|CUDA|pip\b|venv/i)
         expect(step.fails.length).toBeGreaterThan(10)
       }
     }
@@ -53,6 +55,24 @@ describe('the download steps', () => {
     )
     expect(steps[2].progress).toBe('files')
     expect(steps[3].args).toEqual([join(source, 'tools', 'install.py'), 'check-server'])
+  })
+
+  it('set the server’s environment up afresh to repair it, with the dictation engines already downloaded', () => {
+    const steps = planFor('server', input({ serverVenv: false, dictation: ['parakeet', 'whisper'] }))
+    expect(ids(steps)).toEqual(['venv', 'pip', 'packages', 'check'])
+    expect(steps[0].args).toContain('--clear')
+    expect(steps[2].args).toEqual(expect.arrayContaining(['sherpa-onnx>=1.10', 'faster-whisper>=1.0']))
+    expect(steps[2].expect).toBeGreaterThan(planFor('server', input())[2].expect ?? 0)
+    expect(steps[3].fails).toMatch(/set it up afresh; the voices are kept/)
+    // Its environment is there: only the server's own packages are checked again.
+    expect(planFor('server', input({ serverVenv: true, dictation: ['parakeet'] }))[1].args).not.toContain('sherpa-onnx>=1.10')
+  })
+
+  it('check the voices last, which leaves the mark that says they are downloaded', () => {
+    const i = input()
+    const check = planFor('voices', i).at(-1)
+    expect(check?.args).toEqual([join(source, 'tools', 'install.py'), 'breeze-check', '--root', i.paths.home])
+    expect(check?.label).toBe('Checking the voices')
   })
 
   it('skip the environment when it is already there (Try again carries on)', () => {
@@ -151,6 +171,8 @@ describe('the Hugging Face key never leaves secrets', () => {
       starting: false,
       health: null,
       problem: '',
+      repair: false,
+      picked: 'none',
       installed: { server: true, voices: null, parakeet: false, whisper: false },
       nvidia: '',
       mcreader: null,

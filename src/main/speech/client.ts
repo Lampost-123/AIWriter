@@ -5,7 +5,7 @@
 import { getSettings } from '../settings'
 import { UserError } from '../util'
 import { isStarting, whenStarted } from './starting'
-import { speechUrl } from './url'
+import { SPEECH_HEADER, speechUrl } from './url'
 
 /** Plain words for "the speech server isn't answering". */
 export const SPEECH_NOT_RUNNING =
@@ -34,7 +34,10 @@ export async function speechFetch(path: string, init: RequestInit & { timeoutMs?
   const { timeoutMs = 60_000, signal, ...rest } = init
   const timeout = AbortSignal.timeout(timeoutMs)
   const both = signal ? AbortSignal.any([signal, timeout]) : timeout
-  const send = (): Promise<Response> => fetch(speechUrl(getSettings().speech?.serverUrl, path), { ...rest, signal: both })
+  // So the server knows the request is AI Write's own, not a web page's (url.ts).
+  const headers = new Headers(rest.headers)
+  headers.set(...SPEECH_HEADER)
+  const send = (): Promise<Response> => fetch(speechUrl(getSettings().speech?.serverUrl, path), { ...rest, headers, signal: both })
   try {
     return await send()
   } catch (e) {

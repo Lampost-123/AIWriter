@@ -22,6 +22,13 @@ export function speechBase(serverUrl: string | null | undefined): string {
   return url && isLoopbackUrl(url) ? url : SPEECH_SERVER_URL
 }
 
+/**
+ * Sent with every request AI Write makes to the speech server. The server takes a request that changes something
+ * only with this header or a JSON or audio body, which a web page can't send it without asking first (and it
+ * never says yes), so a page open in a browser can't drive it.
+ */
+export const SPEECH_HEADER = ['X-AIWrite', 'speech'] as const
+
 /** The address of one of the server's endpoints: speechUrl(settings.speech.serverUrl, '/audio/speech'). */
 export const speechUrl = (serverUrl: string | null | undefined, path: string): string =>
   `${speechBase(serverUrl)}${path.startsWith('/') ? path : `/${path}`}`
@@ -36,7 +43,7 @@ export function normaliseAddress(input: string): string {
     const u = new URL(url)
     if (u.pathname === '' || u.pathname === '/') url = `${url}/v1`
   } catch {
-    /* refused below */
+    throw new UserError('That isn’t an address. Type one like http://127.0.0.1:8766/v1.', 'speech-address')
   }
   if (!isLoopbackUrl(url)) {
     throw new UserError(
