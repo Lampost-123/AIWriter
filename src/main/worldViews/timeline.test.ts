@@ -2,7 +2,7 @@
 // alongside it after Ch 1, events, a clash and a place inside another.
 import { describe, expect, it } from 'vitest'
 import { emptySceneCard } from '@shared/defaults'
-import type { SceneCard } from '@shared/types'
+import type { ID, SceneCard } from '@shared/types'
 import type { TimelinePoint } from '@shared/contracts/worldViews'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -124,6 +124,93 @@ describe('clashes', () => {
     const t = timelineOf(db, story.id)
     expect(t.clashes.map((x) => x.text)).toEqual(['Mara is in the Mill and the Ferry on Day 12.'])
     expect(t.clashes[0].sceneIds).toEqual([scenes[1], scenes[2]])
+  })
+})
+
+/** A world of books that follow on from each other, each with its scenes' When boxes, Mara present and where. */
+function series(books: [string, string][][], events: { name: string; when: string; book: number }[] = []) {
+  const db = memoryWorld()
+  const mara = repo.createEntry(db, 'character', { name: 'Mara' })
+  const places = new Map<string, ID>()
+  const place = (name: string): ID => places.get(name) ?? places.set(name, repo.createEntry(db, 'place', { name }).id).get(name)!
+  const stories: ID[] = []
+  books.forEach((scenes, b) => {
+    const story = b === 0 ? repo.listStories(db)[0].id : repo.createStory(db, { title: `Book ${b + 1}`, startStoryId: stories[b - 1] }).id
+    stories.push(story)
+    const outline = repo.getOutline(db, story)
+    const chapter = b === 0 ? outline.chapters[0].id : repo.createChapter(db, story).id
+    scenes.forEach(([when, where], i) => {
+      const id = b === 0 && i === 0 ? outline.scenes[0].id : repo.createScene(db, chapter).id
+      repo.updateSceneCard(db, id, { ...emptySceneCard(), when, presentIds: [mara.id], locationId: place(where) })
+    })
+  })
+  for (const e of events) {
+    repo.createEntry(db, 'event', { name: e.name, fields: { when: e.when } }, { origin: 'adam', originStoryId: stories[e.book] })
+  }
+  return { db, stories }
+}
+
+describe('a series', () => {
+  it('keeps books that each count from Day 1 apart, in reading order, with no false clashes', () => {
+    const w = series([
+      [
+        ['Day 1', 'Ashford'],
+        ['Day 2', 'Ashford']
+      ],
+      [
+        ['Day 1', 'the Mill'],
+        ['Day 2', 'the Mill']
+      ]
+    ])
+    const t = timelineOf(w.db, w.stories[1])
+    expect(t.points.map((p) => p.place)).toEqual(['Book 1, Ch 1, Sc 1', 'Book 1, Ch 1, Sc 2', 'Book 2, Ch 1, Sc 1', 'Book 2, Ch 1, Sc 2'])
+    expect(t.clashes).toEqual([])
+  })
+
+  it('still finds a clash between books on a day that names its year', () => {
+    const w = series([[['Day 5, Year 2', 'Ashford']], [['Day 5, Year 2', 'the Mill']]])
+    expect(timelineOf(w.db, w.stories[1]).clashes.map((c) => c.text)).toEqual(['Mara is in Ashford and the Mill on Day 5, Year 2.'])
+  })
+
+  it('never lets an event pass its year on to the scenes after it', () => {
+    const w = series(
+      [
+        [
+          ['Day 1, Year 300', 'Ashford'],
+          ['Day 40', 'Ashford']
+        ],
+        [
+          ['Day 41', 'Ashford'],
+          ['Day 42', 'Ashford']
+        ]
+      ],
+      [{ name: 'The founding', when: 'Day 1, Year 1', book: 1 }]
+    )
+    const t = timelineOf(w.db, w.stories[1])
+    expect(t.points.map((p) => (p.kind === 'event' ? p.title : p.place))).toEqual([
+      'The founding',
+      'Book 1, Ch 1, Sc 1',
+      'Book 1, Ch 1, Sc 2',
+      'Book 2, Ch 1, Sc 1',
+      'Book 2, Ch 1, Sc 2'
+    ])
+  })
+
+  it('says the day in plain words, whatever surrounds it in the When box', () => {
+    for (const [when, words] of [
+      ['On Day 12', 'Day 12'],
+      ['Dusk on Day 12', 'Day 12'],
+      ['The morning of the 3rd of March', '3 March'],
+      ['Day 12.', 'Day 12']
+    ]) {
+      const w = series([
+        [
+          [when, 'Ashford'],
+          [when, 'the Mill']
+        ]
+      ])
+      expect(timelineOf(w.db, w.stories[0]).clashes.map((c) => c.text)).toEqual([`Mara is in Ashford and the Mill on ${words}.`])
+    }
   })
 })
 
