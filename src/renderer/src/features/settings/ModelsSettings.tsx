@@ -1,8 +1,8 @@
 // Settings › Models: connect OpenRouter or another provider, test it, and pick the writer model
-// and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, and read
-// aloud models.
+// and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, consistency
+// check and read aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, Check, Globe2, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
+import { AudioLines, Check, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -122,6 +122,14 @@ export function ModelsSettings(): React.JSX.Element {
         providerResults={results}
         onTest={(pid, mid) => void test('chat', pid, mid)}
         onClearResult={() => clearResult('chat')}
+      />
+      <HelperModel
+        job="check"
+        providers={providers}
+        result={results.check}
+        providerResults={results}
+        onTest={(pid, mid) => void test('check', pid, mid)}
+        onClearResult={() => clearResult('check')}
       />
       {/* Only once read aloud is on: until then it has nothing to do, so it doesn't crowd the page. */}
       {readAloud ? (
@@ -599,7 +607,7 @@ function ProviderForm({
  * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
  * and read aloud's.
  */
-type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world'
+type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -664,8 +672,8 @@ function WriterModel({
 
 /**
  * What each helper's section says. Each uses the writer model unless Adam chooses another, except read
- * aloud, which uses the memory model (itself the writer model unless Adam chose one for the memory), and
- * the world builder, which uses the character builder model (the writer model unless Adam chose one).
+ * aloud and the consistency checks, which use the memory model (itself the writer model unless Adam chose one
+ * for the memory), and the world builder, which uses the character builder model (the writer model unless Adam chose one).
  */
 const HELPERS: Record<
   HelperJob,
@@ -705,6 +713,15 @@ const HELPERS: Record<
     noWriter: 'Choose a writer model above, or a model just for chat and brainstorming here.',
     thinking: 'Off is quickest, and answers start straight away. It applies even when chat uses the writer model.'
   },
+  check: {
+    title: 'Consistency check model',
+    description: 'Checks scenes against the memory: facts, who knows what, timeline and place, voices and style.',
+    icon: <ListChecks size={16} />,
+    waiting: 'Once a provider is connected above, the consistency checks use the memory model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the consistency checks here.',
+    thinking: 'Off is quickest, and checks finish sooner. It applies even when the checks use the memory model.',
+    fallback: 'memory'
+  },
   speech: {
     title: 'Read aloud model',
     description: 'Works out who says each line, and how, when reading a scene aloud, and suggests voices for characters. A fast, cheaper model is fine.',
@@ -717,7 +734,7 @@ const HELPERS: Record<
 }
 
 /**
- * A helper job's model: the writer model (for read aloud, the memory model; for the world builder, the
+ * A helper job's model: the writer model (for read aloud and the consistency checks, the memory model; for the world builder, the
  * character builder model) unless Adam chooses another.
  */
 function HelperModel({
@@ -897,6 +914,8 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
                 ? "AI Write fits how much of a scene it reads at once to this. Change it if the model's page says it can read more or less."
                 : job === 'world'
                   ? "AI Write reads a long summary in parts that fit this. Change it if the model's page says it can read more or less."
+                  : job === 'check'
+                    ? "AI Write fits how much of a scene it checks at once to this. Change it if the model's page says it can read more or less."
                   : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
@@ -1133,6 +1152,7 @@ const THINKING_NAMES: Record<ModelJob, string> = {
   builder: 'Character builder model thinking',
   world: 'World builder model thinking',
   chat: 'Chat and brainstorm model thinking',
+  check: 'Consistency check model thinking',
   speech: 'Read aloud model thinking'
 }
 
