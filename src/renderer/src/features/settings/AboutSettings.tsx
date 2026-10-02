@@ -176,7 +176,7 @@ function headline(s: UpdateStatus | null): string {
     case 'ready':
       return `Version ${s.version} is ready to install`
     case 'disabled':
-      return 'Automatic updates'
+      return 'Get new versions from GitHub'
     case 'error':
       return "Couldn't check for updates"
   }

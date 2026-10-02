@@ -54,8 +54,8 @@ export function describeUpdateError(err: unknown): UpdateStatus {
   const text = `${code} ${message}`
 
   if (
-    (status !== null && status >= 400 && status < 500) ||
-    /\b(401|403|404|406)\b/.test(text) ||
+    (status !== null && [401, 403, 404, 406, 410].includes(status)) ||
+    (status === null && /\b(401|403|404|406|410)\b/.test(text)) ||
     /authentication token|no published versions|unable to find latest version|cannot find latest|latest version not found|channel file|app-update\.yml|ERR_UPDATER_(LATEST_VERSION_NOT_FOUND|NO_PUBLISHED_VERSIONS|CHANNEL_FILE_NOT_FOUND|INVALID_RELEASE_FEED)/i.test(
       text
     )

@@ -26,7 +26,10 @@ export const getUpdateStatus = (): UpdateStatus => status
 /** Loads electron-updater only in the installed app, and only when needed, so launch stays fast. */
 async function load(): Promise<AppUpdater> {
   if (updater) return updater
-  const { autoUpdater } = await import('electron-updater')
+  // electron-updater is CommonJS: depending on how it's loaded, its exports sit on the
+  // namespace or on `default`.
+  const mod = (await import('electron-updater')) as typeof import('electron-updater') & { default?: typeof import('electron-updater') }
+  const autoUpdater = mod.default?.autoUpdater ?? mod.autoUpdater
   autoUpdater.logger = null // no console noise; problems surface as a status instead
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = false

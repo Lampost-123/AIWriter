@@ -36,6 +36,12 @@ describe('describeUpdateError', () => {
     for (const e of cases) expect(describeUpdateError(e)).toEqual({ state: 'disabled', message: UPDATES_NOT_SET_UP })
   })
 
+  it('a busy or failing server is "try again later", not "not set up"', () => {
+    const busy = describeUpdateError(Object.assign(new Error('429 Too Many Requests'), { statusCode: 429, code: 'HTTP_ERROR_429' }))
+    expect(busy.state).toBe('error')
+    expect(describeUpdateError(Object.assign(new Error('502 Bad Gateway'), { statusCode: 502 })).state).toBe('error')
+  })
+
   it('explains being offline in plain words', () => {
     const s = describeUpdateError(new Error('net::ERR_INTERNET_DISCONNECTED'))
     expect(s.state).toBe('error')
