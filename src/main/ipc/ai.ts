@@ -1,25 +1,70 @@
-// Providers, models and generation. OWNED BY THE AI WORKER: replace these stubs
-// with src/main/ai/* (provider layer, context assembly, generation records).
+// Providers, models and drafting. The work is done in src/main/ai/*; this file
+// connects it to the open world, the settings and the window.
 import type { Handlers } from './index'
+import type { ContextPreview, DraftOptions, ID } from '@shared/types'
 import { UserError } from '../util'
+import * as world from '../world'
+import { getSettings, getWritingPrefs } from '../settings'
+import { emit } from '../events'
+import * as gens from '../db/generations'
+import * as providers from '../ai/providers'
+import { finishContext, prepareContext, type ContextInput } from '../ai/context'
+import { gatherContextInput } from '../ai/gather'
+import { countTokens } from '../ai/tokenService'
+import { isLocalUrl, providerWho } from '../ai/errors'
+import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
 
 type AiMethods =
-  | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'testProvider' | 'listModels'
+  | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
   | 'previewContext' | 'startDraft' | 'stopGeneration' | 'listGenerations' | 'getGeneration'
 
-const notYet = (): never => {
-  throw new UserError('Model connection is not ready yet.')
+/** Assembles the briefing for a scene with the current writer model's context length. */
+async function assemble(sceneId: ID, options: Partial<DraftOptions> | undefined): Promise<{ input: ContextInput; preview: ContextPreview }> {
+  const settings = getSettings()
+  const input = gatherContextInput(world.db(), sceneId, options, {
+    prefs: getWritingPrefs(),
+    contextLength: settings.models.writer?.contextLength ?? null,
+    creativity: settings.creativity
+  })
+  const prepared = prepareContext(input)
+  const counts = await countTokens(prepared.texts)
+  return { input, preview: finishContext(prepared, counts) }
 }
 
 export const aiHandlers: Handlers<AiMethods> = {
-  listProviders: () => [],
-  saveProvider: notYet,
-  deleteProvider: notYet,
-  testProvider: notYet,
-  listModels: () => [],
-  previewContext: notYet,
-  startDraft: notYet,
-  stopGeneration: () => undefined,
-  listGenerations: () => [],
-  getGeneration: notYet
+  listProviders: () => providers.listProviders(),
+  saveProvider: (input) => providers.saveProvider(input),
+  deleteProvider: (id) => providers.deleteProvider(id),
+  restoreProvider: (id) => providers.restoreProvider(id),
+  testProvider: (id, modelId) => providers.testProvider(id, modelId),
+  listModels: (providerId) => providers.listModels(providerId),
+
+  previewContext: async (sceneId, options) => (await assemble(sceneId, options)).preview,
+
+  startDraft: async (sceneId, options) => {
+    const choice = getSettings().models.writer
+    if (!choice) throw new UserError('Choose a writer model first, in Settings > Models.', 'no-writer-model')
+    const provider = providers.getProvider(choice.providerId)
+    if (!provider) throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings > Models.", 'no-writer-model')
+    const target = providers.providerTarget(provider)
+    if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
+      throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings > Models.`, 'no-key')
+    }
+    if (isDrafting(sceneId)) throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
+    const db = world.db()
+    const { input, preview } = await assemble(sceneId, options)
+    return startDraftJob({
+      db,
+      sceneId,
+      options: input.options,
+      preview,
+      provider: target,
+      model: choice,
+      entryVersions: new Map(input.entries.map((e) => [e.id, e.updatedAt])),
+      emit
+    })
+  },
+  stopGeneration: (id) => stopDraft(id),
+  listGenerations: (sceneId) => gens.listGenerations(world.db(), sceneId),
+  getGeneration: (id) => gens.getGeneration(world.db(), id)
 }
