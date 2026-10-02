@@ -482,6 +482,17 @@ export function versionData(
   return r ? { data: json<unknown>(r.data_json, null), origin: r.origin as Origin } : null
 }
 
+/** Entries of this kind Adam moved to Trash himself (not the keeper), with their names. */
+export function entriesAdamDeleted(db: DB, kind: string): { id: ID; name: string; aliases: string[] }[] {
+  const rows = db.prepare('SELECT id, name, aliases_json FROM entries WHERE deleted_at IS NOT NULL AND kind = ?').all(kind) as Row[]
+  return rows
+    .filter((r) => {
+      const last = versionData(db, 'entry', r.id as string, latestVersion(db, 'entry', r.id as string))
+      return !!last && last.data == null && last.origin === 'adam'
+    })
+    .map((r) => ({ id: r.id as string, name: r.name as string, aliases: json<string[]>(r.aliases_json, []) }))
+}
+
 /** True when a line already asks this question (by the key in its undo data). */
 export function questionAsked(db: DB, key: string): boolean {
   const rows = db.prepare('SELECT undo_json FROM memory_log WHERE question_json IS NOT NULL AND undo_json LIKE ?').all(`%${key}%`) as Row[]

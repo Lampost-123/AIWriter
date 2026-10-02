@@ -426,6 +426,22 @@ describe('Adam typing while the keeper reads', () => {
 })
 
 describe('undo', () => {
+  it('an entry Adam deletes isn’t made again from the same words, but is from new ones', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Kell lost his hat.']])
+    await read(w.db, w.sceneId)
+    const kell = entryNamed(w.db, 'Kell')!
+    repo.deleteEntry(w.db, kell.id) // by hand, from the entry page
+    save(w.db, w.sceneId, [['p1', 'Kell lost his hat. The ferry was late.']])
+    await read(w.db, w.sceneId)
+    expect(entryNamed(w.db, 'Kell')).toBeNull()
+    // Another scene names him anew: that is new words.
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    save(w.db, s2, [['q1', 'Kell lost his boots.']])
+    await read(w.db, s2)
+    expect(entryNamed(w.db, 'Kell')).not.toBeNull()
+  })
+
   it('undoing twice is the same as once, and an undone removal stays undone after the next run', async () => {
     const w = world()
     save(w.db, w.sceneId, [
