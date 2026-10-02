@@ -198,6 +198,69 @@ export function restoreChange(db: DB, id: ID, by: { origin: Origin; runId?: ID |
   recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: by.origin, runId: by.runId })
 }
 
+const liveEntry = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM entries WHERE id = ? AND deleted_at IS NULL').get(id)
+
+/**
+ * Checks a change Adam made on an entry page and tidies it, with plain-words reasons when it can't be
+ * saved. A fact without an id gets a new one (a new fact); empty rows in a full description are dropped.
+ */
+export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
+  if (!input || typeof input !== 'object') throw new UserError('That change is empty.')
+  if (!liveEntry(db, input.entryId)) throw new UserError('That entry no longer exists.')
+  const other = (otherId: ID | undefined): ID => {
+    if (!otherId) throw new UserError('Pick who or what this relationship is with.')
+    if (otherId === input.entryId) throw new UserError('A relationship needs two different entries.')
+    if (!liveEntry(db, otherId)) throw new UserError('The other entry in this relationship no longer exists.')
+    return otherId
+  }
+  const text = (s: unknown): string => (typeof s === 'string' ? s.trim() : '')
+  const base = { entryId: input.entryId, anchor: input.anchor, storyId: input.storyId ?? null, sceneId: input.sceneId ?? null }
+  switch (input.kind) {
+    case 'update': {
+      const p = input.payload ?? { note: '' }
+      const fields = Object.fromEntries(Object.entries(p.fields ?? {}).map(([k, v]) => [k, typeof v === 'string' ? v : '']))
+      const payload = { note: text(p.note), ...(p.fields ? { fields } : {}) } as Extract<ChangeData, { kind: 'update' }>['payload']
+      if (p.description !== undefined) payload.description = p.description
+      if (p.summary !== undefined) payload.summary = p.summary
+      if (!payload.note && !Object.keys(fields).length && payload.description === undefined && payload.summary === undefined) {
+        throw new UserError('Write what changed first.')
+      }
+      return { ...base, kind: 'update', payload }
+    }
+    case 'full': {
+      const p = input.payload
+      if (!p || !text(p.description)) throw new UserError('Write the starting description first.')
+      const knows = (p.knows ?? []).filter((k) => text(k.fact)).map((k) => ({ factId: k.factId || newId(), fact: text(k.fact) }))
+      const relationships = (p.relationships ?? []).filter((r) => r.otherId && r.otherId !== input.entryId).map((r) => ({ ...r, otherId: other(r.otherId) }))
+      return { ...base, kind: 'full', payload: { ...p, description: p.description, knows, relationships } }
+    }
+    case 'relationship': {
+      const p = input.payload
+      return { ...base, kind: 'relationship', payload: { ...p, otherId: other(p?.otherId), type: text(p?.type), feels: p?.feels ?? '', otherFeels: p?.otherFeels ?? '' } }
+    }
+    case 'knowledge': {
+      const p = input.payload
+      const fact = text(p?.fact)
+      if (!fact && !p?.factId) throw new UserError('Write what they learn first.')
+      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}) } }
+    }
+    case 'thread': {
+      const p = input.payload
+      return { ...base, kind: 'thread', payload: { status: p?.status === 'resolved' ? 'resolved' : 'open', note: text(p?.note) } }
+    }
+    default:
+      throw new UserError("That kind of change isn't known.")
+  }
+}
+
+/** The entries a change is about: its own, and the other side of each relationship it sets. */
+export function entriesTouched(c: ChangeData & { entryId: ID }): ID[] {
+  const ids = new Set<ID>([c.entryId])
+  if (c.kind === 'relationship' && c.payload.otherId) ids.add(c.payload.otherId)
+  if (c.kind === 'full') for (const r of c.payload.relationships ?? []) if (r.otherId) ids.add(r.otherId)
+  return [...ids]
+}
+
 /** Every live change, in a stable order (the line decides which count where). */
 export function listAllChanges(db: DB): Change[] {
   return (db.prepare('SELECT * FROM changes WHERE deleted_at IS NULL ORDER BY position, created_at, rowid').all() as Row[]).map(toChange)
@@ -588,6 +651,14 @@ export function putSummary(
   return summary
 }
 
+/** True when the scene, chapter, story or series a summary is for still exists. */
+export function summaryTargetExists(db: DB, level: SummaryLevel, targetId: ID): boolean {
+  const table = { scene: 'scenes', chapter: 'chapters', story: 'stories', series: 'series' }[level]
+  if (!table) return false
+  const live = level === 'series' ? '' : ' AND deleted_at IS NULL'
+  return !!db.prepare(`SELECT 1 FROM ${table} WHERE id = ?${live}`).get(targetId)
+}
+
 export function markSummaryStale(db: DB, level: SummaryLevel, targetId: ID): void {
   db.prepare('UPDATE summaries SET stale = 1 WHERE level = ? AND target_id = ?').run(level, targetId)
 }
@@ -619,8 +690,11 @@ const toPin = (r: Row): Pin => ({
 })
 
 export function setPin(db: DB, entryId: ID, scope: PinScope, scopeId: ID | null, action: Pin['action'] | null): void {
+  if (scope !== 'scene' && scope !== 'story' && scope !== 'world') throw new UserError('Pin it to this scene, this story or the whole world.')
+  if (action !== null && action !== 'pin' && action !== 'hide') throw new UserError("That briefing choice isn't known.")
   const sid = scope === 'world' ? '' : (scopeId ?? '')
   if (scope !== 'world' && !sid) throw new UserError('Pick the scene or story to pin this to.')
+  if (action !== null && !liveEntry(db, entryId)) throw new UserError('That entry no longer exists.')
   if (action === null) {
     db.prepare('DELETE FROM pins WHERE scope = ? AND scope_id = ? AND entry_id = ?').run(scope, sid, entryId)
     return
@@ -657,6 +731,7 @@ export function getBlockModes(db: DB, sceneId: ID): Record<string, BlockMode> {
 export function setBlockMode(db: DB, sceneId: ID, blockId: string, mode: BlockMode): void {
   const r = db.prepare('SELECT context_json FROM scenes WHERE id = ? AND deleted_at IS NULL').get(sceneId) as Row | undefined
   if (!r) throw new UserError('That scene no longer exists.')
+  if (mode !== 'auto' && mode !== 'full' && mode !== 'short') throw new UserError('Choose full, short or automatic for that part of the briefing.')
   const prefs = json<SceneContextPrefs>(r.context_json, {})
   const modes = { ...(prefs.blockModes ?? {}) }
   if (mode === 'auto') delete modes[blockId]
