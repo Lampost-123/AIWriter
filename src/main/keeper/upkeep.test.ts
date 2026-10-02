@@ -9,6 +9,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
+import * as gens from '../db/generations'
 import type { MemoryModel } from './model'
 import { runScene, type RunOutcome } from './run'
 import { Keeper } from './engine'
@@ -469,5 +470,36 @@ describe('what the memory model is told', () => {
     expect(scene.sceneMemory(w.db, whatIfNext).entries.find((e) => e.id === mara.id)?.fields.eyes).toBe('green')
     expect(scene.sceneMemory(w.db, prequelNext).entries.find((e) => e.id === tobin.id)?.fields.eyes).toBe('brown')
     expect(kdb.listLog(w.db).find((l) => l.entryId === mara.id)).toMatchObject({ action: 'added', text: 'Eyes: green' })
+  })
+})
+
+describe('cost', () => {
+  it('a small edit in a big world sends the changed words, not every name in the world', async () => {
+    const w = world()
+    const duke = repo.createEntry(w.db, 'character', { name: 'Duke Aldric' })
+    w.db.transaction(() => {
+      for (let i = 0; i < 1500; i++)
+        repo.createEntry(w.db, i % 3 ? 'character' : 'place', { name: `Name${i} Surname${i}`, summary: 'Someone of note in the north.' })
+    })()
+    const paras: [string, string][] = Array.from({ length: 60 }, (_, i) => [
+      `p${i}`,
+      `The quay was wet and the gulls were loud, morning ${i}.`
+    ])
+    save(w.db, w.sceneId, paras)
+    await read(w.db, w.sceneId, undefined, modelFor('fake/writer', 200_000))
+    paras[30] = ['p30', 'The Duke rode in at noon.']
+    save(w.db, w.sceneId, paras)
+    await read(w.db, w.sceneId, undefined, modelFor('fake/writer', 200_000))
+    const id = (w.db.prepare("SELECT id FROM generations WHERE job = 'memory' ORDER BY rowid DESC LIMIT 1").get() as { id: ID }).id
+    const g = gens.getGeneration(w.db, id)
+    expect(g.budget.used).toBeLessThan(4000)
+    const sent = g.messages.find((m) => m.role === 'user')!.content
+    expect(sent).toContain('P31: The Duke rode in at noon.')
+    expect(sent).toContain('morning 29') // a little surrounding text
+    expect(sent).not.toContain('morning 10')
+    // A name sharing a word with the new words goes first, so the model can reuse that entry.
+    expect(sent).toContain('"Duke Aldric"')
+    expect(g.entries.map((e) => e.entryId)).toContain(duke.id)
+    expect(g.entries.length).toBeLessThan(200)
   })
 })
