@@ -526,6 +526,46 @@ describe('drafting', () => {
   it('throws a plain message for a missing record', () => {
     expect(() => gens.getGeneration(w.db, 'nope')).toThrow(/could not be found/)
   })
+
+  it('keeps the text a draft replaced with its record, whether it is kept before or after the draft finishes', async () => {
+    const { emit, done } = recorder()
+    const old = {
+      doc: { type: 'doc', content: [{ type: 'paragraph', attrs: { pid: 'p-old' }, content: [{ type: 'text', text: 'Adam wrote this.' }] }] },
+      text: 'Adam wrote this.'
+    }
+    // Kept as the first words arrive. This model gets a smaller reply limit on the way, so the finish
+    // rewrites the settings: the kept text stays with them.
+    const { generationId, preview } = start(w, emit, 'fake/max-output', 'custom', { targetWords: 400 })
+    gens.keepReplacedText(w.db, generationId, old)
+    expect((await done(generationId)).status).toBe('complete')
+    const rec = gens.getGeneration(w.db, generationId)
+    expect(rec.params.max_tokens).toBe(preview.budget.reserved)
+    expect(rec.replacedText).toEqual(old)
+    expect(rec.replaced).toBe(true)
+    // It is kept beside the settings, not shown as one of them.
+    expect(rec.params).not.toHaveProperty('replaced')
+    expect(gens.listGenerations(w.db, w.second.id)[0]).toMatchObject({ id: generationId, replaced: true })
+
+    // Kept after the draft has finished (the two can cross on the way): the same.
+    const later = start(w, emit)
+    await done(later.generationId)
+    gens.keepReplacedText(w.db, later.generationId, old)
+    expect(gens.getGeneration(w.db, later.generationId).replacedText).toEqual(old)
+
+    // Forgotten when the draft brought nothing and the old text was put back.
+    gens.keepReplacedText(w.db, generationId, null)
+    expect(gens.getGeneration(w.db, generationId)).toMatchObject({ replaced: false, replacedText: null })
+    expect(gens.getGeneration(w.db, generationId).params.max_tokens).toBe(preview.budget.reserved)
+    expect(gens.listGenerations(w.db, w.second.id).map((g) => g.replaced)).toEqual([true, false])
+
+    // A draft that replaced nothing says so.
+    const plainDraft = start(w, emit)
+    await done(plainDraft.generationId)
+    expect(gens.getGeneration(w.db, plainDraft.generationId)).toMatchObject({ replaced: false, replacedText: null })
+
+    expect(() => gens.keepReplacedText(w.db, 'nope', old)).toThrow(/could not be found/)
+    expect(() => gens.keepReplacedText(w.db, generationId, { doc: {} } as never)).toThrow(/couldn't be kept/)
+  })
 })
 
 describe('draftCost', () => {

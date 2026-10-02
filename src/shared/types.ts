@@ -429,6 +429,19 @@ export interface GenerationSummary {
   /** True when the provider didn't report usage and `cost` is AI Write's own estimate. */
   costEstimated?: boolean
   createdAt: string
+  /** The draft took the place of the scene's text (Adam chose "Replace it"), and its record keeps that text. */
+  replaced?: boolean
+}
+
+/**
+ * The scene's text a draft took the place of, kept with the draft's record from the moment the draft's
+ * first words replaced it, so it can be copied or put back at any time.
+ */
+export interface ReplacedText {
+  /** The page as it was (paragraphs, formatting and paragraph ids), stored like a scene's text. */
+  doc: unknown
+  /** The same as plain text. */
+  text: string
 }
 
 export interface GenerationRecord extends GenerationSummary {
@@ -468,6 +481,8 @@ export interface GenerationRecord extends GenerationSummary {
     changedSince?: boolean
   }[]
   finishedAt: string | null
+  /** The scene's text this draft took the place of, or null when it didn't replace any. */
+  replacedText?: ReplacedText | null
 }
 
 // ---------- Backups and updates ----------

@@ -4,11 +4,12 @@
 
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { EditorState, Selection, TextSelection } from '@tiptap/pm/state'
+import { EditorState, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { closeHistory, undo } from '@tiptap/pm/history'
 import type { ID, Scene } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { toast } from '@/components/ui'
-import { api } from '@/lib/api'
+import { api, modKey } from '@/lib/api'
 import type { EditorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -17,10 +18,11 @@ import { FollowScroll } from './followScroll'
 import { itemsForWorld, shouldRestore } from './recovery'
 import * as streamDoc from './streamDoc'
 import { newSplitState, splitChunk, type SplitState } from './streamText'
-import { takeFocusRequest } from './focusRequest'
+import { requestEditorFocus, takeFocusRequest } from './focusRequest'
 import { withParagraphIds } from './paragraphIds'
 import { findTextRange } from './findText'
 import { REVEALED } from './reveal'
+import { requestPutBack } from './putBack'
 
 /** Where Adam was in each scene this session, so coming back restores the view. */
 const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>()
@@ -165,6 +167,13 @@ export class SceneController {
   private draftBelow = false
   /** The draft being stopped because Adam opened another scene (no "added below" message for it). */
   private stopping: ID | null = null
+  /**
+   * Adam picked where a draft goes, so the keyboard belongs in the page; a draft replacing the
+   * scene's text gets it once that draft ends (see takeKeyboard).
+   */
+  private keyboardWanted = false
+  /** The draft that ended last, and whether it took the place of the scene's text (for messages about it that come later). */
+  private lastEnded: { generationId: ID; replaced: boolean } | null = null
   /** The top bar's word count: after a pause, and every couple of seconds while a draft streams in. */
   private readonly words = debounce(
     () => {
@@ -185,15 +194,20 @@ export class SceneController {
   ) {
     this.follow = new FollowScroll(scroller)
     editor.on('update', this.onUpdate)
+    editor.on('transaction', this.onTransaction)
 
     const sceneIdOf = (): ID | null => this.session?.id ?? null
     this.bridge = {
       get sceneId() {
         return sceneIdOf()
       },
-      beginStream: (sceneId, generationId) => this.beginStream(sceneId, generationId),
+      holdForReplace: (sceneId) => this.holdForReplace(sceneId),
+      releaseHold: () => this.releaseHold(),
+      beginStream: (sceneId, generationId, opts) => this.beginStream(sceneId, generationId, opts),
       appendStream: (generationId, text) => this.appendStream(generationId, text),
-      endStream: (generationId) => this.endStream(generationId),
+      endStream: (generationId, opts) => this.endStream(generationId, opts),
+      takeKeyboard: () => this.takeKeyboard(),
+      undo: () => this.undoFromOutside(),
       flush: () => this.flush(),
       getText: () => streamDoc.sceneText(this.editor.state.doc),
       hasText: () => this.editor.state.doc.textContent.trim() !== '',
@@ -291,6 +305,8 @@ export class SceneController {
       }
     }
     const state = EditorState.create({ doc, selection, plugins: this.editor.state.plugins })
+    // A wish for the keyboard was about the scene being left.
+    this.keyboardWanted = false
 
     this.session = new SceneSession(
       scene.id,
@@ -356,6 +372,12 @@ export class SceneController {
     this.words.call()
   }
 
+  /** Ctrl+Z in the page while a draft replaces its text, past Adam's own edits since: the draft goes back out. */
+  private onTransaction = ({ transaction }: { transaction: Transaction }): void => {
+    // After this transaction has finished being applied.
+    if (streamDoc.undoAsked(transaction)) queueMicrotask(() => this.undoReplace())
+  }
+
   /** Saves everything pending now (Ctrl+S, closing the window, switching worlds). Works after destroy too. */
   async flush(): Promise<void> {
     await Promise.allSettled([this.session?.saver.flush(), ...[...this.leaving].map((s) => s.saver.flush())])
@@ -387,10 +409,28 @@ export class SceneController {
 
   // ---------- Streaming drafts ----------
 
-  private beginStream(sceneId: ID, generationId: ID): boolean {
+  /**
+   * Holds the scene's text while a draft that will replace it gets ready (see streamDoc.holding):
+   * nothing typed or pasted in the meantime can land in text that is about to go.
+   */
+  private holdForReplace(sceneId: ID): boolean {
+    if (this.destroyed || this.stream || !this.session || this.session.id !== sceneId || this.requested !== sceneId) return false
+    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, '', { replace: true }))
+    return true
+  }
+
+  /** Lets go of the held text: the draft that was to replace it didn't start. */
+  private releaseHold(): void {
+    if (this.destroyed || this.stream) return
+    const tr = streamDoc.releaseHold(this.editor.state)
+    if (tr) this.editor.view.dispatch(tr)
+    this.keyboardBack()
+  }
+
+  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean } = {}): boolean {
     if (this.destroyed || !this.session || this.session.id !== sceneId || this.requested !== sceneId) return false
     if (this.stream) this.finishStream()
-    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId))
+    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, { replace: !!opts.replace }))
     this.stream = { generationId, split: newSplitState() }
     this.updateDraftBelow()
     return true
@@ -400,38 +440,89 @@ export class SceneController {
     if (!this.stream || this.stream.generationId !== generationId || this.destroyed) return
     const { ops, state } = splitChunk(this.stream.split, text)
     this.stream.split = state
-    const tr = streamDoc.appendStream(this.editor.state, ops)
+    const before = this.editor.state
+    const tr = streamDoc.appendStream(before, ops)
     if (!tr) return
-    this.follow.check()
-    this.editor.view.dispatch(tr)
+    if (streamDoc.replacedIn(tr)) {
+      // The text being replaced goes with the draft's record first, so it is kept even if the app closes now.
+      this.keepReplaced(generationId, before.doc)
+      // The draft's first words took the place of the text Adam was reading: show the top of the
+      // scene, where the draft is being written. From here the page follows it as usual.
+      this.follow.stop()
+      this.editor.view.dispatch(tr)
+      const el = this.scroller()
+      if (el) el.scrollTop = 0
+      this.follow.check()
+    } else {
+      this.follow.check()
+      this.editor.view.dispatch(tr)
+    }
     this.follow.nudge()
     this.updateDraftBelow()
   }
 
-  private endStream(generationId: ID): void {
-    if (!this.stream || this.stream.generationId !== generationId) return
-    this.finishStream(this.stopping !== generationId)
+  /** Keeps the text a draft replaced with the draft's record; null forgets it (the old text is back after all). */
+  private keepReplaced(generationId: ID, old: PMNode | null): void {
+    api.keepReplacedText(generationId, old ? { doc: old.toJSON(), text: streamDoc.sceneText(old) } : null).catch(() => {
+      if (!old) return
+      const meanwhile = `${modKey()}+Z puts it back while this scene stays open.`
+      toast(`A copy of the scene's old text couldn't be kept with the new draft. ${meanwhile}`, { tone: 'danger' })
+    })
   }
 
-  /** Ends the stream: tidies a final scene break and makes the whole draft one undo step. */
-  private finishStream(announce = false): void {
+  /**
+   * The draft has ended. `failed`: it ended with a problem, and Generate's own message about it says
+   * how to get the old text back, so there's no message here. Returns whether the draft took the
+   * place of the scene's text.
+   */
+  private endStream(generationId: ID, opts: { failed?: boolean } = {}): { replaced: boolean } {
+    if (!this.stream || this.stream.generationId !== generationId) {
+      return { replaced: this.lastEnded?.generationId === generationId && this.lastEnded.replaced }
+    }
+    return this.finishStream({ announce: this.stopping !== generationId, failed: !!opts.failed })
+  }
+
+  /**
+   * Ends the stream: tidies a final scene break and makes the whole draft one undo step. With
+   * `announce`, says where a draft that finished out of sight went, or that it replaced the
+   * scene's text (with an Undo).
+   */
+  private finishStream({ announce = false, failed = false }: { announce?: boolean; failed?: boolean } = {}): { replaced: boolean } {
+    const generationId = this.stream?.generationId ?? null
     this.stream = null
-    if (this.destroyed) return
+    if (this.destroyed) return { replaced: false }
     const view = this.editor.view
     const info = streamDoc.activeStream(view.state)
-    const below = info?.wrote ? this.isBelowView(info.from) : false
+    const below = info?.wrote && !info.replace ? this.isBelowView(info.from) : false
     const tidy = streamDoc.finishStreamText(view.state)
     if (tidy) view.dispatch(tidy)
+    // The draft took the place of words that were there (not just of an empty page).
+    const old = streamDoc.activeStream(view.state)?.before?.doc ?? null
+    const replaced = !!old && old.textContent.trim() !== '' && !old.eq(view.state.doc)
+    // All that came was a lead-in that was left out, so the old text is back: there's nothing to keep.
+    if (generationId && old && !replaced) this.keepReplaced(generationId, null)
     view.updateState(streamDoc.commitStream(view.state))
     this.follow.settle()
     this.setDraftBelow(false)
-    // Finished out of sight: say where it went, and how to take it back.
-    if (announce && below && info) {
+    if (generationId) this.lastEnded = { generationId, replaced }
+    this.keyboardBack()
+    if (!announce || !info) return { replaced }
+    if (replaced && old) {
+      if (failed) return { replaced }
+      const sceneId = this.session?.id
+      const worldId = app().world?.id
+      const draft = view.state.doc
+      toast("The new draft replaced the scene's text. The old text is kept in the Drafts tab.", {
+        action: { label: 'Undo', run: () => sceneId && worldId && this.putOldTextBack(sceneId, worldId, draft, old) }
+      })
+    } else if (below) {
+      // Finished out of sight: say where it went, and how to take it back.
       const from = info.from
-      toast('The new draft was added at the end of the scene. Ctrl+Z takes it out again.', {
+      toast(`The new draft was added at the end of the scene. ${modKey()}+Z takes it out again.`, {
         action: { label: 'Show', run: () => this.reveal(from) }
       })
     }
+    return { replaced }
   }
 
   /**
@@ -443,15 +534,138 @@ export class SceneController {
     if (!this.stream) return
     const id = this.stream.generationId
     this.stopping = id
+    // The keyboard goes wherever Adam is going.
+    this.keyboardWanted = false
+    let replaced = false
     try {
       const stopped = api.stopGeneration(id).catch(() => undefined)
       await Promise.race([stopped, new Promise((r) => setTimeout(r, LAST_WORDS_WAIT_MS))])
       // Usually the draft's own "done" has ended the stream by now.
-      if (this.stream?.generationId === id) this.finishStream()
+      if (this.stream?.generationId === id) replaced = this.finishStream().replaced
+      else replaced = this.lastEnded?.generationId === id && this.lastEnded.replaced
     } finally {
       this.stopping = null
     }
-    toast(`Drafting stopped because you ${reason === 'scene' ? 'opened another scene' : 'switched worlds'}. The text so far is kept.`)
+    const where = reason === 'scene' ? 'opened another scene' : 'switched worlds'
+    toast(
+      replaced
+        ? `Drafting stopped because you ${where}. The text so far is kept, and the text it replaced can be put back from that scene's Drafts tab.`
+        : `Drafting stopped because you ${where}. The text so far is kept.`
+    )
+  }
+
+  // ---------- The keyboard, and undoing a replace ----------
+
+  /**
+   * Adam picked where a draft goes: the keyboard belongs in the page, so Ctrl+Z works as the choice
+   * says. A draft replacing the scene's text gets it once it ends (typing as its first words arrive
+   * would join them).
+   */
+  private takeKeyboard(): void {
+    if (this.destroyed || !this.session) return
+    if (streamDoc.activeStream(this.editor.state)?.replace) this.keyboardWanted = true
+    else this.focusIfFree()
+  }
+
+  /** A wish for the keyboard that had to wait (see takeKeyboard) is met now, if the keyboard is free. */
+  private keyboardBack(): void {
+    if (!this.keyboardWanted) return
+    this.keyboardWanted = false
+    this.focusIfFree()
+  }
+
+  /** Puts the keyboard in the page, unless Adam is using it somewhere else (a box, the binder, a menu). */
+  private focusIfFree(): void {
+    if (this.destroyed || !this.session || !this.editor.isEditable || app().view.kind !== 'write') return
+    const here = document.activeElement
+    const free = !here || here === document.body || here === this.editor.view.dom || !!here.closest('[data-generate-controls]')
+    if (free) this.editor.view.focus()
+  }
+
+  /**
+   * Ctrl+Z pressed outside the page while it shows (on the Generate button, after picking an answer
+   * with the mouse, say): undoes in the page as if it had the keyboard. False when there was nothing to undo.
+   */
+  private undoFromOutside(): boolean {
+    if (this.destroyed || !this.session || app().view.kind !== 'write') return false
+    const view = this.editor.view
+    const verdict = streamDoc.undoVerdict(view.state, 'undo')
+    if (verdict === 'blocked') return true
+    if (verdict === 'undo-replace') {
+      this.undoReplace()
+      return true
+    }
+    if (!undo(view.state, view.dispatch)) return false
+    this.focusIfFree()
+    return true
+  }
+
+  /**
+   * Ctrl+Z, past Adam's own edits, while a draft is replacing the scene's text: the draft stops and the
+   * old text comes back exactly (Ctrl+Shift+Z brings the draft so far back; its record keeps it too).
+   */
+  private undoReplace(): void {
+    const s = this.stream
+    if (!s || this.destroyed || streamDoc.undoVerdict(this.editor.state, 'undo') !== 'undo-replace') return
+    void api.stopGeneration(s.generationId).catch(() => undefined)
+    this.finishStream()
+    const view = this.editor.view
+    if (!undo(view.state, view.dispatch)) return
+    this.lastEnded = { generationId: s.generationId, replaced: false }
+    this.focusIfFree()
+    toast("Drafting stopped, and the scene's text is back as it was.")
+  }
+
+  /** The replace message's Undo: the old text back in place of the draft, whether or not this scene is still open. */
+  private putOldTextBack(sceneId: ID, worldId: ID, draft: PMNode, old: PMNode): void {
+    if (this.destroyed || app().world?.id !== worldId) return
+    if (this.session?.id !== sceneId) {
+      requestPutBack({ sceneId, doc: old.toJSON(), text: streamDoc.sceneText(old) })
+      app().selectScene(sceneId)
+      return
+    }
+    const view = this.editor.view
+    // Nothing has changed since the draft ended: its own undo step puts the old text back exactly.
+    let step = null as Transaction | null
+    if (!this.stream && view.state.doc.eq(draft)) undo(view.state, (tr) => (step = tr))
+    if (step && view.state.apply(step).doc.eq(old)) view.dispatch(step)
+    else this.putBack(sceneId, old.toJSON(), streamDoc.sceneText(old))
+    if (this.stream) return
+    // Asked for from the message, whose button goes with it: the keyboard goes back into the page
+    // (once it shows, if another page covers it).
+    if (app().view.kind === 'write') this.focus()
+    else {
+      requestEditorFocus(sceneId)
+      app().navigate({ kind: 'write' })
+    }
+  }
+
+  /**
+   * Puts a scene's earlier text (from a draft's record) back in place of what's on the page, as one
+   * step Ctrl+Z takes back, and says so (or why it couldn't).
+   */
+  putBack(sceneId: ID, doc: unknown, text: string): void {
+    if (this.destroyed || this.session?.id !== sceneId) return
+    const view = this.editor.view
+    if (this.stream || streamDoc.holding(view.state)) {
+      toast('A new draft is being written into this scene. Stop it first, then put the old text back.')
+      return
+    }
+    const old = withParagraphIds(streamDoc.docFromStored(this.editor.schema, doc, text)).doc
+    if (old.eq(view.state.doc)) {
+      toast('The scene already has this text.')
+      return
+    }
+    const tr = closeHistory(view.state.tr.replaceWith(0, view.state.doc.content.size, old.content))
+    tr.setSelection(Selection.atStart(tr.doc))
+    view.dispatch(tr)
+    // Typing straight after is a step of its own.
+    view.dispatch(closeHistory(view.state.tr))
+    this.follow.stop()
+    const el = this.scroller()
+    if (el) el.scrollTop = 0
+    this.focusIfFree()
+    toast(`The text this draft replaced is back in the scene. ${modKey()}+Z takes it out again.`)
   }
 
   // ---------- Where the draft is being written ----------
@@ -515,6 +729,7 @@ export class SceneController {
     }
     this.destroyed = true
     this.editor.off('update', this.onUpdate)
+    this.editor.off('transaction', this.onTransaction)
     this.words.cancel()
     this.follow.stop()
     const s = this.session
@@ -536,6 +751,7 @@ export class SceneController {
     if (this.destroyed) return
     this.destroyed = true
     this.editor.off('update', this.onUpdate)
+    this.editor.off('transaction', this.onTransaction)
     this.words.cancel()
     this.follow.stop()
     if (this.stream) {

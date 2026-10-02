@@ -185,6 +185,24 @@ approval step and no Review inbox.
   "Accept") sets the scene's status and refreshes its summary (checks arrive in milestone 5).
   Memory doesn't wait for it.
 
+### Generate on a scene that already has text (0.2.2)
+
+- Generate asks first: **Replace it** or **Add below** (Ctrl+G then Enter adds below, as Ctrl+G
+  always did). An empty scene drafts straight away. Once picked, the keyboard goes into the page,
+  and Ctrl+Z on the Generate button undoes there too.
+- **Replacing** (`streamDoc.ts`): from the pick until the draft's first words arrive, the old text
+  is held (`holding`: read-only and dimmed), so nothing typed then goes with it. The first words
+  take its place in one step; at that moment the controller keeps the old text with the draft's
+  record (`keepReplacedText`, stored as `replaced` in `generations.params_json`, no migration).
+  When the draft ends, one Ctrl+Z puts the old text back exactly. While it writes, Ctrl+Z undoes
+  Adam's own edits, then stops the draft and puts the old text back (`undoVerdict`).
+- Later (another scene opened, the app closed), the Drafts tab marks the draft "Replaced", and
+  What the AI saw shows the text it replaced with **Copy** and **Put it back** (`putBack.ts`).
+- Known behaviour, not special to Replace: if the memory keeper has read the draft before the old
+  text is put back, entries only the old text named are in Recently deleted, and reading the old
+  text again makes them afresh (new ids) rather than bringing those back. The same happens when a
+  paragraph is deleted by hand and undone after a read.
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |

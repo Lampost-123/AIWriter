@@ -17,6 +17,7 @@ import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
 import { NamesLayer } from './names/NamesLayer'
 import { SelectionLayer } from './selection/SelectionLayer'
+import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import './editor.css'
@@ -142,6 +143,20 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
     tryReveal()
     return onRevealRequest(tryReveal)
+  }, [shown, writing])
+
+  // A draft's record asked to put back the text that draft replaced: once the scene is on screen, do it.
+  useEffect(() => {
+    const tryPutBack = (): void => {
+      const ctrl = ctrlRef.current
+      if (!ctrl || !shown || shown.id !== ctrl.sceneId || useApp.getState().view.kind !== 'write') return
+      const req = takePutBack(ctrl.sceneId)
+      if (!req) return
+      // After this frame's focus and scroll restore, so they don't undo it.
+      requestAnimationFrame(() => ctrl.putBack(req.sceneId, req.doc, req.text))
+    }
+    tryPutBack()
+    return onPutBackRequest(tryPutBack)
   }, [shown, writing])
 
   // Ctrl+S saves straight away (it already saves on its own; this is for peace of mind).

@@ -13,7 +13,8 @@ import type {
   GenerationRecord,
   GenerationStatus,
   GenerationSummary,
-  ID
+  ID,
+  ReplacedText
 } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { UserError } from '../util'
@@ -30,6 +31,15 @@ const json = <T>(s: unknown, fallback: T): T => {
     return fallback
   }
 }
+
+/**
+ * What params_json holds: the settings the draft was made with, and, for a draft that took the place of
+ * the scene's text, that text (kept there, so the record needs no column of its own).
+ */
+type StoredParams = GenerationRecord['params'] & { replaced?: ReplacedText }
+
+const isReplacedText = (v: unknown): v is ReplacedText =>
+  !!v && typeof v === 'object' && typeof (v as ReplacedText).text === 'string' && 'doc' in (v as object)
 
 export interface NewGeneration {
   id: ID
@@ -93,13 +103,45 @@ export interface Finish {
 }
 
 export function finishGeneration(db: DB, id: ID, f: Finish): void {
-  db.prepare(
-    `UPDATE generations SET status = ?, error = ?, response = ?, prompt_tokens = ?, completion_tokens = ?, cost = ?, finished_at = ?,
-       params_json = COALESCE(?, params_json)
-     WHERE id = ?`
-  ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, f.params ? JSON.stringify(f.params) : null, id)
-  // Backups watch the world's last-changed time, so a finished draft gets backed up.
-  touchWorld(db)
+  db.transaction(() => {
+    // The settings actually used take the place of the ones planned; the text the draft replaced stays.
+    const params = f.params ? JSON.stringify(withReplacedText(db, id, f.params)) : null
+    db.prepare(
+      `UPDATE generations SET status = ?, error = ?, response = ?, prompt_tokens = ?, completion_tokens = ?, cost = ?, finished_at = ?,
+         params_json = COALESCE(?, params_json)
+       WHERE id = ?`
+    ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, params, id)
+    // Backups watch the world's last-changed time, so a finished draft gets backed up.
+    touchWorld(db)
+  })()
+}
+
+const storedParams = (db: DB, id: ID): StoredParams | null => {
+  const row = db.prepare('SELECT params_json FROM generations WHERE id = ?').get(id) as Row | undefined
+  return row ? json<StoredParams>(row.params_json, { temperature: 0, top_p: 1, max_tokens: 0 }) : null
+}
+
+/** `params`, with the text the draft replaced if its record already keeps some. */
+function withReplacedText(db: DB, id: ID, params: GenerationRecord['params']): StoredParams {
+  const replaced = storedParams(db, id)?.replaced
+  return isReplacedText(replaced) ? { ...params, replaced } : params
+}
+
+/**
+ * Keeps the scene's text a draft took the place of with the draft's record, as it was the moment the
+ * draft's first words replaced it, so it can be put back even after the app has been closed. Null
+ * forgets it (the draft brought nothing after all, and the old text was put back as it was).
+ */
+export function keepReplacedText(db: DB, id: ID, replaced: ReplacedText | null): void {
+  if (replaced !== null && !isReplacedText(replaced)) throw new UserError("The scene's old text couldn't be kept: it wasn't sent in full.")
+  db.transaction(() => {
+    const params = storedParams(db, id)
+    if (!params) throw new UserError("This draft's record could not be found, so the text it replaced couldn't be kept with it.")
+    const { replaced: _old, ...settings } = params
+    const kept = replaced ? { ...settings, replaced } : settings
+    db.prepare('UPDATE generations SET params_json = ? WHERE id = ?').run(JSON.stringify(kept), id)
+    touchWorld(db)
+  })()
 }
 
 /** After a crash or a forced quit: drafts left 'streaming' become 'stopped', keeping their text. */
@@ -117,14 +159,18 @@ const toSummary = (r: Row): GenerationSummary => ({
   words: countWords((r.response as string) ?? ''),
   cost: (r.cost as number | null) ?? null,
   costEstimated: r.cost != null && r.prompt_tokens == null,
-  createdAt: r.created_at as string
+  createdAt: r.created_at as string,
+  replaced: r.replaced === 1
 })
+
+/** 1 when the record keeps the text its draft replaced (read without parsing the whole of params_json). */
+const REPLACED_SQL = "CASE WHEN json_valid(params_json) THEN json_type(params_json, '$.replaced.text') = 'text' ELSE 0 END"
 
 /** This scene's drafts, newest first (the memory keeper's calls are left out). */
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(
-      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at
+      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at, ${REPLACED_SQL} AS replaced
        FROM generations WHERE scene_id = ? AND job = 'draft' ORDER BY created_at DESC, rowid DESC`
     )
     .all(sceneId) as Row[]
@@ -157,11 +203,14 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
       changedSince: (e.updated_at != null && e.updated_at !== e.entry_version) || e.changed_later === 1
     }))
     .sort((a, b) => (order.get(a.entryId) ?? 1e9) - (order.get(b.entryId) ?? 1e9))
+  // The text the draft replaced is kept beside the settings, but isn't one of them.
+  const { replaced, ...params } = json<StoredParams>(r.params_json, { temperature: 0, top_p: 1, max_tokens: 0 })
   return {
     ...toSummary(r),
+    replaced: isReplacedText(replaced),
     error: (r.error as string | null) ?? null,
     providerId: r.provider_id as string,
-    params: json<GenerationRecord['params']>(r.params_json, { temperature: 0, top_p: 1, max_tokens: 0 }),
+    params,
     direction: (r.direction as string) ?? '',
     blocks,
     messages: json<ChatMessage[]>(r.messages_json, []),
@@ -170,6 +219,7 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
     promptTokens: (r.prompt_tokens as number | null) ?? null,
     completionTokens: (r.completion_tokens as number | null) ?? null,
     entries,
-    finishedAt: (r.finished_at as string | null) ?? null
+    finishedAt: (r.finished_at as string | null) ?? null,
+    replacedText: isReplacedText(replaced) ? replaced : null
   }
 }

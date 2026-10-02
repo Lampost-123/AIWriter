@@ -39,6 +39,7 @@ import type {
   ProviderConfig,
   ProviderInput,
   RecoveryItem,
+  ReplacedText,
   Scene,
   SceneCard,
   SceneMeta,
@@ -221,6 +222,11 @@ export interface AppApi extends BuilderApi, EntryViewsApi, WorldViewsApi, Manusc
   cancelDraftStart(sceneId: ID): Promise<void>
   listGenerations(sceneId: ID): Promise<GenerationSummary[]>
   getGeneration(id: ID): Promise<GenerationRecord>
+  /**
+   * Keeps the scene's text a draft took the place of with the draft's record, the moment its first
+   * words replace it (or forgets it, with null, when the old text was put back because nothing came).
+   */
+  keepReplacedText(generationId: ID, replaced: ReplacedText | null): Promise<void>
 
   // ----- Backups -----
   listBackups(): Promise<BackupInfo[]>

@@ -6,6 +6,8 @@ export interface FakeProviderOptions {
   words?: number
   slowWords?: number
   slowDelayMs?: number
+  /** How long fake/wait holds its first words back, in ms. */
+  waitMs?: number
   /** Use CRLF line endings in the stream. */
   crlf?: boolean
 }

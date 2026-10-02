@@ -1,9 +1,12 @@
 // The Generate button and its draft options, in the scene's toolbar.
 // Generate (Ctrl+G) drafts the scene from its card into the editor; while it
 // streams the button becomes Stop (Esc also stops) and the text so far stays.
+// When the scene already has text, Generate first asks whether the new draft
+// replaces it or goes below it. Once picked, the keyboard goes into the page, and
+// Ctrl+Z on the Generate button works there too, so "Ctrl+Z undoes it" holds.
 import * as P from '@radix-ui/react-popover'
-import { ChevronDown, Sparkles, Square } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { ArrowDownToLine, ChevronDown, RefreshCw, Sparkles, Square } from 'lucide-react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { AppEvents } from '@shared/api'
 import type { Creativity, ID } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
@@ -29,6 +32,9 @@ interface Session {
 
 type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
 
+/** Where a draft goes in a scene that already has text: in place of it, or after it. */
+type DraftMode = 'replace' | 'add'
+
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
 
 /** Below this header width the writer model's name is left out, so Generate always fits. */
@@ -51,8 +57,66 @@ function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
   return narrow
 }
 
+/**
+ * One of the two answers to "This scene already has text": a name, and a faint line saying what it does.
+ * Opened from the keyboard, the answer that has the keyboard always shows it (a shortcut alone doesn't
+ * make the browser show its focus ring), so Enter never picks one Adam can't see.
+ */
+function ModeChoice({
+  mode,
+  icon,
+  label,
+  hint,
+  keyboard,
+  onClick
+}: {
+  mode: DraftMode
+  icon: ReactNode
+  label: string
+  hint: string
+  keyboard: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  const id = useId()
+  return (
+    <button
+      type="button"
+      data-choice={mode}
+      onClick={onClick}
+      aria-labelledby={`${id}-label`}
+      aria-describedby={`${id}-hint`}
+      className={cn(
+        'group flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-[background-color,border-color] duration-150 hover:border-line-strong hover:bg-surface-2',
+        keyboard && 'focus:outline-2 focus:outline-offset-2 focus:outline-[var(--focus)]'
+      )}
+    >
+      <span
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-muted transition-colors duration-150 group-hover:bg-surface-3 group-hover:text-fg"
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span id={`${id}-label`} className="block text-[13px] font-medium leading-5 text-fg">
+          {label}
+        </span>
+        <span id={`${id}-hint`} className="block text-[12px] leading-[18px] text-faint">
+          {hint}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 /** Something else (a menu, a dialog, a popover) is open and should get Esc first. */
 const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"]')
+
+/** The key was pressed in the manuscript page. */
+const inPage = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.ProseMirror')
+
+/** The keyboard isn't in anything that takes keys itself: nowhere in particular, or on Generate and its choice. */
+const keyboardIdle = (t: EventTarget | null): boolean =>
+  !t || t === document.body || t === document.documentElement || (t instanceof Element && !!t.closest('[data-generate-controls]'))
 
 export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const writer = useApp((s) => s.settings?.models.writer ?? null)
@@ -65,11 +129,17 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [cardWords, setCardWords] = useState<number | null>(null)
   /** The scene card says what happens (beats, a goal, an outcome or notes). Null until loaded. */
   const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
-  /** The page already has writing on it, so a new draft goes after it. */
+  /** The page already has writing on it, so Generate asks whether the new draft replaces it or goes after it. */
   const [hasText, setHasText] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [retrying, setRetrying] = useState<string | null>(null)
-  const [popover, setPopover] = useState<'options' | 'need-model' | null>(null)
+  const [popover, setPopover] = useState<'options' | 'need-model' | 'choose' | null>(null)
+  /** Where the keyboard was before the "already has text" choice opened, so closing it puts it back there. */
+  const beforeChoice = useRef<HTMLElement | null>(null)
+  /** The choice was opened from the keyboard (Ctrl+G): Add below takes the keyboard, ready for Enter. */
+  const [choiceByKey, setChoiceByKey] = useState(false)
+  /** The choice took the place of the draft options (Ctrl+Enter or Generate draft there): Esc goes back to them. */
+  const [choiceFromOptions, setChoiceFromOptions] = useState(false)
   const [estimate, setEstimate] = useState<number | null>(null)
   /** Bumped when the card may have changed, so the estimate is worked out again. */
   const [estimateRev, setEstimateRev] = useState(0)
@@ -79,6 +149,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const session = useRef<Session | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
+  const popoverRef = useRef(popover)
+  popoverRef.current = popover
   const optsRef = useRef(opts)
   optsRef.current = opts
   const creativity = opts.creativity ?? defaultCreativity
@@ -121,6 +193,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   useEffect(() => {
     setLengthText(targetWords != null ? String(targetWords) : '')
   }, [targetWords])
+
+  // Another scene: a question about the last one's text no longer applies.
+  useEffect(() => setPopover((p) => (p === 'choose' ? null : p)), [sceneId])
 
   const checkText = useCallback(() => {
     const bridge = editorBridge()
@@ -170,13 +245,17 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     (p: AppEvents['generation:done']) => {
       const s = session.current
       if (!s || s.generationId !== p.generationId) return
-      s.bridge.endStream(p.generationId)
+      // A problem is reported here, in one message; otherwise the page says what the draft did.
+      const failed = (p.status === 'error' && !!p.error) || !!p.cutOff
+      const { replaced } = s.bridge.endStream(p.generationId, { failed })
       session.current = null
       setPhase('idle')
       setRetrying(null)
       const app = useApp.getState()
       if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
       const showRecord = { label: 'What the AI saw', run: () => navigate({ kind: 'generation', generationId: p.generationId }) }
+      // The draft took the place of the scene's text: how to have the old text back.
+      const oldText = replaced ? ` ${modKey()}+Z puts the scene's old text back.` : ''
       if (p.status === 'error' && p.error) {
         // The button goes where the message says the fix is: the draft options (a length the
         // model can't manage), Settings (key, credit, model), or else the draft's record.
@@ -185,10 +264,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           : /\bSettings\b/.test(p.error)
             ? { label: 'Open Settings', run: () => navigate({ kind: 'settings', tab: 'models' }) }
             : showRecord
-        toast(p.error, { tone: 'danger', action })
+        toast(p.error + oldText, { tone: 'danger', action })
       } else if (p.cutOff) {
         toast(
-          'The model ran out of room before the end of the scene, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.',
+          `The model ran out of room before the end of the scene, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.${oldText}`,
           { action: showRecord }
         )
       }
@@ -227,7 +306,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     }
   }, [finish])
 
-  const generate = useCallback(async () => {
+  /**
+   * Drafts the scene. When it already has text and `mode` isn't given, it first asks whether the new
+   * draft replaces that text or goes below it (nothing is sent until Adam answers). `byKey`: asked
+   * from the keyboard.
+   */
+  const generate = useCallback(async (mode?: DraftMode, byKey = false) => {
     if (session.current || phaseRef.current !== 'idle') return
     if (!useApp.getState().settings?.models.writer) {
       setPopover('need-model')
@@ -238,31 +322,58 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       toast('Open this scene in the editor to draft into it.')
       return
     }
+    const filled = bridge.hasText()
+    if (!mode && filled) {
+      setHasText(true)
+      if (popoverRef.current !== 'choose') {
+        const active = document.activeElement
+        // Not from inside the draft options: that panel makes way for the choice (and Esc goes back to it).
+        beforeChoice.current = active instanceof HTMLElement && !active.closest('[data-radix-popper-content-wrapper]') ? active : null
+        setChoiceFromOptions(popoverRef.current === 'options')
+        setChoiceByKey(byKey)
+      }
+      setPopover('choose')
+      return
+    }
+    // Emptied since the choice was made: there's nothing to replace.
+    const replace = mode === 'replace' && filled
     setPopover(null)
+    // From now until the first words arrive, the text to be replaced is held as it is (dimmed, and
+    // nothing can change it), so nothing typed while the draft gets ready goes with it.
+    if (replace && !bridge.holdForReplace(sceneId)) {
+      toast("The editor wasn't ready for this scene, so nothing was sent. Try again in a moment.")
+      return
+    }
+    // Picked from the choice: the keyboard goes back into the page, so Ctrl+Z works as the choice says.
+    if (mode) bridge.takeKeyboard()
     setPhase('starting')
     const s: Session = { sceneId, bridge, generationId: null, early: [], earlyDone: null, cancelled: false }
     session.current = s
+    /** The draft didn't start: the held text is the scene's again (unless a newer draft has started since). */
+    const giveUp = (): void => {
+      if (session.current !== s && session.current !== null) return
+      session.current = null
+      setPhase('idle')
+      if (replace) bridge.releaseHold()
+    }
     try {
       // Save the card and the page first, so the draft is built from the latest of both.
       await flushAll()
       const card = (await api.getScene(sceneId)).card
       const options = resolveDraftOptions(optsRef.current, card.targetWords, useApp.getState().settings?.creativity ?? 'balanced')
       if (s.cancelled) {
-        if (session.current === s) session.current = null
-        setPhase('idle')
+        giveUp()
         return
       }
       const { generationId } = await api.startDraft(sceneId, options)
       if (s.cancelled || session.current !== s) {
         void api.stopGeneration(generationId).catch(() => undefined)
-        if (session.current === s) session.current = null
-        setPhase('idle')
+        giveUp()
         return
       }
-      if (!bridge.beginStream(sceneId, generationId)) {
-        session.current = null
-        setPhase('idle')
+      if (!bridge.beginStream(sceneId, generationId, { replace })) {
         void api.stopGeneration(generationId).catch(() => undefined)
+        giveUp()
         toast("The editor wasn't ready for this scene, so the draft was stopped. Try again in a moment.")
         return
       }
@@ -273,8 +384,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       s.early = []
       if (s.earlyDone?.generationId === generationId) finish(s.earlyDone)
     } catch (e) {
-      if (session.current === s) session.current = null
-      setPhase('idle')
+      giveUp()
       const err = e as ApiError
       // Adam pressed Stop before it began: nothing was sent, and there's nothing to say.
       if (err.code === 'cancelled') return
@@ -315,25 +425,40 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         s.bridge.endStream(s.generationId)
         const app = useApp.getState()
         if (app.activeGeneration?.id === s.generationId) app.setActiveGeneration(null)
-      } else void api.cancelDraftStart(s.sceneId).catch(() => undefined)
+      } else {
+        void api.cancelDraftStart(s.sceneId).catch(() => undefined)
+        s.bridge.releaseHold()
+      }
     }
   }, [sceneId])
 
-  // Ctrl+G generates; Esc stops.
+  // Ctrl+G generates; Esc stops; Ctrl+Z on Generate (or with the keyboard nowhere in particular) undoes in the page.
   const generateRef = useRef(generate)
   generateRef.current = generate
   const stopRef = useRef(stop)
   stopRef.current = stop
+  const sceneIdRef = useRef(sceneId)
+  sceneIdRef.current = sceneId
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // Only on the writing page: while another page covers it, Esc and Ctrl+G belong to that page.
       if (useApp.getState().view.kind !== 'write') return
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
-        if (phaseRef.current === 'idle') void generateRef.current()
+        if (phaseRef.current === 'idle') void generateRef.current(undefined, true)
         return
       }
-      if (e.key === 'Escape' && phaseRef.current !== 'idle' && !e.defaultPrevented && !layerOpen()) stopRef.current()
+      // The page takes Esc for itself (and marks it handled), but there it stops the draft too, as Stop says.
+      const escape = e.key === 'Escape' && !e.isComposing && phaseRef.current !== 'idle'
+      if (escape && (!e.defaultPrevented || inPage(e.target)) && !layerOpen()) {
+        stopRef.current()
+        return
+      }
+      const undoKey = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z'
+      if (undoKey && !e.defaultPrevented && keyboardIdle(e.target) && !layerOpen()) {
+        const bridge = editorBridge()
+        if (bridge?.sceneId === sceneIdRef.current && bridge.undo()) e.preventDefault()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -348,7 +473,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const startingSlow = useDelayed(phase === 'starting', 700)
   const showStatus = phase === 'streaming' || phase === 'stopping' || startingSlow
-  const afterText = `This scene already has text. The new draft goes after it, below a scene break. ${modKey()}+Z removes it.`
+  const afterText = 'This scene already has text. You can replace it with the new draft, or add the draft below it.'
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
@@ -370,7 +495,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       : (retrying ?? undefined)
 
   return (
-    <div ref={rootRef} className="flex items-center gap-1.5">
+    <div ref={rootRef} data-generate-controls className="flex items-center gap-1.5">
       {compact ? (
         // Narrow header: only the amber light while writing (its slot is always kept, so nothing moves).
         <span role="status" title={showStatus ? (statusTitle ?? status) : undefined} className="flex h-8 w-4 items-center justify-center">
@@ -467,8 +592,74 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           </div>
         </P.Anchor>
 
-        {popover === 'need-model' ? (
-          <PopoverPanel className="w-[300px]">
+        {/* Each panel is its own popover (keyed), so switching from one to another opens it afresh. */}
+        {popover === 'choose' ? (
+          <PopoverPanel
+            key="choose"
+            className="w-[340px]"
+            onOpenAutoFocus={(e) => {
+              // From the keyboard, Add below takes the keyboard: Enter then does what Ctrl+G always did,
+              // and replacing the text takes a deliberate step. From a click, the panel does (nothing
+              // looks picked before Adam picks it); Tab or the arrow keys then reach the answers.
+              e.preventDefault()
+              const panel = e.currentTarget instanceof HTMLElement ? e.currentTarget : null
+              const first = choiceByKey ? panel?.querySelector<HTMLElement>('[data-choice="add"]') : panel
+              first?.focus({ preventScroll: true })
+            }}
+            onEscapeKeyDown={(e) => {
+              // Asked from the draft options: Esc goes back to them, with the direction as it was.
+              if (!choiceFromOptions) return
+              e.preventDefault()
+              setPopover('options')
+            }}
+            onKeyDown={(e) => {
+              // Up and down move between the two answers.
+              if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+              const answers = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-choice]')]
+              if (!answers.length) return
+              e.preventDefault()
+              const at = answers.indexOf(document.activeElement as HTMLElement)
+              const step = e.key === 'ArrowDown' ? 1 : answers.length - 1
+              const next = at < 0 ? (e.key === 'ArrowDown' ? 0 : answers.length - 1) : (at + step) % answers.length
+              answers[next].focus()
+            }}
+            onCloseAutoFocus={(e) => {
+              // Back to where the keyboard was (the page, for Ctrl+G), unless Adam clicked somewhere else.
+              // (This runs a moment after closing: if the choice was opened again since, it has the keyboard.)
+              e.preventDefault()
+              if (popoverRef.current === 'choose') return
+              const back = beforeChoice.current
+              beforeChoice.current = null
+              const here = document.activeElement
+              if (back?.isConnected && (!here || here === document.body)) back.focus({ preventScroll: true })
+            }}
+          >
+            <div data-generate-controls>
+              <h3 className="text-[13.5px] font-semibold text-fg">This scene already has text</h3>
+              <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">Where should the new draft go?</p>
+              <div className="mt-3 flex flex-col gap-2">
+                <ModeChoice
+                  mode="replace"
+                  icon={<RefreshCw size={14} />}
+                  label="Replace it"
+                  hint="The new draft takes its place."
+                  keyboard={choiceByKey}
+                  onClick={() => void generate('replace')}
+                />
+                <ModeChoice
+                  mode="add"
+                  icon={<ArrowDownToLine size={15} />}
+                  label="Add below"
+                  hint="The new draft goes below a scene break."
+                  keyboard={choiceByKey}
+                  onClick={() => void generate('add')}
+                />
+              </div>
+              <p className="mt-3 text-[12px] text-faint">Either way, {modKey()}+Z undoes it.</p>
+            </div>
+          </PopoverPanel>
+        ) : popover === 'need-model' ? (
+          <PopoverPanel key="need-model" className="w-[300px]">
             <h3 className="text-[13.5px] font-semibold text-fg">Choose a writer model first</h3>
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
               AI Write needs a model to write with. Connect OpenRouter or another provider, then pick a writer model.
@@ -478,7 +669,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             </Button>
           </PopoverPanel>
         ) : popover === 'options' ? (
-          <PopoverPanel className="w-[340px]">
+          <PopoverPanel key="options" className="w-[340px]">
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-[13.5px] font-semibold text-fg">Draft options</h3>
@@ -496,7 +687,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                         e.preventDefault()
-                        void generate()
+                        void generate(undefined, true)
                       }
                     }}
                   />

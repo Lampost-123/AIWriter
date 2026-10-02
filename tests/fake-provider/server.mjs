@@ -14,6 +14,7 @@
 //   fake/servererror-once  503 on the first request, then a normal stream
 //   fake/drop              streams a little, then the connection is reset
 //   fake/slow              a long, slow stream (for Stop tests)
+//   fake/wait              holds its first words back for waitMs (as a thinking model does), then a normal stream
 //   fake/refuse            finish_reason content_filter with no text
 //   fake/think             <think> blocks and reasoning fields before the prose
 //   fake/midstream-error   some text, then an error object in the stream
@@ -205,7 +206,7 @@ export function fakeSummary(user) {
 }
 
 export async function startFakeProvider(options = {}) {
-  const opts = { port: 0, delayMs: 10, words: 120, slowWords: 1500, slowDelayMs: 40, crlf: false, ...options }
+  const opts = { port: 0, delayMs: 10, words: 120, slowWords: 1500, slowDelayMs: 40, waitMs: 1500, crlf: false, ...options }
   let last = null
   const counts = {}
   const memoryCounts = {}
@@ -355,6 +356,7 @@ export async function startFakeProvider(options = {}) {
       return res.end()
     }
     const delay = model === 'fake/slow' ? opts.slowDelayMs : opts.delayMs
+    if (model === 'fake/wait') await sleep(opts.waitMs)
     const parts = pieces(prose)
     for (let i = 0; i < parts.length; i++) {
       if (closed) return
