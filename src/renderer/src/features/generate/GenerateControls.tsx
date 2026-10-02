@@ -45,7 +45,7 @@ const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map
  * Below this header width the writer model's name is left out, so Generate always fits and the scene's
  * title stays whole beside the scene's tools (Variants, Beat by beat, History, Listen).
  */
-const COMPACT_BELOW = 760
+const COMPACT_BELOW = 640
 
 /** True when the header around `ref` is too narrow for the model name next to Generate. */
 function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
