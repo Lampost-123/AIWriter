@@ -1,4 +1,4 @@
-import { Check, Sparkles } from 'lucide-react'
+import { Check, PenLine, Sparkles } from 'lucide-react'
 import type { ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -49,7 +49,7 @@ export type LineNote = SourceNote | { kind: 'loading' } | { kind: 'story' } | { 
 
 /**
  * Where a fact came from, quietly, inline (it sits inside a field's hint): the words it was read from
- * and their scene, "Those words were removed", "Drafted by AI", or for Adam's own, "Added by you"
+ * and their scene, "Those words were removed", "Drafted by AI", or for Adam's own, "You wrote this"
  * when `showAdam`. Renders nothing when there is nothing to say.
  */
 export function SourceLine({
@@ -67,7 +67,14 @@ export function SourceLine({
   const base = cn('inline-flex min-h-[18px] min-w-0 max-w-full items-baseline gap-1.5 text-[12px] text-faint', className)
   if (note.kind === 'loading') return <span className={base} aria-hidden />
   if (note.kind === 'story') return <span className={base}>Read from your story</span>
-  if (note.kind === 'adam') return <span className={base}>Added by you</span>
+  if (note.kind === 'adam') {
+    return (
+      <span className={base}>
+        <PenLine size={11} className="shrink-0 self-center" aria-hidden />
+        You wrote this
+      </span>
+    )
+  }
   if (note.kind === 'edited') {
     return (
       <span className={base}>

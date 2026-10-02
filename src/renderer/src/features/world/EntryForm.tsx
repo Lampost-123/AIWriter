@@ -1,13 +1,17 @@
-import { AlertTriangle, Lock, Trash2 } from 'lucide-react'
+import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from 'lucide-react'
 import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
-import { Button, Field, Input, Select } from '@/components/ui'
+import type { BuilderKind } from '@shared/contracts/builder'
+import { Button, Field, IconButton, Input, Select, toast } from '@/components/ui'
 import { AutoTextarea, useFitHeight } from './parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import { confirmSaved, getDraft, onEntryReplaced, setDraft, takeFresh } from './entryDrafts'
+import { PortraitDrop } from '@/features/views/PortraitDrop'
+import { setAsOfMode, useAsOfMode } from './asOfMode'
+import { EntryAsOfView } from './AsOfView'
+import { confirmSaved, entryReplaced, getDraft, onEntryReplaced, setDraft, takeFresh } from './entryDrafts'
 import { deleteEntryWithUndo, toPatch } from './entryActions'
 import {
   filledCount,
@@ -20,11 +24,13 @@ import {
   type NearDuplicate,
   type PlaceOption
 } from './entryLogic'
+import { FirstAppears, homesOf } from './FirstAppears'
 import { EntryMemorySections } from './memory/EntryMemory'
-import { ExistsLine, MadeByNote } from './memory/EntryNotes'
+import { MadeByNote, YouWroteNote } from './memory/EntryNotes'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
 import { fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
+import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
 import { Section } from './parts/Section'
@@ -85,6 +91,10 @@ const COPY: Partial<Record<EntryKind, { summary: string; description: string; al
 
 const ROLE_OPTIONS = CHARACTER_ROLES.map((r) => ({ value: r, label: r[0].toUpperCase() + r.slice(1) }))
 
+/** Kinds with a portrait and a builder (milestone 3). */
+const PICTURED: EntryKind[] = ['character', 'place', 'group', 'item']
+const isPictured = (kind: EntryKind): kind is BuilderKind => PICTURED.includes(kind)
+
 // Which sections are open, remembered per kind for this session and the next.
 const DEFAULT_OPEN: Partial<Record<EntryKind, string[]>> = {
   character: ['basics'],
@@ -129,6 +139,13 @@ export interface EntryFormProps {
 
 const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
+/** The names an entry goes by, as one string: "Appears in" looks for them in the scenes' words. */
+const namesOf = (e: Pick<Entry, 'name' | 'aliases'>): string => [e.name, ...e.aliases].map((n) => n.trim()).join('\n')
+
+/** Whether anything is written in the entry besides its name. */
+const hasWords = (e: Entry): boolean =>
+  !!(e.summary.trim() || e.description.trim() || e.aliases.length || e.tags.length || Object.values(e.fields).some((v) => v.trim()))
+
 /** Who an entry's facts come from, as the page last heard from the database. */
 type Ownership = Pick<Entry, 'origin' | 'fieldOrigins' | 'byHand' | 'originSceneId'>
 const ownership = (e: Entry): Ownership => ({
@@ -163,10 +180,16 @@ export const EntryForm = memo(function EntryForm({
   const [sources, setSources] = useState(() => initial)
   // Whether AI Write made this entry and Adam hadn't touched it when the page opened (the note's line is kept while open).
   const [madeByAI] = useState(() => initial.origin !== 'adam' && !initial.byHand)
+  // Whether Adam made it himself and has written in it: then a note says so (also kept while open).
+  const [madeByAdam] = useState(() => initial.origin === 'adam' && hasWords(initial))
+  // The names it goes by as last saved, for reloading "Appears in" when they change.
+  const [savedNames, setSavedNames] = useState(() => namesOf(initial))
   // The newest saved copy this form knows of (and its time), so a newer one loaded from elsewhere
   // can be merged with what Adam has typed rather than overwrite it.
   const base = useRef(initial)
   const known = useRef(initial.updatedAt)
+  // The profile before Adam's edits that reach other stories, for "Only from <story> on" (see reachLogic.ts).
+  const [reachFrom, setReachFrom] = useState<Profile>(() => profileOf(initial))
 
   const copy = COPY[kind]
   const groups = FIELD_GROUPS[kind] ?? []
@@ -186,6 +209,7 @@ export const EntryForm = memo(function EntryForm({
     draftRef.current = shown
     setDraftState(shown)
     setOwner(ownership(saved))
+    setSavedNames(namesOf(saved))
     setSources((prev) => notesSource(prev, saved, noteKeysRef.current))
     // Lists typed as text keep their own words: start one again only when it changed.
     const aliases = !sameList(before.aliases, shown.aliases)
@@ -200,6 +224,9 @@ export const EntryForm = memo(function EntryForm({
   const takeNewer = useCallback(
     (saved: Entry, since: Entry) => {
       const shown = mergeEntry(since, draftRef.current, saved)
+      // What someone else changed meanwhile is the new starting point, never taken for Adam's edit.
+      const mine = draftRef.current
+      setReachFrom((prev) => rebase(prev, mine, saved))
       adopt(saved, shown)
       // Edits still waiting to be saved are sent again on top of the newer copy.
       if (getDraft(saved.id)) {
@@ -224,6 +251,7 @@ export const EntryForm = memo(function EntryForm({
         base.current = saved
       }
       setOwner(ownership(saved))
+      setSavedNames(namesOf(saved))
       useApp.getState().bumpEntries()
     },
     { what: draft.name.trim() ? `"${draft.name.trim()}"` : `this ${kindNoun(kind)}` }
@@ -255,6 +283,7 @@ export const EntryForm = memo(function EntryForm({
       onEntryReplaced((e) => {
         if (e.id !== draftRef.current.id) return
         cancel()
+        setReachFrom(profileOf(e))
         adopt(e, e)
       }),
     [adopt, cancel]
@@ -271,13 +300,21 @@ export const EntryForm = memo(function EntryForm({
   const setParent = useCallback((parentId: string | null) => update({ parentId }), [update])
   const setName = useCallback((name: string) => update({ name }), [update])
 
-  // A freshly created entry opens with its name selected, ready to type over.
+  // A freshly created entry opens with its name selected, ready to type over (back in editing, if
+  // Adam was looking at entries as of a scene).
+  const nameFocus = useRef(false)
+  const asOf = useAsOfMode((s) => s.on)
   useLayoutEffect(() => {
-    if (takeFresh(initial.id)) {
-      nameRef.current?.focus()
-      nameRef.current?.select()
-    }
+    if (!takeFresh(initial.id)) return
+    nameFocus.current = true
+    if (useAsOfMode.getState().on) setAsOfMode({ on: false })
   }, [initial.id])
+  useLayoutEffect(() => {
+    if (!nameFocus.current || asOf || !nameRef.current) return
+    nameFocus.current = false
+    nameRef.current.focus()
+    nameRef.current.select()
+  }, [asOf, initial.id])
 
   const dups = useMemo(
     () => findNearDuplicates({ id: draft.id, kind, name: draft.name, aliases: draft.aliases }, others),
@@ -319,9 +356,18 @@ export const EntryForm = memo(function EntryForm({
     }
     return m
   }, [sources, noteKeys])
+  // On an entry AI Write made, the fields that were Adam's own when the page opened say "You wrote
+  // this" (on his own entries the note at the top says it once). Decided when the page opens, so no
+  // line comes or goes while he types.
+  const byAdam = useMemo(() => {
+    const e = opened.current
+    if (e.origin === 'adam') return []
+    return noteKeys.filter((key) => fieldOrigin(e, key) === 'adam' && fieldText(e, key).trim())
+  }, [noteKeys])
   const links = useEntryData(() => api.listEntryLinks(initial.id), `links:${initial.id}`, fromAI.size > 0)
   const fieldNotes = useMemo(() => {
     const m = new Map<string, LineNote>()
+    for (const key of byAdam) m.set(key, { kind: 'adam' })
     for (const [key, origin] of fromAI) {
       // Adam has changed it since the page opened: it's his now, and the line says so rather than vanish.
       if (fieldOrigin(owner, key) === 'adam') m.set(key, { kind: 'edited' })
@@ -330,7 +376,7 @@ export const EntryForm = memo(function EntryForm({
       else m.set(key, sourceNote('text', linksFor(links.data ?? [], key)) ?? { kind: 'story' })
     }
     return m
-  }, [fromAI, owner, links.data, links.error])
+  }, [byAdam, fromAI, owner, links.data, links.error])
   const scenePlaces = useSceneLabels(!!links.data?.length)
   const hint = (key: string, text?: ReactNode): ReactNode => {
     const note = fieldNotes.get(key)
@@ -338,20 +384,93 @@ export const EntryForm = memo(function EntryForm({
     return (
       <>
         {text ? <span className="block">{text}</span> : null}
-        <SourceLine note={note} places={scenePlaces} className="flex" />
+        <SourceLine note={note} places={scenePlaces} showAdam className="flex" />
       </>
     )
+  }
+
+  // Where it first appears: shown at the top, and it decides whether an edit reaches other stories.
+  const firsts = useEntryData(() => api.listFirstExists(initial.id), `first:${initial.id}`)
+  const storyId = useApp((s) => s.storyId)
+  const stories = useApp((s) => s.stories)
+  const reach = reachStory(homesOf(firsts.data), storyId, stories)
+  const reaching = reach ? editedKeys(reachFrom, draft) : []
+  const [keeping, setKeeping] = useState(false)
+
+  // Turns the edits since the page opened into a change from the start of the story Adam is in,
+  // and puts the profile back as it was for every story before it.
+  const keepFromHere = async (): Promise<void> => {
+    if (!reach || keeping) return
+    const keys = editedKeys(reachFrom, draftRef.current)
+    if (!keys.length) return
+    setKeeping(true)
+    try {
+      await autosave.flush()
+      const edited = draftRef.current
+      const { entry, change } = await api.keepEditFromStory(initial.id, reach.id, beforeOf(reachFrom, keys))
+      entryReplaced(entry)
+      useApp.getState().bumpEntries()
+      const who = entry.name.trim() || 'it'
+      toast(`From ${reach.title} on, ${who} has the new details. Earlier stories keep what was there before.`, {
+        action: { label: 'Undo', run: () => void undoKeep(change.id, edited, keys) }
+      })
+    } catch (e) {
+      toast(`Couldn't keep that for ${reach.title} only. ${(e as Error).message}`, { tone: 'danger' })
+    } finally {
+      setKeeping(false)
+    }
+  }
+  // Undo: the change goes, and the edits are back on the profile for every story.
+  const undoKeep = async (changeId: ID, edited: Entry, keys: string[]): Promise<void> => {
+    try {
+      await api.deleteChange(changeId)
+      const now = await api.getEntry(initial.id)
+      const fields = { ...now.fields }
+      for (const k of keys) if (k !== 'summary' && k !== 'description') fields[k] = edited.fields[k] ?? ''
+      const saved = await api.updateEntry(initial.id, {
+        ...toPatch(now),
+        summary: keys.includes('summary') ? edited.summary : now.summary,
+        description: keys.includes('description') ? edited.description : now.description,
+        fields
+      })
+      entryReplaced(saved)
+      useApp.getState().bumpEntries()
+    } catch (e) {
+      toast(`Couldn't undo that. ${(e as Error).message}`, { tone: 'danger' })
+    }
+  }
+
+  const asOfButton = useRef<HTMLButtonElement>(null)
+  // Only a click on "View as of a scene" moves focus into the slider; opening another entry while
+  // looking as of a scene leaves focus where Adam has it (in the list, say).
+  const [focusSlider, setFocusSlider] = useState(false)
+  const showAsOf = (): void => {
+    setFocusSlider(true)
+    setAsOfMode({ on: true })
+  }
+  const backToEditing = (): void => {
+    setAsOfMode({ on: false })
+    setFocusSlider(false)
+    requestAnimationFrame(() => asOfButton.current?.focus())
+  }
+  const openBuilder = async (): Promise<void> => {
+    if (!isPictured(kind)) return
+    await autosave.flush()
+    useApp.getState().navigate({ kind: 'builder', entryKind: kind, entryId: initial.id })
   }
 
   return (
     // Leaving any field writes straight away, so nothing waits on the timer.
     <div className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
-      {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a line of its own (kept free while it loads). */}
+      {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a
+          line of its own (kept free while it loads). */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">
         <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{KIND_LABELS[kind].one}</span>
-        <ExistsLine
-          entryId={initial.id}
-          className="col-start-2 row-start-1 @max-[34rem]:col-span-4 @max-[34rem]:col-start-1 @max-[34rem]:row-start-2"
+        <FirstAppears
+          name={draft.name}
+          kind={kind}
+          points={firsts}
+          className="col-start-2 row-start-1 justify-self-start @max-[34rem]:col-span-4 @max-[34rem]:col-start-1 @max-[34rem]:row-start-2"
         />
         <SaveNote status={autosave.status} error={autosave.error} className="col-start-3 row-start-1" />
         <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} className="col-start-4 row-start-1" onClick={() => void remove()}>
@@ -359,114 +478,211 @@ export const EntryForm = memo(function EntryForm({
         </Button>
       </div>
 
-      <NameBox ref={nameRef} value={draft.name} onChange={setName} />
-      <MadeByNote entry={owner} shown={madeByAI} />
-      <DuplicateHint dups={dups} kind={kind} onOpen={onOpen} />
-
-      <div className="mt-3 flex flex-col gap-4">
-        <Field label="Aliases" hint={hint('aliases', copy?.aliasesHint)}>
-          {(id) => (
-            <CommaListInput
-              key={rev.aliases}
-              id={id}
-              value={draft.aliases}
-              onChange={(aliases) => update({ aliases })}
-              placeholder={copy?.aliases}
-            />
-          )}
-        </Field>
-        <Field label="Short summary" hint={hint('summary')}>
-          {(id) => (
-            <Input id={id} value={draft.summary} placeholder={copy?.summary} onChange={(e) => update({ summary: e.target.value })} />
-          )}
-        </Field>
-
-        {kind === 'place' ? (
-          <Field label="Inside" hint="The bigger place this one is part of, like a room inside a castle inside a city.">
-            {(id) => (
-              <ParentSelect
-                id={id}
-                value={draft.parentId && parentOptions.some((o) => o.value === draft.parentId) ? draft.parentId : null}
-                onChange={setParent}
-                options={parentOptions}
-              />
-            )}
-          </Field>
+      <div className="flex items-start gap-4">
+        {isPictured(kind) ? (
+          <PortraitDrop entry={draft} size={72} onChange={(saved) => takeNewer(saved, base.current)} className="mt-2" />
         ) : null}
-
-        {kind === 'lore' ? (
-          <div
-            className={cn(
-              'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-150',
-              draft.hardRule ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface'
-            )}
-          >
-            <Switch id={ids.hard} checked={draft.hardRule} onChange={(hardRule) => update({ hardRule })} className="mt-px" />
-            <label htmlFor={ids.hard} className="flex-1 cursor-default">
-              <span className="block text-[13.5px] font-medium text-fg">Hard rule</span>
-              <span className="block text-[12.5px] text-muted">Never break this rule. Always given to the AI.</span>
-            </label>
+        <div className="min-w-0 flex-1">
+          {asOf ? (
+            <h2 className="mt-1 break-words px-0 py-[5px] font-serif text-[28px] font-semibold leading-tight text-fg">
+              {draft.name.trim() || 'Unnamed'}
+            </h2>
+          ) : (
+            <NameBox ref={nameRef} value={draft.name} onChange={setName} />
+          )}
+          {/* Grows to a second row when the buttons don't fit side by side (the same in both modes, so
+              nothing moves between them). */}
+          <div className="-ml-2.5 mt-0.5 flex min-h-7 flex-wrap items-center gap-1">
+            {/* Stays put (pressed) while looking as of a scene, so nothing beside it moves. */}
+            <Button
+              ref={asOfButton}
+              variant="ghost"
+              size="sm"
+              icon={<History size={14} />}
+              aria-pressed={asOf}
+              className={cn(asOf && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent')}
+              onClick={asOf ? backToEditing : showAsOf}
+            >
+              View as of a scene
+            </Button>
+            {isPictured(kind) ? (
+              <Button variant="ghost" size="sm" icon={<WandSparkles size={14} />} onClick={() => void openBuilder()}>
+                Open in the builder
+              </Button>
+            ) : null}
           </div>
-        ) : null}
+        </div>
+      </div>
 
-        <Field label="Description" hint={hint('description')}>
-          {(id) => (
+      {asOf ? (
+        <EntryAsOfView entry={draft} others={others} firsts={firsts.data} onBack={backToEditing} onOpen={onOpen} autoFocus={focusSlider} />
+      ) : (
+        <>
+          {madeByAdam ? <YouWroteNote /> : <MadeByNote entry={owner} shown={madeByAI} />}
+          <DuplicateHint dups={dups} kind={kind} onOpen={onOpen} />
+
+          <div className="mt-3 flex flex-col gap-4">
+            <Field label="Aliases" hint={hint('aliases', copy?.aliasesHint)}>
+              {(id) => (
+                <CommaListInput
+                  key={rev.aliases}
+                  id={id}
+                  value={draft.aliases}
+                  onChange={(aliases) => update({ aliases })}
+                  placeholder={copy?.aliases}
+                />
+              )}
+            </Field>
+            <Field label="Short summary" hint={hint('summary')}>
+              {(id) => (
+                <Input id={id} value={draft.summary} placeholder={copy?.summary} onChange={(e) => update({ summary: e.target.value })} />
+              )}
+            </Field>
+
+            {kind === 'place' ? (
+              <Field label="Inside" hint="The bigger place this one is part of, like a room inside a castle inside a city.">
+                {(id) => (
+                  <ParentSelect
+                    id={id}
+                    value={draft.parentId && parentOptions.some((o) => o.value === draft.parentId) ? draft.parentId : null}
+                    onChange={setParent}
+                    options={parentOptions}
+                  />
+                )}
+              </Field>
+            ) : null}
+
+            {kind === 'lore' ? (
+              <div
+                className={cn(
+                  'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-150',
+                  draft.hardRule ? 'border-accent/40 bg-accent-soft' : 'border-line bg-surface'
+                )}
+              >
+                <Switch id={ids.hard} checked={draft.hardRule} onChange={(hardRule) => update({ hardRule })} className="mt-px" />
+                <label htmlFor={ids.hard} className="flex-1 cursor-default">
+                  <span className="block text-[13.5px] font-medium text-fg">Hard rule</span>
+                  <span className="block text-[12.5px] text-muted">Never break this rule. Always given to the AI.</span>
+                </label>
+              </div>
+            ) : null}
+
+            <Field label="Description" hint={hint('description')}>
+              {(id) => (
+                <AutoTextarea
+                  id={id}
+                  value={draft.description}
+                  minRows={4}
+                  maxRows={30}
+                  placeholder={copy?.description}
+                  onChange={(e) => update({ description: e.target.value })}
+                />
+              )}
+            </Field>
+            <Field label="Tags" hint={hint('tags', 'Separate with commas.')}>
+              {(id) => (
+                <CommaListInput
+                  key={rev.tags}
+                  id={id}
+                  value={draft.tags}
+                  onChange={(tags) => update({ tags })}
+                  placeholder="family, the north, book one"
+                />
+              )}
+            </Field>
+          </div>
+
+          <div className="mt-6 border-b border-line">
+            {groups.map((g) => (
+              <GroupSection
+                key={g.id}
+                group={g}
+                fields={draft.fields}
+                open={open.has(g.id)}
+                onToggle={toggle}
+                onField={setField}
+                notes={fieldNotes}
+                places={scenePlaces}
+              />
+            ))}
+            <EntryMemorySections
+              now={draft}
+              names={savedNames}
+              ready={firsts.data !== null || firsts.error !== null}
+              others={others}
+              open={open}
+              onToggle={toggle}
+              onOpen={onOpen}
+              beforeRestore={flush}
+            />
+          </div>
+
+          <div className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface px-3 pb-3 pt-2.5">
+            <label htmlFor={ids.notes} className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">
+              <Lock size={12} aria-hidden />
+              Private notes (never sent to the AI)
+            </label>
             <AutoTextarea
-              id={id}
-              value={draft.description}
-              minRows={4}
-              maxRows={30}
-              placeholder={copy?.description}
-              onChange={(e) => update({ description: e.target.value })}
+              id={ids.notes}
+              value={draft.notes}
+              minRows={3}
+              maxRows={24}
+              placeholder="Reminders for yourself. The AI never sees these."
+              onChange={(e) => update({ notes: e.target.value })}
             />
-          )}
-        </Field>
-        <Field label="Tags" hint={hint('tags', 'Separate with commas.')}>
-          {(id) => (
-            <CommaListInput
-              key={rev.tags}
-              id={id}
-              value={draft.tags}
-              onChange={(tags) => update({ tags })}
-              placeholder="family, the north, book one"
-            />
-          )}
-        </Field>
-      </div>
+          </div>
+        </>
+      )}
 
-      <div className="mt-6 border-b border-line">
-        {groups.map((g) => (
-          <GroupSection
-            key={g.id}
-            group={g}
-            fields={draft.fields}
-            open={open.has(g.id)}
-            onToggle={toggle}
-            onField={setField}
-            notes={fieldNotes}
-            places={scenePlaces}
-          />
-        ))}
-        <EntryMemorySections now={draft} others={others} open={open} onToggle={toggle} onOpen={onOpen} beforeRestore={flush} />
-      </div>
-
-      <div className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface px-3 pb-3 pt-2.5">
-        <label htmlFor={ids.notes} className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">
-          <Lock size={12} aria-hidden />
-          Private notes (never sent to the AI)
-        </label>
-        <AutoTextarea
-          id={ids.notes}
-          value={draft.notes}
-          minRows={3}
-          maxRows={24}
-          placeholder="Reminders for yourself. The AI never sees these."
-          onChange={(e) => update({ notes: e.target.value })}
+      {reach && reaching.length && !asOf ? (
+        <ReachNote
+          name={draft.name}
+          story={reach.title}
+          busy={keeping}
+          onKeep={() => void keepFromHere()}
+          onDismiss={() => setReachFrom((prev) => dismissProfile(prev, draftRef.current, owner.fieldOrigins))}
         />
-      </div>
+      ) : null}
     </div>
   )
 })
+
+/**
+ * The one-line note when an edit reaches other stories: "This changes Mara in every story", with
+ * "Only from Book 2 on" to keep it for this story on instead. Floats at the bottom of the page so it
+ * is seen wherever the edit was made, and never moves the form.
+ */
+function ReachNote({
+  name,
+  story,
+  busy,
+  onKeep,
+  onDismiss
+}: {
+  name: string
+  story: string
+  busy: boolean
+  onKeep: () => void
+  onDismiss: () => void
+}): React.JSX.Element {
+  return (
+    <div className="pointer-events-none sticky bottom-4 z-10 mt-6 flex justify-center">
+      <div
+        role="status"
+        className="pointer-events-auto flex max-w-full animate-fade-in items-center gap-2.5 rounded-lg border border-line-strong bg-surface py-1.5 pl-3 pr-1.5 text-[13px] text-fg shadow-pop"
+      >
+        <Info size={14} className="shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0">{reachNote(name)}</span>
+        <Button size="sm" loading={busy} onClick={onKeep}>
+          {reachButton(story)}
+        </Button>
+        <IconButton size="sm" label="Keep it for every story" onClick={onDismiss}>
+          <X size={13} />
+        </IconButton>
+      </div>
+    </div>
+  )
+}
 
 /**
  * The entry's name, as a title. It wraps onto more lines rather than cut off a long one ("The night
@@ -600,7 +816,7 @@ const FieldInput = memo(function FieldInput({
     <Field
       label={def.label}
       className={wide ? '@lg:col-span-2' : undefined}
-      hint={note ? <SourceLine note={note} places={places} className="flex" /> : undefined}
+      hint={note ? <SourceLine note={note} places={places} showAdam className="flex" /> : undefined}
     >
       {(id) =>
         def.key === 'role' ? (

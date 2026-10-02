@@ -7,6 +7,8 @@ import { Button, EmptyState, IconButton, Input, Notice, Spinner, toast } from '@
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { useCodex } from '@/features/codex/codexStore'
+import { Portrait } from '@/features/views/Portrait'
 import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
@@ -77,6 +79,8 @@ function useStableList<T>(list: T[], key: (x: T) => string): T[] {
 function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID | null; from: From }): React.JSX.Element {
   const entriesRev = useApp((s) => s.entriesRev)
   const navigate = useApp((s) => s.navigate)
+  // Opened from the codex: the page offers the way back to it, as Adam left it.
+  const fromCodex = useCodex((s) => s.backTo === kind)
   const labels = KIND_LABELS[kind]
   const noun = kindNoun(kind)
   const [all, setAll] = useState<Entry[] | null>(null)
@@ -345,6 +349,18 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
                 Back to What the AI saw
               </Button>
             </div>
+          ) : fromCodex ? (
+            <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                className="-ml-2.5"
+                onClick={() => navigate({ kind: 'codex' })}
+              >
+                Back to the codex
+              </Button>
+            </div>
           ) : null}
           {selected ? (
             <EntryForm
@@ -398,15 +414,19 @@ const EntryRow = memo(function EntryRow({
         active ? 'bg-accent-soft' : 'hover:bg-surface-2'
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold',
-          active ? 'bg-accent text-accent-fg' : 'bg-surface-3 text-muted'
-        )}
-      >
-        {entry.kind === 'lore' && entry.hardRule ? <ShieldCheck size={14} /> : initial}
-      </span>
+      {entry.image ? (
+        <Portrait entry={entry} size={28} className={cn(active && 'ring-2 ring-accent')} />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold',
+            active ? 'bg-accent text-accent-fg' : 'bg-surface-3 text-muted'
+          )}
+        >
+          {entry.kind === 'lore' && entry.hardRule ? <ShieldCheck size={14} /> : initial}
+        </span>
+      )}
       <span className="min-w-0 flex-1">
         <span className={cn('block truncate text-[13.5px] font-medium', active ? 'text-accent' : 'text-fg')}>{name}</span>
         <span className={cn('block truncate text-[12px]', sub ? 'text-muted' : 'italic text-faint')}>{sub || 'No summary yet'}</span>

@@ -1,38 +1,22 @@
-import { Check, Sparkles } from 'lucide-react'
-import type { Entry, ID } from '@shared/types'
-import { api } from '@/lib/api'
+import { Check, PenLine, Sparkles } from 'lucide-react'
+import type { Entry } from '@shared/types'
 import { cn } from '@/lib/cn'
-import { useApp } from '@/lib/store'
-import { MADE_YOURS, existsLine, madeByNote } from '../memoryLogic'
+import { MADE_YOURS, YOU_WROTE, madeByNote } from '../memoryLogic'
 import { useSceneLabels } from '../useSceneLabels'
 import { PlaceLink } from './SourceLine'
-import { useEntryData } from './useEntryData'
 
 /**
- * Where the entry first exists, as one quiet line beside its kind: "In the world from the start",
- * "First appears in Book 1, Ch 3, Sc 2". Shows nothing until it is known (or if it can't be loaded).
+ * The quiet note on an entry Adam made: he wrote it, and AI Write keeps it as he wrote it. Fields
+ * the memory keeper or the AI filled in since say so on their own lines.
  */
-export function ExistsLine({ entryId, className }: { entryId: ID; className?: string }): React.JSX.Element | null {
-  const points = useEntryData(() => api.listExistsPoints(entryId), entryId)
-  const places = useSceneLabels(points.data?.some((p) => p.kind === 'scene') ?? false)
-  const stories = useApp((s) => s.stories)
-  if (!points.data) return null
-  const text = existsLine(points.data, {
-    story: (id) => {
-      const s = stories.find((x) => x.id === id)
-      return s ? s.title.trim() || 'Untitled story' : undefined
-    },
-    scene: (id) => places?.get(id)?.label
-  })
-  if (!text) return null
+export function YouWroteNote(): React.JSX.Element {
   return (
-    <span className={cn('flex min-w-0 animate-fade-in items-center gap-1.5 text-[12px] text-faint', className)} title={text}>
-      {/* Beside the kind on a wide page; on a narrow one it has its own line, without the dot. */}
-      <span aria-hidden className="@max-[34rem]:hidden">
-        ·
+    <div className="grid min-h-6 items-center text-[12.5px] text-faint" role="note">
+      <span className="flex min-w-0 items-start gap-1.5 leading-[18px]">
+        <PenLine size={12} className="mt-[3px] shrink-0" aria-hidden />
+        <span className="min-w-0">{YOU_WROTE}</span>
       </span>
-      <span className="min-w-0 truncate">{text}</span>
-    </span>
+    </div>
   )
 }
 

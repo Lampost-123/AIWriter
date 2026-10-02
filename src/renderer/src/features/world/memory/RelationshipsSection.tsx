@@ -45,6 +45,7 @@ export const relationshipsTitle = (kind: EntryKind): string => (kind === 'charac
  */
 export function RelationshipsSection({
   self,
+  adamsEntry,
   rows,
   data,
   entries,
@@ -52,6 +53,8 @@ export function RelationshipsSection({
   onOpen
 }: {
   self: Self
+  /** The entry is Adam's own: the note at the top of its page says he wrote it, so his relationships need no line of their own. */
+  adamsEntry: boolean
   rows: RelationView[]
   data: EntryData<ChangeView[]>
   /** Every other entry in the world. */
@@ -152,6 +155,7 @@ export function RelationshipsSection({
               view={v}
               self={self}
               other={byId.get(v.otherId)!}
+              adamsEntry={adamsEntry}
               places={places}
               focus={focusId === v.change.id}
               onFocused={focused}
@@ -201,6 +205,7 @@ const RelationshipRow = memo(function RelationshipRow({
   view,
   self,
   other,
+  adamsEntry,
   places,
   focus,
   onFocused,
@@ -210,6 +215,7 @@ const RelationshipRow = memo(function RelationshipRow({
   view: RelationView
   self: Self
   other: Entry
+  adamsEntry: boolean
   places: Map<ID, ScenePlace> | null
   focus: boolean
   onFocused: () => void
@@ -309,7 +315,8 @@ const RelationshipRow = memo(function RelationshipRow({
   const from = view.mine ? selfName : otherName
   const to = view.mine ? otherName : selfName
   const Icon = KIND_ICONS[other.kind]
-  const note = view.change.origin === 'adam' ? null : sourceNote(view.change.origin, view.change.links)
+  // Where it came from; Adam's own say so too, except on an entry that is all his.
+  const note = view.change.origin === 'adam' && adamsEntry ? null : sourceNote(view.change.origin, view.change.links)
 
   return (
     <div className="rounded-lg border border-line bg-surface px-3 pb-3 pt-2" onBlur={() => void autosave.flush()}>
@@ -373,7 +380,7 @@ const RelationshipRow = memo(function RelationshipRow({
       </div>
       {note ? (
         <p className="mt-2">
-          <SourceLine note={note} places={places} />
+          <SourceLine note={note} places={places} showAdam />
         </p>
       ) : null}
       {autosave.status === 'error' ? (
