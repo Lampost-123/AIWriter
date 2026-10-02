@@ -39,7 +39,7 @@ function request(db: Database.Database, events: Ev[], over: Partial<TaskRequest>
     db,
     taskId: `t-${Math.round(performance.now() * 1000)}`,
     job: 'chat',
-    model: { job: 'chat', target: { id: 'p1', name: 'Fake', baseUrl: fake.url, apiKey: 'k' }, choice: choice(), thinking: 'off' },
+    model: { job: 'chat', target: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'k' }, choice: choice(), thinking: 'off' },
     messages: [
       { role: 'system', content: 'You help a novelist.' },
       { role: 'user', content: 'Give me a tavern name.' }
@@ -120,7 +120,7 @@ describe('the model for each job', () => {
       thinking: { writer: 'off', memory: 'low', chat: 'off', builder: 'off', speech: 'high' }
     },
     getProvider: (id) => (id === 'p1' ? provider : null),
-    providerTarget: (p) => ({ id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: 'k' })
+    providerTarget: (p) => ({ id: p.id, name: p.name, kind: p.kind, baseUrl: p.baseUrl, apiKey: 'k' })
   })
 
   it('uses the job’s own model, else the one it stands in for', () => {
