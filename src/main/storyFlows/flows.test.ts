@@ -13,9 +13,10 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
 import * as fdb from '../db/storyFlows'
+import * as gens from '../db/generations'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import { answerItem, undoItem } from '../keeper/undo'
-import { BROKEN_REPLY, EMPTY_REPLY, flowFailure, NO_FLOW_MODEL, REFUSED, REPLY_TOO_LONG, TOO_MUCH, type FlowModel } from './call'
+import { BROKEN_REPLY, EMPTY_REPLY, flowFailure, FLOW_REPLY_TOKENS, NO_FLOW_MODEL, REFUSED, REPLY_TOO_LONG, TOO_MUCH, type FlowModel } from './call'
 import { ShortIds, stateAtStart } from './context'
 import { gapPhrase, NO_GAP, NOT_PREQUEL, runStartingCast, runTimeGap, runWhen, STOPPED, STOPPED_AFTER, type JobOptions } from './jobs'
 import { applyCast, applyGap, applyWhen, OPEN_AGAIN, TAKEN_OUT } from './apply'
@@ -707,6 +708,44 @@ describe('When the model fails', () => {
     expect(count(w.db, 'generations')).toBe(2)
     expect(fdb.startChanges(w.db, w.id('ym')).map((c) => c.id)).toEqual(before)
     expect(count(w.db, 'memory_runs')).toBe(0)
+  })
+})
+
+describe('Models that think', () => {
+  const lastRecord = (db: DB) => {
+    const { id } = db.prepare("SELECT id FROM generations WHERE job = 'story' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as { id: ID }
+    return gens.getGeneration(db, id)!
+  }
+  const thinking = (level: FlowModel['thinking']) => (): FlowModel => ({ ...model(), thinking: level })
+
+  it("asks the model not to think unless the memory's Thinking says so", async () => {
+    const w = gapWorld()
+    fake.reset()
+    expect((await runTimeGap(opts(w.db), w.storyId)).status).toBe('done')
+    const sent = fake.lastRequest()!.body
+    expect(sent.reasoning_effort).toBe('none')
+    expect(lastRecord(w.db).params).toMatchObject({ thinking: 'off', max_tokens: sent.max_tokens })
+  })
+
+  it("asks with the memory's Thinking level, with room for the thinking", async () => {
+    const w = gapWorld()
+    fake.reset()
+    expect((await runTimeGap(opts(w.db, { model: thinking('high') }), w.storyId)).status).toBe('done')
+    const sent = fake.lastRequest()!.body
+    expect(sent.reasoning_effort).toBe('high')
+    expect(lastRecord(w.db).params.thinking).toBe('high')
+    expect(sent.max_tokens).toBeGreaterThan(FLOW_REPLY_TOKENS)
+  })
+
+  it('says in plain words when thinking used up the room to answer', () => {
+    const target = { id: 'p1', name: 'Fake', kind: 'custom' as const, baseUrl: 'http://localhost:1/v1', apiKey: 'k' }
+    expect(flowFailure({ type: 'empty', thinking: true }, target, 'fake/memory')).toBe(
+      'The memory model thinks even with Thinking off, and used up its room before it answered. Pick another memory model in Settings › Models.'
+    )
+    expect(flowFailure({ type: 'empty', thinking: true }, target, 'fake/memory', 'high')).toBe(
+      "The memory model used up its room thinking and didn't answer. Set the memory's Thinking to Off in Settings › Models, or pick another memory model."
+    )
+    expect(flowFailure({ type: 'empty' }, target, 'fake/memory', 'high')).toBe(EMPTY_REPLY)
   })
 })
 

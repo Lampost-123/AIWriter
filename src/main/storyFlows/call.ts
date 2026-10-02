@@ -5,12 +5,13 @@
 // imports.
 
 import type Database from 'better-sqlite3'
-import type { ChatMessage, ContextBlock, ID, ModelChoice } from '@shared/types'
+import type { ChatMessage, ContextBlock, ID, ModelChoice, ThinkingLevel } from '@shared/types'
 import * as gens from '../db/generations'
-import { knownParams, streamChat, type ChatTarget, type SentParams } from '../ai/client'
+import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams } from '../ai/client'
 import { describeFailure, providerWho, type Failure } from '../ai/errors'
 import { estimateTokens } from '../keeper/text'
 import { CUT_OFF, parseLenient } from '../keeper/json'
+import { memoryReplyLimits, sentAs } from '../keeper/model'
 import { newId, now } from '../util'
 import { retryMessage } from './prompts'
 
@@ -20,6 +21,8 @@ type DB = Database.Database
 export interface FlowModel {
   target: ChatTarget & { id: ID }
   choice: ModelChoice
+  /** How much the model is asked to think: the memory's Thinking in Settings › Models (Off when not said). */
+  thinking?: ThinkingLevel
 }
 
 /** A little room to invent (a time gap, a younger cast), but not much: the flows keep to the world. */
@@ -74,12 +77,18 @@ const DRAFT_ONLY: [string, string][] = [
   ["This model can't write that much in one reply.", REPLY_TOO_LONG]
 ]
 
-/** The provider's words for a failure, reworded for a story flow. */
-export function flowFailure(f: Failure, target: ChatTarget, modelId: string): string {
+/** The provider's words for a failure, reworded for a story flow (asked to think as `thinking` says). */
+export function flowFailure(f: Failure, target: ChatTarget, modelId: string, thinking: ThinkingLevel = 'off'): string {
   switch (f.type) {
     case 'refused':
       return REFUSED
     case 'empty':
+      if (f.thinking && thinking === 'off') {
+        return `The memory model thinks even with Thinking off, and used up its room before it answered. ${PICK_ANOTHER}`
+      }
+      if (f.thinking) {
+        return "The memory model used up its room thinking and didn't answer. Set the memory's Thinking to Off in Settings › Models, or pick another memory model."
+      }
       return EMPTY_REPLY
     case 'dropped':
       return `The connection to ${providerWho(target)} dropped before the model had finished. Try again in a moment.`
@@ -159,7 +168,17 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
   const promptTokens = estimateTokens(messages.map((m) => m.content).join('\n'))
   const known = knownParams(o.model.target, o.model.choice.modelId)
   const start: SentParams = o.model.choice.sampling === false ? { ...known, sampling: false } : known
-  const params = { temperature: FLOW_TEMPERATURE, top_p: 1, max_tokens: reply, ...(start.sampling ? {} : { sampling: false }) }
+  // Thinking counts against the reply limit, so the limit leaves room for it (as the memory keeper's does).
+  const thinking = o.model.thinking ?? 'off'
+  const { limit, thinkingRoom } = memoryReplyLimits({ ...o.model.choice, contextLength }, promptTokens, reply, thinking)
+  const asked = levelOfEffort(thinkingEffort(o.model.target, o.model.choice.modelId, thinking))
+  const params = {
+    temperature: FLOW_TEMPERATURE,
+    top_p: 1,
+    max_tokens: limit,
+    ...(start.sampling ? {} : { sampling: false }),
+    ...(asked ? { thinking: asked } : {})
+  }
   if (o.closed() || !o.db.open) {
     return {
       generationId: id,
@@ -183,7 +202,7 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
     direction: '',
     blocks: o.blocks,
     messages,
-    budget: { contextLength, reserved: reply, available: Math.max(0, contextLength - reply), used: promptTokens },
+    budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: promptTokens },
     entries: o.entries,
     createdAt: now()
   })
@@ -191,11 +210,14 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
   let text = ''
   const outcome = await streamChat({
     target: o.model.target,
-    body: { model: o.model.choice.modelId, messages, temperature: FLOW_TEMPERATURE, top_p: 1, max_tokens: reply },
+    body: { model: o.model.choice.modelId, messages, temperature: FLOW_TEMPERATURE, top_p: 1, max_tokens: limit },
     signal: o.signal,
     onText: (t) => (text += t),
     startParams: start,
-    fallbackMaxTokens: reply > FALLBACK_REPLY_TOKENS ? FALLBACK_REPLY_TOKENS : undefined,
+    thinking,
+    thinkingRoom,
+    // A provider that turns the limit down is asked with the reply's own room, or less if that is turned down too.
+    fallbackMaxTokens: limit > reply ? reply : reply > FALLBACK_REPLY_TOKENS ? FALLBACK_REPLY_TOKENS : undefined,
     fetchImpl: o.fetchImpl,
     delays: o.retryDelays
   }).catch((e: unknown) => ({
@@ -212,7 +234,7 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
   const error =
     outcome.status === 'error'
       ? outcome.failure
-        ? flowFailure(outcome.failure, o.model.target, o.model.choice.modelId)
+        ? flowFailure(outcome.failure, o.model.target, o.model.choice.modelId, thinking)
         : (outcome.error ?? 'Something went wrong.')
       : null
   const status = o.closed() || o.signal.aborted ? 'stopped' : outcome.status
@@ -226,7 +248,9 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
         promptTokens: outcome.promptTokens,
         completionTokens: outcome.completionTokens,
         cost,
-        finishedAt: now()
+        finishedAt: now(),
+        // The reply limit and thinking as finally sent, so "What the AI saw" stays truthful.
+        params: sentAs(params, 'maxTokens' in outcome ? outcome : null)
       })
     } catch (e) {
       console.error('Could not finish the story flow record', e)

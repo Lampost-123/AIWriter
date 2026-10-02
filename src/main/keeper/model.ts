@@ -121,7 +121,7 @@ function callCost(
 }
 
 /** The params as finally sent, when they differ from what the record was made with. */
-function sentAs<P extends { max_tokens: number; thinking?: string }>(params: P, outcome: Pick<StreamOutcome, 'maxTokens' | 'effort'> | null): P | undefined {
+export function sentAs<P extends { max_tokens: number; thinking?: string }>(params: P, outcome: Pick<StreamOutcome, 'maxTokens' | 'effort'> | null): P | undefined {
   if (!outcome) return undefined
   const asked = levelOfEffort(outcome.effort)
   if (outcome.maxTokens === params.max_tokens && asked === params.thinking) return undefined

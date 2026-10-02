@@ -1,6 +1,6 @@
-// Which model the story flows use, in one place. Until the flows get their own job in Settings › Models,
-// they use the memory model (the writer model when none is chosen), as the memory keeper does, with the
-// same plain-words errors.
+// Which model the story flows use, in one place. The flows are memory work (the spec gives them to the
+// memory model), so they use the memory model (the writer model when none is chosen) and the memory's
+// Thinking in Settings › Models, as the memory keeper does, with the same plain-words errors.
 
 import { getSettings } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
@@ -24,5 +24,5 @@ export function flowTarget(): FlowModel | { error: string } {
   if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
     return { error: `${providerWho(provider)} needs an API key. Add it in Settings › Models, then try again.` }
   }
-  return { target, choice }
+  return { target, choice, thinking: s.thinking?.memory ?? 'off' }
 }
