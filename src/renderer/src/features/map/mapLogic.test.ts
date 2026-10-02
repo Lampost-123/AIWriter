@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import type { MapLink, RelationshipMap } from '@shared/contracts/worldViews'
-import { countText, feelsText, fitView, MAX_ZOOM, MIN_ZOOM, reveal, tieLabel, tieName, visibleGraph, whereText, zoomAt } from './mapLogic'
+import type { MapLink, MapNode, RelationshipMap } from '@shared/contracts/worldViews'
+import {
+  along,
+  countText,
+  feelsText,
+  FIT_PAD,
+  fitView,
+  labelsAt,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  reveal,
+  tieLabel,
+  tieName,
+  visibleGraph,
+  whereText,
+  zoomAt
+} from './mapLogic'
 
 const link = (aId: string, bId: string, type: string, l: Partial<MapLink> = {}): MapLink => ({
   aId,
@@ -29,7 +44,8 @@ const map: RelationshipMap = {
     link('mara', 'wren', 'sister'),
     link('hal', 'tobin', '')
   ],
-  groups: [{ id: 'watch', name: 'The Watch', memberIds: ['mara', 'wren'] }],
+  groups: [{ id: 'watch', name: 'The Watch', memberIds: ['mara', 'wren'], allMemberIds: ['mara', 'wren'] }],
+  everyone: [],
   any: true
 }
 const name = (id: string): string => map.nodes.find((n) => n.id === id)?.name ?? 'Someone'
@@ -63,16 +79,24 @@ describe('who the map shows', () => {
 })
 
 describe('moving about the map', () => {
-  it('fits everyone into the window, centred, never zoomed in past life size', () => {
+  it('fits everyone into the window, centred in the room left for names and the buttons, never zoomed in past life size', () => {
     const v = fitView(map.nodes, 1000, 800)
     expect(v.k).toBeLessThanOrEqual(1)
-    // The middle of the characters sits in the middle of the window.
+    // The middle of the characters sits in the middle of the room left once the help line and zoom
+    // buttons along the bottom have theirs.
     expect(100 * v.k + v.tx).toBeCloseTo(500)
-    expect(0 * v.k + v.ty).toBeCloseTo(400)
-    const small = fitView(map.nodes, 200, 200)
+    expect(0 * v.k + v.ty).toBeCloseTo(FIT_PAD.top + (800 - FIT_PAD.top - FIT_PAD.bottom) / 2)
+    // Everyone is inside that room.
+    for (const n of map.nodes) {
+      expect(n.x * v.k + v.tx).toBeGreaterThanOrEqual(FIT_PAD.x - 0.01)
+      expect(n.y * v.k + v.ty).toBeLessThanOrEqual(800 - FIT_PAD.bottom + 0.01)
+    }
+    const small = fitView(map.nodes, 300, 300)
     expect(small.k).toBeLessThan(v.k)
     expect(small.k).toBeGreaterThanOrEqual(MIN_ZOOM)
     expect(fitView([], 400, 300)).toEqual({ tx: 200, ty: 150, k: 1 })
+    // A window smaller than the room it keeps still centres the map.
+    expect(fitView([{ x: 0, y: 0 }], 100, 100)).toMatchObject({ tx: 50, ty: 50 })
   })
 
   it('zooms about a point, keeping it where it is, within limits', () => {
@@ -93,5 +117,58 @@ describe('moving about the map', () => {
     const moved = reveal(v, 1200, -50, 1000, 800)
     expect(1200 + moved.tx).toBe(1000 - 80)
     expect(-50 + moved.ty).toBe(80)
+  })
+})
+
+describe('names and words on the map', () => {
+  /** A ring of characters around a busy one, each tied to it. */
+  const star = (n: number, radius: number): { nodes: MapNode[]; ties: ReturnType<typeof visibleGraph>['ties'] } => {
+    const nodes: MapNode[] = [{ id: 'hub', name: 'Hub', image: null, x: 0, y: 0 }]
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      const [x, y] = [Math.round(Math.cos(a) * radius), Math.round(Math.sin(a) * radius)]
+      nodes.push({ id: `c${i}`, name: `Character ${i}`, image: null, x, y })
+    }
+    const m: RelationshipMap = { ...map, nodes, links: nodes.slice(1).map((x) => link('hub', x.id, 'knows')), groups: [] }
+    return visibleGraph(m, null)
+  }
+
+  it('shows every name and word when there is room', () => {
+    const { nodes, ties } = visibleGraph(map, null)
+    const shown = labelsAt(nodes, ties, 1)
+    expect(shown.names.size).toBe(4)
+    // The line with no words has nothing to show.
+    expect(shown.ties.size).toBe(2)
+  })
+
+  it('shows fewer when zoomed out, the best-connected first, and never on top of a portrait', () => {
+    const { nodes, ties } = star(12, 300)
+    expect(labelsAt(nodes, ties, 1).names.size).toBe(13)
+    const far = labelsAt(nodes, ties, 0.2)
+    expect(far.names.size).toBeLessThan(13)
+    expect(far.names.size).toBeGreaterThan(0)
+    expect(far.names.has('hub')).toBe(true)
+    // Words on a line too short to hold them, between two portraits, stay hidden.
+    expect(labelsAt(nodes, ties, 0.12).ties.size).toBe(0)
+  })
+
+  it('moves a line’s words along it when its middle is taken, never onto a portrait', () => {
+    // Wren stands in the middle of the line between Mara and Tobin.
+    const m: RelationshipMap = {
+      ...map,
+      nodes: [
+        { id: 'mara', name: 'Mara', image: null, x: 0, y: 0 },
+        { id: 'wren', name: 'Wren', image: null, x: 200, y: 0 },
+        { id: 'tobin', name: 'Tobin', image: null, x: 400, y: 0 }
+      ],
+      links: [link('mara', 'tobin', 'sister')],
+      groups: []
+    }
+    const { nodes, ties } = visibleGraph(m, null)
+    const at = labelsAt(nodes, ties, 1).ties.get(ties[0].key)!
+    expect(at).not.toBe(0.5)
+    const spot = along(ties[0], at)
+    expect(Math.abs(spot.x - 200)).toBeGreaterThan(22 + 27)
+    expect(spot.y).toBe(0)
   })
 })

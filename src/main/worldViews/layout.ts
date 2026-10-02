@@ -7,6 +7,10 @@
 // middle. The map lays out every relationship between characters the world has ever had, so moving the
 // as-of slider only shows and hides characters: nobody moves. When relationships are added, the
 // characters already placed keep their places (`fixed`) and only newcomers are fitted in around them.
+//
+// The map is shown in a window wider than it is tall, so the layout is worked out in a space squeezed
+// from the sides (by WIDE) and then stretched back: a cast that would settle into a circle settles into
+// a wider oval, which fills more of the window when the map is fitted to it, so more names and words fit.
 import type { ID } from '@shared/types'
 
 export interface LayoutGraph {
@@ -21,6 +25,8 @@ export type Positions = Map<ID, { x: number; y: number }>
 export const LINK_LENGTH = 170
 /** No two characters end up closer than this. */
 export const MIN_GAP = 96
+/** How much wider than tall the layout is (WIDE x WIDE: a circle of characters becomes an oval about 1.4 times as wide). */
+export const WIDE = 1.2
 
 /** A small, stable number from a string (FNV-1a), for starting angles. */
 function hash(s: string): number {
@@ -103,15 +109,16 @@ export function layoutGraph(graph: LayoutGraph, fixed?: Positions): Positions {
   let cx = 0
   let cy = 0
   let reach = 0
+  // Worked out in the squeezed space (see the top of the file); placed characters are squeezed to match.
   ids.forEach((id, i) => {
     const p = fixed?.get(id)
     if (!p) return
-    x[i] = p.x
-    y[i] = p.y
+    x[i] = p.x / WIDE
+    y[i] = p.y * WIDE
     pinned[i] = 1
     pinnedCount++
-    cx += p.x
-    cy += p.y
+    cx += x[i]
+    cy += y[i]
   })
   if (pinnedCount) {
     cx /= pinnedCount
@@ -205,6 +212,12 @@ export function layoutGraph(graph: LayoutGraph, fixed?: Positions): Positions {
         }
       }
       heat -= cool
+    }
+
+    // Stretched back to the window's shape.
+    for (let i = 0; i < n; i++) {
+      x[i] *= WIDE
+      y[i] /= WIDE
     }
 
     // Finally, nobody sits on top of anybody: part pairs closer than the gap.

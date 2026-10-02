@@ -6,8 +6,25 @@ import type { Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/w
 /** Lanes follow characters (who is in each scene) or plot threads (where each is set up and paid off). */
 export type LaneMode = 'characters' | 'threads'
 
-/** How many lanes show before Adam picks his own. */
+/** How many lanes show before Adam picks his own, when there is room. */
 export const DEFAULT_LANES = 6
+
+/** The timeline's columns, in pixels: When, then the scene (at least INFO_MIN, at most INFO_MAX), then the lanes. */
+export const WHEN_W = 184
+export const INFO_MIN = 300
+export const INFO_MAX = 520
+export const LANE_W = 68
+
+/** How many lanes show before Adam picks his own: as many as fit beside the scenes, up to DEFAULT_LANES. Unmeasured, the most. */
+export function lanesThatFit(width: number): number {
+  if (width <= 0) return DEFAULT_LANES
+  return Math.max(1, Math.min(DEFAULT_LANES, Math.floor((width - WHEN_W - INFO_MIN) / LANE_W)))
+}
+
+/** How wide the scene column is beside this many lanes: what is left, within its limits (lanes after it may go off the side). */
+export function infoWidth(width: number, lanes: number): number {
+  return lanes ? Math.max(INFO_MIN, Math.min(INFO_MAX, width - WHEN_W - lanes * LANE_W)) : Math.max(INFO_MIN, width - WHEN_W)
+}
 
 /** What a point shows in a lane. */
 export type Mark = 'pov' | 'present' | 'setUp' | 'paidOff' | 'both' | null
@@ -35,11 +52,11 @@ export function laneChoices(t: Timeline, mode: LaneMode): { entry: TimelineEntry
 
 /**
  * The lanes to show: Adam's choice (those still on the timeline, in the order offered), or the
- * busiest few until he makes one.
+ * busiest few that fit until he makes one.
  */
-export function shownLanes(t: Timeline, mode: LaneMode, chosen: ID[] | undefined): TimelineEntry[] {
+export function shownLanes(t: Timeline, mode: LaneMode, chosen: ID[] | undefined, fit = DEFAULT_LANES): TimelineEntry[] {
   const choices = laneChoices(t, mode)
-  if (!chosen) return choices.slice(0, DEFAULT_LANES).map((c) => c.entry)
+  if (!chosen) return choices.slice(0, fit).map((c) => c.entry)
   const want = new Set(chosen)
   return choices.filter((c) => want.has(c.entry.id)).map((c) => c.entry)
 }

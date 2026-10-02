@@ -3,7 +3,7 @@
 // the API (Book 1 with twelve chapters, Mara, Tobin and Kell, two places and three plot threads), the
 // timeline shows a clash and opens scenes, the map changes with its slider, and the board highlights a
 // thread left open and links to the scenes that set up and pay off each one.
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 import type { ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
@@ -11,6 +11,67 @@ import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
 const main = (win: Page) => win.locator('main')
 const open = (win: Page, link: string) => binder(win).getByRole('button', { name: link, exact: true }).click()
 const sceneRow = (win: Page, title: string) => binder(win).getByRole('treeitem', { name: title })
+
+/** Sets the window's size, as Adam would by dragging its edge. */
+async function windowSize(app: ElectronApplication, win: Page, width: number, height: number): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
+  await expect.poll(() => win.evaluate('[innerWidth, innerHeight]')).toEqual([width, height])
+}
+
+/** Whether an element sits wholly inside another on screen. */
+async function inside(win: Page, inner: ReturnType<Page['locator']>, outer: ReturnType<Page['locator']>): Promise<boolean> {
+  const [a, b] = [await inner.boundingBox(), await outer.boundingBox()]
+  if (!a || !b) return false
+  return a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.width <= b.x + b.width + 0.5 && a.y + a.height <= b.y + b.height + 0.5
+}
+
+/**
+ * What the map shows on screen: how many characters there are and how many sit wholly in the window
+ * above the help line, how many names show and the smallest one's height, and how many lines show
+ * their words.
+ */
+function readMap(win: Page) {
+  return main(win)
+    .getByRole('group', { name: 'Relationship map' })
+    .evaluate((el) => {
+      // The tests are typed without the browser's own names, so its window is reached through the map.
+      const style = (e: typeof el) => el.ownerDocument.defaultView!.getComputedStyle(e)
+      const box = el.getBoundingClientRect()
+      const help = el.ownerDocument.getElementById('map-help')!.getBoundingClientRect()
+      const people = [...el.querySelectorAll('button[title^="Open "]')]
+      const names = people.map((b) => b.lastElementChild).filter((n) => style(n).visibility === 'visible')
+      const words = [...el.querySelectorAll('button:not([title])')].filter((b) => style(b).opacity === '1')
+      const within = people.filter((b) => {
+        const r = b.getBoundingClientRect()
+        return r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= help.top
+      })
+      return {
+        characters: people.length,
+        inWindow: within.length,
+        names: names.length,
+        smallestName: Math.min(...names.map((n) => n.getBoundingClientRect().height)),
+        words: words.length,
+        smallestWords: Math.min(...words.map((w) => w.getBoundingClientRect().height))
+      }
+    })
+}
+
+/** What the map shows once it has stopped moving and fading: the same twice in a row. */
+async function settledMap(win: Page): ReturnType<typeof readMap> {
+  let last = ''
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(await readMap(win))
+        const same = now === last
+        last = now
+        return same
+      },
+      { intervals: [250] }
+    )
+    .toBe(true)
+  return JSON.parse(last)
+}
 
 /**
  * Book 1: Ch 1 has "Scene 1" (Day 12, Mara in Ashford) and "The mill burns" (Day 12 at dusk, Mara at
@@ -88,12 +149,14 @@ test('the timeline: lanes, a clash in plain words, and a click opens the scene',
   const timeline = main(win).getByRole('list', { name: 'Timeline' })
   await expect(timeline.getByRole('listitem').first()).toBeVisible()
 
-  // Mara can't be in Ashford and at the mill on the same day.
+  // Mara can't be in Ashford and at the mill on the same day. Clicking the sentence lights up both scenes.
   const clashes = main(win).getByRole('region', { name: 'Clashes' })
   await expect(clashes).toContainText('1 clash on the timeline')
   await clashes.getByRole('button', { name: 'Mara is in Ashford and Harrow Mill on Day 12.' }).click()
   const first = timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 1, Scene 1\. Day 12\. Mara is in Ashford/ })
   await expect(first).toBeFocused()
+  await expect(first).toHaveClass(/bg-accent-soft(?!\/)/)
+  await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 2, The mill burns/ })).toHaveClass(/bg-accent-soft(?!\/)/)
 
   // Scenes keep the order they happen in; those with no date keep their reading order, marked so.
   const names = await timeline.getByRole('button').evaluateAll((els) => els.slice(0, 4).map((e) => e.getAttribute('aria-label') ?? ''))
@@ -114,10 +177,38 @@ test('the timeline: lanes, a clash in plain words, and a click opens the scene',
   await main(win).getByRole('radio', { name: 'Plot threads' }).click()
   await expect(main(win).getByTitle('Who burned the mill?')).toBeVisible()
 
+  // A long When shows in full on hover.
+  await expect(timeline.getByTitle('Day 12, at dusk', { exact: true })).toBeVisible()
+
   // Clicking a scene opens it.
   await timeline.getByRole('button', { name: /Tobin returns/ }).click()
   await expect(win.locator('.scene-prose')).toBeVisible()
   await expect(sceneRow(win, 'Tobin returns')).toHaveAttribute('aria-selected', 'true')
+})
+
+test('the timeline and the board at a small window: every scene title and column stays on screen', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  await makeWorld(win)
+  await windowSize(app, win, 960, 600)
+
+  await open(win, 'Timeline')
+  const timeline = main(win).getByRole('list', { name: 'Timeline' })
+  await expect(timeline.getByRole('listitem').first()).toBeVisible()
+  // As many lanes as fit beside the scenes, and nothing to scroll sideways for.
+  await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText(/\d of 2/)
+  const scroller = timeline.locator('..')
+  expect(await scroller.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+  expect(await inside(win, timeline.getByText('The mill burns'), scroller)).toBe(true)
+  expect(await inside(win, timeline.getByText('Book 1, Ch 1, Sc 2'), scroller)).toBe(true)
+
+  await open(win, 'Plot threads board')
+  const planned = main(win).getByRole('region', { name: 'Planned', exact: true })
+  await expect(planned).toContainText('The stranger at the ferry')
+  expect(await inside(win, planned, main(win))).toBe(true)
+  // Where a thread is set up is never cut short.
+  await expect(planned.getByRole('button', { name: 'Book 1, Ch 5, Sc 1' })).toBeVisible()
+  expect(await inside(win, planned.getByRole('button', { name: 'Book 1, Ch 5, Sc 1' }), planned)).toBe(true)
 })
 
 test('the relationship map: portraits joined by labelled lines that change with the slider', async ({ launch }) => {
@@ -144,13 +235,16 @@ test('the relationship map: portraits joined by labelled lines that change with 
   await map.getByRole('button', { name: /^Mara and Tobin/ }).focus()
   await expect(main(win).getByText('Mara feels fond')).toBeVisible()
 
-  // At the end of the book they are rivals, and Kell owes Tobin money.
+  // At the end of the book they are rivals, and Kell owes Tobin money. Kell, who wasn't there at the
+  // start, turns up inside the window: the map was fitted to everyone the slider can show.
   await slider.focus()
   await win.keyboard.press('End')
   await expect(map.getByRole('button', { name: /^Mara and Tobin: rival\./ })).toBeVisible()
   await expect(map.getByRole('button', { name: /^Kell and Tobin: owes money\./ })).toBeVisible()
   await expect(map.getByRole('button', { name: 'Kell', exact: true })).toBeVisible()
   await expect(main(win).getByText('3 characters, 2 relationships')).toBeVisible()
+  expect(await inside(win, map.getByRole('button', { name: 'Kell', exact: true }), map)).toBe(true)
+  await expect.poll(async () => (await readMap(win)).inWindow).toBe(3)
 
   // Characters stay where they were as the slider moves.
   const box = async () => map.getByRole('button', { name: 'Mara', exact: true }).boundingBox()
@@ -215,4 +309,72 @@ test('the plot threads board: open, resolved and planned, a thread left open hig
   await open(win, 'Plot threads board')
   await card('Who burned the mill?').getByRole('button', { name: 'Who burned the mill?' }).click()
   await expect(binder(win).getByRole('button', { name: /^Plot threads\s*\d/ })).toHaveAttribute('aria-current', 'page')
+})
+
+test('the relationship map stays readable with a big cast, at any window size', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  await invoke(win, 'createStory', { title: 'Book 2', startStoryId: (await invoke(win, 'listStories'))[0].id })
+
+  // 25 characters, each tied to the next one round and to the one seven along: 50 relationships.
+  // prettier-ignore
+  const names = ['Ash', 'Bryn', 'Cato', 'Dara', 'Elsa', 'Finn', 'Gus', 'Hale', 'Ida', 'Jory', 'Kit', 'Lark', 'Mara', 'Nell', 'Oak',
+    'Pell', 'Quin', 'Rook', 'Sela', 'Tobin', 'Uma', 'Vale', 'Wen', 'Wenceslas Feathergill', 'Yara']
+  const ids: ID[] = []
+  for (const name of names) ids.push((await invoke(win, 'createEntry', 'character', { name, fields: {} })).id)
+  const types = ['sister', 'rival', 'owes money', 'old friend', 'mentor']
+  for (let i = 0; i < ids.length; i++) {
+    for (const step of [1, 7]) {
+      const otherId = ids[(i + step) % ids.length]
+      const payload = { otherId, type: types[(i + step) % types.length], feels: '', otherFeels: '' }
+      await invoke(win, 'createChange', { kind: 'relationship', payload, entryId: ids[i], anchor: 'baseline' })
+    }
+  }
+  await win.reload()
+  await expect(binder(win)).toBeVisible()
+  await windowSize(app, win, 1280, 800)
+
+  await open(win, 'Relationship map')
+  const map = main(win).getByRole('group', { name: 'Relationship map' })
+  await expect(map.getByRole('button', { name: 'Mara', exact: true })).toBeVisible()
+  // With two books, the map can be seen through either.
+  await expect(main(win).getByRole('combobox', { name: 'Story' })).toBeVisible()
+
+  // Everyone is in the window, clear of the help line; most names show at full size, and so do the
+  // words on many lines.
+  await expect.poll(async () => (await readMap(win)).inWindow).toBe(25)
+  const big = await settledMap(win)
+  expect(big.characters).toBe(25)
+  expect(big.names).toBeGreaterThanOrEqual(18)
+  expect(big.smallestName).toBeGreaterThanOrEqual(17)
+  expect(big.words).toBeGreaterThanOrEqual(10)
+  expect(big.smallestWords).toBeGreaterThanOrEqual(17)
+
+  // In the smallest window, fitted again, everyone still fits and the names that show are just as big.
+  await windowSize(app, win, 960, 600)
+  await main(win).getByRole('button', { name: 'Fit the map to the window' }).click()
+  await expect.poll(async () => (await readMap(win)).inWindow).toBe(25)
+  const small = await settledMap(win)
+  expect(small.inWindow).toBe(25)
+  expect(small.names).toBeGreaterThanOrEqual(6)
+  expect(small.smallestName).toBeGreaterThanOrEqual(17)
+
+  // Pointing at a character whose name had no room shows it.
+  const hidden = await map.evaluate((el) =>
+    [...el.querySelectorAll('button[title^="Open "]')]
+      .filter((b) => el.ownerDocument.defaultView!.getComputedStyle(b.lastElementChild).visibility !== 'visible')
+      .map((b) => b.getAttribute('aria-label') as string)
+  )
+  expect(hidden.length).toBeGreaterThan(0)
+  const who = map.getByRole('button', { name: hidden[0], exact: true })
+  await who.hover()
+  await expect(who.locator('span').last()).toBeVisible()
+
+  // One step in, more names and words show, all at full size.
+  await main(win).getByRole('button', { name: 'Zoom in' }).click()
+  const closer = await settledMap(win)
+  expect(closer.names + closer.words).toBeGreaterThan(small.names + small.words)
+  expect(closer.words).toBeGreaterThanOrEqual(1)
+  expect(closer.smallestName).toBeGreaterThanOrEqual(17)
+  expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
 })

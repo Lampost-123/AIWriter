@@ -2,12 +2,14 @@
 // before any story, enemies from Book 2, Ch 2, Sc 2, and neighbours in the prequel Young Mara.
 import { describe, expect, it } from 'vitest'
 import type { AsOf } from '@shared/types'
+import type { RelationshipMap } from '@shared/contracts/worldViews'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { relationshipMapOf } from './index'
-import { belongs, graphKey, worldGraph } from './map'
+import { belongs, createLayoutCache, graphKey, worldGraph } from './map'
+import { MAP_LAYOUT_KEY, readMapLayout, writeMapLayout } from '../db/worldViews'
 import { loadMemoryData } from '../memory/scene'
 
 function world() {
@@ -31,6 +33,10 @@ function world() {
 
 describe('the relationship map', () => {
   const w = world()
+  const positionOf = (m: RelationshipMap, key: string) => {
+    const n = m.nodes.find((x) => x.id === w.id(key))!
+    return { x: n.x, y: n.y }
+  }
   const scene = (key: string, seenIn: string): AsOf => ({
     kind: 'scene',
     storyId: w.id(key.split('.')[0]),
@@ -76,14 +82,26 @@ describe('the relationship map', () => {
     expect(link(late, 'kell', 'mara')?.type).toBe('owes money')
   })
 
-  it('lists groups with their members there, leaving out ties against a group', () => {
-    expect(map('b1', scene('b1.c1.s1', 'b1')).groups).toEqual([])
+  it('lists the groups along the story, with their members at the point, leaving out ties against a group', () => {
+    // The group stays on offer before anyone belongs to it, so the filter doesn't change as the slider moves.
+    expect(map('b1', scene('b1.c1.s1', 'b1')).groups).toEqual([
+      { id: w.guild.id, name: 'The Tide Guild', memberIds: [], allMemberIds: [w.id('mara')] }
+    ])
     const m = map('b1')
-    expect(m.groups).toEqual([{ id: w.guild.id, name: 'The Tide Guild', memberIds: [w.id('mara')] }])
+    expect(m.groups).toEqual([{ id: w.guild.id, name: 'The Tide Guild', memberIds: [w.id('mara')], allMemberIds: [w.id('mara')] }])
     expect(belongs('member (lieutenant)')).toBe(true)
     expect(belongs('leader')).toBe(true)
     expect(belongs('sworn enemy')).toBe(false)
     expect(belongs('former member')).toBe(false)
+  })
+
+  it('says who can appear anywhere on the slider, so the map can be fitted to them all', () => {
+    const early = map('b1', scene('b1.c1.s1', 'b1'))
+    const ids = (m: ReturnType<typeof map>) => m.everyone.map((p) => p.id).sort()
+    expect(ids(early)).toEqual(['kell', 'mara', 'tobin'].map(w.id).sort())
+    expect(early.everyone.find((p) => p.id === w.id('kell'))).toEqual({ id: w.id('kell'), ...positionOf(map('b1'), 'kell') })
+    // Mara Keeps Her Hand leaves Book 1 before Kell's Road: Kell never appears in it.
+    expect(ids(map('keep'))).toEqual(['mara', 'tobin'].map(w.id).sort())
   })
 
   it('counts where relationships between characters change, for the slider', () => {
@@ -122,5 +140,46 @@ describe('an empty map', () => {
     const w = world()
     const m = relationshipMapOf(w.db, w.id('kr'), { kind: 'start', storyId: w.id('b1'), seenIn: w.id('kr') }, null)
     expect(m.any).toBe(true)
+  })
+})
+
+describe('the layout kept in the world', () => {
+  it('is written when the map is first laid out, and keeps everyone in place after a restart', () => {
+    const w = world()
+    const first = relationshipMapOf(w.db, w.id('b1'), null, null)
+    expect(repo.getMeta(w.db, MAP_LAYOUT_KEY)).not.toBeNull()
+    const kept = readMapLayout(w.db)!
+    for (const n of first.nodes) expect(kept.get(n.id)).toEqual({ x: n.x, y: n.y })
+
+    // The app starts again (a new cache) after the memory added a relationship with a newcomer.
+    const wren = repo.createEntry(w.db, 'character', { name: 'Wren' })
+    mem.insertChange(w.db, {
+      kind: 'relationship',
+      payload: { otherId: w.id('tobin'), type: 'sister', feels: '', otherFeels: '' },
+      entryId: wren.id,
+      anchor: 'baseline',
+      origin: 'adam'
+    })
+    const layout = createLayoutCache({ load: readMapLayout, save: writeMapLayout })
+    const after = layout(w.db, worldGraph(loadMemoryData(w.db)))
+    for (const n of first.nodes) expect(after.get(n.id)).toEqual({ x: n.x, y: n.y })
+    expect(after.has(wren.id)).toBe(true)
+    expect(readMapLayout(w.db)!.get(wren.id)).toEqual(after.get(wren.id))
+  })
+
+  it('is read again rather than rewritten when nothing changed', () => {
+    const w = world()
+    relationshipMapOf(w.db, w.id('b1'), null, null)
+    let saves = 0
+    const layout = createLayoutCache({ load: readMapLayout, save: () => void saves++ })
+    layout(w.db, worldGraph(loadMemoryData(w.db)))
+    expect(saves).toBe(0)
+  })
+
+  it('ignores a damaged layout', () => {
+    const w = world()
+    repo.setMeta(w.db, MAP_LAYOUT_KEY, '{not json')
+    expect(readMapLayout(w.db)).toBeNull()
+    expect(relationshipMapOf(w.db, w.id('b1'), null, null).nodes.length).toBe(3)
   })
 })

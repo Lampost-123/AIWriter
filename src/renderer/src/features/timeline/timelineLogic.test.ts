@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { Timeline, TimelinePoint } from '@shared/contracts/worldViews'
-import { clashCount, dayBands, DEFAULT_LANES, laneChoices, laneSpans, markOf, rowLabel, shownLanes } from './timelineLogic'
+import {
+  clashCount,
+  dayBands,
+  DEFAULT_LANES,
+  INFO_MAX,
+  INFO_MIN,
+  infoWidth,
+  LANE_W,
+  laneChoices,
+  lanesThatFit,
+  laneSpans,
+  markOf,
+  rowLabel,
+  shownLanes,
+  WHEN_W
+} from './timelineLogic'
 
 const point = (id: string, p: Partial<TimelinePoint> = {}): TimelinePoint => ({
   kind: 'scene',
@@ -69,6 +84,23 @@ describe('timeline lanes', () => {
       { entries: Array.from({ length: 9 }, (_, j) => ({ id: `c${j}`, kind: 'character' as const, name: `C${j}`, image: null })) }
     )
     expect(shownLanes(many, 'characters', undefined)).toHaveLength(DEFAULT_LANES)
+    // In a narrow window, only as many as fit beside the scenes.
+    expect(shownLanes(many, 'characters', undefined, 3)).toHaveLength(3)
+    // Adam's own choice is his, however many.
+    expect(shownLanes(many, 'characters', ['c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'], 3)).toHaveLength(8)
+  })
+
+  it('fits the lanes beside the scenes, so scene titles are never pushed off the side', () => {
+    // 960 by 600 with the binder open leaves the timeline about 688 pixels.
+    expect(lanesThatFit(688)).toBe(3)
+    expect(WHEN_W + INFO_MIN + lanesThatFit(688) * LANE_W).toBeLessThanOrEqual(688)
+    expect(lanesThatFit(1200)).toBe(DEFAULT_LANES)
+    expect(lanesThatFit(300)).toBe(1)
+    expect(lanesThatFit(0)).toBe(DEFAULT_LANES)
+    expect(infoWidth(688, 3)).toBe(688 - WHEN_W - 3 * LANE_W)
+    expect(infoWidth(2000, 6)).toBe(INFO_MAX)
+    expect(infoWidth(600, 8)).toBe(INFO_MIN)
+    expect(infoWidth(1000, 0)).toBe(1000 - WHEN_W)
   })
 
   it('runs each lane from its first mark to its last', () => {

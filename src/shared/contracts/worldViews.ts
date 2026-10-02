@@ -107,11 +107,21 @@ export interface MapLink {
   where: string
 }
 
-/** A group at the point, with the characters who belong to it there. */
+/** A group someone belongs to somewhere on the story's slider. */
 export interface MapGroup {
   id: ID
   name: string
+  /** Who belongs to it at the point (nobody yet is possible). */
   memberIds: ID[]
+  /** Everyone who belongs to it anywhere on the story's slider: the map fits them all when the group is picked. */
+  allMemberIds: ID[]
+}
+
+/** Where a character sits on the map. */
+export interface MapPlace {
+  id: ID
+  x: number
+  y: number
 }
 
 export interface RelationshipMap {
@@ -125,7 +135,13 @@ export interface RelationshipMap {
   /** Characters with a relationship to another character, or in a group, at the point. */
   nodes: MapNode[]
   links: MapLink[]
+  /** Groups someone belongs to anywhere on the story's slider, by name, so the group filter stays the same as the slider moves. */
   groups: MapGroup[]
+  /**
+   * Every character the map can show anywhere on the story's slider, where each sits: the map is fitted
+   * to them all, so nobody appears outside the window as the slider moves.
+   */
+  everyone: MapPlace[]
   /** Whether characters have any relationship anywhere along the story (otherwise the map explains where they come from). */
   any: boolean
 }

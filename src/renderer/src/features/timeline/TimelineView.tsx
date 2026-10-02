@@ -2,6 +2,9 @@
 // from each scene card's When box, with a lane for each character (or plot thread) Adam picks. Clicking
 // a scene opens it; clicking an event opens its page. A character in two places on the same day is
 // marked calmly, with a sentence saying so. Long timelines draw only the rows on screen.
+//
+// Each row reads When, then the scene, then the lanes, so the scene stays on screen however many lanes
+// Adam picks (more than fit scroll sideways); until he picks, only as many as fit are shown.
 import * as P from '@radix-ui/react-popover'
 import { CalendarRange, CircleAlert, MapPin, Rows3, Search } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -17,11 +20,15 @@ import { useLanes } from './laneStore'
 import {
   clashCount,
   dayBands,
+  infoWidth,
   laneChoices,
+  lanesThatFit,
   laneSpans,
+  LANE_W,
   markOf,
   rowLabel,
   shownLanes,
+  WHEN_W,
   type Band,
   type LaneMode,
   type Mark
@@ -29,9 +36,10 @@ import {
 import { StoryFilter, useSize, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from './viewParts'
 
 const ROW = 52
-const WHEN_W = 184
-const LANE_W = 68
-const INFO_MIN = 300
+/** Room for the timeline's own scroll bar, so the lanes that fit never make it scroll sideways. */
+const SCROLLBAR = 16
+/** How long the rows of a clash stay lit after its sentence is clicked. */
+const FLASH_MS = 1500
 /** Rows drawn above and below the screen, so scrolling never shows a gap. */
 const OVERSCAN = 10
 
@@ -42,6 +50,8 @@ export function TimelineView(): React.JSX.Element {
   const { data, error, retry } = useWorldView(storyId, loadTimeline)
   const mode = useLanes((s) => s.mode)
   const setMode = useLanes((s) => s.setMode)
+  const page = useRef<HTMLDivElement>(null)
+  const fit = lanesThatFit(useSize(page).width - SCROLLBAR)
   // Lanes mean nothing until a scene has a date: until then the page only explains the When box.
   const dated = !!data?.points.some((p) => p.dated)
 
@@ -53,7 +63,7 @@ export function TimelineView(): React.JSX.Element {
   )
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={page} className="flex h-full flex-col">
       <ViewHeader title="Timeline" subtitle={subtitle}>
         <StoryFilter value={storyId} onChange={setStoryId} />
         {data && dated ? (
@@ -71,13 +81,13 @@ export function TimelineView(): React.JSX.Element {
                 ]}
               />
             </div>
-            <LanePicker timeline={data} mode={mode} />
+            <LanePicker timeline={data} mode={mode} fit={fit} />
           </>
         ) : null}
       </ViewHeader>
       {data ? (
         // A fresh body once the first date arrives, so it measures the list it now shows.
-        <TimelineBody key={`${data.storyId}:${dated}`} timeline={data} mode={mode} />
+        <TimelineBody key={`${data.storyId}:${dated}`} timeline={data} mode={mode} fit={fit} />
       ) : error ? (
         <ViewError what="The timeline" error={error} onRetry={retry} />
       ) : !storyId ? (
@@ -101,7 +111,8 @@ function Legend({ mode }: { mode: LaneMode }): React.JSX.Element {
         ]
       : [
           ['setUp', 'Set up'],
-          ['paidOff', 'Paid off']
+          ['paidOff', 'Paid off'],
+          ['both', 'Set up and paid off']
         ]
   return (
     <span className="flex items-center gap-3 text-[12px] text-faint" aria-hidden>
@@ -118,13 +129,13 @@ function Legend({ mode }: { mode: LaneMode }): React.JSX.Element {
 const worldKey = (mode: LaneMode): string => `${useApp.getState().world?.id ?? ''}:${mode}`
 
 /** Picks which lanes show: every character (or plot thread) on the timeline, busiest first. */
-function LanePicker({ timeline, mode }: { timeline: Timeline; mode: LaneMode }): React.JSX.Element {
+function LanePicker({ timeline, mode, fit }: { timeline: Timeline; mode: LaneMode; fit: number }): React.JSX.Element {
   const key = worldKey(mode)
   const chosen = useLanes((s) => s.chosen[key])
   const choose = useLanes((s) => s.choose)
   const [query, setQuery] = useState('')
   const choices = useMemo(() => laneChoices(timeline, mode), [timeline, mode])
-  const shown = useMemo(() => new Set(shownLanes(timeline, mode, chosen).map((e) => e.id)), [timeline, mode, chosen])
+  const shown = useMemo(() => new Set(shownLanes(timeline, mode, chosen, fit).map((e) => e.id)), [timeline, mode, chosen, fit])
   const q = query.trim().toLocaleLowerCase()
   const listed = q ? choices.filter((c) => c.entry.name.toLocaleLowerCase().includes(q)) : choices
   const noun = mode === 'characters' ? 'characters' : 'plot threads'
@@ -216,11 +227,11 @@ function openSceneCard(fallback: TimelinePoint | undefined): void {
   else app.navigate({ kind: 'write' })
 }
 
-function TimelineBody({ timeline, mode }: { timeline: Timeline; mode: LaneMode }): React.JSX.Element {
+function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneMode; fit: number }): React.JSX.Element {
   const key = worldKey(mode)
   const chosen = useLanes((s) => s.chosen[key])
   const here = useApp((s) => s.sceneId)
-  const lanes = useMemo(() => shownLanes(timeline, mode, chosen), [timeline, mode, chosen])
+  const lanes = useMemo(() => shownLanes(timeline, mode, chosen, fit), [timeline, mode, chosen, fit])
   const laneIds = useMemo(() => lanes.map((l) => l.id), [lanes])
   const spans = useMemo(() => laneSpans(timeline.points, laneIds, mode), [timeline, laneIds, mode])
   const bands = useMemo(() => dayBands(timeline.points), [timeline])
@@ -269,14 +280,22 @@ function TimelineBody({ timeline, mode }: { timeline: Timeline; mode: LaneMode }
     }
   })
 
+  // Clicking a clash's sentence brings its first scene into view and lights up all its scenes for a moment.
+  const [flash, setFlash] = useState<Set<ID> | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(flashTimer.current), [])
   const showClash = (c: number): void => {
     const i = timeline.points.findIndex((p) => p.clashes.includes(c))
     const el = scroller.current
     if (i < 0 || !el) return
-    el.scrollTop = Math.max(0, i * ROW - el.clientHeight / 3)
+    const top = i * ROW
+    if (top < el.scrollTop || top + 2 * ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 3)
     pendingFocus.current = i
     setFocused(i)
     setScrollTop(el.scrollTop)
+    clearTimeout(flashTimer.current)
+    setFlash(new Set(timeline.clashes[c]?.sceneIds ?? []))
+    flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS)
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -329,34 +348,37 @@ function TimelineBody({ timeline, mode }: { timeline: Timeline; mode: LaneMode }
   const hereIndex = timeline.points.findIndex((p) => p.id === here)
   const active = focused !== null && focused < n ? focused : Math.max(0, hereIndex)
   if (active < first || active > last) rows.push(active)
-  const rowWidth = Math.max(width, WHEN_W + lanes.length * LANE_W + INFO_MIN)
+  const infoW = infoWidth(width, lanes.length)
+  const rowWidth = Math.max(width, WHEN_W + infoW + lanes.length * LANE_W)
 
   return (
     <>
       {timeline.clashes.length ? <Clashes timeline={timeline} onShow={showClash} /> : null}
       <div
         ref={scroller}
-        role="list"
-        aria-label="Timeline"
         className="relative min-h-0 flex-1 overflow-auto"
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
         onKeyDown={onKeyDown}
       >
-        <div className="sticky top-0 z-10 flex h-[52px] border-b border-line bg-bg/95 backdrop-blur-sm" style={{ width: rowWidth }}>
+        {/* The lane names repeat in each row's own name, so screen readers skip this header. */}
+        <div aria-hidden className="sticky top-0 z-10 flex h-[52px] border-b border-line bg-bg" style={{ width: rowWidth }}>
           <div
             className="flex shrink-0 items-end px-6 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
             style={{ width: WHEN_W }}
           >
             When
           </div>
+          <div
+            className="flex shrink-0 items-end px-3 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
+            style={{ width: infoW }}
+          >
+            Scene
+          </div>
           {lanes.map((l) => (
             <LaneHead key={l.id} lane={l} />
           ))}
-          <div className="flex min-w-0 flex-1 items-end px-3 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
-            Scene
-          </div>
         </div>
-        <div className="relative" style={{ height: n * ROW, width: rowWidth }}>
+        <div role="list" aria-label="Timeline" className="relative" style={{ height: n * ROW, width: rowWidth }}>
           {rows.map((i) => (
             <Row
               key={timeline.points[i].kind + timeline.points[i].id}
@@ -367,6 +389,8 @@ function TimelineBody({ timeline, mode }: { timeline: Timeline; mode: LaneMode }
               spans={spans}
               band={bands[i]}
               here={timeline.points[i].id === here}
+              lit={!!flash?.has(timeline.points[i].id)}
+              infoW={infoW}
               tabbable={i === active}
               location={timeline.points[i].locationId ? places.get(timeline.points[i].locationId!)?.name : undefined}
               label={rowLabel(timeline.points[i], timeline.clashes)}
@@ -395,8 +419,8 @@ function Clashes({ timeline, onShow }: { timeline: Timeline; onShow: (c: number)
   const list = all ? timeline.clashes : timeline.clashes.slice(0, 3)
   return (
     <section aria-label="Clashes" className="shrink-0 border-b border-line px-6 py-3">
-      <div className="flex items-start gap-2.5 rounded-lg border border-ai/30 bg-ai-soft px-3 py-2.5 text-[13px] animate-fade-in">
-        <CircleAlert size={15} className="mt-0.5 shrink-0 text-ai" aria-hidden />
+      <div className="flex items-start gap-2.5 rounded-lg border border-line-strong bg-surface-2 px-3 py-2.5 text-[13px] animate-fade-in">
+        <CircleAlert size={15} className="mt-0.5 shrink-0 text-muted" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-fg">
             {clashCount(timeline.clashes.length)} on the timeline
@@ -442,6 +466,8 @@ const Row = memo(function Row({
   spans,
   band,
   here,
+  lit,
+  infoW,
   location,
   label,
   clashText,
@@ -455,6 +481,9 @@ const Row = memo(function Row({
   spans: Map<ID, { first: number; last: number }>
   band: Band
   here: boolean
+  /** One of the scenes of a clash just clicked. */
+  lit: boolean
+  infoW: number
   location: string | undefined
   label: string
   clashText: string
@@ -475,7 +504,7 @@ const Row = memo(function Row({
         title={p.kind === 'scene' ? 'Open this scene' : 'Open this event'}
         className={cn(
           'group flex h-full w-full items-stretch text-left outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
-          here && 'bg-accent-soft/50'
+          lit ? 'bg-accent-soft' : here && 'bg-accent-soft/50'
         )}
       >
         <span className="relative flex shrink-0 flex-col justify-center pl-6 pr-3" style={{ width: WHEN_W }}>
@@ -490,27 +519,32 @@ const Row = memo(function Row({
             />
           ) : null}
           {p.dated ? (
-            <span className="truncate text-[12.5px] text-fg/90">{p.when}</span>
+            <span className="truncate text-[12.5px] text-fg/90" title={p.when}>
+              {p.when}
+            </span>
           ) : p.when ? (
             <>
-              <span className="truncate text-[12.5px] text-muted">{p.when}</span>
+              <span className="truncate text-[12.5px] text-muted" title={p.when}>
+                {p.when}
+              </span>
               <span className="text-[11px] italic text-faint">No date</span>
             </>
           ) : (
             <span className="text-[12.5px] italic text-faint">No date</span>
           )}
         </span>
-        {lanes.map((id) => (
-          <LaneCell key={id} mark={markOf(p, id, mode)} span={spans.get(id)} index={index} />
-        ))}
-        <span className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-6">
+        <span className="flex shrink-0 items-center gap-2 pl-3 pr-4" style={{ width: infoW }}>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
               {p.kind === 'event' ? <Badge className="shrink-0">Event</Badge> : null}
               <span className="truncate text-[13.5px] font-medium text-fg">{p.title}</span>
             </span>
             <span className="flex items-center gap-1.5 truncate text-[12px] text-muted">
-              {p.kind === 'scene' ? <span className="shrink-0">{p.place}</span> : <span className="shrink-0">Opens the event’s page</span>}
+              {p.kind === 'scene' ? (
+                <span className="shrink-0">{p.place}</span>
+              ) : (
+                <span className="shrink-0">Opens the event’s page</span>
+              )}
               {location ? (
                 <>
                   <span aria-hidden>·</span>
@@ -521,11 +555,14 @@ const Row = memo(function Row({
             </span>
           </span>
           {clashText ? (
-            <span className="flex shrink-0 items-center text-ai" title={clashText}>
+            <span className="flex shrink-0 items-center text-muted" title={clashText}>
               <CircleAlert size={16} aria-hidden />
             </span>
           ) : null}
         </span>
+        {lanes.map((id) => (
+          <LaneCell key={id} mark={markOf(p, id, mode)} span={spans.get(id)} index={index} />
+        ))}
       </button>
     </div>
   )

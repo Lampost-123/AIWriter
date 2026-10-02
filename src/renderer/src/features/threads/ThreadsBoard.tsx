@@ -83,9 +83,10 @@ function Columns({ board }: { board: Board }): React.JSX.Element {
   const columns = columnsOf(board)
   return (
     <div className="min-h-0 flex-1 overflow-auto">
+      {/* Side by side when there is room; in a narrow window the columns wrap under each other rather than off the side. */}
       <div
         className="grid items-start gap-5 px-6 pb-10 pt-5"
-        style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(260px, 1fr))` }}
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))' }}
       >
         {columns.map(({ column, threads }) => (
           <section key={column.id} aria-labelledby={`board-${column.id}`} className="min-w-0">
@@ -158,7 +159,7 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
 function Place({ words }: { words: PlaceWords }): React.JSX.Element {
   const link = words.link
   return (
-    <p className="truncate">
+    <p className="break-words">
       {words.before}
       {link ? (
         <button

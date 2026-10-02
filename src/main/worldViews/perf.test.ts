@@ -96,19 +96,26 @@ function bigWorld(): { db: ReturnType<typeof memoryWorld>; last: ID; middle: ID 
   return { db, last, middle: scenes[Math.floor(scenes.length / 2)] }
 }
 
-/** The median of five timed runs, in ms. */
-function median(fn: () => unknown): number {
+/**
+ * Times a call five times, each just after something was written to the world, so nothing read before
+ * can be reused (as after the memory keeper or Adam changes anything). Gives the fastest run, which is
+ * what the code itself costs and the least shaken by other work on a busy machine, and the median.
+ */
+function timed(db: ReturnType<typeof memoryWorld>, fn: () => unknown): { fastest: number; median: number } {
   const times: number[] = []
   for (let i = 0; i < 5; i++) {
+    repo.setMeta(db, 'perf_test', String(i))
     const t = performance.now()
     fn()
     times.push(performance.now() - t)
   }
-  return times.sort((a, b) => a - b)[2]
+  times.sort((a, b) => a - b)
+  return { fastest: times[0], median: times[2] }
 }
 
 /** How many statements a call prepares (one per query), to catch a query per item. */
 function queries(db: ReturnType<typeof memoryWorld>, fn: () => unknown): number {
+  repo.setMeta(db, 'perf_test', 'count')
   const prepare = db.prepare.bind(db)
   let n = 0
   db.prepare = ((sql: string) => {
@@ -123,6 +130,10 @@ function queries(db: ReturnType<typeof memoryWorld>, fn: () => unknown): number 
   return n
 }
 
+const ms = (t: { fastest: number; median: number }): string => `${t.fastest.toFixed(1)} ms (median ${t.median.toFixed(1)} ms)`
+
+// The budget is 100 ms. The checks allow more, so a test machine busy with other work doesn't fail
+// them; the times are printed, and are typically well under half the budget.
 describe('world views in a big world', () => {
   const { db, last, middle } = bigWorld()
 
@@ -131,19 +142,18 @@ describe('world views in a big world', () => {
     expect(t.points.length).toBeGreaterThan(2000)
     expect(t.points.filter((p) => !p.dated).length).toBeGreaterThan(100)
     expect(t.clashes.length).toBeGreaterThan(0)
-    const ms = median(() => timelineOf(db, last))
-    console.log(`timeline of ${t.points.length} points in a big world: ${ms.toFixed(1)} ms`)
-    // Generous, so a busy test machine doesn't fail it; typically far less.
-    expect(ms).toBeLessThan(250)
+    const time = timed(db, () => timelineOf(db, last))
+    console.log(`timeline of ${t.points.length} points in a big world: ${ms(time)}`)
+    expect(time.fastest).toBeLessThan(150)
     expect(queries(db, () => timelineOf(db, last))).toBeLessThan(20)
   }, 60_000)
 
   it('works out the plot threads board in well under 100 ms', () => {
     const b = threadsBoardOf(db, last)
     expect(b.threads.length).toBeGreaterThan(10)
-    const ms = median(() => threadsBoardOf(db, last))
-    console.log(`plot threads board of ${b.threads.length} threads: ${ms.toFixed(1)} ms`)
-    expect(ms).toBeLessThan(250)
+    const time = timed(db, () => threadsBoardOf(db, last))
+    console.log(`plot threads board of ${b.threads.length} threads: ${ms(time)}`)
+    expect(time.fastest).toBeLessThan(150)
     expect(queries(db, () => threadsBoardOf(db, last))).toBeLessThan(20)
   }, 60_000)
 
@@ -155,9 +165,23 @@ describe('world views in a big world', () => {
     expect(m.stops.length).toBeGreaterThan(2000)
     t = performance.now()
     const at = m.stops[Math.floor(m.stops.length / 3)].at
-    const ms = median(() => relationshipMapOf(db, last, at, null))
-    console.log(`relationship map at a point (${m.nodes.length} characters): ${ms.toFixed(1)} ms`)
-    expect(ms).toBeLessThan(250)
+    const time = timed(db, () => relationshipMapOf(db, last, at, null))
+    console.log(`relationship map at a point (${m.nodes.length} characters): ${ms(time)}`)
+    expect(time.fastest).toBeLessThan(150)
     expect(queries(db, () => relationshipMapOf(db, last, at, null))).toBeLessThan(30)
+  }, 60_000)
+
+  it('reuses what it read while nothing in the world changes', () => {
+    const t = timelineOf(db, last)
+    const b = threadsBoardOf(db, last)
+    expect(timelineOf(db, last)).toBe(t)
+    expect(threadsBoardOf(db, last)).toBe(b)
+    const start = performance.now()
+    relationshipMapOf(db, last, null, middle)
+    console.log(`relationship map with the world already read: ${(performance.now() - start).toFixed(1)} ms`)
+    // Anything written means reading again.
+    repo.setMeta(db, 'perf_test', 'again')
+    expect(timelineOf(db, last)).not.toBe(t)
+    expect(timelineOf(db, last)).toEqual(t)
   }, 60_000)
 })

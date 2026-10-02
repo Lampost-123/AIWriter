@@ -1,13 +1,20 @@
 // The world views (milestone 3): the timeline, the relationship map and the plot threads board. Each
 // reads the world once and works its view out with the same line as drafting, for one story at a time.
-// No Electron imports, so each is tested against an in-memory world (views.test.ts, perf.test.ts).
+// No Electron imports, so each is tested against an in-memory world (timeline.test.ts, threads.test.ts,
+// map.test.ts, perf.test.ts).
+//
+// What a view reads (the stories, the memory, the scene cards) is kept for each open world until
+// anything is written to it, so moving between the views, or back to a story already seen, doesn't
+// read it all again. SQLite counts every row the connection changes (`total_changes()`), and the open
+// world has a single connection, so an unchanged count means nothing has changed.
 import type Database from 'better-sqlite3'
 import type { AsOf, ID } from '@shared/types'
 import type { RelationshipMap, ThreadsBoard, Timeline } from '@shared/contracts/worldViews'
-import { asOfStops, memoryAt } from '../memory/asOf'
+import { asOfStops, memoryAt, type MemoryAt } from '../memory/asOf'
 import { buildLine } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
-import { sceneCards } from '../db/worldViews'
+import type { MemoryData, WorldShape } from '../memory/types'
+import { readMapLayout, sceneCards, writeMapLayout, type CardInfo } from '../db/worldViews'
 import { UserError } from '../util'
 import { buildTimeline } from './timeline'
 import { buildBoard } from './threads'
@@ -15,33 +22,69 @@ import { buildMap, countChanges, createLayoutCache, worldGraph } from './map'
 
 type DB = Database.Database
 
-/** The memory at a story's end, with the shape and data it was worked out from. */
-function atEnd(db: DB, storyId: ID): ReturnType<typeof memoryAt> {
-  const shape = loadShape(db)
-  if (!shape.stories.some((s) => s.id === storyId)) throw new UserError('That story no longer exists. Choose another story.')
-  return memoryAt(db, { kind: 'end', storyId }, shape, loadMemoryData(db))
+/** What the views read from one open world, while nothing has been written to it. */
+interface Read {
+  changed: number
+  shape: WorldShape
+  data: MemoryData
+  cards: Map<ID, CardInfo> | null
+  /** The memory at each story's end. */
+  ends: Map<ID, MemoryAt>
+  timelines: Map<ID, Timeline>
+  boards: Map<ID, ThreadsBoard>
+}
+
+const reads = new WeakMap<DB, Read>()
+
+/** How many rows this connection has changed since the world was opened. */
+const changesMade = (db: DB): number => (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
+
+function readWorld(db: DB, storyId: ID): Read {
+  const changed = changesMade(db)
+  let r = reads.get(db)
+  if (!r || r.changed !== changed) {
+    r = { changed, shape: loadShape(db), data: loadMemoryData(db), cards: null, ends: new Map(), timelines: new Map(), boards: new Map() }
+    reads.set(db, r)
+  }
+  if (!r.shape.stories.some((s) => s.id === storyId)) throw new UserError('That story no longer exists. Choose another story.')
+  return r
+}
+
+/** The memory at a story's end, with the scene cards. */
+function atEnd(db: DB, r: Read, storyId: ID): MemoryAt & { cards: Map<ID, CardInfo> } {
+  let end = r.ends.get(storyId)
+  if (!end) r.ends.set(storyId, (end = memoryAt(db, { kind: 'end', storyId }, r.shape, r.data)))
+  return { ...end, cards: (r.cards ??= sceneCards(db)) }
 }
 
 export function timelineOf(db: DB, storyId: ID): Timeline {
-  const { shape, data, line, state } = atEnd(db, storyId)
-  return buildTimeline({ storyId, shape, data, line, state, cards: sceneCards(db) })
+  const r = readWorld(db, storyId)
+  let t = r.timelines.get(storyId)
+  if (!t) {
+    const { shape, data, line, state, cards } = atEnd(db, r, storyId)
+    r.timelines.set(storyId, (t = buildTimeline({ storyId, shape, data, line, state, cards })))
+  }
+  return t
 }
 
 export function threadsBoardOf(db: DB, storyId: ID): ThreadsBoard {
-  const { shape, data, line, state } = atEnd(db, storyId)
-  return buildBoard({ storyId, shape, data, line, state, cards: sceneCards(db) })
+  const r = readWorld(db, storyId)
+  let b = r.boards.get(storyId)
+  if (!b) {
+    const { shape, data, line, state, cards } = atEnd(db, r, storyId)
+    r.boards.set(storyId, (b = buildBoard({ storyId, shape, data, line, state, cards })))
+  }
+  return b
 }
 
-const layoutFor = createLayoutCache()
+const layoutFor = createLayoutCache<DB>({ load: readMapLayout, save: writeMapLayout })
 
 /**
  * The relationship map as seen in a story, as of one of its slider's stops. With no stop asked for (or
  * one that isn't on this story's slider), the stop for `sceneId` if it has one, otherwise the last.
  */
 export function relationshipMapOf(db: DB, storyId: ID, at: AsOf | null, sceneId: ID | null): RelationshipMap {
-  const shape = loadShape(db)
-  if (!shape.stories.some((s) => s.id === storyId)) throw new UserError('That story no longer exists. Choose another story.')
-  const data = loadMemoryData(db)
+  const { shape, data } = readWorld(db, storyId)
   const stops = countChanges(asOfStops(db, storyId), data)
   const same = (a: AsOf): boolean =>
     !!at && a.kind === at.kind && a.storyId === at.storyId && (a.kind !== 'scene' || (at.kind === 'scene' && a.sceneId === at.sceneId))

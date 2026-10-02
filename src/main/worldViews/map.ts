@@ -4,14 +4,15 @@
 //
 // The layout covers every relationship between characters the world has ever had (any story, any
 // point), so the map keeps one arrangement as the slider moves and as Adam switches story: only who is
-// shown changes. Groups are a filter, not drawn: a character belongs to a group when a relationship ties
-// them to it ("member (lieutenant)", "leader"), unless it reads as being against it ("enemy", "outcast").
-import type { AsOfStop, Entry, ID, RelationshipPayload } from '@shared/types'
-import type { MapGroup, MapLink, MapNode, RelationshipMap } from '@shared/contracts/worldViews'
-import type { AsOf } from '@shared/types'
+// shown changes. It is kept in the world too, so it looks the same after a restart. Groups are a filter,
+// not drawn: a character belongs to a group when a relationship ties them to it ("member (lieutenant)",
+// "leader"), unless it reads as being against it ("enemy", "outcast").
+import type { AsOf, AsOfStop, Change, Entry, ID, RelationshipPayload } from '@shared/types'
+import type { MapGroup, MapLink, MapNode, MapPlace, RelationshipMap } from '@shared/contracts/worldViews'
 import type { Line, MemoryData } from '../memory/types'
 import type { MemoryStateAll } from '../memory/state'
 import { layoutGraph, type LayoutGraph, type Positions } from './layout'
+import { existsStep, walkOf } from './walk'
 
 /** Ties to a group that don't make a character one of its members. */
 const AGAINST =
@@ -51,18 +52,33 @@ export function graphKey(g: LayoutGraph): string {
   return `${nodes.join(',')}#${[...new Set(edges)].sort().join(',')}`
 }
 
+/** Where a world's layout is kept between runs of the app. */
+export interface LayoutStore<W> {
+  load(world: W): Positions | null
+  save(world: W, positions: Positions): void
+}
+
+const samePlaces = (a: Positions, b: Positions | undefined): boolean =>
+  !!b && a.size === b.size && [...a].every(([id, p]) => b.get(id)?.x === p.x && b.get(id)?.y === p.y)
+
 /**
- * Keeps the last layout of each world while it is open: the same graph reuses it, and a changed graph
- * keeps the places of everyone already on it.
+ * Keeps the last layout of each world: the same graph reuses it, and a changed graph keeps the places of
+ * everyone already on it. With a store, the layout is read from the world the first time and written
+ * back whenever it changes, so characters stay put from one run of the app to the next.
  */
-export function createLayoutCache(): (world: object, graph: LayoutGraph) => Positions {
-  const kept = new WeakMap<object, { key: string; positions: Positions }>()
+export function createLayoutCache<W extends object>(store?: LayoutStore<W>): (world: W, graph: LayoutGraph) => Positions {
+  const kept = new WeakMap<W, { key: string; positions: Positions }>()
   return (world, graph) => {
     const key = graphKey(graph)
-    const last = kept.get(world)
+    let last = kept.get(world)
+    if (!last && store) {
+      const saved = store.load(world)
+      if (saved) last = { key: '', positions: saved }
+    }
     if (last?.key === key) return last.positions
     const positions = layoutGraph(graph, last?.positions)
     kept.set(world, { key, positions })
+    if (store && !samePlaces(positions, last?.positions)) store.save(world, positions)
     return positions
   }
 }
@@ -99,7 +115,7 @@ export interface MapInput {
   data: MemoryData
   /** The memory at the point. */
   state: MemoryStateAll
-  /** The story's whole line, to tell whether characters have any relationship along it. */
+  /** The story's whole line: who can appear anywhere on its slider. */
   line: Line
   positions: Positions
 }
@@ -113,18 +129,15 @@ export function buildMap(input: MapInput): RelationshipMap {
     .filter((r) => isChar(r.aId) && isChar(r.bId))
     .map((r) => ({ aId: r.aId, bId: r.bId, type: r.type.trim(), aFeels: r.aFeels.trim(), bFeels: r.bFeels.trim(), where: r.where }))
 
-  const members = new Map<ID, ID[]>()
+  const members = new Map<ID, Set<ID>>()
   for (const r of state.relationships) {
     const [person, group] =
       isChar(r.aId) && isGroup(r.bId) ? [r.aId, r.bId] : isChar(r.bId) && isGroup(r.aId) ? [r.bId, r.aId] : [null, null]
     if (!person || !group || !belongs(r.type)) continue
-    members.set(group, [...new Set([...(members.get(group) ?? []), person])])
+    members.set(group, (members.get(group) ?? new Set()).add(person))
   }
-  const groups: MapGroup[] = [...members]
-    .map(([id, memberIds]) => ({ id, name: state.entries.get(id)!.name.trim() || 'Unnamed group', memberIds }))
-    .sort((a, b) => a.name.localeCompare(b.name))
 
-  const shown = new Set<ID>([...links.flatMap((l) => [l.aId, l.bId]), ...groups.flatMap((g) => g.memberIds)])
+  const shown = new Set<ID>([...links.flatMap((l) => [l.aId, l.bId]), ...[...members.values()].flatMap((m) => [...m])])
   const nodes: MapNode[] = [...shown].flatMap((id) => {
     const e = state.entries.get(id)
     const p = positions.get(id)
@@ -132,27 +145,79 @@ export function buildMap(input: MapInput): RelationshipMap {
   })
   nodes.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
 
-  return { storyId, at, label, stops, nodes, links, groups, any: links.length > 0 || anyAlong(line, data) }
+  // Who can appear anywhere on the slider, and the groups anyone belongs to there.
+  const along = alongStory(line, data)
+  const byId = new Map(data.entries.map((e) => [e.id, e]))
+  const groups: MapGroup[] = [...new Set([...along.members.keys(), ...members.keys()])]
+    .flatMap((id) => {
+      const name = (state.entries.get(id)?.name ?? byId.get(id)?.name ?? '').trim() || 'Unnamed group'
+      const now = [...(members.get(id) ?? [])].filter((m) => shown.has(m))
+      const all = [...new Set([...(along.members.get(id) ?? []), ...now])].filter((m) => positions.has(m))
+      return all.length ? [{ id, name, memberIds: now, allMemberIds: all }] : []
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
+  const everyone: MapPlace[] = [...new Set([...along.characters, ...shown])].flatMap((id) => {
+    const p = positions.get(id)
+    return p ? [{ id, x: p.x, y: p.y }] : []
+  })
+
+  return { storyId, at, label, stops, nodes, links, groups, everyone, any: links.length > 0 || along.tied }
 }
 
-/** Whether a relationship between characters is set anywhere along the line (before any story, at a story's start or in a scene). */
-function anyAlong(line: Line, data: MemoryData): boolean {
-  const chars = new Set(data.entries.filter((e) => e.kind === 'character').map((e) => e.id))
+/** The relationships a change sets: one, or all of a full description's. */
+const tiesOf = (c: Change): RelationshipPayload[] =>
+  c.kind === 'relationship' ? [c.payload] : c.kind === 'full' ? (c.payload.relationships ?? []) : []
+
+/**
+ * Who the map can show anywhere along a story's line (before any story, at a story's start or in a
+ * scene on it): characters tied to another character or belonging to a group, while they exist there,
+ * and each group's members. `tied` says whether any two characters are tied anywhere along it.
+ */
+function alongStory(line: Line, data: MemoryData): { characters: Set<ID>; members: Map<ID, Set<ID>>; tied: boolean } {
+  const kinds = new Map(data.entries.map((e) => [e.id, e.kind]))
   const scenes = new Set<ID>()
   const starts = new Set<ID>()
   for (const s of line.steps) {
     if (s.type === 'scene') scenes.add(s.sceneId)
     else if (s.type === 'start-changes') starts.add(s.storyId)
   }
-  return data.changes.some((c) => {
-    if (!chars.has(c.entryId)) return false
-    const others =
-      c.kind === 'relationship' ? [c.payload.otherId] : c.kind === 'full' ? (c.payload.relationships ?? []).map((r) => r.otherId) : []
-    if (!others.some((o) => chars.has(o))) return false
-    return (
+  const w = walkOf(line)
+  const pointsOf = new Map<ID, MemoryData['exists']>()
+  for (const p of data.exists) {
+    const list = pointsOf.get(p.entryId)
+    if (list) list.push(p)
+    else pointsOf.set(p.entryId, [p])
+  }
+  const exists = new Map<ID, boolean>()
+  const there = (id: ID): boolean => {
+    let yes = exists.get(id)
+    if (yes === undefined) exists.set(id, (yes = existsStep(w, pointsOf.get(id)) !== null))
+    return yes
+  }
+
+  const characters = new Set<ID>()
+  const members = new Map<ID, Set<ID>>()
+  let tied = false
+  for (const c of data.changes) {
+    const counts =
       c.anchor === 'baseline' ||
       (c.anchor === 'story-start' && !!c.storyId && starts.has(c.storyId)) ||
       (c.anchor === 'scene' && !!c.sceneId && scenes.has(c.sceneId))
-    )
-  })
+    if (!counts) continue
+    for (const r of tiesOf(c)) {
+      const [a, b] = [c.entryId, r.otherId]
+      const [ka, kb] = [kinds.get(a), kinds.get(b)]
+      if (ka === 'character' && kb === 'character') {
+        tied = true
+        if (there(a)) characters.add(a)
+        if (there(b)) characters.add(b)
+        continue
+      }
+      const [person, group] = ka === 'character' && kb === 'group' ? [a, b] : kb === 'character' && ka === 'group' ? [b, a] : [null, null]
+      if (!person || !group || !belongs(r.type) || !there(person)) continue
+      characters.add(person)
+      members.set(group, (members.get(group) ?? new Set()).add(person))
+    }
+  }
+  return { characters, members, tied }
 }
