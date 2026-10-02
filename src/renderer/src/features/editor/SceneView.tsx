@@ -23,6 +23,7 @@ import { SceneHeader } from './SceneHeader'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
+import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -234,6 +235,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
+        <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState

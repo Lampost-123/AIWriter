@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { castOf } from './cast'
 import { Marker, MarkStore, textHash, type Ask, type MarkingScene } from './marks'
 import { MARKER, type Para } from './speakers'
@@ -262,5 +262,87 @@ describe('keeping the notes ahead of the reading', () => {
     }
     expect(h.marker.note(run)).toEqual({ busy: new Set() })
     expect(h.asked).toHaveLength(0)
+  })
+})
+
+describe('marking a draft in the background, as it lands', () => {
+  it('notes every paragraph it is given, all of the scene’s parts, and keeps what the AI says', async () => {
+    const h = harness([reply('{"1": "calm"}'), reply('{"1": "calm"}'), reply('{"1": "calm"}'), reply('{"1": "calm"}')])
+    const paras = longScene(8)
+    const run: MarkingScene = { ...scene, blocks: paras, run: paras.map((p) => p.id) }
+    // Only the new paragraphs (the draft's), however far into the scene they are.
+    const busy = h.marker.noteAll(run, new Set(['p3', 'p4', 'p5', 'p6', 'p7', 'p8']))
+    expect([...busy]).toEqual(['p3', 'p4', 'p5', 'p6', 'p7', 'p8'])
+    expect(h.asked.flatMap((a) => askedAbout(a.user))).toEqual(['Part 3', 'Part 4', 'Part 5', 'Part 6', 'Part 7', 'Part 8'])
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.told.every((t) => t.error === null)).toBe(true)
+    expect(h.marker.busyIn('w1', 's1').size).toBe(0)
+    const kept = h.store.current(
+      'w1',
+      's1',
+      paras.map((p) => ({ pid: p.id, text: p.text }))
+    )
+    expect([...kept.keys()]).toEqual(['p3', 'p4', 'p5', 'p6', 'p7', 'p8'])
+  })
+
+  it('leaves paragraphs a reading is marking for the same words to it, and a reading leaves the draft’s to it', () => {
+    const h = harness([() => new Promise(() => undefined), () => new Promise(() => undefined)])
+    h.marker.noteAll(scene, new Set(['p1', 'p2']))
+    expect(h.asked).toHaveLength(1)
+    // Listen now: nothing is asked twice.
+    expect([...h.marker.note(scene).busy]).toEqual(['p1', 'p2'])
+    h.marker.noteAll(scene, new Set(['p1', 'p2']))
+    expect(h.asked).toHaveLength(1)
+  })
+
+  it('takes over a paragraph whose words changed while it was being marked, and stops the call made for the old words', async () => {
+    const answers: ((v: { text: string | null; error: string | null }) => void)[] = []
+    const later = () => new Promise<{ text: string | null; error: string | null }>((resolve) => answers.push(resolve))
+    const h = harness([later, later])
+    const one: MarkingScene = { ...scene, blocks: [{ id: 'p1', text: 'The tide crept in.' }], run: ['p1'] }
+    h.marker.noteAll(one, new Set(['p1']))
+    // A new draft rewrote it before the reply came.
+    const two: MarkingScene = { ...one, blocks: [{ id: 'p1', text: 'The tide came in fast.' }] }
+    h.marker.noteAll(two, new Set(['p1']))
+    expect(h.asked).toHaveLength(2)
+    expect(h.stops()).toBe(1)
+    answers[0]({ text: '{"1": "stale"}', error: null })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(h.told).toEqual([])
+    const done = h.told1()
+    answers[1]({ text: '{"1": "urgent | fast"}', error: null })
+    await done
+    expect(h.store.current('w1', 's1', [{ pid: 'p1', text: 'The tide came in fast.' }]).get('p1')?.delivery).toEqual({
+      '~the tide came in fast': { tone: 'urgent', pace: 'fast' }
+    })
+  })
+
+  it('only logs a failure: nobody is told of an error, and a reading asks again itself', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const h = harness([() => Promise.resolve({ text: null, error: 'The AI service is busy.' })])
+      const done = h.told1()
+      h.marker.noteAll(scene, new Set(['p1', 'p2']))
+      await done
+      expect(h.told).toEqual([{ sceneId: 's1', pids: ['p1', 'p2'], error: null }])
+      // Listen: the reading asks for them itself (and says so if that fails too).
+      expect([...h.marker.note(scene).busy]).toEqual(['p1', 'p2'])
+      expect(h.asked).toHaveLength(2)
+      // No model for it: nothing is asked, nothing is said, nothing is held against the paragraphs.
+      const told: (string | null)[] = []
+      const none = new Marker(
+        new MarkStore(dir),
+        () => ({ error: 'Pick a model.' }),
+        (_s, _p, error) => told.push(error)
+      )
+      expect(none.noteAll(scene, new Set(['p1'])).size).toBe(0)
+      expect(
+        none.label({ ...scene, blocks: [{ id: 'p3', text: '“Out.”' }] }, new Map([['p3', new Set(['out'])]]), { quiet: true }).size
+      ).toBe(0)
+      expect(told).toEqual([])
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

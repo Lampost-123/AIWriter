@@ -13,10 +13,12 @@ import type {
   ReadingPlan,
   ReadingRequest,
   ReadParagraph,
-  SampleRequest
+  SampleRequest,
+  SpeakerLabel,
+  SpeakerLabelsRequest
 } from '@shared/contracts/readAloud'
 import { defaultSpeechSettings } from '@shared/defaults'
-import type { ID } from '@shared/types'
+import type { ID, SpeechSettings } from '@shared/types'
 import * as repo from '../db/repo'
 import { emit } from '../events'
 import { userDataDir } from '../paths'
@@ -26,10 +28,14 @@ import { newId, UserError } from '../util'
 import * as providers from '../ai/providers'
 import { jobModel, type JobModel } from '../ai/jobModel'
 import { runTask, stopTask } from '../ai/tasks'
+import { isDrafting, type DraftActivity } from '../ai/drafts'
+import { voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
 import { everyone } from './cast'
+import { DraftMarks } from './draftMarks'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
+import { labelOf, markedEnough } from './labels'
 import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
@@ -109,9 +115,110 @@ const theMarker = (): Marker =>
 /** The world closed: its marking stops (the task runner stops the calls themselves). */
 export function readAloudWorldClosing(): void {
   marker?.forgetAll()
+  draftMarks?.forget()
 }
 
-const speech = (): PlanSettings & { sample: string; markSpeakers: boolean } => ({ ...defaultSpeechSettings(), ...getSettings().speech })
+const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettings().speech })
+
+// ---------- Marking a draft as it lands ----------
+
+/** Marks are worth making: read aloud is on or set up (its voices are downloaded), or "Show speakers and tone" is on. */
+function marksWanted(): boolean {
+  const s = speech()
+  return s.readAloud || s.showSpeakers || voicesInstalled()
+}
+
+/**
+ * Starts the AI marking these paragraphs of a scene in the background, with the Read aloud model: with Mark who says
+ * what, who says each line and how; otherwise who says the quotes the rules can't place. Paragraphs already being
+ * marked for the same words are left to that call (a reading's, or an earlier draft's). Failures are only logged.
+ */
+function markInBackground(sceneId: ID, paragraphs: { pid: string; text: string }[], pids: string[]): void {
+  const w = world.maybeCurrentWorld()
+  if (!w) return
+  const s = speech()
+  const sceneText = paragraphs.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, sceneId, sceneText)
+  const kept = markStore().current(w.id, sceneId, paragraphs)
+  const marking: MarkingScene = {
+    worldId: w.id,
+    sceneId,
+    blocks: paragraphs.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
+    run: paragraphs.map((p) => p.pid),
+    cast: rc.forAi(sceneText),
+    pov: rc.narrator,
+    pids: new Set(paragraphs.map((p) => p.pid))
+  }
+  const want = new Set(pids)
+  if (s.markSpeakers) {
+    theMarker().noteAll(marking, want)
+    return
+  }
+  const { unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
+  const mine = new Map([...unplaced].filter(([pid]) => want.has(pid)))
+  if (mine.size) theMarker().label(marking, mine, { quiet: true })
+}
+
+let draftMarks: DraftMarks | null = null
+const theDraftMarks = (): DraftMarks =>
+  (draftMarks ??= new DraftMarks({
+    wanted: marksWanted,
+    drafting: isDrafting,
+    savedDoc: (sceneId) => {
+      const w = world.maybeCurrentWorld()
+      if (!w) return null
+      try {
+        return repo.getScene(w.db, sceneId).doc
+      } catch {
+        return null
+      }
+    },
+    mark: markInBackground
+  }))
+
+/** AI-written text is about to go into a scene (History's snapshot before it, with the page as it is). Never throws. */
+export function aiChangeComing(sceneId: ID, before?: unknown): void {
+  if (typeof sceneId === 'string') theDraftMarks().aiChange(sceneId, before)
+}
+
+/** A scene's text was saved (src/main/ipc/core.ts). Never throws, and returns at once. */
+export function sceneSavedForMarks(sceneId: ID, doc: unknown): void {
+  theDraftMarks().saved(sceneId, doc)
+}
+
+/** A draft started or finished (ai/drafts.ts): a variant goes into the scene only when picked (its snapshot says so). */
+export function draftActivity(e: DraftActivity): void {
+  if (e.variant) return
+  if (e.phase === 'start') theDraftMarks().aiChange(e.sceneId)
+  else theDraftMarks().draftEnded(e.sceneId)
+}
+
+/**
+ * "Show speakers and tone": a few words for each paragraph whose marks are in (who says it, and how when that is
+ * known), from the paragraphs as the page shows them. Paragraphs being marked now, or not marked yet, get none.
+ */
+export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
+  const w = world.maybeCurrentWorld()
+  if (!w || typeof req?.sceneId !== 'string' || !Array.isArray(req.paragraphs)) return []
+  const s = speech()
+  const paragraphs = req.paragraphs
+    .slice(0, 5000)
+    .map(paragraphOf)
+    .filter((p) => p.pid && /[\p{L}\p{N}]/u.test(p.text))
+  if (!paragraphs.length) return []
+  const sceneText = paragraphs.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, req.sceneId, sceneText)
+  const kept = markStore().current(w.id, req.sceneId, paragraphs)
+  const { clips, unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
+  const busy = marker?.busyIn(w.id, req.sceneId) ?? new Set<string>()
+  const byPid = new Map<string, PlannedClip[]>()
+  for (const c of clips) (byPid.get(c.pid) ?? byPid.set(c.pid, []).get(c.pid)!).push(c)
+  return paragraphs.flatMap((p) => {
+    if (busy.has(p.pid) || !markedEnough(p.text, kept.get(p.pid), { tone: s.markSpeakers, unplaced: unplaced.has(p.pid) })) return []
+    const label = labelOf(byPid.get(p.pid) ?? [])
+    return label ? [{ pid: p.pid, label }] : []
+  })
+}
 
 /** A paragraph from the window, checked and cut to size. */
 function paragraphOf(p: ReadParagraph): ReadParagraph {

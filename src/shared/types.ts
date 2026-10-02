@@ -371,6 +371,11 @@ export interface SpeechSettings {
   steadyNarrator: boolean
   /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
   markSpeakers: boolean
+  /**
+   * "Show speakers and tone": each paragraph of the scene shows, faintly above it, who says it and how, from the
+   * marks reading aloud keeps (never part of the text). Off until Adam turns it on.
+   */
+  showSpeakers: boolean
   /** "Perform written sounds": sighs, laughs and "Ahem" become real sounds. */
   sounds: boolean
   /** "Keep reading": carries on into the next scene. */

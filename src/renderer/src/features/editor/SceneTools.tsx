@@ -6,6 +6,7 @@ import { VariantsButton } from '@/features/variants/VariantsButton'
 import { BeatsButton } from '@/features/beats/BeatsButton'
 import { HistoryButton } from '@/features/history/HistoryButton'
 import { ListenButton } from '@/features/readAloud/ListenButton'
+import { SpeakersButton } from '@/features/readAloud/SpeakersButton'
 
 export function SceneTools({ sceneId }: { sceneId: ID }): React.JSX.Element {
   return (
@@ -14,6 +15,7 @@ export function SceneTools({ sceneId }: { sceneId: ID }): React.JSX.Element {
       <BeatsButton sceneId={sceneId} />
       <HistoryButton sceneId={sceneId} />
       <ListenButton sceneId={sceneId} />
+      <SpeakersButton />
     </div>
   )
 }

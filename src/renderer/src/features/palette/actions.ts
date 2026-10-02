@@ -27,6 +27,7 @@ import { openAsk } from '@/features/ask/open'
 import { openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
+import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
@@ -244,6 +245,10 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'stop-reading':
         stopReading()
+        return
+      case 'show-speakers':
+      case 'hide-speakers':
+        await setShowSpeakers(fixed === 'show-speakers')
         return
       case 'world-builder':
         openWorldBuilder()

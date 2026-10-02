@@ -469,6 +469,12 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the
   world's `meta` key `read_aloud`, by entry id; speaker marks and spoken audio are a cache in the user data
   folder (audio up to the limit Adam picks, oldest removed first). Dictated audio is never saved.
+  AI-written text (Generate, Beat by beat, a picked variant, an accepted AI edit or Continue) has its new or changed
+  paragraphs marked in the background as it lands (`readAloud/draftMarks.ts`, from History's snapshot before the change,
+  draft starts and ends, and the scene's saves; `Marker.noteAll`, failures only logged), when read aloud is on or set up
+  or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
+  tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
+  speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and

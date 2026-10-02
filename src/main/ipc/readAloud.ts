@@ -3,10 +3,13 @@
 import type { Handlers } from './index'
 import type { ReadAloudApi } from '@shared/contracts/readAloud'
 import { onWorldClosing } from '../world'
+import { onDraftActivity } from '../ai/drafts'
 import * as readAloud from '../readAloud'
 
 // Closing a world stops its marking (the task runner stops the calls and finishes their records).
 onWorldClosing(() => readAloud.readAloudWorldClosing())
+// A draft's text is marked as it lands (Generate, Beat by beat), so it is ready before Listen.
+onDraftActivity((e) => readAloud.draftActivity(e))
 
 export const readAloudHandlers: Handlers<keyof ReadAloudApi> = {
   listReadAloudVoices: () => readAloud.readAloudVoices(),
@@ -18,6 +21,7 @@ export const readAloudHandlers: Handlers<keyof ReadAloudApi> = {
   getEntryReadAloud: (entryId) => readAloud.getEntryVoice(entryId),
   setEntryReadAloud: (entryId, value) => readAloud.setEntryVoice(entryId, value),
   suggestCharacterVoice: (entryId, taskId) => readAloud.suggestCharacterVoice(entryId, taskId),
+  speakerLabels: (req) => readAloud.speakerLabels(req),
   getReadAloudCache: () => readAloud.cacheStats(),
   clearReadAloudCache: () => readAloud.clearCache()
 }
