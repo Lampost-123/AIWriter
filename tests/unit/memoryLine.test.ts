@@ -49,6 +49,33 @@ describe('the line', () => {
     expect(w.knows('nov')).toBe("This story knows what happened in: Book 1; Kell's Road; Book 2 up to the end of Ch 5.")
   })
 
+  it('names other side stories of the same book still running where a side story starts', () => {
+    const side = (key: string, title: string, start: StorySpec['start'], end: StorySpec['end']): StorySpec =>
+      story(key, title, [1], { kind: 'side', start, end })
+    const w = pureWorld(
+      world([
+        story('b2', 'Book 2', [1, 1, 1, 1]),
+        side('ash', 'Ash', { story: 'b2', at: 'post' }, { at: 'chapter', ref: 'b2.c3' }),
+        side('reed', 'Reed', { story: 'b2', at: 'chapter', ref: 'b2.c1' }, { at: 'end' }),
+        side('done', 'Done', { story: 'b2', at: 'post' }, { at: 'chapter', ref: 'b2.c2' }),
+        side('ember', 'Ember', { story: 'b2', at: 'chapter', ref: 'b2.c2' }, { at: 'chapter', ref: 'b2.c3' }),
+        side('late', 'Late', { story: 'b2', at: 'chapter', ref: 'b2.c3' }, { at: 'end' }),
+        story('what', 'What If', [1], { kind: 'own', start: { story: 'b2', at: 'chapter', ref: 'b2.c2' } })
+      ])
+    )
+    // Done ended exactly where Ember starts, so Ember knows it; Ash and Reed are still running.
+    expect(w.knows('ember')).toBe(
+      'This story knows what happened in: Book 2 up to the end of Ch 2; Done. Does not know: Ash and Reed, which are still running here.'
+    )
+    expect(w.knows('ember', 'ember.c1.s1')).toBe(w.knows('ember'))
+    expect(w.knows('ash')).toBe('This story knows what happened in: the start of Book 2. Does not know: Done, which is still running here.')
+    expect(w.knows('late')).toBe(
+      'This story knows what happened in: Book 2 up to the end of Ch 3; Done; Ash; Ember. Does not know: Reed, which is still running here.'
+    )
+    // Only side stories get the note.
+    expect(w.knows('what')).toBe('This story knows what happened in: Book 2 up to the end of Ch 2; Done.')
+  })
+
   it('walks each story: start, start-of-story changes, scenes, chapter ends (empty chapters too), end', () => {
     const w = pureWorld(world([story('b1', 'Book 1', [1, 0, 1])]))
     const steps = w.line('b1', 'end').steps.map((s) => [s.type, 'sceneId' in s ? s.sceneId : 'chapterId' in s ? s.chapterId : s.storyId])

@@ -9,9 +9,11 @@
 // What it holds:
 // - a four-book series (Book 1 to Book 4, series The Reach);
 // - two novellas during Book 2 that end at the same point (Ash from its start, Ember after Ch 1,
-//   both ending after Ch 3), and Wolf Winter, during Book 2 from after Ch 5 to its end;
+//   both ending after Ch 3, so Ember doesn't know Ash, still running where it starts), and Wolf
+//   Winter, during Book 2 from after Ch 5 to its end;
 // - Kell's Road (during Book 1, after Ch 1 to after Ch 2) and Kell's Return continuing after it;
-// - The Quiet Year, inserted between Book 1 and Book 2 (Book 2 continues after it);
+// - The Quiet Year, written after Book 4 and inserted between Book 1 and Book 2 (Book 2, which
+//   continued after Book 1, now continues after it);
 // - a prequel trilogy to Book 1 (Young Mara, then II and III continuing after it);
 // - a what-if (Mara Keeps Her Hand, after Book 1 Ch 2 Sc 1) and an own version from the beginning
 //   (Another Reach);
@@ -42,6 +44,8 @@ export interface StorySpec {
   /** Where it starts; left out: the beginning of the world. */
   start?: { story: string; at: StartAt; ref?: string }
   end?: { at: EndAt; ref?: string }
+  /** Where it started before a story written later was inserted before it (set first, then `start`). */
+  startedBefore?: { story: string; at: StartAt }
   leadsInto?: string
   /** Scenes in each chapter: [2, 1] is Ch 1 with two scenes and Ch 2 with one. Keys: 'b1.c2', 'b1.c2.s1'. */
   chapters: number[]
@@ -112,8 +116,15 @@ export const theWorld: WorldSpec = {
       chapters: [2]
     },
     { key: 'kret', title: "Kell's Return", series: 'kell', start: { story: 'kr', at: 'end' }, chapters: [1] },
-    { key: 'qy', title: 'The Quiet Year', series: 'reach', start: { story: 'b1', at: 'end' }, chapters: [1] },
-    { key: 'b2', title: 'Book 2', series: 'reach', start: { story: 'qy', at: 'end' }, chapters: [1, 2, 1, 1, 1, 1] },
+    // Book 2 first continued after Book 1; it continues after The Quiet Year, written after Book 4.
+    {
+      key: 'b2',
+      title: 'Book 2',
+      series: 'reach',
+      start: { story: 'qy', at: 'end' },
+      startedBefore: { story: 'b1', at: 'end' },
+      chapters: [1, 2, 1, 1, 1, 1]
+    },
     {
       key: 'ash',
       title: 'Ash',
@@ -143,6 +154,7 @@ export const theWorld: WorldSpec = {
     },
     { key: 'b3', title: 'Book 3', series: 'reach', start: { story: 'b2', at: 'end' }, chapters: [2] },
     { key: 'b4', title: 'Book 4', series: 'reach', start: { story: 'b3', at: 'end' }, chapters: [1] },
+    { key: 'qy', title: 'The Quiet Year', series: 'reach', start: { story: 'b1', at: 'end' }, chapters: [1] },
     { key: 'ym', title: 'Young Mara', series: 'reach', kind: 'prequel', start: { story: 'b1', at: 'pre' }, leadsInto: 'b1', chapters: [2] },
     { key: 'ym2', title: 'Young Mara II', series: 'reach', start: { story: 'ym', at: 'end' }, chapters: [1] },
     { key: 'ym3', title: 'Young Mara III', series: 'reach', start: { story: 'ym2', at: 'end' }, chapters: [1] },
@@ -262,6 +274,7 @@ export const theWorld: WorldSpec = {
       at: { scene: 'kr.c1.s2' },
       data: { kind: 'knowledge', payload: { factId: 'f-heir', fact: 'Mara is the heir to the Reach.' } }
     },
+    { entry: 'tobin', at: { scene: 'qy.c1.s1' }, data: upd('mended the ferry') },
     { entry: 'mara', at: { scene: 'b2.c2.s1' }, data: upd('cut her hair', { hair: 'cropped short' }) },
     {
       entry: 'tobin',
@@ -326,7 +339,8 @@ export const KNOWS: Record<string, string> = {
   qy: "This story knows what happened in: Book 1; Kell's Road.",
   b2: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year.",
   ash: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; the start of Book 2.",
-  ember: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 1.",
+  ember:
+    "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 1. Does not know: Ash, which is still running here.",
   wolf: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2 up to the end of Ch 5; Ash; Ember.",
   b3: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2; Ash; Ember; Wolf Winter.",
   b4: "This story knows what happened in: Book 1; Kell's Road; The Quiet Year; Book 2; Ash; Ember; Wolf Winter; Book 3.",
@@ -505,6 +519,17 @@ export function dbWorld(
     const story = i === 0 ? book1 : repo.createStory(db, { title: s.title, seriesId: id(s.series), startStoryId: null })
     if (i === 0) repo.updateStory(db, story.id, { title: s.title, seriesId: id(s.series) })
     ids.set(s.key, story.id)
+    if (s.startedBefore) {
+      mem.setStoryPlacement(db, story.id, {
+        kind: s.kind ?? 'continues',
+        startStoryId: id(s.startedBefore.story),
+        startAt: s.startedBefore.at,
+        startRefId: null,
+        endAt: null,
+        endRefId: null,
+        leadsIntoId: null
+      })
+    }
     const existing = repo.getOutline(db, story.id)
     chapterKeys(s).forEach((c, ci) => {
       const chapter = i === 0 && ci === 0 ? existing.chapters[0] : repo.createChapter(db, story.id, { title: `Chapter ${ci + 1}` })
@@ -515,7 +540,8 @@ export function dbWorld(
       })
     })
   })
-  // Then where each starts (every start point refers to stories made above).
+  // Then where each starts (every start point refers to stories made above), as Adam would after
+  // saying yes to "Should Book 2 now continue after it?".
   for (const s of spec.stories) {
     if (!s.start && !s.kind) continue
     mem.setStoryPlacement(db, id(s.key), {
