@@ -5,7 +5,8 @@
 // Backups hold world.db only. API keys live in the app's own data folder, never in a world.
 import type Database from 'better-sqlite3'
 import { BrowserWindow, dialog } from 'electron'
-import { copyFileSync, existsSync, renameSync, rmSync } from 'node:fs'
+import { copyFileSync, rmSync } from 'node:fs'
+import { copyFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BackupFolderStatus, BackupInfo, World } from '@shared/types'
 import * as repo from '../db/repo'
@@ -13,7 +14,7 @@ import { purgeTrash } from '../db/trash'
 import { emit } from '../events'
 import { getSettings, updateSettings } from '../settings'
 import { now, UserError } from '../util'
-import { closeWorld, currentWorld, maybeCurrentWorld, onWorldOpened, openWorld, worldDbPath, type OpenWorld } from '../world'
+import { currentWorld, maybeCurrentWorld, onWorldOpened, openWorld, reopenCurrent, worldDbPath, type OpenWorld } from '../world'
 import {
   checkBackupFile,
   copyBackupTo,
@@ -21,6 +22,7 @@ import {
   listBackupFiles,
   pruneBackups,
   removeStalePartials,
+  renameRetrySync,
   writeBackup,
   writeBackupSync,
   type BackupFile,
@@ -33,6 +35,8 @@ const LAUNCH_DELAY_MS = 800
 const TRASH_DAYS = 30
 
 const backupsFolder = (worldFolder: string): string => join(worldFolder, 'backups')
+/** Where a backup being restored is staged, next to world.db. */
+const stagedPath = (worldFolder: string): string => `${worldDbPath(worldFolder)}.restoring`
 const toInfo = (worldId: string, b: BackupFile): BackupInfo => ({
   id: b.id,
   worldId,
@@ -95,6 +99,9 @@ function onOpened(w: OpenWorld): void {
   }
   try {
     removeStalePartials(backupsFolder(w.folder))
+    // Left over if the app closed in the middle of a restore (the world itself is intact).
+    rmSync(stagedPath(w.folder), { force: true })
+    rmSync(`${worldDbPath(w.folder)}.putback`, { force: true })
   } catch {
     /* tidy-up only */
   }
@@ -211,9 +218,9 @@ export async function restoreBackup(id: string): Promise<World> {
 
   // Stage a copy first: tidying up after the safety backup must not remove the one being restored.
   const dbFile = worldDbPath(w.folder)
-  const staged = `${dbFile}.restoring`
+  const staged = stagedPath(w.folder)
   try {
-    copyFileSync(target.file, staged)
+    await copyFile(target.file, staged)
   } catch (e) {
     rmSync(staged, { force: true })
     console.warn('Could not stage the backup:', e instanceof Error ? e.message : e)
@@ -228,28 +235,67 @@ export async function restoreBackup(id: string): Promise<World> {
     if (e instanceof UserError) throw e
     throw new UserError("Couldn't save a copy of your current work first, so nothing was restored. Check there's free space on your disk, then try again.")
   }
-
-  const swapIn = (source: string, move: boolean): World => {
-    closeWorld()
-    rmSync(`${dbFile}-wal`, { force: true })
-    rmSync(`${dbFile}-shm`, { force: true })
-    if (move) renameSync(source, dbFile)
-    else copyFileSync(source, dbFile)
-    return openWorld(w.id)
+  if (!isOpen(w)) {
+    rmSync(staged, { force: true })
+    throw new UserError('The world was closed before the backup could be restored. Open it again, then try once more.')
   }
 
+  // From here on everything is synchronous, so nothing else can use the world while its file is
+  // swapped. The database is closed directly (not with closeWorld) so that reopenCurrent() opens
+  // this exact folder again: a copy of the world elsewhere in the library has the same id.
+  let swapped = false
   try {
-    return swapIn(staged, true)
+    try {
+      w.db.pragma('wal_checkpoint(TRUNCATE)')
+    } catch {
+      /* closing checkpoints anyway */
+    }
+    w.db.close()
+    rmSync(`${dbFile}-wal`, { force: true })
+    rmSync(`${dbFile}-shm`, { force: true })
+    renameRetrySync(staged, dbFile)
+    swapped = true
+    return reopenCurrent()
   } catch (e) {
     console.warn('Restore failed, putting the current work back:', e instanceof Error ? e.message : e)
     rmSync(staged, { force: true })
-    try {
-      swapIn(safety.file, false)
-    } catch {
-      /* the safety backup is still listed on the Backups screen */
+    if (swapped) {
+      // world.db now holds a backup that wouldn't open: put the copy made just now back, whole.
+      const putBack = `${dbFile}.putback`
+      try {
+        copyFileSync(safety.file, putBack)
+        rmSync(`${dbFile}-wal`, { force: true })
+        rmSync(`${dbFile}-shm`, { force: true })
+        renameRetrySync(putBack, dbFile)
+      } catch (e2) {
+        rmSync(putBack, { force: true })
+        console.warn('Could not put the current work back:', e2 instanceof Error ? e2.message : e2)
+      }
     }
-    throw new UserError('That backup could not be opened, so your world was left as it was.')
+    if (!reopenAfterFailedRestore(w)) {
+      throw new UserError(
+        "AI Write couldn't reopen this world. Close AI Write and open it again. Your work from just before the restore is kept as a backup."
+      )
+    }
+    throw new UserError(
+      swapped
+        ? 'That backup could not be opened, so your world was left as it was.'
+        : "Another program is using this world's file (often a cloud sync app or antivirus), so nothing was restored. Wait a moment, then try again."
+    )
   }
+}
+
+/** Opens the world again after a restore went wrong. True when it is open. */
+function reopenAfterFailedRestore(w: OpenWorld): boolean {
+  const open = maybeCurrentWorld()
+  if (open && open.db.open) return true
+  try {
+    if (open) reopenCurrent()
+    else openWorld(w.id)
+  } catch (e) {
+    console.warn('Could not reopen the world after a failed restore:', e instanceof Error ? e.message : e)
+  }
+  return !!maybeCurrentWorld()?.db.open
 }
 
 // ---------- The second backup folder ----------
@@ -267,12 +313,24 @@ function describeCopyError(e: unknown): string {
   return "Couldn't copy the latest backup to your second backup folder. Check the folder is still there, or choose another."
 }
 
+/**
+ * True when the folder is there. Asynchronous on purpose: a folder on a network drive that has
+ * gone offline can take many seconds to answer, and the window must never freeze meanwhile.
+ */
+async function folderExists(folder: string): Promise<boolean> {
+  try {
+    return (await stat(folder)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 async function copyToExtraFolder(worldFolder: string, b: BackupFile): Promise<void> {
   const root = getSettings().backup?.extraFolder
   if (!root) return
   try {
     // Never create the chosen folder itself: if it's missing, its drive or cloud folder is offline.
-    if (!existsSync(root)) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+    if (!(await folderExists(root))) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
     const dest = join(root, basename(worldFolder))
     await copyBackupTo(b, dest)
     pruneBackups(dest)
@@ -316,9 +374,11 @@ export function clearBackupFolder(): void {
   extra = { ok: true, message: null, lastCopyAt: null }
 }
 
-export function getBackupFolderStatus(): BackupFolderStatus {
+export async function getBackupFolderStatus(): Promise<BackupFolderStatus> {
   const folder = getSettings().backup?.extraFolder ?? null
   if (!folder) return { folder: null, ok: true, message: null, lastCopyAt: null }
-  if (!existsSync(folder)) return { folder, ok: false, message: MISSING_FOLDER, lastCopyAt: extra.lastCopyAt }
+  if (!(await folderExists(folder))) return { folder, ok: false, message: MISSING_FOLDER, lastCopyAt: extra.lastCopyAt }
+  // The drive or cloud folder is back: the next backup is copied there again.
+  if (!extra.ok && extra.message === MISSING_FOLDER) return { folder, ok: true, message: null, lastCopyAt: extra.lastCopyAt }
   return { folder, ...extra }
 }

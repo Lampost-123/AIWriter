@@ -53,17 +53,19 @@ export function describeUpdateError(err: unknown): UpdateStatus {
   const status = typeof e.statusCode === 'number' ? e.statusCode : null
   const text = `${code} ${message}`
 
+  if (status !== null && [401, 403, 404, 406, 410].includes(status)) return { state: 'disabled', message: UPDATES_NOT_SET_UP }
+  // electron-updater wraps a dropped connection in its "can't find the latest version" errors,
+  // so check for a network problem before reading those as "not set up".
+  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|net::ERR_|socket hang up|getaddrinfo|timed out/i.test(text)) {
+    return { state: 'error', message: OFFLINE }
+  }
   if (
-    (status !== null && [401, 403, 404, 406, 410].includes(status)) ||
     (status === null && /\b(401|403|404|406|410)\b/.test(text)) ||
     /authentication token|no published versions|unable to find latest version|cannot find latest|latest version not found|channel file|app-update\.yml|ERR_UPDATER_(LATEST_VERSION_NOT_FOUND|NO_PUBLISHED_VERSIONS|CHANNEL_FILE_NOT_FOUND|INVALID_RELEASE_FEED)/i.test(
       text
     )
   ) {
     return { state: 'disabled', message: UPDATES_NOT_SET_UP }
-  }
-  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|net::ERR_|socket hang up|getaddrinfo|timed? ?out/i.test(text)) {
-    return { state: 'error', message: OFFLINE }
   }
   if (/sha512|checksum|signature|ERR_UPDATER_INVALID_SIGNATURE|not signed/i.test(text)) {
     return { state: 'error', message: BAD_DOWNLOAD }

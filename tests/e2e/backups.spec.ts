@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
@@ -55,6 +55,40 @@ test('a backup is made at launch, Back up now adds one, and restoring brings bac
   await expect(rows.first().getByRole('button', { name: /^Restore the backup from/ })).toBeEnabled()
 })
 
+test('a restore reopens this very world, and a locked file leaves it open and unchanged', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Twins')
+  const world = (await invoke(win, 'getWorld'))!
+  const backup = await invoke(win, 'backupNow')
+  await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+  // Adam copies the world folder by hand inside the library: both copies share the world's id.
+  cpSync(world.folder, `${world.folder} - Copy`, { recursive: true })
+
+  await invoke(win, 'restoreBackup', backup.id)
+  expect((await invoke(win, 'getWorld'))!.folder).toBe(world.folder)
+  expect(await invoke(win, 'listEntries', 'character')).toEqual([])
+
+  // Another program (antivirus, a sync app) holds world.db, so the backup can't be swapped in.
+  await invoke(win, 'createEntry', 'character', { name: 'Tamsin' })
+  await app.evaluate(() => {
+    const fs = (process as unknown as { mainModule: NodeJS.Module }).mainModule.require('node:fs') as typeof import('node:fs')
+    const real = fs.renameSync
+    ;(globalThis as Record<string, unknown>).__realRename = real
+    fs.renameSync = (from, to) => {
+      if (String(to).endsWith('world.db')) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+      return real(from, to)
+    }
+  })
+  await expect(invoke(win, 'restoreBackup', backup.id)).rejects.toThrow(/Another program is using this world's file/)
+  await app.evaluate(() => {
+    const fs = (process as unknown as { mainModule: NodeJS.Module }).mainModule.require('node:fs') as typeof import('node:fs')
+    fs.renameSync = (globalThis as Record<string, unknown>).__realRename as typeof fs.renameSync
+  })
+  expect((await invoke(win, 'getWorld'))!.folder).toBe(world.folder)
+  expect((await invoke(win, 'listEntries', 'character')).map((e) => e.name)).toEqual(['Tamsin'])
+  expect(readdirSync(world.folder).filter((f) => f.includes('.restoring') || f.includes('.putback'))).toEqual([])
+})
+
 test('reopening backs up a world that changed, and leaves an unchanged one alone', async ({ launch }) => {
   const first = await launch()
   await createWorldFromWelcome(first.win, 'Changes')
@@ -103,11 +137,23 @@ test('backups are copied to a second folder while one is chosen', async ({ launc
     await win.getByRole('button', { name: 'Back up now' }).click()
     await expect.poll(() => backupFiles(copies)).toHaveLength(2)
 
+    // The folder goes offline (a USB drive pulled out): copies pause, said calmly, and resume
+    // once it's back. The folder itself is never re-created by AI Write.
+    rmSync(extra, { recursive: true, force: true })
+    await win.getByRole('button', { name: 'Back up now' }).click()
+    await expect(win.getByText(/Your second backup folder can't be found/)).toBeVisible()
+    expect(existsSync(extra)).toBe(false)
+    mkdirSync(extra)
+    await expect.poll(async () => (await invoke(win, 'getBackupFolderStatus')).ok).toBe(true)
+    await win.getByRole('button', { name: 'Back up now' }).click()
+    await expect.poll(() => backupFiles(copies)).toHaveLength(1)
+    await expect(win.getByText(/Your second backup folder can't be found/)).toHaveCount(0)
+
     await win.getByRole('button', { name: 'Remove', exact: true }).click()
     await expect(win.getByRole('button', { name: 'Choose folder…' })).toBeVisible()
     await win.getByRole('button', { name: 'Back up now' }).click()
-    await expect.poll(() => backupFiles(join(world.folder, 'backups'))).toHaveLength(3)
-    expect(backupFiles(copies)).toHaveLength(2)
+    await expect.poll(() => backupFiles(join(world.folder, 'backups'))).toHaveLength(5)
+    expect(backupFiles(copies)).toHaveLength(1)
     expect((await invoke(win, 'getSettings')).backup.extraFolder).toBeNull()
   } finally {
     rmSync(extra, { recursive: true, force: true })

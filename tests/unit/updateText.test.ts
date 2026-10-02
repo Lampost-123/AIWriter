@@ -47,6 +47,12 @@ describe('describeUpdateError', () => {
     expect(s.state).toBe('error')
     expect(s.state === 'error' && s.message).toMatch(/internet connection/)
     expect(describeUpdateError(Object.assign(new Error('getaddrinfo ENOTFOUND github.com'), { code: 'ENOTFOUND' })).state).toBe('error')
+    // The connection dropping half way through a check comes wrapped in electron-updater's own codes.
+    const wrapped = Object.assign(
+      new Error('Cannot parse releases feed: Error: Unable to find latest version on GitHub (https://github.com/lampost-123/aiwriter/releases/latest), please ensure a production release exists: Error: net::ERR_INTERNET_DISCONNECTED'),
+      { code: 'ERR_UPDATER_INVALID_RELEASE_FEED' }
+    )
+    expect(describeUpdateError(wrapped)).toEqual({ state: 'error', message: expect.stringMatching(/internet connection/) })
   })
 
   it('never leaks raw error text', () => {
