@@ -3,7 +3,8 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
 import { Extension } from '@tiptap/core'
-import { requestAccept } from './acceptRequest'
+import { requestMarkDone } from './doneShortcut'
+import { ParagraphIds } from './paragraphIds'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -14,15 +15,15 @@ const StreamTracking = Extension.create({
 })
 
 /**
- * Ctrl+Enter (Cmd+Enter on a Mac) accepts the scene, as everywhere else in the writing view.
+ * Ctrl+Enter (Cmd+Enter on a Mac) marks the scene done, as everywhere else in the writing view.
  * It runs before the line-break shortcut (Shift+Enter still makes a line break).
  */
-const AcceptShortcut = Extension.create({
-  name: 'aiwriteAccept',
+const MarkDoneShortcut = Extension.create({
+  name: 'aiwriteMarkDone',
   priority: 1000,
   addKeyboardShortcuts: () => ({
     'Mod-Enter': () => {
-      requestAccept()
+      requestMarkDone()
       return true
     }
   })
@@ -31,7 +32,7 @@ const AcceptShortcut = Extension.create({
 /**
  * The manuscript editor's extensions: paragraphs, bold, italic, blockquote and a
  * horizontal rule used as a scene break. No headings, lists, links or code:
- * a scene is prose.
+ * a scene is prose. Every paragraph carries a stable id (paragraphIds.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -50,6 +51,7 @@ export function sceneExtensions(): AnyExtension[] {
     }),
     Placeholder.configure({ placeholder: EDITOR_PLACEHOLDER }),
     StreamTracking,
-    AcceptShortcut
+    MarkDoneShortcut,
+    ParagraphIds
   ]
 }

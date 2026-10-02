@@ -1,5 +1,5 @@
 import { useSortable } from '@dnd-kit/sortable'
-import { ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
+import { ChevronRight, CircleAlert, MoreHorizontal, Plus } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import type { Chapter, ID, SceneMeta } from '@shared/types'
 import { cn } from '@/lib/cn'
@@ -117,6 +117,13 @@ export function SceneRowContent({
       ) : (
         <span className={cn('min-w-0 flex-1 truncate', selected ? 'font-medium text-fg' : 'text-fg/90')}>{scene.title || 'Untitled scene'}</span>
       )}
+      {scene.memoryState === 'failed' && !renaming ? (
+        // The scene header says why and offers Try again.
+        <span className="ml-1 flex shrink-0 text-ai" title="Memory not updated for this scene">
+          <CircleAlert size={12} aria-hidden />
+          <span className="sr-only">Memory not updated</span>
+        </span>
+      ) : null}
       <RowEnd words={formatWords(scene.wordCount)} forceButtons={forceButtons}>
         {h ? (
           <HoverButton label="More actions" onClick={(e) => h.openMenu('scene', scene.id, menuPoint(e))}>
@@ -138,7 +145,8 @@ const sameRow = (a: SceneRowProps, b: SceneRowProps): boolean =>
   a.scene.id === b.scene.id &&
   a.scene.title === b.scene.title &&
   a.scene.status === b.scene.status &&
-  a.scene.wordCount === b.scene.wordCount
+  a.scene.wordCount === b.scene.wordCount &&
+  a.scene.memoryState === b.scene.memoryState
 
 export const SceneRow = memo(function SceneRow({ scene, selected, quiet, renaming, tabbable, menuOpen, h }: SceneRowProps): React.JSX.Element {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({

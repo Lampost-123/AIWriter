@@ -1,16 +1,19 @@
-// "What changed": everything the memory keeper added, changed or removed, newest first and grouped
-// by scene, so Adam can undo a wrong guess. He never has to look at it. Undoing needs no
-// confirmation: an undone guess is simply greyed out, and the keeper won't make it again.
-import { ArrowLeft, BookOpen, ChevronRight, Minus, PenLine, Plus } from 'lucide-react'
+// "What changed": every change the memory made as Adam wrote, newest first and grouped by the read
+// that made it. Each line names the entry, shows the change as before and after, and links to the
+// words it came from. Undo on any line reverses it (the memory won't add it again from those words);
+// a question-marked line shows the choice the memory made and lets Adam pick another, any time.
+// Adam never has to look at it, so nothing here asks to be confirmed.
+import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { requestReveal } from '@/features/editor/reveal'
 import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
-import { groupHeading, groupLog, markUndone } from './logic'
+import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone } from './logic'
 import { openScene } from './openScene'
 
 const PAGE = 100
@@ -85,16 +88,42 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
     setItems((list) => (list ? markUndone(list, item.id) : list))
     try {
       await api.undoMemoryItem(item.id)
-      toast("Undone. AI Write won't make that guess again for the same words.")
+      toast("Undone. The memory won't add that again from the same words.")
     } catch (e) {
-      setItems((list) => (list ? list.map((i) => (i.id === item.id ? { ...i, undone: item.undone } : i)) : list))
+      setItems((list) => (list ? markUndone(list, item.id, false) : list))
       toast(`That couldn't be undone. ${(e as Error).message}`)
+    }
+  }
+
+  const answer = async (item: MemoryLogItem, optionId: string): Promise<void> => {
+    const before = item.question?.answer ?? null
+    setItems((list) => (list ? markAnswered(list, item.id, optionId) : list))
+    try {
+      await api.answerMemoryQuestion(item.id, optionId)
+    } catch (e) {
+      setItems((list) => (list ? markAnswered(list, item.id, before) : list))
+      toast(`That answer couldn't be saved. ${(e as Error).message}`)
+    }
+  }
+
+  const tryAgain = async (item: MemoryLogItem): Promise<void> => {
+    try {
+      await api.updateMemoryNow(item.sceneId ?? undefined)
+      toast('Trying again. The memory is reading the scene.')
+    } catch (e) {
+      toast((e as Error).message)
     }
   }
 
   const openEntry = (id: ID): void => {
     const entry = entries.get(id)
     if (entry) navigate({ kind: 'entries', entryKind: entry.kind, entryId: entry.id })
+  }
+
+  const showWords = (item: MemoryLogItem): void => {
+    if (!item.sceneId) return
+    requestReveal(item.sceneId, item.quote)
+    void openScene(item.sceneId)
   }
 
   const backLabel = openSceneId && openTitle ? `Back to “${openTitle}”` : 'Back to writing'
@@ -113,11 +142,11 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
         </Button>
 
         <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">
-          {sceneId ? (sceneTitle ? `What changed in “${sceneTitle}”` : 'What changed in this scene') : 'What changed'}
+          {sceneId ? (sceneTitle ? `What changed from “${sceneTitle}”` : 'What changed from this scene') : 'What changed'}
         </h1>
         <div className="mt-1 flex min-h-[20px] flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
           <span>
-            {sceneId ? 'What the memory took from this scene, newest first.' : 'What the memory took from your scenes, newest first.'}
+            {sceneId ? 'What the memory took from this scene, newest first.' : 'What the memory took from your writing, newest first.'}
           </span>
           {sceneId ? (
             <button
@@ -157,7 +186,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
             <div className="flex flex-col gap-6 animate-fade-in">
               {groups.map((g) => (
                 <section key={g.key} aria-label={groupHeading(g)}>
-                  <h2 className="mb-2 flex items-center gap-1">
+                  <h2 className="mb-2 flex items-baseline gap-2">
                     {g.sceneId && !sceneId ? (
                       <button
                         type="button"
@@ -175,16 +204,21 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
                     ) : (
                       <span className="text-[12px] font-semibold uppercase tracking-wide text-faint">{groupHeading(g)}</span>
                     )}
+                    <span className="text-[11.5px] text-faint" title={fullDate(g.at)}>
+                      {relativeTime(g.at, now)}
+                    </span>
                   </h2>
                   <ul className="overflow-hidden rounded-xl border border-line bg-surface">
                     {g.items.map((item) => (
                       <LogRow
                         key={item.id}
                         item={item}
-                        now={now}
                         canOpen={!!item.entryId && entries.has(item.entryId)}
                         onOpen={() => item.entryId && openEntry(item.entryId)}
+                        onShowWords={() => showWords(item)}
                         onUndo={() => void undo(item)}
+                        onAnswer={(optionId) => void answer(item, optionId)}
+                        onTryAgain={() => void tryAgain(item)}
                       />
                     ))}
                   </ul>
@@ -205,23 +239,31 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   )
 }
 
-const ACTION_ICONS = { added: Plus, updated: PenLine, removed: Minus } as const
-const ACTION_WORDS = { added: 'Added', updated: 'Changed', removed: 'Removed' } as const
+const ACTION_ICONS = { added: Plus, updated: PenLine, removed: Minus, failed: CircleAlert } as const
+const ACTION_WORDS = { added: 'Added', updated: 'Changed', removed: 'Removed', failed: 'Memory not updated' } as const
+
+const linkClass = 'rounded outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40'
 
 function LogRow({
   item,
-  now,
   canOpen,
   onOpen,
-  onUndo
+  onShowWords,
+  onUndo,
+  onAnswer,
+  onTryAgain
 }: {
   item: MemoryLogItem
-  now: number
   canOpen: boolean
   onOpen: () => void
+  onShowWords: () => void
   onUndo: () => void
+  onAnswer: (optionId: string) => void
+  onTryAgain: () => void
 }): React.JSX.Element {
   const Icon = ACTION_ICONS[item.action] ?? PenLine
+  const failed = item.action === 'failed'
+  const { before, after } = beforeAfter(item)
   // Undo turns into "Undone": keyboard focus moves onto it rather than being lost.
   const undoneRef = useRef<HTMLSpanElement>(null)
   const focusUndone = useRef(false)
@@ -231,66 +273,131 @@ function LogRow({
       undoneRef.current?.focus()
     }
   }, [item.undone])
+  const name = item.entryName.trim()
+
   return (
-    <li
-      className={cn(
-        'flex items-start gap-3 border-t border-line px-4 py-3 first:border-t-0 transition-opacity duration-200',
-        item.undone && 'opacity-55'
-      )}
-    >
+    <li className="flex items-start gap-3 border-t border-line px-4 py-3 first:border-t-0">
       <span
-        className="mt-[3px] flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted"
-        title={ACTION_WORDS[item.action]}
-        aria-label={ACTION_WORDS[item.action]}
-      >
-        <Icon size={11} aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        {canOpen && !item.undone ? (
-          <button
-            type="button"
-            onClick={onOpen}
-            title="Open its page"
-            className="rounded text-left text-[13.5px] leading-snug text-fg outline-none hover:text-accent hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
-          >
-            {item.text}
-          </button>
-        ) : (
-          <p className={cn('text-[13.5px] leading-snug text-fg', item.undone && 'line-through decoration-faint')}>{item.text}</p>
+        className={cn(
+          'mt-[2px] flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full',
+          failed ? 'text-ai' : 'bg-surface-2 text-muted',
+          item.undone && 'opacity-55'
         )}
+        title={ACTION_WORDS[item.action]}
+      >
+        <Icon size={failed ? 15 : 11} aria-hidden />
+        <span className="sr-only">{ACTION_WORDS[item.action]}: </span>
+      </span>
+
+      <div className={cn('min-w-0 flex-1 transition-opacity duration-200', item.undone && 'opacity-55')}>
+        <p className={cn('text-[13.5px] leading-snug text-fg', item.undone && 'line-through decoration-faint')}>
+          {name && !failed ? (
+            <>
+              {canOpen && !item.undone ? (
+                <button type="button" onClick={onOpen} title={`Open ${name}`} className={cn(linkClass, 'font-semibold hover:text-accent')}>
+                  {name}
+                </button>
+              ) : (
+                <span className="font-semibold">{name}</span>
+              )}
+              {item.text ? <span className="text-muted">: </span> : null}
+            </>
+          ) : null}
+          {item.text}
+        </p>
+
+        {before || after ? (
+          <div className="mt-1 flex flex-col gap-0.5 text-[13px] leading-snug">
+            {before ? (
+              <p className="text-faint">
+                <span className="sr-only">Before: </span>
+                <span className="line-through decoration-faint/70">{before}</span>
+              </p>
+            ) : null}
+            {after ? (
+              <p className="text-fg">
+                {before ? <span className="sr-only">Now: </span> : null}
+                {after}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {item.quote.trim() ? (
-          <blockquote className="mt-1.5 select-text border-l-2 border-line pl-2.5 font-serif text-[13.5px] leading-relaxed text-muted">
-            “{item.quote.trim()}”
-          </blockquote>
+          item.sceneId ? (
+            <button
+              type="button"
+              onClick={onShowWords}
+              title="Show these words in the scene"
+              className="mt-1.5 block max-w-full rounded border-l-2 border-line pl-2.5 text-left font-serif text-[13.5px] leading-relaxed text-muted outline-none transition-colors duration-150 hover:border-accent/60 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              “{item.quote.trim()}”
+            </button>
+          ) : (
+            <blockquote className="mt-1.5 select-text border-l-2 border-line pl-2.5 font-serif text-[13.5px] leading-relaxed text-muted">
+              “{item.quote.trim()}”
+            </blockquote>
+          )
+        ) : null}
+
+        {item.question && !item.undone ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span
+              className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-line-strong text-[11px] font-semibold text-muted"
+              aria-hidden
+            >
+              ?
+            </span>
+            <span className="mr-1 text-[12.5px] text-muted">{item.question.text}</span>
+            <span role="group" aria-label={item.question.text} className="flex flex-wrap gap-1">
+              {item.question.options.map((o) => {
+                const on = item.question!.answer === o.id
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => !on && onAnswer(o.id)}
+                    className={cn(
+                      'h-6 rounded-full border px-2.5 text-[12px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
+                      on
+                        ? 'border-accent/40 bg-accent-soft font-medium text-accent'
+                        : 'border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg'
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                )
+              })}
+            </span>
+          </div>
         ) : null}
       </div>
-      <div className="flex w-[132px] shrink-0 items-center justify-end gap-2">
-        <span className="truncate text-[11.5px] text-faint" title={fullDate(item.createdAt)}>
-          {relativeTime(item.createdAt, now)}
-        </span>
-        {item.undone ? (
-          <span
-            ref={undoneRef}
-            tabIndex={-1}
-            className="flex h-7 w-[52px] items-center justify-center rounded-md text-[12px] text-faint outline-none"
-          >
+
+      <div className="flex w-[76px] shrink-0 justify-end">
+        {failed ? (
+          <Button variant="ghost" size="sm" className="px-2" onClick={onTryAgain} title="Read this scene again now">
+            Try again
+          </Button>
+        ) : item.undone ? (
+          <span ref={undoneRef} tabIndex={-1} className="flex h-7 items-center rounded-md px-2 text-[12px] text-faint outline-none">
             Undone
           </span>
-        ) : (
+        ) : canUndo(item) ? (
           <Button
             variant="ghost"
             size="sm"
-            className="w-[52px] px-0"
+            className="px-2"
             onClick={(e) => {
               focusUndone.current = e.currentTarget === document.activeElement
               onUndo()
             }}
-            aria-label={`Undo: ${item.text}`}
-            title="Undo this. The memory won't make the same guess again."
+            aria-label={`Undo: ${name ? `${name}, ` : ''}${item.text}`}
+            title="Undo this. The memory won't add it again from the same words."
           >
             Undo
           </Button>
-        )}
+        ) : null}
       </div>
     </li>
   )

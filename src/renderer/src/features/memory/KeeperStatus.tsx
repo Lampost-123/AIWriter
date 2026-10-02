@@ -1,15 +1,19 @@
-// The memory keeper, quietly, in the top bar: "Updating memory…" while it reads a scene, nothing
-// when it is idle, and a quiet note when it can't run, with the reason and what to do. It sits in a
-// slot of fixed width that is always there, so nothing in the bar moves when it comes and goes.
+// The memory, quietly, in the top bar: "Reading the scene…" while it reads, a short-lived "Memory
+// updated" note after it changed something (it opens What changed), nothing when idle, and a quiet
+// note when it can't run at all, with the reason and what to do. It sits in a slot of fixed width
+// that is always there, so nothing in the bar moves when it comes and goes. Nothing in it nags.
 import * as P from '@radix-ui/react-popover'
-import { CircleAlert } from 'lucide-react'
+import { Check, CircleAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { PopoverPanel } from '@/features/generate/parts'
-import { keeperState, pointsToSettings, readingNote } from './logic'
+import { changesNote, freshUpdate, keeperState, pointsToSettings, readingNote } from './logic'
+
+/** How long "Memory updated" stays (longer while the pointer or keyboard is on it). */
+const UPDATED_FOR = 30_000
 
 /**
  * True once `on` has held for `after` ms, and then for at least `atLeast` ms, so a quick read
@@ -40,13 +44,26 @@ const slotButton =
 
 export function KeeperStatus(): React.JSX.Element {
   const status = useApp((s) => s.memoryStatus)
+  const worldId = useApp((s) => s.world?.id ?? null)
   const navigate = useApp((s) => s.navigate)
   const state = keeperState(status)
   const reading = useSteady(state === 'reading')
   const [open, setOpen] = useState(false)
   const [retrying, setRetrying] = useState(false)
 
-  // The note closes by itself once the keeper is running again.
+  // "Memory updated" is only for runs since this world was opened, and goes once seen or after a while.
+  const opened = useRef({ worldId, at: Date.now() - 2000 })
+  if (opened.current.worldId !== worldId) opened.current = { worldId, at: Date.now() - 2000 }
+  const [seen, setSeen] = useState<string | null>(null)
+  const [held, setHeld] = useState(false)
+  const update = freshUpdate(status, seen, opened.current.at)
+  useEffect(() => {
+    if (!update || held) return
+    const t = setTimeout(() => setSeen(update.runId), UPDATED_FOR)
+    return () => clearTimeout(t)
+  }, [update?.runId, held])
+
+  // The note closes by itself once the memory is running again.
   useEffect(() => {
     if (state !== 'error') setOpen(false)
   }, [state])
@@ -66,6 +83,10 @@ export function KeeperStatus(): React.JSX.Element {
   const goTo = (view: Parameters<typeof navigate>[0]): void => {
     setOpen(false)
     navigate(view)
+  }
+  const openWhatChanged = (): void => {
+    if (update) setSeen(update.runId)
+    goTo({ kind: 'memory', sceneId: null })
   }
 
   return (
@@ -97,7 +118,7 @@ export function KeeperStatus(): React.JSX.Element {
               <button
                 type="button"
                 className="ml-auto rounded text-[12px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
-                onClick={() => goTo({ kind: 'memory', sceneId: null })}
+                onClick={openWhatChanged}
               >
                 What changed
               </button>
@@ -109,10 +130,24 @@ export function KeeperStatus(): React.JSX.Element {
           type="button"
           className={cn(slotButton, 'text-faint hover:text-muted')}
           title={status.reading ? readingNote(status) : undefined}
-          onClick={() => goTo({ kind: 'memory', sceneId: null })}
+          onClick={openWhatChanged}
         >
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
-          <span className="truncate">Updating memory…</span>
+          <span className="truncate">Reading the scene…</span>
+        </button>
+      ) : update ? (
+        <button
+          type="button"
+          className={cn(slotButton, 'text-faint hover:text-muted')}
+          title={`${changesNote(update.changes)}. Click to see what changed.`}
+          onClick={openWhatChanged}
+          onPointerEnter={() => setHeld(true)}
+          onPointerLeave={() => setHeld(false)}
+          onFocus={() => setHeld(true)}
+          onBlur={() => setHeld(false)}
+        >
+          <Check size={13} className="shrink-0" aria-hidden />
+          <span className="truncate">Memory updated</span>
         </button>
       ) : null}
     </div>
