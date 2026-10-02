@@ -141,16 +141,30 @@ export const MIGRATIONS: string[] = [
   );
   ALTER TABLE chapters ADD COLUMN act_id TEXT;
 
-  -- Accepting a scene, and the text it was accepted with (so a re-accept only re-reads what changed).
+  -- Marking a scene done (accepted_at), and the text it was marked done with.
   -- context_json holds Adam's per-scene briefing choices (block modes) from the Context tab.
+  -- text_version goes up on every save; the memory keeper records the version it last read
+  -- (memory_version), the paragraphs it read then (id, hash and text, to find what changed), and
+  -- its run status for the scene: current | pending | failed ("Memory not updated").
   ALTER TABLE scenes ADD COLUMN accepted_at TEXT;
   ALTER TABLE scenes ADD COLUMN accepted_text TEXT;
   ALTER TABLE scenes ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE scenes ADD COLUMN text_version INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE scenes ADD COLUMN memory_version INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE scenes ADD COLUMN memory_paragraphs_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE scenes ADD COLUMN memory_status TEXT NOT NULL DEFAULT 'current';
+  ALTER TABLE scenes ADD COLUMN memory_error TEXT;
+  -- Milestone 1 scenes with text haven't been read by the memory keeper yet.
+  UPDATE scenes SET text_version = 1, memory_status = 'pending' WHERE text <> '';
 
-  -- How each entry was made. by_hand: Adam has edited it, so the memory keeper never overwrites it.
-  ALTER TABLE entries ADD COLUMN origin TEXT NOT NULL DEFAULT 'hand';
+  -- Who made each entry and each of its fields: adam | text (read from a scene) | ai (drafted by the AI).
+  -- origin_start: made by a start-of-story change. by_hand: Adam has edited some of it, so the
+  -- memory keeper never removes it.
+  ALTER TABLE entries ADD COLUMN origin TEXT NOT NULL DEFAULT 'adam';
+  ALTER TABLE entries ADD COLUMN field_origins_json TEXT NOT NULL DEFAULT '{}';
   ALTER TABLE entries ADD COLUMN origin_story_id TEXT;
   ALTER TABLE entries ADD COLUMN origin_scene_id TEXT;
+  ALTER TABLE entries ADD COLUMN origin_start INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE entries ADD COLUMN by_hand INTEGER NOT NULL DEFAULT 0;
   -- Milestone 1 entries were all typed by Adam.
   UPDATE entries SET by_hand = 1;
@@ -173,7 +187,7 @@ export const MIGRATIONS: string[] = [
   -- Every change to an entry over time: baseline relationships and knowledge, start-of-story
   -- changes (including full descriptions) and changes pinned to scenes.
   --   anchor: baseline | story-start | scene     kind: update | full | relationship | knowledge | thread
-  --   source: hand | memory    quote: the words in the scene a memory change rests on
+  --   origin: adam | text | ai (text-origin changes have source_links to their words)
   CREATE TABLE changes (
     id TEXT PRIMARY KEY,
     entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
@@ -183,8 +197,7 @@ export const MIGRATIONS: string[] = [
     kind TEXT NOT NULL,
     payload_json TEXT NOT NULL DEFAULT '{}',
     position INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'hand',
-    quote TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'adam',
     run_id TEXT,
     deleted_at TEXT,
     created_at TEXT NOT NULL,
@@ -199,7 +212,7 @@ export const MIGRATIONS: string[] = [
     level TEXT NOT NULL,
     target_id TEXT NOT NULL,
     text TEXT NOT NULL DEFAULT '',
-    by_hand INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL DEFAULT 'text',
     stale INTEGER NOT NULL DEFAULT 0,
     source_hash TEXT NOT NULL DEFAULT '',
     generation_id TEXT,
@@ -245,6 +258,93 @@ export const MIGRATIONS: string[] = [
     updated_at TEXT NOT NULL
   );
   CREATE INDEX issues_scene ON issues(scene_id);
+
+  -- ----- Source links and automatic upkeep (spec, Multi-story rules) -----
+
+  -- Links from facts to the words they were read from. fact_kind: entry | field | change | summary | voice.
+  -- state: ok | changed (the words were edited) | gone (deleted).
+  CREATE TABLE source_links (
+    id TEXT PRIMARY KEY,
+    fact_kind TEXT NOT NULL,
+    fact_id TEXT NOT NULL,
+    field TEXT,
+    scene_id TEXT NOT NULL,
+    scene_version INTEGER NOT NULL,
+    paragraph_id TEXT,
+    start INTEGER NOT NULL DEFAULT 0,
+    end INTEGER NOT NULL DEFAULT 0,
+    quote TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'ok',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX source_links_fact ON source_links(fact_kind, fact_id);
+  CREATE INDEX source_links_scene ON source_links(scene_id);
+
+  -- Memory history: every version of every fact (entry rows, changes, summaries), automatic or by hand.
+  CREATE TABLE fact_versions (
+    id TEXT PRIMARY KEY,
+    fact_kind TEXT NOT NULL,
+    fact_id TEXT NOT NULL,
+    entry_id TEXT,
+    version INTEGER NOT NULL,
+    data_json TEXT,
+    origin TEXT NOT NULL,
+    run_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (fact_kind, fact_id, version)
+  );
+  CREATE INDEX fact_versions_entry ON fact_versions(entry_id, created_at);
+
+  -- Facts Adam undid: not added again from the same words unless the words change.
+  CREATE TABLE suppressions (
+    id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    scene_id TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (fingerprint, scene_id, quote)
+  );
+
+  -- Memory keeper runs: one per scene version read (model, tokens and cost alongside the generation records).
+  CREATE TABLE memory_runs (
+    id TEXT PRIMARY KEY,
+    scene_id TEXT NOT NULL,
+    scene_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    provider_id TEXT,
+    model_id TEXT,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    cost REAL,
+    generation_ids_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+  );
+  CREATE INDEX memory_runs_scene ON memory_runs(scene_id, created_at);
+
+  -- The "What changed" list, grouped by run. question_json: a judgement call made with a default.
+  CREATE TABLE memory_log (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    scene_id TEXT,
+    action TEXT NOT NULL,
+    what TEXT NOT NULL,
+    entry_id TEXT,
+    fact_id TEXT,
+    entry_name TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    before TEXT NOT NULL DEFAULT '',
+    after TEXT NOT NULL DEFAULT '',
+    quote TEXT NOT NULL DEFAULT '',
+    question_json TEXT,
+    undo_json TEXT,
+    undone_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX memory_log_run ON memory_log(run_id);
+  CREATE INDEX memory_log_created ON memory_log(created_at);
   `
 ]
 

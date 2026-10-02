@@ -88,7 +88,7 @@ src/renderer/src/
 
 ## Milestone 2: memory that keeps up
 
-What it adds: accept scene; summaries at every level; changes over time (baseline plus changes);
+What it adds: mark scene done; summaries at every level; changes over time (baseline plus changes);
 relationships and knowledge; plot threads; the memory keeper; context budgeting with short forms;
 the Context tab with pins. It also stores everything stories outside one series need (story kinds,
 start and end points, start-of-story changes, where entries first exist, Adam's answers), with
@@ -119,16 +119,46 @@ reason here and a new migration, never a rewrite. Until 0.2.0 ships, migration 2
 - **Places in plain words:** "Book 1, Ch 12, Sc 3" counts live chapters and scenes from 1. Never
   "line", "main history" or "entry" on screen.
 
-### The memory keeper (Adam, 2026-10-02)
+### The memory keeper (Adam, 2026-10-02; spec "Source links and automatic upkeep")
 
-The memory updates itself whenever a scene changes, so Adam never has to manage it. Each fact the
-keeper adds remembers the words it came from (`changes.quote`, `source = 'memory'`): editing those
-words updates the fact, deleting them removes it. Anything Adam typed himself (entries with
-`by_hand`, changes with `source = 'hand'`, summaries with `by_hand`) is never overwritten or
-removed by the keeper. A quiet "What changed" list lets him undo a wrong guess, and an undone guess
-is never made again for the same words; he never has to look at it. It runs in the background,
-reads only what changed since it last read a scene, resumes after a restart, and says in plain
-words (quietly, in the top bar) when it can't run.
+The memory updates itself whenever a scene changes, so Adam never has to manage it. There is no
+approval step and no Review inbox.
+
+- **Origin.** Every fact records who made it (`Origin` in `shared/types.ts`): `text` (read from a
+  scene by the keeper), `adam` (typed or edited by him) or `ai` (drafted by AI). Entries record it
+  for the entry and for each field (`entries.origin`, `field_origins_json`); changes, summaries and
+  voice lines record it per row. Any hand edit makes the fact (or field) Adam's, and the keeper
+  never changes or removes Adam's facts: when the text contradicts one, it raises a consistency
+  issue (`issues`) instead. AI-drafted facts are replaced when the text on the same line says
+  otherwise. `entries.by_hand` marks an entry Adam ever touched, so it is never moved to Trash
+  automatically.
+- **Source links** (`source_links`, `db/history.ts`) tie a text fact to the exact words: scene,
+  scene version, paragraph id, character range and the quoted words, with a state (`ok`, `changed`,
+  `gone`). Every editor paragraph has a stable id. Editing those words updates the fact; a fact goes
+  only when its last link is gone or no longer supports it. A text entry whose last mention is gone
+  and which Adam never edited moves to Trash for 30 days.
+- **History.** Every change to a fact, automatic or by hand, writes a version (`fact_versions`, via
+  `recordVersion`) with the run that made it, so any entry can be compared and restored. The SQL
+  helpers in `db/repo.ts`, `db/memory.ts` and `db/history.ts` record versions themselves; pass the
+  origin and run when the keeper calls them.
+- **Runs** (`memory_runs`): after 30 seconds without typing in a scene, on leaving it, on marking it
+  done, after a scene version is restored, and at app start for scenes left behind. Runs queue per
+  scene and a newer run replaces a queued one. Before a draft is generated, queued or failed runs for
+  earlier scenes on the line run first. A run reads only the scene's current draft, finds paragraphs
+  added, changed or deleted since the last processed version (by paragraph hash; `scenes.text_version`,
+  `memory_version`, `memory_paragraphs_json`), sends them to the memory model with the scene card
+  and the linked facts, and applies the model's keep/update/remove/add reply. Runs are idempotent.
+  A malformed reply is repaired or retried once; if that fails the scene shows "Memory not updated"
+  (`scenes.memory_status = 'failed'`) and is retried on the next trigger and at app start.
+- **What changed** (`memory_log`) lists every change grouped by run, newest first: the entry, before
+  and after, and the words it came from. Judgement calls apply a default and carry a question mark
+  with the alternatives (`question_json`), such as "Which happened last?" and "First seen
+  elsewhere". **Undo** restores the previous version and records a suppression (`suppressions`) so
+  the same fact isn't added again from the same words unless they change. A quiet "Memory updated"
+  note in the top bar opens the list; Adam never has to look at it.
+- **Mark scene done** (Ctrl+Enter; stored as `scenes.accepted_at`, named after the spec's earlier
+  "Accept") sets the scene's status and refreshes its summary (checks arrive in milestone 5).
+  Memory doesn't wait for it.
 
 ### Who builds what (parallel build, milestone 2)
 
@@ -137,7 +167,7 @@ words (quietly, in the top bar) when it can't run.
 | Memory core | `memory/line.ts`, `memory/state.ts`, `memory/scene.ts`, `db/memory.ts` (SQL for changes, exists points, summaries, pins, answers, placement), `ipc/memory.ts`, the test world (`tests/unit/testWorld*`) |
 | Memory keeper | `keeper/*`, `db/keeper.ts`, `ipc/keeper.ts`, its tables at the end of migration 2, memory-model prompts, the fake provider's memory replies |
 | Briefing | `ai/context.ts`, `ai/gather.ts`, `ai/prompts.ts` (writer), short forms and budgeting, pins and block modes in the briefing |
-| Interface | `src/renderer/**`: Accept, Context tab, entry pages for every kind with relationships, knowledge and changes, plot threads on the scene card, summaries, the "What changed" list and the keeper's status |
+| Interface | `src/renderer/**`: Mark scene done, Context tab, entry pages for every kind with relationships, knowledge and changes, plot threads on the scene card, summaries, the "What changed" list and the keeper's status |
 
 Shared files (`src/shared/*`, `migrations.ts`, `ARCHITECTURE.md`) change only additively; say so in
 the commit message.

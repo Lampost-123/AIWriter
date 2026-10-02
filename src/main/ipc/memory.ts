@@ -8,6 +8,7 @@ type MemoryMethods =
   | 'listFacts' | 'listExistsPoints' | 'listSceneChanges'
   | 'getSummary' | 'setSummary' | 'listStorySummaries'
   | 'setPin' | 'setBlockMode'
+  | 'listEntryHistory' | 'restoreEntryVersion' | 'listEntryLinks'
 
 const notYet = (): never => {
   throw new Error('Not built yet')
@@ -27,5 +28,8 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
   setSummary: notYet,
   listStorySummaries: notYet,
   setPin: notYet,
-  setBlockMode: notYet
+  setBlockMode: notYet,
+  listEntryHistory: notYet,
+  restoreEntryVersion: notYet,
+  listEntryLinks: notYet
 }
