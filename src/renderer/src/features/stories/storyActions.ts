@@ -3,6 +3,7 @@
 // delete a story with Undo. Each updates the story list and leaves the screen in a sensible place.
 // Undo always puts back what a story was as the memory had it (getStoryPlacement): a start or end at
 // something deleted has moved, and the stored one would be refused.
+import { create } from 'zustand'
 import type { StoryPlacement } from '@shared/api'
 import type { CreatedStory, NewStoryInput, StoryRef } from '@shared/contracts/stories'
 import type { ID, Story } from '@shared/types'
@@ -40,17 +41,26 @@ function afterToast(toastId: number, then: () => void): void {
   })
 }
 
-/** Story settings opens at a section once (after "Choose cast" in a toast). */
-let pendingSection: string | null = null
-export const takePendingSection = (): string | null => {
-  const s = pendingSection
-  pendingSection = null
-  return s
-}
+/**
+ * A section of a story's settings to open at ("Choose cast" in a toast): that story's page brings it
+ * into view and takes it, whether it opens now or is already open.
+ */
+export const useSectionRequest = create<{ request: { storyId: ID; section: string } | null }>(() => ({ request: null }))
+
+/**
+ * Stories whose yes to "Should Book 2 now continue after it?" can still be undone. Story settings doesn't
+ * offer "When did these happen?" for them meanwhile: the sort starts by itself once Undo has gone.
+ */
+export const useFollowUndo = create<{ storyIds: ID[] }>(() => ({ storyIds: [] }))
+const holdSort = (storyId: ID, on: boolean): void =>
+  useFollowUndo.setState((s) => {
+    const i = s.storyIds.indexOf(storyId)
+    return { storyIds: on ? [...s.storyIds, storyId] : s.storyIds.filter((_, j) => j !== i) }
+  })
 
 /** Opens a story's settings, at a section if given. */
 export function openStorySettings(storyId: ID, section?: string): void {
-  pendingSection = section ?? null
+  useSectionRequest.setState({ request: section ? { storyId, section } : null })
   app().navigate({ kind: 'story', storyId })
 }
 
@@ -128,6 +138,7 @@ export async function moveToFollow(story: Pick<Story, 'id' | 'title'>, book: Sto
     failed(e)
     return
   }
+  holdSort(story.id, true)
   await refresh()
   let undone = false
   const shown = toast(`${book.title} now continues after ${story.title}.`, {
@@ -135,25 +146,58 @@ export async function moveToFollow(story: Pick<Story, 'id' | 'title'>, book: Sto
       label: 'Undo',
       run: () => {
         undone = true
-        putBack(book.storyId, was)
+        void api
+          .setStoryPlacement(book.storyId, was)
+          .then(() => refresh())
+          .catch(failed)
+          .finally(() => holdSort(story.id, false))
       }
     }
   })
   afterToast(shown, () => {
-    if (undone || app().world?.id !== worldId) return
-    runFlow(story.id, 'when', () => api.sortStartChanges(story.id, book.storyId), book.title)
+    if (undone) return
+    // The toast also goes when Adam switches worlds, just before the switch reaches the main process.
+    // Asked a moment later, the main process names the world that is open by then: the sort runs only
+    // if it is still this one, and otherwise waits in story settings ("When did these happen?").
+    setTimeout(() => {
+      void api
+        .getWorld()
+        .then((open) => {
+          holdSort(story.id, false)
+          if (open?.id !== worldId || app().world?.id !== worldId) return
+          runFlow(story.id, 'when', () => api.sortStartChanges(story.id, book.storyId), book.title)
+        })
+        .catch(() => holdSort(story.id, false))
+    }, 0)
   })
 }
 
-/** Adam's "No" to "Should Book 2 now continue after it?": kept with the world, so story settings stops asking. */
-export async function declineFollow(storyId: ID): Promise<boolean> {
+/**
+ * Adam's "No" to "Should Book 2 now continue after it?": kept with the world, so story settings stops
+ * asking, with Undo (`onUndo` shows the question again). Returns whether it was saved.
+ */
+export async function declineFollow(story: Pick<Story, 'id' | 'title'>, book: StoryRef, onUndo?: () => void): Promise<boolean> {
   try {
-    await api.declineFollow(storyId)
-    return true
+    await api.declineFollow(story.id)
   } catch (e) {
     failed(e)
     return false
   }
+  toast(`${book.title} stays where it is.`, {
+    action: {
+      label: 'Undo',
+      run: () =>
+        void api
+          .declineFollow(story.id, false)
+          .then(() => {
+            onUndo?.()
+            // Story settings read the question afresh.
+            return refresh()
+          })
+          .catch(failed)
+    }
+  })
+  return true
 }
 
 /**
@@ -253,12 +297,13 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
     failed(e)
     return
   }
-  await refresh()
-  const next = app().stories[0]
+  // Its settings page is left before the story list changes, so it never says the story isn't there.
+  const next = app().stories.find((s) => s.id !== story.id)
   if (wasOpen) {
     if (next) await openStory(next.id).catch(() => app().selectStory(next.id))
     else app().selectStory(null)
   } else app().navigate({ kind: 'write' })
+  await refresh()
   announceDelete({
     message: `“${story.title || 'Untitled story'}” deleted.`,
     noun: ['story', 'stories'],

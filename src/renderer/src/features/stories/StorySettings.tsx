@@ -18,12 +18,21 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { Switch } from '@/features/world/parts/Switch'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
-import { flowRunning, retryFlow, runFlow, useFlowAbout, useFlows } from './flows'
+import { canRetry, flowRunning, loadFlows, retryFlow, runFlow, stopFlow, useFlowAbout, useFlows } from './flows'
 import { usePreview } from './hooks'
 import { PlacementEditor, Warnings } from './PlacementEditor'
 import { useSeries, useSeriesList } from './series'
-import { declineFollow, deleteStory, editStoryStyle, endFirst, moveToFollow, savePlacement, takePendingSection } from './storyActions'
-import { flowLine, gapLabel, placementOf, samePlacement, styleRules } from './storiesLogic'
+import {
+  declineFollow,
+  deleteStory,
+  editStoryStyle,
+  endFirst,
+  moveToFollow,
+  savePlacement,
+  useFollowUndo,
+  useSectionRequest
+} from './storyActions'
+import { flowLine, flowStopped, gapLabel, placementOf, samePlacement, styleRules } from './storiesLogic'
 
 const failed = (e: unknown): string => (e as Error).message || 'That didn’t work. Please try again.'
 
@@ -53,16 +62,23 @@ export function StorySettings({ storyId }: { storyId: ID }): React.JSX.Element {
   const story = useApp((s) => s.stories.find((x) => x.id === storyId) ?? null)
   const { details, error, retry } = useDetails(storyId)
   const slow = useSlow(!!story && !details && !error)
-  const [section] = useState(takePendingSection)
+  const section = useSectionRequest((s) => (s.request?.storyId === storyId ? s.request.section : null))
   const pageRef = useRef<HTMLDivElement>(null)
-  const opened = useRef(false)
 
-  // Opened at a section ("Choose cast" in a toast): bring it into view and start there, once (the details
-  // reload as Adam types). Only the page scrolls: scrollIntoView and a plain focus() would also scroll the
-  // window itself, pushing the top bar out of view.
+  // A section asked for another story's page, which it never got to show, is dropped as this one opens.
+  // Then: how this story's flows are doing, for runs this window hasn't heard about.
   useEffect(() => {
-    if (!details || !section || opened.current) return
-    opened.current = true
+    const asked = useSectionRequest.getState().request
+    if (asked && asked.storyId !== storyId) useSectionRequest.setState({ request: null })
+    loadFlows(storyId)
+  }, [storyId])
+
+  // Asked to show a section ("Choose cast" in a toast), as it opens or while it is open: bring it into
+  // view and start there, once (the details reload as Adam types). Only the page scrolls: scrollIntoView
+  // and a plain focus() would also scroll the window itself, pushing the top bar out of view.
+  useEffect(() => {
+    if (!details || !section) return
+    useSectionRequest.setState({ request: null })
     const page = pageRef.current
     const el = document.getElementById(`story-${section}`)
     if (!page || !el) return
@@ -480,8 +496,13 @@ function WhatIsIt({ story, details }: { story: Story; details: StoryDetails }): 
             </Button>
           </div>
         ) : null}
-        {follow ? <FollowQuestion story={story} book={follow} onNo={() => setAnswered(true)} /> : null}
-        <FlowLine storyId={story.id} flow="when" onRetry={() => retryFlow(story.id, 'when')} />
+        {follow ? <FollowQuestion story={story} book={follow} onAnswer={setAnswered} /> : null}
+        {details.followers[0] ? (
+          <SortChanges story={story} book={details.followers[0]} />
+        ) : (
+          // How the last sort went, for a book that has since moved on: there is nothing to run again.
+          <FlowLine storyId={story.id} flow="when" />
+        )}
         {details.leadsInto ? <LeadsIn story={story} leadsInto={details.leadsInto} /> : null}
       </Part>
       {gapFor ? <TimeGap key={story.id} story={story} label={gapFor} /> : null}
@@ -489,7 +510,8 @@ function WhatIsIt({ story, details }: { story: Story; details: StoryDetails }): 
   )
 }
 
-function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; onNo: () => void }): React.JSX.Element {
+/** "Should Book 2 now continue after it?" `onAnswer(true)` hides it at once on No; its Undo brings it back. */
+function FollowQuestion({ story, book, onAnswer }: { story: Story; book: StoryRef; onAnswer: (no: boolean) => void }): React.JSX.Element {
   const [busy, setBusy] = useState<'yes' | 'no' | null>(null)
   return (
     <Notice
@@ -513,9 +535,9 @@ function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; o
             disabled={!!busy}
             onClick={() => {
               setBusy('no')
-              void declineFollow(story.id).then((ok) => {
+              void declineFollow(story, book, () => onAnswer(false)).then((ok) => {
                 setBusy(null)
-                if (ok) onNo()
+                if (ok) onAnswer(true)
               })
             }}
           >
@@ -532,6 +554,33 @@ function FollowQuestion({ story, book, onNo }: { story: Story; book: StoryRef; o
         which of the changes at the start of {book.title} happened before, during or after {story.title}.
       </p>
     </Notice>
+  )
+}
+
+/**
+ * "When did these happen?" for a book written earlier that now continues after this story (Adam's yes).
+ * It runs by itself once that yes can no longer be undone; this is for any other time, such as after a
+ * world switch got in the way. It only sorts what isn't sorted yet.
+ */
+function SortChanges({ story, book }: { story: Story; book: StoryRef }): React.JSX.Element {
+  const status = useFlows((s) => s.byStory[story.id]?.when)
+  // While that yes can still be undone, the sort waits to start by itself.
+  const waiting = useFollowUndo((s) => s.storyIds.includes(story.id))
+  const sort = (): void => runFlow(story.id, 'when', () => api.sortStartChanges(story.id, book.storyId), book.title)
+  if (waiting) return <FlowLine storyId={story.id} flow="when" onRetry={sort} />
+  return (
+    <div className="flex min-h-7 flex-wrap items-center gap-3">
+      <Button size="sm" onClick={sort} disabled={status?.state === 'running'}>
+        When did these happen?
+      </Button>
+      {status ? (
+        <FlowLine storyId={story.id} flow="when" onRetry={sort} />
+      ) : (
+        <p className="text-[12.5px] text-muted">
+          Sorts the changes at the start of {book.title} into before, during and after {story.title}.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -732,7 +781,11 @@ function StartingCast({ story, cast }: { story: Story; cast: ID[] }): React.JSX.
         <Button size="sm" variant="primary" onClick={draft} disabled={!adding.length || running}>
           Draft how they start
         </Button>
-        <FlowLine storyId={story.id} flow="starting-cast" onRetry={() => retryFlow(story.id, 'starting-cast')} />
+        <FlowLine
+          storyId={story.id}
+          flow="starting-cast"
+          onRetry={canRetry(story.id, 'starting-cast') ? () => retryFlow(story.id, 'starting-cast') : undefined}
+        />
       </div>
     </Part>
   )
@@ -826,6 +879,7 @@ function DeletePart({ story, startingHere }: { story: Story; startingHere: Story
 
 // ---------- The flows' quiet line ----------
 
+/** How a flow is doing, in one quiet line: Stop while it runs, Try again if it failed and can be run again. */
 function FlowLine({
   storyId,
   flow,
@@ -833,11 +887,18 @@ function FlowLine({
 }: {
   storyId: ID
   flow: StoryFlowStatus['flow']
-  onRetry: () => void
+  onRetry?: () => void
 }): React.JSX.Element | null {
   const status = useFlows((s) => s.byStory[storyId]?.[flow])
   const about = useFlowAbout(storyId, flow)
+  // The run Stop was pressed for: the button waits until the flow says it has stopped.
+  const [stopping, setStopping] = useState<StoryFlowStatus | null>(null)
   if (!status) return null
+  const stop = (): void => {
+    setStopping(status)
+    stopFlow(storyId, flow).catch(() => setStopping(null))
+  }
+  const stopped = flowStopped(status)
   return (
     <p
       role="status"
@@ -845,11 +906,15 @@ function FlowLine({
     >
       {status.state === 'running' ? (
         <Spinner size={12} />
-      ) : status.state === 'done' ? (
+      ) : status.state === 'done' && !stopped ? (
         <Check size={13} className="text-success" aria-hidden />
       ) : null}
       <span>{flowLine(status, about)}</span>
-      {status.state === 'failed' ? (
+      {status.state === 'running' ? (
+        <Button size="sm" variant="ghost" loading={stopping === status} onClick={stop}>
+          Stop
+        </Button>
+      ) : status.state === 'failed' && onRetry ? (
         <Button size="sm" variant="ghost" onClick={onRetry}>
           Try again
         </Button>

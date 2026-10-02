@@ -9,7 +9,7 @@ import type { CreatedStory, NewStoryInput, StoryDetails } from '@shared/contract
 import * as repo from './repo'
 import * as mem from './memory'
 import { newId, now, UserError } from '../util'
-import { leadsGroup, leadsInto, mightFollow, previewStory, placementOf, startingHere } from '../stories/rules'
+import { followers, leadsGroup, leadsInto, mightFollow, previewStory, placementOf, startingHere } from '../stories/rules'
 
 type Row = Record<string, unknown>
 type DB = Database.Database
@@ -125,10 +125,14 @@ export function storyCast(db: DB, storyId: ID): ID[] {
 // answers table takes any kind, and the memory only reads the kinds it knows.
 const FOLLOW_DECLINED = 'follow-declined' as AnswerKind
 
-/** Adam said No to "Should Book 2 now continue after it?" for this story, so story settings stops asking. */
-export function declineFollow(db: DB, storyId: ID): void {
+/**
+ * Adam said No to "Should Book 2 now continue after it?" for this story, so story settings stops asking;
+ * or (declined false) he undid that No, so it asks again.
+ */
+export function declineFollow(db: DB, storyId: ID, declined = true): void {
   repo.getStory(db, storyId)
-  mem.setAnswer(db, FOLLOW_DECLINED, storyId, true)
+  if (declined) mem.setAnswer(db, FOLLOW_DECLINED, storyId, true)
+  else mem.clearAnswer(db, FOLLOW_DECLINED, storyId)
 }
 
 export const followDeclined = (db: DB, storyId: ID): boolean =>
@@ -155,6 +159,7 @@ export function storyDetails(db: DB, storyId: ID): StoryDetails {
     preview: previewStory(shape, { storyId, title: node.title, seriesId: node.seriesId, placement }),
     startingHere: startingHere(shape, storyId),
     mightFollow: followDeclined(db, storyId) ? [] : mightFollow(shape, storyId),
+    followers: followers(shape, storyId),
     leadsInto: leadsInto(shape, storyId),
     cast: node.kind === 'prequel' ? storyCast(db, storyId) : []
   }

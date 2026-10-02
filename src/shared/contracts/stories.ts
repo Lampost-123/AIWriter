@@ -109,6 +109,11 @@ export interface StoryDetails {
    * story, until Adam answers No here (declineFollow).
    */
   mightFollow: StoryRef[]
+  /**
+   * Books written before it that now continue after it (Adam's yes to "Should Book 2 now continue after
+   * it?"): story settings offers "When did these happen?" for them (sortStartChanges).
+   */
+  followers: StoryRef[]
   /** For a prequel and the stories that continue after it: the book they lead into and which story leads in. */
   leadsInto: { book: StoryRef; leader: StoryRef; marked: boolean } | null
   /** A prequel's starting cast so far: entries with a start-of-story description or a first-exists point at its start. */
@@ -137,8 +142,11 @@ export interface StoriesApi {
    * and the grey line on each card by story id (stories that simply continue have none).
    */
   listShelf(): Promise<{ order: ID[]; labels: Record<ID, string> }>
-  /** Adam's "No" to "Should Book 2 now continue after it?" for this story: story settings stops asking. */
-  declineFollow(storyId: ID): Promise<void>
+  /**
+   * Adam's "No" to "Should Book 2 now continue after it?" for this story: story settings stops asking.
+   * With `declined` false (his Undo), it asks again.
+   */
+  declineFollow(storyId: ID, declined?: boolean): Promise<void>
   createSeries(name: string): Promise<Series>
   updateSeries(id: ID, patch: Partial<Pick<Series, 'name' | 'themes' | 'tone'>>): Promise<Series>
   /** Marks this story as the one that leads into its prequel chain's book (on), or goes back to the last one in the chain (off). */

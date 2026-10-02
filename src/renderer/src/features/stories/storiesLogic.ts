@@ -90,11 +90,14 @@ export function startOptions(outline: Outline | null, kind: StoryKind): PointOpt
   return out
 }
 
-/** Where a side story can end in its book: its end, or after a chapter at or after where it starts. */
+/**
+ * Where a side story can end in its book: its end, or after a chapter at or after where it starts. One
+ * that starts at its book's end (it took over a deleted story's start) can only end there too.
+ */
 export function endOptions(outline: Outline | null, start: PointValue): PointOption[] {
   const out: PointOption[] = [{ value: 'end', label: 'At its end' }]
-  if (!outline) return out
   const { at, refId } = readPoint(start)
+  if (!outline || at === 'end') return out
   const from =
     at === 'chapter'
       ? outline.chapters.findIndex((c) => c.id === refId)
@@ -258,23 +261,47 @@ export function styleRules(prefs: WritingPrefs, world: StyleGuide, story: Partia
 
 // ---------- The story flows' quiet line ----------
 
+const NUMBER = /^(\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds|thousands)\b/i
+const SPAN = /^(a|an|some|several|many|a few|a couple of|about|almost|nearly|over|more than)\b/i
+const UNIT = /\b(days?|nights?|weeks?|fortnights?|months?|seasons?|years?|decades?|century|centuries|generations?|ages?|winters?|summers?|springs?|autumns?|lifetimes?)$/i
+
 /**
- * The quiet line for a story flow in story settings: "Working out what changed in the 200 years…",
- * then the result ("Added 4 changes"), or what went wrong. `about` is what the flow was started about:
- * the time gap, or for "When did these happen?" the book that now continues after the story.
+ * What a time gap's flow is doing, before the flow says so itself: "in the 200 years", "over a decade",
+ * "over the winter" (from "1 winter"); anything that isn't plainly a length of time is left out.
+ */
+function gapWorking(gap: string): string {
+  const said = gap
+    .trim()
+    .replace(/[.!]+$/, '')
+    .replace(/\s+(later|after|on|afterwards|have passed|has passed|passed)$/i, '')
+    .trim()
+  const what = said.charAt(0).toLowerCase() + said.slice(1)
+  if (!what || what.length > 40 || !UNIT.test(what)) return 'Working out what changed before this story starts…'
+  const one = /^(1|one)\s+([a-z]+)$/i.exec(what)
+  if (one) return `Working out what changed over the ${one[2].toLowerCase()}…`
+  if (NUMBER.test(what)) return `Working out what changed in the ${what}…`
+  if (SPAN.test(what)) return `Working out what changed ${/^over\b/i.test(what) ? '' : 'over '}${what}…`
+  return 'Working out what changed before this story starts…'
+}
+
+/**
+ * The quiet line for a story flow in story settings: what it is doing ("Working out what changed in the
+ * 200 years…"), then the result ("Added 4 changes"), or what went wrong. A running flow says what it is
+ * doing itself; until it does, `about` (what it was started about: the time gap, or for "When did these
+ * happen?" the book that now continues after the story) says it here.
  */
 export function flowLine(status: Pick<StoryFlowStatus, 'flow' | 'state' | 'message'>, about = ''): string {
-  const what = about.trim()
-  if (status.state === 'running') {
-    if (status.flow === 'time-gap') {
-      if (!what) return 'Working out what changed before this story starts…'
-      // "in the 200 years", but "over a decade" and "over the long winter".
-      return `Working out what changed ${/^\d/.test(what) ? `in the ${what}` : `over ${what}`}…`
-    }
-    if (status.flow === 'starting-cast') return 'Drafting how each of them starts…'
-    return `Working out when the changes at the start of ${what || 'the next book'} happened…`
-  }
   const message = status.message?.trim()
+  if (status.state === 'running') {
+    if (message) return message
+    if (status.flow === 'time-gap') return gapWorking(about)
+    if (status.flow === 'starting-cast') return 'Drafting how each of them starts…'
+    return `Working out when the changes at the start of ${about.trim() || 'the next book'} happened…`
+  }
   if (status.state === 'failed') return message || 'That didn’t work. Try again in a moment.'
   return message || 'Done.'
 }
+
+/** Whether a flow ended because Adam stopped it ("Stopped. Nothing was changed."): no tick for that. */
+export const flowStopped = (status: Pick<StoryFlowStatus, 'state' | 'message'>): boolean =>
+  status.state === 'done' && /^Stopped\b/.test(status.message?.trim() ?? '')

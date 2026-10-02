@@ -38,7 +38,8 @@ export function PlacementEditor({
   onEndFirst,
   pendingEnds,
   onKeepRunning,
-  hideLegend
+  hideLegend,
+  knows = true
 }: {
   /** The story being changed (it can't start in itself); null for a new story. */
   storyId: ID | null
@@ -54,6 +55,8 @@ export function PlacementEditor({
   onKeepRunning?: (storyId: ID) => void
   /** For a page whose heading already asks "What is it?" (it stays for screen readers). */
   hideLegend?: boolean
+  /** Whether the live sentence sits below the choices (the New story dialog keeps it above them, in view). */
+  knows?: boolean
 }): React.JSX.Element {
   const id = useId()
   const stories = useApp((s) => s.stories)
@@ -116,10 +119,11 @@ export function PlacementEditor({
         </div>
       </fieldset>
 
-      {/* One row of choices whatever the answer, so nothing below jumps when it changes. */}
+      {/* One row of choices whatever the answer, so nothing below jumps when it changes. The last choice
+          takes the room the others leave, so a long one ("The beginning of the world") isn't cut short. */}
       <div className="grid min-h-[52px] grid-cols-3 gap-2">
         {value.kind === 'prequel' ? (
-          <Picker label="Book" id={`${id}-book`}>
+          <Picker label="Book" id={`${id}-book`} wide>
             <Select
               id={`${id}-book`}
               value={value.startStoryId}
@@ -130,7 +134,7 @@ export function PlacementEditor({
           </Picker>
         ) : (
           <>
-            <Picker label={value.kind === 'own' ? 'Starts from' : 'Story'} id={`${id}-story`}>
+            <Picker label={value.kind === 'own' ? 'Starts from' : 'Story'} id={`${id}-story`} wide={!value.startStoryId}>
               <Select
                 id={`${id}-story`}
                 value={value.startStoryId ?? (value.kind === 'side' ? null : WORLD)}
@@ -140,7 +144,7 @@ export function PlacementEditor({
               />
             </Picker>
             {value.startStoryId ? (
-              <Picker label="Starts" id={`${id}-start`}>
+              <Picker label="Starts" id={`${id}-start`} wide={value.kind !== 'side'}>
                 <Select
                   id={`${id}-start`}
                   value={start}
@@ -163,7 +167,9 @@ export function PlacementEditor({
         )}
       </div>
 
-      <Knows preview={preview} current={current} onEndFirst={onEndFirst} pendingEnds={pendingEnds} onKeepRunning={onKeepRunning} />
+      {knows ? (
+        <Knows preview={preview} current={current} onEndFirst={onEndFirst} pendingEnds={pendingEnds} onKeepRunning={onKeepRunning} />
+      ) : null}
     </div>
   )
 }
@@ -180,9 +186,9 @@ function startChoices(outline: Outline | null, kind: StoryKind, start: string): 
   return options
 }
 
-function Picker({ label, id, children }: { label: string; id: string; children: ReactNode }): React.JSX.Element {
+function Picker({ label, id, wide, children }: { label: string; id: string; wide?: boolean; children: ReactNode }): React.JSX.Element {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className={cn('flex min-w-0 flex-col gap-1', wide && 'col-span-2')}>
       <label htmlFor={id} className="text-[12px] font-medium text-muted">
         {label}
       </label>
@@ -195,25 +201,29 @@ function Picker({ label, id, children }: { label: string; id: string; children: 
  * The live sentence: what the story will know, or why it can't be saved. The last sentence stays
  * (a little faded) while the next one is worked out, and the box keeps its height. Below it, a button
  * to end first each side story still running here, and for the New story dialog, the ones it will end.
+ * `joined`: it is the lower half of a box (the New story dialog's line saying what the story is).
  */
 export function Knows({
   preview,
   current,
   onEndFirst,
   pendingEnds = [],
-  onKeepRunning
+  onKeepRunning,
+  joined
 }: {
   preview: StoryPreview | null
   current: boolean
   onEndFirst?: (r: StillRunning) => void
   pendingEnds?: PendingEnd[]
   onKeepRunning?: (storyId: ID) => void
+  joined?: boolean
 }): React.JSX.Element {
   const ends = preview && !preview.problem ? preview.stillRunning.filter((r) => r.endFirst) : []
   return (
     <div
       className={cn(
-        'min-h-[64px] rounded-lg border px-3 py-2.5 text-[13px] leading-relaxed transition-opacity duration-150',
+        'min-h-[64px] px-3 py-2.5 text-[13px] leading-relaxed transition-opacity duration-150',
+        joined ? 'border-t' : 'rounded-lg border',
         preview?.problem ? 'border-danger/30 bg-danger-soft' : 'border-line bg-surface-2',
         !current && preview && 'opacity-70'
       )}

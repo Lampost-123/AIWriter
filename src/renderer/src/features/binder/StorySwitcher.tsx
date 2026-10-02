@@ -58,49 +58,52 @@ export function StorySwitcher(): React.JSX.Element {
             <ChevronsUpDown size={13} className="shrink-0 text-faint" />
           </M.Trigger>
           <M.Portal>
+            {/* The stories scroll between the heading and the actions, so "New story…" is always in view. */}
             <M.Content
               align="start"
               sideOffset={4}
               collisionPadding={8}
-              className="z-50 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[340px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+              className="z-50 flex max-h-[min(480px,var(--radix-dropdown-menu-content-available-height))] w-[380px] max-w-[calc(100vw-16px)] flex-col rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
             >
-              <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+              <M.Label className="shrink-0 px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
                 Stories in this world
               </M.Label>
-              {shelf.map((s) => {
-                const title = s.title.trim() || 'Untitled story'
-                return (
-                  <div key={s.id} className="group/row flex items-stretch gap-0.5">
-                    <M.Item onSelect={() => open(s.id)} className={cn(item, 'h-auto min-h-8 min-w-0 flex-1 items-start py-1.5')}>
-                      <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                        {s.id === storyId ? <Check size={14} className="text-accent" /> : null}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate leading-5">{title}</span>
-                        {labels[s.id] ? <span className="block truncate text-[12px] leading-4 text-faint">{labels[s.id]}</span> : null}
-                      </span>
-                    </M.Item>
-                    <M.Item
-                      onSelect={() => openStorySettings(s.id)}
-                      aria-label={`Settings for ${title}`}
-                      title="Story settings"
-                      className="flex w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 outline-none transition-opacity duration-150 group-hover/row:opacity-100 data-[highlighted]:bg-surface-2 data-[highlighted]:text-fg data-[highlighted]:opacity-100"
-                    >
-                      <Settings2 size={14} />
-                    </M.Item>
-                  </div>
-                )
-              })}
-              <M.Separator className="my-1 h-px bg-line" />
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {shelf.map((s) => {
+                  const title = s.title.trim() || 'Untitled story'
+                  return (
+                    <div key={s.id} className="group/row flex items-stretch gap-0.5">
+                      <M.Item onSelect={() => open(s.id)} className={cn(item, 'h-auto min-h-8 min-w-0 flex-1 items-start py-1.5')}>
+                        <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+                          {s.id === storyId ? <Check size={14} className="text-accent" /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate leading-5">{title}</span>
+                          {labels[s.id] ? <span className="line-clamp-2 text-[12px] leading-4 text-faint">{labels[s.id]}</span> : null}
+                        </span>
+                      </M.Item>
+                      <M.Item
+                        onSelect={() => openStorySettings(s.id)}
+                        aria-label={`Settings for ${title}`}
+                        title="Story settings"
+                        className="flex w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 outline-none transition-opacity duration-150 group-hover/row:opacity-100 data-[highlighted]:bg-surface-2 data-[highlighted]:text-fg data-[highlighted]:opacity-100"
+                      >
+                        <Settings2 size={14} />
+                      </M.Item>
+                    </div>
+                  )
+                })}
+              </div>
+              <M.Separator className="my-1 h-px shrink-0 bg-line" />
               {story ? (
                 <>
-                  <M.Item onSelect={() => openStorySettings(story.id)} className={item}>
+                  <M.Item onSelect={() => openStorySettings(story.id)} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">
                       <Settings2 size={14} />
                     </span>
                     Story settings
                   </M.Item>
-                  <M.Item onSelect={() => setRenaming(true)} className={item}>
+                  <M.Item onSelect={() => setRenaming(true)} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">
                       <PenLine size={14} />
                     </span>
@@ -108,7 +111,7 @@ export function StorySwitcher(): React.JSX.Element {
                   </M.Item>
                 </>
               ) : null}
-              <M.Item onSelect={() => useApp.getState().setNewStoryOpen(true)} className={item}>
+              <M.Item onSelect={() => useApp.getState().setNewStoryOpen(true)} className={cn(item, 'shrink-0')}>
                 <span className="flex w-4 justify-center text-muted">
                   <Plus size={14} />
                 </span>

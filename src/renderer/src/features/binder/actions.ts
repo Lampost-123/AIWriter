@@ -7,7 +7,8 @@ import type { ID, SceneStatus } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
-import { announceDelete } from '@/lib/undoDelete'
+import type { Noun } from '@/lib/deleteWords'
+import { announceDelete, type Deletion } from '@/lib/undoDelete'
 import { useApp } from '@/lib/store'
 import { neighbourAfterRemoval, readingOrder } from './outlineModel'
 import { useOutlineStore } from './outlineStore'
@@ -139,8 +140,17 @@ export async function newStory(): Promise<ID | null> {
  */
 const notesFor = (ask: () => Promise<string[]>): Promise<string[]> => ask().catch(() => [])
 
-/** "“Ashore” deleted." with where another story now starts or ends: "Kell's Road now starts after Book 1, Ch 1 instead." */
-const deletedWith = (message: string, notes: string[]): string => [message, ...notes].join(' ')
+/**
+ * A delete for the Undo toast: "“Ashore” deleted." with where another story now starts or ends ("Kell's
+ * Road now starts after Book 1, Ch 1 instead."). The notes also travel on their own, for a toast that
+ * gathers several deletes to keep (see the report's "Needs from integration" for lib/undoDelete.ts).
+ */
+const deletion = (message: string, notes: string[], noun: Noun, undo: () => Promise<void>): Deletion & { notes: string[] } => ({
+  message: [message, ...notes].join(' '),
+  notes,
+  noun,
+  undo
+})
 
 /** Tells Adam what a move changed for other stories, with Undo (moving it back). */
 function tellMoved(notes: string[], undo: () => Promise<void>): void {
@@ -190,10 +200,8 @@ export async function deleteScene(id: ID): Promise<void> {
   const wasOpen = moveSelectionAway([id])
   removeFromOutline([id])
   app().bumpOutline()
-  announceDelete({
-    message: deletedWith(`“${scene?.title || 'Untitled scene'}” deleted.`, notes),
-    noun: ['scene', 'scenes'],
-    undo: () =>
+  announceDelete(
+    deletion(`“${scene?.title || 'Untitled scene'}” deleted.`, notes, ['scene', 'scenes'], () =>
       api
         .restoreDeleted('scene', id)
         .then(() => {
@@ -201,7 +209,8 @@ export async function deleteScene(id: ID): Promise<void> {
           if (wasOpen && storyId && app().storyId === storyId) app().selectScene(id, storyId)
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-  })
+    )
+  )
 }
 
 export async function deleteChapter(id: ID): Promise<void> {
@@ -223,10 +232,8 @@ export async function deleteChapter(id: ID): Promise<void> {
   app().bumpOutline()
   const count = sceneIds.length
   const what = count === 0 ? '' : count === 1 ? ' and its scene' : ` and its ${count} scenes`
-  announceDelete({
-    message: deletedWith(`“${chapter?.title || 'Untitled chapter'}”${what} deleted.`, notes),
-    noun: ['chapter', 'chapters'],
-    undo: () =>
+  announceDelete(
+    deletion(`“${chapter?.title || 'Untitled chapter'}”${what} deleted.`, notes, ['chapter', 'chapters'], () =>
       api
         .restoreDeleted('chapter', id)
         .then(() => {
@@ -234,7 +241,8 @@ export async function deleteChapter(id: ID): Promise<void> {
           if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-  })
+    )
+  )
 }
 
 export async function moveScene(id: ID, chapterId: ID, index: number): Promise<void> {

@@ -4,6 +4,7 @@ import { dbWorld, KNOWS, pureWorld, theWorld, type WorldSpec } from '../../../te
 import type { WorldShape } from '../memory/types'
 import {
   describe as describeStory,
+  followers,
   leadsInto,
   mightFollow,
   placementOf,
@@ -340,6 +341,21 @@ describe('what story settings shows', () => {
       ]
     }
     expect(mightFollow(shape, 'b5')).toEqual([])
+  })
+
+  it('offers "When did these happen?" only for books written before the story that now continue after it', () => {
+    const w = pureWorld()
+    // Book 2 was written first and now continues after The Quiet Year.
+    expect(followers(w.shape, 'qy')).toEqual([{ storyId: 'b2', title: 'Book 2' }])
+    // Books written after the story they continue after simply continue.
+    expect(followers(w.shape, 'b2')).toEqual([])
+    expect(followers(w.shape, 'n1')).toEqual([])
+    expect(followers(w.shape, 'ym')).toEqual([])
+    const before = pureWorld({
+      ...theWorld,
+      stories: theWorld.stories.map((s) => (s.key === 'b2' ? { ...s, start: { story: 'b1', at: 'end' } } : s))
+    })
+    expect(followers(before.shape, 'qy')).toEqual([])
   })
 
   it('names the stories that start in a story, and where they would start without it', () => {

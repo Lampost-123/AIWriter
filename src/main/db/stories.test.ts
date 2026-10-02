@@ -247,6 +247,19 @@ describe('story settings', () => {
         .map((a) => a.kind)
     ).toEqual(['follow-declined'])
     expect(storyDetails(w.db, w.id('ember')).preview.knows).toBe(KNOWS.ember)
+    // His Undo of that No asks again.
+    declineFollow(w.db, made.story.id, false)
+    expect(storyDetails(w.db, made.story.id).mightFollow).toEqual([{ storyId: w.id('qy'), title: 'The Quiet Year' }])
+    expect(mem.listAnswers(w.db).filter((a) => a.key === made.story.id)).toEqual([])
+  })
+
+  it('offers "When did these happen?" for a book written earlier that now continues after the story', () => {
+    const w = dbWorld()
+    expect(storyDetails(w.db, w.id('qy')).followers).toEqual([{ storyId: w.id('b2'), title: 'Book 2' }])
+    expect(storyDetails(w.db, w.id('b1')).followers).toEqual([])
+    const made = createStoryAs(w.db, { title: 'Interlude', seriesId: w.id('reach'), placement: after(w.id('b1')) })
+    mem.setStoryPlacement(w.db, w.id('qy'), after(made.story.id))
+    expect(storyDetails(w.db, made.story.id).followers).toEqual([{ storyId: w.id('qy'), title: 'The Quiet Year' }])
   })
 
   it('counts an entry the prequel was given a first-exists point for, and leaves deleted entries out', () => {

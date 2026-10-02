@@ -516,6 +516,22 @@ export function mightFollow(shape: WorldShape, storyId: ID): StoryRef[] {
     .map(ref)
 }
 
+/**
+ * Books written before a story that now continue after it, as after Adam's yes to "Should Book 2 now
+ * continue after it?": the changes at their start may have happened before, during or after it, which
+ * "When did these happen?" sorts out. A book written after it simply continues, so it isn't one.
+ */
+export function followers(shape: WorldShape, storyId: ID): StoryRef[] {
+  const me = shape.stories.find((s) => s.id === storyId)
+  if (!me) return []
+  return shape.stories
+    .filter(
+      (s) => s.id !== me.id && s.kind === 'continues' && s.startAt === 'end' && s.startStoryId === me.id && s.createdOrder < me.createdOrder
+    )
+    .sort(byShelf)
+    .map(ref)
+}
+
 /** Stories that start in this one, and where each would start if it were deleted (they take over its start point). */
 export function startingHere(shape: WorldShape, storyId: ID): StoryDetails['startingHere'] {
   const byId = new Map(shape.stories.map((s) => [s.id, s]))

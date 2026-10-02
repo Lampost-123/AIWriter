@@ -4,7 +4,7 @@
 // Nothing in the world changes until Create, including ending a still-running side story first.
 // Opened with useApp().setNewStoryOpen(true) (the story menu, the command palette).
 import { ChevronDown, Plus, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { StoryPlacement } from '@shared/api'
 import type { StillRunning, StorySuggestion } from '@shared/contracts/stories'
 import type { ID } from '@shared/types'
@@ -13,7 +13,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { usePreview } from './hooks'
-import { PlacementEditor, Warnings, type PendingEnd } from './PlacementEditor'
+import { Knows, PlacementEditor, Warnings, type PendingEnd } from './PlacementEditor'
 import { useSeriesList } from './series'
 import { createStory } from './storyActions'
 import { gapLabel, noGapReason, samePlacement } from './storiesLogic'
@@ -25,12 +25,23 @@ export function NewStoryDialog(): React.JSX.Element | null {
   return open && worldId ? <NewStoryForm key={worldId} /> : null
 }
 
-/** Brings an element into view inside the form's own scroll area, below the pinned line, scrolling nothing else. */
-function reveal(area: HTMLElement | null, el: HTMLElement | null, pinned: number): void {
+/**
+ * Brings an element into view inside the form's own scroll area, scrolling nothing else. Once the form
+ * has scrolled up to the pinned line, that line covers the top of the form, so what comes after it is
+ * kept below it.
+ */
+function reveal(area: HTMLElement | null, pinned: HTMLElement | null, el: Element | null): void {
   if (!area || !el) return
   const a = area.getBoundingClientRect()
   const r = el.getBoundingClientRect()
-  const down = Math.min(r.bottom - a.bottom + 8, r.top - a.top - pinned - 8)
+  const p = pinned && pinned.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING ? pinned.getBoundingClientRect() : null
+  const top = (p ? Math.max(a.top, p.bottom) : a.top) + 8
+  if (r.top < top) {
+    area.scrollTop -= top - r.top
+    return
+  }
+  // Scrolling down brings the pinned line over the top of the form, so the element's top stays clear of it.
+  const down = Math.min(r.bottom - a.bottom + 8, r.top - a.top - (p?.height ?? 0) - 8)
   if (down > 0) area.scrollTop += down
 }
 
@@ -160,12 +171,39 @@ function NewStoryForm(): React.JSX.Element {
   const gapFor = placement ? gapLabel(placement, stories) : null
   const blocked = !!(current && preview?.problem)
 
-  // A warning that appears below the choices is brought into view, so it is seen before Create.
+  // Opening Change brings the line saying what the story is to the top of the form, with what it will
+  // know pinned under it, so the four answers and where it starts are in view below them together.
+  useLayoutEffect(() => {
+    const area = formRef.current
+    const pinned = pinnedRef.current
+    if (!changing || !area || !pinned) return
+    const down = pinned.getBoundingClientRect().top - area.getBoundingClientRect().top
+    if (down > 0) area.scrollTop += down
+  }, [changing])
+
+  // What the keyboard moves to is brought into view clear of the pinned line, not left under it (a
+  // hidden radio button shows its focus on its card). The pinned line itself, and the lists the choices
+  // open outside the form, are left as they are.
+  const keepFocusInView = (el: Element): void => {
+    const area = formRef.current
+    if (area?.contains(el) && !pinnedRef.current?.contains(el)) reveal(area, pinnedRef.current, el.closest('label') ?? el)
+  }
+
+  // A warning or a problem that appears below the choices is brought into view, so it is seen before Create.
   const warningsRef = useRef<HTMLDivElement>(null)
+  const problemRef = useRef<HTMLDivElement>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
   const warningKinds = current && preview && !preview.problem ? preview.warnings.map((w) => w.kind).join() : ''
+  const problem = blocked && !changing ? (preview?.problem ?? null) : null
   useEffect(() => {
-    if (warningKinds) reveal(formRef.current, warningsRef.current, pinnedRef.current?.offsetHeight ?? 0)
+    if (warningKinds) reveal(formRef.current, pinnedRef.current, warningsRef.current)
   }, [warningKinds])
+  useEffect(() => {
+    if (problem) reveal(formRef.current, pinnedRef.current, problemRef.current)
+  }, [problem])
+  useEffect(() => {
+    if (createError) reveal(formRef.current, pinnedRef.current, errorRef.current)
+  }, [createError])
 
   const submit = async (): Promise<void> => {
     if (busy || !placement) return
@@ -214,8 +252,9 @@ function NewStoryForm(): React.JSX.Element {
       }
     >
       {/* The form scrolls inside the dialog (whose title, padding and buttons take about 122px of its 76vh),
-          with the line saying what the story is pinned at its top, so that line and Create stay in view
-          however much Change shows. It is positioned so the hidden radio buttons scroll with it. */}
+          with the line saying what the story is (and, while Change is open, what it will know) pinned at
+          its top, so they and Create stay in view however much Change shows. It is positioned so the
+          hidden radio buttons scroll with it. */}
       <form
         ref={formRef}
         id={`${id}-form`}
@@ -223,6 +262,7 @@ function NewStoryForm(): React.JSX.Element {
           e.preventDefault()
           void submit()
         }}
+        onFocus={(e) => keepFocusInView(e.target)}
         className="relative -mx-5 -my-1 flex max-h-[calc(76vh-124px)] flex-col gap-3.5 overflow-y-auto px-5 py-1"
       >
         <div className="flex flex-col gap-1">
@@ -288,22 +328,33 @@ function NewStoryForm(): React.JSX.Element {
           ) : null}
         </div>
 
-        <div ref={pinnedRef} className="sticky -top-1 z-10 -mx-5 -mt-1 bg-surface px-5 pt-1">
-          <div className="flex min-h-[44px] items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-1.5">
-            <p className="min-w-0 flex-1 text-[13.5px] font-medium text-fg" aria-live="polite">
-              {preview?.summary ?? ''}
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-expanded={changing}
-              aria-controls={`${id}-change`}
-              onClick={() => setChanging((c) => !c)}
-              icon={<ChevronDown size={14} className={cn('transition-transform duration-150', changing && 'rotate-180')} />}
-            >
-              {changing ? 'Done' : 'Change'}
-            </Button>
+        {/* While Change is open, what the story will know sits under that line, so it stays in view as
+            the answers and where the story starts are chosen below. A narrow band under it keeps what
+            scrolls beneath it clear of its edge without taking any room. */}
+        <div
+          ref={pinnedRef}
+          className="sticky -top-1 z-10 -mx-5 -mt-1 bg-surface px-5 pt-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-surface"
+        >
+          <div className="overflow-hidden rounded-lg border border-line bg-surface-2">
+            <div className="flex min-h-[42px] items-center gap-3 px-3 py-1.5">
+              <p className="min-w-0 flex-1 text-[13.5px] font-medium text-fg" aria-live="polite">
+                {preview?.summary ?? ''}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-expanded={changing}
+                aria-controls={`${id}-change`}
+                onClick={() => setChanging((c) => !c)}
+                icon={<ChevronDown size={14} className={cn('transition-transform duration-150', changing && 'rotate-180')} />}
+              >
+                {changing ? 'Done' : 'Change'}
+              </Button>
+            </div>
+            {changing && placement ? (
+              <Knows joined preview={preview} current={current} onEndFirst={endBefore} pendingEnds={pending} onKeepRunning={keepRunning} />
+            ) : null}
           </div>
         </div>
 
@@ -316,20 +367,26 @@ function NewStoryForm(): React.JSX.Element {
               onChange={setPlacement}
               preview={preview}
               current={current}
-              onEndFirst={endBefore}
-              pendingEnds={pending}
-              onKeepRunning={keepRunning}
+              knows={false}
             />
           </div>
         ) : null}
 
-        {blocked && !changing ? <Notice tone="danger">{preview?.problem}</Notice> : null}
+        {problem ? (
+          <div ref={problemRef}>
+            <Notice tone="danger">{problem}</Notice>
+          </div>
+        ) : null}
         {current && preview && !preview.problem && preview.warnings.length ? (
           <div ref={warningsRef}>
             <Warnings warnings={preview.warnings} onPick={setPlacement} />
           </div>
         ) : null}
-        {createError ? <Notice tone="danger">Couldn’t make this story. {createError}</Notice> : null}
+        {createError ? (
+          <div ref={errorRef}>
+            <Notice tone="danger">Couldn’t make this story. {createError}</Notice>
+          </div>
+        ) : null}
 
         {/* The time gap, or a line saying why there is none, then the line about new worlds. */}
         <div className="flex flex-col gap-3">

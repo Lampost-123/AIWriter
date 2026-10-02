@@ -45,7 +45,7 @@ export const storiesHandlers: Handlers<keyof StoriesApi> = {
     }
     return { order: readingOrder(s), labels }
   },
-  declineFollow: (storyId) => write(() => stories.declineFollow(world.db(), storyId)),
+  declineFollow: (storyId, declined) => write(() => stories.declineFollow(world.db(), storyId, declined !== false)),
   createSeries: (name) => write(() => stories.createSeries(world.db(), name)),
   updateSeries: (id, patch) => write(() => stories.updateSeries(world.db(), id, patch ?? {})),
   setLeadsIn: (storyId, on) => {

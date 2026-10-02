@@ -109,8 +109,9 @@ test('a side story during Book 1 from Ch 1 shows what it will know while it is c
   await expect(dialog.getByText('This story knows what happened in: the start of Book 1.')).toBeVisible()
 
   await choose(win, dialog, 'Starts', 'After Ch 1')
-  await expect(dialog.getByText('This story knows what happened in: Book 1 up to the end of Ch 1.')).toBeVisible()
-  await expect(dialog.getByText('Side story during Book 1, after Ch 1', { exact: true })).toBeVisible()
+  // The sentence sits under the line saying what the story is, in view as he chooses.
+  await expect(dialog.getByText('This story knows what happened in: Book 1 up to the end of Ch 1.')).toBeInViewport({ ratio: 1 })
+  await expect(dialog.getByText('Side story during Book 1, after Ch 1', { exact: true })).toBeInViewport({ ratio: 1 })
   await expect(dialog.getByRole('combobox', { name: 'Ends' })).toHaveText('At its end')
   // Nothing to come after, so no time gap to fill in.
   await expect(dialog.getByRole('textbox', { name: /Time since/ })).toBeHidden()
@@ -181,11 +182,17 @@ test('a story set between Book 1 and Book 2 asks "Should Book 2 now continue aft
     .getByRole('status')
     .filter({ hasText: /Working out when the changes at the start of Book 2 happened|isn’t ready yet/ })
 
-  // Story settings ask too. Saying No there is kept with the world: the question doesn't come back.
+  // Story settings ask too. No says Book 2 stays where it is, with Undo, which asks again.
   await openSettings(win, 'The Quiet Year', 'The Quiet Year')
   const question = win.getByText('Should Book 2 now continue after The Quiet Year?')
   await expect(question).toBeVisible()
   await expect(sorting).toHaveCount(0)
+  await win.getByRole('button', { name: 'No', exact: true }).click()
+  await expect(question).toBeHidden()
+  await toastWith(win, 'Book 2 stays where it is.').getByRole('button', { name: 'Undo' }).click()
+  await expect(question).toBeVisible()
+  await expect.poll(async () => (await invoke(win, 'getStoryDetails', qy.id)).mightFollow.map((s) => s.title)).toEqual(['Book 2'])
+  // A No left in place is kept with the world: the question doesn't come back.
   await win.getByRole('button', { name: 'No', exact: true }).click()
   await expect(question).toBeHidden()
   await openSettings(win, 'The Quiet Year', 'Book 1')
@@ -194,14 +201,84 @@ test('a story set between Book 1 and Book 2 asks "Should Book 2 now continue aft
   await expect(question).toBeHidden()
   expect((await invoke(win, 'getStoryDetails', qy.id)).mightFollow).toEqual([])
 
-  // A Yes left in place: once its Undo has gone, the AI works out when those changes happened.
+  // A Yes left in place: once its Undo has gone, the AI works out when those changes happened. Until
+  // then, story settings doesn't offer to do it either.
   const { story: dawn } = await invoke(win, 'createStoryAs', { title: 'Dawn', seriesId: b1.seriesId, placement: after(b1.id) })
   await openSettings(win, 'The Quiet Year', 'Dawn')
   await win.getByRole('button', { name: 'Yes', exact: true }).click()
   await expect(win.getByText('Book 2 now continues after Dawn.')).toBeVisible()
   await expect.poll(async () => (await storyNamed(win, 'Book 2'))?.startStoryId).toBe(dawn.id)
+  const sortAgain = win.getByRole('button', { name: 'When did these happen?' })
   await expect(sorting).toHaveCount(0)
+  await expect(sortAgain).toHaveCount(0)
   await toastWith(win, 'Book 2 now continues after Dawn.').getByRole('button', { name: 'Dismiss' }).click()
+  await expect(sorting).toBeVisible()
+  await expect(sortAgain).toBeVisible()
+})
+
+test('the flows\' quiet line can be stopped, and a world switch never leaves it running or starts a sort there', async ({ launch }) => {
+  const { app, win } = await launch()
+  const b1 = await world(win)
+  await invoke(win, 'createStoryAs', { title: 'Book 2', seriesId: b1.seriesId, placement: after(b1.id) })
+  const { story: dawn } = await invoke(win, 'createStoryAs', { title: 'Dawn', seriesId: b1.seriesId, placement: after(b1.id) })
+  const flow = (state: 'running' | 'done', message: string | null): Promise<void> =>
+    app.evaluate(({ BrowserWindow }, status) => BrowserWindow.getAllWindows()[0].webContents.send('event:story:flow', status), {
+      storyId: dawn.id,
+      flow: 'when' as const,
+      state,
+      message
+    })
+  const sorting = win.getByRole('status').filter({ hasText: /Working out when|isn’t ready yet|Stopped/ })
+  const sortAgain = win.getByRole('button', { name: 'When did these happen?' })
+
+  await openSettings(win, 'Book 1', 'Dawn')
+  await win.getByRole('button', { name: 'Yes', exact: true }).click()
+  await expect.poll(async () => (await storyNamed(win, 'Book 2'))?.startStoryId).toBe(dawn.id)
+  await toastWith(win, 'Book 2 now continues after Dawn.').getByRole('button', { name: 'Dismiss' }).click()
+  await expect(sortAgain).toBeVisible()
+
+  // While a flow runs, its line offers Stop; stopped, it says so without a tick or Try again.
+  await flow('running', 'Working out when the changes at the start of Book 2 happened…')
+  await expect(sorting).toContainText('Working out when the changes at the start of Book 2 happened…')
+  await expect(sorting.getByRole('button', { name: 'Stop' })).toBeVisible()
+  await expect(sortAgain).toBeDisabled()
+  await flow('done', 'Stopped. Nothing was changed.')
+  await expect(sorting).toHaveText('Stopped. Nothing was changed.')
+  await expect(sortAgain).toBeEnabled()
+
+  // A run going when the world closes is stopped without a word, so the line forgets it.
+  await flow('running', 'Working out when the changes at the start of Book 2 happened…')
+  await expect(sorting.getByRole('button', { name: 'Stop' })).toBeVisible()
+  const topBar = win.locator('header').first()
+  const switchTo = async (name: string): Promise<void> => {
+    await topBar.getByRole('button', { name: /Varn|Beta/ }).click()
+    await win.getByRole('menuitem', { name }).click()
+    await expect(topBar.getByRole('button', { name: new RegExp(name) })).toBeVisible()
+  }
+  await topBar.getByRole('button', { name: /Varn/ }).click()
+  await win.getByRole('menuitem', { name: 'New world…' }).click()
+  await win.getByRole('dialog').getByLabel('World name').fill('Beta')
+  await win.getByRole('dialog').getByRole('button', { name: 'Create world' }).click()
+  await expect(topBar.getByRole('button', { name: /Beta/ })).toBeVisible()
+  await switchTo('Varn')
+  await openSettings(win, 'Book 1', 'Dawn')
+  await expect(sortAgain).toBeEnabled()
+  await expect(sorting).toHaveCount(0)
+
+  // A Yes whose Undo is cut short by a world switch isn't sorted in the world being closed; story
+  // settings offers it instead.
+  const { story: dusk } = await invoke(win, 'createStoryAs', { title: 'Dusk', seriesId: b1.seriesId, placement: after(dawn.id) })
+  await openSettings(win, 'Book 1', 'Dusk')
+  await win.getByRole('button', { name: 'Yes', exact: true }).click()
+  await expect(win.getByText('Book 2 now continues after Dusk.')).toBeVisible()
+  await switchTo('Beta')
+  await expect(win.getByText('Book 2 now continues after Dusk.')).toHaveCount(0)
+  await switchTo('Varn')
+  expect((await storyNamed(win, 'Book 2'))?.startStoryId).toBe(dusk.id)
+  await openSettings(win, 'Book 1', 'Dusk')
+  await expect(sortAgain).toBeVisible()
+  await expect(sorting).toHaveCount(0)
+  await sortAgain.click()
   await expect(sorting).toBeVisible()
 })
 
@@ -220,10 +297,13 @@ test('a prequel asks for its starting cast', async ({ launch }) => {
   await dialog.getByRole('button', { name: 'Create' }).click()
 
   await expect(win.getByText(/Young Mara is a prequel/)).toBeVisible()
-  await win.getByRole('button', { name: 'Choose cast' }).click()
-  await expect(win.getByRole('heading', { level: 1, name: 'Young Mara' })).toBeVisible()
+  // With its settings already open, Choose cast goes straight to the cast.
+  await openSettings(win, 'Young Mara', 'Young Mara')
   const cast = win.getByRole('combobox', { name: 'Add to the starting cast' })
+  await expect(cast).not.toBeFocused()
+  await win.getByRole('button', { name: 'Choose cast' }).click()
   await expect(cast).toBeFocused()
+  await expect(cast).toBeInViewport({ ratio: 1 })
   // Typing elsewhere on the page stays there while it saves, and the window itself never scrolls.
   const premise = win.getByRole('textbox', { name: 'Premise' })
   await premise.click()
@@ -300,10 +380,35 @@ test('deleting a story names the stories that start in it, and Undo brings it ba
   await expect(main.getByRole('combobox', { name: 'Starts' })).toHaveText('After its end')
   await expect(main.getByText('This story knows what happened in: Book 1.')).toBeVisible()
   await expect(main.getByText(/no longer exists/)).toHaveCount(0)
+  // It starts at Book 1's end, so that is the only end it can have.
+  await main.getByRole('combobox', { name: 'Ends' }).click()
+  await expect(win.getByRole('option')).toHaveText(['At its end'])
+  await win.keyboard.press('Escape')
 
   await toastWith(win, '“Book 2” deleted.').getByRole('button', { name: 'Undo' }).click()
   await expect.poll(async () => (await invoke(win, 'listStories')).map((s) => s.title)).toEqual(['Book 1', 'Book 2', 'Ash'])
   await expect(main.getByRole('combobox', { name: 'Story', exact: true })).toHaveText('Book 2')
+
+  // Deleting the story he is in, from its own settings, opens the next one without first saying the
+  // story isn't there.
+  await switcher(win, 'Book 1').click()
+  await win.getByRole('menuitem', { name: 'Book 2', exact: true }).click()
+  await openSettings(win, 'Book 2', 'Book 2')
+  await win.locator('body').evaluate((body) => {
+    const page = globalThis as unknown as {
+      goneShown: boolean
+      MutationObserver: new (seen: () => void) => { observe(target: unknown, options: Record<string, boolean>): void }
+    }
+    page.goneShown = false
+    new page.MutationObserver(() => {
+      if (body.textContent?.includes('This story isn’t here any more')) page.goneShown = true
+    }).observe(body, { childList: true, subtree: true, characterData: true })
+  })
+  await win.getByRole('button', { name: 'Delete story' }).click()
+  await expect(win.getByText('“Book 2” deleted.')).toBeVisible()
+  await expect(switcher(win, 'Book 1')).toBeVisible()
+  await expect(crumbs(win)).toContainText('Scene 1')
+  expect(await win.evaluate(() => (globalThis as unknown as { goneShown: boolean }).goneShown)).toBe(false)
 })
 
 test('deleting the scene a story starts after moves its start back and says so in the same toast, with Undo', async ({ launch }) => {
@@ -401,7 +506,8 @@ test('the time before a story is saved as it is typed, even when the window clos
   await gap.fill('200 years')
   await gap.press('Tab')
   // Leaving the box asks the AI to fill in what changed, and says so quietly.
-  await expect(first.win.getByRole('status').filter({ hasText: /Working out what changed in the 200 years|isn’t ready yet/ })).toBeVisible()
+  const filling = first.win.getByRole('status').filter({ hasText: /Working out what changed in the 200 years|isn’t ready yet/ })
+  await expect(filling).toBeVisible()
   await expect.poll(async () => (await storyNamed(first.win, 'Book 2'))?.timeGap).toBe('200 years')
 
   await gap.click()
@@ -414,9 +520,12 @@ test('the time before a story is saved as it is typed, even when the window clos
   expect((await storyNamed(second.win, 'Book 2'))?.timeGap).toBe('200 years later')
 })
 
-test('in a small window the New story dialog scrolls inside, keeping what the story is and Create in view', async ({ launch }) => {
+test('in a small window the New story dialog scrolls inside, keeping what the story is, what it will know and Create in view', async ({
+  launch
+}) => {
   const { app, win } = await launch()
-  await world(win)
+  const b1 = await world(win)
+  await invoke(win, 'createStoryAs', { title: 'Ash', seriesId: b1.seriesId, placement: side(b1.id) })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 600))
   await expect.poll(() => win.locator('html').evaluate((html) => html.clientHeight)).toBe(600)
 
@@ -428,15 +537,64 @@ test('in a small window the New story dialog scrolls inside, keeping what the st
   await dialog.getByRole('button', { name: 'Change' }).click()
   await dialog.getByText('Side story during', { exact: true }).click()
   await choose(win, dialog, 'Starts', 'After Ch 1')
-  const summary = dialog.getByText('Side story during Book 1, after Ch 1', { exact: true })
-  await expect(summary).toBeInViewport({ ratio: 1 })
-  await expect(create).toBeInViewport({ ratio: 1 })
+  const pinned = [
+    dialog.getByText('Side story during Book 1, after Ch 1', { exact: true }),
+    dialog.getByText('This story knows what happened in: Book 1 up to the end of Ch 1. Does not know: Ash, which is still running here.'),
+    dialog.getByRole('button', { name: 'End Ash after Ch 1' }),
+    create
+  ]
+  for (const el of pinned) await expect(el).toBeInViewport({ ratio: 1 })
   // The dialog itself, with its title and buttons, never scrolls.
   expect(await dialog.evaluate((d) => d.scrollHeight - d.clientHeight)).toBe(0)
 
+  // Moving back up with the keyboard shows the chosen answer below what stays in view, not under it.
+  await dialog.getByRole('combobox', { name: 'Story', exact: true }).focus()
+  await win.keyboard.press('Shift+Tab')
+  const radio = dialog.getByRole('radio', { name: 'Side story during' })
+  await expect(radio).toBeFocused()
+  const card = dialog.locator('label').filter({ has: win.getByRole('radio', { name: 'Side story during' }) })
+  await expect(card).toBeInViewport({ ratio: 1 })
+  const uncovered = await card.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + 3)
+    return !!top && el.contains(top)
+  })
+  expect(uncovered).toBe(true)
+
   await dialog.locator('form').evaluate((f) => (f.scrollTop = f.scrollHeight))
   await expect(dialog.getByText(/belongs in a new world/)).toBeInViewport()
-  await expect(summary).toBeInViewport({ ratio: 1 })
-  await expect(create).toBeInViewport({ ratio: 1 })
+  for (const el of pinned) await expect(el).toBeInViewport({ ratio: 1 })
   await expect(dialog.getByRole('heading', { name: 'New story' })).toBeInViewport({ ratio: 1 })
+
+  // An own version of events from the beginning has one choice, wide enough to read.
+  await dialog.getByText('Own version of events', { exact: true }).click()
+  const startsFrom = dialog.getByRole('combobox', { name: 'Starts from' })
+  await expect(startsFrom).toHaveText('The beginning of the world')
+  expect(await startsFrom.locator('span').first().evaluate((s) => s.scrollWidth - s.clientWidth)).toBe(0)
+})
+
+test('with many stories the story menu scrolls between its heading and New story…, and each grey line shows in full', async ({
+  launch
+}) => {
+  const { win } = await launch()
+  const b1 = await world(win)
+  const { scenes } = await invoke(win, 'getOutline', b1.id)
+  const whatIf: StoryPlacement = { ...after(b1.id), kind: 'own', startAt: 'scene', startRefId: scenes[0].id }
+  for (let i = 1; i <= 9; i++) await invoke(win, 'createStoryAs', { title: `What if ${i}`, seriesId: b1.seriesId, placement: whatIf })
+  await switcher(win, 'Book 1').click()
+  const menu = win.getByRole('menu')
+  const newStory = menu.getByRole('menuitem', { name: 'New story…' })
+  await expect(menu.getByRole('menuitem', { name: /^What if 1/ })).toBeVisible()
+  await expect(newStory).toBeInViewport({ ratio: 1 })
+  // The last story is further down the list; scrolling to it keeps New story… where it was.
+  const last = menu.getByRole('menuitem', { name: /^What if 9/ })
+  await expect(last).not.toBeInViewport()
+  await last.scrollIntoViewIfNeeded()
+  await expect(last).toBeInViewport({ ratio: 0.95 })
+  await expect(newStory).toBeInViewport({ ratio: 1 })
+  await expect(menu.getByText('Own version of events, after Book 1, Ch 1, Sc 1', { exact: true })).toHaveCount(9)
+  const cut = await menu.locator('.line-clamp-2').evaluateAll((lines) => lines.filter((l) => l.scrollHeight > l.clientHeight + 1).length)
+  expect(cut).toBe(0)
+  await newStory.click()
+  await expect(win.getByRole('dialog', { name: 'New story' })).toBeVisible()
 })

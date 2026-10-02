@@ -7,6 +7,7 @@ import {
   endValue,
   firstBookOf,
   flowLine,
+  flowStopped,
   gapLabel,
   inShelfOrder,
   KINDS,
@@ -107,6 +108,12 @@ describe('start and end choices', () => {
     expect(endOptions(outline, 'post').map((o) => o.label)).toEqual(['At its end', 'At the end of Ch 1', 'At the end of Ch 2: The ferry'])
     expect(endOptions(outline, 'chapter:c2').map((o) => o.label)).toEqual(['At its end', 'At the end of Ch 2: The ferry'])
     expect(endOptions(outline, 'scene:c1s2').map((o) => o.value)).toEqual(['end', 'chapter:c1', 'chapter:c2'])
+  })
+
+  it('lets a side story that starts at its book’s end (after a deleted story’s start) end only there', () => {
+    expect(endOptions(outline, 'end').map((o) => o.label)).toEqual(['At its end'])
+    const side: StoryPlacement = { ...continuesAfter('b1'), kind: 'side', startAt: 'end', endAt: 'chapter', endRefId: 'c1' }
+    expect(endValue(side, outline)).toBe('end')
   })
 
   it('reads and writes points as one choice', () => {
@@ -221,9 +228,14 @@ describe('the style the AI gets for a story', () => {
 
 describe('the story flows’ quiet line', () => {
   it('says what is happening, then how it went', () => {
-    expect(flowLine({ flow: 'time-gap', state: 'running', message: null }, '200 years')).toBe('Working out what changed in the 200 years…')
-    expect(flowLine({ flow: 'time-gap', state: 'running', message: null })).toBe('Working out what changed before this story starts…')
-    expect(flowLine({ flow: 'time-gap', state: 'running', message: null }, 'a decade')).toBe('Working out what changed over a decade…')
+    const gap = (about?: string): string => flowLine({ flow: 'time-gap', state: 'running', message: null }, about)
+    expect(gap('200 years')).toBe('Working out what changed in the 200 years…')
+    expect(gap()).toBe('Working out what changed before this story starts…')
+    expect(gap('a decade')).toBe('Working out what changed over a decade…')
+    // Once the flow says what it is doing, its own words are used.
+    expect(flowLine({ flow: 'time-gap', state: 'running', message: 'Working out what changed over the winter…' }, '1 winter')).toBe(
+      'Working out what changed over the winter…'
+    )
     expect(flowLine({ flow: 'starting-cast', state: 'running', message: null })).toBe('Drafting how each of them starts…')
     expect(flowLine({ flow: 'when', state: 'running', message: null }, 'Book 2')).toBe(
       'Working out when the changes at the start of Book 2 happened…'
@@ -233,6 +245,25 @@ describe('the story flows’ quiet line', () => {
     )
     expect(flowLine({ flow: 'when', state: 'failed', message: 'This isn’t ready yet.' })).toBe('This isn’t ready yet.')
     expect(flowLine({ flow: 'when', state: 'failed', message: null })).toMatch(/Try again/)
+  })
+
+  it('reads a time gap the way Adam typed it, and leaves out what isn’t plainly a length of time', () => {
+    const running = (gap: string): string => flowLine({ flow: 'time-gap', state: 'running', message: null }, gap)
+    expect(running('200 years later')).toBe('Working out what changed in the 200 years…')
+    expect(running('Three months')).toBe('Working out what changed in the three months…')
+    expect(running('1 year')).toBe('Working out what changed over the year…')
+    expect(running('One winter.')).toBe('Working out what changed over the winter…')
+    expect(running('A hundred years')).toBe('Working out what changed over a hundred years…')
+    expect(running('over a century')).toBe('Working out what changed over a century…')
+    expect(running('the long winter')).toBe('Working out what changed before this story starts…')
+    expect(running('after the war')).toBe('Working out what changed before this story starts…')
+  })
+
+  it('knows a flow Adam stopped, which gets no tick', () => {
+    expect(flowStopped({ state: 'done', message: 'Stopped. Nothing was changed.' })).toBe(true)
+    expect(flowStopped({ state: 'done', message: 'Stopped. Nothing more was changed.' })).toBe(true)
+    expect(flowStopped({ state: 'done', message: 'Added 4 changes, listed under What changed' })).toBe(false)
+    expect(flowStopped({ state: 'running', message: null })).toBe(false)
   })
 })
 
