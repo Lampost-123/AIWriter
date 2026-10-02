@@ -188,7 +188,8 @@ const wordsOf = (s: string): string => plain(s)
 class Run {
   readonly lines: NewLog[] = []
   readonly touched = new Set<ID>()
-  private readonly created: { fp: string; content: string }[] = []
+  /** Facts already in the scene, and those this run added: a new one like them is a duplicate. */
+  private readonly created: { fp: string; content: string; changeId?: ID }[] = []
   private readonly suppressions: { fingerprint: string; words: string }[]
   private entries: Entry[]
   private readonly here: Set<ID> | null
@@ -205,9 +206,10 @@ class Run {
     this.entries = repo.listEntries(db)
     this.here = ctx.memory ? new Set(ctx.memory.entries.map((e) => e.id)) : null
     // Facts already in the scene (any origin, including changes Adam pinned to it) count as there.
-    for (const f of plan.found) this.created.push({ fp: factFingerprint(f), content: factContent(f) })
+    for (const f of plan.found)
+      this.created.push({ fp: factFingerprint(f), content: factContent(f), changeId: f.kind === 'change' ? f.change.id : undefined })
     for (const c of mem.changesInScene(db, plan.scene.sceneId)) {
-      this.created.push({ fp: fingerprint({ type: 'change', entryId: c.entryId, change: c }), content: changeContent(c) })
+      this.created.push({ fp: fingerprint({ type: 'change', entryId: c.entryId, change: c }), content: changeContent(c), changeId: c.id })
     }
   }
 
@@ -239,13 +241,31 @@ class Run {
     return this.suppressions.some((s) => s.fingerprint === fp && s.words === w)
   }
 
-  duplicate(fp: string, content: string): boolean {
+  /** The fact already in the scene (or added by this run) that this one repeats, or null. */
+  duplicate(fp: string, content: string): { changeId?: ID } | null {
     const c = plain(content)
-    return this.created.some((x) => x.fp === fp && (plain(x.content) === c || likeness(x.content, content) >= 0.5))
+    return this.created.find((x) => x.fp === fp && (plain(x.content) === c || likeness(x.content, content) >= 0.5)) ?? null
   }
 
-  remember(fp: string, content: string): void {
-    this.created.push({ fp, content })
+  remember(fp: string, content: string, changeId?: ID): void {
+    this.created.push({ fp, content, changeId })
+  }
+
+  /**
+   * Words that say a text change of this scene again also support it, so it stays until the last
+   * passage that says it goes. Nothing is added when its words in the same paragraph already do.
+   */
+  alsoSupports(changeId: ID, s: Spot): void {
+    let c: Change
+    try {
+      c = mem.getChange(this.db, changeId)
+    } catch {
+      return
+    }
+    if (c.origin !== 'text' || c.sceneId !== this.scene.sceneId) return
+    const links = hist.linksForFact(this.db, 'change', changeId).filter((l) => l.state === 'ok')
+    if (links.some((l) => l.quote === s.quote || (s.paragraphId && l.paragraphId === s.paragraphId))) return
+    this.addLink('change', changeId, null, s)
   }
 
   /** The exact words in the scene a quote stands for: in the chunk's paragraphs first, then anywhere. */
@@ -770,7 +790,12 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
 /** Adds a change pinned to this scene, with its link, unless it is already there or Adam undid it from these words. */
 function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot, text?: string): Change | null {
   const fp = fingerprint({ type: 'change', entryId: entry.id, change: data })
-  if (run.suppressed(fp, s.quote) || run.duplicate(fp, changeContent(data))) return null
+  if (run.suppressed(fp, s.quote)) return null
+  const same = run.duplicate(fp, changeContent(data))
+  if (same) {
+    if (same.changeId) run.alsoSupports(same.changeId, s)
+    return null
+  }
   const c = mem.insertChange(run.db, {
     ...data,
     entryId: entry.id,
@@ -780,7 +805,7 @@ function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot, text?: str
     runId: run.ctx.runId
   })
   run.addLink('change', c.id, null, s)
-  run.remember(fp, changeContent(data))
+  run.remember(fp, changeContent(data), c.id)
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
   run.log({
     action: 'added',

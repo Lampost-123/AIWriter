@@ -14,6 +14,10 @@ import type { MemoryModel } from './model'
 import { runScene, type RunOutcome } from './run'
 import { Keeper } from './engine'
 import { undoItem } from './undo'
+import { planRead } from './track'
+import { applyRead } from './apply'
+import { Ids } from './request'
+import { memoryAt } from './places'
 import * as scene from '../memory/scene'
 
 let fake: FakeProvider
@@ -161,6 +165,54 @@ describe('Adam working while a scene is read', () => {
 })
 
 describe('links follow their words', () => {
+  it('a change said again in other words stays until both passages are gone', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her left hand.'],
+      ['p2', 'The ferry was late.']
+    ])
+    await read(w.db, w.sceneId)
+    // A new paragraph says it again in other words; the model reports the same change from it.
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her left hand.'],
+      ['p2', 'The ferry was late.'],
+      ['p3', 'Tobin stared at the stump where her hand had been.']
+    ])
+    const s = kdb.keeperScene(w.db, w.sceneId)!
+    const plan = planRead(w.db, s)
+    const ctx = {
+      runId: kdb.startRun(w.db, w.sceneId, plan.version),
+      memory: memoryAt(w.db, w.storyId, w.sceneId),
+      shape: null,
+      sideClashes: null
+    }
+    const reply = {
+      facts: [],
+      add: [
+        {
+          type: 'change',
+          entry: 'Mara',
+          note: 'lost her left hand',
+          fields: { marks: 'left hand lost' },
+          quote: 'the stump where her hand had been'
+        }
+      ],
+      clashes: []
+    }
+    w.db.transaction(() => applyRead(w.db, ctx, plan, [{ ids: new Ids(), reply, paras: plan.toRead }]))()
+    expect(mem.listAllChanges(w.db)).toHaveLength(1)
+    // The first passage goes: the second still says it.
+    save(w.db, w.sceneId, [
+      ['p2', 'The ferry was late.'],
+      ['p3', 'Tobin stared at the stump where her hand had been.']
+    ])
+    await read(w.db, w.sceneId)
+    expect(mem.listAllChanges(w.db)).toHaveLength(1)
+    save(w.db, w.sceneId, [['p2', 'The ferry was late.']])
+    await read(w.db, w.sceneId)
+    expect(mem.listAllChanges(w.db)).toHaveLength(0)
+  })
+
   it('through a split, a merge and a move, and deleting the paragraph marks them gone', async () => {
     const w = world()
     save(w.db, w.sceneId, [
