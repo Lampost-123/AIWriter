@@ -5,11 +5,11 @@
 // (another scene opened, the box closed), the words are offered to copy instead: never lost.
 import type { Editor } from '@tiptap/core'
 import type { ID } from '@shared/types'
-import { toast } from '@/components/ui'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { insertIntoEditable, insertIntoField, isTextBox } from './insertText'
 import { insertIntoScene } from './insertScene'
+import { BOX_GONE, offerWords } from './offer'
 import type { Anchor } from './place'
 
 export type Target =
@@ -44,22 +44,6 @@ export function findTarget(): Target | null {
 
 const SCENE_GONE = 'Another scene was opened before your words were ready, so here they are to copy:'
 const PAGE_HELD = "The page can't be typed in while a new draft is getting ready, so here are your words to copy:"
-const BOX_GONE = "The box your words were for can't take them now, so here they are to copy:"
-
-/** Offers words that couldn't go where they were meant to, with a button to copy them. */
-export function offerWords(text: string, why: string): void {
-  const shown = text.length > 160 ? `${text.slice(0, 157).trimEnd()}…` : text
-  toast(`${why} “${shown}”`, {
-    action: {
-      label: 'Copy',
-      run: () =>
-        void navigator.clipboard.writeText(text).then(
-          () => toast('Copied. Paste them where you like.'),
-          () => toast("Your words couldn't be copied. Try again, or say them again where you want them.", { tone: 'danger' })
-        )
-    }
-  })
-}
 
 /** Types the words in at the target's cursor (as one Ctrl+Z step), or offers them to copy when it has gone. */
 export function deliver(target: Target, text: string): void {
@@ -107,15 +91,26 @@ export function anchorFor(target: Target): () => Anchor | null {
     return () => {
       if (editor.isDestroyed || editorBridge()?.sceneId !== sceneId || useApp.getState().view.kind !== 'write') return null
       try {
-        const { selection } = editor.state
-        const c = editor.view.coordsAtPos(selection.head)
+        const { view } = editor
+        const { $head } = editor.state.selection
+        const c = view.coordsAtPos($head.pos)
         if (c.bottom < 0 || c.top > window.innerHeight) return null
-        const { $head } = selection
-        const lineEnd = selection.empty && $head.parentOffset === $head.parent.content.size
-        // At the end of the last paragraph, nothing comes after it at any level.
-        const sceneEnd = lineEnd && $head.pos + $head.depth === editor.state.doc.content.size
-        const rect = { left: c.left, top: c.top, right: c.right, bottom: c.bottom }
-        return { kind: 'caret', rect, within: within(), lineEnd, sceneEnd }
+        // The end of the cursor's paragraph: when it is on the cursor's line, nothing comes after that on it.
+        const e = view.coordsAtPos($head.end())
+        const lastLine = Math.abs((e.top + e.bottom) / 2 - (c.top + c.bottom) / 2) < (c.bottom - c.top) / 2
+        // The last paragraph: nothing comes after it at any level.
+        const lastParagraph = $head.end() + $head.depth === editor.state.doc.content.size
+        // Half the space between lines sits above each line's words.
+        const lead = (parseFloat(getComputedStyle(view.dom).lineHeight) - (c.bottom - c.top)) / 2
+        return {
+          kind: 'caret',
+          rect: { left: c.left, top: c.top, right: c.right, bottom: c.bottom },
+          within: within(),
+          lineEnd: lastLine ? e.right : undefined,
+          sceneEnd: lastLine && lastParagraph,
+          textLeft: view.dom.getBoundingClientRect().left,
+          lineTop: lead > 0 ? c.top - lead : undefined
+        }
       } catch {
         return null
       }

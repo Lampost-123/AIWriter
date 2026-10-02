@@ -52,6 +52,10 @@ const WRITING_KEYS = new Set([
   'PageDown'
 ])
 const LOCK_KEYS = new Set(['CapsLock', 'NumLock', 'FnLock', 'Fn'])
+/** Keys the window keeps to itself (reload, the developer tools): they reach the page coming up, never going down. */
+export const KEPT_BY_WINDOW = new Set(['F5', 'F12'])
+/** The keys that work a button that has the keyboard: Enter and Space. */
+export const BUTTON_KEYS = new Set(['Enter', ' '])
 const UNKNOWN = new Set(['Unidentified', 'Dead', 'Process', 'Compose', 'AltGraph'])
 const SUGGEST = 'such as F9, Right Ctrl or Right Alt'
 
@@ -64,9 +68,9 @@ export function refusal(key: string): string | null {
   if (key === 'Meta' || key === 'OS' || key === 'PrintScreen' || /^(?:Audio|Media|Launch|Browser|Brightness)/.test(key)) {
     return `That key belongs to Windows. Pick another, ${SUGGEST}.`
   }
-  if (key === 'F5' || key === 'F12') return `AI Write keeps ${key} to itself, so it can't be the dictation key. Pick another, ${SUGGEST}.`
+  if (KEPT_BY_WINDOW.has(key)) return `AI Write keeps ${key} to itself, so it can't be the dictation key. Pick another, ${SUGGEST}.`
   if (key === 'F2') return `F2 renames chapters and scenes in the binder. Pick another, ${SUGGEST}.`
-  if (key === 'F11') return `F11 is for focus mode. Pick another, ${SUGGEST}.`
+  if (key === 'F11') return `F11 is kept for focus mode, which comes in a later update. Pick another, ${SUGGEST}.`
   if (UNKNOWN.has(key)) return `AI Write can't tell that key apart from others. Pick another, ${SUGGEST}.`
   return null
 }

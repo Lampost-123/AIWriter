@@ -18,7 +18,7 @@ const WHERE = 'Settings › Read aloud and dictation'
 export const NOT_READY = `Dictation isn't ready yet: no dictation model is loaded. Pick Parakeet or Whisper in ${WHERE}.`
 export const TOO_LONG = `That recording is longer than the speech engine takes. Keep each one under ${DICTATION_MAX_SECONDS / 60} minutes.`
 export const TOO_SLOW = 'The speech engine took too long to write that down. Try again, or try a shorter recording.'
-export const FAILED = `The speech engine couldn't write down what you said. Try again; if it keeps happening, check the speech engine in ${WHERE}.`
+export const FAILED = `The speech engine couldn't write that down. Try again; if it keeps happening, check it in ${WHERE}.`
 
 type Fetcher = (path: string, init: RequestInit & { timeoutMs?: number }) => Promise<Response>
 

@@ -30,6 +30,17 @@ describe('tidying dictated words', () => {
     expect(tidyDictation('Uh, um, the door.')).toBe('The door.')
   })
 
+  it('joins the word after the filler to an opening quote or bracket, straight quotes too', () => {
+    // The speech models mostly write straight quotes.
+    expect(tidyDictation('"Um, hello," she said.')).toBe('"Hello," she said.')
+    expect(tidyDictation("'Uh, wait,' he said.")).toBe("'Wait,' he said.")
+    expect(tidyDictation('She said, "uh, wait."')).toBe('She said, "wait."')
+    expect(tidyDictation('(Uh, maybe) not.')).toBe('(Maybe) not.')
+    // A closing quote or an apostrophe stays where it is.
+    expect(tidyDictation('"Hello," um, she said.')).toBe('"Hello," she said.')
+    expect(tidyDictation("The dogs' um, bowls.")).toBe("The dogs' bowls.")
+  })
+
   it('keeps a dash pair whole when the filler sat between them', () => {
     expect(tidyDictation('I — uh — wasn’t ready.')).toBe('I — wasn’t ready.')
     expect(tidyDictation('I—uh—wasn’t ready.')).toBe('I—wasn’t ready.')

@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { insertSpoken, spaced } from './insertText'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { insertIntoBox, insertSpoken, spaced } from './insertText'
+import { offerWords } from './offer'
+
+// The message offering words to copy, caught here instead of shown.
+vi.mock('./offer', () => ({ BOX_GONE: 'Here they are to copy:', offerWords: vi.fn() }))
 
 describe('dictated words go in at the cursor', () => {
   it('adds a space before them after a word, and none at the start', () => {
@@ -61,5 +65,45 @@ describe('the spaces round dictated words', () => {
     expect(spaced('a ', ' dog', 'small')).toEqual({ text: 'small', lead: 0, words: 'small' })
     expect(spaced('a', 'b', 'x')).toEqual({ text: ' x ', lead: 1, words: 'x' })
     expect(spaced('', '', '   ')).toEqual({ text: '', lead: 0, words: '' })
+  })
+})
+
+/** Just enough of a text box for insertIntoBox, standing in for the window's own (tests run without one). */
+class FakeTextArea {
+  value = ''
+  selectionStart = 0
+  selectionEnd = 0
+  disabled = false
+  readOnly = false
+  isConnected = true
+}
+
+describe('dictated words for a box that can’t take them now', () => {
+  const box = (o: Partial<FakeTextArea>): HTMLTextAreaElement => Object.assign(new FakeTextArea(), o) as unknown as HTMLTextAreaElement
+  beforeAll(() => {
+    Object.assign(globalThis, { HTMLTextAreaElement: FakeTextArea, HTMLInputElement: class {} })
+  })
+  afterAll(() => {
+    const g = globalThis as { HTMLTextAreaElement?: unknown; HTMLInputElement?: unknown }
+    delete g.HTMLTextAreaElement
+    delete g.HTMLInputElement
+  })
+  beforeEach(() => vi.mocked(offerWords).mockClear())
+
+  it('offers them to copy when the box still shows but is read-only (the Quick start box while it builds)', () => {
+    const el = box({ value: 'Tall and quiet.', selectionStart: 15, selectionEnd: 15, readOnly: true })
+    const setValue = vi.fn()
+    insertIntoBox(el, 'A ferryman who owes the Duke money.', setValue)
+    expect(offerWords).toHaveBeenCalledWith('A ferryman who owes the Duke money.', 'Here they are to copy:')
+    expect(setValue).not.toHaveBeenCalled()
+    expect(el.value).toBe('Tall and quiet.')
+  })
+
+  it('keeps them in what the box held when the box has gone from the screen', () => {
+    const el = box({ value: 'Tall and quiet.', selectionStart: 15, selectionEnd: 15, isConnected: false })
+    const setValue = vi.fn()
+    insertIntoBox(el, 'A ferryman.', setValue)
+    expect(setValue).toHaveBeenCalledWith('Tall and quiet. A ferryman.')
+    expect(offerWords).not.toHaveBeenCalled()
   })
 })

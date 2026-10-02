@@ -39,6 +39,8 @@ const ENDS = /^(?:\.+|[!?…])$/
 const DASH = /^[—–-]$/
 /** Where a sentence starts: the beginning, after its end, or after an opening quote or bracket. */
 const OPENS = /^(?:\.+|[!?…“‘"(])$/
+/** A quote or bracket that something can open with. */
+const OPENER = /^["'“‘(\[]$/
 
 const mark = (t: Token | undefined, re: RegExp): boolean => !!t && t.kind === 'mark' && re.test(t.text)
 const isFiller = (word: string): boolean => FILLER.test(word) && !(word.length > 1 && word === word.toUpperCase())
@@ -52,6 +54,17 @@ function nearest(list: Token[], i: number, step: 1 | -1): number {
   return -1
 }
 
+/**
+ * True when a quote or bracket opens straight before token `i`, with nothing between them ('"Um, hello"'
+ * or '(uh, maybe)'). A straight quote counts only after a space, a dash or the start: after a word it closes.
+ */
+function opensAt(list: Token[], i: number): boolean {
+  const q = list[i - 1]
+  if (!mark(q, OPENER)) return false
+  const before = list[i - 2]
+  return /^[“‘(\[]$/.test(q.text) || !before || before.kind === 'space' || mark(before, /^[—–(\[“‘"']$/)
+}
+
 /** Takes out "um", "uh" and the like, with the commas (or the second dash) round them. */
 function dropFillers(list: Token[]): Token[] {
   const out = [...list]
@@ -62,7 +75,9 @@ function dropFillers(list: Token[]): Token[] {
     const n = nearest(out, i, 1)
     const prev = p >= 0 ? out[p] : undefined
     const next = n >= 0 ? out[n] : undefined
-    const opening = !prev || mark(prev, OPENS)
+    // Straight after an opening quote or bracket: what follows joins it ('"Um, hello"' becomes '"Hello"').
+    const tight = opensAt(out, i)
+    const opening = !prev || mark(prev, OPENS) || tight
     const gone = new Set([i])
     if (mark(next, COMMA)) gone.add(n)
     else if (opening && mark(next, ENDS)) gone.add(n)
@@ -75,6 +90,7 @@ function dropFillers(list: Token[]): Token[] {
       const w = out[after].text
       out[after] = { kind: 'word', text: w[0].toUpperCase() + w.slice(1) }
     }
+    if (tight) for (let k = Math.max(...gone) + 1; out[k]?.kind === 'space'; k++) gone.add(k)
     for (const g of [...gone].sort((a, b) => b - a)) out.splice(g, 1)
     i = Math.min(...gone) - 1
   }

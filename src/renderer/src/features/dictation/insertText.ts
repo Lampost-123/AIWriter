@@ -1,6 +1,7 @@
 // Putting dictated words in where the cursor is (milestone 4): they replace any selection, get a space in
 // front when the word before needs one (and after, before a word that follows), and go in as typing
 // does, so one Ctrl+Z takes them out and React-controlled boxes hear about them. Owned by the Dictation part.
+import { BOX_GONE, offerWords } from './offer'
 
 /** Text before the cursor that dictated words follow straight on from: a space, an opening quote or bracket, a joining dash. */
 const FOLLOWS_ON = /[\s“‘([{—/-]$/
@@ -102,10 +103,12 @@ export function insertIntoEditable(el: HTMLElement, spoken: string): boolean {
 /**
  * Puts dictated words into a text box Adam is using (a React-controlled one too), then the cursor after
  * them, as insertIntoField does. `setValue` is used only when the box has gone from the screen meanwhile.
+ * A box still showing that can't be typed in now (read-only while what it is for is being built) offers
+ * the words to copy instead, so they are never lost.
  */
 export function insertIntoBox(el: HTMLTextAreaElement | HTMLInputElement, spoken: string, setValue: (value: string) => void): void {
   if (insertIntoField(el, spoken)) return
-  if (el.isConnected) return
+  if (el.isConnected) return offerWords(spoken, BOX_GONE)
   const { value } = insertSpoken(el.value, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length, spoken)
   if (value !== el.value) setValue(value)
 }

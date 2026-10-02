@@ -3,7 +3,7 @@
 // out exactly them. They take the formatting at the cursor, as typing would.
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
-import { TextSelection, type Transaction } from '@tiptap/pm/state'
+import { Selection, type Transaction } from '@tiptap/pm/state'
 import { spaced } from './insertText'
 
 /**
@@ -19,7 +19,9 @@ export function typeSpoken(tr: Transaction, spoken: string): boolean {
   if (!s.words) return false
   const trail = s.text.length - s.lead - s.words.length
   tr.insertText(s.text, from, to)
-  tr.setSelection(TextSelection.create(tr.doc, tr.mapping.map(to, 1) - trail))
+  // The cursor goes just after the words, inside their paragraph (in place of the whole scene, the end
+  // of the words is the end of the scene, outside any paragraph).
+  tr.setSelection(Selection.near(tr.doc.resolve(tr.mapping.map(to, 1) - trail), -1))
   closeHistory(tr)
   return true
 }

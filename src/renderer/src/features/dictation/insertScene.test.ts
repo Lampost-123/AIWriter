@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { getSchema } from '@tiptap/core'
-import { EditorState, TextSelection } from '@tiptap/pm/state'
+import { AllSelection, EditorState, TextSelection } from '@tiptap/pm/state'
 import { closeHistory, history, undo } from '@tiptap/pm/history'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { docFromText, sceneText } from '@/features/editor/streamDoc'
@@ -84,6 +84,24 @@ describe('dictating into the scene', () => {
     s = select(s, second, second)
     s = dictate(s, 'Much')
     expect(sceneText(s.doc)).toBe('First.\n\nMuch later, the second.')
+  })
+
+  it('types in place of the whole scene (Ctrl+A), with the cursor just after the words in their paragraph', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    let s = stateFrom('First para.\n\nSecond para.')
+    s = s.apply(s.tr.setSelection(new AllSelection(s.doc)))
+    s = dictate(s, 'All new words.')
+    expect(sceneText(s.doc)).toBe('All new words.')
+    expect(s.selection.empty).toBe(true)
+    expect(s.selection.$from.parent.type.name).toBe('paragraph')
+    expect(s.selection.from).toBe(end(s))
+    // Typing straight after carries on in the same paragraph.
+    s = type(s, ' More.')
+    expect(sceneText(s.doc)).toBe('All new words. More.')
+    s = runUndo(runUndo(s))
+    expect(sceneText(s.doc)).toBe('First para.\n\nSecond para.')
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('types nothing when nothing was said', () => {

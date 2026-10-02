@@ -63,6 +63,12 @@ export interface Recording {
 
 export const useDictation = create<{ recordings: Recording[] }>(() => ({ recordings: [] }))
 
+/**
+ * Why nothing came of a recording: too short (a tap), no words were heard, the microphone heard nothing at
+ * all ('quiet'), or it was let go while the microphone was still starting ('not-started').
+ */
+export type Nothing = 'short' | 'quiet' | 'no-words' | 'not-started'
+
 export interface StartOptions {
   owner: Owner
   by?: string
@@ -74,8 +80,8 @@ export interface StartOptions {
   deliver: (text: string) => void
   /** A problem in plain words: the Test shows it itself; otherwise it is a message in the corner. */
   onProblem?: (message: string, code?: string) => void
-  /** Nothing came of it: too short, or no words were heard ('quiet': the microphone heard nothing at all). */
-  onNothing?: (why: 'short' | 'quiet' | 'no-words') => void
+  /** Nothing came of it (see Nothing). */
+  onNothing?: (why: Nothing) => void
   /** The microphone picked isn't plugged in, so the computer's default is listening. */
   onFellBack?: () => void
 }
@@ -85,8 +91,12 @@ interface Job {
   o: StartOptions
   take: Take | null
   startedAt: number
+  /** The microphone is being opened for it. */
+  opening: boolean
   /** Asked to stop (or stopped by the window going to the back, or the limit). */
   stopping: boolean
+  /** When it was asked to stop. */
+  stoppedAt: number
   /** Its sound has been taken from the microphone (or it ended without any). */
   taken: boolean
 }
@@ -154,7 +164,7 @@ export function startRecording(o: StartOptions): number | null {
   installWatchers()
   if ([...jobs.values()].some((j) => !j.stopping)) return null
   const id = ++seq
-  const job: Job = { id, o, take: null, startedAt: performance.now(), stopping: false, taken: false }
+  const job: Job = { id, o, take: null, startedAt: performance.now(), opening: false, stopping: false, stoppedAt: 0, taken: false }
   jobs.set(id, job)
   const rec: Recording = {
     id,
@@ -166,37 +176,47 @@ export function startRecording(o: StartOptions): number | null {
     anchor: o.anchor ?? null
   }
   useDictation.setState((s) => ({ recordings: [...s.recordings, rec] }))
-  const listen = (): void => {
-    job.take = startTake(o.preRoll ?? 0)
+  /** Starts taking the microphone's sound. False when it isn't open (closed again as it opened, for another microphone). */
+  const listen = (): boolean => {
+    const t = startTake(o.preRoll ?? 0)
+    if (!t) return false
+    job.take = t
     patch(id, { phase: 'listening' })
     if (micFellBack()) o.onFellBack?.()
+    return true
   }
-  const device = microphone()
-  if (micIsOpen() && openMicId() === device) {
-    listen()
-    return id
-  }
-  openMic(device).then(
-    () => {
-      if (!jobs.has(id)) return
-      if (job.stopping) {
-        // Let go before the microphone was listening: nothing was recorded.
+  /** Opens the microphone, then listens; once more when it was closed again before it could. */
+  const open = (tries: number): void => {
+    job.opening = true
+    openMic(microphone()).then(
+      () => {
+        job.opening = false
+        if (!jobs.has(id)) return
+        if (job.stopping) {
+          // Let go before the microphone was listening: nothing was recorded. More than a tap says so.
+          job.taken = true
+          remove(id)
+          nothing(o, (job.stoppedAt - job.startedAt) / 1000 >= SHORTEST_SECONDS ? 'not-started' : 'short')
+          return
+        }
+        if (listen()) return
+        if (tries > 0) return open(tries - 1)
         job.taken = true
         remove(id)
-        o.onNothing?.('short')
-        return
+        problem(o, MIC_BUSY, 'microphone-busy')
+      },
+      (e: unknown) => {
+        job.opening = false
+        if (!jobs.has(id)) return
+        job.taken = true
+        remove(id)
+        // The window went to the back while it was opening: nothing to say.
+        if (e instanceof MicError && e.kind === 'closed') return
+        problem(o, e instanceof MicError ? e.message : MIC_BUSY, `microphone-${e instanceof MicError ? e.kind : 'busy'}`)
       }
-      listen()
-    },
-    (e: unknown) => {
-      if (!jobs.has(id)) return
-      job.taken = true
-      remove(id)
-      // The window went to the back while it was opening: nothing to say.
-      if (e instanceof MicError && e.kind === 'closed') return
-      problem(o, e instanceof MicError ? e.message : MIC_BUSY, 'microphone')
-    }
-  )
+    )
+  }
+  if (!(micIsOpen() && openMicId() === microphone() && listen())) open(1)
   return id
 }
 
@@ -210,8 +230,14 @@ export function finishRecording(id: number): void {
   const job = jobs.get(id)
   if (!job || job.stopping) return
   job.stopping = true
-  // Still starting: nothing has been recorded yet, so it is let go once the microphone answers.
+  job.stoppedAt = performance.now()
   if (job.take) void take(job)
+  // Still starting: nothing has been recorded yet, so it is let go once the microphone answers. Neither
+  // listening nor starting, there is nothing to wait for: it never gets stuck.
+  else if (!job.opening) {
+    job.taken = true
+    remove(id)
+  }
 }
 
 /** Stops a recording and lets go of what it heard, without writing it down. */
@@ -226,7 +252,7 @@ export function cancelRecording(id: number): void {
 /** Takes the recording's sound from the microphone and sends it to be written down. */
 async function take(job: Job): Promise<void> {
   if (!job.take || job.taken) return
-  const held = (performance.now() - job.startedAt) / 1000
+  const held = (job.stoppedAt - job.startedAt) / 1000
   if (held < SHORTEST_SECONDS) {
     dropTake(job.take)
     job.taken = true
@@ -269,7 +295,8 @@ function writeDown(id: number, o: StartOptions, wav: Uint8Array): void {
 /** Tries writing the same recording down again (after "Try again"), in turn with any others. */
 function again(o: StartOptions, wav: Uint8Array): void {
   const id = ++seq
-  jobs.set(id, { id, o, take: null, startedAt: performance.now(), stopping: true, taken: true })
+  const now = performance.now()
+  jobs.set(id, { id, o, take: null, startedAt: now, opening: false, stopping: true, stoppedAt: now, taken: true })
   const rec: Recording = { id, owner: o.owner, by: o.by ?? o.owner, phase: 'writing', hidden: false, left: null, anchor: o.anchor ?? null }
   useDictation.setState((s) => ({ recordings: [...s.recordings, rec] }))
   writeDown(id, o, wav)
@@ -279,16 +306,24 @@ function again(o: StartOptions, wav: Uint8Array): void {
 export const openSpeechSettings = (): void => useApp.getState().navigate({ kind: 'settings', tab: 'speech' })
 
 /** Codes whose fix is in Settings › Read aloud and dictation. */
-const FIX_IN_SETTINGS = new Set(['speech-not-running', 'dictation-not-ready', 'microphone'])
+const FIX_IN_SETTINGS = new Set(['speech-not-running', 'dictation-not-ready', 'microphone-busy'])
+
+/** Shorter words for those, beside two buttons (Open Settings and Try again), so they still read easily. */
+const SHORTER: Record<string, string> = {
+  'speech-not-running': "The speech engine isn't running. Start it in Settings, then try again.",
+  'dictation-not-ready': 'No dictation model is loaded. Pick one in Settings, then try again.'
+}
 
 function problem(o: StartOptions, message: string, code?: string, retry?: () => void): void {
   if (o.onProblem) return o.onProblem(message, code)
-  // One button, so the message has room to be read: Try again when there are words to try again (the
-  // message says where the fix is), else Settings when the fix is there.
-  const settings = !!code && FIX_IN_SETTINGS.has(code) && useApp.getState().view.kind !== 'settings'
-  toast(message, {
+  // Try again keeps what was said (in memory only); Open Settings leaves the message showing, so Try again
+  // is still there once the fix is made.
+  const settings = code && FIX_IN_SETTINGS.has(code) && useApp.getState().view.kind !== 'settings' ? code : null
+  const open = settings ? { label: 'Open Settings', run: openSpeechSettings } : undefined
+  toast(retry && settings ? (SHORTER[settings] ?? message) : message, {
     tone: 'danger',
-    action: retry ? { label: 'Try again', run: retry } : settings ? { label: 'Open Settings', run: openSpeechSettings } : undefined
+    action: retry ? { label: 'Try again', run: retry } : open,
+    secondary: retry ? open : undefined
   })
 }
 
@@ -296,13 +331,18 @@ export const NOTHING_HEARD =
   "The microphone didn't hear anything. Check it's the right one and not muted: Test in Settings › Read aloud and dictation shows what it hears."
 export const NO_WORDS = 'No words were heard that time, so nothing was typed.'
 
-function nothing(o: StartOptions, why: 'short' | 'quiet' | 'no-words'): void {
+/** Let go while the microphone was still starting (it is let go while the window is in the back). */
+export const notStarted = (owner: Owner): string =>
+  `The microphone was still starting, so nothing was recorded. ${owner === 'key' ? 'Hold the key' : owner === 'button' ? 'Click the microphone' : 'Click Test'} again, and wait a moment before you talk.`
+
+function nothing(o: StartOptions, why: Nothing): void {
   if (o.onNothing) return o.onNothing(why)
   if (why === 'quiet')
     toast(NOTHING_HEARD, {
       secondary: useApp.getState().view.kind !== 'settings' ? { label: 'Open Settings', run: openSpeechSettings } : undefined
     })
   else if (why === 'no-words') toast(NO_WORDS)
+  else if (why === 'not-started') toast(notStarted(o.owner))
 }
 
 /** Plain words for reaching the limit: what happens, and how to carry on. */

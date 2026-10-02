@@ -12,11 +12,11 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { DictationLayer } from './DictationLayer'
 import { insertIntoBox } from './insertText'
-import { isModifierKey, keptKey, keyName, refusal } from './keys'
+import { BUTTON_KEYS, isModifierKey, keptKey, KEPT_BY_WINDOW, keyName, refusal } from './keys'
 import { useMicLevel } from './Marker'
-import { listMicrophones } from './mic'
+import { listMicrophones, micAllowWhere, MIC_MISSING } from './mic'
 import { useSpeechEngine } from './ready'
-import { cancelRecording, finishRecording, setPickingKey, startRecording, useDictation } from './session'
+import { cancelRecording, finishRecording, notStarted, setPickingKey, startRecording, useDictation } from './session'
 
 export function DictationSettings({ section }: { section: 'everyday' | 'more' }): React.JSX.Element {
   return section === 'everyday' ? <HoldToTalk /> : <Microphone />
@@ -48,6 +48,8 @@ function KeyPicker(): React.JSX.Element {
   const [picking, setPicking] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
   const button = useRef<HTMLButtonElement>(null)
+  /** Picking was started from the keyboard (Enter or Space on the button): those keys still work the button. */
+  const byKeyboard = useRef(false)
   const labelId = useId()
   const hintId = useId()
   const mac = isMac()
@@ -65,6 +67,10 @@ function KeyPicker(): React.JSX.Element {
     let combined = false
     // Keys that went down here: one that only comes up was kept by the window (F5, F12).
     const seen = new Set<string>()
+    // Started from the keyboard, Enter or Space on the button works it as on any button (Cancel). With the
+    // mouse, they are keys pressed to try them, and get told why they can't be used.
+    const onButton = (e: KeyboardEvent): boolean =>
+      byKeyboard.current && BUTTON_KEYS.has(e.key) && document.activeElement === button.current
 
     const onDown = (e: KeyboardEvent): void => {
       // Tab (or Shift+Tab) moves on, as from any other control.
@@ -72,6 +78,7 @@ function KeyPicker(): React.JSX.Element {
         setPicking(false)
         return
       }
+      if (onButton(e) && !e.repeat) return
       e.preventDefault()
       e.stopPropagation()
       if (e.repeat) return
@@ -100,7 +107,7 @@ function KeyPicker(): React.JSX.Element {
     }
 
     const onUp = (e: KeyboardEvent): void => {
-      if (e.code === 'Tab') return
+      if (e.code === 'Tab' || onButton(e)) return
       e.preventDefault()
       e.stopPropagation()
       if (modifier && e.code === modifier.code) {
@@ -113,10 +120,9 @@ function KeyPicker(): React.JSX.Element {
         modifier = null
         combined = false
       }
-      if (!seen.has(e.code) && !isModifierKey(e.code)) {
-        const why = refusal(e.key)
-        if (why) setRefused(why)
-      }
+      // F5 and F12 never reach the page going down (the window keeps them), only coming up. Any other key
+      // that only comes up went down before picking started (the Enter that opened it): nothing to say.
+      if (!seen.has(e.code) && KEPT_BY_WINDOW.has(e.key)) setRefused(refusal(e.key))
     }
 
     // Clicking anywhere else, or going to another window, stops picking and keeps the key as it was.
@@ -168,7 +174,9 @@ function KeyPicker(): React.JSX.Element {
         <Button
           ref={button}
           aria-describedby={`${labelId} ${hintId}`}
-          onClick={() => {
+          onClick={(e) => {
+            // A click from Enter or Space has no mouse presses (detail 0).
+            byKeyboard.current = e.detail === 0
             setRefused(null)
             setPicking((p) => !p)
           }}
@@ -253,11 +261,42 @@ function useMicrophones(): { list: SelectOption[] | null; refresh: () => void } 
 
 const QUIET = "The microphone didn't hear anything. Check it's the right one, and that it isn't muted."
 
-interface TestNote {
-  text: string
-  tone?: 'muted' | 'danger'
-  /** The fix is in the speech engine's settings. */
-  engine?: boolean
+/** Why the Test's words weren't written down: the speech engine isn't running, or has no dictation model. */
+type EngineWhy = 'not-running' | 'no-model' | 'starting'
+
+/**
+ * What the Test says about itself, in plain words that fit the two lines kept for them (so nothing below
+ * moves). `engine`: the words weren't written down because the speech engine isn't ready (`tried`: it
+ * said so when they were sent; else only the level was tested). That is said from the engine's status as
+ * it is now, and goes once the engine is ready.
+ */
+type TestNote = { text: string; danger?: boolean } | { engine: EngineWhy; tried: boolean }
+
+/** The speech engine's state now, as the Test's words put it; `said` when its status says it is ready (it may not have caught up). */
+function engineNow(status: SpeechStatus | null, said: EngineWhy): EngineWhy {
+  if (!status || status.dictationReady) return said
+  return status.server === 'starting' ? 'starting' : status.server === 'connected' ? 'no-model' : 'not-running'
+}
+
+const LEVEL_ONLY: Record<EngineWhy, string> = {
+  'not-running': 'Only the level was tested. Your words can be written down once the speech engine is running.',
+  'no-model': 'Only the level was tested. Your words can be written down once you pick a dictation model.',
+  starting: 'Only the level was tested. Your words can be written down once the speech engine has started.'
+}
+const NOT_WRITTEN: Record<EngineWhy, string> = {
+  'not-running': "Your words couldn't be written down, as the speech engine isn't running.",
+  'no-model': "Your words couldn't be written down, as there's no dictation model yet.",
+  starting: "Your words couldn't be written down, as the speech engine is still starting."
+}
+
+/** A problem the Test hit, in words short enough for its two lines (the message in the corner says more). */
+function testProblem(message: string, code?: string): string {
+  if (code === 'limit') return 'The Test stops at about 4 minutes. What you said is being written down.'
+  if (code === 'microphone-denied') return `The microphone isn't allowed. ${micAllowWhere()}.`
+  if (code === 'microphone-busy')
+    return "The microphone couldn't be started. Close any other app that may be using it, or pick another microphone above."
+  if (code === 'microphone-missing') return MIC_MISSING
+  return message
 }
 
 function Microphone(): React.JSX.Element {
@@ -272,7 +311,7 @@ function Microphone(): React.JSX.Element {
   const [note, setNote] = useState<TestNote | null>(null)
   const [heard, setHeard] = useState('')
   const tryBox = useRef<HTMLTextAreaElement>(null)
-  const noteRef = useRef<HTMLDivElement>(null)
+  const noteRef = useRef<HTMLParagraphElement>(null)
   const selectId = useId()
   const tryId = useId()
 
@@ -284,6 +323,12 @@ function Microphone(): React.JSX.Element {
     },
     []
   )
+
+  // Once the speech engine is ready, what the Test said about it no longer holds.
+  const ready = !!status?.dictationReady
+  useEffect(() => {
+    if (ready) setNote((n) => (n && 'engine' in n ? null : n))
+  }, [ready])
 
   const options: SelectOption[] = list ?? []
   const known = !saved || options.some((o) => o.value === saved)
@@ -297,10 +342,9 @@ function Microphone(): React.JSX.Element {
     if (rec) {
       if (rec.phase === 'writing') return
       // Without the speech engine there's nothing to write the words down: the level was the test.
-      const notReady = notReadyHere(status)
-      if (notReady) {
+      if (status && !status.dictationReady) {
         cancelRecording(rec.id)
-        setNote({ text: notReady, engine: status?.server !== 'starting' })
+        setNote({ engine: engineNow(status, 'not-running'), tried: false })
         return
       }
       finishRecording(rec.id)
@@ -315,14 +359,20 @@ function Microphone(): React.JSX.Element {
         setNote({ text: "That's what the microphone heard. If a word came out wrong, try again a little closer to it." })
       },
       onProblem: (message, code) =>
-        setNote({ text: message, tone: 'danger', engine: code === 'speech-not-running' || code === 'dictation-not-ready' }),
+        setNote(
+          code === 'speech-not-running' || code === 'dictation-not-ready'
+            ? { engine: code === 'speech-not-running' ? 'not-running' : 'no-model', tried: true }
+            : { text: testProblem(message, code), danger: code !== 'limit' }
+        ),
       onNothing: (why) =>
         setNote(
           why === 'quiet'
-            ? { text: QUIET, tone: 'danger' }
+            ? { text: QUIET, danger: true }
             : why === 'no-words'
               ? { text: 'No words were heard. Try again, a little closer to the microphone.' }
-              : { text: 'That was very short. Click Test, say a sentence, then click Stop.' }
+              : why === 'not-started'
+                ? { text: notStarted('test') }
+                : { text: 'That was very short. Click Test, say a sentence, then click Stop.' }
         ),
       onFellBack: () => setNote({ text: "The microphone you picked isn't plugged in, so this is the computer's default." })
     })
@@ -331,15 +381,21 @@ function Microphone(): React.JSX.Element {
     else refresh()
   }
 
-  const stateLine = note
-    ? null
-    : rec?.phase === 'writing'
-      ? 'Writing it down…'
-      : listening
-        ? 'Listening. Say a sentence or two, then click Stop.'
-        : rec
-          ? 'Starting the microphone…'
-          : null
+  // The Test's line: what came of it, or what it is doing.
+  const said = note && 'text' in note ? note : null
+  const notWritten = note && 'engine' in note ? note : null
+  const engine = notWritten ? engineNow(status, notWritten.engine) : null
+  const [line, tone]: [string, string] = said
+    ? [said.text, said.danger ? 'text-danger' : 'text-muted']
+    : notWritten && engine
+      ? [(notWritten.tried ? NOT_WRITTEN : LEVEL_ONLY)[engine], notWritten.tried ? 'text-danger' : 'text-muted']
+      : rec?.phase === 'writing'
+        ? ['Writing it down…', 'text-muted']
+        : listening
+          ? ['Listening. Say a sentence or two, then click Stop.', 'text-muted']
+          : rec
+            ? ['Starting the microphone…', 'text-muted']
+            : ['Click Test and say a sentence or two.', 'text-faint']
 
   return (
     <SettingsSection
@@ -400,24 +456,27 @@ function Microphone(): React.JSX.Element {
           </div>
         </div>
 
-        <div ref={noteRef} aria-live="polite" className="min-h-[18px] text-[12px] leading-[18px]">
-          {note?.engine ? (
-            <Notice
-              tone="neutral"
-              action={
-                <Button size="sm" onClick={() => toSpeechEngine(noteRef.current)}>
-                  Go to the speech engine
-                </Button>
-              }
-            >
-              {note.text}
-            </Notice>
-          ) : note ? (
-            <p className={note.tone === 'danger' ? 'text-danger' : 'text-muted'}>{note.text}</p>
-          ) : stateLine ? (
-            <p className="text-muted">{stateLine}</p>
+        {/* Two lines kept for it, so nothing below moves as it changes. */}
+        <p
+          ref={noteRef}
+          aria-live="polite"
+          data-testid="microphone-test-line"
+          className={cn('min-h-[36px] text-[12px] leading-[18px]', tone)}
+        >
+          {line}
+          {engine && engine !== 'starting' ? (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="rounded-sm font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+                onClick={() => toSpeechEngine(noteRef.current)}
+              >
+                Go to the speech engine
+              </button>
+            </>
           ) : null}
-        </div>
+        </p>
 
         <div className="flex flex-col gap-1">
           <label htmlFor={tryId} className="text-[12px] font-medium text-muted">

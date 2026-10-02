@@ -8,8 +8,9 @@ import { useEffect, useId, useRef } from 'react'
 import { Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useDictationReady } from './ready'
+import { offerWords } from './offer'
 import { finishRecording, startRecording, useDictation } from './session'
-import { areaOf, offerWords, rectOf } from './targets'
+import { areaOf, rectOf } from './targets'
 
 export interface MicButtonProps {
   /** What was said, tidied ("um" and stutters taken out), to put in the box at its cursor. */

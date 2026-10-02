@@ -1,11 +1,14 @@
-// Dictation (milestone 4): picking the hold-to-talk key in Settings, holding it to type what was said
-// into the scene at the cursor (one Ctrl+Z takes it out), into a scene card field, and with a window
-// switch half way; a Ctrl key that only listens on its own; the Quick start box's microphone button;
-// the microphone Test with its level and try-it box; problems in plain words with Try again; the
-// shortcuts list's line. Chromium's fake microphone (AIWRITE_FAKE_MIC=1: a beep every half second)
-// does the talking, and the fake speech server (tests/fake-speech) writes it down.
+// Dictation (milestone 4): picking the hold-to-talk key in Settings (with the mouse or the keyboard),
+// holding it to type what was said into the scene at the cursor (one Ctrl+Z takes it out, and the moment
+// before the key went down is kept), into a scene card field, and with a window switch half way; the
+// marker clear of the words in the middle of a paragraph; a Ctrl key that only listens on its own; the
+// Quick start box's microphone button, and its words offered to copy when building starts first; the
+// microphone Test with its level and try-it box, before and after the speech engine is ready; problems in
+// plain words with Open Settings and Try again; the shortcuts list's line. Chromium's fake microphone
+// (AIWRITE_FAKE_MIC=1: a beep every half second) does the talking, and the fake speech server
+// (tests/fake-speech) writes it down.
 import type { ElectronApplication, Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
 interface Heard {
   bytes: number
@@ -69,16 +72,36 @@ async function setUp(
   return { app, win }
 }
 
+interface Box {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+/** When the page saw a key go down and come up, by its own clock (ms). */
+interface KeyTimes {
+  down?: number
+  up?: number
+}
+
 /** What these tests reach in the page itself, typed just enough: the tests are checked without the page's own types. */
 interface InPage {
   document: {
     activeElement: { blur(): void } | null
     querySelector(selector: string): { firstChild: { textContent: string | null } | null } | null
-    createRange(): { setStart(node: unknown, offset: number): void; setEnd(node: unknown, offset: number): void }
+    createRange(): {
+      setStart(node: unknown, offset: number): void
+      setEnd(node: unknown, offset: number): void
+      selectNodeContents(node: unknown): void
+      getClientRects(): ArrayLike<Box>
+    }
   }
   getSelection(): { removeAllRanges(): void; addRange(range: unknown): void } | null
   dispatchEvent(event: unknown): boolean
+  addEventListener(type: 'keydown' | 'keyup', listener: (e: { code: string; timeStamp: number }) => void, capture: boolean): void
   Event: new (type: string) => unknown
+  keyTimes?: KeyTimes
 }
 
 /** Nothing in the page has the keyboard (so ? opens the shortcuts list). */
@@ -108,6 +131,12 @@ async function pickKey(win: Page, key: string, shown: string): Promise<void> {
   await expect(prose(win)).toBeVisible()
 }
 
+/**
+ * Looking at the level meter often: the fake microphone beeps every half second and the level falls away
+ * between beeps, so a look every second (what a poll slows to) can keep landing between them.
+ */
+const LEVEL_POLL = { timeout: 5000, intervals: [50] }
+
 /** Holds a key for a while (long enough for the fake microphone's beeps) and lets go. */
 async function hold(win: Page, key: string, ms = 1300): Promise<void> {
   await win.keyboard.down(key)
@@ -115,6 +144,39 @@ async function hold(win: Page, key: string, ms = 1300): Promise<void> {
   await win.waitForTimeout(ms)
   await win.keyboard.up(key)
 }
+
+/**
+ * Notes when the page sees the key `code` first go down and come up, as dictation does; the function it
+ * gives back says how long, in seconds, it was held.
+ */
+async function timeHold(win: Page, code: string): Promise<() => Promise<number>> {
+  await win.evaluate((code) => {
+    const w = globalThis as unknown as InPage
+    const times: KeyTimes = (w.keyTimes = {})
+    w.addEventListener('keydown', (e) => (e.code === code && times.down === undefined ? (times.down = e.timeStamp) : undefined), true)
+    w.addEventListener('keyup', (e) => (e.code === code && times.up === undefined ? (times.up = e.timeStamp) : undefined), true)
+  }, code)
+  return async () => {
+    const t = await win.evaluate(() => (globalThis as unknown as InPage).keyTimes)
+    expect(t?.down !== undefined && t.up !== undefined).toBe(true)
+    return (t!.up! - t!.down!) / 1000
+  }
+}
+
+/** The words of each line of the scene's first paragraph, as boxes on the screen, top to bottom. */
+const lineBoxes = (win: Page): Promise<Box[]> =>
+  win.evaluate(() => {
+    const w = globalThis as unknown as InPage
+    const range = w.document.createRange()
+    range.selectNodeContents(w.document.querySelector('.scene-prose p'))
+    const lines: Box[] = []
+    for (const r of Array.from(range.getClientRects())) {
+      const line = lines.find((l) => Math.abs(l.top - r.top) < 2)
+      if (line) Object.assign(line, { left: Math.min(line.left, r.left), right: Math.max(line.right, r.right) })
+      else lines.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
+    }
+    return lines.sort((a, b) => a.top - b.top)
+  })
 
 test('holding the dictation key types what was said at the cursor, and one Ctrl+Z takes it out', async ({ launch }) => {
   const options: SpeechOptions = { dictation: 'The lantern flickered twice.', dictationDelayMs: 600 }
@@ -137,25 +199,35 @@ test('holding the dictation key types what was said at the cursor, and one Ctrl+
     await pickKey(win, 'F9', 'F9')
     await prose(win).click()
     await win.keyboard.press('Control+End')
+    // With a key picked, the microphone is kept ready, so the moment before the key goes down is there to keep.
+    await win.waitForTimeout(1000)
+    const heldFor = await timeHold(win, 'F9')
 
     await win.keyboard.down('F9')
     await expect(marker(win)).toContainText('Listening')
-    // The marker sits by the cursor's line, over the page.
-    const box = await marker(win).boundingBox()
-    const page = await prose(win).boundingBox()
-    expect(box && page && box.y < page.y + page.height && box.x >= page.x - 20).toBe(true)
+    // The marker sits just after the end of the cursor's line (the last of its paragraph), over the page.
+    const box = (await marker(win).boundingBox())!
+    const [words] = await lineBoxes(win)
+    expect(box.x).toBeGreaterThanOrEqual(words.right)
+    expect(box.x).toBeLessThan(words.right + 12)
+    expect(Math.abs(box.y + box.height / 2 - (words.top + words.bottom) / 2)).toBeLessThan(3)
     await win.waitForTimeout(1300)
     await win.keyboard.up('F9')
     await expect(marker(win)).toContainText('Writing it down')
     await expect(prose(win)).toHaveText('She lit the lamp. The lantern flickered twice.')
     await expect(marker(win)).toHaveCount(0)
 
-    // What was sent: 16 kHz mono 16-bit, as long as the key was held, with the moment before it.
+    // What was sent: 16 kHz mono 16-bit, as long as the key was held with the 0.45 s before it went down
+    // and 0.25 s after it came up (the last word on its way), after 0.3 s of quiet put in front. Without
+    // the moment before, it would be 0.45 s shorter.
     const sent = await recordings(speech)
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({ sampleRate: 16000, channels: 1, bits: 16 })
-    expect(sent[0].seconds).toBeGreaterThan(1.6)
-    expect(sent[0].seconds).toBeLessThan(4)
+    const held = await heldFor()
+    expect(held).toBeGreaterThan(1.2)
+    const expected = 0.3 + 0.45 + held + 0.25
+    expect(sent[0].seconds).toBeGreaterThan(expected - 0.2)
+    expect(sent[0].seconds).toBeLessThan(expected + 0.2)
     expect(sent[0].peak).toBeGreaterThan(0.1)
 
     // Typing carries on after the words, and one Ctrl+Z takes out just them.
@@ -202,6 +274,49 @@ test('holding the dictation key types what was said at the cursor, and one Ctrl+
     await expect(line).toContainText('F9')
     await expect(line).not.toContainText('Pick a key')
     await win.keyboard.press('Escape')
+  } finally {
+    await speech.close()
+  }
+})
+
+test('in the middle of a paragraph the marker shows small, in the gap between the lines, clear of the words', async ({ launch }) => {
+  const speech = await startSpeech({ dictation: 'slowly', dictationDelayMs: 400 })
+  try {
+    const { app, win } = await setUp(launch, speech)
+    await makeDictationReady(app)
+    await win.keyboard.type(
+      'The ferry rocked against the pier while the gulls wheeled overhead, and Brann counted the coins twice before ' +
+        'he looked up at the gate. Nobody came. The lamps along the harbour wall were lit one by one, and still he ' +
+        'waited, his hat in his hands, listening for the bell.'
+    )
+    await pickKey(win, 'F9', 'F9')
+    const lines = await lineBoxes(win)
+    expect(lines.length).toBeGreaterThanOrEqual(3)
+    // The cursor in the middle of the second line, at the start of a word.
+    const [above, middle] = lines
+    await win.mouse.click((middle.left + middle.right) / 2, (middle.top + middle.bottom) / 2)
+    await win.keyboard.press('Control+ArrowLeft')
+    const caret = await win.evaluate(() => {
+      const w = globalThis as unknown as { getSelection(): { getRangeAt(i: number): { getBoundingClientRect(): Box } } }
+      return w.getSelection().getRangeAt(0).getBoundingClientRect()
+    })
+
+    await win.keyboard.down('F9')
+    await expect(marker(win)).toContainText('Listening')
+    await expect(marker(win)).toHaveAttribute('data-small', 'true')
+    // Over the cursor, its middle in the gap between the words of the line above and those of the cursor's line.
+    const box = (await marker(win).boundingBox())!
+    expect(box.height).toBeLessThanOrEqual(16)
+    expect(Math.abs(box.x + box.width / 2 - caret.left)).toBeLessThan(3)
+    const centre = box.y + box.height / 2
+    expect(centre).toBeGreaterThan(above.bottom - 1)
+    expect(centre).toBeLessThan(middle.top + 1)
+    await win.waitForTimeout(1300)
+    await win.keyboard.up('F9')
+    await expect(marker(win)).toContainText('Writing it down')
+    await expect(marker(win)).toHaveAttribute('data-small', 'true')
+    await expect(prose(win)).toContainText(' slowly ')
+    await expect(marker(win)).toHaveCount(0)
   } finally {
     await speech.close()
   }
@@ -268,8 +383,10 @@ test('dictation goes into a scene card field, and Ctrl+Z there takes it out', as
 test('the Quick start box has a microphone button: one click listens, the next puts the words in', async ({ launch }) => {
   const options: SpeechOptions = { dictation: 'A ferryman who owes the Duke money.', dictationDelayMs: 500 }
   const speech = await startSpeech(options)
+  const fake = await startFake()
   try {
     const { app, win } = await setUp(launch, speech)
+    await useFakeModel(win, fake)
     await binder(win).getByRole('button', { name: 'Characters' }).click()
     await main(win)
       .getByRole('button', { name: /^Quick start (an? \w+ )?from a few notes$/ })
@@ -293,7 +410,24 @@ test('the Quick start box has a microphone button: one click listens, the next p
     await expect(notes).toHaveValue('Tall and quiet. A ferryman who owes the Duke money.')
     await expect(mic).toBeVisible()
     await expect(marker(win)).toHaveCount(0)
+
+    // Building starts while it listens: the box can't be typed in while the character is built, so what
+    // was said is offered to copy instead, never lost.
+    options.dictation = 'Missing two fingers.'
+    await mic.click()
+    await expect(marker(win)).toContainText('Listening')
+    await win.waitForTimeout(1300)
+    await main(win).getByRole('button', { name: 'Build the character' }).click()
+    await expect(
+      win.getByText("The box your words were for can't take them now, so here they are to copy: “Missing two fingers.”")
+    ).toBeVisible()
+    await expect(notes).toHaveValue('Tall and quiet. A ferryman who owes the Duke money.')
+    await win.getByRole('button', { name: 'Copy', exact: true }).click()
+    await expect(win.getByText('Copied. Paste them where you like.')).toBeVisible()
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe('Missing two fingers.')
+    await expect(marker(win)).toHaveCount(0)
   } finally {
+    await fake.close()
     await speech.close()
   }
 })
@@ -310,11 +444,18 @@ test('a problem writing it down is said plainly, and Try again still puts the wo
     await win.keyboard.press('Control+End')
 
     await hold(win, 'F9')
-    const problem = win.getByText(/Dictation isn't ready yet: no dictation model is loaded\./)
+    // Said plainly, with the way to the fix, and Try again for once it is fixed.
+    const problem = win.getByText('No dictation model is loaded. Pick one in Settings, then try again.')
     await expect(problem).toBeVisible()
     await expect(prose(win)).toHaveText('Night fell')
+    await win.getByRole('button', { name: 'Open Settings' }).click()
+    await expect(win.getByRole('heading', { level: 1, name: 'Read aloud and dictation' })).toBeVisible()
+    // The message stays, so Try again is still there once the fix is made.
+    await expect(problem).toBeVisible()
     delete options.dictationFail
     await win.getByRole('button', { name: 'Try again' }).click()
+    await expect(problem).toHaveCount(0)
+    await settingsButton(win).click()
     await expect(prose(win)).toHaveText('Night fell and the rain came')
   } finally {
     await speech.close()
@@ -327,22 +468,66 @@ test('the microphone Test shows a live level and writes what it heard in the try
   try {
     const { app, win } = await setUp(launch, speech)
     await openSettings(win, 'Read aloud and dictation')
+
+    // The key can be picked from the keyboard too: Enter or Space on the button starts picking, and again
+    // stops it, as on any button, without being taken for the key or refused.
+    const waiting = 'Press the key you want to hold while you talk. Esc clears it.'
+    await win.getByRole('button', { name: 'Pick a key' }).focus()
+    for (const key of ['Enter', 'Space']) {
+      await win.keyboard.press(key)
+      await expect(keyBox(win)).toHaveText('Press a key…')
+      await expect(win.getByText(waiting)).toBeVisible()
+      await expect(win.getByRole('button', { name: 'Cancel' })).toBeFocused()
+      await win.keyboard.press(key)
+      await expect(keyBox(win)).toHaveText('None')
+      await expect(win.getByText(/^No key yet\./)).toBeVisible()
+    }
+    await win.keyboard.press('Enter')
+    await win.keyboard.press('F8')
+    await expect(keyBox(win)).toHaveText('F8')
+    await expect(win.getByText('Hold F8 and talk, then let go.')).toBeVisible()
+
     // Until the speech engine is ready, Settings says so plainly, with the way to it.
     await expect(win.getByText("Dictation needs the speech engine, which isn't running.")).toBeVisible()
     await expect(win.getByRole('button', { name: 'Go to the speech engine' })).toBeVisible()
-    await makeDictationReady(app)
-    await expect(win.getByRole('button', { name: 'Go to the speech engine' })).toHaveCount(0)
 
+    // The Test still shows the level then, and says that was all it could test, and why. The line about
+    // the Test keeps its room, so nothing below it moves as it changes.
     await main(win).getByRole('button', { name: 'More', exact: true }).click()
     const meter = win.getByRole('meter', { name: 'Microphone level' })
+    const line = win.getByTestId('microphone-test-line')
+    const tryIt = win.getByText('Try it', { exact: true })
+    const below = async (): Promise<number> => (await tryIt.boundingBox())!.y - (await line.boundingBox())!.y
+    const room = await below()
+    await expect(line).toHaveText('Click Test and say a sentence or two.')
     await expect(meter).toHaveAttribute('aria-valuenow', '0')
     await win.getByRole('button', { name: 'Test', exact: true }).click()
-    await expect(win.getByText('Listening. Say a sentence or two, then click Stop.')).toBeVisible()
-    await expect.poll(async () => Number(await meter.getAttribute('aria-valuenow')), { timeout: 5000 }).toBeGreaterThan(30)
+    await expect(line).toHaveText('Listening. Say a sentence or two, then click Stop.')
+    await expect.poll(async () => Number(await meter.getAttribute('aria-valuenow')), LEVEL_POLL).toBeGreaterThan(30)
+    expect(await below()).toBe(room)
+    await win.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(line).toHaveText(
+      /^Only the level was tested\. Your words can be written down once the speech engine is running\.\s*Go to the speech engine$/
+    )
+    await expect(line.getByRole('button', { name: 'Go to the speech engine' })).toBeVisible()
+    await expect(meter).toHaveAttribute('aria-valuenow', '0')
+    expect(await below()).toBe(room)
+    expect(await recordings(speech)).toHaveLength(0)
+
+    // Once the speech engine is ready, none of that holds any more, and it goes.
+    await makeDictationReady(app)
+    await expect(win.getByRole('button', { name: 'Go to the speech engine' })).toHaveCount(0)
+    await expect(line).toHaveText('Click Test and say a sentence or two.')
+
+    await win.getByRole('button', { name: 'Test', exact: true }).click()
+    await expect(line).toHaveText('Listening. Say a sentence or two, then click Stop.')
+    await expect.poll(async () => Number(await meter.getAttribute('aria-valuenow')), LEVEL_POLL).toBeGreaterThan(30)
     await win.waitForTimeout(600)
     await win.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(win.getByLabel('Try it')).toHaveValue('Testing, one, two, three.')
+    await expect(line).toHaveText("That's what the microphone heard. If a word came out wrong, try again a little closer to it.")
     await expect(meter).toHaveAttribute('aria-valuenow', '0')
+    expect(await below()).toBe(room)
 
     // The microphones on this computer can be picked; the computer's default is first.
     await win.getByLabel('Listen with').click()

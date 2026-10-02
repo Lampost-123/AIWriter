@@ -96,7 +96,8 @@ describe('picking the dictation key', () => {
     expect(refusal('PrintScreen')).toMatch(/belongs to Windows/)
     expect(refusal('AudioVolumeUp')).toMatch(/belongs to Windows/)
     expect(refusal('F2')).toMatch(/renames chapters and scenes/)
-    expect(refusal('F11')).toMatch(/focus mode/)
+    // F11 is kept for focus mode, which isn't there yet: said so, not as if it were.
+    expect(refusal('F11')).toMatch(/^F11 is kept for focus mode, which comes in a later update\./)
     // The window keeps F5 (reload) and F12 (developer tools) from ever reaching the page.
     expect(refusal('F5')).toMatch(/keeps F5 to itself/)
     expect(refusal('F12')).toMatch(/keeps F12 to itself/)

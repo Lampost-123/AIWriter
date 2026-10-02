@@ -7,9 +7,9 @@ import { useEffect } from 'react'
 import { toast, useToasts } from '@/components/ui'
 import { isMac } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { PRE_ROLL_SECONDS } from './heard'
 import { isDictationKey, isModifierKey, keyName, MENU_KEY, pressedAlone } from './keys'
 import { DictationMarker } from './Marker'
-import { PRE_ROLL_SECONDS } from './mic'
 import { dictationReady, notReadyNow, useDictationReady } from './ready'
 import {
   cancelRecording,

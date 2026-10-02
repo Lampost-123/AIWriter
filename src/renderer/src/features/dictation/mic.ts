@@ -1,19 +1,16 @@
 // Adapted from Poor-Mans-Holodeck's src/lib/dictate.ts (warmDictation, startDictation and the buffer it
 // trims): the microphone opened at 16 kHz and kept open while dictation is on, holding the last moment of
-// sound so a recording can start a little before the key went down; a recording is the stretch from its
-// start until it stops. The sound arrives through an AudioWorklet (recorder.worklet.js) instead of
+// sound (heard.ts) so a recording can start a little before the key went down; a recording is the stretch
+// from its start until it stops. The sound arrives through an AudioWorklet (recorder.worklet.js) instead of
 // Holodeck's ScriptProcessor. Nothing is kept once a recording has been taken, and nothing is written anywhere.
 import { DICTATION_SAMPLE_RATE } from '@shared/contracts/dictation'
 // A file of its own, never written into the page as a data: address (the window's security rules only
 // let it load scripts from the app itself).
 import WORKLET from './recorder.worklet.js?url&no-inline'
+import { hear, KEEP_SECONDS, startBack, trimHeard, type Heard } from './heard'
 import { takeSamples } from './wav'
 
 const RATE = DICTATION_SAMPLE_RATE
-/** What is kept while nothing is being recorded: enough for the moment before a key goes down. */
-const KEEP_SECONDS = 1
-/** How far before the key went down a recording starts, so the words said as it goes down are kept. */
-export const PRE_ROLL_SECONDS = 0.45
 
 /** Why the microphone couldn't be opened, in plain words with what to do. */
 export class MicError extends Error {
@@ -26,33 +23,30 @@ export class MicError extends Error {
   }
 }
 
-/** The microphone isn't allowed: where to allow it, on this computer. */
-function micDenied(): string {
+/** Where to let AI Write use the microphone, on this computer. */
+export function micAllowWhere(): string {
   const platform = window.aiwrite?.platform
-  const where =
-    platform === 'win32'
-      ? 'In Windows Settings › Privacy & security › Microphone, turn on microphone access for desktop apps'
-      : platform === 'darwin'
-        ? 'In System Settings › Privacy & Security › Microphone, turn on AI Write'
-        : "Allow AI Write to use the microphone in this computer's privacy settings"
-  return `AI Write isn't allowed to use the microphone. ${where}, then try again.`
+  return platform === 'win32'
+    ? 'In Windows Settings › Privacy & security › Microphone, turn on access for desktop apps'
+    : platform === 'darwin'
+      ? 'In System Settings › Privacy & Security › Microphone, turn on AI Write'
+      : "Allow AI Write to use the microphone in this computer's privacy settings"
 }
+
+/** The microphone isn't allowed: where to allow it, on this computer. */
+const micDenied = (): string => `AI Write isn't allowed to use the microphone. ${micAllowWhere()}, then try again.`
 export const MIC_MISSING = 'No microphone was found. Plug one in, then try again.'
 export const MIC_BUSY =
   "The microphone couldn't be started. Close any other app that may be using it, or pick another microphone in Settings › Read aloud and dictation, then try again."
 
-interface Mic {
+/** The open microphone, with what it has heard lately (Heard). */
+interface Mic extends Heard {
   ctx: AudioContext
   stream: MediaStream
   /** The microphone asked for ('' for the computer's default). */
   deviceId: string
   /** The computer's default is in use because the microphone asked for isn't plugged in. */
   fellBack: boolean
-  chunks: Float32Array[]
-  /** The sample `chunks[0]` starts at, counted from opening. */
-  origin: number
-  /** Samples received since opening. */
-  total: number
   /** Recordings still to be taken: nothing they need is let go. */
   takes: Set<Take>
   closed: boolean
@@ -105,12 +99,8 @@ export const levelOf = (rms: number): number => Math.min(1, Math.max(0, (20 * Ma
 
 /** Lets go of sound nobody needs: all but the last moment, or what a recording still to be taken holds. */
 function trim(m: Mic): void {
-  let keep = m.total - RATE * KEEP_SECONDS
-  for (const t of m.takes) keep = Math.min(keep, t.from)
-  while (m.chunks.length && m.origin + m.chunks[0].length <= keep) {
-    m.origin += m.chunks[0].length
-    m.chunks.shift()
-  }
+  const starts = Array.from(m.takes, (t) => t.from)
+  trimHeard(m, RATE * KEEP_SECONDS, starts)
 }
 
 function stop(m: Mic): void {
@@ -141,8 +131,7 @@ async function start(deviceId: string, closesNow: number): Promise<Mic> {
     mute.connect(ctx.destination)
     node.port.onmessage = (e: MessageEvent<{ samples: Float32Array; rms: number }>) => {
       if (m.closed) return
-      m.chunks.push(e.data.samples)
-      m.total += e.data.samples.length
+      hear(m, e.data.samples)
       trim(m)
       if (open !== m) return
       level = Math.max(levelOf(e.data.rms), level * 0.82)
@@ -218,7 +207,7 @@ export const micFellBack = (): boolean => !!open?.fellBack
 export function startTake(preRoll: number): Take | null {
   const m = open
   if (!m) return null
-  const take = { mic: m, from: Math.max(m.origin, m.total - Math.floor(RATE * preRoll)) }
+  const take = { mic: m, from: startBack(m, RATE * preRoll) }
   m.takes.add(take)
   return take
 }
