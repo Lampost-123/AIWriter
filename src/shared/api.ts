@@ -9,7 +9,9 @@ import type {
   ChangeView,
   EndAt,
   ExistsPoint,
+  FactVersion,
   MemoryLogItem,
+  SourceLink,
   MemoryStatus,
   PinScope,
   StartAt,
@@ -100,10 +102,12 @@ export interface AppApi {
   deleteScene(id: ID): Promise<void>
   /** Moves a scene to `index` within `chapterId` (which may be a different chapter). */
   moveScene(id: ID, chapterId: ID, index: number): Promise<void>
-  /** Marks a scene done (Accept, Ctrl+Enter): the memory catches up with it now and its summary is written. */
-  acceptScene(id: ID): Promise<SceneMeta>
-  /** Opens an accepted scene for more work (status back to revised). */
+  /** Marks a scene done (Ctrl+Enter): sets its status, and the memory and its summary catch up with it now. */
+  markSceneDone(id: ID): Promise<SceneMeta>
+  /** Opens a scene marked done for more work (status back to revised). */
   reopenScene(id: ID): Promise<SceneMeta>
+  /** Adam left this scene (opened another, or another page): the memory keeper reads it if it changed. */
+  sceneLeft(id: ID): Promise<void>
 
   // ----- World bible entries -----
   listEntries(kind?: EntryKind): Promise<Entry[]>
@@ -133,8 +137,16 @@ export interface AppApi {
   getMemoryStatus(): Promise<MemoryStatus>
   /** The quiet "What changed" list, newest first. */
   listMemoryLog(options?: { sceneId?: ID; entryId?: ID; limit?: number }): Promise<MemoryLogItem[]>
-  /** Undoes one thing the memory keeper did; it won't do that again for the same words. */
+  /** Undoes one thing the memory keeper did (restores the previous version); it won't do that again from the same words. */
   undoMemoryItem(id: ID): Promise<void>
+  /** Answers a question-marked line (a judgement call made with a default). Optional, any time. */
+  answerMemoryQuestion(id: ID, optionId: string): Promise<void>
+  /** An entry's memory history: every version of it and of its changes, newest first. */
+  listEntryHistory(entryId: ID): Promise<FactVersion[]>
+  /** Restores an entry (its own fields) to an earlier version; this writes a new version, so it can be undone too. */
+  restoreEntryVersion(entryId: ID, versionId: ID): Promise<Entry>
+  /** The words each of an entry's facts came from (the entry itself and its fields). */
+  listEntryLinks(entryId: ID): Promise<SourceLink[]>
   /** Brings the memory up to date with a scene now (or every scene that is behind), e.g. after an error. */
   updateMemoryNow(sceneId?: ID): Promise<void>
 
