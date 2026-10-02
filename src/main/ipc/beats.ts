@@ -5,9 +5,15 @@ import type { Handlers } from './index'
 import type { BeatsApi } from '@shared/contracts/beats'
 import { emit } from '../events'
 import { cancelBeatStart, startBeat } from '../beats'
+import { VARIANTS_WRITING, variantsBusy } from '../variants'
+import { UserError } from '../util'
 import { isStartingDraft } from './ai'
 
 export const beatsHandlers: Handlers<keyof BeatsApi> = {
-  startBeat: (input) => startBeat(input, { emit, otherStarting: isStartingDraft }),
+  startBeat: (input) => {
+    // The scene's variants (getting ready, or being written) have it for now, as for Generate.
+    if (variantsBusy(input.sceneId)) throw new UserError(VARIANTS_WRITING, 'busy')
+    return startBeat(input, { emit, otherStarting: isStartingDraft })
+  },
   cancelBeatStart: (sceneId) => cancelBeatStart(sceneId)
 }

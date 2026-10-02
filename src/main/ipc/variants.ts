@@ -8,6 +8,7 @@ import * as world from '../world'
 import { emit } from '../events'
 import { draftBriefing, providerNotes } from '../ai/draftFlow'
 import { latestVariantSet, startVariantSet, stopVariantSet } from '../variants'
+import { isStartingBeat } from '../beats'
 import { isStartingDraft } from './ai'
 
 export const variantsHandlers: Handlers<keyof VariantsApi> = {
@@ -16,7 +17,8 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
       db: world.db(),
       emit,
       briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal }),
-      startingElsewhere: isStartingDraft,
+      // Generate's draft or a beat of Beat by beat getting ready.
+      startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
       providerNotes
     }),
   stopVariants: (setId) => stopVariantSet(setId),

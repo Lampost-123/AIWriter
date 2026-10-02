@@ -18,6 +18,7 @@ import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { snapshotBefore } from '@/features/history/snapshot'
+import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
@@ -322,6 +323,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     const bridge = editorBridge()
     if (!bridge || bridge.sceneId !== sceneId) {
       toast('Open this scene in the editor to draft into it.')
+      return
+    }
+    // Milestone 4: while the scene's variants are being written, say so before asking anything.
+    if (isWriting(setOf(useVariants.getState(), sceneId))) {
+      toast('Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.')
       return
     }
     const filled = bridge.hasText()

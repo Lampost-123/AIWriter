@@ -346,10 +346,9 @@ test('while variants are being written the toolbar says so, from any page; Esc s
     // Back on the writing page, the Variants button shows they are still being written.
     await win.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(variantsButton(win)).toHaveAttribute('title', /being written now/)
-    // Generate waits for them, and says so in words that name them; nothing goes into the page.
+    // Generate waits for them, and says so in words that name them before asking anything; nothing goes into the page.
     await generateButton(win).click()
-    await expect(choiceHeading(win)).toBeVisible()
-    await win.getByRole('button', { name: 'Add below', exact: true }).click()
+    await expect(choiceHeading(win)).toBeHidden()
     await expect(
       toasts(win).getByText('Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.')
     ).toBeVisible()
