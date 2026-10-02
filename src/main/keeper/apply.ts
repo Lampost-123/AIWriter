@@ -36,7 +36,7 @@ import {
   removedWords,
   type SceneFact
 } from './facts'
-import { findQuote, likeness, locateQuote, plain, type Para } from './text'
+import { findQuote, likeness, locateQuote, plain, sceneParagraphs, type Para } from './text'
 
 type DB = Database.Database
 
@@ -1037,6 +1037,21 @@ function linkMentions(run: Run): void {
   }
 }
 
+/** Where the text still mentions the entry (in any live scene, read or not), or null. */
+function mentionedSomewhere(db: DB, e: Entry): { scene: KeeperScene; spot: Spot } | null {
+  const names = [e.name, ...e.aliases].filter((n) => n.trim().length >= 2)
+  const longestWord = (n: string): string =>
+    n
+      .trim()
+      .split(/\s+/)
+      .sort((a, b) => b.length - a.length)[0] ?? n
+  for (const scene of kdb.scenesWithWords(db, names.map(longestWord))) {
+    const spot = findMention(names, sceneParagraphs(scene.doc, scene.text))
+    if (spot) return { scene, spot }
+  }
+  return null
+}
+
 /** Text entries whose last mention is gone, which Adam never edited, move to Trash (with their own text changes). */
 function trashForgotten(run: Run): void {
   const db = run.db
@@ -1054,6 +1069,19 @@ function trashForgotten(run: Run): void {
       else unsupported.push(c.id)
     }
     if (supported || kdb.entryReferenced(db, id, unsupported)) continue
+    // Another scene still names it (one read before the entry existed, or not read yet): it stays, linked there.
+    const still = mentionedSomewhere(db, e)
+    if (still) {
+      hist.addLink(db, {
+        factKind: 'entry',
+        factId: id,
+        field: null,
+        sceneId: still.scene.sceneId,
+        sceneVersion: still.scene.textVersion,
+        ...still.spot
+      })
+      continue
+    }
     for (const cid of unsupported) mem.deleteChange(db, cid, run.by)
     repo.deleteEntry(db, id, run.by)
     run.log({

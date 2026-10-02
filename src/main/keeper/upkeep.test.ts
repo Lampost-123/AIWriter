@@ -11,6 +11,8 @@ import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import type { MemoryModel } from './model'
 import { runScene, type RunOutcome } from './run'
+import { Keeper } from './engine'
+import { undoItem } from './undo'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -265,5 +267,166 @@ describe('the "Memory updated" note and the What changed list', () => {
     expect(kdb.lastUpdate(w.db)).toMatchObject({ runId: out.runId, changes: 3 })
     expect(kdb.listLog(w.db, { sceneId: w.sceneId }).map((l) => l.action)).toEqual(['failed', 'added', 'added'])
     expect(kdb.listLog(w.db, { sceneId: second }).every((l) => l.runId === out.runId)).toBe(true)
+  })
+})
+
+function keeperFor(db: Database.Database, model: MemoryModel | null = modelFor(), quietMs = 60_000): Keeper {
+  return new Keeper({
+    db,
+    model: () => model ?? { error: 'Choose a memory model in Settings > Models so the memory can keep up.' },
+    emitStatus: () => {},
+    emitChanged: () => {},
+    quietMs,
+    summaries: false,
+    retryDelays: [0]
+  })
+}
+
+const state = (db: Database.Database, id: ID): string => kdb.keeperScene(db, id)!.memoryState
+
+describe('catching up before a draft', () => {
+  it('reads only the earlier scenes on the story’s line', async () => {
+    const w = world()
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    const s3 = repo.createScene(w.db, w.chapterId, { title: 'Scene 3' }).id
+    const whatIf = repo.createStory(w.db, { title: 'What if' })
+    mem.setStoryPlacement(w.db, whatIf.id, {
+      kind: 'own',
+      startStoryId: null,
+      startAt: 'end',
+      startRefId: null,
+      endAt: null,
+      endRefId: null,
+      leadsIntoId: null
+    })
+    const wiScene = repo.createScene(w.db, repo.createChapter(w.db, whatIf.id, { title: 'One' }).id, { title: 'Other' }).id
+    save(w.db, w.sceneId, [['a', 'Mara lost her left hand.']])
+    save(w.db, s2, [['b', 'Tobin lost his boots.']])
+    save(w.db, s3, [['c', 'Kell lost his hat.']])
+    save(w.db, wiScene, [['d', 'Wren lost her ring.']])
+    const k = keeperFor(w.db)
+    await k.catchUpBefore(s3)
+    expect([state(w.db, w.sceneId), state(w.db, s2), state(w.db, s3), state(w.db, wiScene)]).toEqual([
+      'current',
+      'current',
+      'pending',
+      'pending'
+    ])
+    k.stop()
+  })
+})
+
+describe('Adam typing while the keeper reads', () => {
+  it('reads the scene again afterwards, once, with the new words', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    const k = keeperFor(w.db, modelFor(), 30)
+    let typed = false
+    const slow: typeof fetch = async (input, init) => {
+      if (!typed) {
+        typed = true
+        save(w.db, w.sceneId, [
+          ['p1', 'Mara lost her left hand.'],
+          ['p2', 'Tobin lost his boots.']
+        ])
+        k.sceneSaved(w.sceneId)
+      }
+      return fetch(input, init)
+    }
+    ;(k as unknown as { deps: { fetchImpl: typeof fetch } }).deps.fetchImpl = slow
+    k.sceneLeft(w.sceneId)
+    await new Promise((r) => setTimeout(r, 120))
+    await k.whenIdle()
+    expect(entryNamed(w.db, 'Mara')).not.toBeNull()
+    expect(entryNamed(w.db, 'Tobin')).not.toBeNull()
+    expect(state(w.db, w.sceneId)).toBe('current')
+    const runs = w.db.prepare("SELECT status FROM memory_runs WHERE status = 'done'").all()
+    expect(runs).toHaveLength(2)
+    k.stop()
+  })
+})
+
+describe('undo', () => {
+  it('undoing twice is the same as once, and an undone removal stays undone after the next run', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her left hand.'],
+      ['p2', 'Tobin lost his boots.']
+    ])
+    await read(w.db, w.sceneId)
+    const mara = entryNamed(w.db, 'Mara')!
+    const [c] = mem.changesForEntry(w.db, mara.id)
+    // Delete Mara's words: the change goes. Undo that: it comes back, and stays.
+    save(w.db, w.sceneId, [['p2', 'Tobin lost his boots. Mara walked away.']])
+    await read(w.db, w.sceneId)
+    expect(mem.changesForEntry(w.db, mara.id)).toHaveLength(0)
+    const removed = kdb.listLog(w.db).find((l) => l.action === 'removed' && l.factId === c.id)!
+    w.db.transaction(() => undoItem(w.db, removed.id))()
+    w.db.transaction(() => undoItem(w.db, removed.id))()
+    expect(mem.changesForEntry(w.db, mara.id)).toHaveLength(1)
+    save(w.db, w.sceneId, [['p2', 'Tobin lost his boots. Mara walked away. The ferry was late.']])
+    await read(w.db, w.sceneId)
+    expect(mem.changesForEntry(w.db, mara.id)).toHaveLength(1)
+  })
+
+  it('an undone change stays undone when the scene is read again unchanged', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    await read(w.db, w.sceneId)
+    const line = kdb.listLog(w.db).find((l) => l.text === 'Lost her left hand')!
+    w.db.transaction(() => undoItem(w.db, line.id))()
+    // The same text saved again (and a re-read forced): nothing comes back.
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    w.db.prepare("UPDATE scenes SET memory_paragraphs_json = '[]' WHERE id = ?").run(w.sceneId)
+    await read(w.db, w.sceneId)
+    expect(mem.listAllChanges(w.db)).toHaveLength(0)
+  })
+})
+
+describe('the Trash', () => {
+  it('keeps a text entry another scene still mentions, even one not read since', async () => {
+    const w = world()
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    save(w.db, s2, [['q1', 'Kell sat by the fire.']])
+    await read(w.db, s2) // nothing to add: Kell isn't an entry yet
+    save(w.db, w.sceneId, [['p1', 'Kell lost his hat.']])
+    await read(w.db, w.sceneId)
+    const kell = entryNamed(w.db, 'Kell')!
+    save(w.db, w.sceneId, [['p1', 'The ferry was late.']])
+    await read(w.db, w.sceneId)
+    expect(entryNamed(w.db, 'Kell')?.id).toBe(kell.id)
+    // Linked to the words that still name him, so it goes when those do.
+    expect(hist.linksForEntry(w.db, kell.id).filter((l) => l.state === 'ok')).toMatchObject([{ sceneId: s2, quote: 'Kell' }])
+    save(w.db, s2, [['q1', 'The fire was out.']])
+    await read(w.db, s2)
+    expect(entryNamed(w.db, 'Kell')).toBeNull()
+  })
+})
+
+describe('what the memory model is told', () => {
+  it('nothing from a later scene, or from a what-if story', async () => {
+    const w = world()
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    save(w.db, s2, [['q1', 'Mara lost her left hand.']])
+    await read(w.db, s2)
+    const whatIf = repo.createStory(w.db, { title: 'What if' })
+    mem.setStoryPlacement(w.db, whatIf.id, {
+      kind: 'own',
+      startStoryId: w.storyId,
+      startAt: 'end',
+      startRefId: null,
+      endAt: null,
+      endRefId: null,
+      leadsIntoId: null
+    })
+    const wiScene = repo.createScene(w.db, repo.createChapter(w.db, whatIf.id, { title: 'One' }).id, { title: 'Other' }).id
+    save(w.db, wiScene, [['d', 'Mara learned that the Duke was dead.']])
+    await read(w.db, wiScene)
+    save(w.db, w.sceneId, [['p1', 'Mara walked to the ferry. Mara learned that the river was high.']])
+    await read(w.db, w.sceneId)
+    const sent = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    expect(sent).toContain('Mara')
+    expect(sent).not.toContain('left hand')
+    expect(sent).not.toContain('Duke')
   })
 })

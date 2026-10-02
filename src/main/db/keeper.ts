@@ -108,6 +108,18 @@ export function needsReading(db: DB, sceneId: ID): boolean {
   return !!db.prepare(`${LIVE_IDS} AND s.id = ? AND ${BEHIND}`).get(sceneId)
 }
 
+/**
+ * Live scenes whose text may hold one of these words (letters A to Z in any case), in reading order.
+ * A quick filter by index-free LIKE; the caller checks each for a real mention.
+ */
+export function scenesWithWords(db: DB, words: string[]): KeeperScene[] {
+  const ws = [...new Set(words.map((w) => w.trim()).filter((w) => w.length >= 2))]
+  if (!ws.length) return []
+  const like = ws.map(() => "s.text LIKE ? ESCAPE '\\'").join(' OR ')
+  const args = ws.map((w) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+  return (db.prepare(`${LIVE_SCENES} AND (${like}) ${READING_ORDER}`).all(...args) as Row[]).map(toKeeperScene)
+}
+
 /** Every live scene id, in reading order. */
 export function liveSceneIds(db: DB): ID[] {
   return (db.prepare(`${LIVE_IDS} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
