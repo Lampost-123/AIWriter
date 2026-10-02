@@ -93,6 +93,10 @@ export interface CheckProgress {
   total: number
   /** The scene being checked now, in plain words ("Ch 3, Sc 2: The ferry"). */
   current: string | null
+  /** The scenes this run checks, in order (so a scene's Issues tab can say "Checking…"). */
+  sceneIds?: ID[]
+  /** The scene being checked now. */
+  currentSceneId?: ID | null
 }
 
 export interface CheckDone {
@@ -103,6 +107,8 @@ export interface CheckDone {
   error: string | null
   /** New issues raised by this run. */
   found: number
+  /** Started by marking a scene done (facts, knowledge and timeline, in the background), not by Adam. */
+  background?: boolean
 }
 
 /** A word or phrase used too often: nearby in one scene, or a pet phrase across chapters. */

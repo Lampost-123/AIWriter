@@ -164,6 +164,17 @@ export class Keeper {
     await wait
   }
 
+  /**
+   * Resolves once the scene's queued or running read has been tried (at once when none is; milestone 5's
+   * checks wait for it, so a clash the keeper raises isn't raised by a check as well).
+   */
+  async whenRead(sceneId: ID): Promise<void> {
+    if (this.closed) return
+    if (this.reading?.sceneId !== sceneId && !this.queue.includes(sceneId) && !this.urgent.includes(sceneId)) return
+    if ('error' in this.deps.model()) return
+    await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
+  }
+
   /** The world is closing: stop now and write nothing more. Finishes the open records first (synchronously). */
   stop(): void {
     if (this.closed) return

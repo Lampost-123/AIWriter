@@ -13,6 +13,7 @@ import { loadShapeSafe } from '../keeper/places'
 import { answerItem, undoItem, type Outcome } from '../keeper/undo'
 import type { Undo } from '../keeper/apply'
 import { isWorldLine } from '../worldBuilder/lines'
+import { checkWhenDone } from '../checks/runs'
 
 type KeeperMethods =
   | 'markSceneDone'
@@ -64,6 +65,8 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
   markSceneDone: (id) => {
     const meta = write(() => markSceneDone(id) ?? kdb.markSceneDone(world.db(), id))
     sceneMarkedDone(id)
+    // Milestone 5: its facts, knowledge and timeline are checked in the background (nothing at all without a model).
+    checkWhenDone(world.db(), id)
     emit('memory:status', memoryStatus())
     return meta
   },
