@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { placeOptions, type PlaceOption } from '@/features/world/entryLogic'
+import { createDraftCache } from '@/features/world/parts/draftCache'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
@@ -15,6 +16,11 @@ import { BeatsEditor } from './BeatsEditor'
 import { CastPicker } from './CastPicker'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
+
+// The newest card for each scene until its write is confirmed, so a panel that
+// re-opens before then (switching tab or scene and straight back) starts from
+// what Adam typed, never from the older copy on disk.
+const cardDrafts = createDraftCache<SceneCard>()
 
 /**
  * The scene card in the right-hand panel: who is in the scene, where and when,
@@ -28,16 +34,30 @@ export function SceneCardPanel({ sceneId }: { sceneId: ID }): React.JSX.Element 
 
 function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const entriesRev = useApp((s) => s.entriesRev)
-  const [card, setCard] = useState<SceneCard | null>(null)
+  const [card, setCard] = useState<SceneCard | null>(() => cardDrafts.get(sceneId) ?? null)
   const [entries, setEntries] = useState<Entry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const cardRef = useRef<SceneCard | null>(null)
+  const cardRef = useRef<SceneCard | null>(card)
 
-  const autosave = useAutosave<SceneCard>((c) => api.updateSceneCard(sceneId, { ...c, beats: beatsToStore(c.beats) }), { what: 'the scene card' })
+  const autosave = useAutosave<SceneCard>(
+    async (c) => {
+      await api.updateSceneCard(sceneId, { ...c, beats: beatsToStore(c.beats) })
+      cardDrafts.confirm(sceneId, c)
+    },
+    { what: 'the scene card' }
+  )
   const { schedule } = autosave
 
+  // Opened from a copy that isn't confirmed saved yet: queue it again, so it is
+  // written even if the earlier panel's write never landed.
   useEffect(() => {
+    const draft = cardDrafts.get(sceneId)
+    if (draft) schedule(draft)
+  }, [sceneId, schedule])
+
+  useEffect(() => {
+    if (cardRef.current) return
     let live = true
     api
       .getScene(sceneId)
@@ -71,9 +91,10 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
       const next = { ...cardRef.current, ...patch }
       cardRef.current = next
       setCard(next)
+      cardDrafts.set(sceneId, next)
       schedule(next)
     },
-    [schedule]
+    [schedule, sceneId]
   )
   // Stable callbacks and memoised lists, so typing in one field doesn't redraw the
   // pickers (which hold every character and place in the world).

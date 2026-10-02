@@ -1,5 +1,5 @@
 import { AlertTriangle, Lock, Trash2 } from 'lucide-react'
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind } from '@shared/types'
 import { Button, Field, Input, Select } from '@/components/ui'
@@ -7,7 +7,7 @@ import { AutoTextarea } from './parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import { confirmSaved, setDraft, takeFresh } from './entryDrafts'
+import { confirmSaved, getDraft, setDraft, takeFresh } from './entryDrafts'
 import { deleteEntryWithUndo, toPatch } from './entryActions'
 import { filledCount, findNearDuplicates, kindNoun, parentPlaceOptions, type NearDuplicate, type PlaceOption } from './entryLogic'
 import { SaveNote } from './parts/SaveNote'
@@ -103,6 +103,14 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
     },
     [schedule]
   )
+  // Opened from a copy that isn't confirmed saved yet (re-opened before its write
+  // landed, or after a failed write): queue it again so it can't be left unsaved.
+  const opened = useRef(initial)
+  useEffect(() => {
+    const first = opened.current
+    if (getDraft(first.id) === first) schedule(first)
+  }, [schedule])
+
   const setField = useCallback((key: string, v: string) => update({ fields: { ...draftRef.current.fields, [key]: v } }), [update])
   const setParent = useCallback((parentId: string | null) => update({ parentId }), [update])
 

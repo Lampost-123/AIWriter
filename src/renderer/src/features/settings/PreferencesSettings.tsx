@@ -5,6 +5,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { usePrefs } from '@/features/style/prefsStore'
 import { ChipListInput } from '@/features/world/parts/ChipListInput'
+import { createDraftCache } from '@/features/world/parts/draftCache'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { POV_PRESETS, PresetInput, TENSE_PRESETS } from '@/features/world/parts/TextInputs'
 import { useAutosave } from '@/features/world/parts/useAutosave'
@@ -15,14 +16,20 @@ const SPELLING_OPTIONS = [
   { value: 'US', label: 'US spelling', hint: 'color, realize' }
 ]
 
+// The newest preferences until their write is confirmed, so re-opening this page
+// straight after a change starts from what Adam typed.
+const drafts = createDraftCache<WritingPrefs>()
+const KEY = 'prefs'
+
 /** Adam's own writing preferences, used in every world unless a world's style guide says otherwise. */
 export function PreferencesSettings(): React.JSX.Element | null {
-  const [loaded, setLoaded] = useState<WritingPrefs | null>(null)
+  const [loaded, setLoaded] = useState<WritingPrefs | null>(() => drafts.get(KEY) ?? null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const slow = useSlow(!loaded && !error)
 
   useEffect(() => {
+    if (drafts.get(KEY)) return
     let live = true
     api
       .getWritingPrefs()
@@ -67,17 +74,23 @@ function PrefsForm({ initial }: { initial: WritingPrefs }): React.JSX.Element {
   const autosave = useAutosave<WritingPrefs>(
     async (p) => {
       const saved = await api.setWritingPrefs(p)
+      drafts.confirm(KEY, p)
       // Keep what's on screen if Adam typed on while this was saving.
       usePrefs.getState().saved(ref.current === p ? saved : ref.current)
     },
     { what: 'your writing preferences' }
   )
   const { schedule } = autosave
+  useEffect(() => {
+    const d = drafts.get(KEY)
+    if (d) schedule(d)
+  }, [schedule])
   const update = useCallback(
     (patch: Partial<WritingPrefs>) => {
       const next = { ...ref.current, ...patch }
       ref.current = next
       setPrefs(next)
+      drafts.set(KEY, next)
       schedule(next)
     },
     [schedule]
@@ -131,7 +144,7 @@ function PrefsForm({ initial }: { initial: WritingPrefs }): React.JSX.Element {
         </p>
       </div>
       <div className="flex items-center gap-3 border-t border-line pt-4 text-[12px] text-faint">
-        <span className="flex-1">Changes save as you type. Each world's style guide can change any of these for itself.</span>
+        <span className="flex-1">Changes save as you type. A world's style guide can choose its own point of view, tense, spelling and notes. Words to avoid here apply in every world.</span>
         <SaveNote status={autosave.status} error={autosave.error} />
       </div>
     </div>

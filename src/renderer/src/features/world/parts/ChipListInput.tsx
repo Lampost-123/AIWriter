@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
+import { registerFlusher } from '@/lib/flush'
 
 /** Splits pasted or typed text on commas and new lines. */
 const split = (s: string): string[] =>
@@ -46,6 +47,26 @@ export function ChipListInput({
     setText('')
     if (items.length) onChange(addItems(value, items))
   }
+
+  // A phrase typed but not yet added (no Enter, no comma) still counts: it is added
+  // before the window closes or the world switches, and when the box goes away.
+  const latest = useRef({ text, value, onChange })
+  latest.current = { text, value, onChange }
+  useEffect(() => {
+    const keep = (): void => {
+      const { text: t, value: v, onChange: change } = latest.current
+      const items = split(t)
+      if (!items.length) return
+      latest.current = { ...latest.current, text: '' }
+      setText('')
+      change(addItems(v, items))
+    }
+    const unregister = registerFlusher(keep)
+    return () => {
+      unregister()
+      keep()
+    }
+  }, [])
 
   return (
     <div

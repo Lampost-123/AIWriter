@@ -79,7 +79,7 @@ export function StyleView(): React.JSX.Element | null {
           className="mt-5"
         >
           <TabsList
-            className="mb-6 px-0"
+            className="mb-6 px-0!"
             items={[
               { value: 'world', label: 'World' },
               { value: 'story', label: 'This story' }
@@ -126,6 +126,10 @@ function WorldStyleForm({ world, prefs }: { world: World; prefs: WritingPrefs })
     { what: "the world's style guide" }
   )
   const { schedule } = autosave
+  useEffect(() => {
+    const d = worldDrafts.get(world.id)
+    if (d) schedule(d)
+  }, [world.id, schedule])
 
   const update = useCallback(
     (patch: Partial<WorldDraft>) => {
@@ -194,6 +198,10 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
     { what: story.title.trim() ? `"${story.title.trim()}"` : 'this story' }
   )
   const { schedule } = autosave
+  useEffect(() => {
+    const d = storyDrafts.get(story.id)
+    if (d) schedule(d)
+  }, [story.id, schedule])
 
   const update = useCallback(
     (patch: Partial<StoryDraft>) => {

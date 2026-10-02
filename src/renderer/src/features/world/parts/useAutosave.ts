@@ -46,7 +46,9 @@ export function useAutosave<T>(save: (value: T) => Promise<unknown>, opts: { del
 
   useEffect(() => {
     mounted.current = true
-    const unregister = registerFlusher(() => saver.flush())
+    // Waits a moment first, so other flushers that hand this form a last change
+    // (a phrase typed but not yet added) are written in the same flush.
+    const unregister = registerFlusher(() => Promise.resolve().then(() => saver.flush()))
     return () => {
       mounted.current = false
       unregister()
