@@ -16,6 +16,7 @@ import { fieldValue } from './facts'
 import { suppressSummary } from './summaries'
 import { findQuote, plain, sceneParagraphs } from './text'
 import { spotIn, type Spot } from './track'
+import { answerFlowLine, isFlowLine, undoFlowLine } from '../storyFlows/lines'
 
 type DB = Database.Database
 
@@ -195,6 +196,7 @@ function restoreSummary(db: DB, level: Summary['level'], targetId: ID, version: 
 /** Undoes one line: puts back what was there before, and stops the same change being made again from the same words. */
 export function undoItem(db: DB, id: ID): Outcome {
   const row = line(db, id)
+  if (isFlowLine(row)) return undoFlowLine(db, row) // a story flow's line (milestone 3)
   const out: Outcome = { sceneId: row.sceneId, entryIds: row.entryId ? [row.entryId] : [] }
   if (row.undone || row.action === 'failed' || !row.u) return out
   const u = row.u
@@ -315,6 +317,7 @@ export function undoItem(db: DB, id: ID): Outcome {
 /** Applies the option Adam picked on a question-marked line (he can change it any time). */
 export function answerItem(db: DB, id: ID, optionId: string): Outcome {
   const row = line(db, id)
+  if (isFlowLine(row)) return answerFlowLine(db, row, optionId) // a story flow's line (milestone 3)
   const out: Outcome = { sceneId: row.sceneId, entryIds: row.entryId ? [row.entryId] : [] }
   if (!row.question) throw new UserError("That line doesn't ask anything.")
   if (!row.question.options.some((o) => o.id === optionId)) throw new UserError("That answer isn't one of the choices.")

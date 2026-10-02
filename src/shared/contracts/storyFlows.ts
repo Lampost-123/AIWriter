@@ -25,7 +25,29 @@ export interface StoryFlowsApi {
    * question-marked line in What changed. Starts the work and returns.
    */
   sortStartChanges(newStoryId: ID, bookId: ID): Promise<void>
+  /**
+   * How this story's flows are doing in this session: the ones running and the last result of each,
+   * so story settings can show the quiet note as soon as it opens (then follow 'story:flow' events).
+   */
+  listStoryFlows(storyId: ID): Promise<StoryFlowStatus[]>
+  /**
+   * Stops a flow running for this story (and drops one waiting to run after it). Nothing it had worked
+   * out is kept; its status becomes done with "Stopped. Nothing was changed.", or "Stopped. Nothing
+   * more was changed." when it was running again straight after a run of the same flow that did change
+   * something (those changes stay). A call after Stop starts the flow afresh once the stopped run has
+   * wound down.
+   */
+  stopStoryFlow(storyId: ID, flow: StoryFlowKind): Promise<void>
+  /**
+   * Every story flow run in the open world that is listed in What changed, with the heading its group
+   * shows there ("Before Book 4 starts", "Starting cast for The Young Mara", "When did these happen?")
+   * and where each of its lines is now, in plain words ("Start of Book 4").
+   */
+  listStoryFlowRuns(): Promise<StoryFlowRun[]>
 }
+
+/** Which flow: what changed in a time gap, a prequel's starting cast, or "When did these happen?". */
+export type StoryFlowKind = StoryFlowStatus['flow']
 
 /** How a story flow is doing, for a quiet note in story settings. */
 export interface StoryFlowStatus {
@@ -34,6 +56,27 @@ export interface StoryFlowStatus {
   state: 'running' | 'done' | 'failed'
   /** Plain words with a next step when it failed; a short result otherwise ("Added 4 changes"). */
   message: string | null
+}
+
+/** One story flow run as What changed shows it. */
+export interface StoryFlowRun {
+  runId: ID
+  flow: StoryFlowKind
+  /** The story it ran for (for "When did these happen?", the new story). */
+  storyId: ID
+  /** The heading of its group in What changed: "Before Book 4 starts". */
+  heading: string
+  /**
+   * Where each of its lines is now, by line id: "Start of Book 4", "Happens in The Quiet Year, Ch 1,
+   * Sc 2", or "No longer in the memory".
+   */
+  places: Record<ID, string>
+  /**
+   * Lines whose change something else has taken out of the memory since (Adam, the time gap worked out
+   * again, or another line's answer "It happens in the new story"): nothing is left to answer or undo
+   * here, so they show neither.
+   */
+  gone: ID[]
 }
 
 export interface StoryFlowsEvents {

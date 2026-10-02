@@ -2,10 +2,14 @@
 // that made it. Each line names the entry, shows the change as before and after, and links to the
 // words it came from. Undo on any line reverses it (the memory won't add it again from those words);
 // a question-marked line shows the choice the memory made and lets Adam pick another, any time.
-// Adam never has to look at it, so nothing here asks to be confirmed.
+// Adam never has to look at it, so nothing here asks to be confirmed. The story flows' runs (a time
+// gap, a prequel's starting cast, "When did these happen?") belong to no scene: they get their own
+// heading and say where each change is, such as "Start of Book 4"; a line whose change something else
+// has taken out since says so, with nothing left to answer or undo.
 import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
+import type { StoryFlowRun } from '@shared/contracts/storyFlows'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -33,6 +37,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   const openSceneId = useApp((s) => s.sceneId)
   const navigate = useApp((s) => s.navigate)
   const [items, setItems] = useState<MemoryLogItem[] | null>(null)
+  const [flowRuns, setFlowRuns] = useState<Map<ID, StoryFlowRun>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
   const [entries, setEntries] = useState<Map<ID, Entry>>(new Map())
@@ -43,11 +48,13 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
 
   const load = useCallback(() => {
     const t = ++ticket.current
-    api
-      .listMemoryLog({ sceneId: sceneId ?? undefined, limit })
-      .then((list) => {
+    // The story flows' runs come with the list, so their headings never change after it shows.
+    const runs: Promise<StoryFlowRun[]> = sceneId ? Promise.resolve([]) : api.listStoryFlowRuns().catch(() => [])
+    Promise.all([api.listMemoryLog({ sceneId: sceneId ?? undefined, limit }), runs])
+      .then(([list, flows]) => {
         if (t !== ticket.current) return
         setItems(list)
+        setFlowRuns(new Map(flows.map((r) => [r.runId, r])))
         setError(null)
       })
       .catch((e: unknown) => t === ticket.current && setError(plainReason(e)))
@@ -82,14 +89,17 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
     }
   }, [sceneId, openSceneId])
 
-  const groups = useMemo(() => (items ? groupLog(items) : []), [items])
+  const groups = useMemo(
+    () => (items ? groupLog(items, new Map([...flowRuns.values()].map((r) => [r.runId, r.heading]))) : []),
+    [items, flowRuns]
+  )
   const slow = useDelayed(!items && !error)
 
   const undo = async (item: MemoryLogItem): Promise<void> => {
     setItems((list) => (list ? markUndone(list, item.id) : list))
     try {
       await api.undoMemoryItem(item.id)
-      toast("Undone. The memory won't add that again from the same words.")
+      toast(flowRuns.has(item.runId) ? 'Undone.' : "Undone. The memory won't add that again from the same words.")
     } catch (e) {
       setItems((list) => (list ? markUndone(list, item.id, false) : list))
       toast(`That couldn't be undone. ${plainReason(e)}`)
@@ -147,7 +157,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
         </h1>
         <div className="mt-1 flex min-h-[20px] flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
           <span>
-            {sceneId ? 'What the memory took from this scene, newest first.' : 'What the memory took from your writing, newest first.'}
+            {sceneId ? 'What the memory took from this scene, newest first.' : 'Everything the memory added or changed, newest first.'}
           </span>
           {sceneId ? (
             <button
@@ -214,6 +224,8 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
                       <LogRow
                         key={item.id}
                         item={item}
+                        place={flowRuns.get(item.runId)?.places[item.id] ?? null}
+                        gone={flowRuns.get(item.runId)?.gone.includes(item.id) ?? false}
                         canOpen={!!item.entryId && entries.has(item.entryId)}
                         onOpen={() => item.entryId && openEntry(item.entryId)}
                         onShowWords={() => showWords(item)}
@@ -248,6 +260,8 @@ const linkClass = 'rounded outline-none hover:underline focus-visible:ring-2 foc
 
 function LogRow({
   item,
+  place,
+  gone: changeGone,
   canOpen,
   onOpen,
   onShowWords,
@@ -257,6 +271,10 @@ function LogRow({
   onOpenSettings
 }: {
   item: MemoryLogItem
+  /** Where a story flow's change is now ("Start of Book 4"); null for the memory keeper's lines. */
+  place: string | null
+  /** A story flow's change taken out since by something else: no question or Undo. */
+  gone: boolean
   canOpen: boolean
   onOpen: () => void
   onShowWords: () => void
@@ -339,6 +357,7 @@ function LogRow({
             ) : null}
           </div>
         ) : null}
+        {place ? <p className="mt-1 text-[12px] text-faint">{place}</p> : null}
 
         {item.quote.trim() ? (
           item.sceneId && !gone ? (
@@ -360,7 +379,7 @@ function LogRow({
           )
         ) : null}
 
-        {item.question && !item.undone ? (
+        {item.question && !item.undone && !changeGone ? (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span
               className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-line-strong text-[11px] font-semibold text-muted"
@@ -403,7 +422,7 @@ function LogRow({
           <span ref={undoneRef} tabIndex={-1} className="flex h-7 items-center rounded-md px-2 text-[12px] text-faint outline-none">
             Undone
           </span>
-        ) : canUndo(item) ? (
+        ) : canUndo(item) && !changeGone ? (
           <Button
             variant="ghost"
             size="sm"
@@ -413,7 +432,7 @@ function LogRow({
               onUndo()
             }}
             aria-label={`Undo: ${name ? `${name}, ` : ''}${item.text}`}
-            title="Undo this. The memory won't add it again from the same words."
+            title={place === null ? "Undo this. The memory won't add it again from the same words." : 'Undo this'}
           >
             Undo
           </Button>
