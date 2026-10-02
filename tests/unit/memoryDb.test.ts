@@ -8,6 +8,7 @@ import * as mem from '../../src/main/db/memory'
 import { entryHistory, addLink } from '../../src/main/db/history'
 import { changeViews, sceneMemory } from '../../src/main/memory/scene'
 import { buildLine, knowsSentence } from '../../src/main/memory/line'
+import { purgeTrash } from '../../src/main/db/trash'
 import { UserError } from '../../src/main/util'
 import { memoryWorld } from './helpers'
 
@@ -404,6 +405,91 @@ describe('story placement', () => {
     expect(knowsSentence(shape, buildLine(shape, { storyId: b3, through: 'start' }))).toBe(
       'This story knows what happened in: Book 1; Side.'
     )
+  })
+
+  it('a prequel always starts before its book’s start-of-story changes, and no other story does', () => {
+    const w = small()
+    const pre = repo.createStory(w.db, { title: 'Prequel' }).id
+    const place = (id: ID, kind: 'prequel' | 'side', startAt: 'end' | 'pre') =>
+      mem.setStoryPlacement(w.db, id, {
+        kind,
+        startStoryId: w.b1,
+        startAt,
+        startRefId: null,
+        endAt: null,
+        endRefId: null,
+        leadsIntoId: null
+      })
+    place(pre, 'prequel', 'end')
+    expect(repo.getStory(w.db, pre)).toMatchObject({ startAt: 'pre', leadsIntoId: w.b1 })
+    const side = repo.createStory(w.db, { title: 'Side' }).id
+    place(side, 'side', 'pre')
+    expect(repo.getStory(w.db, side)).toMatchObject({ startAt: 'post' })
+  })
+
+  it('writes down where stories now start before deleted ones are removed for good, so removing them changes nothing', () => {
+    const w = small()
+    const b3 = repo.createStory(w.db, { title: 'Book 3' }).id
+    const story = (title: string, p: Omit<Parameters<typeof mem.setStoryPlacement>[2], 'leadsIntoId'>): ID => {
+      const id = repo.createStory(w.db, { title }).id
+      mem.setStoryPlacement(w.db, id, { ...p, leadsIntoId: null })
+      return id
+    }
+    const none = { startRefId: null, endAt: null, endRefId: null }
+    // A side story during Book 2, a story after Book 1's Ch 2 Sc 2, a side story ending after Ch 3,
+    // and one starting after Ch 2 whose chapter is only just deleted (so it can still come back).
+    const side = story('Side', { kind: 'side', startStoryId: w.b2, startAt: 'post', ...none, endAt: 'end' })
+    const own = story('Own', { kind: 'own', startStoryId: w.b1, startAt: 'scene', ...none, startRefId: w.sc[1][1] })
+    const short = story('Short', { kind: 'side', startStoryId: w.b1, startAt: 'post', ...none, endAt: 'chapter', endRefId: w.ch[2] })
+    const recent = story('Recent', { kind: 'own', startStoryId: w.b1, startAt: 'chapter', ...none, startRefId: w.ch[1] })
+    repo.deleteStory(w.db, w.b2)
+    repo.deleteScene(w.db, w.sc[1][1])
+    repo.deleteChapter(w.db, w.ch[2])
+    const long = '2000-01-01T00:00:00.000Z'
+    w.db.prepare('UPDATE stories SET deleted_at = ? WHERE id = ?').run(long, w.b2)
+    w.db.prepare('UPDATE scenes SET deleted_at = ? WHERE id = ?').run(long, w.sc[1][1])
+    w.db.prepare('UPDATE chapters SET deleted_at = ? WHERE id = ?').run(long, w.ch[2])
+    repo.deleteChapter(w.db, w.ch[1])
+
+    const placements = () =>
+      mem.loadShape(w.db).stories.map((s) => [s.title, s.startStoryId, s.startAt, s.startRefId, s.endAt, s.endRefId, s.leadsIntoId])
+    const knows = () => {
+      const shape = mem.loadShape(w.db)
+      return [b3, side, own, short, recent].map((id) => knowsSentence(shape, buildLine(shape, { storyId: id, through: 'start' })))
+    }
+    const before = { placements: placements(), knows: knows() }
+    // Book 3 and Side take over Book 2's start (after Book 1); Own and Short move back to Ch 1, as Ch 2 is deleted too.
+    expect(before.knows).toEqual([
+      'This story knows what happened in: Book 1; Short; Side.',
+      'This story knows what happened in: Book 1; Short.',
+      'This story knows what happened in: Book 1 up to the end of Ch 1; Short.',
+      'This story knows what happened in: the start of Book 1.',
+      'This story knows what happened in: Book 1 up to the end of Ch 1; Short.'
+    ])
+
+    // What Recently deleted removes for good: the long-deleted story, chapter and scene, with what they hold.
+    const ids = (sql: string, ...p: unknown[]) => (w.db.prepare(sql).all(...p) as { id: ID }[]).map((r) => r.id)
+    const chapters = [w.ch[2], ...ids('SELECT id FROM chapters WHERE story_id = ?', w.b2)]
+    const gone = {
+      stories: new Set([w.b2]),
+      chapters: new Set(chapters),
+      scenes: new Set([w.sc[1][1], ...chapters.flatMap((c) => ids('SELECT id FROM scenes WHERE chapter_id = ?', c))])
+    }
+    expect(mem.settlePlacements(w.db, gone).sort()).toEqual([b3, side, own, short].sort())
+    expect(mem.settlePlacements(w.db, gone)).toEqual([])
+    expect(repo.getStory(w.db, recent)).toMatchObject({ startAt: 'chapter', startRefId: w.ch[1] })
+    purgeTrash(w.db, 30)
+
+    expect(repo.listStories(w.db).map((s) => s.id)).not.toContain(w.b2)
+    expect(placements()).toEqual(before.placements)
+    expect(knows()).toEqual(before.knows)
+    // Ch 2 was only just deleted, so it can still come back, and the stories that start or end after it go back there.
+    repo.restoreDeleted(w.db, 'chapter', w.ch[1])
+    expect(knows().slice(2)).toEqual([
+      'This story knows what happened in: Book 1 up to Ch 2, Sc 1.',
+      'This story knows what happened in: the start of Book 1.',
+      'This story knows what happened in: Book 1 up to the end of Ch 2; Short.'
+    ])
   })
 })
 

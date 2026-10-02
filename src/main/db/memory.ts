@@ -20,6 +20,7 @@ import type {
   Origin,
   Pin,
   PinScope,
+  StartAt,
   Summary,
   SummaryLevel
 } from '@shared/types'
@@ -462,14 +463,17 @@ export function refreshDefaultExistsPoints(db: DB): ID[] {
 /**
  * Sets what a story is and where it starts (and ends, for a side story), after checking the rules
  * (placementProblem: never a story following on from itself, an end before its start, and so on).
- * A prequel with no book named leads into the book it comes before. Then works out the default
- * first-exists points again. Returns the entries whose points changed.
+ * A prequel starts at its book's start, before that book's start-of-story changes; it is the only
+ * kind that does (spec: "A prequel is the exception"), so any other story asked to start there
+ * starts after them. A prequel with no book named leads into the book it comes before. Then works
+ * out the default first-exists points again. Returns the entries whose points changed.
  */
-export function setStoryPlacement(db: DB, id: ID, placement: StoryPlacement): ID[] {
+export function setStoryPlacement(db: DB, id: ID, asked: StoryPlacement): ID[] {
+  const start = asked.startStoryId ?? null
+  const startAt: StartAt = !start ? 'end' : asked.kind === 'prequel' ? 'pre' : asked.startAt === 'pre' ? 'post' : asked.startAt
+  const placement: StoryPlacement = { ...asked, startAt }
   const problem = placementProblem(loadShape(db), id, placement)
   if (problem) throw new UserError(problem)
-  const start = placement.startStoryId ?? null
-  const startAt = start ? placement.startAt : 'end'
   const startRefId = start && (startAt === 'chapter' || startAt === 'scene') ? placement.startRefId : null
   const endAt = placement.kind === 'side' ? (placement.endAt ?? 'end') : null
   const endRefId = endAt === 'chapter' ? placement.endRefId : null
@@ -481,6 +485,124 @@ export function setStoryPlacement(db: DB, id: ID, placement: StoryPlacement): ID
     ).run(placement.kind, start, startAt, startRefId, endAt, endRefId, leadsIntoId, now(), id)
     return refreshDefaultExistsPoints(db)
   })()
+}
+
+/** Stories, chapters and scenes about to be removed for good (a purged story's chapters and scenes included). */
+export interface Purging {
+  stories: ReadonlySet<ID>
+  chapters: ReadonlySet<ID>
+  scenes: ReadonlySet<ID>
+}
+
+/**
+ * Call just before stories, chapters or scenes in Recently deleted are removed for good. While they
+ * are only deleted, loadShape keeps every story that starts or ends in them where it was (a story
+ * whose start story is deleted takes over its start point; a deleted chapter or scene moves to the
+ * one before it), and restoring them puts things back. Once they are gone that can no longer be
+ * worked out, so the same safe points are written down here: otherwise a story that followed a
+ * removed story would start at the beginning of the world and forget every story before it.
+ * Covers stories that are only deleted too, as they can still be restored. Points at things that
+ * stay (even deleted ones) are kept, so loadShape still follows them. Returns the stories moved.
+ */
+export function settlePlacements(db: DB, gone: Purging): ID[] {
+  const stories = db
+    .prepare('SELECT id, kind, start_story_id, start_at, start_ref_id, end_at, end_ref_id, leads_into_id FROM stories')
+    .all() as Row[]
+  const chapters = db.prepare('SELECT id, story_id, position FROM chapters ORDER BY story_id, position, created_at').all() as Row[]
+  const scenes = db.prepare('SELECT id, chapter_id, position FROM scenes ORDER BY chapter_id, position, created_at').all() as Row[]
+  const storyRow = new Map(stories.map((r) => [r.id as string, r]))
+  const chapterRow = new Map(chapters.map((r) => [r.id as string, r]))
+  const sceneRow = new Map(scenes.map((r) => [r.id as string, r]))
+  const str = (v: unknown): ID | null => (v as string) ?? null
+
+  type Point = { at: StartAt; refId: ID | null }
+  const atStart: Point = { at: 'post', refId: null }
+  /** The last chapter of a story before a position that stays. */
+  const chapterBefore = (storyId: ID, position: number): ID | null => {
+    let found: ID | null = null
+    for (const c of chapters) {
+      if (c.story_id === storyId && (c.position as number) < position && !gone.chapters.has(c.id as string)) found = c.id as string
+    }
+    return found
+  }
+  /** A point in a story, with a chapter or scene that is going moved to the one before it that stays. */
+  const keep = (storyId: ID, at: StartAt, refId: ID | null): Point => {
+    if (at !== 'chapter' && at !== 'scene') return { at, refId: null }
+    if (at === 'chapter') {
+      const row = refId ? chapterRow.get(refId) : undefined
+      if (!row || row.story_id !== storyId) return atStart
+      if (!gone.chapters.has(refId!)) return { at, refId }
+      const prev = chapterBefore(storyId, row.position as number)
+      return prev ? { at: 'chapter', refId: prev } : atStart
+    }
+    const row = refId ? sceneRow.get(refId) : undefined
+    const chapter = row ? chapterRow.get(row.chapter_id as string) : undefined
+    if (!row || !chapter || chapter.story_id !== storyId) return atStart
+    if (!gone.scenes.has(refId!)) return { at, refId }
+    if (!gone.chapters.has(chapter.id as string)) {
+      let earlier: ID | null = null
+      for (const s of scenes) {
+        if (s.chapter_id === chapter.id && (s.position as number) < (row.position as number) && !gone.scenes.has(s.id as string)) {
+          earlier = s.id as string
+        }
+      }
+      if (earlier) return { at: 'scene', refId: earlier }
+    }
+    const prev = chapterBefore(storyId, chapter.position as number)
+    return prev ? { at: 'chapter', refId: prev } : atStart
+  }
+
+  const update = db.prepare(
+    'UPDATE stories SET start_story_id = ?, start_at = ?, start_ref_id = ?, end_at = ?, end_ref_id = ?, leads_into_id = ? WHERE id = ?'
+  )
+  const moved: ID[] = []
+  db.transaction(() => {
+    for (const r of stories) {
+      const id = r.id as string
+      if (gone.stories.has(id)) continue
+      const was = { start: str(r.start_story_id), at: (str(r.start_at) ?? 'end') as StartAt, ref: str(r.start_ref_id) }
+      // A start story that is going: take over its start point (and its start story's, if that is going too).
+      let start = was.start
+      let point: Point = { at: was.at, refId: was.ref }
+      let tookOver = false
+      const seen = new Set<ID>([id])
+      while (start && gone.stories.has(start) && !seen.has(start)) {
+        seen.add(start)
+        const g = storyRow.get(start)
+        if (!g) break
+        tookOver = true
+        start = str(g.start_story_id)
+        point = { at: (str(g.start_at) ?? 'end') as StartAt, refId: str(g.start_ref_id) }
+      }
+      if (start && (gone.stories.has(start) || !storyRow.has(start))) start = null
+      const safe: Point = start ? keep(start, point.at, point.refId) : { at: 'end', refId: null }
+
+      let endAt = str(r.end_at) as 'end' | 'chapter' | null
+      let endRef = str(r.end_ref_id)
+      if (r.kind === 'side' && tookOver) {
+        // A side story whose host is going ends where it now starts, as loadShape has it.
+        const chapterOf = (sceneId: ID | null): ID | null => (sceneId ? str(sceneRow.get(sceneId)?.chapter_id) : null)
+        endAt = safe.at === 'end' || !start ? 'end' : 'chapter'
+        endRef = !start ? null : safe.at === 'chapter' ? safe.refId : safe.at === 'scene' ? chapterOf(safe.refId) : null
+      } else if (r.kind === 'side' && start && endAt === 'chapter' && endRef && gone.chapters.has(endRef)) {
+        const end = keep(start, 'chapter', endRef)
+        endRef = end.at === 'chapter' ? end.refId : null
+      }
+      const leadsInto = str(r.leads_into_id) && gone.stories.has(r.leads_into_id as string) ? null : str(r.leads_into_id)
+
+      const same =
+        start === was.start &&
+        safe.at === was.at &&
+        safe.refId === was.ref &&
+        endAt === str(r.end_at) &&
+        endRef === str(r.end_ref_id) &&
+        leadsInto === str(r.leads_into_id)
+      if (same) continue
+      update.run(start, safe.at, safe.refId, endAt, endRef, leadsInto, id)
+      moved.push(id)
+    }
+  })()
+  return moved
 }
 
 /**
