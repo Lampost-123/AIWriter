@@ -34,16 +34,22 @@ function useDelayed(on: boolean, ms = 200): boolean {
 
 /** Reloads everything after the world's database was swapped for a backup. */
 async function reloadAfterRestore(): Promise<void> {
-  const s = useApp.getState()
-  await s.init()
-  s.bumpOutline()
-  s.bumpEntries()
+  const before = useApp.getState().outlineRev
+  await useApp.getState().init()
+  // init() starts the outline count again from 0, so a plain bump could land back on the old
+  // value and views watching it would never reload. Move it strictly past where it was.
+  useApp.setState((s) => ({ outlineRev: Math.max(s.outlineRev, before) + 1 }))
+  useApp.getState().bumpEntries()
 }
 
 async function restore(id: string, when: string): Promise<void> {
   await flushAll()
   await api.restoreBackup(id)
-  const safety = (await api.listBackups()).find((b) => b.reason === 'before-restore')
+  // The restore has happened: from here on nothing may turn it into an error.
+  const safety = await api
+    .listBackups()
+    .then((list) => list.find((b) => b.reason === 'before-restore'))
+    .catch(() => undefined)
   await reloadAfterRestore()
   toast(`Restored the backup from ${when.charAt(0).toLowerCase()}${when.slice(1)}. Your work from before is saved as a backup too.`, {
     tone: 'success',
@@ -145,6 +151,7 @@ function BackupList({ worldId, worldName }: { worldId: string; worldName: string
       await restore(b.id, formatBackupDate(b.createdAt))
     } catch (e) {
       toast((e as Error).message, { tone: 'danger' })
+    } finally {
       setRestoringId(null)
       setConfirmId(null)
       void load()

@@ -59,7 +59,11 @@ function takeBackup(w: OpenWorld, reason: BackupReason): Promise<BackupInfo> {
     if (!isOpen(w)) throw new UserError('The world was closed before it could be backed up.')
     const folder = backupsFolder(w.folder)
     const b = await writeBackup(w.db, folder, reason)
-    pruneBackups(folder)
+    try {
+      pruneBackups(folder)
+    } catch {
+      /* tidy-up only: the backup itself is made */
+    }
     const info = toInfo(w.id, b)
     emit('backup:done', info)
     // Not awaited: a slow cloud folder never holds up the next backup.
@@ -89,7 +93,11 @@ function onOpened(w: OpenWorld): void {
   } catch (e) {
     console.warn('Could not empty old items from the trash:', e instanceof Error ? e.message : e)
   }
-  removeStalePartials(backupsFolder(w.folder))
+  try {
+    removeStalePartials(backupsFolder(w.folder))
+  } catch {
+    /* tidy-up only */
+  }
   if (launched.has(w.id)) return
   launched.add(w.id)
   // Just after opening, so the first paint isn't kept waiting.
@@ -98,22 +106,35 @@ function onOpened(w: OpenWorld): void {
       launched.delete(w.id) // closed before we got to it: back it up next time it opens
       return
     }
-    const newest = listBackupFiles(backupsFolder(w.folder))[0]
-    if (!changedSinceLastBackup(w, newest)) return
-    takeBackup(w, 'launch').catch(quiet('launch'))
+    guarded('launch', () => {
+      const newest = listBackupFiles(backupsFolder(w.folder))[0]
+      if (!changedSinceLastBackup(w, newest)) return
+      takeBackup(w, 'launch').catch(quiet('launch'))
+    })
   }, LAUNCH_DELAY_MS)
+}
+
+/** Timer callbacks must never throw: in the main process that would show a crash box. */
+function guarded(what: string, fn: () => void): void {
+  try {
+    fn()
+  } catch (e) {
+    quiet(what)(e)
+  }
 }
 
 function onTimer(): void {
   const w = maybeCurrentWorld()
-  if (!w) return
-  const newest = listBackupFiles(backupsFolder(w.folder))[0]
-  if (newest) {
-    const age = Date.now() - Date.parse(newest.createdAt)
-    if (age >= 0 && age < TIMER_EVERY_MS) return
-  }
-  if (!changedSinceLastBackup(w, newest)) return
-  takeBackup(w, 'timer').catch(quiet('timer'))
+  if (!w || !isOpen(w)) return
+  guarded('timer', () => {
+    const newest = listBackupFiles(backupsFolder(w.folder))[0]
+    if (newest) {
+      const age = Date.now() - Date.parse(newest.createdAt)
+      if (age >= 0 && age < TIMER_EVERY_MS) return
+    }
+    if (!changedSinceLastBackup(w, newest)) return
+    takeBackup(w, 'timer').catch(quiet('timer'))
+  })
 }
 
 /** Called once at startup to hook into world open/close. */
@@ -147,15 +168,20 @@ export function backupBeforeMigration(folder: string, db: Database.Database): vo
 
 // ---------- The Backups screen ----------
 
-export function listBackups(): BackupInfo[] {
-  const w = maybeCurrentWorld()
-  if (!w) return []
+/** A world's backups, newest first, with a plain message if the folder can't be read. */
+function backupsOf(w: OpenWorld): BackupFile[] {
   try {
-    return listBackupFiles(backupsFolder(w.folder)).map((b) => toInfo(w.id, b))
+    return listBackupFiles(backupsFolder(w.folder))
   } catch (e) {
     console.warn('Could not list backups:', e instanceof Error ? e.message : e)
     throw new UserError("Couldn't read this world's backups folder. Check it hasn't been moved or renamed, then try again.")
   }
+}
+
+export function listBackups(): BackupInfo[] {
+  const w = maybeCurrentWorld()
+  if (!w) return []
+  return backupsOf(w).map((b) => toInfo(w.id, b))
 }
 
 export async function backupNow(): Promise<BackupInfo> {
@@ -172,8 +198,7 @@ export async function backupNow(): Promise<BackupInfo> {
 /** Restores a backup of the open world, backing up the current state first. */
 export async function restoreBackup(id: string): Promise<World> {
   const w = currentWorld()
-  const folder = backupsFolder(w.folder)
-  const target = listBackupFiles(folder).find((b) => b.id === id)
+  const target = backupsOf(w).find((b) => b.id === id)
   if (!target) throw new UserError('That backup could not be found. It may have been tidied away; pick another one from the list.')
   const check = checkBackupFile(target.file, w.id)
   if (!check.ok) {
@@ -187,7 +212,13 @@ export async function restoreBackup(id: string): Promise<World> {
   // Stage a copy first: tidying up after the safety backup must not remove the one being restored.
   const dbFile = worldDbPath(w.folder)
   const staged = `${dbFile}.restoring`
-  copyFileSync(target.file, staged)
+  try {
+    copyFileSync(target.file, staged)
+  } catch (e) {
+    rmSync(staged, { force: true })
+    console.warn('Could not stage the backup:', e instanceof Error ? e.message : e)
+    throw new UserError("Couldn't read that backup, so nothing was restored. Check there's free space on your disk, then try again.")
+  }
 
   let safety: BackupInfo
   try {
@@ -270,7 +301,12 @@ export async function chooseBackupFolder(): Promise<string | null> {
   extra = { ok: true, message: null, lastCopyAt: null }
   // Copy the open world's newest backup straight away, so the folder is useful at once.
   const w = maybeCurrentWorld()
-  const newest = w ? listBackupFiles(backupsFolder(w.folder))[0] : undefined
+  let newest: BackupFile | undefined
+  try {
+    newest = w ? listBackupFiles(backupsFolder(w.folder))[0] : undefined
+  } catch {
+    /* the next backup is copied anyway */
+  }
   if (w && newest) await copyToExtraFolder(w.folder, newest)
   return folder
 }

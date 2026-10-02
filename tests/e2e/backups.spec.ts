@@ -37,12 +37,22 @@ test('a backup is made at launch, Back up now adds one, and restoring brings bac
   await expect(win.getByText(/Restored the backup from/)).toBeVisible()
   expect((await invoke(win, 'listEntries', 'character')).map((e) => e.name)).toEqual(['Mara'])
   expect(backupFiles(folder).filter((f) => f.endsWith('_before-restore.db'))).toHaveLength(1)
+  // The world reopens where Adam writes.
   await expect(binder(win)).toBeVisible()
+  await expect(win.getByRole('heading', { level: 1, name: 'Backups' })).toHaveCount(0)
 
   // Undo puts back the state from just before the restore.
   await win.getByRole('button', { name: 'Undo' }).click()
   await expect(win.getByText(/^Undone/)).toBeVisible()
   expect(await invoke(win, 'listEntries', 'character')).toEqual([])
+
+  // Both restores kept the work they replaced; the list shows plain rows, all usable.
+  await openSettings(win, 'Backups')
+  await expect(rows).toHaveCount(4)
+  await expect(rows.nth(0)).toContainText('Before a restore')
+  await expect(rows.nth(1)).toContainText('Before a restore')
+  await expect(win.getByText('Your current work is backed up first')).toHaveCount(0)
+  await expect(rows.first().getByRole('button', { name: /^Restore the backup from/ })).toBeEnabled()
 })
 
 test('reopening backs up a world that changed, and leaves an unchanged one alone', async ({ launch }) => {
