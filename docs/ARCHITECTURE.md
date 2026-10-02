@@ -473,6 +473,31 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
 
+### How the milestone 4 parts work together
+
+- **History.** history.db keeps every snapshot from the last 14 days; older ones thin to the last of
+  each day, and a "Mark done" snapshot and a scene's newest are always kept. Writing takes one at most
+  every 10 minutes. A scene emptied from the Trash has its history forgotten after 60 days. A
+  history.db that can't be opened is tried again every 30 seconds, and the History page says it
+  started afresh for 30 days after. The scene toolbar's History button (accessible name "History of
+  this scene") hides under 600 px of scene width, and the status pill shows only its dot under 660 px;
+  History stays in the palette and the Drafts tab.
+- **One draft job per scene at a time.** Generate, Variants and Beat by beat refuse each other on the
+  same scene, both in the main process (`ipc/ai.ts`, `ipc/variants.ts`, `ipc/beats.ts`, using
+  `isStartingDraft`, `isStartingBeat`, `variantsBusy`) and in the window before anything is asked
+  (Generate checks for variants being written before "Replace it or Add below").
+- **Drafts tab.** Lists `draft` and `beat` records; a variant or beat says which one it was
+  ("Variant 2 of 3", read from `params_json`). "What the AI saw" goes back where it was opened from:
+  the Variants page, Ask the world, or a version in History (the view's `from.history`).
+- **Ask the world records.** A chat turn is a generation record with `job` `chat`, `sceneId` ''
+  (it belongs to no scene) and `params.chatId` starting with the story's id ('world:' when none was
+  open), so a story's chats can be
+  found without a new column.
+- **Toasts.** A panel along the right edge (Ask the world) sets the CSS variable `--toast-right` so
+  toasts sit clear of it; a bar along the foot of the window lifts them with `useToastsAbove`.
+- **Read aloud audio.** Spoken audio plays from blob URLs, so the window's CSP allows
+  `media-src 'self' blob:` (`src/renderer/index.html`).
+
 ### Who builds what (parallel build, milestone 4)
 
 | Part | Owns |
