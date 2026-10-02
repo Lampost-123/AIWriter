@@ -91,7 +91,7 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
   await expect(card(win)).toContainText('A smith’s daughter')
   await expect(card(win)).toContainText('Lost her left hand · in this scene')
   await expect(card(win)).toContainText('Distinguishing marks: left hand missing')
-  await expect(card(win)).toContainText(`${mod === 'Meta' ? 'Cmd' : 'Ctrl'}+click to open`)
+  await expect(card(win)).toContainText(`${mod === 'Meta' ? '⌘' : 'Ctrl'}+click to open`)
   // Any key closes it.
   await win.keyboard.press('ArrowRight')
   await expect(card(win)).toBeHidden()
