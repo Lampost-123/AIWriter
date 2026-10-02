@@ -242,7 +242,8 @@ describe('Fix voice', () => {
       ok: false,
       problem:
         'Tobin has no voice profile yet. Add how they speak or a few sample lines under Voice on Tobin’s page, then try Fix voice again.',
-      entryId: 'tobin'
+      entryId: 'tobin',
+      entryName: 'Tobin'
     })
     const noLines = editBriefing(input('voice', { selection: 'She waited.', before: '', after: '' }), world())
     expect(noLines.ok).toBe(false)

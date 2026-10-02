@@ -1,4 +1,5 @@
-// The small bar over words Adam selects in the page: "Add to memory" and "Quick start a character".
+// The small bar over words Adam selects in the page: the AI tools ("Rewrite", milestone 4), "Add to memory"
+// and "Quick start a character".
 // It shows once the selection settles (after the mouse is let go, or a moment after the keyboard
 // stops), never while a draft is being written into the selected part, and goes on Esc, typing, or a
 // click elsewhere. It sits in the page's scrolling area, so it moves with the words, and it is not a
@@ -18,6 +19,7 @@ import { useSceneNames } from '../names/sceneNames'
 import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
 import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
+import { AiTools } from '@/features/edits/AiTools'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
 
 /** How long the selection must stay still before the bar shows: after the mouse is let go, and after keys. */
@@ -55,6 +57,8 @@ export function SelectionLayer({
   const barRef = useRef<HTMLDivElement>(null)
   const formOpen = useRef(false)
   formOpen.current = !!form
+  // The AI tools' menu is open (the bar stays while it is).
+  const toolsOpen = useRef(false)
   const barShown = useRef(false)
   barShown.current = !!bar
   // The selection the bar was closed for (Esc, or after adding): it stays closed until another is made.
@@ -67,11 +71,11 @@ export function SelectionLayer({
 
     const hide = (): void => {
       clearTimeout(timer)
-      if (!formOpen.current) setBar(null)
+      if (!formOpen.current && !toolsOpen.current) setBar(null)
     }
 
     const show = (): void => {
-      if (editor.isDestroyed || mouseDown || formOpen.current) return
+      if (editor.isDestroyed || mouseDown || formOpen.current || toolsOpen.current) return
       const { state, view } = editor
       const sel = state.selection
       const scroller = scrollerRef.current
@@ -110,7 +114,7 @@ export function SelectionLayer({
       settle(AFTER_MOUSE)
     }
     const onSelection = ({ transaction }: { transaction: Transaction }): void => {
-      if (mouseDown || formOpen.current) return
+      if (mouseDown || formOpen.current || toolsOpen.current) return
       const sel = editor.state.selection
       if (sel.empty) return hide()
       if (barShown.current) setBar(null)
@@ -131,12 +135,12 @@ export function SelectionLayer({
     }
     const onBlur = ({ event }: { event: FocusEvent }): void => {
       const to = event.relatedTarget as Node | null
-      if (to && (barRef.current?.contains(to) || (to instanceof Element && to.closest('[data-add-to-memory]')))) return
+      if (to && (barRef.current?.contains(to) || (to instanceof Element && to.closest('[data-add-to-memory], [data-ai-tools]')))) return
       hide()
     }
     // Esc closes the bar (and nothing else: a draft being written carries on); the caret stays.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || !barShown.current || formOpen.current || e.defaultPrevented) return
+      if (e.key !== 'Escape' || !barShown.current || formOpen.current || toolsOpen.current || e.defaultPrevented) return
       e.preventDefault()
       const sel = editor.state.selection
       closedFor.current = `${sel.from}:${sel.to}`
@@ -166,6 +170,7 @@ export function SelectionLayer({
   useEffect(() => {
     setForm(null)
     setBar(null)
+    toolsOpen.current = false
     closedFor.current = null
   }, [sceneId, writing])
 
@@ -224,9 +229,9 @@ export function SelectionLayer({
           // Tabbing on past it (not back to the page or into the form) closes it.
           onBlur={(e) => {
             const to = e.relatedTarget as Node | null
-            const toForm = to instanceof Element && !!to.closest('[data-add-to-memory]')
+            const toForm = to instanceof Element && !!to.closest('[data-add-to-memory], [data-ai-tools]')
             const staying = !!to && (e.currentTarget.contains(to) || editor.view.dom.contains(to) || toForm)
-            if (!staying && !form) setBar(null)
+            if (!staying && !form && !toolsOpen.current) setBar(null)
           }}
           style={{ top: bar.top, left, height: BAR_HEIGHT }}
           className={cn(
@@ -234,6 +239,17 @@ export function SelectionLayer({
             'select-none whitespace-nowrap'
           )}
         >
+          <AiTools
+            editor={editor}
+            from={bar.from}
+            to={bar.to}
+            text={bar.text}
+            onOpenChange={(open) => {
+              toolsOpen.current = open
+              if (open && form) closeForm(false)
+            }}
+          />
+          <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
           <BarButton
             icon={<BookmarkPlus size={14} />}
             pressed={!!form}

@@ -35,8 +35,9 @@ export interface EditInput {
 
 /**
  * How starting an edit went. `ok: false` means it wasn't sent, for a reason in plain words about these
- * words (Fix voice found no speaker, or the selection is too long); `entryId` is the character whose
- * page would fix it. Problems with the model or the world (no writer model, say) are thrown instead.
+ * words (Fix voice found no speaker, or the selection is too long); `entryId` and `entryName` are the
+ * character whose page would fix it. Problems with the model or the world (no writer model, say) are
+ * thrown instead.
  */
 export type EditStart =
   | {
@@ -45,7 +46,7 @@ export type EditStart =
       /** A plain-words note about how it was set up ("Fixing the voices of Mara and Tobin."), or null. */
       note: string | null
     }
-  | { ok: false; problem: string; entryId?: ID }
+  | { ok: false; problem: string; entryId?: ID; entryName?: string }
 
 export interface EditsApi {
   /** Starts an AI edit (or Continue): its words arrive as task events for `taskId`, in an 'edit' record. */

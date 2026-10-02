@@ -39,7 +39,7 @@ export type EditBriefing =
       /** A plain-words note for Adam about how it was set up, or null. */
       note: string | null
     }
-  | { ok: false; problem: string; entryId?: ID }
+  | { ok: false; problem: string; entryId?: ID; entryName?: string }
 
 /** The longest selection each tool works on, in words. */
 export const MAX_WORDS = { alternatives: 1200, other: 3000 }
@@ -387,7 +387,8 @@ function voiceProblem(lines: SpokenLine[], byId: Map<ID, EntryState>): EditBrief
       problem: one
         ? `${names[0]} has no voice profile yet. Add how they speak or a few sample lines under Voice on ${names[0]}’s page, then try Fix voice again.`
         : `${joinAnd(names)} have no voice profiles yet. Add how they speak or a few sample lines under Voice on their pages, then try Fix voice again.`,
-      entryId: speakers[0].id
+      entryId: speakers[0].id,
+      entryName: speakers[0].name
     }
   }
   return null
