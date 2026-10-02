@@ -203,14 +203,26 @@ export function diffParagraphs(read: { id: string; hash: string; text: string }[
 
 const bareWords = (s: string): string[] => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 
-function editDistance(a: string, b: string): number {
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i]
-    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
-    prev = cur
-  }
-  return prev[b.length]
+/** True when `short` is `long` with one or two letters left out ("rivr", "accross"). */
+function lettersLeftOut(short: string, long: string): boolean {
+  if (long.length - short.length < 1 || long.length - short.length > 2) return false
+  let i = 0
+  for (const ch of long) if (i < short.length && short[i] === ch) i++
+  return i === short.length
+}
+
+/**
+ * True when two spellings are one word with a typo: a letter missing or doubled, two letters
+ * swapped, or one wrong letter in a long word. A different word that happens to differ by a letter
+ * or two ("west" and "east", "dead" and "deaf", "first" and "fifth") is not a typo.
+ */
+function typo(x: string, y: string): boolean {
+  if (Math.min(x.length, y.length) < 4) return false
+  if (x.length !== y.length) return x.length < y.length ? lettersLeftOut(x, y) : lettersLeftOut(y, x)
+  const diffs: number[] = []
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) diffs.push(i)
+  if (diffs.length === 1) return x.length >= 7
+  return diffs.length === 2 && diffs[1] === diffs[0] + 1 && x[diffs[0]] === y[diffs[1]] && x[diffs[1]] === y[diffs[0]]
 }
 
 /**
@@ -224,9 +236,7 @@ export function onlyTypos(before: string, after: string): boolean {
   const diffs: number[] = []
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diffs.push(i)
   if (diffs.length === 0) return true
-  if (diffs.length > 1) return false
-  const [x, y] = [a[diffs[0]], b[diffs[0]]]
-  return Math.min(x.length, y.length) >= 4 && Math.abs(x.length - y.length) <= 2 && editDistance(x, y) <= 2
+  return diffs.length === 1 && typo(a[diffs[0]], b[diffs[0]])
 }
 
 // ---------- Words and sentences ----------

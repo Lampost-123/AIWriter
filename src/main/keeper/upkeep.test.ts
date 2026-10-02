@@ -165,6 +165,16 @@ describe('Adam working while a scene is read', () => {
 })
 
 describe('links follow their words', () => {
+  it('a one-word edit that changes the meaning is read again, not taken for a typo', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her west gate key.']])
+    await read(w.db, w.sceneId)
+    save(w.db, w.sceneId, [['p1', 'Mara lost her east gate key.']])
+    await read(w.db, w.sceneId)
+    const [c] = mem.listAllChanges(w.db)
+    expect(c.kind === 'update' && c.payload.note).toBe('lost her east gate key')
+  })
+
   it('a change said again in other words stays until both passages are gone', async () => {
     const w = world()
     save(w.db, w.sceneId, [

@@ -60,6 +60,19 @@ describe('paragraphs and what changed', () => {
     expect(onlyTypos('She crossed the river.', 'She crosed the river.')).toBe(true)
     expect(onlyTypos('Mara lost her left hand.', 'Mara lost her right hand.')).toBe(false)
     expect(findNearQuote('Then Mara lost her left hand in the rivr.', 'lost her left hand in the river')).toEqual({ start: 10, end: 40 })
+    // Swapped letters, a missing or doubled letter, a slip in a long word: typos.
+    expect(onlyTypos('She recieved the letter.', 'She received the letter.')).toBe(true)
+    expect(onlyTypos('They were seperate.', 'They were separate.')).toBe(true)
+    expect(onlyTypos('She walked accross.', 'She walked across.')).toBe(true)
+  })
+
+  it('a different word that differs by a letter or two is a real change', () => {
+    expect(onlyTypos('Mara rode west.', 'Mara rode east.')).toBe(false)
+    expect(onlyTypos('They sailed north.', 'They sailed south.')).toBe(false)
+    expect(onlyTypos('Tobin was dead.', 'Tobin was deaf.')).toBe(false)
+    expect(onlyTypos('It happened on Monday.', 'It happened on Sunday.')).toBe(false)
+    expect(onlyTypos('She came first.', 'She came fifth.')).toBe(false)
+    expect(findNearQuote('Mara rode east at dawn.', 'Mara rode west at dawn.')).toBeNull()
   })
 })
 
