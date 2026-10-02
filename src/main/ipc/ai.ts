@@ -10,6 +10,7 @@ import * as providers from '../ai/providers'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
 import { memorySettingsChanged } from '../keeper'
+import { VARIANTS_WRITING, variantsBusy } from '../variants'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -38,6 +39,8 @@ export const aiHandlers: Handlers<AiMethods> = {
   previewContext: async (sceneId, options) => (await assemble(sceneId, options)).preview,
 
   startDraft: async (sceneId, options) => {
+    // Milestone 4: the scene's variants (getting ready, or being written) have it for now.
+    if (variantsBusy(sceneId)) throw new UserError(VARIANTS_WRITING, 'busy')
     if (isDrafting(sceneId) || starting.has(sceneId)) {
       throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
     }

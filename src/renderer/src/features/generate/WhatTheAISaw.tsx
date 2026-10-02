@@ -12,6 +12,7 @@ import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
+import { variantsBackTo } from '@/features/variants/back'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
@@ -78,8 +79,13 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
 
   const slow = useDelayed(!rec && !error)
 
+  // A variant's record (milestone 4) opened from the Variants page goes back there.
+  const toVariants = variantsBackTo(generationId)
   const back = (): void => {
-    if (rec) selectScene(rec.sceneId)
+    if (toVariants) {
+      selectScene(toVariants)
+      useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
+    } else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
   }
 
@@ -87,7 +93,7 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
+          {toVariants ? 'Back to the variants' : rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
         </Button>
 
         {error ? (
@@ -161,7 +167,13 @@ function DraftRecord({
 
       <div className="mt-4 flex flex-col gap-2">
         {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
-        {rec.status === 'stopped' ? <Notice>This draft was stopped before it finished. The text that arrived is kept in the scene.</Notice> : null}
+        {rec.status === 'stopped' ? (
+          <Notice>
+            {rec.params.variant
+              ? 'This variant was stopped before it finished. The text that arrived is kept with it.'
+              : 'This draft was stopped before it finished. The text that arrived is kept in the scene.'}
+          </Notice>
+        ) : null}
         {rec.status === 'complete' && rec.params.cutOff ? (
           <Notice>
             The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
