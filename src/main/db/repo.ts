@@ -20,7 +20,7 @@ import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
 import { buildLine, previousSceneStep } from '../memory/line'
-import { recordVersion } from './history'
+import { getVersion, recordVersion } from './history'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
 // handle, with no Electron imports, so they can be unit-tested in plain Node.
@@ -234,6 +234,10 @@ export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
       db.prepare('UPDATE scenes SET deleted_at = NULL WHERE chapter_id = ? AND deleted_at = ?').run(id, row.deleted_at)
     }
     db.prepare(`UPDATE ${table} SET deleted_at = NULL WHERE id = ?`).run(id)
+    // An entry's memory history shows it came back, as it was then.
+    if (kind === 'entry' && row.deleted_at) {
+      recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: getEntry(db, id), origin: 'adam' })
+    }
     const chapterId = kind === 'scene' ? (row.chapter_id as string) : kind === 'chapter' ? id : null
     if (chapterId) {
       const chapterBack = db.prepare('UPDATE chapters SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL').run(chapterId).changes > 0
@@ -538,14 +542,23 @@ export function createEntry(db: DB, kind: EntryKind, input: EntryInput = {}, mak
   return getEntry(db, id)
 }
 
-/** The keys an entry patch changes, as field-origin keys (field keys, or 'name', 'aliases', 'summary', 'description', 'tags'). */
+const entryName = (name: string | undefined): string => (name ?? '').trim() || 'Unnamed'
+
+/**
+ * The keys an entry patch changes, as field-origin keys (field keys, or 'name', 'aliases', 'summary',
+ * 'description', 'tags'). A field left out of a patch's fields is emptied, so it counts as changed too.
+ */
 function changedKeys(before: Entry, patch: EntryInput): string[] {
   const keys: string[] = []
-  for (const k of ['name', 'aliases', 'summary', 'description', 'tags'] as const) {
+  if (patch.name !== undefined && entryName(patch.name) !== before.name) keys.push('name')
+  for (const k of ['aliases', 'summary', 'description', 'tags'] as const) {
     if (patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(before[k])) keys.push(k)
   }
   if (patch.fields) {
-    for (const [k, v] of Object.entries(patch.fields)) if ((before.fields[k] ?? '') !== (v ?? '')) keys.push(k)
+    const fields = patch.fields
+    for (const k of new Set([...Object.keys(before.fields), ...Object.keys(fields)])) {
+      if ((before.fields[k] ?? '') !== (fields[k] ?? '')) keys.push(k)
+    }
   }
   return keys
 }
@@ -560,33 +573,80 @@ export function updateEntry(db: DB, id: ID, patch: EntryInput, by: { origin: Ori
   const before = getEntry(db, id)
   const e = { ...before, ...patch }
   if (e.parentId === id) e.parentId = null
+  const keys = changedKeys(before, patch)
+  // Saving what is already there changes nothing, so it writes no version (the history lists real changes only).
+  const same = !keys.length && e.notes === before.notes && (e.parentId ?? null) === before.parentId && !!e.hardRule === before.hardRule
+  if (same) return before
   const fieldOrigins = { ...before.fieldOrigins }
-  for (const k of changedKeys(before, patch)) fieldOrigins[k] = by.origin
-  db.prepare(
-    `UPDATE entries SET name = ?, aliases_json = ?, summary = ?, description = ?, tags_json = ?, notes = ?, fields_json = ?,
-     parent_id = ?, hard_rule = ?, field_origins_json = ?, by_hand = MAX(by_hand, ?), updated_at = ? WHERE id = ?`
-  ).run(
-    e.name.trim() || 'Unnamed',
-    JSON.stringify(e.aliases),
-    e.summary,
-    e.description,
-    JSON.stringify(e.tags),
-    e.notes,
-    JSON.stringify(e.fields),
-    e.parentId,
-    e.hardRule ? 1 : 0,
-    JSON.stringify(fieldOrigins),
-    by.origin === 'adam' ? 1 : 0,
-    now(),
-    id
-  )
-  const after = getEntry(db, id)
-  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: after, origin: by.origin, runId: by.runId })
-  return after
+  for (const k of keys) fieldOrigins[k] = by.origin
+  return db.transaction(() => {
+    db.prepare(
+      `UPDATE entries SET name = ?, aliases_json = ?, summary = ?, description = ?, tags_json = ?, notes = ?, fields_json = ?,
+       parent_id = ?, hard_rule = ?, field_origins_json = ?, by_hand = MAX(by_hand, ?), updated_at = ? WHERE id = ?`
+    ).run(
+      entryName(e.name),
+      JSON.stringify(e.aliases),
+      e.summary,
+      e.description,
+      JSON.stringify(e.tags),
+      e.notes,
+      JSON.stringify(e.fields),
+      e.parentId,
+      e.hardRule ? 1 : 0,
+      JSON.stringify(fieldOrigins),
+      by.origin === 'adam' ? 1 : 0,
+      now(),
+      id
+    )
+    const after = getEntry(db, id)
+    recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: after, origin: by.origin, runId: by.runId })
+    return after
+  })()
 }
 
-/** Moves an entry to Trash and writes a memory-history version saying who removed it. */
+/** Moves an entry to Trash and writes a memory-history version saying who removed it (once: deleting it again changes nothing). */
 export function deleteEntry(db: DB, id: ID, by: { origin: Origin; runId?: ID | null } = { origin: 'adam' }): void {
-  db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?').run(now(), id)
-  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: null, origin: by.origin, runId: by.runId })
+  db.transaction(() => {
+    if (!db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now(), id).changes) return
+    recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: null, origin: by.origin, runId: by.runId })
+  })()
+}
+
+/**
+ * Brings an entry back as it was at an earlier version of its memory history: its own fields and who
+ * each one came from, so bringing a version back and then undoing that leaves the entry exactly as it
+ * was. An entry moved to Recently deleted since comes back too. Adam does this, so the new version is
+ * his and the entry counts as touched by hand (never moved to the Trash automatically).
+ */
+export function restoreEntryVersion(db: DB, entryId: ID, versionId: ID): Entry {
+  const v = getVersion(db, versionId)
+  if (!v || v.factKind !== 'entry' || v.factId !== entryId) throw new UserError('That earlier version could not be found.')
+  if (!v.data || typeof v.data !== 'object') throw new UserError('That version is from when the entry was removed. Pick an earlier one.')
+  if (!db.prepare('SELECT 1 FROM entries WHERE id = ?').get(entryId)) {
+    throw new UserError('That entry has been removed for good, so it can’t be brought back.')
+  }
+  const old = v.data as Partial<Entry>
+  const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [])
+  return db.transaction(() => {
+    db.prepare(
+      `UPDATE entries SET name = ?, aliases_json = ?, summary = ?, description = ?, tags_json = ?, notes = ?, fields_json = ?,
+       parent_id = ?, hard_rule = ?, field_origins_json = ?, by_hand = 1, deleted_at = NULL, updated_at = ? WHERE id = ?`
+    ).run(
+      entryName(old.name),
+      JSON.stringify(strings(old.aliases)),
+      old.summary ?? '',
+      old.description ?? '',
+      JSON.stringify(strings(old.tags)),
+      old.notes ?? '',
+      JSON.stringify(old.fields ?? {}),
+      old.parentId && old.parentId !== entryId ? old.parentId : null,
+      old.hardRule ? 1 : 0,
+      JSON.stringify(old.fieldOrigins ?? {}),
+      now(),
+      entryId
+    )
+    const after = getEntry(db, entryId)
+    recordVersion(db, { factKind: 'entry', factId: entryId, entryId, data: after, origin: 'adam' })
+    return after
+  })()
 }

@@ -440,3 +440,66 @@ describe('a scene with nothing around it', () => {
     expect(() => sceneMemory(db, scene)).toThrow('That scene no longer exists.')
   })
 })
+
+describe('memory history of an entry', () => {
+  const entryVersions = (db: DB, id: ID) =>
+    entryHistory(db, id)
+      .filter((v) => v.factKind === 'entry')
+      .map((v) => [v.version, v.origin, v.runId, v.data === null ? null : (v.data as { fields: Record<string, string> }).fields])
+
+  it('records every write with who made it and the run, and nothing for a save that changes nothing', () => {
+    const w = small()
+    const kell = repo.createEntry(w.db, 'character', { name: 'Kell' }, { origin: 'text', originSceneId: w.sc[0][0], runId: 'run-1' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'grey' } }, { origin: 'text', runId: 'run-2' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'grey' } })
+    repo.updateEntry(w.db, kell.id, { name: ' Kell ' })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'green' } })
+    repo.deleteEntry(w.db, kell.id, { origin: 'text', runId: 'run-3' })
+    repo.deleteEntry(w.db, kell.id)
+    expect(entryVersions(w.db, kell.id)).toEqual([
+      [4, 'text', 'run-3', null],
+      [3, 'adam', null, { eyes: 'green' }],
+      [2, 'text', 'run-2', { eyes: 'grey' }],
+      [1, 'text', 'run-1', {}]
+    ])
+    // Brought back from Recently deleted: the history says so.
+    repo.restoreDeleted(w.db, 'entry', kell.id)
+    expect(entryVersions(w.db, kell.id)[0]).toEqual([5, 'adam', null, { eyes: 'green' }])
+  })
+
+  it('a field left out of a save is emptied, and becomes Adam’s', () => {
+    const w = small()
+    const e = repo.createEntry(w.db, 'character', { name: 'Mara' }, { origin: 'text', originSceneId: w.sc[0][0] })
+    repo.updateEntry(w.db, e.id, { fields: { eyes: 'grey', hair: 'dark' } }, { origin: 'text' })
+    const after = repo.updateEntry(w.db, e.id, { fields: { eyes: 'grey' } })
+    expect(after.fields).toEqual({ eyes: 'grey' })
+    expect(after.fieldOrigins).toEqual({ eyes: 'text', hair: 'adam' })
+  })
+
+  it('brings back an earlier version exactly, even after the keeper changed it and it was deleted', () => {
+    const w = small()
+    const kell = repo.createEntry(w.db, 'character', { name: 'Kell' }, { origin: 'text', originSceneId: w.sc[0][0] })
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'grey' } }, { origin: 'text', runId: 'run-1' })
+    const read = entryHistory(w.db, kell.id)[0]
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'green' }, summary: 'A smuggler.' })
+    const mine = entryHistory(w.db, kell.id)[0]
+    repo.updateEntry(w.db, kell.id, { fields: { eyes: 'blue' } }, { origin: 'text', runId: 'run-2' })
+    repo.deleteEntry(w.db, kell.id, { origin: 'text', runId: 'run-3' })
+
+    // Back from Recently deleted, as the keeper read it: the eyes follow the text again.
+    const back = repo.restoreEntryVersion(w.db, kell.id, read.id)
+    expect(repo.getEntry(w.db, kell.id)).toMatchObject({ fields: { eyes: 'grey' }, summary: '', byHand: true })
+    expect(back.fieldOrigins).toEqual({ eyes: 'text' })
+    expect(entryHistory(w.db, kell.id)[0]).toMatchObject({ factKind: 'entry', origin: 'adam', data: back })
+
+    // Adam's own version comes back as his.
+    const again = repo.restoreEntryVersion(w.db, kell.id, mine.id)
+    expect(again).toMatchObject({ fields: { eyes: 'green' }, summary: 'A smuggler.', fieldOrigins: { eyes: 'adam', summary: 'adam' } })
+
+    const removed = entryHistory(w.db, kell.id).find((v) => v.data === null)!
+    expect(() => repo.restoreEntryVersion(w.db, kell.id, removed.id)).toThrow(
+      'That version is from when the entry was removed. Pick an earlier one.'
+    )
+    expect(() => repo.restoreEntryVersion(w.db, w.mara, read.id)).toThrow('That earlier version could not be found.')
+  })
+})
