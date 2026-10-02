@@ -1,9 +1,9 @@
 import { AlertTriangle, Lock, Trash2 } from 'lucide-react'
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
 import { Button, Field, Input, Select } from '@/components/ui'
-import { AutoTextarea } from './parts/AutoTextarea'
+import { AutoTextarea, useFitHeight } from './parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -152,7 +152,7 @@ export const EntryForm = memo(function EntryForm({
   const draftRef = useRef(initial)
   const liveRef = useRef(onLiveChange)
   liveRef.current = onLiveChange
-  const nameRef = useRef<HTMLInputElement>(null)
+  const nameRef = useRef<HTMLTextAreaElement>(null)
   const ids = { notes: useId(), hard: useId() }
   // Bumped when a list is replaced from outside, so the input that keeps its own text for it starts again.
   // One each, so a change to the aliases never resets (and takes the cursor out of) the tags.
@@ -269,6 +269,7 @@ export const EntryForm = memo(function EntryForm({
 
   const setField = useCallback((key: string, v: string) => update({ fields: { ...draftRef.current.fields, [key]: v } }), [update])
   const setParent = useCallback((parentId: string | null) => update({ parentId }), [update])
+  const setName = useCallback((name: string) => update({ name }), [update])
 
   // A freshly created entry opens with its name selected, ready to type over.
   useLayoutEffect(() => {
@@ -358,15 +359,7 @@ export const EntryForm = memo(function EntryForm({
         </Button>
       </div>
 
-      <input
-        ref={nameRef}
-        value={draft.name}
-        aria-label="Name"
-        placeholder="Name"
-        spellCheck={false}
-        onChange={(e) => update({ name: e.target.value })}
-        className="-mx-2 mt-1 w-[calc(100%+16px)] rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-[28px] font-semibold leading-tight text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-      />
+      <NameBox ref={nameRef} value={draft.name} onChange={setName} />
       <MadeByNote entry={owner} shown={madeByAI} />
       <DuplicateHint dups={dups} kind={kind} onOpen={onOpen} />
 
@@ -474,6 +467,37 @@ export const EntryForm = memo(function EntryForm({
     </div>
   )
 })
+
+/**
+ * The entry's name, as a title. It wraps onto more lines rather than cut off a long one ("The night
+ * the harbour burned", "Who left the letter on Mara's pillow?"), and stays one line of text: Enter
+ * does nothing, and a pasted line break becomes a space.
+ */
+const NameBox = memo(
+  forwardRef<HTMLTextAreaElement, { value: string; onChange: (v: string) => void }>(function NameBox({ value, onChange }, outer) {
+    const inner = useRef<HTMLTextAreaElement | null>(null)
+    useFitHeight(inner, value, 1, 4)
+    return (
+      <textarea
+        ref={(el) => {
+          inner.current = el
+          if (typeof outer === 'function') outer(el)
+          else if (outer) outer.current = el
+        }}
+        rows={1}
+        value={value}
+        aria-label="Name"
+        placeholder="Name"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
+        }}
+        className="-mx-2 mt-1 block w-[calc(100%+16px)] resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-[28px] font-semibold leading-tight text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+      />
+    )
+  })
+)
 
 /** "Inside" for a place. Memoised: a world can hold hundreds of places. */
 const ParentSelect = memo(function ParentSelect({
