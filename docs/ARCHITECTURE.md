@@ -270,8 +270,10 @@ is built on migrations 1 and 2.
 - Quotes are cut exactly from the scene's text; `quoteCut` tells the page where to add "…".
 - `setFirstExists` replaces the points; places in Recently deleted pass, only places deleted for good
   are refused.
-- "You wrote this": one note under the name on Adam's own entries; on other entries, a note on each of
-  his fields, relationships and facts, also in the as-of view (matched to the change that set them).
+- "You wrote this": one note under the name only on entries wholly his own (no field marked Drafted by
+  AI; `allAdams` in `memoryLogic.ts`). A builder-made entry with AI-drafted fields says `YOU_MADE` ("You
+  made this. …") instead. On every other entry, and on such builder-made ones in the as-of view, a note
+  sits on each of his fields, relationships and facts (matched to the change that set them).
 - `codexStore` holds filters, sort, the way back and `anchor` (the card opened, or the first in view,
   and its offset). Cards use `content-visibility: auto` with a 104 px guess, so going back draws the
   60 cards each side of the anchor, then scrolls it to its offset.
@@ -301,9 +303,11 @@ is built on migrations 1 and 2.
   the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
   palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata
   measurements are `PROSE_CHAR_EM` and `PROSE_CH_EM` in `fitPanels.ts`; re-measure if the font changes.
-- The shared toast takes a second button (`secondary`, "Open" beside "Undo"). Add to memory gathers adds
-  made while its toast shows into that toast (as `announceDelete` does): Undo takes them all back, and Open
-  opens the latest, beside the page on the writing page, else on the entry's own page.
+- The shared toast takes a second button (`secondary`, "Open" beside "Undo"). A screen with a bar at the
+  bottom (the builder's, the interview's ask box) calls `useToastsAbove(ref)` (`components/ui/Toast.tsx`)
+  so toasts rise above it instead of covering it. Add to memory gathers adds made while its toast shows
+  into that toast (as `announceDelete` does): Undo takes them all back, and Open opens the latest,
+  beside the page on the writing page, else on the entry's own page.
 
 **Search and the command palette** (`src/main/search/`, `db/search.ts`, `features/palette/`)
 - `main/search/index.ts` keeps an in-memory index per world database, built once (about 70 ms for
@@ -382,9 +386,10 @@ is built on migrations 1 and 2.
 - Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
   overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
   opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
-  `READABLE_ZOOM`, else at `OPENING_ZOOM` around the best-connected character; Fit (0) always shows
-  everyone. The map shows the Story picker until a side story, prequel or own version exists, then
-  "As seen in" (it follows `hasOtherKinds` in `features/views/asOfLogic.ts`, as `AsSeenIn` does).
+  `READABLE_ZOOM` or the cast is `SMALL_CAST` (12) or fewer, else at `OPENING_ZOOM` around the
+  best-connected character; Fit (0) always shows everyone. The map shows the Story picker until a side
+  story, prequel or own version exists, then "As seen in" (it follows `hasOtherKinds` in
+  `features/views/asOfLogic.ts`, as `AsSeenIn` does).
 - The three screens share `features/timeline/viewParts.tsx` (`useWorldView` reloads on `outlineRev`,
   `entriesRev`, `memoryRev` and `briefingRev`, keeping the last data while it does). Timeline lane
   choices are in localStorage under `aiwrite.timeline.lanes` (this computer only; works without it).
