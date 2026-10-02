@@ -71,9 +71,8 @@ src/renderer/src/
   at it and give the release workflow a token that can write there; never put a token in
   electron-builder.yml, it would ship inside the app). While the releases can't be read,
   installed copies say "Automatic updates aren't set up yet".
-- Adam chose to update by hand for now (2026-10-02), so `AUTO_UPDATES` in src/shared/defaults.ts
-  is off: the app never checks, and Settings › About links to the Releases page instead. Turn it
-  on once the releases are publicly readable.
+- `AUTO_UPDATES` in src/shared/defaults.ts turns the checks off entirely (Adam then updates by
+  hand; Settings › About links to the Releases page). It is on: Adam wants automatic updates.
 - In electron-builder.yml each platform's `files` list is complete: a platform list replaces the
   top-level one rather than adding to it.
 - The installer isn't code-signed yet, so Windows shows "Windows protected your PC" when it is
