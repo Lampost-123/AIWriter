@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
 import { Button, EmptyState, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { editorBridge, setEditorBridge } from '@/lib/editorBridge'
 import { registerDiscarder, registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
@@ -13,6 +14,8 @@ import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { SceneController } from './controller'
 import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
+import { NamesLayer } from './names/NamesLayer'
+import { SelectionLayer } from './selection/SelectionLayer'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import './editor.css'
@@ -182,15 +185,18 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           if (draftBelow) ctrlRef.current?.updateDraftBelow()
         }}
         onMouseDown={onPageMouseDown}
-        className="relative min-h-0 flex-1 overflow-y-auto"
+        // Sized by its own width: a narrow page (a small window) has less padding, leaving the room to the words.
+        className="@container relative min-h-0 flex-1 overflow-y-auto"
       >
         <div
           ref={columnRef}
-          className={shown && !error ? 'mx-auto px-10 pb-[38vh] pt-12 font-serif' : 'invisible mx-auto px-10 pb-[38vh] pt-12 font-serif'}
+          className={cn('mx-auto px-6 pb-[38vh] pt-12 font-serif @min-[700px]:px-10', !(shown && !error) && 'invisible')}
           style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
         >
           <EditorContent editor={editor} />
         </div>
+        <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
+        <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState

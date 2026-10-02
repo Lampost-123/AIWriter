@@ -1,14 +1,31 @@
-import { useCallback, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { useApp } from '@/lib/store'
 
 /** The panel's 1px edge line, which sits inside its width. */
 const BORDER = 1
+
+/** Pop-up layers (menus, lists, dialogs) a click or Esc inside belongs to, not to the page behind. */
+const LAYERS = '[data-radix-popper-content-wrapper], [role="dialog"], [role="menu"], [role="listbox"]'
+
+const isTextBox = (el: Element | null): boolean =>
+  !!el && (el.matches('input, textarea, select') || el.closest('[role="combobox"]') !== null)
+
+export interface FloatingPane {
+  /** Called on Esc and on a click outside the pane. */
+  onClose: () => void
+  /** The accessible name of the button that shows and hides the pane (a click on it isn't "outside"). */
+  toggle: string
+}
 
 /**
  * A side panel with a drag handle. Width changes are applied directly to the
  * element while dragging (no React re-render per pixel) and saved on release.
  * The contents keep their full width while the panel slides open or shut (the
  * panel clips them), so the text never re-wraps frame by frame.
+ *
+ * `floating` (a small window): the panel takes no room beside the page and shows over it when open,
+ * closing on Esc or a click outside. The contents stay mounted either way, so nothing reloads.
  */
 export function ResizablePane({
   side,
@@ -20,7 +37,8 @@ export function ResizablePane({
   children,
   className,
   label,
-  instant = false
+  instant = false,
+  floating = null
 }: {
   side: 'left' | 'right'
   width: number
@@ -33,6 +51,7 @@ export function ResizablePane({
   label: string
   /** Follow width changes straight away, without easing (while the window is being resized). */
   instant?: boolean
+  floating?: FloatingPane | null
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
@@ -66,23 +85,72 @@ export function ResizablePane({
     [max, min, onResize, side]
   )
 
+  // Floating and open: the keyboard goes into it; Esc or a click outside closes it.
+  const floatOpen = !!floating && open
+  const floatingRef = useRef(floating)
+  floatingRef.current = floating
+  useEffect(() => {
+    if (!floatOpen) return
+    const inner = innerRef.current
+    if (inner && !inner.contains(document.activeElement)) inner.focus({ preventScroll: true })
+    const toggleButton = (): HTMLElement | null =>
+      document.querySelector<HTMLElement>(`[aria-label="${floatingRef.current?.toggle ?? ''}"]`)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const target = e.target instanceof Element ? e.target : null
+      // Esc in a menu or a text box (renaming a scene) belongs to that first.
+      if (target && (target.closest(LAYERS) || (inner?.contains(target) && isTextBox(target)))) return
+      e.preventDefault()
+      const wasInside = !!inner?.contains(document.activeElement)
+      floatingRef.current?.onClose()
+      if (wasInside) toggleButton()?.focus()
+    }
+    const onDown = (e: PointerEvent): void => {
+      const target = e.target instanceof Element ? e.target : null
+      if (!target || inner?.contains(target) || target.closest(LAYERS) || toggleButton()?.contains(target)) return
+      floatingRef.current?.onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onDown, true)
+    }
+  }, [floatOpen])
+
   return (
     <aside
       ref={ref}
-      aria-label={label}
-      style={{ width: open ? width : 0 }}
+      // Floating, the panel over the page is the landmark (this takes no room and holds it in place).
+      role={floating ? 'none' : undefined}
+      aria-label={floating ? undefined : label}
+      style={{ width: floating || !open ? 0 : width }}
       className={cn(
-        'relative flex shrink-0 flex-col overflow-hidden bg-surface',
-        !instant && 'transition-[width] duration-200 ease-out',
-        side === 'left' ? 'border-r border-line' : 'border-l border-line',
-        !open && 'border-transparent',
+        'relative flex shrink-0 flex-col',
+        floating ? 'z-30 overflow-visible' : 'overflow-hidden bg-surface',
+        !instant && !floating && 'transition-[width] duration-200 ease-out',
+        !floating && (side === 'left' ? 'border-r border-line' : 'border-l border-line'),
+        !floating && !open && 'border-transparent',
         className
       )}
     >
-      <div ref={innerRef} className={cn('flex h-full flex-col', side === 'right' && 'self-end')} style={{ width: width - BORDER }}>
+      <div
+        ref={innerRef}
+        role={floating ? 'complementary' : undefined}
+        aria-label={floating ? label : undefined}
+        tabIndex={floating ? -1 : undefined}
+        className={cn(
+          'flex h-full flex-col',
+          side === 'right' && !floating && 'self-end',
+          floating && 'absolute inset-y-0 bg-surface shadow-pop focus:outline-none',
+          floating && (side === 'left' ? 'left-0 border-r border-line' : 'right-0 border-l border-line'),
+          floating && (open ? 'animate-fade-in' : 'hidden')
+        )}
+        style={{ width: floating ? width : width - BORDER }}
+      >
         {children}
       </div>
-      {open ? (
+      {open && !floating ? (
         <div
           role="separator"
           aria-orientation="vertical"
@@ -95,4 +163,39 @@ export function ResizablePane({
       ) : null}
     </aside>
   )
+}
+
+/**
+ * Whether a pane floating over the page shows (see ResizablePane's `floating`). While `active`, the
+ * button named `toggle` shows and hides it instead of changing the saved layout; picking a scene or
+ * another page closes it. It starts closed whenever the pane starts floating.
+ */
+export function useFloatingPane(active: boolean, toggle: string): { open: boolean; close: () => void } {
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
+
+  useEffect(() => {
+    if (!active) {
+      setOpen(false)
+      return
+    }
+    // Ahead of the button's own click, which would change the saved layout.
+    const onClick = (e: MouseEvent): void => {
+      if (!(e.target instanceof Element) || !e.target.closest(`[aria-label="${toggle}"]`)) return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen((o) => !o)
+    }
+    document.addEventListener('click', onClick, true)
+    // Picking something in it (a scene, a page) is what it was opened for.
+    const off = useApp.subscribe((s, prev) => {
+      if (s.sceneId !== prev.sceneId || s.view !== prev.view || s.storyId !== prev.storyId) setOpen(false)
+    })
+    return () => {
+      document.removeEventListener('click', onClick, true)
+      off()
+    }
+  }, [active, toggle])
+
+  return { open: active && open, close }
 }

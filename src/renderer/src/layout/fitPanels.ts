@@ -3,8 +3,40 @@
 // window the open panels give up some of their width, each in proportion to what it can spare.
 // Pure, so it is unit-tested.
 
-/** The narrowest the page between the panels gets while a panel can still give up width. */
+/** The narrowest the page between the panels gets while a panel can still give up width (see pageMinFor for the writing page). */
 export const PAGE_MIN = 480
+
+// ----- How narrow the writing page may get -----
+
+/** The fewest characters a line of prose should hold in a small window. */
+export const LINE_CHARS = 55
+/** Lines break between words, so a line needs room for about one more word than it holds. */
+const WRAP_SLACK = 7
+/** How wide an average character of English prose is in the prose font (Literata), in ems; measured. */
+export const PROSE_CHAR_EM = 0.472
+/** How wide Literata's "0" is (CSS's ch unit, which the page width setting is in), in ems; measured. */
+export const PROSE_CH_EM = 0.631
+/** The page's padding either side when narrow (px-6), and its scroll bar. */
+export const PAGE_PADDING = 2 * 24 + 10
+
+/**
+ * The narrowest the writing page gets while the panels beside it can give up width: room for about
+ * 55 characters a line at Adam's text size (about 620 px at the default 19 px), plus the padding.
+ * Never more than the page's own column at its widest (the page width setting), which is all it uses.
+ */
+export function pageMinFor(fontSize: number, pageWidthCh = 70): number {
+  const prose = Math.min((LINE_CHARS + WRAP_SLACK) * PROSE_CHAR_EM, pageWidthCh * PROSE_CH_EM) * fontSize
+  return Math.round(prose) + PAGE_PADDING
+}
+
+/**
+ * True when the binder should float over the page instead of sitting beside it: the scene panel is
+ * open and, even with both panels at their narrowest, the page wouldn't keep its room. The binder
+ * then shows only when asked for, over the page; Adam's saved layout is left as it is.
+ */
+export function binderFloats(windowWidth: number, binderFloor: number, scenePanel: Omit<PanelSize, 'width'>, pageMin: number): boolean {
+  return scenePanel.open && windowWidth - binderFloor - scenePanel.floor < pageMin
+}
 
 export interface PanelSize {
   open: boolean
@@ -32,4 +64,37 @@ export function fitPanels(windowWidth: number, left: PanelSize, right: PanelSize
 /** The widest a panel can be dragged to while the other panel shows at `other` px, keeping the page's room. */
 export function dragMax(windowWidth: number, other: number, min: number, max: number, pageMin = PAGE_MIN): number {
   return Math.max(min, Math.min(max, windowWidth - other - pageMin))
+}
+
+/**
+ * The width to save for a panel Adam dragged to `shown` px, so that it still shows at `shown` once
+ * the panels are fitted to the window again (rather than being squeezed back from where he let go).
+ * The other panel keeps its own chosen width. `max` is the panel's widest.
+ */
+export function chosenWidthFor(
+  shown: number,
+  windowWidth: number,
+  side: 'left' | 'right',
+  self: Omit<PanelSize, 'width'>,
+  other: PanelSize,
+  max: number,
+  pageMin = PAGE_MIN
+): number {
+  const at = (width: number): number => {
+    const me = { ...self, width }
+    return fitPanels(windowWidth, side === 'left' ? me : other, side === 'left' ? other : me, pageMin)[side]
+  }
+  // What shows never falls as the chosen width grows, so the smallest width that shows enough is found by halving.
+  if (shown >= max) return max
+  let lo = shown
+  let hi = max
+  if (at(lo) >= shown) return lo
+  if (at(hi) < shown) return hi
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (at(mid) >= shown) hi = mid
+    else lo = mid + 1
+  }
+  // Rounding can step past `shown`: keep whichever width shows nearer to it.
+  return lo > shown && shown - at(lo - 1) < at(lo) - shown ? lo - 1 : lo
 }
