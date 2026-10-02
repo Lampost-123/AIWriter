@@ -85,6 +85,34 @@ test('a scene title being typed is kept when the window closes before Enter', as
   await expect(row(second.win, 'The Knock at the Door')).toBeVisible()
 })
 
+test('a scene added from a row menu keeps its name box, even if it opens before the menu has finished closing', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  for (const item of ['Add scene after', 'Rename']) {
+    await row(win, 'Scene 1').click({ button: 'right' })
+    // The menu hands focus back a moment after it closes. Usually the new scene's name box opens
+    // later than that, but not always: make that moment come late every time.
+    await win.evaluate(() => {
+      const w = window as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      const plain = (w.plainTimeout = w.setTimeout)
+      w.setTimeout = ((fn: () => void, ms?: number) => plain(fn, ms || 300)) as typeof setTimeout
+    })
+    await win.getByRole('menuitem', { name: item }).click()
+    const box = binder(win).getByRole('textbox', { name: 'Scene title' })
+    await expect(box).toBeFocused()
+    await win.waitForTimeout(500)
+    await win.evaluate(() => {
+      const w = window as unknown as { setTimeout: typeof setTimeout; plainTimeout?: typeof setTimeout }
+      w.setTimeout = w.plainTimeout!
+    })
+    await expect(box).toBeFocused()
+    await win.keyboard.press('Control+A')
+    await win.keyboard.type(`From ${item}`)
+    await win.keyboard.press('Enter')
+    await expect(row(win, `From ${item}`)).toBeVisible()
+  }
+})
+
 test('emptying a drafted scene puts it back to planned', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
