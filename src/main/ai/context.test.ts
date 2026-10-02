@@ -11,6 +11,7 @@ import {
   effectivePins,
   finishContext,
   formatProfile,
+  formsOf,
   lengthTooLong,
   maxTargetWords,
   mentions,
@@ -794,13 +795,91 @@ describe('blocks', () => {
         '### Most recently\nCh 1, Sc 3: Scene summary 3.\n\nCh 1, Sc 4: Scene summary 4.\n\nCh 2, Sc 1: Scene summary 5.\n\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
       ].join('\n\n')
     )
+    // Short: the series roll-up, chapter summaries, the last 2 scenes; the chapter this scene is in
+    // has no summary yet, so its earlier scene is told by its own summary rather than skipped.
     expect(block.short).toBe(
       [
         '### The River Books\nSeries roll-up.',
-        '### Earlier in Book 2\nCh 1: Chapter one summary.',
+        '### Earlier in Book 2\nCh 1: Chapter one summary.\n\nCh 2, Sc 1: Scene summary 5.',
         '### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
       ].join('\n\n')
     )
+    // Smaller still, for small models: only the most recent parts, saying so.
+    expect(block.smaller).toEqual([
+      'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.',
+      'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 3: Scene summary 7.'
+    ])
+  })
+
+  it('block 8: no earlier scene of this story is skipped, even in a long chapter with no summary yet', () => {
+    // Ch 1 is finished and summarised; Ch 2 (no summary yet) has 8 scenes before this one; Ch 3's summary isn't written yet.
+    const scenes = [
+      ...Array.from({ length: 2 }, (_, i) => ({ sceneId: `a${i}`, chapterId: 'c1', label: `Ch 1, Sc ${i + 1}`, text: `One ${i + 1}.` })),
+      ...Array.from({ length: 8 }, (_, i) => ({ sceneId: `b${i}`, chapterId: 'c2', label: `Ch 2, Sc ${i + 1}`, text: `Two ${i + 1}.` }))
+    ]
+    const s: StorySoFar = {
+      scenes,
+      chapters: [{ chapterId: 'c1', label: 'Ch 1', text: 'Chapter one.' }],
+      stories: [],
+      series: [],
+      leadsInto: null
+    }
+    expect(storySoFarText(s, 'Book 2', 0)).toBe(
+      [
+        '### Earlier in Book 2\nCh 1: Chapter one.\n\nCh 2, Sc 1: Two 1.\n\nCh 2, Sc 2: Two 2.\n\nCh 2, Sc 3: Two 3.',
+        '### Most recently\nCh 2, Sc 4: Two 4.\n\nCh 2, Sc 5: Two 5.\n\nCh 2, Sc 6: Two 6.\n\nCh 2, Sc 7: Two 7.\n\nCh 2, Sc 8: Two 8.'
+      ].join('\n\n')
+    )
+    // A finished chapter whose summary isn't written yet is told by its scenes, in their place.
+    const pending: StorySoFar = {
+      ...s,
+      scenes: [
+        { sceneId: 'a0', chapterId: 'c1', label: 'Ch 1, Sc 1', text: 'One 1.' },
+        { sceneId: 'b0', chapterId: 'c2', label: 'Ch 2, Sc 1', text: 'Two 1.' },
+        { sceneId: 'b1', chapterId: 'c2', label: 'Ch 2, Sc 2', text: 'Two 2.' },
+        ...Array.from({ length: 5 }, (_, i) => ({ sceneId: `c${i}`, chapterId: 'c3', label: `Ch 3, Sc ${i + 1}`, text: `Three ${i + 1}.` }))
+      ],
+      chapters: [{ chapterId: 'c1', label: 'Ch 1', text: 'Chapter one.' }]
+    }
+    expect(storySoFarText(pending, 'Book 2', 0)).toContain(
+      '### Earlier in Book 2\nCh 1: Chapter one.\n\nCh 2, Sc 1: Two 1.\n\nCh 2, Sc 2: Two 2.'
+    )
+    expect(storySoFarText(pending, 'Book 2', 1)).toContain(
+      'Ch 2, Sc 2: Two 2.\n\nCh 3, Sc 1: Three 1.\n\nCh 3, Sc 2: Three 2.\n\nCh 3, Sc 3: Three 3.\n\n### Most recently\nCh 3, Sc 4: Three 4.'
+    )
+  })
+
+  it('block 8: smaller forms keep the most recent parts; the "Leads into" target goes last of all', () => {
+    const s: StorySoFar = {
+      scenes: Array.from({ length: 3 }, (_, i) => ({
+        sceneId: `s${i}`,
+        chapterId: 'c9',
+        label: `Ch 9, Sc ${i + 1}`,
+        text: `Scene ${i + 1}.`
+      })),
+      chapters: Array.from({ length: 8 }, (_, i) => ({ chapterId: `c${i + 1}`, label: `Ch ${i + 1}`, text: `Chapter ${i + 1}.` })),
+      stories: [{ storyId: 'b1', title: 'Book 1', meanwhile: false, cut: false, text: 'Book one.' }],
+      series: [],
+      leadsInto: { storyId: 'b2', title: 'Book 2', text: 'Mara is twenty.' }
+    }
+    const at = (level: number): string => storySoFarText(s, 'The Prequel', level)
+    expect(at(2)).toBe(
+      [
+        'Only the most recent part of the story so far is given here, to save space.',
+        '### Earlier in The Prequel\nCh 6: Chapter 6.\n\nCh 7: Chapter 7.\n\nCh 8: Chapter 8.\n\nCh 9, Sc 1: Scene 1.',
+        '### Most recently\nCh 9, Sc 2: Scene 2.\n\nCh 9, Sc 3: Scene 3.',
+        '### Leads into Book 2\nThis story leads into Book 2. Below is how Book 2 begins: a target to steer towards over the story, not events to mention or bring about in this scene.\nMara is twenty.'
+      ].join('\n\n')
+    )
+    expect(at(1)).toContain('### Book 1\nBook one.')
+    expect(at(3)).not.toContain('Leads into')
+    expect(at(3)).toContain('### Most recently\nCh 9, Sc 2: Scene 2.\n\nCh 9, Sc 3: Scene 3.')
+    expect(at(4)).toBe(
+      'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 9, Sc 3: Scene 3.'
+    )
+    // At a story's first scene, the most recent part is the end of the story before it.
+    const first: StorySoFar = { ...s, scenes: [], chapters: [], leadsInto: null }
+    expect(storySoFarText(first, 'Book 2', 4)).toBe('### Book 1\nBook one.')
   })
 
   it('block 8: side stories under "Meanwhile", a story cut short, and the "Leads into" target', () => {
@@ -855,6 +934,22 @@ describe('blocks', () => {
     expect(block.short).toBe('- The Tide Laws (lore): Boats and bells.\n- The Fish Market (place)\n- Will (character): A stable boy.')
   })
 
+  it('block 9: a plot thread named in the beats that is already paid off says so', () => {
+    const inp = input()
+    const map = entry('thread', 'The lost map', { summary: 'Where is the map?' })
+    const debt = entry('thread', 'The debt', { summary: 'What does Mara owe?' })
+    inp.memory.entries.push(map, debt)
+    inp.memory.threads = [
+      { entryId: map.id, status: 'resolved', setUp: 'Book 1, Ch 1, Sc 1', paidOff: 'Book 1, Ch 9, Sc 2' },
+      { entryId: debt.id, status: 'open', setUp: 'Book 1, Ch 2, Sc 1', paidOff: '' }
+    ]
+    inp.scene.card.beats = ['Mara remembers the lost map', 'She thinks of the debt']
+    const block = blockOf(inp, 'mentioned')!
+    expect(block.text).toContain('### The lost map (plot thread; already paid off in Book 1, Ch 9, Sc 2)')
+    expect(block.text).toContain('### The debt (plot thread)\n')
+    expect(block.short).toContain('- The lost map (plot thread; already paid off in Book 1, Ch 9, Sc 2): Where is the map?')
+  })
+
   it('block 10: themes and tone of the story, series and world; short: one line', () => {
     const inp = richInput()
     inp.story.tone = 'Bleak. Then hopeful.'
@@ -868,12 +963,22 @@ describe('blocks', () => {
 
 // ---------- Fitting the briefing to the model ----------
 
-/** Counts for a prepared briefing: every full form `full`, every short form `short`, the closing instruction 0. */
-function counts(prepared: PreparedContext, full: (id: string) => number, short: (id: string) => number = () => 100): number[] {
-  const n = prepared.blocks.length
-  return prepared.texts.map((_, i) =>
-    i < n ? full(prepared.blocks[i].id) : i < 2 * n ? (prepared.blocks[i - n].short == null ? 0 : short(prepared.blocks[i - n].id)) : 0
+/**
+ * Counts for a prepared briefing, in the order of `prepared.texts`: every full form `full`, every
+ * short form `short`, every smaller form `smaller` (by default the same as the short form, so it
+ * saves nothing), the closing instructions 0.
+ */
+function counts(
+  prepared: PreparedContext,
+  full: (id: string) => number,
+  short: (id: string) => number = () => 100,
+  smaller: (id: string, level: number) => number = (id) => short(id)
+): number[] {
+  const out = prepared.blocks.flatMap((b) =>
+    formsOf(b).map((_, level) => (level === 0 ? full(b.id) : level === 1 ? short(b.id) : smaller(b.id, level)))
   )
+  expect(out.length).toBe(prepared.texts.length - 2)
+  return [...out, 0, 0]
 }
 
 /** A context length that leaves exactly `available` tokens for the briefing. */
@@ -1055,6 +1160,322 @@ describe('fitting the briefing to the model', () => {
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
     expect(large.messages[1].content).toContain('Ch 1, Sc 3: Scene summary 3.')
+  })
+
+  it('uses the smaller forms of the point of view and the story so far, from the bottom up, before dropping anything', () => {
+    // Full forms 1,000, short forms 100, then 50 and 20 (all plus the 10% allowance: 1,100, 110, 55, 22).
+    const c = counts(
+      prepared,
+      () => 1000,
+      () => 100,
+      (_, level) => (level === 2 ? 50 : 20)
+    )
+    expect(prepared.blocks.filter((b) => b.smaller.length).map((b) => [b.id, b.smaller.length])).toEqual([
+      ['pov', 1],
+      ['story-so-far', 2]
+    ])
+    const form = (id: string, level: number): string => formsOf(prepared.blocks.find((b) => b.id === id)!)[level]
+    const allShort = 10 * 110 + 2 * 1100 + 8
+    // Room for everything short, less 50: the story so far goes smaller first (it is lower down).
+    const p = fit(prepared, allShort - 50, c)
+    expect(ids(p, (b) => b.dropped)).toEqual([])
+    expect(p.blocks.find((b) => b.id === 'story-so-far')).toMatchObject({ text: form('story-so-far', 2), short: true, tokens: 55 })
+    expect(p.blocks.find((b) => b.id === 'pov')!.text).toBe(form('pov', 1))
+    expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
+    // Less room still: a step at a time, both go smaller, and still nothing is dropped.
+    const q = fit(prepared, allShort - 140, c)
+    expect(ids(q, (b) => b.dropped)).toEqual([])
+    expect(q.blocks.find((b) => b.id === 'story-so-far')).toMatchObject({ text: form('story-so-far', 3), tokens: 22 })
+    expect(q.blocks.find((b) => b.id === 'pov')).toMatchObject({ text: form('pov', 2), tokens: 55 })
+    // Only when the smallest forms aren't enough are blocks dropped, from the bottom up.
+    expect(ids(fit(prepared, allShort - 200, c), (b) => b.dropped)).toEqual(['themes'])
+    // Plenty of room: every block gets its full form back.
+    expect(ids(fit(prepared, total, c), (b) => b.short || b.dropped)).toEqual([])
+    // 'short' is the short form when there is room, and 'full' is never made smaller.
+    const r = fit(prepared, 100_000, c, { pov: 'short' })
+    expect(r.blocks.find((b) => b.id === 'pov')!.text).toBe(form('pov', 1))
+    const s = fit(prepared, allShort - 140, c, { 'story-so-far': 'full' })
+    expect(s.blocks.find((b) => b.id === 'story-so-far')).toMatchObject({ short: false, dropped: false })
+  })
+})
+
+// ---------- Realistic numbers: small and large models, the same scene ----------
+
+describe('a small-context model and a large-context model both get a sensible briefing for the same scene', () => {
+  // Plain stand-in prose (nobody's story), so token counts are those of real English.
+  const SENTENCES = [
+    'The rain came off the river in grey sheets, and the lamps along the quay burned low and yellow.',
+    'She kept her wrapped wrist inside her coat and walked as if she had somewhere better to be.',
+    'Somewhere behind her a bell rang twice, then stopped, as though whoever pulled the rope had thought better of it.',
+    'He was waiting under the awning of the chandler, his hat pulled down and his hands busy with a length of tarred rope.',
+    '"You are late," he said, without looking up, and she let the silence answer for her.',
+    'The smell of wet wool and lamp oil hung over everything, and under it the old green stink of the river.',
+    'She counted the boats tied along the wall, the way she always did, and found one more than there should have been.',
+    'It was not the kind of thing anyone else would notice, which was exactly why it worried her.'
+  ]
+  let next = 0
+  const prose = (n: number): string => {
+    const out: string[] = []
+    for (let w = 0; w < n; ) {
+      const s = SENTENCES[next++ % SENTENCES.length]
+      out.push(s)
+      w += s.split(' ').length
+    }
+    return out.join(' ')
+  }
+  const paragraphs = (n: number, per: number): string => Array.from({ length: Math.ceil(n / per) }, () => prose(per)).join('\n\n')
+
+  /** A character filled in on every field, as the character builder would leave them. */
+  const filled = (name: string): EntryState =>
+    entry('character', name, {
+      aliases: ['the Heir'],
+      summary: prose(20),
+      description: prose(150),
+      fields: {
+        ...Object.fromEntries(
+          ['traits', 'values', 'flaws', 'fears', 'desires', 'habits', 'triggers', 'wants', 'needs', 'arcStart', 'arcEnd', 'motivation'].map(
+            (k) => [k, prose(25)]
+          )
+        ),
+        ...Object.fromEntries(['build', 'face', 'hair', 'eyes', 'skin', 'clothing', 'movement'].map((k) => [k, 'Narrow and watchful'])),
+        pronouns: 'she/her',
+        age: '31',
+        role: 'protagonist',
+        marks: 'The stump of her left wrist, kept wrapped',
+        origin: prose(60),
+        pastEvents: prose(90),
+        secrets: prose(40),
+        speech: 'Short, dry sentences. Never raises her voice.',
+        tics: prose(15),
+        neverSays: prose(15),
+        sampleLines: Array.from({ length: 5 }, () => `"${prose(12)}"`).join('\n')
+      },
+      happened: Array.from({ length: 14 }, (_, i) => ({ note: prose(18), where: `Book 2, Ch ${i + 1}, Sc 2`, changeId: `h${i}` }))
+    })
+
+  /**
+   * Book 3, Ch 12, Sc 5: two earlier books (and a series roll-up), 11 finished chapters with 200-word
+   * summaries, four earlier scenes in this chapter, a 2,600-word previous scene, a 350-word sample
+   * passage, three full profiles, a location inside two places, two hard rules, a plot thread and a pin.
+   */
+  function bookThree(contextLength: number, targetWords: number, card: 'full' | 'typical' = 'full'): ContextInput {
+    next = 0
+    const mara = filled('Mara Venn')
+    const tobin = filled('Tobin')
+    const duke = filled('The Duke')
+    const varn = entry('place', 'Varn', {
+      summary: prose(15),
+      description: prose(120),
+      fields: { atmosphere: prose(30), history: prose(80) }
+    })
+    const lowtown = entry('place', 'Lowtown', { summary: prose(15), parentId: varn.id, description: prose(80) })
+    const eel = entry('place', 'The Gilded Eel', {
+      summary: prose(15),
+      parentId: lowtown.id,
+      description: prose(100),
+      fields: { atmosphere: prose(30), senses: prose(40), people: prose(25), history: prose(60) }
+    })
+    const guild = entry('group', 'The Tide Guild', { summary: prose(15), description: prose(100) })
+    const binding = entry('lore', 'The Binding', {
+      summary: prose(15),
+      hardRule: true,
+      description: prose(60),
+      fields: { rules: prose(60) }
+    })
+    const salt = entry('lore', 'The Salt Law', { summary: prose(15), hardRule: true, description: prose(40) })
+    const crown = entry('thread', 'The stolen crown', {
+      summary: prose(15),
+      description: prose(60),
+      fields: { promise: prose(25), clues: prose(40) }
+    })
+    const songs = entry('lore', 'River songs', { summary: prose(15), description: prose(80) })
+    const sceneSummaries = [
+      ...Array.from({ length: 3 }, (_, i) => ({ sceneId: `s11-${i}`, chapterId: 'c11', label: `Ch 11, Sc ${i + 1}`, text: prose(180) })),
+      ...Array.from({ length: 4 }, (_, i) => ({ sceneId: `s12-${i}`, chapterId: 'c12', label: `Ch 12, Sc ${i + 1}`, text: prose(180) }))
+    ]
+    const typical = card === 'typical'
+    return {
+      style: style({
+        proseStyle: prose(60),
+        notes: prose(50),
+        contentLimits: prose(20),
+        samplePassage: paragraphs(350, 90),
+        avoidPhrases: ['suddenly', 'a testament to', 'tapestry', 'delve', 'shiver down her spine', 'orbs', 'smirked', 'in that moment']
+      }),
+      scene: {
+        title: 'The knock',
+        card: {
+          ...emptySceneCard(),
+          povId: mara.id,
+          presentIds: [mara.id, tobin.id],
+          locationId: eel.id,
+          when: 'Day 12, dusk',
+          beats: typical
+            ? Array.from({ length: 5 }, () => prose(14))
+            : [...Array.from({ length: 6 }, () => prose(25)), 'She thinks of The Duke'],
+          goal: prose(typical ? 15 : 25),
+          conflict: prose(typical ? 15 : 25),
+          outcome: prose(typical ? 15 : 25),
+          mood: 'Tense, close, wet',
+          targetWords,
+          notes: typical ? '' : prose(60),
+          paysOffIds: [crown.id]
+        }
+      },
+      memory: memoryOf([mara, tobin, duke, varn, lowtown, eel, guild, binding, salt, crown, songs], {
+        knows: 'This story knows what happened in: Book 1; Book 2.',
+        previous: { sceneId: 'p', title: 'The docks', text: paragraphs(2600, 110) },
+        relationships: [
+          { aId: mara.id, bId: tobin.id, type: 'old friends, now uneasy', aFeels: prose(15), bFeels: prose(15), where: '' },
+          { aId: mara.id, bId: guild.id, type: 'lieutenant', aFeels: '', bFeels: '', where: '' },
+          { aId: mara.id, bId: duke.id, type: 'sworn enemies', aFeels: prose(12), bFeels: prose(12), where: '' }
+        ],
+        facts: Array.from({ length: 8 }, (_, i) => ({
+          factId: `f${i}`,
+          fact: prose(15),
+          knownBy: i % 2 ? [mara.id] : [mara.id, tobin.id]
+        })),
+        threads: [{ entryId: crown.id, status: 'open', setUp: 'Book 1, Ch 2, Sc 1', paidOff: '' }],
+        storySoFar: {
+          scenes: sceneSummaries,
+          chapters: Array.from({ length: 11 }, (_, i) => ({ chapterId: `c${i + 1}`, label: `Ch ${i + 1}`, text: prose(200) })),
+          stories: [
+            { storyId: 'b1', title: 'Book 1', meanwhile: false, cut: false, text: prose(250) },
+            { storyId: 'b2', title: 'Book 2', meanwhile: false, cut: false, text: prose(250) }
+          ],
+          series: [{ seriesId: 'sr', name: 'The River Books', storyIds: ['b1', 'b2'], text: prose(200) }],
+          leadsInto: null
+        }
+      }),
+      pins: [pin(songs.id, 'story')],
+      blockModes: {},
+      world: { themes: prose(30), tone: prose(20) },
+      series: { name: 'The River Books', themes: prose(30), tone: prose(20) },
+      story: { title: 'Book 3', premise: prose(50), themes: prose(25), tone: prose(15) },
+      options: { direction: typical ? '' : prose(20), targetWords, creativity: 'balanced' },
+      contextLength
+    }
+  }
+
+  const briefing = (contextLength: number, targetWords: number, card: 'full' | 'typical' = 'full') => {
+    const p = assembleContext(bookThree(contextLength, targetWords, card), countRaw)
+    const block = (id: string) => p.blocks.find((b) => b.id === id)!
+    const sent = (id: string): boolean => !!p.blocks.find((b) => b.id === id && !b.dropped)
+    return { p, block, sent, user: p.messages[1].content }
+  }
+
+  /** What every briefing must hold, whatever the model. */
+  function sensible(b: ReturnType<typeof briefing>): void {
+    expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
+    // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
+    expect(b.p.blocks).toHaveLength(12)
+    for (const id of ['instructions', 'scene-card', 'pov', 'previous-scene']) expect(b.sent(id), id).toBe(true)
+    expect(b.p.messages[0].content).toContain('Style guide\n- Point of view: Close third person')
+    expect(b.p.messages[0].content).toContain('Sample passage')
+    expect(b.p.messages[0].content).toContain('- suddenly')
+    expect(b.user).toContain('Beats, in order:\n1. ')
+    // A point-of-view character the model can write: who she is, how she speaks, what she knows.
+    expect(b.user).toContain('## Point-of-view character: Mara Venn\n\nAlso called: the Heir\nIn short: ')
+    expect(b.user).toContain('- Pronouns: she/her')
+    expect(b.user).toContain('- How they speak: Short, dry sentences. Never raises her voice.')
+    expect(b.user).toMatch(/- Sample lines of dialogue:\n {4}"/)
+    expect(b.user).toContain('What Mara Venn knows:\n- ')
+    expect(b.user).toContain('## End of the previous scene\n\n')
+    expect(b.user.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    // Nothing is cut off mid-sentence: every part starts and ends on whole sentences.
+    for (const x of b.p.blocks.filter((x) => !x.dropped)) expect(x.text, x.id).not.toContain('…')
+    expect(b.block('previous-scene').text).toMatch(/^["A-Z]/)
+  }
+
+  it('a 4,000-token model writing 600 words: instructions, scene card, the end of the previous scene and the core of the point of view', () => {
+    const b = briefing(4096, 600, 'typical')
+    sensible(b)
+    expect(b.block('instructions').short).toBe(true)
+    expect(b.block('previous-scene').short).toBe(true)
+    // The least of the profile: no backstory, no long description, two sample lines.
+    expect(b.block('pov').text).not.toContain('Backstory')
+    expect(b.block('pov').text.match(/^ {4}"/gm)).toHaveLength(2)
+    expect(b.block('pov').text).toContain('- Current motivation: ')
+    expect(b.block('pov').text).toContain('- Distinguishing marks: The stump of her left wrist, kept wrapped')
+  })
+
+  it('an 8,000-token model writing 1,500 words: also the people present, the world rules and the most recent story so far', () => {
+    const b = briefing(8192, 1500)
+    sensible(b)
+    for (const id of ['present', 'relationships', 'world-rules', 'setting', 'threads', 'story-so-far']) expect(b.sent(id), id).toBe(true)
+    expect(b.block('story-so-far').short).toBe(true)
+    expect(b.block('story-so-far').text).toContain('Only the most recent part of the story so far is given here, to save space.')
+    // The last two scenes before this one, by their summaries.
+    expect(b.block('story-so-far').text).toMatch(/### Most recently\nCh 12, Sc 3: .+\n\nCh 12, Sc 4: /)
+    expect(b.block('pov').text).not.toContain('Backstory')
+    // Tobin, in short: who he is and how he speaks.
+    expect(b.user).toContain('## Also in the scene\n\n### Tobin\nIn short: ')
+    expect(b.user).toContain('The Binding: ')
+  })
+
+  it('a 16,000-token model: the point of view in full, the story so far by chapters', () => {
+    const b = briefing(16_000, 1500)
+    sensible(b)
+    expect(b.p.blocks.filter((x) => x.dropped)).toEqual([])
+    expect(b.block('pov')).toMatchObject({ short: false })
+    expect(b.block('pov').text).toContain('Backstory\n- Origin: ')
+    const sofar = b.block('story-so-far').text
+    expect(sofar).toContain('### The River Books\n')
+    expect(sofar).toContain('Ch 11: ')
+    // The chapter this scene is in has no summary yet: its earlier scenes are told one by one.
+    expect(sofar).toContain('Ch 12, Sc 1: ')
+  })
+
+  it('32,000 and 128,000-token models: everything in full', () => {
+    for (const length of [32_768, 128_000]) {
+      const b = briefing(length, 1500)
+      sensible(b)
+      expect(b.p.blocks.filter((x) => x.dropped || x.short)).toEqual([])
+      expect(b.user).toContain('### Book 1\n')
+      expect(b.user).toContain('### Book 2\n')
+      expect(b.user).toContain('Ch 1: ')
+      expect(b.user).toContain('Ch 11, Sc 3: ')
+      expect(b.user).toContain('## Also relevant')
+      expect(b.user).toContain('## Themes and tone')
+    }
+  })
+
+  it('late in a long series, when the point of view knows 150 things, a small model still gets her and who knows what', () => {
+    const inp = bookThree(8192, 1500)
+    const mara = named(inp, 'Mara Venn')
+    const tobin = named(inp, 'Tobin')
+    inp.memory.facts = Array.from({ length: 150 }, (_, i) => ({
+      factId: `k${i}`,
+      fact: i === 3 ? 'Tobin owes the Tide Guild forty crowns.' : `${prose(14)} (${i})`,
+      knownBy: i % 5 ? [mara.id] : [mara.id, tobin.id]
+    }))
+    const p = assembleContext(inp, countRaw)
+    const block = (id: string) => p.blocks.find((b) => b.id === id)!
+    expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
+    for (const id of ['pov', 'relationships', 'story-so-far', 'previous-scene']) expect(block(id).dropped, id).toBe(false)
+    const pov = block('pov').text
+    // The fact about someone in the scene is kept, with the latest ones, and the rest are counted.
+    expect(pov).toContain('- Tobin owes the Tide Guild forty crowns.')
+    expect(pov).toContain('(149)')
+    expect(pov).toMatch(/\(And 14\d more, left out here to save space\.\)/)
+    expect(pov).toContain('- How they speak: Short, dry sentences.')
+    const rel = block('relationships')
+    expect(rel.short).toBe(true)
+    expect(rel.text).toContain('- Mara Venn and Tobin: old friends, now uneasy.')
+    expect(rel.text).toContain("Facts some of them know and others don't:\n- Tobin does not know: ")
+    expect(rel.text).toMatch(/\(And 11\d more, left out here to save space\.\)/)
+    // A large model gets them all.
+    const big = assembleContext({ ...inp, contextLength: 200_000 }, countRaw)
+    expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
+    expect(big.messages[1].content).not.toContain('left out here to save space')
+    expect(big.messages[1].content.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+  })
+
+  it('a model too small for the length asked: only the instructions and the scene card, and the draft is refused with a length that fits', () => {
+    const b = briefing(4096, 1500)
+    expect(b.p.blocks.filter((x) => !x.dropped).map((x) => x.id)).toEqual(['instructions', 'scene-card'])
+    expect(lengthTooLong(b.p.budget)).toEqual({ maxWords: expect.any(Number) })
+    expect(lengthTooLong(b.p.budget)!.maxWords).toBeGreaterThanOrEqual(500)
   })
 })
 
