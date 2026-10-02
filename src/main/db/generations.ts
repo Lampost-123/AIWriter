@@ -4,7 +4,17 @@
 // Pure functions over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { ChatMessage, ContextBlock, ContextBudget, EntryKind, GenerationRecord, GenerationStatus, GenerationSummary, ID } from '@shared/types'
+import type {
+  ChatMessage,
+  ContextBlock,
+  ContextBudget,
+  EntryKind,
+  GenerationJob,
+  GenerationRecord,
+  GenerationStatus,
+  GenerationSummary,
+  ID
+} from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { UserError } from '../util'
 import { touchWorld } from './repo'
@@ -24,7 +34,8 @@ const json = <T>(s: unknown, fallback: T): T => {
 export interface NewGeneration {
   id: ID
   sceneId: ID
-  job: 'draft'
+  /** 'draft' for scene drafts; 'memory' and 'summary' for the memory keeper's calls (scene_id is then the scene, or the chapter, story or series a summary is for). */
+  job: GenerationJob
   providerId: ID
   providerName: string
   modelId: string
@@ -99,7 +110,7 @@ export function stopInterrupted(db: DB, at: string): number {
 const toSummary = (r: Row): GenerationSummary => ({
   id: r.id as string,
   sceneId: r.scene_id as string,
-  job: 'draft',
+  job: ((r.job as GenerationJob | undefined) ?? 'draft') as GenerationJob,
   status: r.status as GenerationStatus,
   modelId: r.model_id as string,
   providerName: r.provider_name as string,
@@ -109,12 +120,12 @@ const toSummary = (r: Row): GenerationSummary => ({
   createdAt: r.created_at as string
 })
 
-/** This scene's drafts, newest first. */
+/** This scene's drafts, newest first (the memory keeper's calls are left out). */
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(
-      `SELECT id, scene_id, status, model_id, provider_name, response, cost, prompt_tokens, created_at
-       FROM generations WHERE scene_id = ? ORDER BY created_at DESC, rowid DESC`
+      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at
+       FROM generations WHERE scene_id = ? AND job = 'draft' ORDER BY created_at DESC, rowid DESC`
     )
     .all(sceneId) as Row[]
   return rows.map(toSummary)
