@@ -14,23 +14,31 @@ const nameOf = (c: Entry): string => c.name.trim() || 'Unnamed'
 /**
  * Characters present in the scene, as chips. Typing filters the world's characters;
  * Enter picks the highlighted one, or adds the typed name as a new character.
+ * The same picker chooses other entries (plot threads) when given `noun` and `listLabel`.
  */
 export const CastPicker = memo(function CastPicker({
   value,
   characters,
-  povId,
+  povId = null,
   onChange,
   onCreate,
   id,
+  noun = 'character',
+  listLabel = 'Characters',
   'aria-describedby': describedBy
 }: {
   value: ID[]
+  /** The entries to pick from (characters, unless `noun` says otherwise). */
   characters: Entry[]
-  povId: ID | null
+  povId?: ID | null
   onChange: (ids: ID[]) => void
-  /** Creates a character with this name and returns it (or null if that failed). */
+  /** Creates an entry with this name and returns it (or null if that failed). */
   onCreate: (name: string) => Promise<Entry | null>
   id?: string
+  /** What one of them is called, for "Add "…" as a new character". */
+  noun?: string
+  /** The list's name for screen readers. */
+  listLabel?: string
   'aria-describedby'?: string
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -178,7 +186,7 @@ export const CastPicker = memo(function CastPicker({
           onMouseDown={(e) => e.preventDefault()}
           className="z-50 max-h-[260px] w-[var(--radix-popover-trigger-width)] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
         >
-          <div id={listId} role="listbox" aria-label="Characters">
+          <div id={listId} role="listbox" aria-label={listLabel}>
             {options.map((o, i) => (
               <div
                 key={o.type === 'entry' ? o.entry.id : 'create'}
@@ -200,7 +208,7 @@ export const CastPicker = memo(function CastPicker({
                   <>
                     <Plus size={14} className="shrink-0 self-start mt-[3px] text-accent" />
                     <span className="min-w-0 flex-1 break-words text-fg">
-                      Add "{o.name}" as a new character
+                      Add "{o.name}" as a new {noun}
                     </span>
                   </>
                 )}

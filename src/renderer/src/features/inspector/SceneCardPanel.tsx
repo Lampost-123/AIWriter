@@ -15,6 +15,7 @@ import { useSlow } from '@/features/world/parts/useSlow'
 import { beatsToStore } from './beats'
 import { BeatsEditor } from './BeatsEditor'
 import { CastPicker } from './CastPicker'
+import { BringAbout, SceneSummary } from './SceneMemory'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
 
@@ -47,6 +48,8 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     async (c) => {
       await api.updateSceneCard(sceneId, { ...c, beats: beatsToStore(c.beats) })
       cardDrafts.confirm(sceneId, c)
+      // The briefing is built from the card: the Context tab shows the new one.
+      useApp.getState().bumpBriefing()
     },
     { what: 'the scene card' }
   )
@@ -81,7 +84,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     let live = true
     api
       .listEntries()
-      .then((list) => live && setEntries(list.filter((e) => e.kind === 'character' || e.kind === 'place')))
+      .then((list) => live && setEntries(list))
       .catch(() => live && setEntries((prev) => prev ?? []))
     return () => {
       live = false
@@ -105,8 +108,12 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const setPov = useCallback((povId: ID | null) => update({ povId }), [update])
   const setLocation = useCallback((locationId: ID | null) => update({ locationId }), [update])
   const setPresent = useCallback((presentIds: ID[]) => update({ presentIds }), [update])
+  const setSetsUp = useCallback((setsUpIds: ID[]) => update({ setsUpIds }), [update])
+  const setPaysOff = useCallback((paysOffIds: ID[]) => update({ paysOffIds }), [update])
   const characters = useMemo(() => (entries ?? []).filter((e) => e.kind === 'character'), [entries])
   const places = useMemo(() => (entries ?? []).filter((e) => e.kind === 'place'), [entries])
+  const threads = useMemo(() => (entries ?? []).filter((e) => e.kind === 'thread'), [entries])
+  const byId = useMemo(() => new Map((entries ?? []).map((e) => [e.id, e])), [entries])
   const povOptions = useMemo(() => characters.map((c) => ({ value: c.id, label: c.name.trim() || 'Unnamed' })), [characters])
   const locOptions = useMemo(() => placeOptions(places), [places])
 
@@ -123,7 +130,31 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }, [])
 
-  const ids = { pov: useId(), cast: useId(), castHint: useId(), loc: useId(), beats: useId(), beatsHint: useId() }
+  const createThread = useCallback(async (name: string): Promise<Entry | null> => {
+    try {
+      const e = await api.createEntry('thread', { name })
+      setEntries((prev) => [...(prev ?? []), e])
+      useApp.getState().bumpEntries()
+      toast(`Added “${e.name}” to your plot threads.`)
+      return e
+    } catch (err) {
+      toast(`Couldn't add ${name}. ${(err as Error).message}`, { tone: 'danger' })
+      return null
+    }
+  }, [])
+
+  const ids = {
+    pov: useId(),
+    cast: useId(),
+    castHint: useId(),
+    loc: useId(),
+    beats: useId(),
+    beatsHint: useId(),
+    setsUp: useId(),
+    setsUpHint: useId(),
+    paysOff: useId(),
+    paysOffHint: useId()
+  }
   const slow = useSlow(!card && !error)
 
   if (error && !card) {
@@ -205,6 +236,46 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <Field label="Outcome">
           {(id) => <AutoTextarea id={id} value={card.outcome} minRows={1} maxRows={10} placeholder="How it ends, and what changes" onChange={(e) => update({ outcome: e.target.value })} />}
         </Field>
+        <BringAbout sceneId={sceneId} entries={byId} />
+      </Group>
+
+      <Group title="Plot threads">
+        <div className="flex flex-col gap-1">
+          <label htmlFor={ids.setsUp} className="text-[12px] font-medium text-muted">
+            Sets up
+          </label>
+          <CastPicker
+            id={ids.setsUp}
+            aria-describedby={ids.setsUpHint}
+            value={card.setsUpIds}
+            characters={threads}
+            onChange={setSetsUp}
+            onCreate={createThread}
+            noun="plot thread"
+            listLabel="Plot threads"
+          />
+          <p id={ids.setsUpHint} className="text-[12px] text-faint">
+            Mysteries, promises and setups this scene opens. Type a name to add a new one.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor={ids.paysOff} className="text-[12px] font-medium text-muted">
+            Pays off
+          </label>
+          <CastPicker
+            id={ids.paysOff}
+            aria-describedby={ids.paysOffHint}
+            value={card.paysOffIds}
+            characters={threads}
+            onChange={setPaysOff}
+            onCreate={createThread}
+            noun="plot thread"
+            listLabel="Plot threads"
+          />
+          <p id={ids.paysOffHint} className="text-[12px] text-faint">
+            Threads this scene resolves.
+          </p>
+        </div>
       </Group>
 
       <Group title="How it reads">
@@ -224,6 +295,21 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
             />
           )}
         </Field>
+      </Group>
+
+      <Group
+        title="Summary"
+        action={
+          <button
+            type="button"
+            onClick={() => useApp.getState().navigate({ kind: 'memory', sceneId })}
+            className="rounded text-[12px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            What changed here
+          </button>
+        }
+      >
+        <SceneSummary sceneId={sceneId} />
       </Group>
     </div>
   )
