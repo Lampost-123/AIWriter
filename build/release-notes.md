@@ -1,6 +1,9 @@
-<!-- version: 0.2.2 -->
-Generate now asks what to do when a scene already has text.
+<!-- version: 0.3.0 -->
+Build characters with the AI, and see everything your world remembers.
 
-- Replace it: the new draft takes the place of the old text. The old text is kept with the draft, so you can copy it or put it back from the scene's Drafts tab (open What the AI saw), even after a restart. Ctrl+Z works too.
-- Add below: the new draft goes after your text, below a scene break, as before.
-- Esc now stops a draft even while you're typing in the page.
+- Character builder: paste a few notes and Quick start builds the whole character. Or go step by step, with Flesh out and an interview.
+- Codex: every entry on a card. Any entry's page can show it as of any scene.
+- Timeline, relationship map and plot threads board.
+- Names in your scenes are underlined: hover for a card, Ctrl+click to open it beside the page.
+- Ctrl+K searches everything and runs any action.
+- New story screen and story settings for sequels, side stories, prequels and what-ifs.
