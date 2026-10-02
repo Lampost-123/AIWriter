@@ -8,11 +8,15 @@ import {
   DEFAULT_CONTEXT_LENGTH,
   finishContext,
   formatProfile,
+  lengthTooLong,
+  maxTargetWords,
   mentions,
   parentChain,
   prepareContext,
   REPLY_LIMIT_CAP,
   replyTokenLimit,
+  replyTokens,
+  THINKING_ROOM,
   sceneTail,
   sentEntryIds,
   type ContextInput
@@ -109,12 +113,14 @@ describe('replyTokenLimit', () => {
     // 1,500 words: 2,835 tokens of reply room.
     const { limit, fallback } = replyTokenLimit({ contextLength: 128000, reserved: 2835, used: 4000 })
     expect(fallback).toBe(2835)
-    expect(limit).toBe(5670)
+    // At least THINKING_ROOM beyond the reply room, for models that think first.
+    expect(limit).toBe(2835 + THINKING_ROOM)
+    expect(replyTokenLimit({ contextLength: 128000, reserved: 6000, used: 4000 }).limit).toBe(12000)
   })
 
-  it('stops at the cap unless the reply room itself is bigger', () => {
-    expect(replyTokenLimit({ contextLength: 200000, reserved: 6000, used: 3000 }).limit).toBe(REPLY_LIMIT_CAP)
-    expect(replyTokenLimit({ contextLength: 200000, reserved: 12000, used: 3000 }).limit).toBe(12000)
+  it('stops at the cap unless the reply room plus thinking room is bigger', () => {
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 9450, used: 3000 }).limit).toBe(REPLY_LIMIT_CAP)
+    expect(replyTokenLimit({ contextLength: 200000, reserved: 14000, used: 3000 }).limit).toBe(18000)
   })
 
   it('never goes past what the context window has left after the briefing', () => {
@@ -130,18 +136,34 @@ describe('replyTokenLimit', () => {
   })
 })
 
+describe('maxTargetWords', () => {
+  it("says how many words fit in what's left of the window after the briefing", () => {
+    // 8192 - 639 - 410 = 7143 tokens left, at 1.35 tokens a word plus 40%: about 3,700 words.
+    expect(maxTargetWords({ contextLength: 8192, used: 639 })).toBe(3700)
+    expect(maxTargetWords({ contextLength: 8192, used: 8000 })).toBe(0)
+  })
+
+  it('flags a length that cannot fit next to the briefing, and nothing else', () => {
+    // 6,000 words on an 8K model: 11,340 tokens for the reply.
+    expect(lengthTooLong({ contextLength: 8192, used: 1149, reserved: replyTokens(6000) })).toEqual({ maxWords: 3500 })
+    expect(lengthTooLong({ contextLength: 8192, used: 1149, reserved: replyTokens(3000) })).toBeNull()
+    expect(lengthTooLong({ contextLength: 200000, used: 4000, reserved: replyTokens(12000) })).toBeNull()
+  })
+})
+
 describe('buildBlocks', () => {
-  it('builds the blocks in the fixed priority order', () => {
+  it('builds the blocks with their fixed priorities, in the order they are sent: the same-every-time ones first', () => {
     const blocks = buildBlocks(input())
     expect(blocks.map((b) => [b.id, b.priority])).toEqual([
       ['instructions', 1],
-      ['scene-card', 2],
-      ['previous-scene', 3],
+      ['world-rules', 7],
+      ['themes', 10],
+      ['setting', 7],
       ['pov', 4],
       ['present', 5],
-      ['setting', 7],
       ['mentioned', 9],
-      ['themes', 10]
+      ['previous-scene', 3],
+      ['scene-card', 2]
     ])
   })
 
@@ -153,7 +175,8 @@ describe('buildBlocks', () => {
     const get = (id: string) => blocks.find((b) => b.id === id)!
     expect(get('pov').entryIds).toEqual([byName('Mara Venn')])
     expect(get('present').entryIds).toEqual([byName('Tobin')])
-    expect(get('setting').entryIds).toEqual([byName('The Gilded Eel'), byName('Lowtown'), byName('Varn'), byName('The Binding')])
+    expect(get('setting').entryIds).toEqual([byName('The Gilded Eel'), byName('Lowtown'), byName('Varn')])
+    expect(get('world-rules').entryIds).toEqual([byName('The Binding')])
     expect(get('mentioned').entryIds).toEqual([byName("Tobin's Ferry")])
     expect(get('instructions').entryIds).toEqual([])
   })
@@ -206,11 +229,16 @@ describe('buildBlocks', () => {
   })
 
   it('lists the places around the location as one-liners, safely even with a loop', () => {
-    const setting = buildBlocks(input()).find((b) => b.id === 'setting')!
+    const blocks = buildBlocks(input())
+    const setting = blocks.find((b) => b.id === 'setting')!
+    expect(setting.title).toBe('Setting')
     expect(setting.text).toContain('### Where: The Gilded Eel')
     expect(setting.text).toContain('It lies within:\n- Lowtown: The docks district.\n- Varn: The river capital.')
-    expect(setting.text).toContain('### World rule: The Binding')
-    expect(setting.text).toContain('A broken oath burns the breaker.')
+    // The world's hard rules keep their "never break" label even when there is a location.
+    const rules = blocks.find((b) => b.id === 'world-rules')!
+    expect(rules.title).toBe('World rules (never break these)')
+    expect(rules.text).toContain('### World rule: The Binding')
+    expect(rules.text).toContain('A broken oath burns the breaker.')
 
     const a = entry('place', 'A', { parentId: 'b' })
     const b = entry('place', 'B', { id: 'b', parentId: a.id })
@@ -221,9 +249,10 @@ describe('buildBlocks', () => {
   it('always includes hard-rule lore, but not other lore unless it is mentioned', () => {
     const inp = input({ scene: { title: '', card: { ...emptySceneCard() } }, options: { direction: '', targetWords: 800, creativity: 'steady' } })
     const blocks = buildBlocks(inp)
-    const setting = blocks.find((b) => b.id === 'setting')!
-    expect(setting.title).toBe('World rules (never break these)')
-    expect(setting.text).toContain('The Binding')
+    expect(blocks.find((b) => b.id === 'setting')).toBeUndefined()
+    const rules = blocks.find((b) => b.id === 'world-rules')!
+    expect(rules.title).toBe('World rules (never break these)')
+    expect(rules.text).toContain('The Binding')
     expect(blocks.map((b) => b.text).join('\n')).not.toContain('River songs')
   })
 
@@ -236,12 +265,36 @@ describe('buildBlocks', () => {
     expect(mentions('a b c', 'a')).toBe(false)
     expect(mentions('cost x2', 'x2)')).toBe(false)
     expect(mentions('cost (x2)', 'x2)')).toBe(true)
+    // A single capitalised name must appear capitalised, so ordinary words don't count.
+    expect(mentions('Tobin says he will take her word', 'Will')).toBe(false)
+    expect(mentions('She wore a red cloak', 'Red')).toBe(false)
+    expect(mentions('Will finds the horse', 'Will')).toBe(true)
+    expect(mentions('because of the Tide Laws', 'The Tide Laws')).toBe(true)
 
     const inp = input({ options: { direction: 'Have her think of the duke.', targetWords: 1000, creativity: 'balanced' } })
     const duke = inp.entries.find((e) => e.name === 'The Duke')!
     const mentioned = buildBlocks(inp).find((b) => b.id === 'mentioned')!
     expect(mentioned.entryIds).toContain(duke.id)
     expect(mentioned.text).toContain('### The Duke (character)\nIn short: Rules Varn.')
+  })
+
+  it('sends the facts of mentioned lore and places, and how mentioned characters look', () => {
+    const tide = entry('lore', 'The Tide Laws', { fields: { category: 'Law', rules: 'No boats after the night bell without a token.', limits: 'A token costs two silver.' } })
+    const market = entry('place', 'The Fish Market', { fields: { atmosphere: 'Gulls, brine and shouting.' } })
+    const will = entry('character', 'Will', {
+      summary: 'A stable boy.',
+      fields: { build: 'Wiry', hair: 'Red', traits: 'Nosy', origin: 'Born in a barn.' }
+    })
+    const inp = input()
+    inp.entries = [...inp.entries, tide, market, will]
+    inp.scene.card.beats = ['Tobin can’t take her because of the Tide Laws', 'They pass the Fish Market', 'Will brings the horses']
+    const text = buildBlocks(inp).find((b) => b.id === 'mentioned')!.text
+    expect(text).toContain('### The Tide Laws (lore)\n\n- Category: Law\n- How it works: No boats after the night bell without a token.\n- Limits and costs: A token costs two silver.')
+    expect(text).toContain('### The Fish Market (place)\n\n- Atmosphere: Gulls, brine and shouting.')
+    expect(text).toContain('### Will (character)\nIn short: A stable boy.')
+    expect(text).toContain('Looks\n- Build: Wiry\n- Hair: Red')
+    expect(text).not.toContain('Nosy')
+    expect(text).not.toContain('Born in a barn')
   })
 
   it('does not repeat an entry that is already in an earlier block', () => {
@@ -312,7 +365,17 @@ describe('assembleContext', () => {
     expect(preview.messages).toHaveLength(2)
     expect(preview.messages[0]).toEqual({ role: 'system', content: preview.blocks[0].text })
     const user = preview.messages[1].content
-    const order = ['## Scene card', '## End of the previous scene', '## Point-of-view character: Mara Venn', '## Also in the scene', '## Setting and world rules', '## Also mentioned', '## Themes and tone', 'Write the scene now.']
+    const order = [
+      '## World rules (never break these)',
+      '## Themes and tone',
+      '## Setting',
+      '## Point-of-view character: Mara Venn',
+      '## Also in the scene',
+      '## Also mentioned',
+      '## End of the previous scene',
+      '## Scene card',
+      'Write the scene now.'
+    ]
     let at = -1
     for (const h of order) {
       const i = user.indexOf(h)
@@ -331,6 +394,15 @@ describe('assembleContext', () => {
     const a = assembleContext(input(), countRaw)
     const b = assembleContext(input({ previousText: 'Something else entirely.', options: { direction: '', targetWords: 900, creativity: 'steady' } }), countRaw)
     expect(a.messages[0].content).toBe(b.messages[0].content)
+  })
+
+  it('keeps the briefing the same up to the scene card when only the direction changes', () => {
+    const a = assembleContext(input(), countRaw).messages[1].content
+    const b = assembleContext(input({ options: { direction: 'Slower, more rain.', targetWords: 1200, creativity: 'balanced' } }), countRaw).messages[1].content
+    const head = (t: string): string => t.slice(0, t.indexOf('## Scene card'))
+    expect(head(a).length).toBeGreaterThan(200)
+    expect(head(a)).toBe(head(b))
+    expect(a).not.toBe(b)
   })
 
   it('counts tokens with a 10% allowance and adds up what is sent', () => {
@@ -352,10 +424,13 @@ describe('assembleContext', () => {
     const roomy = fits(32000)
     expect(roomy.blocks.filter((b) => b.dropped)).toEqual([])
 
-    // Room for 5 blocks and the closing instruction (6008 tokens), not 6.
+    // Room for 5 blocks and the closing instruction (6008 tokens), not 6. Least important go first;
+    // of the two priority-7 blocks, the setting goes before the world's hard rules.
     const tight = fits(9742)
     expect(tight.budget.available).toBe(6499)
-    expect(tight.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['setting', 'mentioned', 'themes'])
+    expect(tight.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['world-rules', 'themes', 'setting', 'mentioned'])
+    const room = fits(10742)
+    expect(room.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['themes', 'setting', 'mentioned'])
     expect(tight.budget.used).toBeLessThanOrEqual(tight.budget.available)
     // Dropped blocks stay in the record but aren't sent.
     expect(tight.blocks).toHaveLength(roomy.blocks.length)
@@ -380,5 +455,41 @@ describe('assembleContext', () => {
   it('formats a profile with its heading by default', () => {
     const w = world()
     expect(formatProfile(w.tobin).startsWith('### Tobin\nIn short: A ferryman who owes Mara.')).toBe(true)
+  })
+})
+
+describe('the writer instructions', () => {
+  const system = (over: Partial<StyleGuide> = {}): string => assembleContext(input({ style: style({ samplePassage: 'Mara did not hurry.', ...over }) }), countRaw).messages[0].content
+  const user = (card: Partial<ContextInput['scene']['card']>, direction = ''): string =>
+    assembleContext(input({ scene: { title: 'The knock', card: { ...emptySceneCard(), ...card } }, options: { direction, targetWords: 1000, creativity: 'balanced' } }), countRaw).messages[1].content
+
+  it('follows the point of view the style guide sets', () => {
+    expect(system()).toContain('In a close third-person, first-person or second-person point of view')
+    expect(system({ pov: 'Omniscient, roving between the crew' })).toContain('Keep to the omniscient point of view the style guide sets')
+    expect(system({ pov: 'Omniscient' })).not.toContain('other people\'s thoughts show only through')
+  })
+
+  it("asks for the sample passage's voice without forbidding its names", () => {
+    const text = system()
+    expect(text).toContain("don't copy its sentences or replay its events")
+    expect(text).not.toMatch(/reuse its events, names/)
+  })
+
+  it('asks for plain text, with asterisks only for italics', () => {
+    expect(system()).toContain('wrap them in single *asterisks*')
+  })
+
+  it('aims the scene at whatever the card holds', () => {
+    expect(user({ beats: ['She arrives'] })).toContain('Hit every beat on the scene card, in order.')
+    expect(user({ goal: 'Escape', outcome: 'She is caught' })).toContain('from its goal to its outcome')
+    expect(user({ goal: 'Escape' })).toContain("Build the scene around the scene card's goal.")
+    expect(user({ outcome: 'She is caught' })).toContain("arrives at the scene card's outcome")
+    expect(user({ notes: 'A quiet scene by the fire.' })).toContain("Write the scene the author's notes on the scene card describe.")
+    const empty = user({})
+    expect(empty).toContain('The scene card gives no plan beyond its title')
+    expect(empty).not.toContain('from its goal to its outcome')
+    const directed = user({}, 'Make it tense')
+    expect(directed).not.toContain('no plan beyond its title')
+    expect(directed).toContain("Follow the author's direction for this draft.")
   })
 })

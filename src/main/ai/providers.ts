@@ -7,8 +7,8 @@ import { OPENROUTER_BASE_URL } from '@shared/defaults'
 import { getSettings, updateSettings } from '../settings'
 import { getSecret, hasSecret, setSecret } from '../secrets'
 import { newId, UserError } from '../util'
-import { requestJson, type ChatTarget } from './client'
-import { describeFailure, providerWho, type ProviderRef } from './errors'
+import { knownParams, rememberParams, requestJson, type ChatTarget } from './client'
+import { describeFailure, isKeyFailure, looksLikeTokenParamRejected, providerWho, type Failure, type ProviderRef } from './errors'
 import { normalizeBaseUrl, parseModelList } from './models'
 
 const keyName = (id: string): string => `provider:${id}`
@@ -34,7 +34,7 @@ export function getProvider(id: string): ProviderConfig | null {
 
 function requireProvider(id: string): ProviderConfig {
   const p = getProvider(id)
-  if (!p) throw new UserError('That provider has been removed. Add it again in Settings > Models.')
+  if (!p) throw new UserError('That provider has been removed. Connect it again on this page.')
   return p
 }
 
@@ -59,7 +59,7 @@ export function saveProvider(input: ProviderInput): ProviderConfig {
   // There is only ever one OpenRouter connection.
   if (!id && kind === 'openrouter') id = list.find((p) => p.kind === 'openrouter')?.id
   const existing = id ? list.find((p) => p.id === id) : undefined
-  if (input.id && !existing) throw new UserError('That provider has been removed. Add it again in Settings > Models.')
+  if (input.id && !existing) throw new UserError('That provider has been removed. Connect it again on this page.')
   if (!id) id = kind === 'openrouter' && !list.some((p) => p.id === 'openrouter') ? 'openrouter' : newId()
 
   const willHaveKey = input.apiKey !== undefined ? !!input.apiKey.trim() : hasSecret(keyName(id))
@@ -67,6 +67,8 @@ export function saveProvider(input: ProviderInput): ProviderConfig {
   if (input.apiKey !== undefined) setSecret(keyName(id), input.apiKey.trim() || null)
 
   const config: ProviderConfig = { id, name, kind, baseUrl, hasKey: hasSecret(keyName(id)) }
+  // The last check still holds only while the address and the key are the ones it checked.
+  if (existing?.lastCheck && existing.baseUrl === baseUrl && input.apiKey === undefined) config.lastCheck = existing.lastCheck
   const next = existing ? list.map((p) => (p.id === id ? config : p)) : [...list, config]
   updateSettings({ providers: next })
   // Keep model choices pointing at it, and forget its model list (the address or key may have changed).
@@ -97,7 +99,7 @@ export function deleteProvider(id: string): void {
 
 export function restoreProvider(id: string): ProviderConfig {
   const r = removed.get(id)
-  if (!r) throw new UserError("That provider can't be brought back any more. Add it again in Settings > Models.")
+  if (!r) throw new UserError("That provider can't be brought back any more. Connect it again on this page.")
   removed.delete(id)
   const s = getSettings()
   const already = s.providers.find((p) => p.id === id)
@@ -114,6 +116,14 @@ export function restoreProvider(id: string): ProviderConfig {
   return withKeyState(r.config)
 }
 
+/** Remembers whether the provider last worked, so Settings shows it after a restart too. */
+export function markCheck(id: string, ok: boolean): void {
+  const list = getSettings().providers
+  if (!list.some((p) => p.id === id)) return
+  const at = new Date().toISOString()
+  updateSettings({ providers: list.map((p) => (p.id === id ? { ...p, lastCheck: { ok, at } } : p)) })
+}
+
 export async function listModels(providerId: string): Promise<ModelInfo[]> {
   const cached = modelCache.get(providerId)
   if (cached) return cached
@@ -122,7 +132,10 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
   const p = requireProvider(providerId)
   const fetchList = async (): Promise<ModelInfo[]> => {
     const r = await requestJson(providerTarget(p), 'models', { timeoutMs: 20_000 })
-    if (!r.ok) throw new UserError(describeFailure(r.failure, refOf(p), { during: 'models' }))
+    if (!r.ok) {
+      if (isKeyFailure(r.failure)) markCheck(p.id, false)
+      throw new UserError(describeFailure(r.failure, refOf(p), { during: 'models' }))
+    }
     return parseModelList(r.json, p.kind)
   }
   const load: Promise<ModelInfo[]> = fetchList().then((models) => {
@@ -141,12 +154,21 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
 const seconds = (ms: number): string => (ms < 1000 ? 'under a second' : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} seconds`)
 const usd = (n: number): string => `$${n.toFixed(n < 10 ? 2 : 0)}`
 
+type TestResult = { ok: boolean; message: string; latencyMs: number | null; failure?: Failure }
+
 export async function testProvider(id: string, modelId?: string): Promise<{ ok: boolean; message: string; latencyMs: number | null }> {
+  const { failure, ...res } = await runTest(id, modelId)
+  // A model test that fails because of the model (not the key) says nothing about the connection.
+  if (!modelId || res.ok || isKeyFailure(failure)) markCheck(id, res.ok)
+  return res
+}
+
+async function runTest(id: string, modelId?: string): Promise<TestResult> {
   const p = requireProvider(id)
   const target = providerTarget(p)
   const ref = refOf(p)
   const who = providerWho(p)
-  const fail = (message: string): { ok: false; message: string; latencyMs: null } => ({ ok: false, message, latencyMs: null })
+  const fail = (message: string, failure?: Failure): TestResult => ({ ok: false, message, latencyMs: null, failure })
 
   let reachedIn: number | null = null
   let detail = ''
@@ -155,7 +177,7 @@ export async function testProvider(id: string, modelId?: string): Promise<{ ok: 
     // The model list is public, so ask about the key itself to check it.
     let r = await requestJson(target, 'key', { timeoutMs: 15_000 })
     if (!r.ok && r.failure.type === 'http' && r.failure.status === 404) r = await requestJson(target, 'auth/key', { timeoutMs: 15_000 })
-    if (!r.ok) return fail(describeFailure(r.failure, ref, { during: 'test' }))
+    if (!r.ok) return fail(describeFailure(r.failure, ref, { during: 'test' }), r.failure)
     reachedIn = r.ms
     detail = 'Your key works.'
     const data = (r.json as { data?: { limit_remaining?: unknown } } | null)?.data
@@ -170,20 +192,30 @@ export async function testProvider(id: string, modelId?: string): Promise<{ ok: 
     } else {
       // Some servers don't list their models; a model to try can still prove the connection.
       const canGoOn = !!modelId && r.failure.type === 'http' && (r.failure.status === 404 || r.failure.status === 405)
-      if (!canGoOn) return fail(describeFailure(r.failure, ref, { during: 'models' }))
+      if (!canGoOn) return fail(describeFailure(r.failure, ref, { during: 'models' }), r.failure)
     }
   }
 
   if (modelId) {
-    const r = await requestJson(target, 'chat/completions', {
-      method: 'POST',
-      body: { model: modelId, messages: [{ role: 'user', content: 'Reply with the word OK.' }], max_tokens: 1, stream: false },
-      timeoutMs: 90_000
-    })
-    if (!r.ok) return fail(describeFailure(r.failure, ref, { during: 'test', modelId }))
+    // Ask the way this model is known to want (OpenAI's reasoning models take max_completion_tokens).
+    let tokenParam = knownParams(target, modelId).tokenParam
+    const ask = () =>
+      requestJson(target, 'chat/completions', {
+        method: 'POST',
+        body: { model: modelId, messages: [{ role: 'user', content: 'Reply with the word OK.' }], [tokenParam]: 1, stream: false },
+        timeoutMs: 90_000
+      })
+    let r = await ask()
+    if (!r.ok && tokenParam === 'max_tokens' && r.failure.type === 'http' && looksLikeTokenParamRejected(r.failure.status, r.failure.message)) {
+      tokenParam = 'max_completion_tokens'
+      rememberParams(target, modelId, { ...knownParams(target, modelId), tokenParam })
+      r = await ask()
+    }
+    if (!r.ok) return fail(describeFailure(r.failure, ref, { during: 'test', modelId }), r.failure)
     const err = (r.json as { error?: { message?: string; code?: number } } | null)?.error
     if (err) {
-      return fail(describeFailure({ type: 'http', status: Number(err.code) || 500, message: err.message ?? '' }, ref, { during: 'test', modelId }))
+      const failure: Failure = { type: 'http', status: Number(err.code) || 500, message: err.message ?? '' }
+      return fail(describeFailure(failure, ref, { during: 'test', modelId }), failure)
     }
     return { ok: true, message: `Connected to ${who}. The model answered in ${seconds(r.ms)}.`, latencyMs: r.ms }
   }

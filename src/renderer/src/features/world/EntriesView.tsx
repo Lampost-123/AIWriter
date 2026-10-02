@@ -1,4 +1,4 @@
-import { BookMarked, MapPin, Plus, Search, ShieldCheck, Users, X } from 'lucide-react'
+import { ArrowLeft, BookMarked, MapPin, Plus, Search, ShieldCheck, Users, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { Entry, EntryKind, ID } from '@shared/types'
@@ -29,9 +29,12 @@ const TEACH: Partial<Record<EntryKind, { text: string; button: string }>> = {
   }
 }
 
+/** Where the screen was opened from, when it offers the way back (a draft's "What the AI saw"). */
+type From = { generationId: ID } | undefined
+
 /** The world bible screen for one kind: a searchable list on the left, the selected entry's form on the right. */
-export function EntriesView({ kind, entryId }: { kind: EntryKind; entryId: ID | null }): React.JSX.Element {
-  return <EntriesScreen key={kind} kind={kind} entryId={entryId} />
+export function EntriesView({ kind, entryId, from }: { kind: EntryKind; entryId: ID | null; from?: From }): React.JSX.Element {
+  return <EntriesScreen key={kind} kind={kind} entryId={entryId} from={from} />
 }
 
 /** Keeps the same array while the parts that matter (by `key`) are unchanged, so memoised children skip work. */
@@ -42,7 +45,7 @@ function useStableList<T>(list: T[], key: (x: T) => string): T[] {
   return ref.current.list
 }
 
-function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null }): React.JSX.Element {
+function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID | null; from: From }): React.JSX.Element {
   const entriesRev = useApp((s) => s.entriesRev)
   const navigate = useApp((s) => s.navigate)
   const labels = KIND_LABELS[kind]
@@ -98,7 +101,8 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
   const selected = entryId ? (getDraft(entryId) ?? all?.find((e) => e.id === entryId) ?? null) : null
   const others = useMemo(() => (all ?? []).filter((e) => e.id !== entryId), [all, entryId])
 
-  const select = useCallback((id: ID | null) => navigate({ kind: 'entries', entryKind: kind, entryId: id }), [navigate, kind])
+  // Moving around this screen keeps the way back to "What the AI saw".
+  const select = useCallback((id: ID | null) => navigate({ kind: 'entries', entryKind: kind, entryId: id, from }), [navigate, kind, from])
 
   // Keep the selected row in view when another one is chosen (arrow keys, New, Undo) or the
   // search moves it. Not on every save or keystroke, so a list Adam has scrolled stays put.
@@ -124,7 +128,7 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
   }
 
   const onLiveChange = useCallback((e: Entry) => setAll((prev) => prev?.map((x) => (x.id === e.id ? e : x)) ?? prev), [])
-  const onOpen = useCallback((e: Pick<Entry, 'id' | 'kind'>) => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id }), [navigate])
+  const onOpen = useCallback((e: Pick<Entry, 'id' | 'kind'>) => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id, from }), [navigate, from])
   const onDeleted = useCallback(
     (e: Entry) => {
       const i = shown.findIndex((x) => x.id === e.id)
@@ -272,6 +276,19 @@ function EntriesScreen({ kind, entryId }: { kind: EntryKind; entryId: ID | null 
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
+        {from ? (
+          <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<ArrowLeft size={14} />}
+              className="-ml-2.5"
+              onClick={() => navigate({ kind: 'generation', generationId: from.generationId })}
+            >
+              Back to What the AI saw
+            </Button>
+          </div>
+        ) : null}
         {selected ? (
           <EntryForm key={selected.id} initial={selected} others={others} places={places} onLiveChange={onLiveChange} onDeleted={onDeleted} onOpen={onOpen} />
         ) : all === null || (entryId && loadedRev !== entriesRev) ? null : entryId ? (

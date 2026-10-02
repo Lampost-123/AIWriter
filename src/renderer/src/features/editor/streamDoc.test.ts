@@ -97,18 +97,48 @@ describe('streaming a draft', () => {
     expect(s.doc.childCount).toBe(2)
   })
 
-  it('appends after a paragraph break when the scene has text', () => {
-    const s = finish(stream(stateFrom('Adam wrote this.'), ['Then the draft.']))
-    expect(sceneText(s.doc)).toBe('Adam wrote this.\n\nThen the draft.')
-    expect(s.doc.childCount).toBe(2)
+  it('starts the draft below a scene break when the scene has text, and one undo takes both away', () => {
+    const s0 = stateFrom('Adam wrote this.')
+    const s = finish(stream(s0, ['Then the draft.']))
+    expect(sceneText(s.doc)).toBe('Adam wrote this.\n\n* * *\n\nThen the draft.')
+    expect(s.doc.childCount).toBe(3)
+    expect(runUndo(s).doc.eq(s0.doc)).toBe(true)
   })
 
   it('writes into a trailing empty paragraph instead of adding another', () => {
     let s = stateFrom('Adam wrote this.')
     s = s.apply(s.tr.insert(s.doc.content.size, schema.nodes.paragraph.create()))
+    const s0 = s
     s = finish(stream(s, ['Draft.']))
-    expect(s.doc.childCount).toBe(2)
-    expect(sceneText(s.doc)).toBe('Adam wrote this.\n\nDraft.')
+    expect(s.doc.childCount).toBe(3)
+    expect(sceneText(s.doc)).toBe('Adam wrote this.\n\n* * *\n\nDraft.')
+    expect(runUndo(s).doc.eq(s0.doc)).toBe(true)
+  })
+
+  it('adds no second break when the scene already ends with one', () => {
+    const s = finish(stream(stateFrom('A.\n\n***'), ['Draft.']))
+    expect(sceneText(s.doc)).toBe('A.\n\n* * *\n\nDraft.')
+  })
+
+  it('turns the model’s asterisks into italics and bold, even when a marker is split between chunks', () => {
+    const s = finish(stream(stateFrom(''), ['He *kno', 'ws*. snake_case stays, 5 * 3 stays.\n\nShe *', '*stops**. *Unpaired stays.']))
+    expect(sceneText(s.doc)).toBe('He knows. snake_case stays, 5 * 3 stays.\n\nShe stops. *Unpaired stays.')
+    const marked: string[] = []
+    s.doc.descendants((n) => {
+      if (n.isText && n.marks.length) marked.push(`${n.marks.map((m) => m.type.name).join('+')}:${n.text}`)
+    })
+    expect(marked).toEqual(['italic:knows', 'bold:stops'])
+    // Still one undo step for the whole draft.
+    expect(isDocEmpty(runUndo(s).doc)).toBe(true)
+  })
+
+  it('leaves out a heading or lead-in the model puts before the scene', () => {
+    const a = finish(stream(stateFrom(''), ['# The Gil', 'ded Eel\n\nMara ', 'waited.']))
+    expect(sceneText(a.doc)).toBe('Mara waited.')
+    expect(a.doc.childCount).toBe(1)
+    const b = finish(stream(stateFrom('Adam wrote this.'), ["Here's the scene:\n", '\nMara waited.\n\n# Kept, as it is not first']))
+    expect(sceneText(b.doc)).toBe('Adam wrote this.\n\n* * *\n\nMara waited.\n\n# Kept, as it is not first')
+    expect(sceneText(runUndo(b).doc)).toBe('Adam wrote this.')
   })
 
   it('does not move the cursor, even when it sits where the draft is written', () => {
@@ -143,7 +173,7 @@ describe('undo after a stream', () => {
     s = s.apply(s.tr.setMeta('addToHistory', true)) // no-op transaction
     const before = s.doc
     s = finish(stream(s, ['First ', 'chunk.\n\nSecond ', 'paragraph.\n\nThird.']))
-    expect(sceneText(s.doc)).toBe('Adam typed this.\n\nFirst chunk.\n\nSecond paragraph.\n\nThird.')
+    expect(sceneText(s.doc)).toBe('Adam typed this.\n\n* * *\n\nFirst chunk.\n\nSecond paragraph.\n\nThird.')
     expect(activeStream(s)).toBeNull()
 
     const undone = runUndo(s)
@@ -168,7 +198,7 @@ describe('undo after a stream', () => {
     const r = splitChunk({ started: true, pendingBreak: false, lineStart: false }, '\n\nDraft two.')
     s = apply(s, appendStream(s, r.ops))
     s = finish(s)
-    expect(sceneText(s.doc)).toBe('Opening line Edited.\n\nDraft one.\n\nDraft two.')
+    expect(sceneText(s.doc)).toBe('Opening line Edited.\n\n* * *\n\nDraft one.\n\nDraft two.')
 
     const undone = runUndo(s)
     expect(sceneText(undone.doc)).toBe('Opening line Edited.')

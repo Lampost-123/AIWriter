@@ -177,6 +177,8 @@ export interface ProviderConfig {
   baseUrl: string
   /** True when an API key is stored (keys never reach the interface). */
   hasKey: boolean
+  /** The last connection test (or a key the provider turned down since). Cleared when the key or address changes. */
+  lastCheck?: { ok: boolean; at: string }
 }
 
 export interface ProviderInput {
@@ -197,6 +199,8 @@ export interface ModelInfo {
   completionPrice: number | null
   /** The most the model will write in one reply (tokens), when the provider says. */
   maxOutput?: number | null
+  /** False when the provider says the model sets its own creativity (takes no temperature). */
+  sampling?: boolean
 }
 
 export interface ModelChoice {
@@ -208,6 +212,8 @@ export interface ModelChoice {
   completionPrice: number | null
   /** The most the model will write in one reply (tokens), when the provider says. */
   maxOutput?: number | null
+  /** False when the provider says the model sets its own creativity (takes no temperature); null when not known. */
+  sampling?: boolean | null
 }
 
 export type Job = 'writer' | 'memory' | 'chat'
@@ -244,7 +250,7 @@ export type DeepPartial<T> = {
 // ---------- Generation ----------
 
 export interface ContextBlock {
-  /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'story-so-far', 'mentioned', 'themes'. */
+  /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'world-rules', 'story-so-far', 'mentioned', 'themes'. */
   id: string
   /** 1 (most important) to 10. */
   priority: number
@@ -304,7 +310,19 @@ export interface GenerationSummary {
 export interface GenerationRecord extends GenerationSummary {
   error: string | null
   providerId: ID
-  params: { temperature: number; top_p: number; max_tokens: number; creativity?: Creativity; targetWords?: number }
+  params: {
+    temperature: number
+    top_p: number
+    max_tokens: number
+    creativity?: Creativity
+    targetWords?: number
+    /** Set when the model wanted the reply limit sent as max_completion_tokens. */
+    tokenParam?: 'max_tokens' | 'max_completion_tokens'
+    /** False when the model sets its own creativity, so temperature and top_p weren't sent. */
+    sampling?: boolean
+    /** The reply reached the limit, so the scene stops before its end. */
+    cutOff?: boolean
+  }
   direction: string
   blocks: ContextBlock[]
   messages: ChatMessage[]

@@ -206,6 +206,11 @@ function LibraryFolder({ info, onChanged }: { info: AppInfo | null; onChanged: (
   const [changing, setChanging] = useState(false)
 
   const change = async (): Promise<void> => {
+    // A draft keeps writing while Settings is open; moving the library would cut it off.
+    if (useApp.getState().activeGeneration) {
+      toast('A draft is being written. Stop it or let it finish, then change the folder.')
+      return
+    }
     setChanging(true)
     try {
       await flushAll()

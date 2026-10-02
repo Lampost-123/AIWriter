@@ -151,6 +151,8 @@ export interface AppEvents {
     promptTokens: number | null
     completionTokens: number | null
     cost: number | null
+    /** The reply ran into the reply limit, so the draft stops before the scene's end (the text is kept). */
+    cutOff?: boolean
   }
   /** Shown while a request is being retried after a rate limit or server error. */
   'generation:retrying': { generationId: ID; attempt: number; waitMs: number; reason: string }

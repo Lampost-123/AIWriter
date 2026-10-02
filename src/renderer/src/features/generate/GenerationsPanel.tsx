@@ -96,11 +96,10 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           <li key={g.id}>
             <button
               type="button"
-              // Opening the record leaves the scene, which would stop a draft that is still being written.
-              disabled={streaming}
+              // A draft still being written keeps writing while its record is open.
               onClick={() => navigate({ kind: 'generation', generationId: g.id })}
-              title={streaming ? 'You can see what the AI was given once this draft is finished' : 'See exactly what the AI was given for this draft'}
-              className="group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2 disabled:hover:bg-transparent"
+              title="See exactly what the AI was given for this draft"
+              className="group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
             >
               <div className="flex w-full items-center gap-2">
                 <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={g.modelId}>
@@ -124,12 +123,10 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     </span>
                   </>
                 ) : null}
-                {streaming ? null : (
-                  <span className="ml-auto flex shrink-0 items-center gap-0.5 font-medium text-accent opacity-80 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
-                    What the AI saw
-                    <ChevronRight size={13} />
-                  </span>
-                )}
+                <span className="ml-auto flex shrink-0 items-center gap-0.5 font-medium text-accent opacity-80 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                  What the AI saw
+                  <ChevronRight size={13} />
+                </span>
               </div>
             </button>
           </li>

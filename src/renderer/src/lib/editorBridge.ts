@@ -5,11 +5,14 @@ import type { ID } from '@shared/types'
  * The editor (features/editor) registers itself; the Generate controls
  * (features/generate) stream text into it.
  *
- * Rules: streamed text is inserted at the end of the scene, after a paragraph
- * break, without moving the view or Adam's cursor. Each chunk is part of the
- * normal document, so autosave keeps it and Ctrl+Z can undo the whole draft
- * as one step. Switching scenes while a draft is streaming stops the draft
- * first (the text so far is kept).
+ * Rules: streamed text is inserted at the end of the scene without moving the
+ * view or Adam's cursor. When the scene already has text, the draft starts below
+ * a scene break, and while it is being written out of sight a small "new draft
+ * below" pointer shows at the bottom of the page. Each chunk is part of the
+ * normal document, so autosave keeps it and Ctrl+Z undoes the whole draft (with
+ * its scene break) as one step. Going to another page keeps the draft writing;
+ * opening another scene (or switching worlds) stops it first, and the text so
+ * far is kept.
  */
 export interface EditorBridge {
   /** The scene the editor is showing. */
@@ -22,6 +25,13 @@ export interface EditorBridge {
   flush(): Promise<void>
   /** Current plain text of the scene. */
   getText(): string
+  /** True when the page has any writing on it. */
+  hasText(): boolean
+  /**
+   * Stops a draft being written into the page (because Adam opened another scene or world),
+   * once its last words are in. Says so in a message. Does nothing when no draft is writing.
+   */
+  stopDraft(reason: 'scene' | 'world'): Promise<void>
 }
 
 let current: EditorBridge | null = null

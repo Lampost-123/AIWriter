@@ -9,7 +9,8 @@ export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'backups' | 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =
   | { kind: 'write' }
-  | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null }
+  /** `from`: opened from a draft's "What the AI saw", so the page offers the way back. */
+  | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
   | { kind: 'generation'; generationId: ID }
@@ -34,6 +35,8 @@ interface AppState {
   entriesRev: number
   /** The draft currently streaming, if any. */
   activeGeneration: { id: ID; sceneId: ID } | null
+  /** The scene panel's open tab, kept while moving between pages. */
+  inspectorTab: InspectorTab
 
   init(): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
@@ -51,7 +54,10 @@ interface AppState {
   bumpOutline(): void
   bumpEntries(): void
   setActiveGeneration(g: { id: ID; sceneId: ID } | null): void
+  setInspectorTab(tab: InspectorTab): void
 }
+
+export type InspectorTab = 'card' | 'drafts'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)
@@ -68,7 +74,8 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
     const find = (id: ID | null | undefined): ID | undefined => (id ? scenes.find((s) => s.id === id)?.id : undefined)
     sceneId = find(settings.lastSceneId) ?? find(place?.sceneId) ?? find(lastSceneOf(story.id)) ?? scenes[0]?.id ?? null
   }
-  return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0 }
+  // The new world's scene shows its own count once loaded; never the old scene's meanwhile.
+  return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0, sceneWords: 0, saveState: 'idle' }
 }
 
 /** Nothing of a world left on screen: the welcome screen shows instead. */
@@ -104,6 +111,7 @@ export const useApp = create<AppState>((set, get) => ({
   outlineRev: 0,
   entriesRev: 0,
   activeGeneration: null,
+  inspectorTab: 'card',
 
   async init() {
     const settings = await api.getSettings()
@@ -175,5 +183,6 @@ export const useApp = create<AppState>((set, get) => ({
   setSceneWords: (sceneWords) => set({ sceneWords }),
   bumpOutline: () => set({ outlineRev: get().outlineRev + 1 }),
   bumpEntries: () => set({ entriesRev: get().entriesRev + 1 }),
-  setActiveGeneration: (activeGeneration) => set({ activeGeneration })
+  setActiveGeneration: (activeGeneration) => set({ activeGeneration }),
+  setInspectorTab: (inspectorTab) => set({ inspectorTab })
 }))

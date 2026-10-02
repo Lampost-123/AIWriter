@@ -1,7 +1,7 @@
 import { createServer } from 'node:net'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { requestJson, streamChat, type ChatBody, type ChatTarget, type StreamChatOptions } from './client'
+import { forgetParams, knownParams, requestJson, streamChat, type ChatBody, type ChatTarget, type StreamChatOptions } from './client'
 
 let fake: FakeProvider
 /** A local port with nothing listening on it. */
@@ -17,7 +17,10 @@ beforeAll(async () => {
   })
 })
 afterAll(() => fake.close())
-beforeEach(() => fake.reset())
+beforeEach(() => {
+  fake.reset()
+  forgetParams()
+})
 
 const target = (over: Partial<ChatTarget> = {}): ChatTarget => ({ name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'good', ...over })
 const body = (model: string): ChatBody => ({ model, messages: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: 'Write.' }], temperature: 0.8, top_p: 0.95, max_tokens: 400 })
@@ -105,7 +108,7 @@ describe('streamChat', () => {
     expect(missing.outcome.error).toContain('doesn\'t have a model called “fake/missing”')
 
     const long = await run('fake/toolong')
-    expect(long.outcome.error).toContain('The briefing is too long for this model')
+    expect(long.outcome.error).toContain('The briefing and the length you asked for are too much for this model together')
   })
 
   it('keeps the text when the connection drops partway, and does not retry', async () => {
@@ -136,6 +139,54 @@ describe('streamChat', () => {
     // Without a smaller limit to fall back on, the problem is explained.
     const plain = await run('fake/max-output', { body: { ...body('fake/max-output'), max_tokens: 3000 } })
     expect(plain.outcome.error).toContain("can't write that much in one reply")
+  })
+
+  it('asks with max_completion_tokens and without creativity settings when the model wants that, once each', async () => {
+    const { outcome, retries } = await run('fake/o3')
+    expect(outcome.status).toBe('complete')
+    expect(outcome.error).toBeNull()
+    expect(retries).toEqual([])
+    // One extra request per setting the model turned down.
+    expect(fake.requestCounts()['fake/o3']).toBe(3)
+    const last = fake.lastRequest()!.body
+    expect(last.max_completion_tokens).toBe(400)
+    expect('max_tokens' in last).toBe(false)
+    expect('temperature' in last).toBe(false)
+    expect('top_p' in last).toBe(false)
+    // Usage is still asked for: the rejections were about other settings.
+    expect(last.stream_options).toEqual({ include_usage: true })
+    expect(outcome.sentParams).toEqual({ tokenParam: 'max_completion_tokens', sampling: false })
+    // Remembered, so the next draft with this model is right the first time.
+    expect(knownParams(target(), 'fake/o3')).toEqual({ tokenParam: 'max_completion_tokens', sampling: false })
+    fake.reset()
+    const again = await run('fake/o3')
+    expect(again.outcome.status).toBe('complete')
+    expect(fake.requestCounts()['fake/o3']).toBe(1)
+  })
+
+  it('leaves out temperature for a model that only takes its default', async () => {
+    const { outcome } = await run('fake/gpt5')
+    expect(outcome.status).toBe('complete')
+    expect(fake.requestCounts()['fake/gpt5']).toBe(2)
+    expect(fake.lastRequest()!.body.max_tokens).toBe(400)
+    expect(outcome.sentParams).toEqual({ tokenParam: 'max_tokens', sampling: false })
+  })
+
+  it('says a reply that ran into the reply limit was cut off, and keeps it', async () => {
+    const { outcome } = await run('fake/length')
+    expect(outcome.status).toBe('complete')
+    expect(outcome.error).toBeNull()
+    expect(outcome.cutOff).toBe(true)
+    expect(outcome.text.length).toBeGreaterThan(20)
+    const normal = await run('fake/writer')
+    expect(normal.outcome.cutOff).toBe(false)
+  })
+
+  it('asks for a shorter reply when OpenRouter credit only covers a smaller one', async () => {
+    const { outcome } = await run('fake/credit-limit', { body: { ...body('fake/credit-limit'), max_tokens: 9000 }, fallbackMaxTokens: 2500 })
+    expect(outcome.status).toBe('complete')
+    expect(outcome.maxTokens).toBe(2500)
+    expect(fake.requestCounts()['fake/credit-limit']).toBe(2)
   })
 
   it('stops when asked and keeps what arrived', async () => {

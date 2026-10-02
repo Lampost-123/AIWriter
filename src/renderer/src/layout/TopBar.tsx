@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { WorldSummary } from '@shared/types'
 import { IconButton, toast } from '@/components/ui'
 import { api } from '@/lib/api'
-import { flushAll } from '@/lib/flush'
+import { flushBeforeWorldChange } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
@@ -94,7 +94,7 @@ function WorldMenu(): React.JSX.Element {
                 key={w.id}
                 onSelect={() => {
                   if (w.id === world?.id) return
-                  void flushAll()
+                  void flushBeforeWorldChange()
                     .then(() => openWorld(w.id))
                     .catch((e: Error) => toast(e.message, { tone: 'danger' }))
                 }}
@@ -140,6 +140,7 @@ export function TopBar(): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
+  const drafting = useApp((s) => s.activeGeneration !== null)
   const layout = settings?.layout
   // The scene panel belongs to an open scene in the writing view; elsewhere the button rests.
   const panelAvailable = view.kind === 'write' && !!sceneId
@@ -163,7 +164,20 @@ export function TopBar(): React.JSX.Element {
       </IconButton>
       <WorldMenu />
       <div className="flex-1" />
-      {view.kind === 'write' ? <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span> : null}
+      {view.kind === 'write' ? (
+        <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
+      ) : drafting ? (
+        // A draft keeps writing into the scene while another page is open; this goes back to it.
+        <button
+          type="button"
+          onClick={() => navigate({ kind: 'write' })}
+          title="A draft is being written into the scene. Click to go back to it."
+          className="mr-2 flex h-7 items-center gap-2 rounded-md px-2 text-[12.5px] font-medium text-ai transition-colors duration-150 hover:bg-surface-2 animate-fade-in"
+        >
+          <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
+          Writing…
+        </button>
+      ) : null}
       <SaveIndicator />
       <IconButton label="Settings" active={view.kind === 'settings'} onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}>
         <SettingsIcon size={16} />

@@ -145,7 +145,12 @@ export interface ControllerEvents {
   onShow(scene: Scene): void
   /** Loading failed (or null to clear an earlier failure). */
   onError(message: string | null): void
+  /** A draft is being written below what's on screen (true), or it's in view or finished (false). */
+  onDraftBelow?(below: boolean): void
 }
+
+/** How long a scene switch waits for a stopped draft's last words before moving on. */
+const LAST_WORDS_WAIT_MS = 2000
 
 export class SceneController {
   private session: SceneSession | null = null
@@ -153,6 +158,10 @@ export class SceneController {
   private loadTicket = 0
   private requested: ID | null = null
   private stream: { generationId: ID; split: SplitState } | null = null
+  /** The draft being written starts below the visible page. */
+  private draftBelow = false
+  /** The draft being stopped because Adam opened another scene (no "added below" message for it). */
+  private stopping: ID | null = null
   /** The top bar's word count: after a pause, and every couple of seconds while a draft streams in. */
   private readonly words = debounce(
     () => {
@@ -183,7 +192,9 @@ export class SceneController {
       appendStream: (generationId, text) => this.appendStream(generationId, text),
       endStream: (generationId) => this.endStream(generationId),
       flush: () => this.flush(),
-      getText: () => streamDoc.sceneText(this.editor.state.doc)
+      getText: () => streamDoc.sceneText(this.editor.state.doc),
+      hasText: () => this.editor.state.doc.textContent.trim() !== '',
+      stopDraft: (reason) => this.stopStreamForSwitch(reason)
     }
   }
 
@@ -202,13 +213,16 @@ export class SceneController {
       this.loadTicket++
       this.requested = id
       this.events.onError(null)
+      if (takeFocusRequest(id)) this.focus()
       return
     }
     if (this.requested === id) return
     this.requested = id
     const ticket = ++this.loadTicket
-    this.stopStreamForSwitch()
     try {
+      // A draft still being written into the scene on screen stops; its last words land first.
+      await this.stopStreamForSwitch('scene')
+      if (ticket !== this.loadTicket || this.destroyed) return
       const worldId = app().world?.id
       if (!worldId) return
       // Save the scene being left first, so reopening a scene never reads text older than what was on screen.
@@ -350,6 +364,7 @@ export class SceneController {
     if (this.stream) this.finishStream()
     this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId))
     this.stream = { generationId, split: newSplitState() }
+    this.updateDraftBelow()
     return true
   }
 
@@ -362,30 +377,101 @@ export class SceneController {
     this.follow.check()
     this.editor.view.dispatch(tr)
     this.follow.nudge()
+    this.updateDraftBelow()
   }
 
   private endStream(generationId: ID): void {
     if (!this.stream || this.stream.generationId !== generationId) return
-    this.finishStream()
+    this.finishStream(this.stopping !== generationId)
   }
 
   /** Ends the stream: tidies a final scene break and makes the whole draft one undo step. */
-  private finishStream(): void {
+  private finishStream(announce = false): void {
     this.stream = null
     if (this.destroyed) return
     const view = this.editor.view
+    const info = streamDoc.activeStream(view.state)
+    const below = info?.wrote ? this.isBelowView(info.from) : false
     const tidy = streamDoc.finishStreamText(view.state)
     if (tidy) view.dispatch(tidy)
     view.updateState(streamDoc.commitStream(view.state))
     this.follow.settle()
+    this.setDraftBelow(false)
+    // Finished out of sight: say where it went, and how to take it back.
+    if (announce && below && info) {
+      const from = info.from
+      toast('The new draft was added at the end of the scene. Ctrl+Z takes it out again.', {
+        action: { label: 'Show', run: () => this.reveal(from) }
+      })
+    }
   }
 
-  /** Leaving the scene mid-draft stops the draft; the text so far stays. */
-  private stopStreamForSwitch(): void {
+  /**
+   * Leaving the scene mid-draft stops the draft; the text so far stays. Waits (briefly)
+   * for the last words that were already on their way, so the scene keeps everything
+   * the draft's record has.
+   */
+  private async stopStreamForSwitch(reason: 'scene' | 'world'): Promise<void> {
     if (!this.stream) return
     const id = this.stream.generationId
-    this.finishStream()
-    void api.stopGeneration(id).catch(() => undefined)
+    this.stopping = id
+    try {
+      const stopped = api.stopGeneration(id).catch(() => undefined)
+      await Promise.race([stopped, new Promise((r) => setTimeout(r, LAST_WORDS_WAIT_MS))])
+      // Usually the draft's own "done" has ended the stream by now.
+      if (this.stream?.generationId === id) this.finishStream()
+    } finally {
+      this.stopping = null
+    }
+    toast(`Drafting stopped because you ${reason === 'scene' ? 'opened another scene' : 'switched worlds'}. The text so far is kept.`)
+  }
+
+  // ---------- Where the draft is being written ----------
+
+  /** True when a document position is below the visible part of the page. */
+  private isBelowView(pos: number): boolean {
+    const el = this.scroller()
+    if (!el || this.destroyed) return false
+    try {
+      const top = this.editor.view.coordsAtPos(Math.min(pos + 1, this.editor.state.doc.content.size)).top
+      return top > el.getBoundingClientRect().bottom - 24
+    } catch {
+      return false
+    }
+  }
+
+  private setDraftBelow(below: boolean): void {
+    if (below === this.draftBelow) return
+    this.draftBelow = below
+    this.events.onDraftBelow?.(below)
+  }
+
+  /** Shows the "new draft below" pointer while the draft's start is out of sight below. */
+  updateDraftBelow(): void {
+    const info = this.stream ? streamDoc.activeStream(this.editor.state) : null
+    this.setDraftBelow(!!info && this.isBelowView(info.from))
+  }
+
+  /** Scrolls to where the draft being written begins (or the one just written). */
+  revealDraft(): void {
+    const info = streamDoc.activeStream(this.editor.state)
+    if (info) this.reveal(info.from)
+  }
+
+  private reveal(from: number): void {
+    const el = this.scroller()
+    if (!el || this.destroyed) return
+    if (useApp.getState().view.kind !== 'write') useApp.getState().navigate({ kind: 'write' })
+    try {
+      const pos = Math.min(from + 1, this.editor.state.doc.content.size)
+      const top = this.editor.view.coordsAtPos(pos).top - el.getBoundingClientRect().top + el.scrollTop
+      // The draft's start a quarter of the way down; at the end of the page, following the draft as it grows.
+      el.scrollTop = Math.min(top - el.clientHeight * 0.25, el.scrollHeight - el.clientHeight)
+      this.follow.check()
+    } catch {
+      // The position is gone (edited away): nothing to show.
+    }
+    this.updateDraftBelow()
   }
 
   // ---------- Teardown ----------
@@ -393,7 +479,12 @@ export class SceneController {
   /** Saves what's pending and lets go of the editor. */
   destroy(): void {
     if (this.destroyed) return
-    this.stopStreamForSwitch()
+    if (this.stream) {
+      // The window or world is closing: stop the draft (its record keeps every word).
+      const id = this.stream.generationId
+      this.finishStream()
+      void api.stopGeneration(id).catch(() => undefined)
+    }
     this.destroyed = true
     this.editor.off('update', this.onUpdate)
     this.words.cancel()

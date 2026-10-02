@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSceneBreakLine, newSplitState, splitChunk, splitParagraphs, type StreamOp } from './streamText'
+import { hasEmphasis, isPreambleLine, isSceneBreakLine, newSplitState, parseEmphasis, splitChunk, splitParagraphs, type StreamOp } from './streamText'
 
 /** Feeds chunks through the splitter and returns the paragraphs it would produce. */
 function run(chunks: string[]): { ops: StreamOp[]; paragraphs: string[] } {
@@ -71,9 +71,32 @@ describe('splitParagraphs', () => {
   })
 })
 
+describe('isPreambleLine', () => {
+  it('spots headings and lead-ins, not prose', () => {
+    for (const s of ['# The Gilded Eel', '## Scene 3', "Here's the scene:", 'Here is the draft for “The Eel”:', 'Here’s scene three:']) expect(isPreambleLine(s)).toBe(true)
+    for (const s of ['#', 'Here is where it ended.', 'Here, she said: wait.', 'Mara waited.', '#hashtag']) expect(isPreambleLine(s)).toBe(false)
+  })
+})
+
 describe('isSceneBreakLine', () => {
   it('recognises common scene break markers', () => {
     for (const s of ['***', '* * *', ' *** ', '---', '- - -', '#', '⁂', '~~~']) expect(isSceneBreakLine(s)).toBe(true)
     for (const s of ['**', 'Hello', '*emphasis*', '--', '']) expect(isSceneBreakLine(s)).toBe(false)
+  })
+})
+
+describe('parseEmphasis', () => {
+  it('turns complete pairs into italics and bold', () => {
+    expect(parseEmphasis('*He knows,* Mara thought.')).toEqual([{ text: 'He knows,', italic: true }, { text: ' Mara thought.' }])
+    expect(parseEmphasis('a _favour_ owed')).toEqual([{ text: 'a ' }, { text: 'favour', italic: true }, { text: ' owed' }])
+    expect(parseEmphasis('**Day 12, dusk**')).toEqual([{ text: 'Day 12, dusk', bold: true }])
+    expect(parseEmphasis('**bold *and* bold**')).toEqual([{ text: 'bold ', bold: true }, { text: 'and', bold: true, italic: true }, { text: ' bold', bold: true }])
+  })
+
+  it('leaves alone what is not emphasis', () => {
+    for (const t of ['snake_case_name', '5 * 3 * 2', 'f*ck it', '* * *', '***', 'an *unclosed marker', 'a * b*', '__init__ok']) {
+      expect(parseEmphasis(t)).toEqual([{ text: t }])
+      expect(hasEmphasis(t)).toBe(false)
+    }
   })
 })

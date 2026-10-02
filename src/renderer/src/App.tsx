@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui'
 import { api } from '@/lib/api'
 import { installFlushOnClose } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { cn } from '@/lib/cn'
 import { useTheme } from '@/lib/theme'
 import { ResizablePane } from '@/layout/ResizablePane'
 import { TopBar } from '@/layout/TopBar'
@@ -67,6 +68,7 @@ function Workspace(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const sceneId = useApp((s) => s.sceneId)
   const { layout } = settings
+  const writing = view.kind === 'write'
 
   return (
     <>
@@ -84,12 +86,21 @@ function Workspace(): React.JSX.Element {
         >
           <Binder />
         </ResizablePane>
-        <main className="min-w-0 flex-1 bg-bg">
-          {view.kind === 'write' && <SceneView />}
-          {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} />}
-          {view.kind === 'style' && <StyleView />}
-          {view.kind === 'settings' && <SettingsView tab={view.tab} />}
-          {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
+        <main className="relative min-w-0 flex-1 bg-bg">
+          {/* The writing view stays in place under the other pages, so a draft keeps writing into the scene
+              while Adam looks at something else, and the page and caret are where he left them. Hidden with
+              visibility (not display), which keeps its scroll position. */}
+          <div className={cn('h-full', !writing && 'invisible pointer-events-none')} inert={!writing}>
+            <SceneView />
+          </div>
+          {!writing ? (
+            <div className="absolute inset-0 bg-bg">
+              {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
+              {view.kind === 'style' && <StyleView />}
+              {view.kind === 'settings' && <SettingsView tab={view.tab} />}
+              {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
+            </div>
+          ) : null}
         </main>
         {view.kind === 'write' && sceneId ? (
           <ResizablePane

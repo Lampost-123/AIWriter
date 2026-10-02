@@ -1,5 +1,5 @@
 import { EditorContent, useEditor } from '@tiptap/react'
-import { FilePlus2, Feather, RotateCcw } from 'lucide-react'
+import { ArrowDown, FilePlus2, Feather, RotateCcw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
@@ -50,6 +50,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const ctrlRef = useRef<SceneController | null>(null)
   const [shown, setShown] = useState<Shown | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [draftBelow, setDraftBelow] = useState(false)
+  // The writing view stays in place (hidden) while another page shows, so a draft keeps writing.
+  const writing = useApp((s) => s.view.kind === 'write')
 
   // One editor for the life of the view; scenes are swapped into it. Typing never re-renders React.
   // Options are created once so re-renders never reconfigure the editor.
@@ -70,12 +73,15 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           setShown({ id: scene.id, title: scene.title, status: scene.status })
           setError(null)
         }),
-      onError: (message) => setError(message)
+      onError: (message) => setError(message),
+      onDraftBelow: (below) => setDraftBelow(below)
     })
     ctrlRef.current = ctrl
     setEditorBridge(ctrl.bridge)
     const offFlush = registerFlusher(() => ctrl.flush())
     const offFocus = onFocusRequest(() => {
+      // While another page covers the writing view, the request waits for it to come back.
+      if (useApp.getState().view.kind !== 'write') return
       if (takeFocusRequest(ctrl.sceneId)) ctrl.focus()
     })
     return () => {
@@ -96,9 +102,29 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // as the view goes, while the page is still on screen; the cleanup above runs once it has gone.
   useLayoutEffect(() => () => ctrlRef.current?.remember(), [])
 
+  // Another page covers the writing view: let go of the keyboard (the page can't be typed in
+  // while hidden). Coming back puts the caret back in the page, where it was.
+  const wasWriting = useRef(writing)
+  useLayoutEffect(() => {
+    const was = wasWriting.current
+    wasWriting.current = writing
+    if (!writing) {
+      ctrlRef.current?.remember()
+      if (editor.view.hasFocus()) (document.activeElement as HTMLElement | null)?.blur()
+      return
+    }
+    if (!was) {
+      const ctrl = ctrlRef.current
+      ctrl?.updateDraftBelow()
+      const idle = !document.activeElement || document.activeElement === document.body
+      if (ctrl && (takeFocusRequest(ctrl.sceneId) || idle)) ctrl.focus()
+    }
+  }, [writing, editor])
+
   // Ctrl+S saves straight away (it already saves on its own; this is for peace of mind).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (useApp.getState().view.kind !== 'write') return
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault()
         void ctrlRef.current?.flush()
@@ -124,7 +150,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-page">
+    <div className="relative flex h-full min-h-0 flex-col bg-page">
       {shown && !error ? (
         <SceneHeader sceneId={shown.id} fallbackTitle={shown.title} fallbackStatus={shown.status} />
       ) : (
@@ -132,7 +158,10 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       )}
       <div
         ref={scrollerRef}
-        onScroll={() => ctrlRef.current?.follow.onScroll()}
+        onScroll={() => {
+          ctrlRef.current?.follow.onScroll()
+          if (draftBelow) ctrlRef.current?.updateDraftBelow()
+        }}
         onMouseDown={onPageMouseDown}
         className="relative min-h-0 flex-1 overflow-y-auto"
       >
@@ -163,6 +192,18 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           </div>
         ) : null}
       </div>
+      {draftBelow && !error ? (
+        // Over the page, so nothing moves: where the new draft is being written.
+        <button
+          type="button"
+          onClick={() => ctrlRef.current?.revealDraft()}
+          className="absolute bottom-5 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-3.5 text-[12.5px] font-medium text-ai shadow-pop transition-colors duration-150 hover:border-ai animate-fade-in"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
+          Writing the new draft below
+          <ArrowDown size={13} aria-hidden />
+        </button>
+      ) : null}
     </div>
   )
 }

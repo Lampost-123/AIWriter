@@ -4,6 +4,7 @@ import { Check, KeyRound, PenLine, Plus, Search, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, ID, ModelChoice, ModelInfo, ProviderConfig } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
+import { isLocalUrl } from '@shared/urls'
 import { Badge, Button, Card, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
@@ -80,9 +81,14 @@ export function ModelsSettings(): React.JSX.Element {
     <div className="flex flex-col gap-9 animate-fade-in">
       <OpenRouterCard provider={openrouter} result={openrouter ? results[openrouter.id] : undefined} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
       <OtherProviders providers={custom} results={results} onTest={(id) => void test(id, id)} onClearResult={clearResult} onChanged={reload} />
-      <WriterModel providers={providers} result={results.writer} onTest={(pid, mid) => void test('writer', pid, mid)} onClearResult={() => clearResult('writer')} />
+      <WriterModel
+        providers={providers}
+        result={results.writer}
+        providerResults={results}
+        onTest={(pid, mid) => void test('writer', pid, mid)}
+        onClearResult={() => clearResult('writer')}
+      />
       <DefaultCreativity />
-      <p className="text-[12.5px] text-faint">Separate models for memory upkeep and for chat are coming in a later version.</p>
     </div>
   )
 }
@@ -115,6 +121,12 @@ function ResultNotice({ result }: { result: TestResult | undefined }): React.JSX
   return <Notice tone={result.ok ? 'success' : 'danger'}>{result.message}</Notice>
 }
 
+/** Whether the provider works: this visit's test if there was one, else the last check remembered. Undefined when nothing has been checked. */
+function checkOf(provider: ProviderConfig | null, result: TestResult | undefined): boolean | undefined {
+  if (result?.state === 'done') return result.ok
+  return provider?.lastCheck?.ok
+}
+
 function IconTile({ children, tone = 'accent' }: { children: ReactNode; tone?: 'accent' | 'neutral' }): React.JSX.Element {
   return (
     <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', tone === 'accent' ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-muted')}>
@@ -144,6 +156,8 @@ function OpenRouterCard({
   const [error, setError] = useState<string | null>(null)
   const connected = !!provider?.hasKey
   const showForm = !connected || replacing
+  // "Connected" only once a test has shown it works; a key that was only saved says just that.
+  const check = checkOf(provider, result)
 
   const save = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
@@ -199,15 +213,22 @@ function OpenRouterCard({
             <h2 className="text-[15px] font-semibold text-fg">OpenRouter</h2>
             {!connected ? (
               <Badge tone="accent">Recommended</Badge>
-            ) : result?.state === 'done' && !result.ok ? (
+            ) : check === true ? (
+              <Badge tone="success">Connected</Badge>
+            ) : check === false ? (
               <Badge tone="danger">Not working</Badge>
             ) : (
-              <Badge tone="success">Connected</Badge>
+              <Badge>Key saved</Badge>
             )}
           </div>
           <p className="mt-0.5 text-[13px] leading-relaxed text-muted">
             One key for hundreds of models, each with its price shown up front. Make a key at{' '}
-            <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-accent hover:underline">
+            <a
+              href="https://openrouter.ai/keys"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline decoration-accent/50 underline-offset-2 transition-colors duration-150 hover:text-accent-hover hover:decoration-accent"
+            >
               openrouter.ai/keys
             </a>{' '}
             and paste it here.
@@ -254,17 +275,20 @@ function OpenRouterCard({
           </div>
         </form>
       ) : (
-        <div className="mt-4 flex flex-wrap items-center gap-2 pl-12">
-          <span className="mr-auto text-[12.5px] text-muted">Your key is saved on this computer, encrypted.</span>
-          <Button size="sm" onClick={() => provider && onTest(provider.id)} loading={result?.state === 'testing'}>
-            Test connection
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setReplacing(true)}>
-            Replace key
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void disconnect()}>
-            Disconnect
-          </Button>
+        // The three buttons always stay together on one row; in a narrow window they go under the sentence.
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 pl-12">
+          <span className="min-w-[200px] flex-1 text-[12.5px] text-muted">Your key is saved on this computer, encrypted.</span>
+          <div className="flex shrink-0 gap-2">
+            <Button size="sm" onClick={() => provider && onTest(provider.id)} loading={result?.state === 'testing'}>
+              Test connection
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setReplacing(true)}>
+              Replace key
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          </div>
         </div>
       )}
       {result ? (
@@ -344,9 +368,13 @@ function OtherProviders({
                     <span className="truncate text-[14px] font-medium text-fg" title={p.name}>
                       {p.name}
                     </span>
-                    <Badge className="shrink-0">
-                      {p.hasKey ? 'Key saved' : 'No key'}
-                    </Badge>
+                    {checkOf(p, results[p.id]) === false ? (
+                      <Badge tone="danger" className="shrink-0">
+                        Not working
+                      </Badge>
+                    ) : (
+                      <Badge className="shrink-0">{p.hasKey ? 'Key saved' : 'No key'}</Badge>
+                    )}
                   </div>
                   <div className="mt-0.5 break-all font-mono text-[12px] text-faint">{p.baseUrl}</div>
                 </div>
@@ -407,8 +435,18 @@ function ProviderForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Online services need a key; programs on this computer (LM Studio, Ollama) don't.
+  const url = baseUrl.trim().replace(/\/+$/, '')
+  const preset = PRESETS.find((p) => p.baseUrl === url)
+  const keyNeeded = preset ? preset.needsKey : url !== '' && !isLocalUrl(/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `http://${url}`)
+  const willHaveKey = key.trim() !== '' || (!!initial?.hasKey && !removeKey)
+
   const save = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
+    if (keyNeeded && !willHaveKey) {
+      setError(`Paste your ${name.trim() || 'provider'} API key first. Only programs on this computer, like LM Studio or Ollama, work without one.`)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -441,7 +479,8 @@ function ProviderForm({
                 key={p.name}
                 type="button"
                 onClick={() => {
-                  setName(p.name)
+                  // Keep a name Adam typed himself; replace one a preset filled in.
+                  if (!name.trim() || PRESETS.some((x) => x.name === name.trim())) setName(p.name)
                   setBaseUrl(p.baseUrl)
                   setError(null)
                 }}
@@ -462,7 +501,7 @@ function ProviderForm({
           </Field>
         </div>
         <Field
-          label="API key (optional)"
+          label={keyNeeded ? 'API key' : 'API key (optional)'}
           hint={
             initial?.hasKey && !removeKey ? (
               <>
@@ -473,7 +512,17 @@ function ProviderForm({
                 .
               </>
             ) : removeKey ? (
-              'The saved key will be removed when you save.'
+              keyNeeded ? (
+                'The saved key will be removed when you save. This service needs one, so paste a new key.'
+              ) : (
+                'The saved key will be removed when you save.'
+              )
+            ) : keyNeeded ? (
+              preset ? (
+                `Paste the key from your ${preset.name} account.`
+              ) : (
+                'Online services need a key. Leave it empty only for programs on this computer, like LM Studio or Ollama.'
+              )
             ) : (
               'Leave empty for programs on this computer, like LM Studio or Ollama.'
             )
@@ -489,6 +538,7 @@ function ProviderForm({
               placeholder={initial?.hasKey && !removeKey ? '••••••••••••' : ''}
               onChange={(e) => {
                 setKey(e.target.value)
+                setError(null)
                 if (e.target.value) setRemoveKey(false)
               }}
             />
@@ -513,11 +563,14 @@ function ProviderForm({
 function WriterModel({
   providers,
   result,
+  providerResults,
   onTest,
   onClearResult
 }: {
   providers: ProviderConfig[]
   result: TestResult | undefined
+  /** Each provider's connection test this visit, so a problem already shown above isn't repeated in the list. */
+  providerResults: Record<string, TestResult>
   onTest: (providerId: ID, modelId: string) => void
   onClearResult: () => void
 }): React.JSX.Element {
@@ -580,6 +633,7 @@ function WriterModel({
       ) : (
         <ModelPicker
           providers={providers}
+          providerResults={providerResults}
           current={writer}
           autoFocus={picking}
           onChoose={(c) => void choose(c)}
@@ -648,12 +702,14 @@ function ContextLengthField({ writer }: { writer: ModelChoice }): React.JSX.Elem
 
 function ModelPicker({
   providers,
+  providerResults,
   current,
   autoFocus,
   onChoose,
   onCancel
 }: {
   providers: ProviderConfig[]
+  providerResults: Record<string, TestResult>
   current: ModelChoice | null
   /** Only when Adam asked to change the model, so opening Settings never jumps the page. */
   autoFocus: boolean
@@ -686,6 +742,8 @@ function ModelPicker({
   const typed = query.trim()
   const canUseTyped = provider.kind === 'custom' && typed.length > 1 && !(models ?? []).some((m) => m.id === typed)
   const slow = useDelayed(models === null && !error)
+  const tested = providerResults[provider.id]
+  const providerFailed = tested?.state === 'done' && !tested.ok
 
   const pick = (m: ModelInfo): void =>
     onChoose({
@@ -695,7 +753,9 @@ function ModelPicker({
       contextLength: m.contextLength,
       promptPrice: m.promptPrice,
       completionPrice: m.completionPrice,
-      maxOutput: m.maxOutput ?? null
+      maxOutput: m.maxOutput ?? null,
+      // Always set (null: not known), so the previous model's answer is never kept by the settings merge.
+      sampling: m.sampling ?? null
     })
 
   return (
@@ -740,9 +800,14 @@ function ModelPicker({
       <div className="h-[340px] overflow-auto" role="listbox" aria-label="Models">
         {error ? (
           <div className="p-4">
-            <Notice tone="danger" action={<Button size="sm" onClick={load}>Try again</Button>}>
-              {error}
-            </Notice>
+            {providerFailed ? (
+              // The card above already says what's wrong; don't repeat it.
+              <Notice action={<Button size="sm" onClick={load}>Try again</Button>}>Fix {provider.name} above to see its models.</Notice>
+            ) : (
+              <Notice tone="danger" action={<Button size="sm" onClick={load}>Try again</Button>}>
+                {error}
+              </Notice>
+            )}
             {provider.kind === 'custom' ? <p className="mt-3 text-[12.5px] text-muted">You can still type a model name in the search box and use it.</p> : null}
             {canUseTyped ? <TypedRow name={typed} onPick={() => pick({ id: typed, name: typed, contextLength: null, promptPrice: null, completionPrice: null })} /> : null}
           </div>

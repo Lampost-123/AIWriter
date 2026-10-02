@@ -5,15 +5,16 @@
 
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
-import type { ContextPreview, DraftOptions, ID, ModelChoice } from '@shared/types'
+import type { ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice } from '@shared/types'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
-import { streamChat, type ChatTarget, type StreamOutcome } from './client'
+import { knownParams, streamChat, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
+import { isKeyFailure } from './errors'
 
 type DB = Database.Database
-type GenerationParams = { temperature: number; top_p: number; max_tokens: number; creativity: DraftOptions['creativity']; targetWords: number }
+type GenerationParams = GenerationRecord['params']
 export type Emit = <E extends keyof AppEvents>(event: E, payload: AppEvents[E]) => void
 
 /** Text goes to the window at most this often (not once per token). */
@@ -47,6 +48,10 @@ export interface DraftRequest {
   /** Each live entry's updatedAt, recorded as the version that was sent. */
   entryVersions: Map<ID, string>
   emit: Emit
+  /** Called when the provider turned the key down, so Settings can show it isn't working. */
+  onKeyRejected?: () => void
+  /** Called when a draft came back in full, so Settings can show the provider works. */
+  onWorked?: () => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -65,6 +70,21 @@ export function draftCost(
   return prompt * model.promptPrice + completion * model.completionPrice
 }
 
+/** How to word the request: what this session learnt about the model, and what its provider says it takes. */
+function startParams(req: DraftRequest): SentParams {
+  const known = knownParams(req.provider, req.model.modelId)
+  return req.model.sampling === false ? { ...known, sampling: false } : known
+}
+
+/** The params with how they were actually sent (only noted when it differs from the usual). */
+function withSent(p: GenerationParams, sent: SentParams): GenerationParams {
+  const { tokenParam: _t, sampling: _s, cutOff: _c, ...rest } = p
+  const out: GenerationParams = { ...rest }
+  if (sent.tokenParam !== 'max_tokens') out.tokenParam = sent.tokenParam
+  if (!sent.sampling) out.sampling = false
+  return out
+}
+
 export function startDraftJob(req: DraftRequest): { generationId: ID } {
   if (isDrafting(req.sceneId)) {
     throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
@@ -72,13 +92,17 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   const id = newId()
   const preset = CREATIVITY_PRESETS[req.options.creativity] ?? CREATIVITY_PRESETS.balanced
   const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput)
-  const params = {
-    temperature: preset.temperature,
-    top_p: preset.top_p,
-    max_tokens: reply.limit,
-    creativity: req.options.creativity,
-    targetWords: req.options.targetWords
-  }
+  const sent = startParams(req)
+  const params: GenerationParams = withSent(
+    {
+      temperature: preset.temperature,
+      top_p: preset.top_p,
+      max_tokens: reply.limit,
+      creativity: req.options.creativity,
+      targetWords: req.options.targetWords
+    },
+    sent
+  )
   gens.insertGeneration(req.db, {
     id,
     sceneId: req.sceneId,
@@ -144,6 +168,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       },
       onRetry: (info) => emit('generation:retrying', { generationId: job.id, ...info }),
       fallbackMaxTokens,
+      startParams: startParams(req),
       fetchImpl: req.fetchImpl,
       delays: req.retryDelays
     })
@@ -160,7 +185,9 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       cost: null,
       finishReason: null,
       retries: 0,
-      maxTokens: params.max_tokens
+      maxTokens: params.max_tokens,
+      cutOff: false,
+      sentParams: startParams(req)
     }
   }
 
@@ -169,7 +196,22 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   sendChunk()
 
   const status = job.closed ? 'stopped' : outcome.status
-  const cost = draftCost(outcome, req.model, req.preview.budget.used)
+  // A request the provider turned down (or never answered) costs nothing: don't make up a price for it.
+  const f = outcome.failure?.type
+  const neverRan =
+    outcome.status === 'error' &&
+    !outcome.text &&
+    outcome.cost == null &&
+    outcome.promptTokens == null &&
+    outcome.completionTokens == null &&
+    (f === 'http' || f === 'network' || f === 'timeout' || f === 'bad-response')
+  const cost = neverRan ? null : draftCost(outcome, req.model, req.preview.budget.used)
+  const cutOff = outcome.cutOff && status === 'complete'
+  // The settings as actually sent: a smaller reply limit, a model that sets its own
+  // creativity, or a reply that ran into the limit, so "What the AI saw" stays truthful.
+  const used = withSent({ ...params, max_tokens: outcome.maxTokens }, outcome.sentParams)
+  if (cutOff) used.cutOff = true
+  const paramsChanged = JSON.stringify(used) !== JSON.stringify(params)
   if (!job.closed && db.open) {
     try {
       gens.finishGeneration(db, job.id, {
@@ -180,14 +222,19 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
         completionTokens: outcome.completionTokens,
         cost,
         finishedAt: now(),
-        // The reply limit actually used, if the provider asked for a smaller one.
-        params: outcome.maxTokens !== params.max_tokens ? { ...params, max_tokens: outcome.maxTokens } : undefined
+        params: paramsChanged ? used : undefined
       })
     } catch (e) {
       console.error('Could not finish the draft record', e)
     }
   }
   active.delete(job.id)
+  try {
+    if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()
+    else if (outcome.status === 'complete') req.onWorked?.()
+  } catch (e) {
+    console.error('Could not note whether the provider worked', e)
+  }
   emit('generation:done', {
     generationId: job.id,
     sceneId: job.sceneId,
@@ -195,7 +242,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     error: status === 'error' ? outcome.error : null,
     promptTokens: outcome.promptTokens,
     completionTokens: outcome.completionTokens,
-    cost
+    cost,
+    cutOff
   })
 }
 

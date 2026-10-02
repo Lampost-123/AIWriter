@@ -14,6 +14,12 @@
 //  8 story so far (milestone 2)
 //  9 other entries named in the beats, notes or direction
 // 10 themes, tone and premise
+//
+// The priorities decide what is dropped when the briefing is too long. The
+// order the blocks are sent in is separate (SEND_ORDER): what stays the same
+// across a story comes first, right after the instructions, so providers that
+// cache repeated prompts can reuse it; the previous scene's ending and the
+// scene card come last, right above "Write the scene now".
 
 import type { ChatMessage, ContextBlock, ContextBudget, ContextPreview, DraftOptions, Entry, ID, SceneCard, StyleGuide } from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
@@ -71,7 +77,9 @@ export function computeBudget(contextLength: number | null, targetWords: number)
 }
 
 /** Beyond the room kept for the reply, extra headroom is only given up to this many tokens. */
-export const REPLY_LIMIT_CAP = 8192
+export const REPLY_LIMIT_CAP = 16_384
+/** Extra room always asked for beyond the reply room, for models that think before they write. */
+export const THINKING_ROOM = 4000
 
 /**
  * The reply limit (max_tokens) for a draft, and a smaller one to fall back on
@@ -82,18 +90,37 @@ export const REPLY_LIMIT_CAP = 8192
  * little long, and models that think before writing (their thinking counts
  * against the limit) can run out before the scene is done. So when the model
  * has room, the limit goes up to twice the reply room (no higher than
- * REPLY_LIMIT_CAP unless the reply room itself is bigger), never past what
- * the context window has left after the briefing, and never past the model's
- * own output limit when the provider says what it is.
+ * REPLY_LIMIT_CAP unless the reply room itself is bigger), and always at least
+ * THINKING_ROOM beyond the reply room; never past what the context window has
+ * left after the briefing, and never past the model's own output limit when
+ * the provider says what it is.
  */
 export function replyTokenLimit(budget: Pick<ContextBudget, 'contextLength' | 'reserved' | 'used'>, maxOutput?: number | null): { limit: number; fallback: number } {
   const out = maxOutput && maxOutput > 0 ? maxOutput : Infinity
   const fallback = Math.max(1, Math.min(budget.reserved, out))
-  const wanted = Math.max(budget.reserved, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP))
+  const wanted = Math.max(budget.reserved + THINKING_ROOM, Math.min(budget.reserved * 2, REPLY_LIMIT_CAP))
   // What the window has left after the briefing, keeping 5% spare since providers count differently.
-  const room = budget.contextLength - budget.used - Math.ceil(budget.contextLength * 0.05)
+  const room = replyRoom(budget)
   if (room <= fallback) return { limit: fallback, fallback }
   return { limit: Math.max(fallback, Math.min(wanted, room, out)), fallback }
+}
+
+/** What the context window has left for the reply once the briefing is in (5% spare, since providers count differently). */
+export const replyRoom = (budget: Pick<ContextBudget, 'contextLength' | 'used'>): number =>
+  budget.contextLength - budget.used - Math.ceil(budget.contextLength * 0.05)
+
+/** About how many words the model can write in one go after this briefing, in hundreds. */
+export function maxTargetWords(budget: Pick<ContextBudget, 'contextLength' | 'used'>): number {
+  const room = replyRoom(budget)
+  return room <= 0 ? 0 : Math.floor(room / (TOKENS_PER_WORD * REPLY_HEADROOM) / 100) * 100
+}
+
+/**
+ * When the length asked for can't fit in the model's window next to the briefing:
+ * how many words would. Null when it fits. Only meaningful when the window is known.
+ */
+export function lengthTooLong(budget: Pick<ContextBudget, 'contextLength' | 'used' | 'reserved'>): { maxWords: number } | null {
+  return budget.reserved > replyRoom(budget) ? { maxWords: maxTargetWords(budget) } : null
 }
 
 /** Token estimate with a 10% allowance, since providers count differently. */
@@ -103,11 +130,15 @@ export const withAllowance = (rawTokens: number): number => Math.ceil(rawTokens 
 
 const clean = (s: string | undefined | null): string => (s ?? '').trim()
 
-/** Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes. */
-export function fieldSections(e: Entry): string[] {
+/**
+ * Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes.
+ * `onlyGroups` keeps just those groups (by id).
+ */
+export function fieldSections(e: Entry, onlyGroups?: string[]): string[] {
   const groups = FIELD_GROUPS[e.kind] ?? []
   const out: string[] = []
   for (const g of groups) {
+    if (onlyGroups && !onlyGroups.includes(g.id)) continue
     const lines: string[] = []
     for (const f of g.fields) {
       const v = clean(e.fields?.[f.key])
@@ -124,8 +155,8 @@ export function fieldSections(e: Entry): string[] {
   return out
 }
 
-/** A full profile: name line, aliases, summary, description and every filled field. */
-export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`): string {
+/** A full profile: name line, aliases, summary, description and every filled field (or only `onlyGroups`). */
+export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`, onlyGroups?: string[]): string {
   const head: string[] = []
   if (heading) head.push(heading)
   const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
@@ -133,7 +164,7 @@ export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`
   if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
   const parts = [head.join('\n')]
   if (clean(e.description)) parts.push(clean(e.description))
-  parts.push(...fieldSections(e))
+  parts.push(...fieldSections(e, onlyGroups))
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -157,11 +188,17 @@ export function parentChain(place: Entry, byId: Map<ID, Entry>): Entry[] {
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** True when `name` appears in `text` as a whole word or phrase, ignoring case. */
+/**
+ * True when `name` appears in `text` as a whole word or phrase. A single
+ * capitalised word ("Will", "Rose", "Red") must appear capitalised, so ordinary
+ * words don't count; phrases and lower-case aliases ("The Duke", "the old
+ * woman") ignore case.
+ */
 export function mentions(text: string, name: string): boolean {
   const n = name.trim()
   if (n.length < 2 || !text) return false
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, 'iu').test(text)
+  const flags = /\s/.test(n) || !/^\p{Lu}/u.test(n) ? 'iu' : 'u'
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(n).replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, flags).test(text)
 }
 
 // ---------- The end of the previous scene ----------
@@ -300,13 +337,11 @@ export function buildBlocks(input: ContextInput): BlockDraft[] {
 
   // 6 Relationships and knowledge: milestone 2.
 
-  // 7 Where the scene happens, and the world's hard rules.
-  const settingParts: string[] = []
-  const settingIds: ID[] = []
+  // 7 Where the scene happens, and the world's hard rules (two blocks, sent apart).
   const where = card.locationId ? byId.get(card.locationId) : undefined
   if (where && !used.has(where.id)) {
     used.add(where.id)
-    settingIds.push(where.id)
+    const settingIds: ID[] = [where.id]
     let text = formatProfile(where, `### Where: ${where.name}`)
     const around = parentChain(where, byId).filter((p) => !used.has(p.id))
     if (around.length) {
@@ -316,17 +351,18 @@ export function buildBlocks(input: ContextInput): BlockDraft[] {
       })
       text += `\n\nIt lies within:\n${around.map((p) => `- ${oneLine(p)}`).join('\n')}`
     }
-    settingParts.push(text)
+    blocks.push({ id: 'setting', priority: 7, title: 'Setting', text, entryIds: settingIds })
   }
   const rules = entries.filter((e) => e.kind === 'lore' && e.hardRule && !used.has(e.id))
-  for (const r of rules) {
-    used.add(r.id)
-    settingIds.push(r.id)
-    settingParts.push(formatProfile(r, `### World rule: ${r.name}`))
-  }
-  if (settingParts.length) {
-    const title = where && rules.length ? 'Setting and world rules' : where ? 'Setting' : 'World rules (never break these)'
-    blocks.push({ id: 'setting', priority: 7, title, text: settingParts.join('\n\n'), entryIds: settingIds })
+  if (rules.length) {
+    rules.forEach((r) => used.add(r.id))
+    blocks.push({
+      id: 'world-rules',
+      priority: 7,
+      title: 'World rules (never break these)',
+      text: rules.map((r) => formatProfile(r, `### World rule: ${r.name}`)).join('\n\n'),
+      entryIds: rules.map((r) => r.id)
+    })
   }
 
   // 8 Story so far: milestone 2 (no summaries yet).
@@ -344,7 +380,9 @@ export function buildBlocks(input: ContextInput): BlockDraft[] {
         text: named
           .map((e) => {
             const head = `### ${e.name} (${KIND_LABELS[e.kind].one.toLowerCase()})`
-            return [head, clean(e.summary) ? `In short: ${clean(e.summary)}` : '', clean(e.description)].filter(Boolean).join('\n')
+            // Lore and places are short, and their fields are the facts: send them whole.
+            // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
+            return e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks']) : formatProfile(e, head)
           })
           .join('\n\n'),
         entryIds: named.map((e) => e.id)
@@ -356,8 +394,23 @@ export function buildBlocks(input: ContextInput): BlockDraft[] {
   const themes = themesText(input)
   if (themes) blocks.push({ id: 'themes', priority: 10, title: 'Themes and tone', text: themes, entryIds: [] })
 
-  return blocks
+  return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
+
+/**
+ * The order blocks are sent in. What stays the same across a story comes first,
+ * so a provider can reuse it from one draft to the next; the end of the previous
+ * scene and the scene card (with Adam's direction) come last, right above the
+ * closing instruction, where the model attends to them most.
+ */
+export const SEND_ORDER = ['instructions', 'world-rules', 'themes', 'setting', 'pov', 'present', 'mentioned', 'previous-scene', 'scene-card']
+const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
+  const i = SEND_ORDER.indexOf(b.id)
+  return i < 0 ? SEND_ORDER.length : i
+}
+
+/** Among blocks of the same priority, these are kept longest. */
+const KEEP_LONGEST = new Set(['world-rules'])
 
 /** How a block appears in the user message. */
 export const blockAsSent = (b: BlockDraft): string => (b.priority === 1 ? b.text : `## ${b.title}\n\n${b.text}`)
@@ -369,6 +422,9 @@ export function prepareContext(input: ContextInput): PreparedContext {
     targetWords,
     style: input.style,
     hasBeats: input.scene.card.beats.some((b) => b.trim()),
+    hasGoal: !!clean(input.scene.card.goal),
+    hasOutcome: !!clean(input.scene.card.outcome),
+    hasNotes: !!clean(input.scene.card.notes),
     hasDirection: !!clean(input.options.direction)
   }
   const finals = {
@@ -406,7 +462,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   }
 
   let used = measure()
-  const droppable = blocks.filter((b) => b.priority >= 3).sort((a, b) => b.priority - a.priority)
+  // Least important first; within a priority, hard rules go last.
+  const droppable = blocks
+    .filter((b) => b.priority >= 3)
+    .sort((a, b) => b.priority - a.priority || Number(KEEP_LONGEST.has(a.id)) - Number(KEEP_LONGEST.has(b.id)))
   for (const b of droppable) {
     if (used <= budget.available) break
     b.dropped = true

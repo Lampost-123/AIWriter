@@ -73,6 +73,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [opts, setOpts] = useState<SceneDraftOptions>(() => remembered.get(sceneId) ?? BLANK)
   const [lengthText, setLengthText] = useState('')
   const [cardWords, setCardWords] = useState<number | null>(null)
+  /** The scene card says what happens (beats, a goal, an outcome or notes). Null until loaded. */
+  const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
+  /** The page already has writing on it, so a new draft goes after it. */
+  const [hasText, setHasText] = useState(false)
   const [phase, setPhase] = useState<Phase>('idle')
   const [retrying, setRetrying] = useState<string | null>(null)
   const [popover, setPopover] = useState<'options' | 'need-model' | null>(null)
@@ -106,7 +110,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       api
         .getScene(sceneId)
         .then((s) => {
-          if (s.id === sceneId) setCardWords(s.card.targetWords)
+          if (s.id !== sceneId) return
+          setCardWords(s.card.targetWords)
+          const c = s.card
+          setCardPlanned(c.beats.some((b) => b.trim() !== '') || [c.goal, c.outcome, c.notes].some((t) => t.trim() !== ''))
         })
         .catch(() => undefined)
     },
@@ -117,6 +124,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     const o = remembered.get(sceneId) ?? BLANK
     setOpts(o)
     setCardWords(null)
+    setCardPlanned(null)
     setEstimate(null)
     lastCardLoad.current = 0
     loadCard(true)
@@ -125,6 +133,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   useEffect(() => {
     setLengthText(targetWords != null ? String(targetWords) : '')
   }, [targetWords])
+
+  const checkText = useCallback(() => {
+    const bridge = editorBridge()
+    setHasText(!!bridge && bridge.sceneId === sceneId && bridge.hasText())
+  }, [sceneId])
 
   const updateOpts = (patch: Partial<SceneDraftOptions>): void => {
     setOpts((o) => {
@@ -161,6 +174,16 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   // ---------- Streaming ----------
 
+  /** Opens the draft options (from a message's button, perhaps while another page shows). */
+  const openOptions = (): void => {
+    if (useApp.getState().view.kind !== 'write') navigate({ kind: 'write' })
+    loadCard(true)
+    checkText()
+    setPopover('options')
+  }
+  const openOptionsRef = useRef(openOptions)
+  openOptionsRef.current = openOptions
+
   const finish = useCallback(
     (p: AppEvents['generation:done']) => {
       const s = session.current
@@ -171,8 +194,21 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       setRetrying(null)
       const app = useApp.getState()
       if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
+      const showRecord = { label: 'What the AI saw', run: () => navigate({ kind: 'generation', generationId: p.generationId }) }
       if (p.status === 'error' && p.error) {
-        toast(p.error, { tone: 'danger', action: { label: 'What the AI saw', run: () => navigate({ kind: 'generation', generationId: p.generationId }) } })
+        // The button goes where the message says the fix is: the draft options (a length the
+        // model can't manage), Settings (key, credit, model), or else the draft's record.
+        const action = /\bdraft options\b/.test(p.error)
+          ? { label: 'Draft options', run: () => openOptionsRef.current() }
+          : /\bSettings\b/.test(p.error)
+            ? { label: 'Open Settings', run: () => navigate({ kind: 'settings', tab: 'models' }) }
+            : showRecord
+        toast(p.error, { tone: 'danger', action })
+      } else if (p.cutOff) {
+        toast(
+          'The model ran out of room before the end of the scene, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.',
+          { action: showRecord }
+        )
       }
       lastCardLoad.current = 0
     },
@@ -264,7 +300,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       setPhase('idle')
       const err = e as ApiError
       if (err.code === 'no-writer-model') setPopover('need-model')
-      else toast(err.message, { tone: 'danger', action: err.code === 'no-key' ? { label: 'Open Settings', run: openSettings } : undefined })
+      // A length the model can't write is changed in the draft options; key and model problems in Settings.
+      else if (err.code === 'too-long') toast(err.message, { tone: 'danger', action: { label: 'Draft options', run: () => openOptionsRef.current() } })
+      else toast(err.message, { tone: 'danger', action: err.code === 'no-key' || /\bSettings\b/.test(err.message) ? { label: 'Open Settings', run: openSettings } : undefined })
     }
   }, [sceneId, finish, openSettings])
 
@@ -307,6 +345,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   stopRef.current = stop
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Only on the writing page: while another page covers it, Esc and Ctrl+G belong to that page.
+      if (useApp.getState().view.kind !== 'write') return
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
         if (phaseRef.current === 'idle') void generateRef.current()
@@ -321,6 +361,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // ---------- View ----------
 
   const busy = phase !== 'idle'
+  const afterText = `This scene already has text. The new draft goes after it, below a scene break. ${modKey()}+Z removes it.`
+  // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
+  const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
   const status = retrying ? 'Retrying…' : phase === 'stopping' ? 'Stopping…' : 'Writing…'
 
@@ -389,8 +432,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   className="flex-1 rounded-r-none"
                   icon={<Sparkles size={14} />}
                   onClick={() => void generate()}
-                  onPointerEnter={() => loadCard()}
-                  title={`Draft this scene from its card (${modKey()}+G)`}
+                  onPointerEnter={() => {
+                    loadCard()
+                    checkText()
+                  }}
+                  onFocus={checkText}
+                  title={`Draft this scene from its card (${modKey()}+G)${hasText ? `\n${afterText}` : ''}`}
                 >
                   Generate
                 </Button>
@@ -403,6 +450,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     if (popover === 'options') setPopover(null)
                     else {
                       loadCard(true)
+                      checkText()
                       setPopover('options')
                     }
                   }}
@@ -429,7 +477,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             <div className="flex flex-col gap-4">
               <div>
                 <h3 className="text-[13.5px] font-semibold text-fg">Draft options</h3>
-                <p className="text-[12px] text-muted">For this scene's next draft.</p>
+                <p className="text-[12px] leading-relaxed text-muted">{hasText ? afterText : "For this scene's next draft."}</p>
               </div>
               <Field label="Direction for this draft (optional)">
                 {(id) => (
@@ -449,6 +497,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   />
                 )}
               </Field>
+              {cardPlanned === false && !opts.direction.trim() ? (
+                <p className="-mt-2 text-[12px] leading-relaxed text-faint">
+                  Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
+                </p>
+              ) : null}
               <div className="flex items-end gap-3">
                 <Field label="Length" className="w-[132px]">
                   {(id) => (
@@ -482,8 +535,14 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               </div>
               <div className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-medium text-muted">Creativity</span>
-                <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
-                <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
+                {fixedCreativity ? (
+                  <p className="text-[12px] leading-relaxed text-faint">This model sets its own creativity, so there's nothing to choose here.</p>
+                ) : (
+                  <>
+                    <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
+                    <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
+                  </>
+                )}
               </div>
               <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px] text-muted">
                 <span className="min-w-0 truncate">

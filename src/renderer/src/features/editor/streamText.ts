@@ -70,3 +70,55 @@ export function isSceneBreakLine(text: string): boolean {
   const t = text.trim()
   return /^(\*\s*){3,}$/.test(t) || /^(-\s*){3,}$/.test(t) || /^(_\s*){3,}$/.test(t) || t === '#' || t === '⁂' || /^(~\s*){3,}$/.test(t)
 }
+
+/**
+ * A first line that isn't part of the scene: a Markdown heading ("# The Gilded Eel") or a
+ * lead-in such as "Here's the scene:". The writer instructions forbid both; this is the
+ * safety net for models that add them anyway.
+ */
+export function isPreambleLine(text: string): boolean {
+  const t = text.trim()
+  return /^#{1,6}\s+\S/.test(t) || /^here(?:'s|’s| is)\b.*:$/i.test(t)
+}
+
+// ---------- Italics and bold from the model's asterisks ----------
+
+/** A run of text and how it is marked. */
+export interface MarkedPiece {
+  text: string
+  italic?: boolean
+  bold?: boolean
+}
+
+/**
+ * A complete pair of markers: **bold**, __bold__, *italic* or _italic_. The opening
+ * marker is followed by a non-space and the closing one follows a non-space; neither
+ * touches a letter or digit on its outer side, so snake_case, "5 * 3" and a lone
+ * asterisk are left alone.
+ */
+const PAIR = /(?<![\p{L}\p{N}*_\\])(\*\*|__|\*|_)(?![\s*_])(.*?[^\s\\])\1(?![\p{L}\p{N}*_])/u
+
+/** Turns Markdown emphasis in one paragraph's text into marked pieces. Unpaired markers stay as they are. */
+export function parseEmphasis(text: string, marks: { italic?: boolean; bold?: boolean } = {}): MarkedPiece[] {
+  const out: MarkedPiece[] = []
+  const push = (t: string, m: { italic?: boolean; bold?: boolean }): void => {
+    if (!t) return
+    const last = out[out.length - 1]
+    if (last && !!last.italic === !!m.italic && !!last.bold === !!m.bold) last.text += t
+    else out.push({ text: t, ...(m.italic ? { italic: true } : {}), ...(m.bold ? { bold: true } : {}) })
+  }
+  let rest = text
+  for (;;) {
+    const m = PAIR.exec(rest)
+    if (!m) break
+    push(rest.slice(0, m.index), marks)
+    const inner = m[1].length === 2 ? { ...marks, bold: true } : { ...marks, italic: true }
+    for (const p of parseEmphasis(m[2], inner)) push(p.text, { italic: p.italic, bold: p.bold })
+    rest = rest.slice(m.index + m[0].length)
+  }
+  push(rest, marks)
+  return out
+}
+
+/** True when the text holds at least one complete pair of emphasis markers. */
+export const hasEmphasis = (text: string): boolean => (text.includes('*') || text.includes('_')) && PAIR.test(text)

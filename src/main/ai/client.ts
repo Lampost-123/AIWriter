@@ -10,6 +10,8 @@ import {
   extractProviderMessage,
   looksLikeContextTooLong,
   looksLikeReplyLimitRejected,
+  looksLikeSamplingRejected,
+  looksLikeTokenParamRejected,
   networkCode,
   retryReason,
   type Failure,
@@ -91,7 +93,31 @@ export interface StreamChatOptions {
    * (some models can't write that much in one reply).
    */
   fallbackMaxTokens?: number
+  /** How to word the request at first; by default, what this session has learnt about the model. */
+  startParams?: SentParams
 }
+
+/** How the request had to be worded for this model (some models reject max_tokens, temperature or top_p). */
+export interface SentParams {
+  /** The name the reply limit was sent under. */
+  tokenParam: 'max_tokens' | 'max_completion_tokens'
+  /** False when the model doesn't take temperature / top_p, so they were left out. */
+  sampling: boolean
+}
+
+const DEFAULT_PARAMS: SentParams = { tokenParam: 'max_tokens', sampling: true }
+
+/** What worked for each model this session, so later drafts are worded right the first time. */
+const paramsByModel = new Map<string, SentParams>()
+const paramKey = (t: Pick<ChatTarget, 'baseUrl'>, model: string): string => `${t.baseUrl.replace(/\/+$/, '')}\n${model}`
+
+/** The request wording that works for this model, as far as this session knows. */
+export const knownParams = (t: Pick<ChatTarget, 'baseUrl'>, model: string): SentParams => paramsByModel.get(paramKey(t, model)) ?? DEFAULT_PARAMS
+export function rememberParams(t: Pick<ChatTarget, 'baseUrl'>, model: string, p: SentParams): void {
+  paramsByModel.set(paramKey(t, model), p)
+}
+/** For tests. */
+export const forgetParams = (): void => paramsByModel.clear()
 
 export interface StreamOutcome {
   status: 'complete' | 'stopped' | 'error'
@@ -108,6 +134,10 @@ export interface StreamOutcome {
   retries: number
   /** The max_tokens the reply was finally asked with. */
   maxTokens: number
+  /** The model stopped because it reached the reply limit, so the scene ends early (the text is kept). */
+  cutOff: boolean
+  /** How the reply limit and creativity settings were finally sent. */
+  sentParams: SentParams
 }
 
 type Attempt =
@@ -135,6 +165,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let usageMode: UsageMode = o.target.kind === 'openrouter' ? 'openrouter' : 'stream_options'
   let retries = 0
   let maxTokens = o.body.max_tokens
+  let sent: SentParams = { ...(o.startParams ?? knownParams(o.target, o.body.model)) }
 
   const emit = (raw: string): void => {
     const t = filter.push(raw)
@@ -162,7 +193,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       cost: s.cost,
       finishReason: s.finishReason,
       retries,
-      maxTokens
+      maxTokens,
+      cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens'),
+      sentParams: { ...sent }
     }
   }
 
@@ -217,7 +250,10 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     }
     arm(headersTimeout)
     try {
-      const payload: Record<string, unknown> = { ...o.body, max_tokens: maxTokens, stream: true }
+      const { max_tokens: _limit, temperature, top_p, ...rest } = o.body
+      const payload: Record<string, unknown> = { ...rest, stream: true }
+      payload[sent.tokenParam] = maxTokens
+      if (sent.sampling) Object.assign(payload, { temperature, top_p })
       if (usageMode === 'openrouter') payload.usage = { include: true }
       if (usageMode === 'stream_options') payload.stream_options = { include_usage: true }
       let res: Response
@@ -242,7 +278,12 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         if (o.signal.aborted) return { kind: 'stopped' }
         const message = extractProviderMessage(bodyText)
         const rejectedUsageOption =
-          usageMode === 'stream_options' && (res.status === 400 || res.status === 422) && !looksLikeContextTooLong(message) && !looksLikeReplyLimitRejected(res.status, message)
+          usageMode === 'stream_options' &&
+          (res.status === 400 || res.status === 422) &&
+          !looksLikeContextTooLong(message) &&
+          !looksLikeReplyLimitRejected(res.status, message) &&
+          !looksLikeTokenParamRejected(res.status, message) &&
+          !looksLikeSamplingRejected(res.status, message)
         return {
           kind: 'fail',
           failure: { type: 'http', status: res.status, message },
@@ -316,6 +357,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
 
   let triedWithoutUsage = false
   let triedSmallerReply = false
+  let triedTokenParam = false
+  let triedNoSampling = false
   for (;;) {
     if (o.signal.aborted) return finish('stopped', null)
     const r = await attemptOnce()
@@ -329,6 +372,20 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       }
       if (!s.text.trim()) return finish('error', { type: 'empty' })
       return finish('complete', null)
+    }
+    // Some models (OpenAI's reasoning models, for one) want the reply limit under another
+    // name, or set their own creativity. Ask once more the way they want; remember it.
+    if (!triedTokenParam && sent.tokenParam === 'max_tokens' && r.failure.type === 'http' && looksLikeTokenParamRejected(r.failure.status, r.failure.message)) {
+      triedTokenParam = true
+      sent = { ...sent, tokenParam: 'max_completion_tokens' }
+      rememberParams(o.target, o.body.model, sent)
+      continue
+    }
+    if (!triedNoSampling && sent.sampling && r.failure.type === 'http' && looksLikeSamplingRejected(r.failure.status, r.failure.message)) {
+      triedNoSampling = true
+      sent = { ...sent, sampling: false }
+      rememberParams(o.target, o.body.model, sent)
+      continue
     }
     if (
       !triedSmallerReply &&

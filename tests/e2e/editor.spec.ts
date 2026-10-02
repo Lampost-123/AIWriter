@@ -49,8 +49,8 @@ test('leaving the page and coming back keeps the place in a long scene', async (
   const { scenes } = await invoke(win, 'getOutline', story.id)
   const para = 'The harbour lamps burned low while the fishermen hauled their nets across the slick stones, and Mara watched the water.'
   await invoke(win, 'saveSceneText', scenes[0].id, null, Array.from({ length: 300 }, (_, i) => `${i + 1}. ${para}`).join('\n\n'))
-  // Open it afresh so the page shows the stored text.
-  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  // Open it afresh (from another scene) so the page shows the stored text.
+  await addScene(win)
   await row(win, 'Scene 1').click()
   await expect(prose(win)).toContainText('300. The harbour')
 

@@ -36,13 +36,17 @@ export function parseModelList(json: unknown, kind: ProviderKind): ModelInfo[] {
     if (kind === 'openrouter') {
       const pricing = (m.pricing ?? {}) as Record<string, unknown>
       const top = (m.top_provider ?? {}) as Record<string, unknown>
+      // OpenRouter lists the settings each model takes; some set their own creativity.
+      // An empty list says nothing, so it's read as "not known".
+      const params = Array.isArray(m.supported_parameters) && m.supported_parameters.length ? (m.supported_parameters as unknown[]) : null
       out.push({
         id,
         name,
         contextLength: positiveInt(m.context_length) ?? positiveInt(top.context_length),
         promptPrice: price(pricing.prompt),
         completionPrice: price(pricing.completion),
-        maxOutput: positiveInt(top.max_completion_tokens)
+        maxOutput: positiveInt(top.max_completion_tokens),
+        ...(params ? { sampling: params.includes('temperature') } : {})
       })
     } else {
       // Some servers (Groq, Mistral, LM Studio...) say how much a model can read; use it when given.

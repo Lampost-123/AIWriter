@@ -8,7 +8,7 @@ import { getSettings, getWritingPrefs } from '../settings'
 import { emit } from '../events'
 import * as gens from '../db/generations'
 import * as providers from '../ai/providers'
-import { finishContext, prepareContext, type ContextInput } from '../ai/context'
+import { finishContext, lengthTooLong, prepareContext, type ContextInput } from '../ai/context'
 import { gatherContextInput } from '../ai/gather'
 import { countTokens } from '../ai/tokenService'
 import { isLocalUrl, providerWho } from '../ai/errors'
@@ -53,6 +53,21 @@ export const aiHandlers: Handlers<AiMethods> = {
     if (isDrafting(sceneId)) throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
     const db = world.db()
     const { input, preview } = await assemble(sceneId, options)
+    // A model whose window is known can't take a reply longer than what's left of it: say so
+    // before sending, rather than letting the provider turn it down with a message about the briefing.
+    const tooLong = choice.contextLength != null && choice.contextLength > 0 ? lengthTooLong(preview.budget) : null
+    if (tooLong) {
+      if (tooLong.maxWords >= 100) {
+        throw new UserError(
+          `This model can write about ${tooLong.maxWords.toLocaleString('en-GB')} words in one go. Lower the length in the draft options or on the scene card, or pick a model that can read more in Settings > Models.`,
+          'too-long'
+        )
+      }
+      throw new UserError(
+        'The briefing is too long for this model: the instructions and the scene card fill it. Pick a model that can read more in Settings > Models, or shorten the scene card.',
+        'briefing-too-long'
+      )
+    }
     return startDraftJob({
       db,
       sceneId,
@@ -61,7 +76,12 @@ export const aiHandlers: Handlers<AiMethods> = {
       provider: target,
       model: choice,
       entryVersions: new Map(input.entries.map((e) => [e.id, e.updatedAt])),
-      emit
+      emit,
+      onKeyRejected: () => providers.markCheck(provider.id, false),
+      // A provider marked as not working that has just written a draft works again.
+      onWorked: () => {
+        if (providers.getProvider(provider.id)?.lastCheck?.ok === false) providers.markCheck(provider.id, true)
+      }
     })
   },
   stopGeneration: (id) => stopDraft(id),

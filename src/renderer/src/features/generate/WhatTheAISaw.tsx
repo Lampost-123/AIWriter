@@ -16,6 +16,9 @@ import { Skeleton, useDelayed } from './parts'
 
 type Entry = GenerationRecord['entries'][number]
 
+/** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
+const openParts = new Map<ID, Set<string>>()
+
 export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.Element {
   const [rec, setRec] = useState<GenerationRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -101,11 +104,19 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
 }
 
 function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; sceneTitle: string | null; modelLabel: string | null }): React.JSX.Element {
-  const [open, setOpen] = useState<Set<string>>(() => new Set(['scene-card']))
+  const [open, setOpenState] = useState<Set<string>>(() => openParts.get(rec.id) ?? new Set(['scene-card']))
+  const setOpen = (next: Set<string> | ((s: Set<string>) => Set<string>)): void =>
+    setOpenState((s) => {
+      const n = typeof next === 'function' ? next(s) : next
+      openParts.set(rec.id, n)
+      return n
+    })
   const [showMessages, setShowMessages] = useState(false)
   const entries = useMemo(() => new Map(rec.entries.map((e) => [e.entryId, e])), [rec.entries])
   const sentBlocks = rec.blocks.filter((b) => !b.dropped)
   const droppedCount = rec.blocks.length - sentBlocks.length
+  // Parts are numbered in the order they were sent; parts left out get a dash.
+  const sentNumber = new Map(sentBlocks.map((b, i) => [b.id, i + 1]))
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
@@ -128,6 +139,12 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
       <div className="mt-4 flex flex-col gap-2">
         {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
         {rec.status === 'stopped' ? <Notice>This draft was stopped before it finished. The text that arrived is kept in the scene.</Notice> : null}
+        {rec.status === 'complete' && rec.params.cutOff ? (
+          <Notice>
+            The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
+            stops part-way. Try a shorter length, or a writer model that can write more in one go.
+          </Notice>
+        ) : null}
         {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? 'Something went wrong while this draft was written.'}</Notice> : null}
         {changed ? (
           <Notice tone="ai">
@@ -139,25 +156,41 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
       <Card className="mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
         <Meta label="Model" value={modelLabel || rec.modelId} title={rec.modelId} />
         <Meta label="Provider" value={rec.providerName} />
-        <Meta label="Creativity" value={creativityOf(rec.params)} />
+        <Meta
+          label="Creativity"
+          value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
+          title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
+        />
         <Meta
           label="Tokens sent"
           value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
-          title={rec.promptTokens != null ? `As counted by ${rec.providerName}` : 'Counted by AI Write; the provider did not say'}
+          note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
         />
         <Meta
           label="Tokens written"
           value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
-          title={rec.completionTokens != null ? `As counted by ${rec.providerName}` : undefined}
+          note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
         />
         <Meta
           label="Cost"
-          value={rec.cost == null ? 'Not known' : `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`}
+          value={
+            rec.cost != null
+              ? `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`
+              : rec.status === 'error' && !rec.response
+                ? 'Nothing charged'
+                : 'Not known'
+          }
           title={rec.costEstimated ? 'Estimated: the provider did not report the cost' : undefined}
         />
       </Card>
 
-      <BudgetBar used={rec.budget.used} available={rec.budget.available} contextLength={rec.budget.contextLength} reserved={rec.budget.reserved} />
+      <BudgetBar
+        used={rec.budget.used}
+        available={rec.budget.available}
+        contextLength={rec.budget.contextLength}
+        reserved={rec.budget.reserved}
+        providerCounted={rec.promptTokens != null}
+      />
 
       {rec.direction ? (
         <section className="mt-6">
@@ -193,12 +226,20 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
         {!showMessages ? (
           <>
             <p className="mb-3 text-[12.5px] text-muted">
-              {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, most important first
+              {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, in the order the AI read them
               {droppedCount ? `; ${droppedCount} left out because the model couldn't read that much` : ''}. Click a part to read it.
             </p>
             <div className="flex flex-col gap-2">
               {rec.blocks.map((b) => (
-                <BlockRow key={b.id} block={b} open={open.has(b.id)} onToggle={() => toggle(b.id)} entries={entries} />
+                <BlockRow
+                  key={b.id}
+                  block={b}
+                  number={sentNumber.get(b.id) ?? null}
+                  open={open.has(b.id)}
+                  onToggle={() => toggle(b.id)}
+                  entries={entries}
+                  generationId={rec.id}
+                />
               ))}
             </div>
           </>
@@ -233,25 +274,39 @@ function DraftRecord({ rec, sceneTitle, modelLabel }: { rec: GenerationRecord; s
   )
 }
 
-function Meta({ label, value, title }: { label: string; value: string; title?: string }): React.JSX.Element {
+function Meta({ label, value, title, note }: { label: string; value: string; title?: string; note?: string }): React.JSX.Element {
   return (
     <div className="min-w-0">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-faint">{label}</div>
       <div className="mt-0.5 truncate text-[14px] text-fg" title={title ?? value}>
         {value}
       </div>
+      {note ? <div className="truncate text-[11.5px] text-faint">{note}</div> : null}
     </div>
   )
 }
 
-function BudgetBar({ used, available, contextLength, reserved }: { used: number; available: number; contextLength: number; reserved: number }): React.JSX.Element {
+function BudgetBar({
+  used,
+  available,
+  contextLength,
+  reserved,
+  providerCounted
+}: {
+  used: number
+  available: number
+  contextLength: number
+  reserved: number
+  /** The provider reported its own count above, which this estimate can differ from. */
+  providerCounted: boolean
+}): React.JSX.Element {
   const share = budgetShare(used, available)
   const pct = Math.min(100, Math.round(share * 100))
   const tight = share > 0.9
   return (
     <Card className="mt-3 px-5 py-4">
       <div className="flex items-baseline justify-between gap-4 text-[13px]">
-        <span className="font-medium text-fg">Briefing size</span>
+        <span className="font-medium text-fg">Briefing size (AI Write's estimate)</span>
         <span className="tabular-nums text-muted">
           {formatNumber(used)} of {formatNumber(available)} tokens{' '}
           <span className={cn('font-medium', tight ? 'text-ai' : 'text-fg')}>({Number.isFinite(share) ? `${Math.round(share * 100)}%` : 'over'})</span>
@@ -263,6 +318,7 @@ function BudgetBar({ used, available, contextLength, reserved }: { used: number;
       <p className="mt-2 text-[12px] text-faint">
         The model can read {formatContext(contextLength)} tokens. {formatNumber(reserved)} are kept for the reply and a little more as a safety margin, which leaves{' '}
         {formatNumber(available)} for the briefing.
+        {providerCounted ? ' AI Write counts with a 10% allowance to be safe, so its estimate can differ a little from the count the provider reported above.' : ''}
       </p>
     </Card>
   )
@@ -290,7 +346,22 @@ function BlockText({ text }: { text: string }): React.JSX.Element {
   )
 }
 
-function BlockRow({ block, open, onToggle, entries }: { block: ContextBlock; open: boolean; onToggle: () => void; entries: Map<ID, Entry> }): React.JSX.Element {
+function BlockRow({
+  block,
+  number,
+  open,
+  onToggle,
+  entries,
+  generationId
+}: {
+  block: ContextBlock
+  /** Its place in the order sent; null when it was left out. */
+  number: number | null
+  open: boolean
+  onToggle: () => void
+  entries: Map<ID, Entry>
+  generationId: ID
+}): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
   return (
@@ -307,9 +378,9 @@ function BlockRow({ block, open, onToggle, entries }: { block: ContextBlock; ope
             'flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-semibold tabular-nums',
             block.dropped ? 'bg-surface-3 text-faint' : 'bg-accent-soft text-accent'
           )}
-          title={`Priority ${block.priority} of 10`}
+          title={`Priority ${block.priority} of 10${block.priority <= 2 ? ': always sent' : ''}`}
         >
-          {block.priority}
+          {number ?? '–'}
         </span>
         <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-medium', block.dropped ? 'text-faint' : 'text-fg')}>{block.title}</span>
         {block.dropped ? (
@@ -327,7 +398,7 @@ function BlockRow({ block, open, onToggle, entries }: { block: ContextBlock; ope
                 <EntryChip
                   key={e.entryId}
                   entry={e}
-                  onOpen={() => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.entryId })}
+                  onOpen={() => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.entryId, from: { generationId } })}
                 />
               ))}
             </div>

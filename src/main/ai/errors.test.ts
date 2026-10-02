@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { describeFailure, extractProviderMessage, isLocalUrl, looksLikeReplyLimitRejected, networkCode, retryReason, type ProviderRef } from './errors'
+import {
+  describeFailure,
+  extractProviderMessage,
+  isLocalUrl,
+  looksLikeReplyLimitRejected,
+  looksLikeSamplingRejected,
+  looksLikeTokenParamRejected,
+  networkCode,
+  retryReason,
+  type ProviderRef
+} from './errors'
 
 const openrouter: ProviderRef = { name: 'OpenRouter', kind: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', hasKey: true }
 const lmstudio: ProviderRef = { name: 'LM Studio', kind: 'custom', baseUrl: 'http://localhost:1234/v1', hasKey: false }
@@ -23,13 +33,50 @@ describe('describeFailure', () => {
     expect(describeFailure(http(404, 'No endpoints found for model x/y'), openrouter, { during: 'draft', modelId: 'x/y' })).toBe(
       "OpenRouter doesn't have a model called “x/y”. Pick another writer model in Settings > Models."
     )
-    expect(describeFailure(http(404, 'Not Found'), deepseek, { during: 'models' })).toContain('Check the base URL in Settings > Models')
+    expect(describeFailure(http(404, 'Not Found'), deepseek)).toContain('Check the base URL in Settings > Models')
+    expect(describeFailure(http(404, 'Not Found'), deepseek, { during: 'models' })).toContain('Click Edit and check the base URL')
+  })
+
+  it('points to the button on the page when testing on Settings > Models', () => {
+    expect(describeFailure(http(401), openrouter, { during: 'test' })).toBe(
+      "OpenRouter didn't accept this key. Copy it again from openrouter.ai/keys and click Replace key."
+    )
+    expect(describeFailure(http(401), deepseek, { during: 'models' })).toBe("DeepSeek didn't accept this API key. Click Edit and paste it again.")
+    expect(describeFailure(http(401), { ...deepseek, hasKey: false }, { during: 'test' })).toBe('DeepSeek needs an API key. Click Edit and paste it.')
+    expect(describeFailure({ type: 'network', code: 'ENOTFOUND', message: '' }, deepseek, { during: 'test' })).toContain('click Edit and check the base URL')
+    expect(describeFailure(http(404, 'model not found'), deepseek, { during: 'test', modelId: 'x' })).toBe(
+      "DeepSeek doesn't have a model called “x”. Click Change and pick another writer model."
+    )
+    const onPage = [
+      describeFailure(http(401), openrouter, { during: 'test' }),
+      describeFailure(http(503), openrouter, { during: 'test' }),
+      describeFailure(http(400, 'bad'), deepseek, { during: 'test', modelId: 'x' }),
+      describeFailure(http(418), deepseek, { during: 'models' }),
+      describeFailure({ type: 'bad-response', message: '' }, lmstudio, { during: 'models' }),
+      describeFailure({ type: 'network', code: 'CERT_HAS_EXPIRED', message: '' }, deepseek, { during: 'test' })
+    ].join(' ')
+    expect(onPage).not.toContain('Settings')
+  })
+
+  it("explains a model that doesn't take a setting, without blaming the length", () => {
+    const o3 = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+    expect(looksLikeTokenParamRejected(400, o3)).toBe(true)
+    expect(looksLikeReplyLimitRejected(400, o3)).toBe(false)
+    expect(describeFailure(http(400, o3), deepseek)).toBe("This model doesn't accept one of the settings AI Write sent. Pick another writer model in Settings > Models.")
+    const gpt5 = "Unsupported value: 'temperature' does not support 0.85 with this model. Only the default (1) value is supported."
+    expect(looksLikeSamplingRejected(400, gpt5)).toBe(true)
+    expect(looksLikeTokenParamRejected(400, gpt5)).toBe(false)
+    expect(describeFailure(http(400, gpt5), deepseek)).toContain("doesn't accept one of the settings")
+    expect(looksLikeSamplingRejected(400, '`temperature` and `top_p` cannot both be specified for this model.')).toBe(true)
+    expect(looksLikeSamplingRejected(400, "This model's maximum context length is 8192 tokens.")).toBe(false)
   })
 
   it('explains a briefing that is too long for the model', () => {
     const msg = "This endpoint's maximum context length is 8192 tokens. However, you requested about 9000 tokens."
-    expect(describeFailure(http(400, msg), openrouter)).toContain('The briefing is too long for this model')
-    expect(describeFailure(http(413), deepseek)).toContain('The briefing is too long for this model')
+    expect(describeFailure(http(400, msg), openrouter)).toBe(
+      'The briefing and the length you asked for are too much for this model together. Lower the length in the draft options, shorten the scene card, or pick a model that can read more in Settings > Models.'
+    )
+    expect(describeFailure(http(413), deepseek)).toContain('too much for this model together')
   })
 
   it('tells a reply that is too long apart from a briefing that is too long', () => {
@@ -39,7 +86,7 @@ describe('describeFailure', () => {
     )
     expect(describeFailure(http(400, 'Invalid max_tokens value, the valid range of max_tokens is [1, 8192]'), deepseek)).toContain("can't write that much")
     const ctx = "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (6000 in the messages, 3000 in the completion)."
-    expect(describeFailure(http(400, ctx), deepseek)).toContain('The briefing is too long for this model')
+    expect(describeFailure(http(400, ctx), deepseek)).toContain('too much for this model together')
   })
 
   it('knows when asking for a shorter reply could help', () => {
@@ -47,6 +94,8 @@ describe('describeFailure', () => {
     expect(looksLikeReplyLimitRejected(400, "This endpoint's maximum context length is 3000 tokens.")).toBe(true)
     expect(looksLikeReplyLimitRejected(422, 'Unrecognized request argument supplied: stream_options')).toBe(false)
     expect(looksLikeReplyLimitRejected(401, 'max_tokens')).toBe(false)
+    expect(looksLikeReplyLimitRejected(402, 'This request requires more credits, or fewer max_tokens. You requested up to 9000 tokens, but can only afford 3000.')).toBe(true)
+    expect(looksLikeReplyLimitRejected(402, 'Insufficient credits')).toBe(false)
   })
 
   it('points to another model when the model refuses', () => {
@@ -108,6 +157,9 @@ describe('helpers', () => {
     expect(isLocalUrl('http://[::1]:8080/v1')).toBe(true)
     expect(isLocalUrl('https://api.openai.com/v1')).toBe(false)
     expect(isLocalUrl('not a url')).toBe(false)
+    expect(isLocalUrl('http://gpu-box:8080/v1')).toBe(true)
+    expect(isLocalUrl('http://100.101.2.3:1234/v1')).toBe(true)
+    expect(isLocalUrl('https://api.deepseek.com/v1')).toBe(false)
   })
 
   it('finds the error code inside a fetch failure', () => {

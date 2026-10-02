@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Dialog, Field, Input, toast } from '@/components/ui'
-import { flushAll } from '@/lib/flush'
+import { flushBeforeWorldChange } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 
 export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }): React.JSX.Element {
@@ -12,7 +12,7 @@ export function NewWorldDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     if (!name.trim() || busy) return
     setBusy(true)
     try {
-      await flushAll()
+      await flushBeforeWorldChange()
       await createWorld(name)
       setName('')
       onOpenChange(false)

@@ -20,6 +20,21 @@ describe('parseModelList', () => {
     expect(list[0]).toMatchObject({ contextLength: 8192, promptPrice: 0, completionPrice: 0 })
   })
 
+  it("notes the models that set their own creativity, when OpenRouter says", () => {
+    const list = parseModelList(
+      {
+        data: [
+          { id: 'a/thinks', name: 'A: Thinks', supported_parameters: ['max_tokens', 'reasoning'] },
+          { id: 'b/plain', name: 'B: Plain', supported_parameters: ['max_tokens', 'temperature', 'top_p'] },
+          { id: 'c/unknown', name: 'C: Unknown' },
+          { id: 'd/empty', name: 'D: Empty list', supported_parameters: [] }
+        ]
+      },
+      'openrouter'
+    )
+    expect(list.map((m) => m.sampling)).toEqual([false, true, undefined, undefined])
+  })
+
   it('reads plain id lists from other providers, without prices', () => {
     const list = parseModelList(
       { object: 'list', data: [{ id: 'local-a', object: 'model' }, { id: 'local-b', context_window: 32768, max_completion_tokens: 8192 }, { id: 'local-a' }] },

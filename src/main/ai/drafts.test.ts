@@ -68,7 +68,16 @@ function recorder() {
   return { events, emit, done }
 }
 
-function start(w: ReturnType<typeof setup>, emit: Emit, modelId = 'fake/writer', kind: 'custom' | 'openrouter' = 'custom', options: Partial<DraftOptions> = {}) {
+function start(
+  w: ReturnType<typeof setup>,
+  emit: Emit,
+  modelId = 'fake/writer',
+  kind: 'custom' | 'openrouter' = 'custom',
+  options: Partial<DraftOptions> = {},
+  onKeyRejected?: () => void,
+  modelOver: Partial<ModelChoice> = {},
+  onWorked?: () => void
+) {
   const input = gatherContextInput(w.db, w.second.id, { direction: 'End on the knock.', ...options }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
   const preview = assembleContext(input, countRaw)
   return {
@@ -80,9 +89,11 @@ function start(w: ReturnType<typeof setup>, emit: Emit, modelId = 'fake/writer',
       options: input.options,
       preview,
       provider: { id: 'p1', name: 'Fake', kind, baseUrl: fake.url, apiKey: 'k' },
-      model: model({ modelId }),
+      model: model({ modelId, ...modelOver }),
       entryVersions: new Map(input.entries.map((e) => [e.id, e.updatedAt])),
       emit,
+      onKeyRejected,
+      onWorked,
       retryDelays: [5, 5, 5, 5]
     })
   }
@@ -150,8 +161,9 @@ describe('drafting', () => {
     expect(rec.finishedAt).not.toBeNull()
 
     // Entries sent, with names, kinds and versions.
-    expect(rec.entries.map((e) => e.name)).toEqual(['Mara', 'Tobin', 'The Gilded Eel', 'The Binding'])
-    expect(rec.entries[0]).toMatchObject({ kind: 'character', version: w.mara.updatedAt, deleted: false, changedSince: false })
+    // In the order the briefing sent them: the world's rules first, the scene's own people last.
+    expect(rec.entries.map((e) => e.name)).toEqual(['The Binding', 'The Gilded Eel', 'Mara', 'Tobin'])
+    expect(rec.entries.find((e) => e.name === 'Mara')).toMatchObject({ kind: 'character', version: w.mara.updatedAt, deleted: false, changedSince: false })
 
     // What was sent never includes private notes.
     expect(JSON.stringify(fake.lastRequest()!.body.messages)).not.toContain('SECRET NOTE')
@@ -171,6 +183,58 @@ describe('drafting', () => {
     const rec = gens.getGeneration(w.db, generationId)
     expect(rec.params.max_tokens).toBe(preview.budget.reserved)
     expect(fake.lastRequest()!.body.max_tokens).toBe(preview.budget.reserved)
+  })
+
+  it('says when a reply ran into the reply limit, and records it', async () => {
+    const { emit, done } = recorder()
+    const { generationId } = start(w, emit, 'fake/length')
+    const end = await done(generationId)
+    expect(end.status).toBe('complete')
+    expect(end.cutOff).toBe(true)
+    const rec = gens.getGeneration(w.db, generationId)
+    expect(rec.params.cutOff).toBe(true)
+    expect(rec.response.length).toBeGreaterThan(0)
+    const normal = start(w, emit)
+    expect((await done(normal.generationId)).cutOff).toBe(false)
+    expect(gens.getGeneration(w.db, normal.generationId).params.cutOff).toBeUndefined()
+  })
+
+  it('records how the settings were sent to a model that wants them differently', async () => {
+    const { emit, done } = recorder()
+    const { generationId } = start(w, emit, 'fake/o3')
+    expect((await done(generationId)).status).toBe('complete')
+    const rec = gens.getGeneration(w.db, generationId)
+    expect(rec.params).toMatchObject({ tokenParam: 'max_completion_tokens', sampling: false, creativity: 'steady' })
+    expect(rec.params.max_tokens).toBeGreaterThan(0)
+    // A model its provider says sets its own creativity is asked without temperature from the start.
+    fake.reset()
+    const own = start(w, emit, 'fake/writer', 'openrouter', {}, undefined, { sampling: false })
+    await done(own.generationId)
+    expect(fake.requestCounts()['fake/writer']).toBe(1)
+    expect('temperature' in fake.lastRequest()!.body).toBe(false)
+    expect(gens.getGeneration(w.db, own.generationId).params.sampling).toBe(false)
+  })
+
+  it("doesn't put a price on a draft the provider turned down", async () => {
+    const { emit, done } = recorder()
+    let rejected = 0
+    const credit = start(w, emit, 'fake/credit', 'custom', {}, () => rejected++)
+    const end = await done(credit.generationId)
+    expect(end.status).toBe('error')
+    expect(end.cost).toBeNull()
+    expect(gens.getGeneration(w.db, credit.generationId).cost).toBeNull()
+    expect(gens.listGenerations(w.db, w.second.id)[0].cost).toBeNull()
+    expect(rejected).toBe(0)
+    // A key the provider turns down is reported, so Settings can show it isn't working.
+    let worked = 0
+    const key = start(w, emit, 'fake/badkey', 'custom', {}, () => rejected++, {}, () => worked++)
+    await done(key.generationId)
+    expect(rejected).toBe(1)
+    expect(worked).toBe(0)
+    // And a draft that comes back in full says the provider works.
+    const fine = start(w, emit, 'fake/writer', 'custom', {}, () => rejected++, {}, () => worked++)
+    await done(fine.generationId)
+    expect([rejected, worked]).toEqual([1, 1])
   })
 
   it('stops on request and keeps the text so far', async () => {

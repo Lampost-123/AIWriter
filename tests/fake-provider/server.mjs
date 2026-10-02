@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A tiny OpenAI-compatible server for tests. No dependencies.
 //
-//   GET  /v1/models            a few models with context_length and pricing (OpenRouter style)
+//   GET  /v1/models            a few models with context_length and pricing (OpenRouter style); 401 for the key "bad"
 //   GET  /v1/key               key check (401 for the key "bad")
 //   POST /v1/chat/completions  streams deterministic prose in small chunks, usage at the end
 //   GET  /__last               the last chat request (body and headers), so tests can see what the AI saw
@@ -22,6 +22,10 @@
 //   fake/missing           404 unknown model
 //   fake/toolong           400 context length exceeded
 //   fake/max-output        400 when max_tokens is over 1000 (a model with a small output limit)
+//   fake/o3                like OpenAI's o-series: 400 for max_tokens (wants max_completion_tokens) and for temperature / top_p
+//   fake/gpt5              like GPT-5: 400 for a temperature other than 1
+//   fake/length            streams a little, then stops with finish_reason "length" (the reply limit was reached)
+//   fake/credit-limit      402 "can only afford" when max_tokens is over 3000, else a normal stream
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -94,7 +98,11 @@ export async function startFakeProvider(options = {}) {
     try {
       if (req.method === 'GET' && path === '/__last') return json(res, 200, last)
       if (req.method === 'GET' && path === '/__requests') return json(res, 200, counts)
-      if (req.method === 'GET' && path === '/models') return json(res, 200, { data: FAKE_MODELS })
+      if (req.method === 'GET' && path === '/models') {
+        // Like OpenAI's, the list turns away a key it doesn't know.
+        if ((req.headers.authorization ?? '') === 'Bearer bad') return json(res, 401, { error: { code: 401, message: 'Incorrect API key provided' } })
+        return json(res, 200, { data: FAKE_MODELS })
+      }
       if (req.method === 'GET' && (path === '/key' || path === '/auth/key')) {
         if ((req.headers.authorization ?? '') === 'Bearer bad') return json(res, 401, { error: { code: 401, message: 'No auth credentials found' } })
         return json(res, 200, { data: { label: 'fake', usage: 0, limit: 10, limit_remaining: 9.5 } })
@@ -119,6 +127,23 @@ export async function startFakeProvider(options = {}) {
     if (model === 'fake/credit') return json(res, 402, { error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/credits' } })
     if (model === 'fake/missing') return json(res, 404, { error: { code: 404, message: `No endpoints found for model ${model}` } })
     if (model === 'fake/toolong') return json(res, 400, { error: { code: 400, message: "This endpoint's maximum context length is 3000 tokens. However, you requested about 9000 tokens." } })
+    if (model === 'fake/o3' && 'max_tokens' in body) {
+      return json(res, 400, {
+        error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: 'invalid_request_error', param: 'max_tokens', code: 'unsupported_parameter' }
+      })
+    }
+    if (model === 'fake/o3' && ('temperature' in body || 'top_p' in body)) {
+      const param = 'temperature' in body ? 'temperature' : 'top_p'
+      return json(res, 400, { error: { message: `Unsupported parameter: '${param}' is not supported with this model.`, type: 'invalid_request_error', param, code: 'unsupported_parameter' } })
+    }
+    if (model === 'fake/gpt5' && 'temperature' in body && body.temperature !== 1) {
+      return json(res, 400, {
+        error: { message: `Unsupported value: 'temperature' does not support ${body.temperature} with this model. Only the default (1) value is supported.`, type: 'invalid_request_error', param: 'temperature', code: 'unsupported_value' }
+      })
+    }
+    if (model === 'fake/credit-limit' && (body.max_tokens ?? 0) > 3000) {
+      return json(res, 402, { error: { code: 402, message: `This request requires more credits, or fewer max_tokens. You requested up to ${body.max_tokens} tokens, but can only afford 3000.` } })
+    }
     if (model === 'fake/max-output' && (body.max_tokens ?? 0) > 1000) {
       return json(res, 400, { error: { code: 400, message: `max_tokens: ${body.max_tokens} > 1000, which is the maximum allowed number of output tokens for ${model}` } })
     }
@@ -131,8 +156,11 @@ export async function startFakeProvider(options = {}) {
       return json(res, 400, { error: { message: 'Unrecognized request argument supplied: stream_options' } })
     }
 
-    const words = model === 'fake/slow' ? opts.slowWords : Math.min(opts.words, Math.max(10, Math.floor((body.max_tokens ?? 400) / 2)))
-    const prose = model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words)
+    const limit = body.max_tokens ?? body.max_completion_tokens ?? 400
+    const words = model === 'fake/slow' ? opts.slowWords : Math.min(opts.words, Math.max(10, Math.floor(limit / 2)))
+    const full = model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words)
+    // A reply that runs into the limit stops mid-sentence.
+    const prose = model === 'fake/length' ? full.slice(0, Math.floor(full.length * 0.7)).replace(/\s+\S*$/, '') : full
     const promptChars = JSON.stringify(body.messages ?? []).length
     const usage = { prompt_tokens: Math.ceil(promptChars / 4), completion_tokens: Math.ceil(words * 1.3) }
     usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
@@ -187,7 +215,7 @@ export async function startFakeProvider(options = {}) {
       if (i % 7 === 3) res.write(`: keep-alive${nl}${nl}`)
       if (delay) await sleep(delay)
     }
-    send(chunk({}, 'stop'))
+    send(chunk({}, model === 'fake/length' ? 'length' : 'stop'))
     if (body.usage?.include || body.stream_options?.include_usage) send({ id: 'fake-1', object: 'chat.completion.chunk', model, choices: [], usage })
     send('[DONE]')
     res.end()
