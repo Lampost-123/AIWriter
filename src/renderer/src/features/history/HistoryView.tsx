@@ -4,7 +4,7 @@
 import { ArrowLeft, CheckCircle2, ChevronRight, Copy, History, PenLine, RotateCcw, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
-import type { SceneHistory, Snapshot, SnapshotInfo, SnapshotKind } from '@shared/contracts/history'
+import { comparableDoc, type SceneHistory, type Snapshot, type SnapshotInfo, type SnapshotKind } from '@shared/contracts/history'
 import { countWords } from '@shared/defaults'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api, modKey, onEvent } from '@/lib/api'
@@ -13,7 +13,18 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
 import { fullDate } from '@/features/generate/format'
-import { foldSame, groupByDay, lengthAgainstNow, paragraphsChanged, timeOf, whenTaken, wordsLabel, type Shown } from './historyLogic'
+import {
+  againstNow,
+  firstToShow,
+  foldSame,
+  groupByDay,
+  lengthAgainstNow,
+  timeOf,
+  whenTaken,
+  wordsLabel,
+  type Shown,
+  type Version
+} from './historyLogic'
 import { compareTexts, type Piece, type Row } from './wordDiff'
 import { restoreSnapshot } from './restore'
 
@@ -24,11 +35,14 @@ const KIND_ICON: Record<SnapshotKind, ReactNode> = {
   restore: <RotateCcw size={13} />
 }
 
+/** The same version: the same words and formatting (paragraph ids aside), as History compares them. */
+const sameVersion = (a: Version, b: Version): boolean => a.text === b.text && comparableDoc(a.doc) === comparableDoc(b.doc)
+
 /** The scene as the page shows it now (unsaved typing included), kept up to date while this page is open. */
-function useSceneNow(sceneId: ID): { text: string } | null {
-  const [now, setNow] = useState<{ text: string } | null>(() => {
+function useSceneNow(sceneId: ID): Version | null {
+  const [now, setNow] = useState<Version | null>(() => {
     const page = editorBridge()?.current()
-    return page && page.sceneId === sceneId ? { text: page.text } : null
+    return page && page.sceneId === sceneId ? { doc: page.doc, text: page.text } : null
   })
   useEffect(() => {
     let live = true
@@ -37,8 +51,8 @@ function useSceneNow(sceneId: ID): { text: string } | null {
       // The page shows another scene: its saved text.
       api
         .getScene(sceneId)
-        .then((s) => live && setNow({ text: s.text }))
-        .catch(() => live && setNow({ text: '' }))
+        .then((s) => live && setNow({ doc: s.doc, text: s.text }))
+        .catch(() => live && setNow({ doc: null, text: '' }))
       return () => {
         live = false
       }
@@ -49,7 +63,9 @@ function useSceneNow(sceneId: ID): { text: string } | null {
     const read = (): void => {
       timer = null
       const page = editorBridge()?.current()
-      if (live && page?.sceneId === sceneId) setNow((n) => (n?.text === page.text ? n : { text: page.text }))
+      if (!live || page?.sceneId !== sceneId) return
+      const next = { doc: page.doc, text: page.text }
+      setNow((n) => (n && sameVersion(n, next) ? n : next))
     }
     const onUpdate = (): void => {
       if (!timer) timer = setTimeout(read, 400)
@@ -64,33 +80,61 @@ function useSceneNow(sceneId: ID): { text: string } | null {
   return now
 }
 
+/** Try again shows it is trying for at least this long, so a quick answer doesn't just flicker. */
+const TRYING_MS = 400
+
 export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?: ID | null }): React.JSX.Element {
   const [history, setHistory] = useState<SceneHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState<string | null>(null)
   const [selected, setSelected] = useState<ID | null>(snapshotId ?? null)
+  const [trying, setTrying] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
   const nowMs = useNow(60_000)
   const ticket = useRef(0)
+  const now = useSceneNow(sceneId)
+  const nowRef = useRef(now)
+  nowRef.current = now
 
-  const load = useCallback(() => {
-    const t = ++ticket.current
-    api
-      .listSnapshots(sceneId)
-      .then((h) => {
-        if (t !== ticket.current) return
-        setHistory(h)
-        setError(null)
-        // The newest is shown first; a version that is no longer kept gives way to the newest.
-        setSelected((sel) => (sel && h.snapshots.some((s) => s.id === sel) ? sel : (h.snapshots[0]?.id ?? null)))
-      })
-      .catch((e: Error) => t === ticket.current && setError(e.message))
-  }, [sceneId])
+  const load = useCallback(
+    (o: { tryAgain?: boolean } = {}): Promise<void> => {
+      const t = ++ticket.current
+      // The scene now, so the list can say which versions are the same as it.
+      const page = nowRef.current ? { sceneId, doc: nowRef.current.doc, text: nowRef.current.text } : null
+      return api
+        .listSnapshots(sceneId, { tryAgain: o.tryAgain, page })
+        .then((h) => {
+          if (t !== ticket.current) return
+          setHistory(h)
+          setError(null)
+          // The newest version that differs from the scene now is shown first; one no longer kept gives way to it.
+          setSelected((sel) => (sel && h.snapshots.some((s) => s.id === sel) ? sel : firstToShow(h)))
+        })
+        .catch((e: Error) => {
+          if (t === ticket.current) setError(e.message)
+        })
+    },
+    [sceneId]
+  )
 
   useEffect(() => {
-    load()
-    return onEvent('history:changed', (p) => p.sceneId === sceneId && load())
+    void load()
+    return onEvent('history:changed', (p) => p.sceneId === sceneId && void load())
   }, [sceneId, load])
+
+  // The page changed (a draft still being written into it, say): which versions are the same as it may have too.
+  const seenNow = useRef(now)
+  useEffect(() => {
+    if (seenNow.current === now) return
+    seenNow.current = now
+    void load()
+  }, [now, load])
+
+  // Adam asked: history.db is tried at once, and the button says it is trying.
+  const tryAgain = (): void => {
+    setTrying(true)
+    void Promise.all([load({ tryAgain: true }), new Promise((r) => setTimeout(r, TRYING_MS))]).finally(() => setTrying(false))
+  }
 
   useEffect(() => {
     let live = true
@@ -130,7 +174,7 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
           <Notice
             tone="danger"
             action={
-              <Button size="sm" variant="secondary" onClick={load}>
+              <Button size="sm" variant="secondary" onClick={tryAgain} loading={trying}>
                 Try again
               </Button>
             }
@@ -153,7 +197,7 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
         <div className="max-w-[720px] px-5 @min-[900px]:px-8">
           <Notice
             action={
-              <Button size="sm" variant="secondary" onClick={load}>
+              <Button size="sm" variant="secondary" onClick={tryAgain} loading={trying}>
                 Try again
               </Button>
             }
@@ -177,8 +221,8 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
         </EmptyState>
       ) : (
         <div className="flex min-h-0 flex-1 gap-4 px-5 pb-6 animate-fade-in @min-[900px]:px-8">
-          <VersionList snapshots={snapshots} selected={selected} onSelect={setSelected} nowMs={nowMs} />
-          <Comparison key={sceneId} sceneId={sceneId} info={snapshots.find((s) => s.id === selected) ?? null} nowMs={nowMs} />
+          <VersionList snapshots={snapshots} sameAsNow={history.sameAsNow} selected={selected} onSelect={setSelected} nowMs={nowMs} />
+          <Comparison key={sceneId} sceneId={sceneId} now={now} info={snapshots.find((s) => s.id === selected) ?? null} nowMs={nowMs} />
         </div>
       )}
     </div>
@@ -189,16 +233,20 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
 
 function VersionList({
   snapshots,
+  sameAsNow,
   selected,
   onSelect,
   nowMs
 }: {
   snapshots: SnapshotInfo[]
+  /** The versions that are the same as the scene now. */
+  sameAsNow: ID[]
   selected: ID | null
   onSelect: (id: ID) => void
   nowMs: number
 }): React.JSX.Element {
   const groups = useMemo(() => groupByDay(snapshots, nowMs), [snapshots, nowMs])
+  const same = useMemo(() => new Set(sameAsNow), [sameAsNow])
   const listRef = useRef<HTMLDivElement>(null)
 
   // Up and down move through the list, like the binder.
@@ -256,8 +304,16 @@ function VersionList({
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{s.label}</span>
                     </span>
-                    <span className="truncate pl-[19px] text-[12px] tabular-nums text-muted">
-                      {timeOf(s.createdAt)} · {wordsLabel(s.words)}
+                    <span className="flex min-w-0 items-center gap-1 pl-[19px] text-[12px] tabular-nums text-muted">
+                      <span className="shrink-0">{timeOf(s.createdAt)} ·</span>
+                      {same.has(s.id) ? (
+                        // Its words are the scene's now, so they aren't said twice.
+                        <span className="shrink-0 rounded-[4px] bg-surface-3 px-1 text-[11px] font-medium leading-[17px] text-fg/80">
+                          Same as now
+                        </span>
+                      ) : (
+                        <span className="truncate">{wordsLabel(s.words)}</span>
+                      )}
                     </span>
                   </button>
                 </li>
@@ -272,8 +328,18 @@ function VersionList({
 
 // ---------- The comparison ----------
 
-function Comparison({ sceneId, info, nowMs }: { sceneId: ID; info: SnapshotInfo | null; nowMs: number }): React.JSX.Element {
-  const now = useSceneNow(sceneId)
+function Comparison({
+  sceneId,
+  now,
+  info,
+  nowMs
+}: {
+  sceneId: ID
+  /** The scene now (unsaved typing included). */
+  now: Version | null
+  info: SnapshotInfo | null
+  nowMs: number
+}): React.JSX.Element {
   const cache = useRef(new Map<ID, Snapshot>())
   const [snap, setSnap] = useState<Snapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -312,11 +378,13 @@ function Comparison({ sceneId, info, nowMs }: { sceneId: ID; info: SnapshotInfo 
   }, [snap?.id])
 
   const rows = useMemo(() => (snap && now ? compareTexts(snap.text, now.text) : null), [snap, now])
-  const changed = rows ? paragraphsChanged(rows) : 0
-  const identical = !!rows && changed === 0
+  const against = useMemo(() => (rows && snap && now ? againstNow(rows, snap, now) : null), [rows, snap, now])
+  const identical = against?.kind === 'same'
+  // With no words marked, nothing is folded away: the whole version reads as it is.
+  const unfolded = !!against && against.kind !== 'differ'
   const shown = useMemo(
-    () => (rows ? (identical ? rows.map((row, i) => ({ kind: 'row' as const, row, key: `r${i}` })) : foldSame(rows)) : null),
-    [rows, identical]
+    () => (rows ? (unfolded ? rows.map((row, i) => ({ kind: 'row' as const, row, key: `r${i}` })) : foldSame(rows)) : null),
+    [rows, unfolded]
   )
   const current = snap && snap.id === id ? snap : null
   const waiting = useDelayed(!!id && !current && !error, 250)
@@ -375,7 +443,7 @@ function Comparison({ sceneId, info, nowMs }: { sceneId: ID; info: SnapshotInfo 
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {info?.kind === 'ai' && info.generationId ? (
+          {info?.generationId ? (
             <Button
               variant="ghost"
               size="sm"
@@ -438,13 +506,15 @@ function Comparison({ sceneId, info, nowMs }: { sceneId: ID; info: SnapshotInfo 
         ) : (
           <>
             <p className="px-4 pb-1 pt-3 text-[12.5px] text-muted @min-[900px]:px-5">
-              {identical ? (
-                'This version is the same as the scene now.'
-              ) : (
+              {against?.kind === 'differ' ? (
                 <>
-                  {changed === 1 ? '1 paragraph differs' : `${changed} paragraphs differ`}. The words that differ are{' '}
+                  {against.paragraphs === 1 ? '1 paragraph differs' : `${against.paragraphs} paragraphs differ`}. The words that differ are{' '}
                   <Marked>marked</Marked>.
                 </>
+              ) : against?.kind === 'format' ? (
+                'The words are the same as the scene now. Only the formatting or line breaks differ.'
+              ) : (
+                'This version is the same as the scene now.'
               )}
             </p>
             <div className="grid grid-cols-2 pb-6 pt-2">
@@ -522,16 +592,26 @@ function ShownRow({ item, open, onOpen }: { item: Shown; open: boolean; onOpen: 
 function Side({ row, side }: { row: Row; side: 'then' | 'now' }): React.JSX.Element | null {
   if (row.kind === 'same') return <Paragraph text={row.text} />
   if (row.kind === 'changed') return <Pieces pieces={side === 'then' ? row.then : row.now} />
+  if (row.kind === 'apart') {
+    // A stretch written afresh: each side's paragraphs, marked whole, from the top of the row.
+    return (
+      <div className="flex flex-col gap-3">
+        {(side === 'then' ? row.then : row.now).map((text, i) => (
+          <Paragraph key={i} text={text} whole />
+        ))}
+      </div>
+    )
+  }
   return row.kind === side ? <Paragraph text={row.text} whole /> : null
 }
 
 function RowCells({ row }: { row: Row }): React.JSX.Element {
   return (
     <>
-      <div className={cell}>
+      <div className={cell} data-side="then">
         <Side row={row} side="then" />
       </div>
-      <div className={cn(cell, 'border-l border-line')}>
+      <div className={cn(cell, 'border-l border-line')} data-side="now">
         <Side row={row} side="now" />
       </div>
     </>

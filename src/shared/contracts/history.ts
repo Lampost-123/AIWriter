@@ -52,6 +52,22 @@ export interface SceneHistory {
   /** Said once History had to start afresh in this world (its history.db was damaged and was moved aside). */
   notice: string | null
   snapshots: SnapshotInfo[]
+  /**
+   * The snapshots that are the same as the scene now (the same words and formatting; the same words where
+   * a version's formatting isn't known), so the list can say so.
+   */
+  sameAsNow: ID[]
+}
+
+/** How a list is loaded. */
+export interface HistoryLoadOptions {
+  /** Adam pressed Try again: history.db is tried at once, even if it couldn't be used a moment ago. */
+  tryAgain?: boolean
+  /**
+   * listSnapshots: the page as it shows now, when it shows this scene (unsaved typing included), for
+   * sameAsNow. Without it, the scene as last saved.
+   */
+  page?: PageNow | null
 }
 
 export interface DraftInfo {
@@ -66,6 +82,8 @@ export interface DraftInfo {
   /** Its first words, to tell drafts apart (empty for the current draft, which is in the page). */
   excerpt: string
   createdAt: string
+  /** When Adam started it with New draft; null for the scene's first draft, which began with the scene (when isn't known). */
+  startedAt: string | null
   /** When its text was last kept (when it stopped being the current draft). */
   keptAt: string
 }
@@ -91,6 +109,42 @@ export interface PageNow {
   text: string
 }
 
+export interface UndoNewDraftInput {
+  sceneId: ID
+  /** The new draft (the copy) and the draft it was made from. */
+  draftId: ID
+  keptId: ID
+  /** The page as it shows now, when it shows this scene (the copy's text while it is the current draft); null otherwise. */
+  page: PageNow | null
+}
+
+/**
+ * A version's document as History compares versions: paragraph ids are left out (a paragraph keeps its
+ * words whatever its id), and so are paragraphs with no words (an empty line after Enter isn't a change
+ * of its own). The words and their formatting count. Both sides use it, so history.db and the History
+ * page agree on what is "the same". Null when there is no document (only the text was known).
+ */
+export function comparableDoc(doc: unknown): string | null {
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null
+  return JSON.stringify(doc, (key, value: unknown) => {
+    if (key === 'attrs' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const rest: Record<string, unknown> = { ...(value as Record<string, unknown>) }
+      delete rest.pid
+      return Object.keys(rest).length ? rest : undefined
+    }
+    if (key === 'content' && Array.isArray(value)) return value.filter((node) => !isBlankParagraph(node))
+    return value
+  })
+}
+
+/** A paragraph with no words in it: empty, or only spaces and line breaks (the scene's text leaves it out too). */
+function isBlankParagraph(node: unknown): boolean {
+  const n = node as { type?: unknown; content?: unknown } | null
+  if (!n || typeof n !== 'object' || n.type !== 'paragraph') return false
+  const inline = Array.isArray(n.content) ? (n.content as { type?: unknown; text?: unknown }[]) : []
+  return inline.every((c) => c?.type === 'hardBreak' || (c?.type === 'text' && typeof c.text === 'string' && !c.text.trim()))
+}
+
 export interface HistoryApi {
   /**
    * Keeps the scene's text as it is now, before an AI change or a restore. History is a convenience, so
@@ -99,19 +153,29 @@ export interface HistoryApi {
    */
   takeSnapshot(input: TakeSnapshotInput): Promise<SnapshotInfo | null>
   /** The scene's snapshots, newest first (no text). */
-  listSnapshots(sceneId: ID): Promise<SceneHistory>
+  listSnapshots(sceneId: ID, options?: HistoryLoadOptions): Promise<SceneHistory>
   /** One snapshot with its text. */
   getSnapshot(id: ID): Promise<Snapshot>
+  /**
+   * An earlier version (or another draft) went into the page and was saved: the memory reads the scene
+   * now, rather than after the usual pause.
+   */
+  restored(sceneId: ID): Promise<void>
 
   /** The scene's drafts (Draft 1 first); a scene always has its current draft. */
-  listDrafts(sceneId: ID): Promise<SceneDrafts>
+  listDrafts(sceneId: ID, options?: HistoryLoadOptions): Promise<SceneDrafts>
   /**
    * Starts a new draft as a copy of the current one, which is kept as it is (`page` is that text). The
-   * page doesn't change: the copy is what Adam goes on writing in.
+   * page doesn't change: the copy is what Adam goes on writing in. History keeps the text too ("New draft
+   * started"). A page with no words can't start one.
    */
   newDraft(page: PageNow): Promise<{ drafts: SceneDrafts; created: DraftInfo; kept: DraftInfo }>
-  /** Undoes newDraft: the copy goes, and the draft it was made from is the current one again (with the page as it is). */
-  undoNewDraft(sceneId: ID, draftId: ID, keptId: ID): Promise<SceneDrafts>
+  /**
+   * Undoes newDraft while the copy is still as it started: the copy goes for good and the draft it was made
+   * from is the current one again (`undone`). A copy with changes since is kept as it is, so nothing typed
+   * in it is lost (`undone` false: the interface puts the other draft back in the page instead).
+   */
+  undoNewDraft(input: UndoNewDraftInput): Promise<{ drafts: SceneDrafts; undone: boolean }>
   /**
    * Makes another draft the current one: the page as it is now (`page`) is kept as the draft it was, and
    * the chosen draft's text comes back to go in the page. A snapshot "Before switching drafts" is taken first.
@@ -131,6 +195,9 @@ export interface HistoryApi {
 }
 
 export interface HistoryEvents {
-  /** A scene's history changed (a snapshot was taken, or its drafts changed), so a History page or Drafts tab showing it reloads. */
+  /**
+   * A scene's history changed (a snapshot was taken, or its drafts changed), or History can be reached
+   * again after it couldn't, so a History page or Drafts tab showing that scene reloads.
+   */
   'history:changed': { sceneId: ID }
 }

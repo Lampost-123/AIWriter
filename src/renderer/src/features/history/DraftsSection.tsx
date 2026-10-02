@@ -13,7 +13,7 @@ import { deleteDraft, renameDraft, startNewDraft, switchToDraft } from './drafts
 import { wordsLabel } from './historyLogic'
 import { openHistory } from './open'
 
-/** The way to the scene's History page from the Drafts tab (the toolbar's History makes way in a small window). */
+/** The way to the scene's History page from the Drafts tab, beside the toolbar's History. */
 export function EarlierVersionsButton({ sceneId }: { sceneId: ID }): React.JSX.Element {
   return (
     <Button
@@ -62,20 +62,40 @@ export function NewDraftButton({
   )
 }
 
+/** The way to try history.db again at once when it couldn't be reached, saying it is trying. */
+export function TryAgainButton({ onTry }: { onTry: () => Promise<unknown> }): React.JSX.Element {
+  const [trying, setTrying] = useState(false)
+  const run = (): void => {
+    setTrying(true)
+    // At least a moment, so a quick answer doesn't just flicker.
+    void Promise.all([onTry(), new Promise((r) => setTimeout(r, 400))]).finally(() => setTrying(false))
+  }
+  return (
+    <Button size="sm" variant="secondary" onClick={run} loading={trying}>
+      Try again
+    </Button>
+  )
+}
+
 export function DraftsSection({
   sceneId,
   drafts,
   onChange,
-  reload
+  reload,
+  tryAgain
 }: {
   sceneId: ID
   drafts: SceneDrafts
   onChange: (d: SceneDrafts) => void
   reload: () => void
+  /** Loads the drafts again, trying history.db at once. */
+  tryAgain: () => Promise<unknown>
 }): React.JSX.Element {
   const now = useNow()
   // The current draft is the text in the page, so its words are the page's (as the top bar counts them).
   const pageWords = useApp((s) => s.sceneWords)
+  // A new draft is a copy of the scene's text, so it starts once the page has words.
+  const canStart = drafts.available && pageWords > 0
   const [working, setWorking] = useState<ID | null>(null)
   const list = drafts.drafts
 
@@ -93,10 +113,16 @@ export function DraftsSection({
     <section aria-label="This scene's drafts">
       <div className="flex h-8 items-center justify-between pl-1.5">
         <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">This scene's drafts</h3>
-        {drafts.available ? <NewDraftButton sceneId={sceneId} onChange={onChange} /> : null}
+        {canStart ? <NewDraftButton sceneId={sceneId} onChange={onChange} /> : null}
       </div>
       {!drafts.available ? (
-        <Notice>{drafts.problem}</Notice>
+        // Below the words, so they keep the narrow panel's width.
+        <Notice>
+          {drafts.problem}
+          <div className="mt-2">
+            <TryAgainButton onTry={tryAgain} />
+          </div>
+        </Notice>
       ) : (
         <>
           <ul className="flex flex-col gap-1">
@@ -128,12 +154,24 @@ export function DraftsSection({
           </ul>
           {list.length === 1 ? (
             <p className="px-1.5 pt-1.5 text-[12px] leading-relaxed text-faint">
-              New draft starts a copy to try the scene another way. The draft you have now stays here, to switch back to at any time.
+              {canStart
+                ? 'New draft starts a copy to try the scene another way. The draft you have now stays here, to switch back to at any time.'
+                : 'New draft starts once the scene has words: it keeps a copy to try the scene another way.'}
             </p>
           ) : null}
         </>
       )}
     </section>
+  )
+}
+
+/** When a draft began (New draft) or was put aside; the scene's first draft began with the scene. */
+function DraftWhen({ draft, now }: { draft: DraftInfo; now: number }): React.JSX.Element {
+  const at = draft.current ? draft.startedAt : draft.keptAt
+  return (
+    <span className="min-w-0 truncate text-[11.5px] text-faint" title={at ? fullDate(at) : undefined}>
+      {!draft.current ? `Kept ${relativeTime(draft.keptAt, now)}` : at ? `Started ${relativeTime(at, now)}` : "The scene's first draft"}
+    </span>
   )
 }
 
@@ -224,9 +262,7 @@ function DraftRow({
         <p className="mt-0.5 line-clamp-2 font-serif text-[12.5px] leading-[1.55] text-muted">{draft.excerpt}</p>
       ) : null}
       <div className="mt-1 flex h-7 items-center gap-1">
-        <span className="min-w-0 truncate text-[11.5px] text-faint" title={fullDate(draft.current ? draft.createdAt : draft.keptAt)}>
-          {draft.current ? `Started ${relativeTime(draft.createdAt, now)}` : `Kept ${relativeTime(draft.keptAt, now)}`}
-        </span>
+        <DraftWhen draft={draft} now={now} />
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           <IconButton ref={renameButton} size="sm" label={`Rename ${draft.name}`} onClick={start} disabled={disabled}>
             <Pencil size={13} />

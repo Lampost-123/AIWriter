@@ -141,6 +141,11 @@ export type Row =
   | { kind: 'then'; text: string }
   /** A paragraph only the scene now has. */
   | { kind: 'now'; text: string }
+  /**
+   * Paragraphs that went, beside those that came in their place without being alike enough to pair up
+   * (a stretch written afresh): each side's own, starting level, so the two can be read side by side.
+   */
+  | { kind: 'apart'; then: string[]; now: string[] }
 
 /** A scene's paragraphs (its text keeps them apart with blank lines; a scene break is "* * *"). */
 export const paragraphsOf = (text: string): string[] =>
@@ -210,14 +215,25 @@ function pairUp(gone: string[], came: string[]): [number, number][] {
   return pairs
 }
 
-/** The rows for one stretch where paragraphs went and others came: pairs side by side, the rest on their own. */
+/**
+ * The rows for one stretch where paragraphs went and others came: pairs side by side with their words
+ * compared, and between them the paragraphs left over on both sides side by side too (one row), so
+ * neither column runs on while the other stands empty. Left over on one side only, each is a row of its own.
+ */
 function hunkRows(gone: string[], came: string[]): Row[] {
   const rows: Row[] = []
   let i = 0
   let j = 0
   for (const [pi, pj] of [...pairUp(gone, came), [gone.length, came.length] as [number, number]]) {
-    while (i < pi) rows.push({ kind: 'then', text: gone[i++] })
-    while (j < pj) rows.push({ kind: 'now', text: came[j++] })
+    const then = gone.slice(i, pi)
+    const now = came.slice(j, pj)
+    if (then.length && now.length) rows.push({ kind: 'apart', then, now })
+    else {
+      for (const text of then) rows.push({ kind: 'then', text })
+      for (const text of now) rows.push({ kind: 'now', text })
+    }
+    i = pi
+    j = pj
     if (pi < gone.length && pj < came.length) {
       const words = diffWords(gone[i++], came[j++])
       rows.push({ kind: 'changed', then: words.then, now: words.now })

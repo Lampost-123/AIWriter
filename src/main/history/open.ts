@@ -40,6 +40,16 @@ export function isBusy(e: unknown): boolean {
   return code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED') || ['EBUSY', 'EPERM', 'EACCES'].includes(code)
 }
 
+/**
+ * An error from SQLite or the file system (a disk or sync problem, a file held or made read-only by another
+ * program) rather than in AI Write itself: History can't use its file for now.
+ */
+export function isFileProblem(e: unknown): boolean {
+  if (e instanceof NewerHistoryError) return true
+  const code = codeOf(e)
+  return code.startsWith('SQLITE_') || /^E[A-Z]+$/.test(code)
+}
+
 export function problemOf(e: unknown): HistoryProblem {
   if (e instanceof NewerHistoryError) return 'newer'
   const code = codeOf(e)

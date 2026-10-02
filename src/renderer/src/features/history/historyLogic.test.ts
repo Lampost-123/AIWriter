@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SnapshotInfo } from '@shared/contracts/history'
-import { dayTitle, foldSame, groupByDay, lengthAgainstNow, paragraphsChanged, wordsLabel } from './historyLogic'
-import type { Row } from './wordDiff'
+import { againstNow, dayTitle, firstToShow, foldSame, groupByDay, lengthAgainstNow, paragraphsChanged, wordsLabel } from './historyLogic'
+import { compareTexts, type Row } from './wordDiff'
 
 /** Noon local time on a day in October 2026. */
 const day = (d: number, hours = 12): number => new Date(2026, 9, d, hours, 0, 0).getTime()
@@ -78,5 +78,79 @@ describe('foldSame', () => {
 
   it('counts the paragraphs that differ', () => {
     expect(paragraphsChanged([...same(3), change, change])).toBe(2)
+  })
+
+  it('keeps a stretch written afresh as one row', () => {
+    const apart: Row = { kind: 'apart', then: ['Old one.', 'Old two.'], now: ['New one.', 'New two.', 'New three.'] }
+    expect(shape([...same(5), apart, ...same(5)])).toEqual(['fold4', 'same', 'apart', 'same', 'fold4'])
+  })
+})
+
+describe('paragraphsChanged', () => {
+  it('counts a stretch written afresh by its longer side, and a paragraph whose words all stayed not at all', () => {
+    const apart: Row = { kind: 'apart', then: ['Old one.', 'Old two.'], now: ['New one.', 'New two.', 'New three.'] }
+    const rewrapped: Row = { kind: 'changed', then: [{ text: 'One,\ntwo.', changed: false }], now: [{ text: 'One, two.', changed: false }] }
+    const edited: Row = {
+      kind: 'changed',
+      then: [
+        { text: 'Wait', changed: false },
+        { text: '.', changed: true }
+      ],
+      now: [{ text: 'Wait!', changed: false }]
+    }
+    expect(paragraphsChanged([apart, rewrapped, edited])).toBe(4)
+  })
+})
+
+describe('againstNow', () => {
+  /** A one-paragraph doc, its words in italics if asked. */
+  const doc = (text: string, italic = false) => ({
+    type: 'doc',
+    content: [
+      { type: 'paragraph', attrs: { pid: 'p1' }, content: [{ type: 'text', text, ...(italic ? { marks: [{ type: 'italic' }] } : {}) }] }
+    ]
+  })
+  const versus = (then: { doc: unknown; text: string }, now: { doc: unknown; text: string }) =>
+    againstNow(compareTexts(then.text, now.text), then, now)
+
+  it('is the same with the same words and formatting, paragraph ids aside', () => {
+    const now = doc('The rain fell.')
+    const then = { ...doc('The rain fell.'), content: [{ ...now.content[0], attrs: { pid: 'other' } }] }
+    expect(versus({ doc: then, text: 'The rain fell.' }, { doc: now, text: 'The rain fell.' })).toEqual({ kind: 'same' })
+  })
+
+  it('says when only the formatting or the line breaks differ, so the version can still be restored', () => {
+    expect(
+      versus({ doc: doc('The rain fell.', true), text: 'The rain fell.' }, { doc: doc('The rain fell.'), text: 'The rain fell.' })
+    ).toEqual({
+      kind: 'format'
+    })
+    expect(versus({ doc: null, text: 'The rain\nfell.' }, { doc: null, text: 'The rain fell.' })).toEqual({ kind: 'format' })
+  })
+
+  it("counts the same words as the same when a version's formatting isn't known", () => {
+    expect(versus({ doc: null, text: 'The rain fell.' }, { doc: doc('The rain fell.', true), text: 'The rain fell.' })).toEqual({
+      kind: 'same'
+    })
+  })
+
+  it('counts the paragraphs that differ', () => {
+    expect(versus({ doc: null, text: 'One.\n\nTwo.' }, { doc: null, text: 'One.\n\nTwo, changed.' })).toEqual({
+      kind: 'differ',
+      paragraphs: 1
+    })
+  })
+})
+
+describe('firstToShow', () => {
+  it('shows the newest version that differs from the scene now', () => {
+    const list = [snap('c', day(15, 17)), snap('b', day(15, 16)), snap('a', day(15, 9))]
+    expect(firstToShow({ snapshots: list, sameAsNow: ['c'] })).toBe('b')
+    expect(firstToShow({ snapshots: list, sameAsNow: [] })).toBe('c')
+  })
+
+  it('shows the newest when every version is the same as now, and nothing with none', () => {
+    expect(firstToShow({ snapshots: [snap('b', day(15, 16)), snap('a', day(15, 9))], sameAsNow: ['a', 'b'] })).toBe('b')
+    expect(firstToShow({ snapshots: [], sameAsNow: [] })).toBeNull()
   })
 })

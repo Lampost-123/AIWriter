@@ -7,17 +7,14 @@ import { openHistory } from './open'
 
 export function HistoryButton({ sceneId }: { sceneId: ID }): React.JSX.Element {
   return (
-    // In a narrow header (a small window with both side panels open) it makes way for the scene's title.
-    // History is still a click away there: Earlier versions in the Drafts tab, and the palette (Ctrl+K).
-    <div className="hidden @min-[600px]:flex">
-      <ToolButton
-        icon={<History size={15} />}
-        label="History"
-        // Its full name for screen readers, so it is never taken for a place's or a character's History field.
-        aria-label="History of this scene"
-        title="History: earlier versions of this scene, to compare with it and restore"
-        onClick={() => void openHistory(sceneId)}
-      />
-    </div>
+    // In a narrow header it is its icon alone (ToolButton), so it stays in the toolbar at every window size.
+    <ToolButton
+      icon={<History size={15} />}
+      label="History"
+      // Its full name for screen readers, so it is never taken for a place's or a character's History field.
+      aria-label="History of this scene"
+      title="History: earlier versions of this scene, to compare with it and restore"
+      onClick={() => void openHistory(sceneId)}
+    />
   )
 }

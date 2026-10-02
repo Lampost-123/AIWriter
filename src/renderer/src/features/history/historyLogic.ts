@@ -1,6 +1,8 @@
 // What the History page and the Drafts tab say, worked out without React (so it is unit-tested):
-// the list's days, the words, and which unchanged paragraphs fold away in a comparison.
-import type { SnapshotInfo } from '@shared/contracts/history'
+// the list's days, the words, which version shows first, which unchanged paragraphs fold away in a
+// comparison, and whether a version differs from the scene now.
+import type { ID } from '@shared/types'
+import { comparableDoc, type SnapshotInfo } from '@shared/contracts/history'
 import type { Row } from './wordDiff'
 
 export const wordsLabel = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'word' : 'words'}`
@@ -86,5 +88,44 @@ export function foldSame(rows: Row[], context = 1): Shown[] {
   return out
 }
 
-/** How many paragraphs differ between the two sides. */
-export const paragraphsChanged = (rows: Row[]): number => rows.filter((r) => r.kind !== 'same').length
+/**
+ * How many paragraphs differ between the two sides. A paragraph written afresh beside another counts
+ * once, and a paragraph whose words are all the same (only a line break moved) not at all.
+ */
+export function paragraphsChanged(rows: Row[]): number {
+  let n = 0
+  for (const r of rows) {
+    if (r.kind === 'apart') n += Math.max(r.then.length, r.now.length)
+    else if (r.kind === 'changed') n += r.then.some((p) => p.changed) || r.now.some((p) => p.changed) ? 1 : 0
+    else if (r.kind !== 'same') n++
+  }
+  return n
+}
+
+/** A version of the scene: its document (null when only the text was known) and its text. */
+export interface Version {
+  doc: unknown
+  text: string
+}
+
+/**
+ * What the comparison says about a version against the scene now: the same (nothing to restore), the
+ * same words in other formatting or line breaks (nothing marked, but Restore still brings it back), or
+ * how many paragraphs differ.
+ */
+export type AgainstNow = { kind: 'same' } | { kind: 'format' } | { kind: 'differ'; paragraphs: number }
+
+export function againstNow(rows: Row[], then: Version, now: Version): AgainstNow {
+  const paragraphs = paragraphsChanged(rows)
+  if (paragraphs > 0) return { kind: 'differ', paragraphs }
+  // Formatting can only be told apart when both documents are known (history.db's sameAs agrees).
+  const a = comparableDoc(then.doc)
+  const b = comparableDoc(now.doc)
+  return then.text === now.text && (a === null || b === null || a === b) ? { kind: 'same' } : { kind: 'format' }
+}
+
+/** The version the History page shows first: the newest that differs from the scene now (or the newest, if none does). */
+export function firstToShow(h: { snapshots: SnapshotInfo[]; sameAsNow: ID[] }): ID | null {
+  const same = new Set(h.sameAsNow)
+  return (h.snapshots.find((s) => !same.has(s.id)) ?? h.snapshots[0])?.id ?? null
+}

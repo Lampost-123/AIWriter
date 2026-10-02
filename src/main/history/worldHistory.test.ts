@@ -231,7 +231,13 @@ describe('when history.db is damaged, locked or newer', () => {
 
     expect(() => w.save('Typing on.')).not.toThrow()
     expect(w.history.take({ sceneId: w.scene, kind: 'ai', label: 'Before Expand', doc: doc('A.'), text: 'A.' })).toBeNull()
-    expect(w.history.listSnapshots(w.scene)).toEqual({ available: false, problem: PROBLEM_TEXT.locked, notice: null, snapshots: [] })
+    expect(w.history.listSnapshots(w.scene)).toEqual({
+      available: false,
+      problem: PROBLEM_TEXT.locked,
+      notice: null,
+      snapshots: [],
+      sameAsNow: []
+    })
     expect(w.history.listDrafts(w.scene)).toEqual({ available: false, problem: PROBLEM_TEXT.locked, drafts: [] })
     expect(() => w.history.newDraft({ sceneId: w.scene, doc: doc('A.'), text: 'A.' })).toThrow(PROBLEM_TEXT.locked)
     expect(readdirSync(w.folder).filter((f) => f.includes('damaged'))).toEqual([])
@@ -264,6 +270,110 @@ describe('when history.db is damaged, locked or newer', () => {
     const w = world()
     w.history.start(-1)
     expect(() => w.history.getSnapshot('missing')).toThrow("That earlier version can't be found any more.")
+  })
+
+  it('leaves a file that turns busy while in use alone for a while, so saves never wait on it again and again', () => {
+    const w = world()
+    w.history.start(-1)
+    let busy = true
+    const latestAt = HistoryStore.prototype.latestAt
+    const calls = vi.spyOn(HistoryStore.prototype, 'latestAt').mockImplementation(function (this: HistoryStore, sceneId) {
+      if (busy) throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
+      return latestAt.call(this, sceneId)
+    })
+    for (let i = 0; i < 6; i++) {
+      w.save(`Typing on, ${i}.`)
+      w.later(2_000)
+    }
+    // One try: the next saves leave the file alone.
+    expect(calls).toHaveBeenCalledTimes(1)
+    expect(w.history.listSnapshots(w.scene)).toMatchObject({ available: false, problem: PROBLEM_TEXT.locked })
+    expect(w.history.take({ sceneId: w.scene, kind: 'ai', label: 'Before Expand', doc: doc('A.'), text: 'A.' })).toBeNull()
+
+    // Once it is due, it is tried again, and works.
+    busy = false
+    w.later(RETRY_MS)
+    w.save('Typing on, later.')
+    expect(calls).toHaveBeenCalledTimes(2)
+    expect(w.list()).toMatchObject([{ label: 'While writing' }])
+  })
+
+  it('says any disk or file problem in plain words, never as an error from deep inside', () => {
+    const w = world()
+    w.history.start(-1)
+    w.save('Words.')
+    const ioError = () => Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR_READ' })
+    vi.spyOn(HistoryStore.prototype, 'list').mockImplementation(() => {
+      throw ioError()
+    })
+    vi.spyOn(HistoryStore.prototype, 'drafts').mockImplementation(() => {
+      throw ioError()
+    })
+    expect(w.history.listSnapshots(w.scene)).toEqual({
+      available: false,
+      problem: PROBLEM_TEXT.unreachable,
+      notice: null,
+      snapshots: [],
+      sameAsNow: []
+    })
+    // Each call that finds it out of reach says so (here once it is due to be tried again).
+    w.later(RETRY_MS)
+    expect(w.history.listDrafts(w.scene)).toEqual({ available: false, problem: PROBLEM_TEXT.unreachable, drafts: [] })
+    expect(PROBLEM_TEXT.unreachable).not.toMatch(/I\/O|SQLITE|error/i)
+  })
+
+  it('tries again at once when Adam asks, and tells a page waiting for it once it answers', () => {
+    vi.useFakeTimers()
+    try {
+      const w = world()
+      w.history.start(-1)
+      let broken = true
+      const list = HistoryStore.prototype.list
+      vi.spyOn(HistoryStore.prototype, 'list').mockImplementation(function (this: HistoryStore, sceneId) {
+        if (broken) throw Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR' })
+        return list.call(this, sceneId)
+      })
+      expect(w.history.listSnapshots(w.scene).available).toBe(false)
+      broken = false
+      // Too soon to try by itself, but Try again does.
+      expect(w.history.listSnapshots(w.scene).available).toBe(false)
+      expect(w.history.listSnapshots(w.scene, { tryAgain: true }).available).toBe(true)
+
+      // Broken again: the History page showing it is told once the file answers, without anyone asking.
+      broken = true
+      expect(w.history.listSnapshots(w.other).available).toBe(false)
+      w.changed.length = 0
+      broken = false
+      w.later(RETRY_MS)
+      vi.advanceTimersByTime(RETRY_MS)
+      expect(w.changed).toEqual([w.other])
+      // And nothing more is tried once nobody waits.
+      vi.advanceTimersByTime(10 * RETRY_MS)
+      expect(w.changed).toEqual([w.other])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('the History page and the scene now', () => {
+  it('says which versions are the same as the scene as last saved', () => {
+    const w = world()
+    w.history.start(-1)
+    w.save('First words.')
+    w.later(WRITING_EVERY_MS)
+    w.save('Second words.')
+    const [second, first] = w.list()
+    expect(w.history.listSnapshots(w.scene).sameAsNow).toEqual([second.id])
+    // Back to the first words (a restore, say): that version is the same as now.
+    w.save('First words.')
+    expect(w.history.listSnapshots(w.scene).sameAsNow).toEqual([first.id])
+    // The page as it shows, a moment ahead of its last save, when the History page sends it.
+    const page = (text: string) => ({ sceneId: w.scene, doc: doc(text), text })
+    expect(w.history.listSnapshots(w.scene, { page: page('Second words.') }).sameAsNow).toEqual([second.id])
+    expect(w.history.listSnapshots(w.scene, { page: page('Typed on since.') }).sameAsNow).toEqual([])
+    // Another scene's page is no guide to this one.
+    expect(w.history.listSnapshots(w.scene, { page: { ...page('Second words.'), sceneId: 'other' } }).sameAsNow).toEqual([first.id])
   })
 })
 
@@ -312,12 +422,43 @@ describe('drafts', () => {
     expect(() => w.history.deleteDraft(made.created.id)).toThrow("The current draft can't be deleted")
   })
 
-  it('undoes a new draft', () => {
+  it('keeps the text a new draft starts from, and starts none from an empty page', () => {
     const w = world()
     w.history.start(-1)
+    w.later(WRITING_EVERY_MS)
+    w.history.newDraft(page(w.scene, 'Where it began.'))
+    expect(w.list()).toMatchObject([{ kind: 'editing', label: 'New draft started', words: 3 }])
+    expect(() => w.history.newDraft(page(w.scene, '  '))).toThrow('write something in the scene first')
+  })
+
+  it('undoes a new draft while it is as it started, and keeps one with changes', () => {
+    const w = world()
+    w.history.start(-1)
+    w.save('Text.')
     const made = w.history.newDraft(page(w.scene, 'Text.'))
-    const after = w.history.undoNewDraft(w.scene, made.created.id, made.kept.id)
-    expect(after.drafts).toMatchObject([{ name: 'Draft 1', current: true }])
+    const ids = { sceneId: w.scene, draftId: made.created.id, keptId: made.kept.id }
+    // The page shows the copy, untouched.
+    const after = w.history.undoNewDraft({ ...ids, page: page(w.scene, 'Text.') })
+    expect(after).toMatchObject({ undone: true, drafts: { drafts: [{ name: 'Draft 1', current: true }] } })
+
+    // Adam wrote on in the copy (not saved yet), then pressed Undo: it stays, with Draft 1 as it was.
+    const again = w.history.newDraft(page(w.scene, 'Text.'))
+    const kept = w.history.undoNewDraft({
+      sceneId: w.scene,
+      draftId: again.created.id,
+      keptId: again.kept.id,
+      page: page(w.scene, 'Text. More.')
+    })
+    expect(kept.undone).toBe(false)
+    expect(kept.drafts.drafts.map((d) => [d.name, d.current])).toEqual([
+      ['Draft 1', false],
+      ['Draft 2', true]
+    ])
+    // With the scene not in the page, its text as last saved is what counts.
+    w.save('Text. Saved since.')
+    expect(w.history.undoNewDraft({ sceneId: w.scene, draftId: again.created.id, keptId: again.kept.id, page: null }).undone).toBe(false)
+    w.save('Text.')
+    expect(w.history.undoNewDraft({ sceneId: w.scene, draftId: again.created.id, keptId: again.kept.id, page: null }).undone).toBe(true)
   })
 
   it("won't make drafts for a scene that is gone", () => {

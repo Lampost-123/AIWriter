@@ -23,6 +23,16 @@ const doc = (...paras: string[]) => ({
   content: paras.map((p, i) => ({ type: 'paragraph', attrs: { pid: `p${i}` }, content: [{ type: 'text', text: p }] }))
 })
 
+/** The same, with every word in italics. */
+const italicDoc = (...paras: string[]) => ({
+  type: 'doc',
+  content: paras.map((p, i) => ({
+    type: 'paragraph',
+    attrs: { pid: `p${i}` },
+    content: [{ type: 'text', text: p, marks: [{ type: 'italic' }] }]
+  }))
+})
+
 function setup(start = T0) {
   const db = new Database(':memory:')
   migrateHistory(db, new Date(start).toISOString())
@@ -60,6 +70,21 @@ describe('signatureOf', () => {
     expect(signatureOf(plain, 'One.')).not.toBe(signatureOf(doc('Two.'), 'Two.'))
     expect(signatureOf(plain, 'One.')).not.toBe(signatureOf(bold, 'One.'))
     expect(signatureOf(null, 'One.')).not.toBe(signatureOf(plain, 'One.'))
+  })
+
+  it("is the same with an empty line more or less (the scene's text leaves those out too)", () => {
+    const withEmpty = {
+      type: 'doc',
+      content: [
+        ...doc('One.').content,
+        { type: 'paragraph', attrs: { pid: 'e1' } },
+        { type: 'paragraph', attrs: { pid: 'e2' }, content: [{ type: 'text', text: '   ' }, { type: 'hardBreak' }] }
+      ]
+    }
+    expect(signatureOf(withEmpty, 'One.')).toBe(signatureOf(doc('One.'), 'One.'))
+    // A paragraph id only, or none at all, is the same paragraph.
+    const noIds = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'One.' }] }] }
+    expect(signatureOf(noIds, 'One.')).toBe(signatureOf(doc('One.'), 'One.'))
   })
 })
 
@@ -196,6 +221,31 @@ describe('HistoryStore snapshots', () => {
     expect(h.store.list('s1')).toHaveLength(3)
   })
 
+  it('finds the snapshots with the same text as the scene now', () => {
+    const h = setup()
+    const a = h.store.take(snap())!
+    h.later(MIN)
+    h.store.take(snap({ text: 'Other.', doc: doc('Other.') }))
+    h.later(MIN)
+    const c = h.store.take(snap())!
+    expect(h.store.sameAs('s1', doc('The rain had not stopped.'), 'The rain had not stopped.')).toEqual([c.info.id, a.info.id])
+    expect(h.store.sameAs('s1', doc('Something new.'), 'Something new.')).toEqual([])
+    expect(h.store.sameAs('s2', doc('Other.'), 'Other.')).toEqual([])
+  })
+
+  it("counts a version whose formatting isn't known as the same when its words are", () => {
+    const h = setup()
+    const plain = h.store.take(snap({ text: 'The rain fell.', doc: null }))!
+    h.later(MIN)
+    const italic = h.store.take(snap({ text: 'The rain fell.', doc: italicDoc('The rain fell.') }))!
+    h.later(MIN)
+    const asIs = h.store.take(snap({ text: 'The rain fell.', doc: doc('The rain fell.') }))!
+    // The page now (its formatting known): the one with the same formatting, and the one without any known.
+    expect(h.store.sameAs('s1', doc('The rain fell.'), 'The rain fell.')).toEqual([asIs.info.id, plain.info.id])
+    // The scene saved as text only: every one with the same words.
+    expect(h.store.sameAs('s1', null, 'The rain fell.')).toEqual([asIs.info.id, italic.info.id, plain.info.id])
+  })
+
   it('thins old snapshots as new ones come in, and tells when the latest was taken', () => {
     const h = setup()
     // Three a day for 20 days.
@@ -261,13 +311,55 @@ describe('HistoryStore drafts', () => {
     ])
   })
 
-  it('undoes a new draft', () => {
+  it('undoes a new draft while it is still as it started', () => {
     const h = setup()
     const { created, kept } = h.store.newDraft(page('Text.'))
-    h.store.undoNewDraft('s1', created.id, kept.id)
+    // The page as it shows now: the copy, untouched (paragraph ids and an empty line after it don't count).
+    const now = { doc: { type: 'doc', content: [...doc('Text.').content, { type: 'paragraph', attrs: { pid: 'p9' } }] }, text: 'Text.' }
+    expect(h.store.undoNewDraft('s1', created.id, kept.id, now)).toBe(true)
     expect(h.store.drafts('s1').map((d) => [d.name, d.current])).toEqual([['Draft 1', true]])
     // The next new draft is Draft 2 again: the undone one is gone for good.
     expect(h.store.newDraft(page('Text.')).created.name).toBe('Draft 2')
+  })
+
+  it('never throws away a new draft that has changes', () => {
+    const h = setup()
+    const { created, kept } = h.store.newDraft(page('The first way.'))
+    // Adam wrote on in the copy, then pressed Undo: both drafts stay as they are.
+    expect(h.store.undoNewDraft('s1', created.id, kept.id, page('The first way, and more.'))).toBe(false)
+    expect(h.store.drafts('s1').map((d) => [d.name, d.current])).toEqual([
+      ['Draft 1', false],
+      ['Draft 2', true]
+    ])
+    expect(h.store.drafts('s1')[0].excerpt).toBe('The first way.')
+    // Formatting counts as a change too.
+    const italic = page('The first way.')
+    Object.assign(italic.doc.content[0].content[0], { marks: [{ type: 'italic' }] })
+    expect(h.store.undoNewDraft('s1', created.id, kept.id, italic)).toBe(false)
+  })
+
+  it('takes back a copy that is no longer in the page only while it is as it started', () => {
+    const h = setup()
+    const first = h.store.newDraft(page('One.'))
+    // Switched back to Draft 1 with the copy untouched: the copy can go, and Draft 1 stays current.
+    h.store.switchDraft(page('One.'), first.kept.id)
+    expect(h.store.undoNewDraft('s1', first.created.id, first.kept.id, page('One.'))).toBe(true)
+    expect(h.store.drafts('s1').map((d) => [d.name, d.current])).toEqual([['Draft 1', true]])
+    // A copy rewritten before switching away keeps its words.
+    const second = h.store.newDraft(page('One.'))
+    h.store.switchDraft(page('One, rewritten.'), first.kept.id)
+    expect(h.store.undoNewDraft('s1', second.created.id, second.kept.id, page('One.'))).toBe(false)
+    expect(h.store.drafts('s1').map((d) => d.excerpt)).toEqual(['', 'One, rewritten.'])
+  })
+
+  it("says when a draft was started, except the scene's first, which began with the scene", () => {
+    const h = setup()
+    const [first] = h.store.drafts('s1')
+    expect(first.startedAt).toBeNull()
+    h.later(MIN)
+    const { created, kept } = h.store.newDraft(page('Text.'))
+    expect(created.startedAt).toBe(new Date(h.now()).toISOString())
+    expect(kept.startedAt).toBeNull()
   })
 
   it('switches drafts: the page is kept with the draft it was, and the chosen text comes back', () => {

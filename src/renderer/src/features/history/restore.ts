@@ -1,13 +1,29 @@
 // Restoring an earlier version of a scene (the History page's Restore): the page as it is now is kept
 // first ("Before restoring"), then the earlier version takes its place as one step Ctrl+Z takes back,
-// and Adam is back on the writing page. The restored text is saved like any edit, so the memory follows it.
+// and Adam is back on the writing page. The restored text is saved straight away and the memory reads
+// it then (memoryFollows), as it does after a switch of drafts.
+import type { ID } from '@shared/types'
 import type { Snapshot } from '@shared/contracts/history'
 import { toast } from '@/components/ui'
-import { modKey } from '@/lib/api'
+import { api, modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { snapshotBefore } from './snapshot'
+
+/**
+ * Another version of the scene went into the page (a restore, another draft): it is saved now, and the
+ * memory reads it straight away rather than after the usual pause in typing.
+ */
+export function memoryFollows(sceneId: ID): void {
+  // Once the change that called this has gone through.
+  setTimeout(() => {
+    const bridge = editorBridge()
+    void (bridge?.sceneId === sceneId ? bridge.flush() : Promise.resolve())
+      .then(() => api.restored(sceneId))
+      .catch((e: unknown) => console.warn("The memory couldn't be told the scene's text was restored", e))
+  }, 0)
+}
 
 /** Puts an earlier version back in the scene. `when` names it in the message ("today at 14:05"). Returns true when it went in. */
 export async function restoreSnapshot(snap: Snapshot, when: string): Promise<boolean> {
@@ -29,6 +45,7 @@ export async function restoreSnapshot(snap: Snapshot, when: string): Promise<boo
     return false
   }
   const restored = bridge.editor?.state.doc ?? null
+  memoryFollows(sceneId)
   // Back to the writing page, with the keyboard in the page so Ctrl+Z takes the restore back.
   requestEditorFocus(sceneId)
   useApp.getState().selectScene(sceneId)
@@ -44,6 +61,7 @@ export async function restoreSnapshot(snap: Snapshot, when: string): Promise<boo
         // from before the restore comes back as a step of its own (the typing stays a Ctrl+Z away).
         if (restored && b.editor?.state.doc.eq(restored)) b.undo()
         else if (before) b.replaceScene(sceneId, before.doc, before.text)
+        memoryFollows(sceneId)
       }
     }
   })

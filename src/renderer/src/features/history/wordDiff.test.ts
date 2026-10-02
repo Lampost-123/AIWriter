@@ -127,9 +127,32 @@ describe('compareTexts', () => {
     expect(kinds(compareTexts('A.\n\nB.', 'A.\n\nB.\n\nA whole new ending.'))).toEqual(['same', 'same', 'now'])
   })
 
-  it("doesn't pair paragraphs that have nothing in common", () => {
+  it("doesn't pair paragraphs that have nothing in common, but shows them side by side", () => {
     const rows = compareTexts('Night fell over the harbour.', 'Breakfast was cold porridge again.')
-    expect(kinds(rows)).toEqual(['then', 'now'])
+    expect(rows).toEqual([{ kind: 'apart', then: ['Night fell over the harbour.'], now: ['Breakfast was cold porridge again.'] }])
+  })
+
+  it('shows a scene written afresh side by side, both columns from the top', () => {
+    const then = ['The rain had not stopped since dawn.', 'Down at the river the ferryman waited.', 'The bells rang twice.'].join('\n\n')
+    const now = ['Snow lay over Lowtown.', 'Mara counted the doors from the corner.', 'Nobody looked up.', 'Tobin came late.'].join('\n\n')
+    const rows = compareTexts(then, now)
+    expect(rows).toHaveLength(1)
+    const [row] = rows as Extract<Row, { kind: 'apart' }>[]
+    expect(row.kind).toBe('apart')
+    expect(row.then).toHaveLength(3)
+    expect(row.now).toHaveLength(4)
+  })
+
+  it('keeps what was rewritten between two changed paragraphs beside each other', () => {
+    const then = 'Mara opened the door slowly.\n\nThe night was cold and long.\n\nTobin said nothing at all.'
+    const now = 'Mara opened the heavy door slowly.\n\nBreakfast was porridge again.\n\nA gull cried twice.\n\nTobin said nothing.'
+    const rows = compareTexts(then, now)
+    expect(kinds(rows)).toEqual(['changed', 'apart', 'changed'])
+    expect(rows[1]).toEqual({
+      kind: 'apart',
+      then: ['The night was cold and long.'],
+      now: ['Breakfast was porridge again.', 'A gull cried twice.']
+    })
   })
 
   it('pairs the most alike when several paragraphs changed at once', () => {

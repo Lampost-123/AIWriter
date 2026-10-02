@@ -10,6 +10,7 @@ import { api, modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { plainReason } from '@/lib/reason'
 import { announceDelete } from '@/lib/undoDelete'
+import { memoryFollows } from './restore'
 
 /** The page as it shows now, or null (with a message) when it can't be changed right now. */
 function pageNow(sceneId: ID, doing: string): PageNow | null {
@@ -33,15 +34,7 @@ export async function startNewDraft(sceneId: ID, onChange: (d: SceneDrafts) => v
   try {
     const { drafts, created, kept } = await api.newDraft(page)
     toast(`${created.name} is a copy of ${kept.name} to work on. ${kept.name} is kept as it was.`, {
-      action: {
-        label: 'Undo',
-        run: () => {
-          api
-            .undoNewDraft(sceneId, created.id, kept.id)
-            .then(onChange)
-            .catch((e: unknown) => toast(`The new draft couldn't be taken back. ${plainReason(e)}`, { tone: 'danger' }))
-        }
-      }
+      action: { label: 'Undo', run: () => void undoNewDraft(sceneId, created, kept, onChange) }
     })
     return drafts
   } catch (e) {
@@ -51,10 +44,58 @@ export async function startNewDraft(sceneId: ID, onChange: (d: SceneDrafts) => v
 }
 
 /**
- * Makes another draft the current one: the page as it is is kept as the draft it was, and the chosen
- * draft goes in its place as one step Ctrl+Z takes back. Returns the scene's drafts, or null.
+ * New draft's Undo. While the copy is as it started, it goes and the draft it came from is current again
+ * (the page shows the same text, so it doesn't change). Once the copy has changes, it is kept, so nothing
+ * written in it is lost, and the draft it came from goes back in the page instead (a switch, which
+ * Ctrl+Z takes back).
  */
-export async function switchToDraft(sceneId: ID, to: DraftInfo, onChange: (d: SceneDrafts) => void): Promise<SceneDrafts | null> {
+async function undoNewDraft(sceneId: ID, created: DraftInfo, kept: DraftInfo, onChange: (d: SceneDrafts) => void): Promise<void> {
+  const bridge = editorBridge()
+  const showing = !!bridge && bridge.sceneId === sceneId
+  if (showing && bridge.busy()) {
+    toast(
+      `A draft is being written into this scene, so ${created.name} stays. Once it has finished, switch to ${kept.name} in the Drafts tab.`
+    )
+    return
+  }
+  let res: Awaited<ReturnType<typeof api.undoNewDraft>>
+  try {
+    res = await api.undoNewDraft({ sceneId, draftId: created.id, keptId: kept.id, page: showing ? bridge.current() : null })
+  } catch (e) {
+    toast(`The new draft couldn't be taken back. ${plainReason(e)}`, { tone: 'danger' })
+    return
+  }
+  onChange(res.drafts)
+  if (res.undone) return
+  const copy = res.drafts.drafts.find((d) => d.id === created.id)
+  const from = res.drafts.drafts.find((d) => d.id === kept.id)
+  if (!copy?.current || !from) {
+    toast(`${created.name} has changes since it was started, so it's kept with the scene's drafts.`)
+    return
+  }
+  if (editorBridge()?.sceneId !== sceneId) {
+    toast(
+      `${created.name} has changes since it was started, so it's kept. To go back to ${from.name}, open the scene and switch to it in the Drafts tab.`
+    )
+    return
+  }
+  const d = await switchToDraft(sceneId, from, onChange, {
+    message: (to, away) => `Back to ${to}. ${away} has changes, so it's kept as a draft too; ${modKey()}+Z switches back to it.`
+  })
+  if (d) onChange(d)
+}
+
+/**
+ * Makes another draft the current one: the page as it is is kept as the draft it was, and the chosen
+ * draft goes in its place as one step Ctrl+Z takes back. `message` words the message that says so.
+ * Returns the scene's drafts, or null.
+ */
+export async function switchToDraft(
+  sceneId: ID,
+  to: DraftInfo,
+  onChange: (d: SceneDrafts) => void,
+  o: { message?: (to: string, from: string) => string } = {}
+): Promise<SceneDrafts | null> {
   const page = pageNow(sceneId, 'switch drafts')
   const bridge = editorBridge()
   if (!page || !bridge) return null
@@ -75,10 +116,14 @@ export async function switchToDraft(sceneId: ID, to: DraftInfo, onChange: (d: Sc
     return null
   }
   const after = editor?.state.doc ?? null
+  memoryFollows(sceneId)
   if (editor && before && after) watchSwitch({ sceneId, editor, before, after, fromId: res.from.id, toId: res.to.id, onChange })
   // The keyboard goes into the page, where Ctrl+Z switches back.
   if (editor && !editor.isDestroyed) editor.view.focus()
-  toast(`Switched to ${res.to.name}. ${res.from.name} is kept as it was; ${modKey()}+Z switches back.`, {
+  const said =
+    o.message?.(res.to.name, res.from.name) ??
+    `Switched to ${res.to.name}. ${res.from.name} is kept as it was; ${modKey()}+Z switches back.`
+  toast(said, {
     action: {
       label: 'Switch back',
       run: () => {
@@ -159,6 +204,7 @@ function watchSwitch(w: Watch): void {
     const now = showing === 'to' && sameDoc(doc, w.before) ? 'from' : showing === 'from' && sameDoc(doc, w.after) ? 'to' : null
     if (!now) return
     showing = now
+    memoryFollows(w.sceneId)
     api
       .setCurrentDraft(w.sceneId, now === 'from' ? w.fromId : w.toId)
       .then(w.onChange)

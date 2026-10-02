@@ -4,6 +4,7 @@ import type { Handlers } from './index'
 import type { HistoryApi } from '@shared/contracts/history'
 import { currentHistory } from '../history'
 import type { WorldHistory } from '../history/worldHistory'
+import { sceneRestored } from '../keeper'
 import { UserError } from '../util'
 
 /** The open world's history. Throws a plain-words error if no world is open. */
@@ -16,12 +17,14 @@ function history(): WorldHistory {
 export const historyHandlers: Handlers<keyof HistoryApi> = {
   // A snapshot never holds an AI change up: with no world (or no history.db) nothing is kept.
   takeSnapshot: (input) => currentHistory()?.take(input) ?? null,
-  listSnapshots: (sceneId) => history().listSnapshots(sceneId),
+  listSnapshots: (sceneId, options) => history().listSnapshots(sceneId, options),
   getSnapshot: (id) => history().getSnapshot(id),
+  // The memory keeper reads a restored version straight away (docs/ARCHITECTURE.md: it runs "after a scene version is restored").
+  restored: (sceneId) => sceneRestored(sceneId),
 
-  listDrafts: (sceneId) => history().listDrafts(sceneId),
+  listDrafts: (sceneId, options) => history().listDrafts(sceneId, options),
   newDraft: (page) => history().newDraft(page),
-  undoNewDraft: (sceneId, draftId, keptId) => history().undoNewDraft(sceneId, draftId, keptId),
+  undoNewDraft: (input) => history().undoNewDraft(input),
   switchDraft: (page, draftId) => history().switchDraft(page, draftId),
   setCurrentDraft: (sceneId, draftId) => history().setCurrentDraft(sceneId, draftId),
   renameDraft: (draftId, name) => history().renameDraft(draftId, name),

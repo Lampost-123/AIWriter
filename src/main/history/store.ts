@@ -3,7 +3,9 @@
 //
 // Snapshots: the scene's text (the editor document and its plain text) at a moment worth going back
 // to, with why it was taken. The same text as the scene's latest snapshot isn't kept twice: the
-// latest one takes the more telling reason instead (Marked done over While writing, say).
+// latest one takes the more telling reason instead (Marked done over While writing, say). "The same"
+// means the same words and formatting (comparableDoc in the contract: paragraph ids and empty lines
+// don't count).
 //
 // Keeping them (thinSnapshots): every snapshot from the last two weeks is kept. Older ones are
 // thinned to the last of each day, and every one taken when the scene was marked done is kept, as is
@@ -18,6 +20,7 @@ import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import type { ID } from '@shared/types'
 import type { DraftInfo, DraftText, PageNow, Snapshot, SnapshotInfo, SnapshotKind } from '@shared/contracts/history'
+import { comparableDoc } from '@shared/contracts/history'
 import { countWords } from '@shared/defaults'
 import { newId, UserError } from '../util'
 
@@ -95,12 +98,13 @@ export function migrateHistory(db: DB, nowIso: string): void {
 // ---------- Pure helpers (tested on their own) ----------
 
 /**
- * What makes two versions of a scene the same: its words and their formatting. Paragraph ids don't
- * count (a paragraph keeps its words whatever its id).
+ * What makes two versions of a scene the same: its words and their formatting. Paragraph ids and empty
+ * paragraphs don't count (a paragraph keeps its words whatever its id; an empty line isn't a change).
  */
 export function signatureOf(doc: unknown, text: string): string {
   const h = createHash('sha1').update(text)
-  if (isDoc(doc)) h.update('\u0000').update(JSON.stringify(doc, (key, value: unknown) => (key === 'pid' ? undefined : value)))
+  const key = comparableDoc(doc)
+  if (key !== null) h.update('\u0000').update(key)
   return h.digest('hex')
 }
 
@@ -297,6 +301,28 @@ export class HistoryStore {
     return { ...toSnapshotInfo(r), doc: parseDoc(r.doc_json), text: r.text as string }
   }
 
+  /**
+   * The scene's snapshots that are the same as this version, newest first: the same words and formatting,
+   * or the same words where either side's document isn't known (its formatting can't be told then), as
+   * the History page compares them.
+   */
+  sameAs(sceneId: ID, doc: unknown, text: string): ID[] {
+    const order = 'ORDER BY created_at DESC, rowid DESC'
+    const rows = (
+      comparableDoc(doc) === null
+        ? this.db.prepare(`SELECT id FROM snapshots WHERE scene_id = ? AND text = ? ${order}`).all(sceneId, text)
+        : this.db
+            .prepare(`SELECT id FROM snapshots WHERE scene_id = ? AND signature IN (?, ?) ${order}`)
+            .all(sceneId, signatureOf(doc, text), signatureOf(null, text))
+    ) as Row[]
+    return rows.map((r) => r.id as string)
+  }
+
+  /** Reads from history.db, to learn whether it can be used again. */
+  ping(): void {
+    this.db.prepare('SELECT COUNT(*) AS n FROM meta').get()
+  }
+
   /** Lets go of the scene's snapshots that the keeping rules (above) say can go. Returns how many went. */
   thinSnapshots(sceneId: ID): number {
     const rows = (this.db.prepare('SELECT id, kind, created_at FROM snapshots WHERE scene_id = ?').all(sceneId) as Row[]).map((r) => ({
@@ -348,6 +374,8 @@ export class HistoryStore {
       words: current && currentWords != null ? currentWords : (r.words as number),
       excerpt: current ? '' : excerptOf(r.text as string),
       createdAt: r.created_at as string,
+      // Draft 1 is the scene's own text, made the first time the drafts were asked for: when it began isn't known.
+      startedAt: (r.number as number) > 1 ? (r.created_at as string) : null,
       keptAt: r.kept_at as string
     }
   }
@@ -418,14 +446,21 @@ export class HistoryStore {
     })()
   }
 
-  /** Undoes newDraft: the copy goes for good and the draft it was made from is current again. */
-  undoNewDraft(sceneId: ID, draftId: ID, keptId: ID): void {
-    this.db.transaction(() => {
+  /**
+   * Undoes newDraft while the copy is still as it started, the same as the draft it was made from: the copy
+   * goes for good, and if it was the current draft the one it was made from is current again. `sceneNow`
+   * is the scene's text now (the copy's, while it is current). A copy with changes since is never thrown
+   * away: nothing changes and it returns false.
+   */
+  undoNewDraft(sceneId: ID, draftId: ID, keptId: ID, sceneNow: { doc: unknown; text: string } | null): boolean {
+    return this.db.transaction(() => {
       const made = this.liveDraft(sceneId, draftId)
       const kept = this.liveDraft(sceneId, keptId)
-      if (made.current !== 1) return
+      const copy = made.current === 1 ? sceneNow : { doc: parseDoc(made.doc_json), text: made.text as string }
+      if (!copy || signatureOf(copy.doc, copy.text) !== signatureOf(parseDoc(kept.doc_json), kept.text as string)) return false
       this.db.prepare('DELETE FROM drafts WHERE id = ?').run(made.id)
-      this.db.prepare('UPDATE drafts SET current = 1 WHERE id = ?').run(kept.id)
+      if (made.current === 1) this.db.prepare('UPDATE drafts SET current = 1 WHERE id = ?').run(kept.id)
+      return true
     })()
   }
 

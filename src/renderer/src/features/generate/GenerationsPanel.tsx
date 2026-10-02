@@ -1,7 +1,7 @@
 // The inspector's "Drafts" tab: the scene's drafts (the one in the page and the others kept beside it,
 // milestone 4), then every draft the AI wrote for it, newest first, each with a link to exactly what the
 // AI was given.
-import { ChevronRight, History } from 'lucide-react'
+import { ChevronRight, History, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GenerationSummary, ID } from '@shared/types'
 import type { SceneDrafts } from '@shared/contracts/history'
@@ -17,6 +17,8 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [error, setError] = useState<string | null>(null)
   const navigate = useApp((s) => s.navigate)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
+  // A new draft is a copy of the scene's text, so it starts once the page has words.
+  const pageHasWords = useApp((s) => s.sceneWords > 0)
   const activeId = useApp((s) => (s.activeGeneration?.sceneId === sceneId ? s.activeGeneration.id : null))
   const now = useNow()
   const ticket = useRef(0)
@@ -28,13 +30,22 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     ++draftTicket.current
     setDraftsState(d)
   }, [])
-  const loadDrafts = useCallback(() => {
-    const t = ++draftTicket.current
-    api
-      .listDrafts(sceneId)
-      .then((d) => t === draftTicket.current && setDraftsState(d))
-      .catch((e: Error) => t === draftTicket.current && setDraftsState({ available: false, problem: e.message, drafts: [] }))
-  }, [sceneId])
+  // `tryAgain`: Adam asked, so history.db is tried at once even if it couldn't be reached a moment ago.
+  const loadDrafts = useCallback(
+    (o: { tryAgain?: boolean } = {}): Promise<void> => {
+      const t = ++draftTicket.current
+      return api
+        .listDrafts(sceneId, { tryAgain: o.tryAgain })
+        .then((d) => {
+          if (t === draftTicket.current) setDraftsState(d)
+        })
+        .catch((e: Error) => {
+          if (t === draftTicket.current) setDraftsState({ available: false, problem: e.message, drafts: [] })
+        })
+    },
+    [sceneId]
+  )
+  const tryDraftsAgain = useCallback(() => loadDrafts({ tryAgain: true }), [loadDrafts])
 
   const load = useCallback(() => {
     const t = ++ticket.current
@@ -58,8 +69,8 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   }, [load])
   useEffect(() => {
     setDraftsState(null)
-    loadDrafts()
-    return onEvent('history:changed', (p) => p.sceneId === sceneId && loadDrafts())
+    void loadDrafts()
+    return onEvent('history:changed', (p) => p.sceneId === sceneId && void loadDrafts())
   }, [sceneId, loadDrafts])
 
   // A new draft appears straight away; finished ones update when done.
@@ -111,20 +122,22 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         title="No drafts yet"
         actions={
           <>
-            <NewDraftButton sceneId={sceneId} onChange={setDrafts} variant="secondary" />
+            {pageHasWords ? <NewDraftButton sceneId={sceneId} onChange={setDrafts} variant="secondary" /> : null}
             <EarlierVersionsButton sceneId={sceneId} />
           </>
         }
       >
-        New draft keeps the text you have now as Draft 1 and starts a copy, to try the scene another way. Each time you press Generate, the
-        AI's draft is listed here too, with what it cost and a link to see exactly what the AI was given.
+        {pageHasWords
+          ? 'New draft keeps the text you have now as Draft\u00a01 and starts a copy, to try the scene another way.'
+          : 'Drafts start once the scene has words: New draft then keeps the text as Draft\u00a01 and starts a copy, to try the scene another way.'}{' '}
+        Each time you press Generate, the AI's draft is listed here too, with what it cost and a link to see exactly what the AI was given.
       </EmptyState>
     )
   }
 
   return (
     <div className="flex flex-col gap-4 p-2 animate-fade-in">
-      <DraftsSection sceneId={sceneId} drafts={drafts} onChange={setDrafts} reload={loadDrafts} />
+      <DraftsSection sceneId={sceneId} drafts={drafts} onChange={setDrafts} reload={() => void loadDrafts()} tryAgain={tryDraftsAgain} />
       <section aria-label="Drafts the AI wrote">
         <h3 className="flex h-8 items-center pl-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Written by the AI</h3>
         {items.length ? (
@@ -176,7 +189,11 @@ function AiDrafts({
               type="button"
               // A draft still being written keeps writing while its record is open.
               onClick={() => onOpen(g.id)}
-              title="See exactly what the AI was given for this draft"
+              title={
+                g.replaced
+                  ? 'See exactly what the AI was given for this draft, and the text it replaced'
+                  : 'See exactly what the AI was given for this draft'
+              }
               className="group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
             >
               <div className="flex w-full items-center gap-2">
@@ -211,6 +228,14 @@ function AiDrafts({
                   <ChevronRight size={13} />
                 </span>
               </div>
+              {g.replaced ? (
+                // Where the old text went ("kept in the Drafts tab", the Replace message says): first on the draft's record.
+                <div className="flex w-full items-center gap-1.5 text-[12px] font-medium text-accent opacity-80 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <Undo2 size={12} className="shrink-0" />
+                  <span className="truncate">See the text it replaced</span>
+                  <ChevronRight size={13} className="-ml-1 shrink-0" />
+                </div>
+              ) : null}
             </button>
           </li>
         )

@@ -7,26 +7,42 @@
 //   - when a scene is marked done (sceneMarkedDone);
 //   - while writing: a save 10 minutes or more after the scene's latest snapshot takes one, and a
 //     scene's very first save takes its first (sceneTextSaved). Nothing is taken while a draft is
-//     being written into the scene: the snapshot before it came first.
+//     being written into the scene: the snapshot before it came first;
+//   - when a new draft is started (the text the copy starts from).
 // History is a convenience: none of this ever throws, and a save never waits for it.
+//
+// While history.db can't be used (held by another program, a full disk, a disk or sync problem), nothing
+// touches it for RETRY_MS, so saves and AI changes never wait on it; a History page or Drafts tab that said
+// so loads again by itself once it answers, and Try again tries it at once.
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
 import type {
   DraftInfo,
   DraftText,
+  HistoryLoadOptions,
   PageNow,
   SceneDrafts,
   SceneHistory,
   Snapshot,
   SnapshotInfo,
-  TakeSnapshotInput
+  TakeSnapshotInput,
+  UndoNewDraftInput
 } from '@shared/contracts/history'
 import * as repo from '../db/repo'
 import { anyKeeperScene } from '../db/keeper'
 import { UserError } from '../util'
 import { HistoryStore, type SnapshotInput, type TakeResult } from './store'
-import { freshStartOf, isBusy, isDamaged, openHistory, problemOf, startAfresh, type HistoryProblem, type OpenedHistory } from './open'
+import {
+  freshStartOf,
+  isDamaged,
+  isFileProblem,
+  openHistory,
+  problemOf,
+  startAfresh,
+  type HistoryProblem,
+  type OpenedHistory
+} from './open'
 
 type DB = Database.Database
 
@@ -85,8 +101,11 @@ function checkPage(page: PageNow): PageNow {
 export class WorldHistory {
   readonly worldDb: DB
   private store: HistoryStore | null = null
-  /** Why history.db can't be used, and when to try again (only while `store` is null). */
+  /** Why history.db can't be used right now, and when it is tried again (one from a newer AI Write: not by itself). */
   private outage: { problem: HistoryProblem; retryAt: number } | null = null
+  /** Scenes whose History page or Drafts tab was told History can't be reached: told again once it can. */
+  private readonly waiting = new Set<ID>()
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
   /** When each scene last had a snapshot taken (or found it had nothing new to keep), to space out writing's. */
   private readonly lastAt = new Map<ID, number>()
   /** Scenes whose writing snapshot is waiting to run. */
@@ -122,7 +141,10 @@ export class WorldHistory {
     this.closed = true
     if (this.tidyTimer) clearTimeout(this.tidyTimer)
     this.tidyTimer = null
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = null
     this.due.clear()
+    this.waiting.clear()
     try {
       this.store?.close()
     } catch (e) {
@@ -133,24 +155,72 @@ export class WorldHistory {
 
   // ---------- history.db, and what happens when it can't be used ----------
 
+  /** history.db can't be used: it is left alone for a while (one from a newer AI Write, for good). */
+  private down(problem: HistoryProblem, e: unknown): void {
+    console.warn(`History can't use this world's history.db for now (${problem})`, e)
+    this.outage = { problem, retryAt: problem === 'newer' ? Infinity : this.now() + RETRY_MS }
+  }
+
+  /** history.db answered: a History page or Drafts tab that said it couldn't be reached loads again. */
+  private up(): void {
+    if (!this.outage) return
+    this.outage = null
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = null
+    if (!this.waiting.size) return
+    // After the call that found it working has returned.
+    this.defer(() => {
+      const scenes = [...this.waiting]
+      this.waiting.clear()
+      if (!this.closed) for (const id of scenes) this.o.changed(id)
+    })
+  }
+
   private wrap(r: OpenedHistory): HistoryStore | null {
     if (!r.ok) {
-      console.warn(`History can't use this world's history.db for now (${r.problem})`, r.error)
-      this.outage = { problem: r.problem, retryAt: r.problem === 'newer' ? Infinity : this.now() + RETRY_MS }
+      this.down(r.problem, r.error)
       return null
     }
     if (r.setAside) console.warn(`History started afresh: the damaged history.db was set aside as ${r.setAside}`)
-    this.outage = null
     this.store = new HistoryStore(r.db, this.now)
     return this.store
   }
 
-  /** The store, opened when first needed; null while history.db can't be used. */
-  private open(): HistoryStore | null {
+  /**
+   * The store, opened when first needed. Null while history.db can't be used and isn't due to be tried
+   * again, even with the file open (it was busy a moment ago); `now` (Adam asked) tries it at once.
+   */
+  private open(now = false): HistoryStore | null {
     if (this.closed) return null
-    if (this.store) return this.store
-    if (this.outage && this.now() < this.outage.retryAt) return null
-    return this.wrap(openHistory(this.o.folder, this.now()))
+    if (this.outage && !now && this.now() < this.outage.retryAt) return null
+    return this.store ?? this.wrap(openHistory(this.o.folder, this.now()))
+  }
+
+  /** A History page or Drafts tab for this scene says History can't be reached: it is told once it can be. */
+  private waitFor(sceneId: ID): void {
+    if (this.closed || !this.outage || this.outage.retryAt === Infinity) return
+    this.waiting.add(sceneId)
+    this.retryLater()
+  }
+
+  /** While anything waits for history.db, it is tried again each time it is due. */
+  private retryLater(): void {
+    if (this.retryTimer || this.closed || !this.waiting.size || !this.outage || this.outage.retryAt === Infinity) return
+    this.retryTimer = setTimeout(
+      () => {
+        this.retryTimer = null
+        if (this.closed) return
+        try {
+          // Once it answers, `up` tells the scenes waiting.
+          this.attempt((s) => s.ping(), true)
+        } catch (e) {
+          console.warn('History could not try its file again', e)
+        }
+        this.retryLater()
+      },
+      Math.max(0, this.outage.retryAt - this.now())
+    )
+    this.retryTimer.unref?.()
   }
 
   /** history.db turned out damaged while in use: it is set aside and a fresh one started. */
@@ -172,24 +242,27 @@ export class WorldHistory {
 
   /**
    * Runs `fn` on the store. A damaged file found on the way is set aside and `fn` runs once more on a
-   * fresh one; a file that is busy or out of reach gives a plain-words problem instead. Plain-words
-   * errors (UserError) pass through.
+   * fresh one. A file that is busy, full or out of reach (any SQLite or file error) gives a plain-words
+   * problem instead, and is left alone for a while. Plain-words errors (UserError) pass through. `now`:
+   * Adam asked (Try again), so a file that couldn't be used a moment ago is tried at once.
    */
-  private attempt<T>(fn: (s: HistoryStore) => T): Outcome<T> {
+  private attempt<T>(fn: (s: HistoryStore) => T, now = false): Outcome<T> {
     for (let tries = 0; ; tries++) {
-      const store = this.open()
+      const store = this.open(now)
       if (!store) return { ok: false, problem: this.problemText() }
       try {
-        return { ok: true, value: fn(store) }
+        const value = fn(store)
+        this.up()
+        return { ok: true, value }
       } catch (e) {
         if (e instanceof UserError) throw e
         if (isDamaged(e) && tries === 0) {
           this.restartAfresh(e)
           continue
         }
-        if (isBusy(e)) return { ok: false, problem: PROBLEM_TEXT.locked }
-        if (problemOf(e) === 'full') return { ok: false, problem: PROBLEM_TEXT.full }
-        throw e
+        if (!isFileProblem(e)) throw e
+        this.down(problemOf(e), e)
+        return { ok: false, problem: this.problemText() }
       }
     }
   }
@@ -308,11 +381,20 @@ export class WorldHistory {
     }
   }
 
-  /** The scene's snapshots, newest first, or why they can't be shown. */
-  listSnapshots(sceneId: ID): SceneHistory {
-    const r = this.attempt((s) => ({ snapshots: s.list(sceneId), notice: this.noticeOf(s) }))
-    if (!r.ok) return { available: false, problem: r.problem, notice: null, snapshots: [] }
-    return { available: true, problem: null, notice: r.value.notice, snapshots: r.value.snapshots }
+  /** The scene's snapshots, newest first, with the ones the same as the scene now; or why they can't be shown. */
+  listSnapshots(sceneId: ID, o?: HistoryLoadOptions | null): SceneHistory {
+    // The scene now: the page as the History page sent it, or the scene as last saved.
+    const page = o?.page && o.page.sceneId === sceneId && typeof o.page.text === 'string' ? o.page : null
+    const scene = page ?? this.sceneNow(sceneId)
+    const r = this.attempt(
+      (s) => ({ snapshots: s.list(sceneId), sameAsNow: scene ? s.sameAs(sceneId, scene.doc, scene.text) : [], notice: this.noticeOf(s) }),
+      !!o?.tryAgain
+    )
+    if (!r.ok) {
+      this.waitFor(sceneId)
+      return { available: false, problem: r.problem, notice: null, snapshots: [], sameAsNow: [] }
+    }
+    return { available: true, problem: null, ...r.value }
   }
 
   /** One snapshot with its text. */
@@ -338,10 +420,13 @@ export class WorldHistory {
   }
 
   /** The scene's drafts, Draft 1 first, or why they can't be shown. */
-  listDrafts(sceneId: ID): SceneDrafts {
+  listDrafts(sceneId: ID, o?: HistoryLoadOptions | null): SceneDrafts {
     const words = this.wordsNow(sceneId)
-    const r = this.attempt((s) => s.drafts(sceneId, words))
-    if (!r.ok) return { available: false, problem: r.problem, drafts: [] }
+    const r = this.attempt((s) => s.drafts(sceneId, words), !!o?.tryAgain)
+    if (!r.ok) {
+      this.waitFor(sceneId)
+      return { available: false, problem: r.problem, drafts: [] }
+    }
     return { available: true, problem: null, drafts: r.value }
   }
 
@@ -349,27 +434,49 @@ export class WorldHistory {
     return { available: true, problem: null, drafts }
   }
 
-  /** A new draft, a copy of the page; the draft that was current keeps the page's text as it is. */
+  /**
+   * A new draft, a copy of the page; the draft that was current keeps the page's text as it is, and so
+   * does History ("New draft started"), whatever later becomes of either draft.
+   */
   newDraft(page: PageNow): { drafts: SceneDrafts; created: DraftInfo; kept: DraftInfo } {
     const p = checkPage(page)
     this.wordsNow(p.sceneId)
+    if (!p.text.trim()) {
+      throw new UserError("A new draft starts as a copy of the scene's text, so write something in the scene first.", 'draft-empty')
+    }
     const out = this.must((s) => {
+      s.take({ sceneId: p.sceneId, kind: 'editing', label: 'New draft started', doc: p.doc, text: p.text })
       const made = s.newDraft(p)
       // The new draft is the page as it is (perhaps a moment ahead of its last save).
       return { ...made, drafts: s.drafts(p.sceneId, made.created.words) }
     })
+    this.lastAt.set(p.sceneId, this.now())
     this.o.changed(p.sceneId)
     return { drafts: this.listed(out.drafts), created: out.created, kept: out.kept }
   }
 
-  undoNewDraft(sceneId: ID, draftId: ID, keptId: ID): SceneDrafts {
+  /**
+   * Takes a new draft back while it is still as it started (see HistoryStore.undoNewDraft). A copy with
+   * changes since is kept (`undone` false), so nothing typed in it is ever lost.
+   */
+  undoNewDraft(input: UndoNewDraftInput): { drafts: SceneDrafts; undone: boolean } {
+    const { sceneId, draftId, keptId } = input ?? ({} as Partial<UndoNewDraftInput>)
+    if (typeof sceneId !== 'string' || typeof draftId !== 'string' || typeof keptId !== 'string') {
+      throw new UserError(
+        "That draft can't be found. It may have been deleted; the Drafts tab shows the ones this scene has.",
+        'draft-gone'
+      )
+    }
     this.wordsNow(sceneId)
-    const drafts = this.must((s) => {
-      s.undoNewDraft(sceneId, draftId, keptId)
-      return this.draftsOf(s, sceneId)
+    // The scene's text now: the page's when it shows this scene (perhaps a moment ahead of its last save), or as last saved.
+    const page = input.page && input.page.sceneId === sceneId ? checkPage(input.page) : null
+    const sceneNow = page ?? this.sceneNow(sceneId)
+    const out = this.must((s) => {
+      const undone = s.undoNewDraft(sceneId, draftId, keptId, sceneNow)
+      return { undone, drafts: this.draftsOf(s, sceneId) }
     })
     this.o.changed(sceneId)
-    return this.listed(drafts)
+    return { drafts: this.listed(out.drafts), undone: out.undone }
   }
 
   /** Another draft becomes current: the page is kept as the draft it was, and the chosen one's text comes back. */
