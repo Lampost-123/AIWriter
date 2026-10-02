@@ -159,6 +159,11 @@ approval step and no Review inbox.
   elsewhere". **Undo** restores the previous version and records a suppression (`suppressions`) so
   the same fact isn't added again from the same words unless they change. A quiet "Memory updated"
   note in the top bar opens the list; Adam never has to look at it.
+- **Deleting** a scene, chapter or story takes its words out of the memory (a run with status
+  `removed`, so the usual last-link and Trash rules apply); restoring it undoes that run and reads
+  the scene again. Scenes emptied from Recently deleted are covered when a world opens.
+- **The memory model** is chosen in Settings › Models ("Memory model", `settings.models.memory`);
+  until Adam picks one, the keeper uses the writer model.
 - **Mark scene done** (Ctrl+Enter; stored as `scenes.accepted_at`, named after the spec's earlier
   "Accept") sets the scene's status and refreshes its summary (checks arrive in milestone 5).
   Memory doesn't wait for it.
