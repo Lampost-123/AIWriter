@@ -172,7 +172,10 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
 })
 
 test('Add to memory and Quick start from selected words', async ({ launch }) => {
-  const { win } = await launch()
+  const { app, win } = await launch()
+  // A set size, since where the form opens depends on how the words wrap (the window the app opens
+  // with is cut to fit the screen, which differs between machines).
+  await resize(app, win, 1280, 900)
   const w = await setUp(win)
   const bar = win.getByRole('toolbar', { name: 'Selected words' })
   const form = win.getByRole('form', { name: 'Add to memory' })
@@ -544,8 +547,9 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   // The saved layout is as it was.
   expect((await invoke(win, 'getSettings')).layout).toEqual(before)
 
-  // A wider window: the binder is back beside the page.
-  await resize(app, win, 1440, 900)
+  // A wider window: the binder is back beside the page. (Smaller than a 1440 x 900 screen, which
+  // can't hold a window its own size.)
+  await resize(app, win, 1400, 860)
   await expect(binder(win)).toBeVisible()
   expect(await pagePadding(win)).toBe('40px')
 
