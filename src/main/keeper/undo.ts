@@ -201,15 +201,25 @@ export function undoItem(db: DB, id: ID): Outcome {
   switch (u.op) {
     case 'entry-added': {
       const e = live(db, u.entryId)
-      // Its own text changes from the same run go with it.
-      const own = mem.changesForEntry(db, u.entryId).filter((c) => c.origin === 'text' && c.runId === row.runId)
-      for (const cid of [...own.map((c) => c.id), ...(u.changeIds ?? [])]) {
+      // Its own text changes from the same run go with it, and so do relationships with it.
+      const sameRun = (c: Change): boolean => c.origin === 'text' && c.runId === row.runId
+      const own = [
+        ...mem.changesForEntry(db, u.entryId).filter(sameRun),
+        ...(row.sceneId ? mem.changesInScene(db, row.sceneId) : []).filter(
+          (c) => sameRun(c) && c.kind === 'relationship' && c.payload.otherId === u.entryId
+        )
+      ]
+      const gone = new Set([...own.map((c) => c.id), ...(u.changeIds ?? [])])
+      for (const cid of gone) {
         const c = liveChange(db, cid)
         if (!c) continue
         mem.deleteChange(db, cid, ADAM)
         out.entryIds.push(c.entryId)
       }
-      for (const l of kdb.logForRun(db, row.runId)) if (l.factId && own.some((c) => c.id === l.factId)) kdb.markUndone(db, l.id)
+      // The run's other lines about it are undone with it: there is nothing left for them to undo.
+      for (const l of kdb.logForRun(db, row.runId)) {
+        if (l.id !== id && !l.undone && ((l.factId && gone.has(l.factId)) || l.entryId === u.entryId)) kdb.markUndone(db, l.id)
+      }
       if (e) repo.deleteEntry(db, e.id, ADAM)
       break
     }

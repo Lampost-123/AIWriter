@@ -510,6 +510,23 @@ describe('Adam’s own facts whose words change', () => {
 })
 
 describe('undo', () => {
+  it('undoing a new entry undoes the run’s other lines about it, and none of them brings it back', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', "Mara lost her left hand. Mara's eyes were grey. Tobin lost his boots."]])
+    const out = (await read(w.db, w.sceneId)) as { runId: ID }
+    const lines = () => kdb.logForRun(w.db, out.runId)
+    const mara = entryNamed(w.db, 'Mara')!
+    const about = lines().filter((l) => l.entryId === mara.id)
+    expect(about.map((l) => l.text)).toEqual(['New character', 'Lost her left hand', 'Eyes: grey'])
+    undoItem(w.db, about[0].id)
+    expect(lines().filter((l) => l.entryId === mara.id && !l.undone)).toEqual([])
+    // Tobin's lines are his own.
+    expect(lines().filter((l) => l.entryName === 'Tobin' && !l.undone)).toHaveLength(2)
+    for (const l of about) undoItem(w.db, l.id)
+    expect(entryNamed(w.db, 'Mara')).toBeNull()
+    expect(mem.listAllChanges(w.db).map((c) => c.entryId)).toEqual([entryNamed(w.db, 'Tobin')!.id])
+  })
+
   it('an entry Adam deletes isn’t made again from the same words, but is from new ones', async () => {
     const w = world()
     save(w.db, w.sceneId, [['p1', 'Kell lost his hat.']])
