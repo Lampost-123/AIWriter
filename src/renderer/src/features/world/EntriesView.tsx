@@ -1,4 +1,4 @@
-import { ArrowLeft, BookMarked, MapPin, Plus, Search, ShieldCheck, Users, X } from 'lucide-react'
+import { ArrowLeft, Plus, Search, ShieldCheck, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { Entry, EntryKind, ID } from '@shared/types'
@@ -9,12 +9,11 @@ import { useApp } from '@/lib/store'
 import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
-import { filterEntries, keepRowOrder, kindNoun, placePath } from './entryLogic'
+import { filterEntries, keepRowOrder, kindNoun, kindNounMany, placePath, withArticle } from './entryLogic'
+import { KIND_ICONS } from './kindIcons'
 import { useSlow } from './parts/useSlow'
 
-const ICONS: Partial<Record<EntryKind, typeof Users>> = { character: Users, place: MapPin, lore: BookMarked }
-
-const TEACH: Partial<Record<EntryKind, { text: string; button: string }>> = {
+const TEACH: Record<EntryKind, { text: string; button: string }> = {
   character: {
     text: "Characters you add here are given to the AI whenever they're in a scene, so it keeps their looks, voice and history straight.",
     button: 'Create a character'
@@ -23,9 +22,29 @@ const TEACH: Partial<Record<EntryKind, { text: string; button: string }>> = {
     text: 'Places you add here are given to the AI whenever a scene is set there, with the sights, sounds and smells that make them real.',
     button: 'Create a place'
   },
+  group: {
+    text: 'Groups are the families, guilds, factions and nations of your world. The AI is told their goals, ranks and rivals whenever they matter to a scene.',
+    button: 'Create a group'
+  },
+  item: {
+    text: 'Items are the objects that matter to the plot: a sword, a letter, a key. Note what they can and can’t do, and who holds them, so the AI keeps track.',
+    button: 'Create an item'
+  },
   lore: {
     text: 'Lore is how your world works: magic, history, customs and laws. Mark something as a hard rule and the AI is always told never to break it.',
     button: 'Create lore'
+  },
+  event: {
+    text: 'Events are things that happened, on or off the page: when they happened, what came of them, and who was involved.',
+    button: 'Create an event'
+  },
+  thread: {
+    text: 'Plot threads are the promises you’ve made to the reader: mysteries, setups and conflicts still to be resolved. The AI is reminded of the ones still open.',
+    button: 'Create a plot thread'
+  },
+  glossary: {
+    text: 'The glossary keeps the words you invent spelled the same every time, with notes on how to say them.',
+    button: 'Add a term'
   }
 }
 
@@ -163,8 +182,9 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
   }
 
   const slow = useSlow(all === null && !error)
-  const Icon = ICONS[kind] ?? Users
+  const Icon = KIND_ICONS[kind]
   const teach = TEACH[kind]
+  const many = kindNounMany(kind)
 
   if (all === null && !error) {
     // First load takes a few milliseconds: show nothing rather than a flash of an empty list.
@@ -200,14 +220,14 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
       <div className="flex h-full items-start justify-center overflow-auto pt-[12vh]">
         <EmptyState
           icon={<Icon size={20} />}
-          title={`No ${labels.many.toLowerCase()} yet`}
+          title={`No ${many} yet`}
           actions={
             <Button variant="primary" icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>
-              {teach?.button ?? `Create a ${noun}`}
+              {teach.button}
             </Button>
           }
         >
-          {teach?.text}
+          {teach.text}
         </EmptyState>
       </div>
     )
@@ -266,7 +286,9 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
           ))}
           {all !== null && query && !shown.length ? (
             <div className="px-2 py-6 text-center text-[13px] text-muted animate-fade-in">
-              <p>No {labels.many.toLowerCase()} match "{query.trim()}".</p>
+              <p>
+                No {many} match "{query.trim()}".
+              </p>
               <Button size="sm" className="mt-3 max-w-full" icon={<Plus size={14} />} loading={creating} onClick={() => void create(query)}>
                 <span className="truncate">Create "{query.trim()}"</span>
               </Button>
@@ -296,7 +318,7 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
             It may have been deleted. Deleted entries can be brought back from Settings › Recently deleted for 30 days.
           </EmptyState>
         ) : (
-          <EmptyState icon={<Icon size={20} />} title={`Choose a ${noun}`} className="mt-[10vh]">
+          <EmptyState icon={<Icon size={20} />} title={`Choose ${withArticle(noun)}`} className="mt-[10vh]">
             Pick one from the list to see and edit it, or press New {kind === 'lore' ? 'lore' : noun} to add another.
           </EmptyState>
         )}

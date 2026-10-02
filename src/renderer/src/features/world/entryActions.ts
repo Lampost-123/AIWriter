@@ -22,10 +22,14 @@ export const toPatch = (e: Entry): EntryInput => ({
 /** The name a new entry gets until Adam types one. */
 export const newEntryName = (kind: EntryKind): string => `New ${KIND_LABELS[kind].one.toLowerCase()}`
 
-/** Creates an entry and marks it so its form opens with the name selected. */
-export async function createEntry(kind: EntryKind, name?: string): Promise<Entry> {
-  const e = await api.createEntry(kind, { name: name?.trim() || newEntryName(kind) })
-  markFresh(e.id)
+/**
+ * Creates an entry in the story Adam is working in (which decides where it first exists), and marks
+ * it so its form opens with the name selected. `fresh: false` for entries made from a picker on
+ * another page, which aren't opened.
+ */
+export async function createEntry(kind: EntryKind, name?: string, opts: { fresh?: boolean } = {}): Promise<Entry> {
+  const e = await api.createEntry(kind, { name: name?.trim() || newEntryName(kind), originStoryId: useApp.getState().storyId })
+  if (opts.fresh !== false) markFresh(e.id)
   useApp.getState().bumpEntries()
   return e
 }
