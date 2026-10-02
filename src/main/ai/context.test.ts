@@ -934,6 +934,22 @@ describe('blocks', () => {
     expect(block.short).toBe('- The Tide Laws (lore): Boats and bells.\n- The Fish Market (place)\n- Will (character): A stable boy.')
   })
 
+  it('block 9: a plot thread named in the beats that is already paid off says so', () => {
+    const inp = input()
+    const map = entry('thread', 'The lost map', { summary: 'Where is the map?' })
+    const debt = entry('thread', 'The debt', { summary: 'What does Mara owe?' })
+    inp.memory.entries.push(map, debt)
+    inp.memory.threads = [
+      { entryId: map.id, status: 'resolved', setUp: 'Book 1, Ch 1, Sc 1', paidOff: 'Book 1, Ch 9, Sc 2' },
+      { entryId: debt.id, status: 'open', setUp: 'Book 1, Ch 2, Sc 1', paidOff: '' }
+    ]
+    inp.scene.card.beats = ['Mara remembers the lost map', 'She thinks of the debt']
+    const block = blockOf(inp, 'mentioned')!
+    expect(block.text).toContain('### The lost map (plot thread; already paid off in Book 1, Ch 9, Sc 2)')
+    expect(block.text).toContain('### The debt (plot thread)\n')
+    expect(block.short).toContain('- The lost map (plot thread; already paid off in Book 1, Ch 9, Sc 2): Where is the map?')
+  })
+
   it('block 10: themes and tone of the story, series and world; short: one line', () => {
     const inp = richInput()
     inp.story.tone = 'Bleak. Then hopeful.'

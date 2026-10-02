@@ -93,7 +93,7 @@ export const aiHandlers: Handlers<AiMethods> = {
           )
         }
         throw new UserError(
-          'The briefing is too long for this model: the instructions and the scene card fill it. Pick a model that can read more in Settings > Models, or shorten the scene card.',
+          "This model can't read the style guide and the scene card and still write the scene. Pick a model that can read more in Settings > Models, or shorten the scene card or the style guide.",
           'briefing-too-long'
         )
       }

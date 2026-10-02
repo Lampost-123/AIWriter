@@ -1057,7 +1057,12 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
       const why = sel.chosen.get(e.id)?.why
       return why === WHY.beats || why === WHY.notes || why === WHY.direction
     })
-    const note = (e: Entry): string => [kindWord(e), label(e)].filter(Boolean).join('; ')
+    // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
+    const paidOff = (e: Entry): string => {
+      const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
+      return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
+    }
+    const note = (e: Entry): string => [kindWord(e), paidOff(e), label(e)].filter(Boolean).join('; ')
     add(
       'mentioned',
       9,
