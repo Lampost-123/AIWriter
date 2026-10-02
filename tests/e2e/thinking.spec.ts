@@ -37,15 +37,18 @@ test('Settings › Models: the writer and the memory each choose how much to thi
     await win.reload()
     await expect(prose(win)).toBeVisible()
 
-    // By default neither the writer nor the memory thinks.
+    // By default neither the writer, the memory nor the character builder thinks.
     await openSettings(win, 'Models')
     const writer = thinking(win, 'Writer model')
     const memory = thinking(win, 'Memory model')
+    const builder = thinking(win, 'Character builder model')
     await expect(writer.getByRole('radio')).toHaveText(['Model decides', 'Off', 'Low', 'Medium', 'High'])
     await expect(writer.getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
     await expect(writer.getByRole('radio', { checked: true })).toHaveCount(1)
     await expect(memory.getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
     await expect(memory.getByRole('radio', { checked: true })).toHaveCount(1)
+    await expect(builder.getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
+    await expect(section(win, 'Character builder model').getByText('Same as the writer model')).toBeVisible()
     await expect(section(win, 'Writer model').getByText('Answers straight away', { exact: false })).toBeVisible()
     await expect(section(win, 'Memory model').getByText('Answers straight away', { exact: false })).toBeVisible()
 
@@ -56,7 +59,12 @@ test('Settings › Models: the writer and the memory each choose how much to thi
     await expect(section(win, 'Writer model').getByText('Thinks the most before it answers: slowest, and costs the most.')).toBeVisible()
     await expect(section(win, 'Writer model').getByText('Answers straight away', { exact: false })).toBeHidden()
     await expect(memory.getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
-    expect((await invoke(win, 'getSettings')).thinking).toMatchObject({ writer: 'high', memory: 'off' })
+    expect((await invoke(win, 'getSettings')).thinking).toMatchObject({ writer: 'high', memory: 'off', builder: 'off' })
+
+    // The character builder has its own choice too.
+    await builder.getByRole('radio', { name: 'Low' }).click()
+    await expect(builder.getByRole('radio', { name: 'Low' })).toHaveAttribute('aria-checked', 'true')
+    expect((await invoke(win, 'getSettings')).thinking).toMatchObject({ writer: 'high', memory: 'off', builder: 'low' })
 
     // Kept after closing and opening the app again.
     await closeWindow(first.app)
@@ -65,6 +73,7 @@ test('Settings › Models: the writer and the memory each choose how much to thi
     await openSettings(win, 'Models')
     await expect(thinking(win, 'Writer model').getByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true')
     await expect(thinking(win, 'Memory model').getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
+    await expect(thinking(win, 'Character builder model').getByRole('radio', { name: 'Low' })).toHaveAttribute('aria-checked', 'true')
 
     // A draft asks the writer model to think hard; for an OpenAI-compatible provider that's reasoning_effort.
     await row(win, 'Scene 1').click()

@@ -14,10 +14,12 @@ export interface EntryData<T> {
 /**
  * Something an entry page loads about its entry (its changes, where it first exists, the words its
  * facts came from). Reloads whenever the world's entries change (entriesRev, which also moves when
- * the memory keeper changes something), and only shows the newest answer.
+ * the memory keeper changes something), and only shows the newest answer. With `reloadOn`, it
+ * reloads whenever that changes instead (for what an ordinary save of the entry can't change).
  */
-export function useEntryData<T>(load: () => Promise<T>, key: string, enabled = true): EntryData<T> {
-  const rev = useApp((s) => s.entriesRev)
+export function useEntryData<T>(load: () => Promise<T>, key: string, enabled = true, reloadOn?: string | number): EntryData<T> {
+  const entriesRev = useApp((s) => (reloadOn === undefined ? s.entriesRev : 0))
+  const rev = reloadOn ?? entriesRev
   const [state, setState] = useState<{ key: string; data: T | null; error: string | null }>({ key, data: null, error: null })
   const loadRef = useRef(load)
   loadRef.current = load

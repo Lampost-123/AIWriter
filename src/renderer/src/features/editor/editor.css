@@ -81,3 +81,26 @@
 .scene-prose .ProseMirror-gapcursor:after {
   border-top-color: var(--fg);
 }
+
+/* The names of known entries: a faint dotted underline, below the letters, that takes no room. */
+.scene-prose .aw-name {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--faint) 70%, transparent);
+  text-underline-offset: 0.24em;
+}
+
+.scene-prose .aw-name:hover {
+  text-decoration-color: var(--muted);
+}
+
+/* With Ctrl (Cmd on a Mac) held, a name can be clicked to show it beside the page. */
+.scene-prose.aw-mod .aw-name {
+  cursor: pointer;
+}
+
+.scene-prose.aw-mod .aw-name:hover {
+  text-decoration-style: solid;
+  text-decoration-color: var(--accent);
+}

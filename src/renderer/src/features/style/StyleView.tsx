@@ -18,6 +18,11 @@ import { Group, short, StyleFields } from './StyleFields'
 type Tab = 'world' | 'story'
 let lastTab: Tab = 'world'
 
+/** Opens the style guide on this tab the next time it is shown (story settings' "Change this story's style"). */
+export function openStyleTab(tab: Tab): void {
+  lastTab = tab
+}
+
 /** A full style guide from stored data, with every field present. */
 const fullStyle = (s: Partial<StyleGuide> | undefined): StyleGuide => {
   const v: StyleGuide = { ...defaultStyleGuide(), ...(s ?? {}) }

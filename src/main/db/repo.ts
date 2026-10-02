@@ -470,28 +470,70 @@ const toEntry = (r: Row): Entry => ({
   originSceneId: (r.origin_scene_id as string) ?? null,
   originStart: !!r.origin_start,
   byHand: !!r.by_hand,
+  image: r.image_version ? `${IMAGE_SCHEME}://entry/${encodeURIComponent(r.id as string)}?v=${r.image_version as string}` : null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string
 })
 
+/** The address scheme portraits are served on (src/main/portraits.ts). */
+export const IMAGE_SCHEME = 'aiwrite-image'
+
+/**
+ * Every entry column the interface needs. The portrait itself (entries.image, a data: URL) is left
+ * out, so lists stay small; `image_version` changes whenever the portrait does.
+ */
+const ENTRY_COLUMNS = `id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json, parent_id, hard_rule,
+  origin, field_origins_json, origin_story_id, origin_scene_id, origin_start, by_hand, created_at, updated_at,
+  CASE WHEN image IS NULL OR image = '' THEN NULL ELSE length(image) || '-' || hex(substr(image, -9)) END AS image_version`
+
 export function listEntries(db: DB, kind?: EntryKind): Entry[] {
   const rows = kind
-    ? db.prepare('SELECT * FROM entries WHERE kind = ? AND deleted_at IS NULL ORDER BY name COLLATE NOCASE').all(kind)
-    : db.prepare('SELECT * FROM entries WHERE deleted_at IS NULL ORDER BY kind, name COLLATE NOCASE').all()
+    ? db.prepare(`SELECT ${ENTRY_COLUMNS} FROM entries WHERE kind = ? AND deleted_at IS NULL ORDER BY name COLLATE NOCASE`).all(kind)
+    : db.prepare(`SELECT ${ENTRY_COLUMNS} FROM entries WHERE deleted_at IS NULL ORDER BY kind, name COLLATE NOCASE`).all()
   return (rows as Row[]).map(toEntry)
 }
 
 export function getEntry(db: DB, id: ID): Entry {
-  const r = db.prepare('SELECT * FROM entries WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
+  const r = db.prepare(`SELECT ${ENTRY_COLUMNS} FROM entries WHERE id = ? AND deleted_at IS NULL`).get(id) as Row | undefined
   if (!r) throw new UserError('That page no longer exists. It may have been deleted.')
   return toEntry(r)
 }
 
 export function getEntries(db: DB, ids: ID[]): Entry[] {
+  const get = db.prepare(`SELECT ${ENTRY_COLUMNS} FROM entries WHERE id = ? AND deleted_at IS NULL`)
   return ids.flatMap((id) => {
-    const r = db.prepare('SELECT * FROM entries WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
+    const r = get.get(id) as Row | undefined
     return r ? [toEntry(r)] : []
   })
+}
+
+/** Image types a portrait can be, and the most it may weigh once the interface has made it small. */
+export const PORTRAIT_TYPES = ['image/webp', 'image/png', 'image/jpeg', 'image/gif']
+export const PORTRAIT_MAX_BYTES = 2 * 1024 * 1024
+
+/**
+ * Gives an entry a portrait, or removes it (null). Stored in the world's database (entries.image,
+ * as a data: URL), so backups, restores and the trash keep it. Adam did it, so the entry counts as
+ * touched by hand. Writes no memory-history version: the history is of the entry's words.
+ */
+export function setEntryImage(db: DB, id: ID, image: { bytes: Uint8Array; type: string } | null): Entry {
+  getEntry(db, id)
+  let value: string | null = null
+  if (image) {
+    if (!PORTRAIT_TYPES.includes(image.type)) throw new UserError('That file isn’t a picture AI Write can show. Try a PNG, JPEG or WebP image.')
+    if (!image.bytes?.length) throw new UserError('That picture is empty. Try another one.')
+    if (image.bytes.length > PORTRAIT_MAX_BYTES) throw new UserError('That picture is too large. Try a smaller one.')
+    value = `data:${image.type};base64,${Buffer.from(image.bytes).toString('base64')}`
+  }
+  db.prepare('UPDATE entries SET image = ?, by_hand = 1, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(value, now(), id)
+  return getEntry(db, id)
+}
+
+/** An entry's portrait as bytes, for the aiwrite-image: address; null when it has none (or is deleted). */
+export function getEntryImage(db: DB, id: ID): { bytes: Buffer; type: string } | null {
+  const r = db.prepare('SELECT image FROM entries WHERE id = ? AND deleted_at IS NULL').get(id) as { image: string | null } | undefined
+  const m = r?.image ? /^data:([\w/+.-]+);base64,(.*)$/s.exec(r.image) : null
+  return m ? { type: m[1], bytes: Buffer.from(m[2], 'base64') } : null
 }
 
 /** How an entry is being made: by Adam (the default), read from a scene's text, or drafted by the AI; and whether by a start-of-story change. */

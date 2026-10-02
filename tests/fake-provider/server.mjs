@@ -294,6 +294,8 @@ export async function startFakeProvider(options = {}) {
       const broken = model === 'fake/memory-junk' || (model === 'fake/memory-bad-json' && memoryCounts[model] === 1)
       memory = broken ? 'Here you go: {"facts": [ {"id": ' : fakeMemoryReply(firstUser)
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
+    else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
+    memory ??= fakeBuilderReply(system, messages, model)
     const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4
@@ -423,4 +425,160 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   }
   const fake = await startFakeProvider({ port: arg('port', 4545), delayMs: arg('delay', 10), words: arg('words', 120) })
   console.log(`Fake provider listening at ${fake.url}`)
+}
+
+/**
+ * A deterministic reply to a story flow request (src/main/storyFlows/prompts.ts), chosen by the flow
+ * named after the marker. "[[fake: empty]]" in the request gives an empty reply, "[[fake: broken]]" one
+ * that can't be read.
+ * - time-gap: after 50 years or more (or centuries, generations, ages) the first character "died long
+ *   ago", the first place "fell into ruin" (now home to nobody but crows) and the first open plot
+ *   thread is left unanswered; after less, nothing changed.
+ * - starting-cast: a younger or earlier description for each entry under "Cast to draft". With
+ *   "[[fake: related]]" in the request, the first character's names the first place ("works at"), one
+ *   way only.
+ * - when: a change whose entry a scene of the new story names happens in that scene; the first other
+ *   change happened before the new story; the rest after it.
+ */
+export function fakeStoryFlowReply(system, user) {
+  const text = String(user)
+  if (text.includes('[[fake: empty]]')) return ''
+  if (text.includes('[[fake: broken]]')) return 'Here is what changed: {"changes": [ {"entry": '
+  const flow = (String(system).match(/\[AIWRITE-STORY-FLOW v\d+\] ([a-z-]+)/) ?? [])[1]
+  const sections = new Map()
+  for (const part of text.split(/\n(?=## )/)) {
+    const head = part.split('\n')[0].replace(/^## /, '')
+    sections.set(head, part.split('\n').slice(1))
+  }
+  const section = (start) => [...sections].find(([head]) => head.startsWith(start))?.[1] ?? []
+  const entries = (lines) =>
+    lines.flatMap((l) => {
+      const m = l.match(/^- (E\d+) ([a-z]+) "([^"]+)"/)
+      return m ? [{ id: m[1], kind: m[2], name: m[3] }] : []
+    })
+
+  if (flow === 'time-gap') {
+    const gap = (text.match(/^Time since the story before it: (.*)$/m) ?? [])[1] ?? ''
+    const years = Number((gap.match(/(\d[\d,]*)\s*(years?|decades?|centur)/i) ?? [])[1]?.replace(/,/g, '') ?? 0)
+    const long = years >= 50 || /centur|generation|\bages?\b|decades/i.test(gap)
+    if (!long) return JSON.stringify({ changes: [], closed: [] })
+    const cast = entries(section('Characters, places, groups and items'))
+    const changes = []
+    const person = cast.find((e) => e.kind === 'character')
+    if (person) changes.push({ type: 'change', entry: person.id, note: 'died long ago' })
+    const place = cast.find((e) => e.kind === 'place')
+    if (place) changes.push({ type: 'change', entry: place.id, note: 'fell into ruin', fields: { people: 'Nobody now but crows' } })
+    const thread = section('Open plot threads')
+      .map((l) => (l.match(/^- (E\d+) /) ?? [])[1])
+      .find(Boolean)
+    return JSON.stringify({ changes, closed: thread ? [thread] : [] }, null, 1)
+  }
+
+  if (flow === 'starting-cast') {
+    const younger = {
+      character: (n) => `${n} is young here, years before the book: untested, hopeful, and not yet who the book shows.`,
+      place: (n) => `${n} as it was years earlier: newer, busier, and not yet changed by what the book tells.`,
+      group: (n) => `${n} years earlier: smaller, with other leaders, and not yet what it becomes.`,
+      item: (n) => `${n} years earlier, before it came to the hands the book finds it in.`
+    }
+    const drafting = entries(section('Cast to draft'))
+    const workplace = text.includes('[[fake: related]]') ? drafting.find((e) => e.kind === 'place') : null
+    const worker = workplace ? drafting.find((e) => e.kind === 'character') : null
+    const cast = drafting.map((e) => ({
+      entry: e.id,
+      summary: `${e.name}, years before the book`,
+      description: (younger[e.kind] ?? younger.item)(e.name),
+      fields: {},
+      relationships: e === worker ? [{ other: workplace.id, rel: 'works at', feels: 'proud of it', otherFeels: '' }] : [],
+      knows: []
+    }))
+    return JSON.stringify({ cast }, null, 1)
+  }
+
+  if (flow === 'when') {
+    const changes = section('The later story')
+      .map((l) => l.match(/^- (C\d+) (.+?) \(([a-z]+)\): /))
+      .filter(Boolean)
+    const scenes = section('Scenes of')
+      .map((l) => l.match(/^- (S\d+) (.*)$/))
+      .filter(Boolean)
+    let before = false
+    const sorted = changes.map(([, id, name]) => {
+      const scene = scenes.find(([, , words]) => words.toLowerCase().includes(name.toLowerCase()))
+      if (scene) return { change: id, when: 'in', scene: scene[1] }
+      if (!before) {
+        before = true
+        return { change: id, when: 'before' }
+      }
+      return { change: id, when: 'after' }
+    })
+    return JSON.stringify({ changes: sorted }, null, 1)
+  }
+  return JSON.stringify({})
+}
+
+// ---------- Builder replies ----------
+// Builder requests (src/main/builder/prompts.ts) start their system prompt with "[AIWRITE-BUILDER v1] <job>".
+//   quick-start  The notes' first words before " runs", " is", " was" or a comma are the name (else "Corvin
+//                Ashe"). The notes' lines are copied word for word under "fromNotes", in order, into:
+//                character: summary, traits, marks, secrets; place: summary, atmosphere, history;
+//                group: summary, goals, history; item: summary, powers, origin. Every other field the
+//                prompt lists is under "drafted", as "<Label> of <name>, drafted to fit the world."
+//                Fields listed as saved already (finishing a profile) are left out.
+//   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
+//   options      Three options: "<Label>, first option: ...", "second", "third".
+//   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
+//                and I pay my debts." The model fake/empty sends back nothing for any of these.
+export function fakeBuilderReply(system, messages, model = '') {
+  const job = String(system).match(/^\[AIWRITE-BUILDER v1\] ([a-z-]+)/)?.[1]
+  if (!job) return null
+  if (model === 'fake/empty') return ''
+  const users = (messages ?? []).filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
+  const user = users[users.length - 1] ?? ''
+  const fields = [...String(system).matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)].map((m) => ({ key: m[1], label: m[2].trim() }))
+  const nameIn = (text) => text.match(/^Name: (.+)$/m)?.[1]?.trim() ?? 'them'
+  if (job === 'quick-start') {
+    const kind = String(system).match(/build the (\w+)s of a novel/)?.[1] ?? 'character'
+    const notes = (user.match(/"""\n([\s\S]*?)\n"""/)?.[1] ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+    const named = notes[0]?.match(/^([A-Z][\w'’-]*(?: [A-Z][\w'’-]*)?)(?:,| (?:runs|is|was|has)\b)/)?.[1]
+    const name = named ?? 'Corvin Ashe'
+    const SLOTS = {
+      character: ['summary', 'traits', 'marks', 'secrets'],
+      place: ['summary', 'atmosphere', 'history'],
+      group: ['summary', 'goals', 'history'],
+      item: ['summary', 'powers', 'origin']
+    }
+    const slots = SLOTS[kind] ?? ['summary']
+    // Finishing a profile: the fields saved already are listed by label after the notes.
+    const saved = new Set([...(user.split('These fields are saved already')[1] ?? '').matchAll(/^([^:\n]+): /gm)].map((m) => m[1].trim()))
+    const keep = (key) => !saved.has(fields.find((f) => f.key === key)?.label ?? key)
+    const fromNotes = named && keep('name') ? { name } : {}
+    notes.forEach((line, i) => {
+      if (slots[i] && keep(slots[i])) fromNotes[slots[i]] = line
+    })
+    const drafted = named || !keep('name') ? {} : { name }
+    for (const f of fields) {
+      if (f.key in fromNotes || f.key in drafted || !keep(f.key)) continue
+      if (f.key === 'aliases') drafted.aliases = `Old ${name.split(' ')[0]}`
+      else if (f.key === 'sampleLines') drafted.sampleLines = '"Pay first, then we talk."\n"The river doesn\'t wait, and neither do I."'
+      else if (f.key === 'role') drafted.role = 'supporting'
+      else drafted[f.key] = `${f.label} of ${name}, drafted to fit the world.`
+    }
+    return JSON.stringify({ fromNotes, drafted }, null, 1)
+  }
+  if (job === 'flesh-out') {
+    const name = nameIn(user)
+    const wanted = [...(user.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
+    return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], `Suggested ${m[2].trim().toLowerCase()} for ${name}.`])), null, 1)
+  }
+  if (job === 'options') {
+    const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'
+    const options = ['first', 'second', 'third'].map((n) => `${label}, ${n} option: something only ${nameIn(user)} would have.`)
+    return JSON.stringify({ options })
+  }
+  if (job === 'interview') {
+    const about = user.replace(/^\s*what do you (?:think|make) (?:of|about)\s+/i, '').replace(/[?.!\s]+$/, '') || 'that'
+    return `You want to know about ${about}? I'll say this once: I keep my own counsel, and I pay my debts.`
+  }
+  return null
 }

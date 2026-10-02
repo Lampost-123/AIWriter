@@ -4,7 +4,20 @@ import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 export const newId = (): string => randomUUID()
-export const now = (): string => new Date().toISOString()
+let lastNow = 0
+let lastClock = 0
+/**
+ * The time now. Two calls never give the same instant: each is at least a millisecond after the
+ * last, running a little ahead of the clock through a burst of saves, until the clock itself is set
+ * back by more than a second. A scene's or entry's `updated_at` tells caches it changed, so two saves
+ * in one millisecond must still look different, and what's made later must never sort first.
+ */
+export const now = (): string => {
+  const t = Date.now()
+  lastNow = t > lastNow || t < lastClock - 1000 ? t : lastNow + 1
+  lastClock = t
+  return new Date(lastNow).toISOString()
+}
 
 /** An error whose message is safe to show to Adam as-is. */
 export class UserError extends Error {

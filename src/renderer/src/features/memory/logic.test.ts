@@ -116,6 +116,12 @@ describe('groupLog', () => {
     expect(groupHeading(groupLog([item('r', null, '')])[0])).toBe('Across the story')
   })
 
+  it("uses a run's own heading first", () => {
+    const flow = item('r', null, 'Start of Book 4')
+    expect(groupHeading(groupLog([flow], new Map([['r', 'Before Book 4 starts']]))[0])).toBe('Before Book 4 starts')
+    expect(groupHeading(groupLog([flow], new Map([['other', 'Before Book 4 starts']]))[0])).toBe('Start of Book 4')
+  })
+
   it('is empty for an empty list', () => {
     expect(groupLog([])).toEqual([])
   })

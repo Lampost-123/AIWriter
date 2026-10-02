@@ -2,9 +2,11 @@ import { memo, useCallback, useMemo } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, ID } from '@shared/types'
 import { api } from '@/lib/api'
+import { useApp } from '@/lib/store'
 import { describeChange, splitChanges } from '../memoryLogic'
 import { Section } from '../parts/Section'
 import { useSceneLabels } from '../useSceneLabels'
+import { AppearsSection } from './AppearsSection'
 import { ChangesSection, type ChangeItem } from './ChangesSection'
 import { HistorySection } from './HistorySection'
 import { KnowledgeSection } from './KnowledgeSection'
@@ -24,11 +26,14 @@ function fieldLabels(kind: Entry['kind']): (key: string) => string {
 
 /**
  * The memory parts of an entry page, as sections under its fields: relationships (or connections)
- * at the start, what a character knows at the start, how it changes over time, and earlier versions.
+ * at the start, what a character knows at the start, how it changes over time, the scenes it
+ * appears in, and earlier versions.
  * Each loads on its own and says so quietly when it can't, so the rest of the page always works.
  */
 export const EntryMemorySections = memo(function EntryMemorySections({
   now,
+  names,
+  ready,
   others,
   open,
   onToggle,
@@ -37,6 +42,10 @@ export const EntryMemorySections = memo(function EntryMemorySections({
 }: {
   /** The entry as it is on the page now. */
   now: Entry
+  /** The names it goes by, as last saved (any string that changes when they do). */
+  names: string
+  /** False until where it first exists has loaded: that line at the top of the page is asked for first. */
+  ready: boolean
   /** Every other entry in the world. */
   others: Entry[]
   open: Set<string>
@@ -48,6 +57,11 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   const name = now.name.trim() || 'Unnamed'
   const data = useEntryData(() => api.listChanges(id), `changes:${id}`)
   const places = useSceneLabels(!!data.data?.some((c) => c.links.length > 0 || c.anchor === 'scene'))
+  // Where it appears changes with the memory (a scene read again, a change pinned to a scene), with the
+  // scenes themselves (moved, deleted) and with the names it goes by: not with every save of its profile.
+  const memoryRev = useApp((s) => s.memoryRev)
+  const outlineRev = useApp((s) => s.outlineRev)
+  const appears = useEntryData(() => api.listAppearances(id), `appears:${id}`, ready, `${memoryRev}|${outlineRev}|${names}`)
 
   const byId = useMemo(() => new Map(others.map((e) => [e.id, e])), [others])
   const nameOf = useCallback(
@@ -67,6 +81,8 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   }, [split, id, kind, nameOf])
 
   const self = useMemo(() => ({ id, kind, name: now.name }), [id, kind, now.name])
+  // On an entry AI Write made, what Adam added to it says "You wrote this", as his fields there do.
+  const adamsEntry = now.origin === 'adam'
   const relationships = split?.relationships ?? []
   const relCount = relationships.filter((r) => byId.has(r.otherId)).length
   const placeName = useCallback((x: ID) => byId.get(x)?.name.trim() || 'a place that was deleted', [byId])
@@ -79,15 +95,26 @@ export const EntryMemorySections = memo(function EntryMemorySections({
         open={open.has('relationships')}
         onToggle={() => onToggle('relationships')}
       >
-        <RelationshipsSection self={self} rows={relationships} data={data} entries={others} places={places} onOpen={onOpen} />
+        <RelationshipsSection
+          self={self}
+          adamsEntry={adamsEntry}
+          rows={relationships}
+          data={data}
+          entries={others}
+          places={places}
+          onOpen={onOpen}
+        />
       </Section>
       {kind === 'character' ? (
         <Section title="Knows at the start" meta={split?.knows.length || null} open={open.has('knows')} onToggle={() => onToggle('knows')}>
-          <KnowledgeSection self={self} rows={split?.knows ?? []} data={data} places={places} />
+          <KnowledgeSection self={self} adamsEntry={adamsEntry} rows={split?.knows ?? []} data={data} places={places} />
         </Section>
       ) : null}
       <Section title="Changes over time" meta={items.length || null} open={open.has('changes')} onToggle={() => onToggle('changes')}>
         <ChangesSection name={name} kind={kind} items={items} data={data} places={places} />
+      </Section>
+      <Section title="Appears in" meta={appears.data?.length || null} open={open.has('appears')} onToggle={() => onToggle('appears')}>
+        <AppearsSection name={name} kind={kind} data={appears} />
       </Section>
       <Section title="Earlier versions" open={open.has('history')} onToggle={() => onToggle('history')}>
         <HistorySection now={now} placeName={placeName} beforeRestore={beforeRestore} />

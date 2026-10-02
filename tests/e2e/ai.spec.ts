@@ -100,6 +100,50 @@ test('switching worlds mid-draft stops it with every word kept, and no false "Re
   }
 })
 
+test('deleting the scene a draft is writing into stops the draft, nothing is left failing to save, and Undo brings every word back', async ({
+  launch
+}) => {
+  const fake = await fakeProvider({ slowWords: 3000, slowDelayMs: 25 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const sceneId = await firstScene(win)
+    const [story] = await invoke(win, 'listStories')
+    const { chapters } = await invoke(win, 'getOutline', story.id)
+    await invoke(win, 'createScene', chapters[0].id, { title: 'The Ferry' })
+    await useWriter(win, fake, 'fake/slow')
+
+    await generateButton(win).click()
+    await expect(prose(win)).toContainText('Mara kept her hood low')
+    await binder(win).locator('[data-row]', { hasText: 'Scene 1' }).first().focus()
+    await win.keyboard.press('Delete')
+    await expect(
+      toasts(win).getByText('Drafting stopped because the scene was deleted. Undo brings it back with the text so far.')
+    ).toBeVisible()
+    await expect(toasts(win).getByText('“Scene 1” deleted.')).toBeVisible()
+    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    expect((await invoke(win, 'listGenerations', sceneId))[0].status).toBe('stopped')
+
+    // Nothing keeps trying to save into the deleted scene, and the open one saves as usual.
+    await win.waitForTimeout(3000)
+    await expect(topBar(win)).not.toContainText('Not saved')
+    await prose(win).click()
+    await win.keyboard.type('The ferry left at dawn.')
+    await expect(topBar(win)).toContainText('Saved')
+    await expect(topBar(win)).not.toContainText('Not saved')
+
+    await toasts(win).getByRole('button', { name: 'Undo' }).click()
+    await expect(binder(win).locator('[data-row]', { hasText: 'Scene 1' })).toHaveCount(1)
+    const [gen] = await invoke(win, 'listGenerations', sceneId)
+    const rec = await invoke(win, 'getGeneration', gen.id)
+    expect(rec.response.length).toBeGreaterThan(0)
+    expect((await invoke(win, 'getScene', sceneId)).text.trim()).toBe(rec.response.trim())
+    expect(await invoke(win, 'listRecovery')).toEqual([])
+  } finally {
+    await fake.close()
+  }
+})
+
 test('Add below on a scene with text puts the draft below a scene break, and one Ctrl+Z takes both away', async ({ launch }) => {
   const fake = await fakeProvider({ words: 60 })
   try {

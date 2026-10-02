@@ -3,11 +3,16 @@ import { deletedSummary, type Noun } from './deleteWords'
 
 // Deletes happen straight away and are undone from one toast. Deleting more while that toast
 // is showing adds to it ("3 scenes deleted · Undo"), so an earlier Undo is never pushed away.
-// Whatever the toast no longer offers stays in Recently deleted (Settings) for 30 days.
+// Whatever the toast no longer offers stays in Settings › Recently deleted for 30 days.
 
 export interface Deletion {
   /** The toast when this is the only thing in it: "“Scene 3” deleted." */
   message: string
+  /**
+   * What the delete changed elsewhere, in plain words ("Kell's Road now starts after Book 1, Ch 1 instead."),
+   * kept when several deletes share one toast. A single delete's `message` already says it.
+   */
+  notes?: string[]
   /** For counting several deletes in one toast. */
   noun: Noun
   /** Brings it back and puts the screen right. Shows its own message if that fails. */
@@ -27,7 +32,8 @@ function live(): Batch | null {
   return batch
 }
 
-const messageFor = (items: Deletion[]): string => (items.length === 1 ? items[0].message : deletedSummary(items.map((d) => d.noun)))
+const messageFor = (items: Deletion[]): string =>
+  items.length === 1 ? items[0].message : [deletedSummary(items.map((d) => d.noun)), ...items.flatMap((d) => d.notes ?? [])].join(' ')
 
 /** Undoes deletes newest first, so a scene deleted before its chapter comes back after the chapter. */
 async function undoAll(items: Deletion[]): Promise<void> {

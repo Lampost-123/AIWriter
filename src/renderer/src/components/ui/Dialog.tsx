@@ -11,10 +11,21 @@ export interface DialogProps {
   children: ReactNode
   footer?: ReactNode
   width?: number
+  /** Where the keyboard goes once it closes (call preventDefault to choose); by default, back to what opened it. */
+  onCloseAutoFocus?: (e: Event) => void
 }
 
 /** Use for setup flows only. Routine actions never open a modal (see the spec's "no jank" rules). */
-export function Dialog({ open, onOpenChange, title, description, children, footer, width = 480 }: DialogProps): React.JSX.Element {
+export function Dialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+  width = 480,
+  onCloseAutoFocus
+}: DialogProps): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
@@ -27,6 +38,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             const field = content.querySelector<HTMLElement>('[data-autofocus], input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])')
             ;(field ?? content).focus()
           }}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{ width }}
           className="fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
         >

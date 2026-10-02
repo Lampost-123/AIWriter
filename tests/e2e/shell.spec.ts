@@ -216,7 +216,9 @@ test('switching worlds returns to the same place, and an Undo never acts on anot
   // ...then Adam starts Book 2 and is writing there.
   await binder(win).getByRole('button', { name: /Book 1/ }).click()
   await win.getByRole('menuitem', { name: 'New story' }).click()
-  await win.getByRole('textbox', { name: 'Story title' }).press('Enter')
+  const dialog = win.getByRole('dialog', { name: 'New story' })
+  await expect(dialog.getByText('Continues after Book 1', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Create' }).click()
   await expect(crumbs(win)).toContainText('Book 2')
 
   // Switching worlds drops the Undo: it would act on the wrong world.

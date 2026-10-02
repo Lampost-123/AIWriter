@@ -202,6 +202,10 @@ export function buildLine(shape: WorldShape, target: LineTarget): Line {
       const at = info.sceneStep.get(target.before)
       if (at === undefined) throw new Error(`No scene ${target.before} in story ${target.storyId}`)
       upTo = at - 1
+    } else if ('after' in target) {
+      const at = info.sceneStep.get(target.after)
+      if (at === undefined) throw new Error(`No scene ${target.after} in story ${target.storyId}`)
+      upTo = at
     } else {
       upTo = target.through === 'end' ? info.steps.length - 1 : 1
     }

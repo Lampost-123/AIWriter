@@ -21,6 +21,7 @@ import { newSplitState, splitChunk, type SplitState } from './streamText'
 import { requestEditorFocus, takeFocusRequest } from './focusRequest'
 import { withParagraphIds } from './paragraphIds'
 import { findTextRange } from './findText'
+import { REVEALED } from './reveal'
 import { requestPutBack } from './putBack'
 
 /** Where Adam was in each scene this session, so coming back restores the view. */
@@ -33,6 +34,9 @@ const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>(
 let recovery: { worldId: ID; done: Promise<void> } | null = null
 
 const app = useApp.getState
+
+/** The scene was deleted (Undo brings it back as it was last saved), so saving into it again can't work. */
+const sceneGone = (e: unknown): boolean => (e as Error | undefined)?.message === 'That scene no longer exists.'
 
 /** One scene's unsaved state. Outlives the switch to another scene until its last save lands. */
 class SceneSession {
@@ -69,6 +73,14 @@ class SceneSession {
         this.recovery.cancel()
         void api.clearRecovery(this.id).catch(() => undefined)
         if (this.closing) this.finish()
+      },
+      // A scene left behind that was deleted meanwhile: nothing more can be saved into it, so it stops
+      // trying, and the top bar goes back to saying how the open scene is doing.
+      isGone: (e) => this.closing && sceneGone(e),
+      onGone: () => {
+        this.state = null
+        void api.clearRecovery(this.id).catch(() => undefined)
+        this.finish()
       }
     })
     // The recovery file is at most half a second behind while Adam types, so a crash loses almost nothing.
@@ -90,7 +102,7 @@ class SceneSession {
     this.snapshot = doc
   }
 
-  /** Saves what's pending, then lets go (a failed save keeps retrying until it lands). */
+  /** Saves what's pending, then lets go (a failed save keeps retrying until it lands, unless the scene was deleted). */
   async close(): Promise<void> {
     this.closing = true
     this.recovery.flush()
@@ -352,7 +364,7 @@ export class SceneController {
     const view = this.editor.view
     const range = findTextRange(view.state.doc, quote)
     if (!range) return false
-    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)).setMeta(REVEALED, true))
     view.focus()
     const el = this.scroller()
     if (el) {
@@ -525,11 +537,11 @@ export class SceneController {
   }
 
   /**
-   * Leaving the scene mid-draft stops the draft; the text so far stays. Waits (briefly)
-   * for the last words that were already on their way, so the scene keeps everything
+   * Leaving the scene mid-draft (or deleting it) stops the draft; the text so far stays. Waits
+   * (briefly) for the last words that were already on their way, so the scene keeps everything
    * the draft's record has.
    */
-  private async stopStreamForSwitch(reason: 'scene' | 'world'): Promise<void> {
+  private async stopStreamForSwitch(reason: 'scene' | 'world' | 'deleted'): Promise<void> {
     if (!this.stream) return
     const id = this.stream.generationId
     this.stopping = id
@@ -544,6 +556,14 @@ export class SceneController {
       else replaced = this.lastEnded?.generationId === id && this.lastEnded.replaced
     } finally {
       this.stopping = null
+    }
+    if (reason === 'deleted') {
+      toast(
+        replaced
+          ? 'Drafting stopped because the scene was deleted. Undo brings it back with the text so far, and the text it replaced can be put back from its Drafts tab.'
+          : 'Drafting stopped because the scene was deleted. Undo brings it back with the text so far.'
+      )
+      return
     }
     const where = reason === 'scene' ? 'opened another scene' : 'switched worlds'
     toast(

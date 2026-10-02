@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ApiMethod, AppApi, Bridge, IpcResult } from '@shared/api'
+import type { FakeProvider } from '../fake-provider/server.mjs'
 
 /** The repository root: the built app (out/) is launched from here. */
 export const ROOT = resolve(__dirname, '..', '..')
@@ -111,3 +112,22 @@ export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<Laun
 })
 
 export { expect }
+
+/** Starts the fake AI server (tests/fake-provider/server.mjs). Close it in `finally`. */
+export async function startFake(opts: { delayMs?: number } = {}): Promise<FakeProvider> {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  return startFakeProvider({ delayMs: opts.delayMs ?? 2 })
+}
+
+/**
+ * Connects the fake server and makes `modelId` the writer model (the memory and the builders use it
+ * when no model of their own is chosen), then reloads the window so it reads the new settings.
+ */
+export async function useFakeModel(win: Page, fake: FakeProvider, modelId = 'fake/writer'): Promise<void> {
+  const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
+  await invoke(win, 'updateSettings', {
+    models: { writer: { providerId: p.id, modelId, label: modelId, contextLength: 32000, promptPrice: null, completionPrice: null } }
+  })
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+}

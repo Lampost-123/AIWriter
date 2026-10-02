@@ -5,14 +5,18 @@ import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
 import { Button, EmptyState, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/cn'
 import { editorBridge, setEditorBridge } from '@/lib/editorBridge'
 import { registerDiscarder, registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
+import { widePageFrom } from '@/layout/fitPanels'
 import { SceneController } from './controller'
 import { sceneExtensions } from './extensions'
 import { onFocusRequest, requestEditorFocus, takeFocusRequest } from './focusRequest'
+import { NamesLayer } from './names/NamesLayer'
+import { SelectionLayer } from './selection/SelectionLayer'
 import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
@@ -173,10 +177,27 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const lineHeight = prefs?.lineHeight ?? 1.7
   const pageWidth = prefs?.pageWidth ?? 70
 
-  /** Clicking the empty page below the text puts the cursor at the end. */
-  const onPageMouseDown = (e: React.MouseEvent): void => {
+  // The page's padding is 40 px either side, or 24 on a narrow page (a small window, or large text
+  // squeezing the words), leaving the room to the words. Decided before the page is drawn, so the
+  // words never show re-wrapped for a moment.
+  const wideFrom = widePageFrom(fontSize, pageWidth)
+  const [wide, setWide] = useState(true)
+  useLayoutEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    setWide(el.offsetWidth >= wideFrom)
+    const ro = new ResizeObserver(() => flushSync(() => setWide(el.offsetWidth >= wideFrom)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [wideFrom])
+
+  /**
+   * Clicking the empty page below the text puts the cursor at the end. Only presses on the page itself:
+   * pop-ups opened from the page (a name's card, the Add to memory form) reach here through React too.
+   */
+  const onPageMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
     const prose = editor.view.dom
-    if (e.button !== 0 || prose.contains(e.target as Node)) return
+    if (e.button !== 0 || !e.currentTarget.contains(e.target as Node) || prose.contains(e.target as Node)) return
     if (e.clientY > prose.getBoundingClientRect().bottom) {
       e.preventDefault()
       editor.commands.focus('end')
@@ -201,11 +222,13 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       >
         <div
           ref={columnRef}
-          className={shown && !error ? 'mx-auto px-10 pb-[38vh] pt-12 font-serif' : 'invisible mx-auto px-10 pb-[38vh] pt-12 font-serif'}
+          className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', !(shown && !error) && 'invisible')}
           style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
         >
           <EditorContent editor={editor} />
         </div>
+        <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
+        <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState
@@ -245,10 +268,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
 /** Opens a new scene at the end of the story (making a chapter or story first if needed). */
 async function addSceneAtEnd(): Promise<void> {
   const { storyId } = useApp.getState()
-  if (!storyId) {
-    await actions.newStory()
-    return
-  }
+  if (!storyId) return
   const cached = useOutlineStore.getState().outline
   const outline = cached && cached.story.id === storyId ? cached : await api.getOutline(storyId)
   const chapterId = outline.chapters[outline.chapters.length - 1]?.id ?? (await actions.addChapter(storyId))
@@ -274,11 +294,13 @@ function NoScene(): React.JSX.Element {
             icon={<FilePlus2 size={15} />}
             loading={busy}
             onClick={() => {
+              // With no story yet, the New story dialog starts one.
+              if (!storyId) return useApp.getState().setNewStoryOpen(true)
               setBusy(true)
               void addSceneAtEnd().finally(() => setBusy(false))
             }}
           >
-            Add a scene
+            {storyId ? 'Add a scene' : 'New story…'}
           </Button>
         }
       >

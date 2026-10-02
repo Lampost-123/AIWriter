@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { DeepPartial, EntryKind, ID, MemoryStatus, Settings, Story, World } from '@shared/types'
+import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
@@ -17,6 +18,18 @@ export type View =
   | { kind: 'generation'; generationId: ID }
   /** The "What changed" list: what the memory keeper did, for the whole world or (sceneId) one scene. */
   | { kind: 'memory'; sceneId: ID | null }
+  // ----- Milestone 3 -----
+  /** The codex: cards for every entry, grouped by kind. */
+  | { kind: 'codex' }
+  /** The character builder (or a lighter builder): a new entry (entryId null) or an existing one. */
+  | { kind: 'builder'; entryKind: BuilderKind; entryId: ID | null; start?: BuilderStart }
+  | { kind: 'timeline' }
+  /** The relationship map. */
+  | { kind: 'map' }
+  /** The plot threads board. */
+  | { kind: 'threads' }
+  /** A story's settings: what it is, where it starts, its time gap, the style the AI gets for it. */
+  | { kind: 'story'; storyId: ID }
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -50,6 +63,10 @@ interface AppState {
   memoryRev: number
   /** Bumped whenever something the open scene's briefing is built from changes (its card, pins, block choices, summaries). */
   briefingRev: number
+  /** The entry shown in the scene panel beside the page (a name clicked in the scene), if any. */
+  peekEntryId: ID | null
+  /** The New story dialog is open. */
+  newStoryOpen: boolean
 
   init(): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
@@ -72,9 +89,12 @@ interface AppState {
   setMemoryStatus(status: MemoryStatus | null): void
   bumpMemory(): void
   bumpBriefing(): void
+  /** Shows an entry in the scene panel without leaving the scene (opens the panel); null closes it. */
+  peekEntry(id: ID | null): void
+  setNewStoryOpen(open: boolean): void
 }
 
-export type InspectorTab = 'card' | 'context' | 'drafts'
+export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)
@@ -92,7 +112,7 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
     sceneId = find(settings.lastSceneId) ?? find(place?.sceneId) ?? find(lastSceneOf(story.id)) ?? scenes[0]?.id ?? null
   }
   // The new world's scene shows its own count once loaded; never the old scene's meanwhile.
-  return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0, sceneWords: 0, saveState: 'idle' }
+  return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0, sceneWords: 0, saveState: 'idle', peekEntryId: null }
 }
 
 /** Nothing of a world left on screen: the welcome screen shows instead. */
@@ -106,7 +126,9 @@ const NO_WORLD: Partial<AppState> = {
   sceneWords: 0,
   saveState: 'idle',
   activeGeneration: null,
-  memoryStatus: null
+  memoryStatus: null,
+  peekEntryId: null,
+  newStoryOpen: false
 }
 
 /** The settings patch remembering where Adam is in this world. */
@@ -135,6 +157,8 @@ export const useApp = create<AppState>((set, get) => ({
   memoryStatus: null,
   memoryRev: 0,
   briefingRev: 0,
+  peekEntryId: null,
+  newStoryOpen: false,
 
   async init() {
     const settings = await api.getSettings()
@@ -211,5 +235,11 @@ export const useApp = create<AppState>((set, get) => ({
   setDraftOptions: (sceneId, patch) => set({ draftOptions: patchDraftOptions(get().draftOptions, sceneId, patch) }),
   setMemoryStatus: (memoryStatus) => set({ memoryStatus }),
   bumpMemory: () => set({ memoryRev: get().memoryRev + 1 }),
-  bumpBriefing: () => set({ briefingRev: get().briefingRev + 1 })
+  bumpBriefing: () => set({ briefingRev: get().briefingRev + 1 }),
+  peekEntry(id) {
+    set({ peekEntryId: id })
+    const layout = get().settings?.layout
+    if (id && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
+  },
+  setNewStoryOpen: (newStoryOpen) => set({ newStoryOpen })
 }))

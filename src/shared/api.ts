@@ -3,6 +3,9 @@
 // src/main/ipc/*.ts; the renderer calls them through `api` in src/renderer/src/lib/api.ts.
 
 import type {
+  AsOf,
+  AsOfStop,
+  EntryAsOf,
   AppInfo,
   BlockMode,
   ChangeInput,
@@ -50,8 +53,16 @@ import type {
   WorldSummary,
   WritingPrefs
 } from './types'
+import type { BuilderApi, BuilderEvents } from './contracts/builder'
+import type { EntryViewsApi, EntryViewsEvents } from './contracts/entryViews'
+import type { WorldViewsApi, WorldViewsEvents } from './contracts/worldViews'
+import type { ManuscriptApi, ManuscriptEvents } from './contracts/manuscript'
+import type { SearchApi, SearchEvents } from './contracts/search'
+import type { StoriesApi, StoriesEvents } from './contracts/stories'
+import type { StoryFlowsApi, StoryFlowsEvents } from './contracts/storyFlows'
 
-export interface AppApi {
+/** Every call the interface can make. Milestone 3's parts each add theirs in src/shared/contracts/. */
+export interface AppApi extends BuilderApi, EntryViewsApi, WorldViewsApi, ManuscriptApi, SearchApi, StoriesApi, StoryFlowsApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -151,6 +162,21 @@ export interface AppApi {
   /** Brings the memory up to date with a scene now (or every scene that is behind), e.g. after an error. */
   updateMemoryNow(sceneId?: ID): Promise<void>
 
+  // ----- Portraits and the memory as of a point (milestone 3) -----
+  /**
+   * Gives an entry a portrait (image bytes the interface has already made small, see lib/image.ts),
+   * or removes it (null). Returns the entry with its new `image` address.
+   */
+  setEntryImage(entryId: ID, image: { bytes: Uint8Array; type: string } | null): Promise<Entry>
+  /**
+   * The stops of an as-of slider for a story: the start of each story on its line and every scene
+   * on it, through the story's end, in reading order. With an entry, each stop counts that entry's
+   * changes there, so the slider can mark where it changed.
+   */
+  listAsOfStops(storyId: ID, entryId?: ID | null): Promise<AsOfStop[]>
+  /** An entry as it is at a point (its state, relationships, what it knows, a thread's status). */
+  getEntryAsOf(entryId: ID, at: AsOf): Promise<EntryAsOf>
+
   // ----- Summaries (milestone 2) -----
   getSummary(level: SummaryLevel, targetId: ID): Promise<Summary | null>
   /** Adam's own words for a summary: kept from then on, never replaced automatically. */
@@ -233,8 +259,8 @@ export interface StoryPlacement {
 
 export type ApiMethod = keyof AppApi
 
-/** Events sent from the main process to the renderer. */
-export interface AppEvents {
+/** Events sent from the main process to the renderer. Milestone 3's parts each add theirs in src/shared/contracts/. */
+export interface AppEvents extends BuilderEvents, EntryViewsEvents, WorldViewsEvents, ManuscriptEvents, SearchEvents, StoriesEvents, StoryFlowsEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

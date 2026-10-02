@@ -51,6 +51,8 @@ export interface LogGroup {
   sceneId: ID | null
   /** "Book 1, Ch 2, Sc 3": where the run's changes come from. */
   where: string
+  /** A heading of the run's own, which wins over the place: "Before Book 4 starts" for a story flow's run. */
+  heading: string
   /** When the run happened (its newest line). */
   at: string
   items: MemoryLogItem[]
@@ -59,9 +61,10 @@ export interface LogGroup {
 /**
  * The list grouped by run, keeping its order (newest first). Lines next to each other from the same
  * run share one heading. A run's lines all come from one scene; if a run ever spans several, the
- * group takes the first line's scene and place.
+ * group takes the first line's scene and place. `headings` gives some runs a heading of their own
+ * (the story flows' runs, which belong to no scene).
  */
-export function groupLog(items: MemoryLogItem[]): LogGroup[] {
+export function groupLog(items: MemoryLogItem[], headings: ReadonlyMap<ID, string> = new Map()): LogGroup[] {
   const groups: LogGroup[] = []
   for (const item of items) {
     const last = groups[groups.length - 1]
@@ -74,6 +77,7 @@ export function groupLog(items: MemoryLogItem[]): LogGroup[] {
       runId: item.runId,
       sceneId: item.sceneId,
       where: item.where.trim(),
+      heading: headings.get(item.runId)?.trim() ?? '',
       at: item.createdAt,
       items: [item]
     })
@@ -81,8 +85,8 @@ export function groupLog(items: MemoryLogItem[]): LogGroup[] {
   return groups
 }
 
-/** The heading for a group: where its changes came from, or a plain fallback when that isn't known. */
-export const groupHeading = (g: LogGroup): string => g.where || (g.sceneId ? 'A scene' : 'Across the story')
+/** The heading for a group: the run's own, else where its changes came from, else a plain fallback. */
+export const groupHeading = (g: LogGroup): string => g.heading || g.where || (g.sceneId ? 'A scene' : 'Across the story')
 
 /** How a line shows its change: what it was (struck through) and what it is now. Either may be missing. */
 export function beforeAfter(item: MemoryLogItem): { before: string | null; after: string | null } {

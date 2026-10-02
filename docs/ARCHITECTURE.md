@@ -176,6 +176,11 @@ approval step and no Review inbox.
   limit, so limits leave room for it (`THINKING_SHARE`), and a call that comes back empty because the
   model spent it all thinking is asked once more with more room (`thinkingRoom`). Any new AI job
   (the character Quick start, chat) gets its own level here.
+- **The character builder model** (milestone 3: Quick start, Flesh out, Give me options, Interview)
+  is its own job, `builder`: "Character builder model" in Settings › Models (`settings.models.builder`,
+  the writer model until Adam picks one) with its own Thinking (`settings.thinking.builder`, Off). The
+  automatic story flows (time gap, a prequel's starting cast, "When did these happen?") are memory
+  work, so they use the memory model and its Thinking, as the spec says.
 - **Mark scene done** (Ctrl+Enter; stored as `scenes.accepted_at`, named after the spec's earlier
   "Accept") sets the scene's status and refreshes its summary (checks arrive in milestone 5).
   Memory doesn't wait for it.
@@ -209,6 +214,201 @@ approval step and no Review inbox.
 
 Shared files (`src/shared/*`, `migrations.ts`, `ARCHITECTURE.md`) change only additively; say so in
 the commit message.
+
+## Milestone 3: builders and views
+
+What it adds (spec, Build plan 3, plus the multi-story screens milestone 2 left for it): the character
+builder (Quick start, Flesh out, Give me options, Interview) and lighter builders for places, groups and
+items; portraits; the codex; entry pages with an as-of slider; the timeline; the relationship map; the
+plot threads board; names underlined in the manuscript with hover cards and the entry in the side panel;
+the Cast tab; Add to memory; search and the command palette (Ctrl+K); the shortcuts list (?); the New
+story dialog, story settings and the automatic story flows. The data model stays frozen: everything here
+is built on migrations 1 and 2.
+
+- **Portraits** are kept in the world's database (`entries.image`, a `data:` URL of a picture the
+  interface has made small, `lib/image.ts`), so backups, restores and the trash keep them. Lists never
+  carry the picture: `Entry.image` is its address, `aiwrite-image://entry/<id>?v=<version>`, served
+  by `src/main/portraits.ts`. Show one with `features/views/Portrait.tsx`; let Adam change it with
+  `PortraitDrop.tsx`.
+- **As of a point.** `AsOf` (shared/types.ts) is a story's start, the end of a scene (its own changes
+  included) or a story's end, optionally seen along another story's line (`seenIn`, the "As seen in"
+  picker). `memory/asOf.ts` works it out with the same line as drafting: `memoryAt`, `entryAsOf`,
+  `asOfStops`. The interface has `useAsOfStops`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
+  `features/views/`.
+- **Contracts.** Each part declares its calls, events and types in its own file in
+  `src/shared/contracts/`; `AppApi` and `AppEvents` extend them. Each has its own handler file in
+  `src/main/ipc/` (same name), registered in `ipc/index.ts`.
+- **Screens.** New views in `lib/store.ts`: `codex`, `builder`, `timeline`, `map`, `threads`, `story`.
+  `peekEntry(id)` shows an entry in the scene panel without leaving the scene; `setNewStoryOpen` opens
+  the New story dialog. The command palette, the shortcuts list and the New story dialog are mounted
+  once in the workspace (App.tsx).
+
+### How the milestone 3 parts work
+
+**Character builder** (`src/main/builder/`, `features/builder/`)
+- `model.ts` `builderTarget()` is the only place its model is chosen (see "The character builder model"
+  above). `context.ts` is what the AI is told about the world (style guide with Adam's preferences,
+  lore with hard rules first, groups and characters, most recently worked on first, trimmed to fit);
+  `prompts.ts` system prompts start with `[AIWRITE-BUILDER v1] <job>`; `partial.ts` reads a reply still
+  arriving; `profile.ts` tidies fields and recognises Adam's words; `save.ts` sets origins; `jobs.ts`
+  streams the jobs, each call recorded with job `'builder'` and scene `''` (so no Drafts list shows it).
+- Quick start origins: the entry is `'adam'`. A field is `'adam'` when its words are copied from his
+  notes as whole words (never cut short); every other field is `'ai'`, cut to 300 characters on one
+  line or 6000 for longer text. It saves once the profile has a name, as each of the reply's two parts
+  ("fromNotes", "drafted") completes, at the end, on Stop and when the world closes, never over a field
+  someone changed meanwhile. Its state lives in `quickStartStore.ts` and outlives the screen.
+- Guided saves: `createBuilderEntry` makes the entry, then `updateEntry` as Adam (changed keys only);
+  `keepSuggestions` saves as AI; `restoreBuilderField` is Undo after picking an option. The interview
+  isn't stored.
+
+**Codex and entry pages** (`src/main/entryViews/`, `features/codex/`, `features/world/`)
+- Where an entry appears (`appearances.ts`, `mentions.ts`): the scene card, words named by the
+  keeper's rule (keep `mentions.ts` in step with `keeper/text.ts` `mentionAt`; its tests compare
+  them) and changes pinned to scenes. What each scene names is remembered per database handle until
+  its version changes; restored scenes are read again. Importance: point of view 3, present or
+  location 2, named or changed 1. `warm.ts` reads ahead 400 ms after a world opens, 100 scenes a slice.
+- Quotes are cut exactly from the scene's text; `quoteCut` tells the page where to add "…".
+- `setFirstExists` replaces the points; places in Recently deleted pass, only places deleted for good
+  are refused.
+- "You wrote this": one note under the name only on entries wholly his own (no field marked Drafted by
+  AI; `allAdams` in `memoryLogic.ts`). A builder-made entry with AI-drafted fields says `YOU_MADE` ("You
+  made this. …") instead. On every other entry, and on such builder-made ones in the as-of view, a note
+  sits on each of his fields, relationships and facts (matched to the change that set them).
+- `codexStore` holds filters, sort, the way back and `anchor` (the card opened, or the first in view,
+  and its offset). Cards use `content-visibility: auto` with a 104 px guess, so going back draws the
+  60 cards each side of the anchor, then scrolls it to its offset.
+
+**Names in the manuscript, the Cast tab and Add to memory** (`features/editor/names/`,
+`features/editor/selection/`, `features/peek/`, `features/cast/`)
+- One call per scene, `getSceneNames`, feeds the underlines, hover cards, Cast tab, the entry beside
+  the page and the Add to memory form (`names/sceneNames.ts`). It reloads 120 ms after the world,
+  `entriesRev`, `memoryRev`, `briefingRev`, a story's title or `outlineOrder()` changes, never on
+  `outlineRev` (that moves with every word count), and keeps the last 8 scenes.
+- `nameMatch.ts` copies `mentionAt` from `keeper/text.ts`: keep them in step. Underlines are
+  decorations with class `aw-name` and `data-name-of` (never `data-entry`, which lists and tests use).
+- Code that selects words to show Adam where something is sets the `REVEALED` meta
+  (`editor/reveal.ts`), as `controller.revealWords` does, so the "Selected words" bar ignores it.
+- The hover card (`role="tooltip"`, in a portal) closes on any key but a lone modifier and lets the key
+  through; the bar's Esc (like the floating binder's) is marked taken (`takeEscape`, `lib/escape.ts`),
+  so a draft carries on and the next Esc stops it; Ctrl+G does nothing while a layer other than
+  Generate's own panels is open; the Add to memory form is a Radix Popover (so `layerOpen()` is true),
+  placed once as it opens (`formPlace()`, `avoidCollisions={false}`) so it never moves while in use.
+  Pop-ups rendered inside the page's scroll area stop `mousedown`, and `SceneView`'s `onPageMouseDown`
+  ignores presses outside its own DOM.
+- The scene panel's tabs are Scene card, Context, Cast and Drafts; an entry shown beside the page
+  (`peekEntryId`) covers them until Back.
+- Narrow page: the workspace keeps `pageMinFor(fontSize, pageWidth)` for the page (about 55 characters
+  a line plus the narrow padding); the page gets 40 px padding only from `widePageFrom()` (measured
+  with a ResizeObserver in `SceneView`). When even both panels at their narrowest can't leave that,
+  the binder floats over the page (`binderFloats`, `useFloatingBinder`; the top bar's button and the
+  palette's "Show or hide the binder" show it), leaving the saved layout alone. The Literata
+  measurements are `PROSE_CHAR_EM` and `PROSE_CH_EM` in `fitPanels.ts`; re-measure if the font changes.
+- The shared toast takes a second button (`secondary`, "Open" beside "Undo"). A screen with a bar at the
+  bottom (the builder's, the interview's ask box) calls `useToastsAbove(ref)` (`components/ui/Toast.tsx`)
+  so toasts rise above it instead of covering it. Add to memory gathers adds made while its toast shows
+  into that toast (as `announceDelete` does): Undo takes them all back, and Open opens the latest,
+  beside the page on the writing page, else on the entry's own page.
+
+**Search and the command palette** (`src/main/search/`, `db/search.ts`, `features/palette/`)
+- `main/search/index.ts` keeps an in-memory index per world database, built once (about 70 ms for
+  320,000 words), then re-reads only rows that TEMP triggers (`db/search.ts`) marked changed, so code
+  that writes those tables needs nothing extra (a second connection writing world.db would go unseen).
+  If Adam's machine shows pauses on the first build, move it to a worker thread.
+- Order: entries, chapters and stories found by a name come before Scenes; entries found only in their
+  description, fields or memory, chapters and stories found by goal or premise, summaries, notes and the
+  style guide come after. "Mara's" is read as Mara; apostrophes inside words stay part of them.
+- A scene result's `card` part opens the Scene card at that part (`cardReveal.ts`, by
+  `data-card-part`, else by label); an entry result's `part` opens the entry's page there
+  (`entryReveal.ts`, by label or section title). Renaming those labels means changing `LABELS`,
+  `TOP_FIELDS`, `NOTES`, `sectionTitle` and `sectionLabel` in `main/search/index.ts`.
+- Every keyboard shortcut goes in `lib/shortcuts.ts`; `shortcuts.test.ts` scans the renderer and fails
+  if one the app handles isn't listed. Tooltips name keys with `withShortcut` or `shortcutText`.
+- A new screen or action needs an entry in `ACTIONS` (`paletteLogic.ts`) and a case in `runAction`
+  (`actions.ts`); an action that goes to another page sets `away`, and one that ends on the writing
+  page asks for the caret with `requestEditorFocus`.
+
+**Stories** (`src/main/stories/`, `db/stories.ts`, `features/stories/`)
+- The rules (`rules.ts`, `points.ts`) are pure over `WorldShape`; the SQL is in `db/stories.ts`.
+  `followers(shape, id)` lists books written before a story that now continue after it;
+  `declineFollow` keeps or clears Adam's No as a `'follow-declined'` answer, so it travels with backups.
+- Editing or undoing a placement always starts from the one the memory has (`StoryDetails.placement`).
+  The shelf order comes from `listShelf().order`, for display only (`stories.position` is never
+  written for it).
+- `storyActions.ts`: `openStorySettings(storyId, section?)` (through `useSectionRequest`, both in
+  `sectionRequest.ts`); after a Yes whose Undo has gone, `moveToFollow` starts `sortStartChanges` only if
+  the same world is still open.
+- `flows.ts` is the flows' quiet line for the open world only (cleared when the world changes and when a
+  backup is restored, through `registerDiscarder`), with `runFlow`, `retryFlow`, `stopFlow` and
+  `loadFlows` (`listStoryFlows`). A flow that fails while its story's settings aren't showing also says so
+  in a toast, with "Story settings" opening the page at its line.
+- A scroll area holding `sr-only` inputs must be `relative`.
+
+**Story flows** (`src/main/storyFlows/`)
+- A run is a `memory_runs` row with `scene_id = ''`; its lines' `undo_json` starts with
+  `{"op":"story-flow"`, and `keeper/undo.ts` hands those to `storyFlows/lines.ts`. Generation records
+  use job `'story'` and scene `''`; prompts start with `[AIWRITE-STORY-FLOW v1] <flow>`. The model is
+  `flowTarget()`: the memory model (else the writer model) with the memory's Thinking.
+- Everything drafted is `'ai'`; nothing automatic overwrites or removes an `'adam'` change ("When did
+  these happen?" may move his changes but keeps their origin). Changes of entries in Recently deleted
+  are ignored, as the memory ignores them.
+- Order at a story's start (`order.ts`): time gap and moved changes go before the changes already there
+  about the same entries; a drafted starting description goes before the changes about its entry;
+  relationships are never copied to the other side. Positions can be fractions (SQLite REAL).
+- Undo and answers only bring back a change the line's own answer took out (`removedByLine`).
+
+**Timeline, relationship map and plot threads board** (`src/main/worldViews/`, `db/worldViews.ts`,
+`features/timeline/`, `features/map/`, `features/threads/`)
+- Pure builders over `loadShape`/`loadMemoryData`/`buildLine`/`memoryAt`, with the part's SQL in
+  `db/worldViews.ts` (scene cards, story time gaps, the saved map layout, the change count); one call
+  per view per story (`getTimeline`, `getRelationshipMap`, `getThreadsBoard`).
+- `worldViews/index.ts` keeps what the views read per open world, keyed by `changesMade(db)` (SQLite
+  `total_changes()`), so any write through the world's connection starts afresh. This relies on the
+  open world having one connection (a restore opens a new one, and so a new cache).
+- In-world dates (`when.ts`) are read forgivingly and never guessed. A comma, semicolon, bracket, dash
+  or full stop ends a reading; numbers that count something else ("3 days before", "Chapter 3",
+  "Week 3", "40 miles") are never dates; "may", "march", "fall" and short month names count only beside
+  a day or year or among date words; words of a calendar it doesn't know go in `WhenParts.qual` (such a
+  date keeps reading order and matches only the same words). Vague steps ("days later") keep order but
+  name no day. `whenSort` is never written.
+- `placeWhens(items, stories)` leans each text on its own story's dated texts before it. A story's
+  opening leans on `WhenStory.from`: a side story on its host where it starts (`sideStart` in
+  `timeline.ts`, mirroring `line.ts`: keep them in step), a following book on the end of the book
+  before, nothing after a time gap. A following book's first named date starts its own calendar;
+  yearless days before a calendar's first named year sort in that year. Events take only the year
+  before them and lend nothing on.
+- Clashes: the same named day (same calendar, same calendar words) at different most-specific places
+  (a place inside another isn't a clash). They use neutral colours; amber is for AI suggestions and the
+  board's long-open note (`LONG_OPEN_CHAPTERS = 10` in `threads.ts`).
+- Map layout: one deterministic force layout of every relationship between characters the world has
+  had, wider than tall (`WIDE` in `layout.ts`, gap `MAP_GAP` in the contract). Characters already
+  placed keep their places; only newcomers move. It is kept in the world's `meta` key `map_layout`
+  (character id to `[x, y]`), with no migration.
+- Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
+  overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
+  opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
+  `READABLE_ZOOM` or the cast is `SMALL_CAST` (12) or fewer, else at `OPENING_ZOOM` around the
+  best-connected character; Fit (0) always shows everyone. The map shows the Story picker until a side
+  story, prequel or own version exists, then "As seen in" (it follows `hasOtherKinds` in
+  `features/views/asOfLogic.ts`, as `AsSeenIn` does).
+- The three screens share `features/timeline/viewParts.tsx` (`useWorldView` reloads on `outlineRev`,
+  `entriesRev`, `memoryRev` and `briefingRev`, keeping the last data while it does). Timeline lane
+  choices are in localStorage under `aiwrite.timeline.lanes` (this computer only; works without it).
+
+### Who builds what (parallel build, milestone 3)
+
+| Part | Owns |
+|---|---|
+| Builder | `contracts/builder.ts`, `ipc/builder.ts`, `src/main/builder/`, `features/builder/`, the fake provider's builder replies |
+| Entry views | `contracts/entryViews.ts`, `ipc/entryViews.ts`, `db/entryViews.ts`, `features/codex/`, `features/world/`, `features/views/`, `features/binder/WorldSection.tsx` |
+| World views | `contracts/worldViews.ts`, `ipc/worldViews.ts`, `db/worldViews.ts`, `src/main/worldViews/`, `features/timeline/`, `features/map/`, `features/threads/` |
+| Manuscript | `contracts/manuscript.ts`, `ipc/manuscript.ts`, `db/manuscript.ts`, `features/editor/`, `features/cast/`, `features/peek/`, `features/inspector/`, `layout/Inspector.tsx`, `layout/fitPanels.ts`, the side panels' sizes in App.tsx |
+| Search | `contracts/search.ts`, `ipc/search.ts`, `db/search.ts`, `main/search/`, `features/palette/`, `lib/shortcuts.ts`, `layout/TopBar.tsx` |
+| Stories | `contracts/stories.ts`, `ipc/stories.ts`, `db/stories.ts`, `features/stories/`, `features/binder/StorySwitcher.tsx` |
+| Story flows | `contracts/storyFlows.ts`, `ipc/storyFlows.ts`, `src/main/storyFlows/`, the fake provider's story-flow replies |
+
+Each part also owns its own tests (`*.test.ts` beside its modules, `tests/e2e/<part>.spec.ts`). Shared
+files (`src/shared/types.ts`, `api.ts`, `fields.ts`, `defaults.ts`, `lib/store.ts`, `App.tsx`,
+`migrations.ts`, this file) change only additively, and only at integration.
 
 ## Milestone 1 scope
 

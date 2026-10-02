@@ -1,11 +1,14 @@
-import { ArrowLeft, Plus, Search, ShieldCheck, X } from 'lucide-react'
+import { ArrowLeft, Plus, Search, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { Entry, EntryKind, ID } from '@shared/types'
+import type { BuilderKind } from '@shared/contracts/builder'
 import { Button, EmptyState, IconButton, Input, Notice, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { useCodex } from '@/features/codex/codexStore'
+import { Portrait } from '@/features/views/Portrait'
 import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
@@ -49,6 +52,14 @@ const TEACH: Record<EntryKind, { text: string; button: string }> = {
   }
 }
 
+/** Kinds with a builder (milestone 3): Quick start makes one from a few lines of notes. */
+const BUILDER_KINDS: EntryKind[] = ['character', 'place', 'group', 'item']
+const hasBuilder = (kind: EntryKind): kind is BuilderKind => BUILDER_KINDS.includes(kind)
+
+/** Opens the builder's Quick start for a new entry of this kind. */
+const quickStart = (kind: BuilderKind): void =>
+  useApp.getState().navigate({ kind: 'builder', entryKind: kind, entryId: null, start: { mode: 'quick' } })
+
 /** Where the screen was opened from, when it offers the way back (a draft's "What the AI saw"). */
 type From = { generationId: ID } | undefined
 
@@ -68,6 +79,8 @@ function useStableList<T>(list: T[], key: (x: T) => string): T[] {
 function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID | null; from: From }): React.JSX.Element {
   const entriesRev = useApp((s) => s.entriesRev)
   const navigate = useApp((s) => s.navigate)
+  // Opened from the codex: the page offers the way back to it, as Adam left it.
+  const fromCodex = useCodex((s) => s.backTo === kind)
   const labels = KIND_LABELS[kind]
   const noun = kindNoun(kind)
   const [all, setAll] = useState<Entry[] | null>(null)
@@ -235,9 +248,16 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
           icon={<Icon size={20} />}
           title={`No ${many} yet`}
           actions={
-            <Button variant="primary" icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>
-              {teach.button}
-            </Button>
+            <>
+              <Button variant="primary" icon={<Plus size={15} />} loading={creating} onClick={() => void create()}>
+                {teach.button}
+              </Button>
+              {hasBuilder(kind) ? (
+                <Button icon={<Sparkles size={15} />} onClick={() => quickStart(kind)}>
+                  Quick start from a few notes
+                </Button>
+              ) : null}
+            </>
           }
         >
           {teach.text}
@@ -253,16 +273,24 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
           <h1 className="min-w-0 truncate text-[15px] font-semibold text-fg">{labels.many}</h1>
           {all !== null ? <span className="text-[12px] tabular-nums text-faint">{list.length}</span> : null}
           <div className="flex-1" />
-          {/* In a narrow list the button just says "New", so it never spills over the form. */}
+          {hasBuilder(kind) ? (
+            <IconButton size="sm" label={`Quick start ${withArticle(noun)} from a few notes`} onClick={() => quickStart(kind)}>
+              <Sparkles size={14} />
+            </IconButton>
+          ) : null}
+          {/* In a narrow list the button just says "New", and in the narrowest it is the plus alone, so it
+              never spills over the form and the heading keeps its room. */}
           <Button
             size="sm"
             variant="primary"
             icon={<Plus size={14} />}
             loading={creating}
             aria-label={`New ${kind === 'lore' ? 'lore' : noun}`}
+            title={`New ${kind === 'lore' ? 'lore' : noun}`}
+            className="@max-[250px]:w-7 @max-[250px]:px-0"
             onClick={() => void create()}
           >
-            <span className="@[272px]:hidden">New</span>
+            <span className="hidden @[250px]:inline @[272px]:hidden">New</span>
             <span className="hidden @[272px]:inline">New {kind === 'lore' ? 'lore' : noun}</span>
           </Button>
         </div>
@@ -324,6 +352,18 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
                 Back to What the AI saw
               </Button>
             </div>
+          ) : fromCodex ? (
+            <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ArrowLeft size={14} />}
+                className="-ml-2.5"
+                onClick={() => navigate({ kind: 'codex' })}
+              >
+                Back to the codex
+              </Button>
+            </div>
           ) : null}
           {selected ? (
             <EntryForm
@@ -377,15 +417,19 @@ const EntryRow = memo(function EntryRow({
         active ? 'bg-accent-soft' : 'hover:bg-surface-2'
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold',
-          active ? 'bg-accent text-accent-fg' : 'bg-surface-3 text-muted'
-        )}
-      >
-        {entry.kind === 'lore' && entry.hardRule ? <ShieldCheck size={14} /> : initial}
-      </span>
+      {entry.image ? (
+        <Portrait entry={entry} size={28} className={cn(active && 'ring-2 ring-accent')} />
+      ) : (
+        <span
+          aria-hidden
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold',
+            active ? 'bg-accent text-accent-fg' : 'bg-surface-3 text-muted'
+          )}
+        >
+          {entry.kind === 'lore' && entry.hardRule ? <ShieldCheck size={14} /> : initial}
+        </span>
+      )}
       <span className="min-w-0 flex-1">
         <span className={cn('block truncate text-[13.5px] font-medium', active ? 'text-accent' : 'text-fg')}>{name}</span>
         <span className={cn('block truncate text-[12px]', sub ? 'text-muted' : 'italic text-faint')}>{sub || 'No summary yet'}</span>

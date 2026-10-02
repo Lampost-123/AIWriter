@@ -1,13 +1,12 @@
-// Pure helpers for the memory parts of an entry page: where it first exists, its relationships
-// from either side, what it knows, how it has changed, and where each fact came from, all in
-// plain words. No React and no API calls here, so they're easy to test (see memoryLogic.test.ts).
+// Pure helpers for the memory parts of an entry page: who made it, its relationships from either
+// side, what it knows, how it has changed, and where each fact came from, all in plain words. No
+// React and no API calls here, so they're easy to test (see memoryLogic.test.ts).
 
 import type {
   ChangeInput,
   ChangeView,
   Entry,
   EntryKind,
-  ExistsPoint,
   ID,
   Origin,
   Outline,
@@ -31,12 +30,6 @@ export function sceneLabels(outline: Pick<Outline, 'story' | 'chapters' | 'scene
   return out
 }
 
-/** Looks up story titles and scene places. Undefined while unknown (still loading, or deleted). */
-export interface PlaceNames {
-  story(id: ID): string | undefined
-  scene(id: ID): string | undefined
-}
-
 /** "the start of Book 2" -> "The start of Book 2", for the start of a line. */
 export const upperFirst = (s: string): string => (s ? s[0].toLocaleUpperCase() + s.slice(1) : s)
 
@@ -45,33 +38,6 @@ function lowerFirst(s: string): string {
   const [first = '', second = ''] = s.split(' ')
   if (!/^\p{Lu}\p{Ll}*$/u.test(first) || /^\p{Lu}/u.test(second)) return s
   return s[0].toLocaleLowerCase() + s.slice(1)
-}
-
-// ---------- Where it first exists ----------
-
-/**
- * One quiet line for the entry page: "In the world from the start", "First appears in Book 1, Ch 3, Sc 2",
- * "From the start of Kell's Road", or several joined ("From the start of Mara's Youth, and from Book 3, Ch 1, Sc 2").
- * Null while a place isn't known yet, so the line appears whole rather than in pieces.
- */
-export function existsLine(points: ExistsPoint[], names: PlaceNames): string | null {
-  if (!points.length) return null
-  if (points.some((p) => p.kind === 'world')) return 'In the world from the start'
-  const parts: { text: string; scene: boolean }[] = []
-  for (const p of points) {
-    if (p.kind === 'scene') {
-      const where = p.sceneId ? names.scene(p.sceneId) : undefined
-      if (!where) return null
-      parts.push({ text: where, scene: true })
-    } else {
-      const title = p.storyId ? names.story(p.storyId) : undefined
-      if (!title) return null
-      parts.push({ text: `the start of ${title}`, scene: false })
-    }
-  }
-  const unique = parts.filter((p, i) => parts.findIndex((q) => q.text === p.text) === i)
-  if (unique.length === 1) return unique[0].scene ? `First appears in ${unique[0].text}` : `From ${unique[0].text}`
-  return upperFirst(unique.map((p) => `from ${p.text}`).join(', and '))
 }
 
 // ---------- Made by AI Write ----------
@@ -89,6 +55,19 @@ export function madeByNote(entry: Pick<Entry, 'origin' | 'byHand'>, where: strin
 
 /** What the note says once Adam has made the entry his. */
 export const MADE_YOURS = "Yours now. AI Write won't change what you've written."
+
+/** The note on an entry Adam made himself. */
+export const YOU_WROTE = "You wrote this. AI Write won't change what you've written."
+
+/** The note on an entry Adam made with fields drafted by AI (as the builders make them). */
+export const YOU_MADE = 'You made this. What you wrote stays as you wrote it; fields marked Drafted by AI can change with your story.'
+
+/**
+ * Whether an entry is all Adam's writing: he made it and none of its fields was drafted by AI. Only
+ * then does it say once, at the top, that he wrote it.
+ */
+export const allAdams = (e: Pick<Entry, 'origin' | 'fieldOrigins'>): boolean =>
+  e.origin === 'adam' && !Object.values(e.fieldOrigins ?? {}).includes('ai')
 
 // ---------- Where a fact came from ----------
 
