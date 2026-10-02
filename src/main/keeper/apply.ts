@@ -24,6 +24,7 @@ import { bool, str, strList, type ReadingReply } from './json'
 import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, spotIn, type ReadPlan, type Spot } from './track'
+import { existedEarlier } from './places'
 import {
   changeContent,
   changeWords,
@@ -198,6 +199,7 @@ class Run {
   private readonly madeHere = new Set<ID>()
   private readonly removedChangeEntries = new Set<ID>()
   private readonly adamDeleted = new Map<EntryKind, { id: ID; name: string; aliases: string[] }[]>()
+  private earlier: ((entryId: ID) => boolean) | null | undefined
 
   constructor(
     readonly db: DB,
@@ -435,6 +437,18 @@ class Run {
       if (cur.kind === 'own' || cur.kind === 'prequel') return true
     }
     return false
+  }
+
+  /**
+   * True when a detail about this entry, read here, is news from this scene on rather than part of
+   * who it is from the start: the entry already existed at an earlier scene on this scene's line, and
+   * wasn't first read in this scene. Written on the entry, it would show when drafting those earlier
+   * scenes.
+   */
+  laterDetail(e: Entry): boolean {
+    if (this.madeHere.has(e.id) || e.originSceneId === this.scene.sceneId) return false
+    if (this.earlier === undefined) this.earlier = existedEarlier(this.db, this.ctx.shape, this.scene.sceneId)
+    return this.earlier?.(e.id) ?? false
   }
 
   /** The entry as it is at this scene (with the changes that count here), or null. */
@@ -855,17 +869,11 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
     const support = hist.linksForEntry(db, e.id).filter((l) => l.factKind === 'field' && l.field === field && l.state === 'ok')
     if (support.some((l) => l.sceneId !== run.scene.sceneId)) return clash(run, e, field, before, value, s)
   }
-  if (run.keepsToItsStory(e)) {
-    // An own version of events or a prequel: the detail is a change in this scene, so no other story sees it.
-    const here = run.stateHere(e.id)
-    if (here && plain(fieldValue(here, field)) === plain(value)) return
-    const data: ChangeData =
-      field === 'summary' || field === 'description'
-        ? { kind: 'update', payload: { note: '', [field]: value } }
-        : { kind: 'update', payload: { note: '', fields: { [field]: value } } }
-    addChange(run, e, data, s, `${fieldLabel(e, field)}: ${value}`)
-    return
-  }
+  // An own version of events or a prequel (no other story sees it), or an entry that was already
+  // there in earlier scenes (drafting those doesn't see it): the detail is a change in this scene.
+  // An AI-drafted value on the entry gives way to the text instead.
+  const aiValue = !!before.trim() && fieldOrigin(e, field) === 'ai'
+  if (run.keepsToItsStory(e) || (run.laterDetail(e) && !aiValue)) return pinDetail(run, e, field, value, before, s)
   repo.updateEntry(db, e.id, patchFor(e, field, value), run.by)
   const link = run.addLink('field', e.id, field, s)
   run.log({
@@ -890,6 +898,23 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
   })
 }
 
+/**
+ * A detail that counts from this scene on: a change pinned here, not written on the entry. When the
+ * memory here already says something else because of an earlier scene's change, the text
+ * contradicts it, and an issue is raised instead.
+ */
+function pinDetail(run: Run, e: Entry, field: string, value: string, before: string, s: Spot): void {
+  const here = run.stateHere(e.id)
+  const now = here ? fieldValue(here, field) : before
+  if (plain(now) === plain(value)) return
+  if (now.trim() && plain(now) !== plain(before)) return raiseClash(run, e, field, now, value, s)
+  const data: ChangeData =
+    field === 'summary' || field === 'description'
+      ? { kind: 'update', payload: { note: '', [field]: value } }
+      : { kind: 'update', payload: { note: '', fields: { [field]: value } } }
+  addChange(run, e, data, s, `${fieldLabel(e, field)}: ${value}`)
+}
+
 /** The text disagrees with the memory: AI-drafted fields give way; Adam's facts (and other scenes' words) raise an issue. */
 function clash(run: Run, e: Entry, field: string | null, memory: string, text: string, s: Spot): void {
   if (field && fieldOrigin(e, field) === 'ai' && e.fieldOrigins?.[field] !== 'adam' && text) {
@@ -897,6 +922,10 @@ function clash(run: Run, e: Entry, field: string | null, memory: string, text: s
     if (updated) addDetail(run, updated, field, text, s)
     return
   }
+  raiseClash(run, e, field, memory, text, s)
+}
+
+function raiseClash(run: Run, e: Entry, field: string | null, memory: string, text: string, s: Spot): void {
   const about = field ? fieldLabel(e, field).toLowerCase() : 'this'
   kdb.raiseIssue(run.db, {
     sceneId: run.scene.sceneId,
@@ -1054,10 +1083,22 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const e = run.entry(entry.id)
       if (!e || e.kind !== 'character' || adamField(e, 'sampleLines')) return
       const line = s.quote.trim()
-      const lines = sampleLines(e)
+      // Like a detail: a line from a later scene (or a what-if) counts from this scene on.
+      const pinned = run.keepsToItsStory(e) || run.laterDetail(e)
+      const lines = sampleLines(pinned ? (run.stateHere(e.id) ?? e) : e)
       if (lines.length >= MAX_SAMPLE_LINES || lines.some((l) => plain(l) === plain(line))) return
       const fp = fingerprint({ type: 'voice', entryId: e.id })
       if (run.suppressed(fp, line)) return
+      if (pinned) {
+        addChange(
+          run,
+          e,
+          { kind: 'update', payload: { note: '', fields: { sampleLines: [...lines, line].join('\n') } } },
+          s,
+          'New sample line'
+        )
+        return
+      }
       repo.updateEntry(db, e.id, { fields: { ...e.fields, sampleLines: [...lines, line].join('\n') } }, run.by)
       const link = run.addLink('voice', e.id, 'sampleLines', s)
       run.log({

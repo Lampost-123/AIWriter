@@ -19,6 +19,7 @@ import { applyRead } from './apply'
 import { Ids } from './request'
 import { memoryAt } from './places'
 import * as scene from '../memory/scene'
+import { READING_MARKER } from './prompts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -63,6 +64,31 @@ const read = (db: Database.Database, sceneId: ID, during?: () => void, model: Me
 }
 
 const entryNamed = (db: Database.Database, name: string) => repo.listEntries(db).find((e) => e.name === name) ?? null
+
+/** Reads a scene with the fake model, adding these to its reply (for facts its sentence rules don't read). */
+const readWith = async (db: Database.Database, sceneId: ID, add: Record<string, unknown>[]): Promise<RunOutcome> => {
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const res = await fetch(input, init)
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
+    if (!body.messages?.some((m) => m.role === 'system' && m.content.includes(READING_MARKER))) return res
+    const text = (await res.text())
+      .split('\n')
+      .filter((l) => l.startsWith('data: {'))
+      .map((l) => (JSON.parse(l.slice(6)) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content ?? '')
+      .join('')
+    const reply = JSON.parse(text) as { facts: unknown[]; add: Record<string, unknown>[]; clashes: unknown[] }
+    // Names the memory already lists are sent as their short ids.
+    const user = body.messages.find((m) => m.role === 'user')?.content ?? ''
+    const ids = new Map([...user.matchAll(/^- (E\d+) [a-z]+ "([^"]+)"/gm)].map((m) => [m[2], m[1]]))
+    reply.add.push(...add.map((a) => ({ ...a, entry: ids.get(String(a.entry)) ?? a.entry })))
+    const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(reply) }, finish_reason: 'stop' }] }
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+  }
+  return runScene(
+    { db, model: modelFor(), signal: new AbortController().signal, closed: () => false, retryDelays: [0, 0], fetchImpl },
+    sceneId
+  )
+}
 
 describe('Adam working while a scene is read', () => {
   it('his edit to another field during the run is kept when a detail is removed', async () => {
@@ -592,6 +618,38 @@ describe('what the memory model is told', () => {
     expect(scene.sceneMemory(w.db, whatIfNext).entries.find((e) => e.id === mara.id)?.fields.eyes).toBe('green')
     expect(scene.sceneMemory(w.db, prequelNext).entries.find((e) => e.id === tobin.id)?.fields.eyes).toBe('brown')
     expect(kdb.listLog(w.db).find((l) => l.entryId === mara.id)).toMatchObject({ action: 'added', text: 'Eyes: green' })
+  })
+})
+
+describe('details read in a later scene', () => {
+  it('count from that scene on, so drafting an earlier scene doesn’t see them', async () => {
+    const w = world()
+    const scenes = [w.sceneId, ...[2, 3, 4, 5].map((n) => repo.createScene(w.db, w.chapterId, { title: `Scene ${n}` }).id)]
+    // Mara is first seen in scene 1, with her eyes: that is who she is from the start.
+    save(w.db, scenes[0], [['a', "Mara lost her hat. Mara's eyes were grey."]])
+    await read(w.db, scenes[0])
+    const mara = entryNamed(w.db, 'Mara')!
+    expect(mara.fields.eyes).toBe('grey')
+    // Scene 3 says something new about her (Kell is new there, so his eyes are part of who he is).
+    save(w.db, scenes[2], [['c', "Mara's hair was black. Kell lost his map. Kell's eyes were blue."]])
+    await readWith(w.db, scenes[2], [{ type: 'detail', entry: 'Mara', field: 'hair', value: 'black', quote: "Mara's hair was black." }])
+    expect(repo.getEntry(w.db, mara.id).fields.hair ?? '').toBe('')
+    const at = (sceneId: ID, id: ID) => scene.sceneMemory(w.db, sceneId).entries.find((e) => e.id === id)
+    expect(at(scenes[1], mara.id)?.fields.hair ?? '').toBe('')
+    expect(at(scenes[3], mara.id)?.fields.hair).toBe('black')
+    expect(entryNamed(w.db, 'Kell')!.fields.eyes).toBe('blue')
+    // A sample line from scene 3 is the same.
+    save(w.db, scenes[2], [['c', "Mara's hair was black. Kell lost his map. Kell's eyes were blue. 'Never again,' Mara said."]])
+    await readWith(w.db, scenes[2], [{ type: 'voice', entry: 'Mara', quote: "'Never again,' Mara said." }])
+    expect(repo.getEntry(w.db, mara.id).fields.sampleLines ?? '').toBe('')
+    expect(at(scenes[1], mara.id)?.fields.sampleLines ?? '').toBe('')
+    expect(at(scenes[3], mara.id)?.fields.sampleLines).toContain('Never again')
+    // A later scene that says otherwise is a clash, not another change.
+    save(w.db, scenes[3], [['d', "Mara's hair was red."]])
+    await readWith(w.db, scenes[3], [{ type: 'detail', entry: 'Mara', field: 'hair', value: 'red', quote: "Mara's hair was red." }])
+    expect(at(scenes[4], mara.id)?.fields.hair).toBe('black')
+    const issues = w.db.prepare('SELECT message FROM issues').all() as { message: string }[]
+    expect(issues.map((i) => i.message)).toContain('Mara: this scene says hair is “red”, but the memory says “black”.')
   })
 })
 
