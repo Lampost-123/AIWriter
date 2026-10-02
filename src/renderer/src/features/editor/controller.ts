@@ -151,7 +151,14 @@ export class SceneController {
   private loadTicket = 0
   private requested: ID | null = null
   private stream: { generationId: ID; split: SplitState } | null = null
-  private wordsTimer: ReturnType<typeof setTimeout> | null = null
+  /** The top bar's word count: after a pause, and every couple of seconds while a draft streams in. */
+  private readonly words = debounce(
+    () => {
+      if (this.session && !this.destroyed) app().setSceneWords(countWords(streamDoc.sceneText(this.editor.state.doc)))
+    },
+    300,
+    2000
+  )
   private destroyed = false
   private idleWaiters: (() => void)[] = []
   readonly follow: FollowScroll
@@ -265,7 +272,7 @@ export class SceneController {
       () => this.reportSaveState(),
       (gone) => this.dropLeaving(gone)
     )
-    if (this.wordsTimer) clearTimeout(this.wordsTimer)
+    this.words.cancel()
     app().setSceneWords(scene.wordCount)
 
     // Header and page change in the same frame, and the scroll position comes back before paint.
@@ -292,11 +299,7 @@ export class SceneController {
     const s = this.session
     if (!s) return
     s.changed()
-    if (this.wordsTimer) clearTimeout(this.wordsTimer)
-    this.wordsTimer = setTimeout(() => {
-      this.wordsTimer = null
-      if (this.session === s) app().setSceneWords(countWords(streamDoc.sceneText(this.editor.state.doc)))
-    }, 300)
+    this.words.call()
   }
 
   /** Saves everything pending now (Ctrl+S, closing the window, switching worlds). Works after destroy too. */
@@ -381,7 +384,7 @@ export class SceneController {
     this.stopStreamForSwitch()
     this.destroyed = true
     this.editor.off('update', this.onUpdate)
-    if (this.wordsTimer) clearTimeout(this.wordsTimer)
+    this.words.cancel()
     this.follow.stop()
     const s = this.session
     this.session = null
