@@ -235,12 +235,7 @@ const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu
 
 /** Lower-case words, without a trailing possessive ("Mara's" counts as "mara"). */
 export function words(s: string): string[] {
-  return (s.match(WORD_RE) ?? []).map((w) =>
-    w
-      .toLowerCase()
-      .replace(/’/g, "'")
-      .replace(/'s$/, '')
-  )
+  return (s.match(WORD_RE) ?? []).map((w) => w.toLowerCase().replace(/’/g, "'").replace(/'s$/, ''))
 }
 
 export const wordCount = (s: string): number => (s.match(WORD_RE) ?? []).length
@@ -304,7 +299,11 @@ export function findNearQuote(text: string, quote: string): { start: number; end
   if (exact) return exact
   const want = bareWords(quote)
   if (!want.length) return null
-  const found = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => ({ w: m[0].toLowerCase(), start: m.index ?? 0, end: (m.index ?? 0) + m[0].length }))
+  const found = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => ({
+    w: m[0].toLowerCase(),
+    start: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length
+  }))
   for (let i = 0; i + want.length <= found.length; i++) {
     const window = found.slice(i, i + want.length)
     if (!onlyTypos(want.join(' '), window.map((x) => x.w).join(' '))) continue
@@ -325,7 +324,10 @@ export const CLOSE_ENOUGH = 0.6
 export function locateQuote(text: string, quote: string): string | null {
   const raw = (quote ?? '').trim()
   // Models often wrap the words in quotation marks of their own.
-  const q = raw.replace(/^["“”'‘’]+/, '').replace(/["“”'‘’]+$/, '').trim()
+  const q = raw
+    .replace(/^["“”'‘’]+/, '')
+    .replace(/["“”'‘’]+$/, '')
+    .trim()
   for (const candidate of [raw, q]) {
     const r = findQuote(text, candidate)
     if (r) return text.slice(r.start, r.end)

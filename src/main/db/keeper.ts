@@ -7,6 +7,10 @@ import type Database from 'better-sqlite3'
 import type { ID, MemoryLogItem, Origin, SceneMeta, SceneMemoryState, SummaryLevel } from '@shared/types'
 import { newId, now } from '../util'
 import { getSceneMeta } from './repo'
+import { getChange } from './memory'
+import { linksForEntry, linksForFact } from './history'
+import { fingerprint } from '../keeper/facts'
+import { plain } from '../keeper/text'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -93,10 +97,13 @@ export function keeperScene(db: DB, sceneId: ID): KeeperScene | null {
 /** Live scenes the memory hasn't caught up with (waiting, or "Memory not updated"), in reading order. */
 export function scenesToRead(db: DB): ID[] {
   return (
-    db
-      .prepare(`${LIVE_SCENES} AND (s.memory_status <> 'current' OR s.text_version > s.memory_version) ${READING_ORDER}`)
-      .all() as Row[]
+    db.prepare(`${LIVE_SCENES} AND (s.memory_status <> 'current' OR s.text_version > s.memory_version) ${READING_ORDER}`).all() as Row[]
   ).map((r) => r.id as string)
+}
+
+/** True when a live scene's latest text hasn't been read (or its last read failed). */
+export function needsReading(db: DB, sceneId: ID): boolean {
+  return !!db.prepare(`${LIVE_SCENES} AND s.id = ? AND (s.memory_status <> 'current' OR s.text_version > s.memory_version)`).get(sceneId)
 }
 
 /** Every live scene id, in reading order. */
@@ -162,7 +169,12 @@ export interface RunTotals {
 
 export function startRun(db: DB, sceneId: ID, sceneVersion: number): ID {
   const id = newId()
-  db.prepare("INSERT INTO memory_runs (id, scene_id, scene_version, status, created_at) VALUES (?, ?, ?, 'running', ?)").run(id, sceneId, sceneVersion, now())
+  db.prepare("INSERT INTO memory_runs (id, scene_id, scene_version, status, created_at) VALUES (?, ?, ?, 'running', ?)").run(
+    id,
+    sceneId,
+    sceneVersion,
+    now()
+  )
   return id
 }
 
@@ -175,10 +187,22 @@ export function finishRun(db: DB, id: ID, status: 'done' | 'failed' | 'stopped',
 
 /** After a crash or a forced quit: runs left 'running' count as stopped (their scenes are read again). */
 export function stopUnfinishedRuns(db: DB): number {
-  return db.prepare("UPDATE memory_runs SET status = 'stopped', finished_at = COALESCE(finished_at, ?) WHERE status = 'running'").run(now()).changes
+  return db.prepare("UPDATE memory_runs SET status = 'stopped', finished_at = COALESCE(finished_at, ?) WHERE status = 'running'").run(now())
+    .changes
 }
 
-export function getRun(db: DB, id: ID): (RunTotals & { id: ID; sceneId: ID; sceneVersion: number; status: string; error: string | null }) | null {
+/** A memory call cut short by the world closing: its record is finished as stopped. */
+export function stopRecord(db: DB, generationId: ID): void {
+  db.prepare("UPDATE generations SET status = 'stopped', finished_at = COALESCE(finished_at, ?) WHERE id = ? AND status = 'streaming'").run(
+    now(),
+    generationId
+  )
+}
+
+export function getRun(
+  db: DB,
+  id: ID
+): (RunTotals & { id: ID; sceneId: ID; sceneVersion: number; status: string; error: string | null }) | null {
   const r = db.prepare('SELECT * FROM memory_runs WHERE id = ?').get(id) as Row | undefined
   if (!r) return null
   return {
@@ -318,6 +342,29 @@ export function addSuppression(db: DB, fingerprint: string, sceneId: ID, words: 
   )
 }
 
+/**
+ * Adam removed a fact by hand (a change on an entry page, or a detail): the keeper won't add it again
+ * from the words it came from, unless they change. Call before removing it. Facts with no source
+ * links (typed by Adam) need nothing.
+ */
+export function suppressFact(db: DB, factKind: 'change' | 'field', factId: ID, field?: string): void {
+  if (factKind === 'change') {
+    let fp: string
+    try {
+      const c = getChange(db, factId)
+      fp = fingerprint({ type: 'change', entryId: c.entryId, change: c })
+    } catch {
+      return
+    }
+    for (const l of linksForFact(db, 'change', factId)) addSuppression(db, fp, l.sceneId, plain(l.quote))
+    return
+  }
+  if (!field) return
+  const fp = fingerprint({ type: 'field', entryId: factId, field })
+  for (const l of linksForEntry(db, factId))
+    if (l.factKind === 'field' && l.field === field) addSuppression(db, fp, l.sceneId, plain(l.quote))
+}
+
 export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string; words: string }[] {
   return (db.prepare('SELECT fingerprint, quote FROM suppressions WHERE scene_id = ?').all(sceneId) as Row[]).map((r) => ({
     fingerprint: r.fingerprint as string,
@@ -330,7 +377,16 @@ export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string;
 /** A consistency issue: the text disagrees with one of Adam's facts. Not raised twice for the same thing while open. */
 export function raiseIssue(
   db: DB,
-  i: { sceneId: ID; storyId: ID; kind: string; severity: string; quote: string; message: string; key: string; payload: Record<string, unknown> }
+  i: {
+    sceneId: ID
+    storyId: ID
+    kind: string
+    severity: string
+    quote: string
+    message: string
+    key: string
+    payload: Record<string, unknown>
+  }
 ): boolean {
   const open = db
     .prepare("SELECT id, payload_json FROM issues WHERE scene_id = ? AND kind = ? AND status = 'open'")
@@ -347,8 +403,14 @@ export function raiseIssue(
 // ---------- Summaries ----------
 
 /** A summary row with who wrote it and what it was made from. */
-export function summaryRow(db: DB, level: SummaryLevel, targetId: ID): { text: string; origin: Origin; stale: boolean; sourceHash: string } | null {
-  const r = db.prepare('SELECT text, origin, stale, source_hash FROM summaries WHERE level = ? AND target_id = ?').get(level, targetId) as Row | undefined
+export function summaryRow(
+  db: DB,
+  level: SummaryLevel,
+  targetId: ID
+): { text: string; origin: Origin; stale: boolean; sourceHash: string } | null {
+  const r = db.prepare('SELECT text, origin, stale, source_hash FROM summaries WHERE level = ? AND target_id = ?').get(level, targetId) as
+    | Row
+    | undefined
   if (!r) return null
   return { text: r.text as string, origin: (r.origin as Origin) ?? 'text', stale: !!r.stale, sourceHash: (r.source_hash as string) ?? '' }
 }
@@ -372,21 +434,28 @@ export function setSummarySourceHash(db: DB, level: SummaryLevel, targetId: ID, 
 
 /** The number of a fact's latest version (0 when it has none). */
 export function latestVersion(db: DB, factKind: 'entry' | 'change' | 'summary', factId: ID): number {
-  const r = db.prepare('SELECT COALESCE(MAX(version), 0) AS v FROM fact_versions WHERE fact_kind = ? AND fact_id = ?').get(factKind, factId) as Row
+  const r = db
+    .prepare('SELECT COALESCE(MAX(version), 0) AS v FROM fact_versions WHERE fact_kind = ? AND fact_id = ?')
+    .get(factKind, factId) as Row
   return r.v as number
 }
 
 /** A fact as it was at one version, and who wrote that version; null when there is no such version. */
-export function versionData(db: DB, factKind: 'entry' | 'change' | 'summary', factId: ID, version: number): { data: unknown; origin: Origin } | null {
-  const r = db.prepare('SELECT data_json, origin FROM fact_versions WHERE fact_kind = ? AND fact_id = ? AND version = ?').get(factKind, factId, version) as
-    | Row
-    | undefined
+export function versionData(
+  db: DB,
+  factKind: 'entry' | 'change' | 'summary',
+  factId: ID,
+  version: number
+): { data: unknown; origin: Origin } | null {
+  const r = db
+    .prepare('SELECT data_json, origin FROM fact_versions WHERE fact_kind = ? AND fact_id = ? AND version = ?')
+    .get(factKind, factId, version) as Row | undefined
   return r ? { data: json<unknown>(r.data_json, null), origin: r.origin as Origin } : null
 }
 
 /** True when a line already asks this question (by the key in its undo data). */
 export function questionAsked(db: DB, key: string): boolean {
-  const rows = db.prepare("SELECT undo_json FROM memory_log WHERE question_json IS NOT NULL AND undo_json LIKE ?").all(`%${key}%`) as Row[]
+  const rows = db.prepare('SELECT undo_json FROM memory_log WHERE question_json IS NOT NULL AND undo_json LIKE ?').all(`%${key}%`) as Row[]
   return rows.some((r) => json<{ key?: string }>(r.undo_json, {}).key === key)
 }
 
@@ -433,7 +502,12 @@ export function deleteDefaultExistsPoint(db: DB, id: ID): void {
 }
 
 /** Ends a side story after a chapter of its host ("End Kell's Road before this point"); returns what it was. */
-export function setSideStoryEnd(db: DB, storyId: ID, endAt: 'end' | 'chapter', endRefId: ID | null): { endAt: string | null; endRefId: ID | null } {
+export function setSideStoryEnd(
+  db: DB,
+  storyId: ID,
+  endAt: 'end' | 'chapter',
+  endRefId: ID | null
+): { endAt: string | null; endRefId: ID | null } {
   const r = db.prepare('SELECT end_at, end_ref_id FROM stories WHERE id = ?').get(storyId) as Row | undefined
   db.prepare('UPDATE stories SET end_at = ?, end_ref_id = ?, updated_at = ? WHERE id = ?').run(endAt, endRefId, now(), storyId)
   return { endAt: (r?.end_at as string | null) ?? null, endRefId: (r?.end_ref_id as string | null) ?? null }

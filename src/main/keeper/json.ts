@@ -125,9 +125,17 @@ export function str(v: unknown, max = 400): string {
 }
 
 export function strList(v: unknown, max = 12): string[] {
-  if (typeof v === 'string') return v.split(/[,;]/).map((s) => str(s, 80)).filter(Boolean).slice(0, max)
+  if (typeof v === 'string')
+    return v
+      .split(/[,;]/)
+      .map((s) => str(s, 80))
+      .filter(Boolean)
+      .slice(0, max)
   if (!Array.isArray(v)) return []
-  return v.map((s) => str(s, 80)).filter(Boolean).slice(0, max)
+  return v
+    .map((s) => str(s, 80))
+    .filter(Boolean)
+    .slice(0, max)
 }
 
 export const bool = (v: unknown): boolean => v === true || v === 'true' || v === 'yes'

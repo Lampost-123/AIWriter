@@ -66,6 +66,37 @@ class Totals {
   }
 }
 
+/**
+ * The scene couldn't be read: it shows "Memory not updated" (tried again on the next trigger and at
+ * app start) and, the first time, is listed in What changed. The memory is left as it was.
+ */
+export function failScene(db: DB, sceneId: ID, runId: ID | null, error: string, totals: kdb.RunTotals | null): RunOutcome {
+  const id = runId ?? kdb.startRun(db, sceneId, kdb.keeperScene(db, sceneId)?.textVersion ?? 0)
+  db.transaction(() => {
+    const wasFailed = kdb.keeperScene(db, sceneId)?.memoryState === 'failed'
+    kdb.markFailed(db, sceneId, error)
+    if (!wasFailed) {
+      kdb.insertLog(db, {
+        runId: id,
+        sceneId,
+        entryName: '',
+        text: error,
+        before: '',
+        after: '',
+        action: 'failed',
+        what: 'scene',
+        entryId: null,
+        factId: null,
+        quote: '',
+        question: null,
+        undo: null
+      })
+    }
+    kdb.finishRun(db, id, 'failed', error, totals ?? new Totals().of(null))
+  })()
+  return { status: 'failed', runId: id, error }
+}
+
 /** Reads one scene's latest text into the memory. */
 export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> {
   const { db } = o
@@ -81,7 +112,14 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   // Nothing new to read: links that moved and facts whose words were deleted need no model.
   if (!plan.toRead.length) {
     if (nothingToDo(plan)) {
-      db.transaction(() => kdb.markProcessed(db, sceneId, plan.version, plan.paras.map((p) => ({ id: p.id, hash: p.hash, text: p.text }))))()
+      db.transaction(() =>
+        kdb.markProcessed(
+          db,
+          sceneId,
+          plan.version,
+          plan.paras.map((p) => ({ id: p.id, hash: p.hash, text: p.text }))
+        )
+      )()
       return { status: 'nothing' }
     }
     const runId = kdb.startRun(db, sceneId, plan.version)
@@ -96,32 +134,8 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   const model = o.model
   const runId = kdb.startRun(db, sceneId, plan.version)
   const totals = new Totals()
-  const fail = (error: string): RunOutcome => {
-    if (o.closed() || !db.open) return { status: 'stopped' }
-    db.transaction(() => {
-      const wasFailed = kdb.keeperScene(db, sceneId)?.memoryState === 'failed'
-      kdb.markFailed(db, sceneId, error)
-      if (!wasFailed) {
-        kdb.insertLog(db, {
-          runId,
-          sceneId,
-          entryName: '',
-          text: error,
-          before: '',
-          after: '',
-          action: 'failed',
-          what: 'scene',
-          entryId: null,
-          factId: null,
-          quote: '',
-          question: null,
-          undo: null
-        })
-      }
-      kdb.finishRun(db, runId, 'failed', error, totals.of(model))
-    })()
-    return { status: 'failed', runId, error }
-  }
+  const fail = (error: string): RunOutcome =>
+    o.closed() || !db.open ? { status: 'stopped' } : failScene(db, sceneId, runId, error, totals.of(model))
   const stopped = (): RunOutcome => {
     if (!o.closed() && db.open) kdb.finishRun(db, runId, 'stopped', null, totals.of(model))
     return { status: 'stopped' }
@@ -129,7 +143,9 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
 
   const budget = readingBudget(model.choice)
   if (!budget) {
-    return fail(`The memory couldn't read ${where}: the memory model can take too little text at once. Pick another memory model in Settings > Models.`)
+    return fail(
+      `The memory couldn't read ${where}: the memory model can take too little text at once. Pick another memory model in Settings > Models.`
+    )
   }
   const memory = memoryAt(db, scene.storyId, sceneId)
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)

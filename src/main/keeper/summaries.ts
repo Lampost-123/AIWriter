@@ -101,7 +101,10 @@ async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number
     targetId,
     job: 'summary',
     messages,
-    blocks: [block('instructions', 1, 'Instructions for the memory model', SUMMARY_SYSTEM), block('summary-source', 2, 'What to summarise', prompt)],
+    blocks: [
+      block('instructions', 1, 'Instructions for the memory model', SUMMARY_SYSTEM),
+      block('summary-source', 2, 'What to summarise', prompt)
+    ],
     maxTokens: reply,
     signal: o.signal,
     closed: o.closed,
@@ -131,12 +134,28 @@ function recordRun(db: DB, targetId: ID, version: number, model: MemoryModel, ca
   return runId
 }
 
-const LEVEL_WORDS: Record<SummaryLevel, string> = { scene: 'Scene summary', chapter: 'Chapter summary', story: 'Story summary', series: 'Series summary' }
+const LEVEL_WORDS: Record<SummaryLevel, string> = {
+  scene: 'Scene summary',
+  chapter: 'Chapter summary',
+  story: 'Story summary',
+  series: 'Series summary'
+}
 
 /** Saves a summary the keeper wrote, unless Adam wrote his own meanwhile, and lists it in What changed. */
 function save(
   o: SummaryOptions,
-  s: { level: SummaryLevel; targetId: ID; text: string; sourceHash: string; generationId: ID; calls: CallResult[]; logRunId: ID | null; sceneId: ID | null; place: { storyId: ID | null; chapterId: ID | null }; force?: boolean }
+  s: {
+    level: SummaryLevel
+    targetId: ID
+    text: string
+    sourceHash: string
+    generationId: ID
+    calls: CallResult[]
+    logRunId: ID | null
+    sceneId: ID | null
+    place: { storyId: ID | null; chapterId: ID | null }
+    force?: boolean
+  }
 ): boolean {
   const db = o.db
   if (o.closed() || !db.open) return false
@@ -146,7 +165,15 @@ function save(
     const factId = `${s.level}:${s.targetId}`
     const runId = recordRun(db, s.targetId, 0, o.model, s.calls, true)
     const version = kdb.latestVersion(db, 'summary', factId)
-    mem.putSummary(db, { level: s.level, targetId: s.targetId, text: s.text, origin: 'text', sourceHash: s.sourceHash, generationId: s.generationId, runId })
+    mem.putSummary(db, {
+      level: s.level,
+      targetId: s.targetId,
+      text: s.text,
+      origin: 'text',
+      sourceHash: s.sourceHash,
+      generationId: s.generationId,
+      runId
+    })
     const undo: Undo = { op: 'summary', level: s.level, targetId: s.targetId, version, sourceHash: s.sourceHash, place: s.place }
     kdb.insertLog(db, {
       runId: s.logRunId ?? runId,
@@ -171,7 +198,13 @@ function save(
  * Writes a scene's summary from its text (a long scene in parts, then joined). `logRunId` puts the
  * line in the same group as the run that read the scene. `force` replaces Adam's own (he asked for it).
  */
-export async function writeSceneSummary(o: SummaryOptions, sceneId: ID, logRunId: ID | null, where: string, force = false): Promise<boolean> {
+export async function writeSceneSummary(
+  o: SummaryOptions,
+  sceneId: ID,
+  logRunId: ID | null,
+  where: string,
+  force = false
+): Promise<boolean> {
   const scene = kdb.keeperScene(o.db, sceneId)
   if (!scene || !scene.text.trim()) return false
   const text = scene.text
@@ -196,7 +229,13 @@ export async function writeSceneSummary(o: SummaryOptions, sceneId: ID, logRunId
     if (cur) parts.push(cur)
     const summaries: string[] = []
     for (let i = 0; i < parts.length; i++) {
-      const part = await ask(o, sceneId, { level: 'scene-part', where, title: scene.title, part: i + 1, parts: parts.length, text: parts[i] }, 400, calls)
+      const part = await ask(
+        o,
+        sceneId,
+        { level: 'scene-part', where, title: scene.title, part: i + 1, parts: parts.length, text: parts[i] },
+        400,
+        calls
+      )
       if (!part) break
       summaries.push(part.text)
     }
@@ -318,7 +357,10 @@ export function nextRollUp(
     for (const ch of outline.chapters) {
       const scenes = outline.scenes.filter((s) => s.chapterId === ch.id)
       const items = scenes
-        .map((s, i) => ({ label: `Scene ${i + 1}${s.title.trim() ? ` "${s.title.trim()}"` : ''}`, text: kdb.summaryRow(db, 'scene', s.id)?.text.trim() ?? '' }))
+        .map((s, i) => ({
+          label: `Scene ${i + 1}${s.title.trim() ? ` "${s.title.trim()}"` : ''}`,
+          text: kdb.summaryRow(db, 'scene', s.id)?.text.trim() ?? ''
+        }))
         .filter((x) => x.text)
       if (items.length) {
         const hash = hashText(items.map((x) => x.text).join('\n'))
@@ -379,5 +421,15 @@ export async function writeRollUp(o: SummaryOptions, r: RollUp): Promise<boolean
     if (!o.closed() && o.db.open && calls.length) recordRun(o.db, r.targetId, 0, o.model, calls, false)
     return false
   }
-  return save(o, { level: r.level, targetId: r.targetId, text: written.text, sourceHash: r.sourceHash, generationId: written.generationId, calls, logRunId: null, sceneId: null, place: r.place })
+  return save(o, {
+    level: r.level,
+    targetId: r.targetId,
+    text: written.text,
+    sourceHash: r.sourceHash,
+    generationId: written.generationId,
+    calls,
+    logRunId: null,
+    sceneId: null,
+    place: r.place
+  })
 }

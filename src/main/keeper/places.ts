@@ -52,38 +52,24 @@ export function memoryAt(db: DB, storyId: ID, sceneId: ID): SceneMemory {
   }
 }
 
-type SideClashesFn = (data: MemoryData, shape: WorldShape, sideStoryId: ID) => ReturnType<SideClashes>
-
-/** Where a side story and its host both change something (the memory core's sideClashes), or null if it has none. */
+/** Where a side story and its host both change something (the memory core's sideClashes). */
 export function sideClashesFor(db: DB, shape: WorldShape | null): SideClashes | null {
-  const fn = (state as unknown as Record<string, unknown>).sideClashes as SideClashesFn | undefined
-  if (!shape || typeof fn !== 'function') return null
+  if (!shape) return null
   let data: MemoryData | null = null
   return (sideStoryId) => {
     data ??= scene.loadMemoryData(db)
-    return fn(data, shape, sideStoryId)
+    return state.sideClashes(data, shape, sideStoryId)
   }
 }
 
-/** The scenes before this one on its story's line, in order (the memory core's line). */
+/** The scenes whose changes count before this one, in order (the memory core's line). */
 export function scenesBefore(db: DB, sceneId: ID): ID[] {
   const shape = loadShapeSafe(db)
-  const storyId = shape?.stories.find((s) => s.chapters.some((c) => c.scenes.some((x) => x.id === sceneId)))?.id
-  if (shape && storyId) {
-    try {
-      return line
-        .buildLine(shape, { storyId, before: sceneId })
-        .steps.flatMap((s) => (s.type === 'scene' ? [s.sceneId] : []))
-    } catch (e) {
-      console.warn('The memory keeper could not work out the scenes before this one', e)
-    }
-  }
-  // Without the line: earlier scenes of the same story.
+  if (!shape) return []
   try {
-    const { story } = repo.sceneLocation(db, sceneId)
-    const order = repo.getOutline(db, story.id).scenes.map((s) => s.id)
-    return order.slice(0, Math.max(0, order.indexOf(sceneId)))
-  } catch {
+    return line.scenesBefore(shape, sceneId)
+  } catch (e) {
+    console.warn('The memory keeper could not work out the scenes before this one', e)
     return []
   }
 }

@@ -154,7 +154,8 @@ function describeFact(f: SceneFact, ids: Ids): string {
   switch (f.kind) {
     case 'change': {
       const c = f.change
-      if (c.kind === 'relationship') return `relationship ${e} with ${ids.entry(c.payload.otherId)}: ${c.payload.type}${c.payload.ended ? ' (ended)' : ''}`
+      if (c.kind === 'relationship')
+        return `relationship ${e} with ${ids.entry(c.payload.otherId)}: ${c.payload.type}${c.payload.ended ? ' (ended)' : ''}`
       if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : 'knows'} ${e}: ${c.payload.fact}`
       if (c.kind === 'thread') return `thread ${e}: ${c.payload.status}${c.payload.note ? ` (${c.payload.note})` : ''}`
       const fields = Object.entries(c.kind === 'update' ? (c.payload.fields ?? {}) : {})
@@ -302,7 +303,9 @@ export function buildRequest(r: RequestInput): ReadingRequest {
 
   const memoryText = [
     sm?.knows ? sm.knows : '',
-    memoryLines.length || nameLines.length ? ['## Memory at this point', ...memoryLines, ...nameLines].join('\n') : '## Memory at this point\n(nothing yet)',
+    memoryLines.length || nameLines.length
+      ? ['## Memory at this point', ...memoryLines, ...nameLines].join('\n')
+      : '## Memory at this point\n(nothing yet)',
     relLines.length ? ['Relationships:', ...relLines].join('\n') : '',
     factLines.length ? ['Facts (who knows what):', ...factLines].join('\n') : '',
     threadLines.length ? ['Open plot threads:', ...threadLines].join('\n') : '',

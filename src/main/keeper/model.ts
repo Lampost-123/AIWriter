@@ -68,14 +68,23 @@ export function memoryFailure(f: Failure, target: ChatTarget, modelId: string): 
     case 'dropped':
       return `The connection to ${who} dropped before the memory model had finished. It will try again.`
     default:
-      return describeFailure(f, { name: target.name, kind: target.kind, baseUrl: target.baseUrl, hasKey: !!target.apiKey }, { during: 'draft', modelId })
+      return describeFailure(
+        f,
+        { name: target.name, kind: target.kind, baseUrl: target.baseUrl, hasKey: !!target.apiKey },
+        { during: 'draft', modelId }
+      )
         .replace(/writer model/g, 'memory model')
         .replace(/ The text that arrived is kept\.$/, '')
   }
 }
 
 /** USD: the provider's own figure, else tokens times the model's prices, else null. */
-function callCost(o: { cost: number | null; promptTokens: number | null; completionTokens: number | null }, choice: ModelChoice, prompt: number, reply: string): number | null {
+function callCost(
+  o: { cost: number | null; promptTokens: number | null; completionTokens: number | null },
+  choice: ModelChoice,
+  prompt: number,
+  reply: string
+): number | null {
   if (o.cost != null) return o.cost
   if (choice.promptPrice == null || choice.completionPrice == null) return null
   return (o.promptTokens ?? prompt) * choice.promptPrice + (o.completionTokens ?? estimateTokens(reply)) * choice.completionPrice
@@ -89,7 +98,16 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
   const start: SentParams = o.model.choice.sampling === false ? { ...known, sampling: false } : known
   const params = { temperature: MEMORY_TEMPERATURE, top_p: 1, max_tokens: o.maxTokens, ...(start.sampling ? {} : { sampling: false }) }
   if (o.closed() || !o.db.open) {
-    return { generationId: id, status: 'stopped', text: '', error: null, failure: null, promptTokens: null, completionTokens: null, cost: null }
+    return {
+      generationId: id,
+      status: 'stopped',
+      text: '',
+      error: null,
+      failure: null,
+      promptTokens: null,
+      completionTokens: null,
+      cost: null
+    }
   }
   gens.insertGeneration(o.db, {
     id,
@@ -127,7 +145,12 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
     cost: null
   }))
 
-  const error = outcome.status === 'error' ? (outcome.failure ? memoryFailure(outcome.failure, o.model.target, o.model.choice.modelId) : outcome.error) : null
+  const error =
+    outcome.status === 'error'
+      ? outcome.failure
+        ? memoryFailure(outcome.failure, o.model.target, o.model.choice.modelId)
+        : outcome.error
+      : null
   const cost = outcome.status === 'error' && !outcome.text ? null : callCost(outcome, o.model.choice, promptTokens, outcome.text)
   const status = o.closed() ? 'stopped' : outcome.status
   if (!o.closed() && o.db.open) {

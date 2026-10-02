@@ -47,7 +47,8 @@ export function sceneFacts(db: DB, sceneId: ID): SceneFact[] {
   const groups = new Map<string, SourceLink[]>()
   for (const l of links) {
     if (l.factKind === 'summary') continue
-    const key = l.factKind === 'voice' ? `voice:${l.id}` : l.factKind === 'field' ? `field:${l.factId}:${l.field ?? ''}` : `${l.factKind}:${l.factId}`
+    const key =
+      l.factKind === 'voice' ? `voice:${l.id}` : l.factKind === 'field' ? `field:${l.factId}:${l.field ?? ''}` : `${l.factKind}:${l.factId}`
     groups.set(key, [...(groups.get(key) ?? []), l])
   }
   const entryIds = new Set<ID>()
@@ -77,8 +78,10 @@ export function sceneFacts(db: DB, sceneId: ID): SceneFact[] {
     const entry = entries.get(l.factId)
     if (!entry) continue
     if (l.factKind === 'entry') out.push({ kind: 'entry', key, entry, origin: entry.origin, links: ls })
-    else if (l.factKind === 'field' && l.field) out.push({ kind: 'field', key, entry, field: l.field, origin: fieldOrigin(entry, l.field), links: ls })
-    else if (l.factKind === 'voice') out.push({ kind: 'voice', key, entry, line: l.quote, origin: fieldOrigin(entry, 'sampleLines'), links: ls })
+    else if (l.factKind === 'field' && l.field)
+      out.push({ kind: 'field', key, entry, field: l.field, origin: fieldOrigin(entry, l.field), links: ls })
+    else if (l.factKind === 'voice')
+      out.push({ kind: 'voice', key, entry, line: l.quote, origin: fieldOrigin(entry, 'sampleLines'), links: ls })
   }
   return out
 }
@@ -94,7 +97,9 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
     }
     case 'relationship': {
       const p = c.payload
-      return p.ended ? `No longer ${p.type || 'linked'} with ${nameOf(p.otherId)}` : `${upperFirst(p.type || 'linked')}: ${nameOf(p.otherId)}`
+      return p.ended
+        ? `No longer ${p.type || 'linked'} with ${nameOf(p.otherId)}`
+        : `${upperFirst(p.type || 'linked')}: ${nameOf(p.otherId)}`
     }
     case 'knowledge':
       return `${c.payload.forgets ? 'Forgets' : 'Knows'} ${lowerFirstWord(c.payload.fact)}`
@@ -163,7 +168,9 @@ export function factFingerprint(f: SceneFact): string {
     case 'voice':
       return fingerprint({ type: 'voice', entryId: f.entry.id })
     case 'entry':
-      return f.entry.origin === 'text' ? fingerprint({ type: 'entry', kind: f.entry.kind, name: f.entry.name }) : fingerprint({ type: 'link', entryId: f.entry.id })
+      return f.entry.origin === 'text'
+        ? fingerprint({ type: 'entry', kind: f.entry.kind, name: f.entry.name })
+        : fingerprint({ type: 'link', entryId: f.entry.id })
   }
 }
 

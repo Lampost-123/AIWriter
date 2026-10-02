@@ -218,8 +218,19 @@ class Run {
     return { origin: 'text', runId: this.ctx.runId }
   }
 
-  log(l: Omit<NewLog, 'runId' | 'sceneId' | 'question' | 'undo' | 'factId' | 'quote'> & Partial<Pick<NewLog, 'question' | 'factId' | 'quote'>> & { undo: Undo | null }): void {
-    this.lines.push({ runId: this.ctx.runId, sceneId: this.scene.sceneId, question: null, factId: null, quote: '', ...l, undo: l.undo as Record<string, unknown> | null })
+  log(
+    l: Omit<NewLog, 'runId' | 'sceneId' | 'question' | 'undo' | 'factId' | 'quote'> &
+      Partial<Pick<NewLog, 'question' | 'factId' | 'quote'>> & { undo: Undo | null }
+  ): void {
+    this.lines.push({
+      runId: this.ctx.runId,
+      sceneId: this.scene.sceneId,
+      question: null,
+      factId: null,
+      quote: '',
+      ...l,
+      undo: l.undo as Record<string, unknown> | null
+    })
     if (l.entryId) this.touched.add(l.entryId)
   }
 
@@ -242,7 +253,10 @@ class Run {
     const q = str(quote, 1200)
     if (!q) return null
     const order = [...prefer, ...this.plan.paras.filter((p) => !prefer.includes(p))]
-    const bare = q.replace(/^["“”'‘’]+/, '').replace(/["“”'‘’]+$/, '').trim()
+    const bare = q
+      .replace(/^["“”'‘’]+/, '')
+      .replace(/["“”'‘’]+$/, '')
+      .trim()
     for (const p of order) {
       const r = findQuote(p.text, q) ?? findQuote(p.text, bare)
       if (r) return spotIn(p, r)
@@ -309,7 +323,13 @@ class Run {
     const fp = fingerprint({ type: 'link', entryId: e.id })
     if (this.suppressed(fp, s.quote)) return false
     this.firstSeenDone.add(e.id)
-    const point = mem.addExistsPoint(this.db, { entryId: e.id, kind: 'scene', storyId: this.scene.storyId, sceneId: this.scene.sceneId, byHand: false })
+    const point = mem.addExistsPoint(this.db, {
+      entryId: e.id,
+      kind: 'scene',
+      storyId: this.scene.storyId,
+      sceneId: this.scene.sceneId,
+      byHand: false
+    })
     const link = e.origin === 'text' ? this.addLink('entry', e.id, null, s) : null
     // "End [side story] before this point": only when the entry comes from a side story of this book.
     const story = this.story(this.scene.storyId)
@@ -383,7 +403,14 @@ function aspectWords(run: Run, entry: Entry, aspect: string): string {
 }
 
 /** A changed fact's new payload from a verdict, or null when the verdict says nothing usable. */
-function updatedPayload(c: Change, v: Record<string, unknown>, run: Run, ids: Ids, refs: Map<string, ID>, kind: EntryKind): ChangeData | null {
+function updatedPayload(
+  c: Change,
+  v: Record<string, unknown>,
+  run: Run,
+  ids: Ids,
+  refs: Map<string, ID>,
+  kind: EntryKind
+): ChangeData | null {
   switch (c.kind) {
     case 'update': {
       const fields: Record<string, string> = {}
@@ -411,7 +438,10 @@ function updatedPayload(c: Change, v: Record<string, unknown>, run: Run, ids: Id
     }
     case 'knowledge': {
       const fact = str(v.fact, 300)
-      return { kind: 'knowledge', payload: { ...c.payload, fact: fact || c.payload.fact, forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets } }
+      return {
+        kind: 'knowledge',
+        payload: { ...c.payload, fact: fact || c.payload.fact, forgets: v.forgets !== undefined ? bool(v.forgets) : c.payload.forgets }
+      }
     }
     case 'thread': {
       const status = str(v.status, 20) === 'resolved' ? 'resolved' : str(v.status, 20) === 'open' ? 'open' : c.payload.status
@@ -451,7 +481,9 @@ function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refre
     entryId: entry.id,
     factId: f.kind === 'change' ? f.change.id : null,
     entryName: entry.name,
-    text: proposal ? `${label}: your words are kept, but the scene now says otherwise` : `${label}: your words are kept, but the scene's words for it were deleted`,
+    text: proposal
+      ? `${label}: your words are kept, but the scene now says otherwise`
+      : `${label}: your words are kept, but the scene's words for it were deleted`,
     before: proposal ? current : '',
     after: next,
     quote: s?.quote ?? f.links[0]?.quote ?? '',
@@ -512,7 +544,14 @@ function removeFact(run: Run, f: SceneFact, why: string): void {
         before,
         after: '',
         quote,
-        undo: { op: 'field-set', entryId: f.entry.id, field: f.field, before, beforeOrigin: f.entry.fieldOrigins?.[f.field] ?? null, linkIds: [] }
+        undo: {
+          op: 'field-set',
+          entryId: f.entry.id,
+          field: f.field,
+          before,
+          beforeOrigin: f.entry.fieldOrigins?.[f.field] ?? null,
+          linkIds: []
+        }
       })
       return
     }
@@ -575,7 +614,16 @@ function applyVerdict(run: Run, f: SceneFact, v: Record<string, unknown>, chunk:
       before,
       after: value,
       quote: s.quote,
-      undo: { op: 'field-set', entryId: e.id, field: f.field, before, beforeOrigin: e.fieldOrigins?.[f.field] ?? null, linkIds: [], fingerprint: fp, words: wordsOf(s.quote) }
+      undo: {
+        op: 'field-set',
+        entryId: e.id,
+        field: f.field,
+        before,
+        beforeOrigin: e.fieldOrigins?.[f.field] ?? null,
+        linkIds: [],
+        fingerprint: fp,
+        words: wordsOf(s.quote)
+      }
     })
     return
   }
@@ -616,11 +664,20 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   if (!s) return
   const ref = str(a.ref, 10).toUpperCase()
   // Never a duplicate: a name already in the world is that entry (first seen elsewhere if need be).
-  const existing = run.byName(name, kind) ?? run.byName(name) ?? strList(a.aliases).map((x) => run.byName(x, kind)).find(Boolean) ?? null
+  const existing =
+    run.byName(name, kind) ??
+    run.byName(name) ??
+    strList(a.aliases)
+      .map((x) => run.byName(x, kind))
+      .find(Boolean) ??
+    null
   if (existing) {
     if (!run.ensureHere(existing, s)) return
     if (ref) refs.set(ref, existing.id)
-    if (existing.origin === 'text' && !hist.linksForEntry(run.db, existing.id).some((l) => l.factKind === 'entry' && l.sceneId === run.scene.sceneId && l.state === 'ok')) {
+    if (
+      existing.origin === 'text' &&
+      !hist.linksForEntry(run.db, existing.id).some((l) => l.factKind === 'entry' && l.sceneId === run.scene.sceneId && l.state === 'ok')
+    ) {
       run.addLink('entry', existing.id, null, s)
     }
     return
@@ -661,7 +718,14 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
 function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | null {
   const fp = fingerprint({ type: 'change', entryId: entry.id, change: data })
   if (run.suppressed(fp, s.quote) || run.duplicate(fp, changeContent(data))) return null
-  const c = mem.insertChange(run.db, { ...data, entryId: entry.id, anchor: 'scene', sceneId: run.scene.sceneId, origin: 'text', runId: run.ctx.runId })
+  const c = mem.insertChange(run.db, {
+    ...data,
+    entryId: entry.id,
+    anchor: 'scene',
+    sceneId: run.scene.sceneId,
+    origin: 'text',
+    runId: run.ctx.runId
+  })
   run.addLink('change', c.id, null, s)
   run.remember(fp, changeContent(data))
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
@@ -686,7 +750,12 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
   const before = fieldValue(e, field)
   if (plain(before) === plain(value)) {
     // The same detail again: these words support it too.
-    if (fieldOrigin(e, field) !== 'adam' && !hist.linksForEntry(db, e.id).some((l) => l.factKind === 'field' && l.field === field && l.sceneId === run.scene.sceneId && l.state === 'ok')) {
+    if (
+      fieldOrigin(e, field) !== 'adam' &&
+      !hist
+        .linksForEntry(db, e.id)
+        .some((l) => l.factKind === 'field' && l.field === field && l.sceneId === run.scene.sceneId && l.state === 'ok')
+    ) {
       run.addLink('field', e.id, field, s)
     }
     return
@@ -709,7 +778,16 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
     before,
     after: before.trim() ? value : '',
     quote: s.quote,
-    undo: { op: 'field-set', entryId: e.id, field, before, beforeOrigin: e.fieldOrigins?.[field] ?? null, linkIds: [link.id], fingerprint: fp, words: wordsOf(s.quote) }
+    undo: {
+      op: 'field-set',
+      entryId: e.id,
+      field,
+      before,
+      beforeOrigin: e.fieldOrigins?.[field] ?? null,
+      linkIds: [link.id],
+      fingerprint: fp,
+      words: wordsOf(s.quote)
+    }
   })
 }
 
@@ -852,7 +930,13 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
         entry,
         {
           kind: 'relationship',
-          payload: { otherId: other.id, type: str(a.rel ?? a.type, 80) || 'linked', feels: str(a.feels, 200), otherFeels: str(a.otherFeels, 200), ended: bool(a.ended) }
+          payload: {
+            otherId: other.id,
+            type: str(a.rel ?? a.type, 80) || 'linked',
+            feels: str(a.feels, 200),
+            otherFeels: str(a.otherFeels, 200),
+            ended: bool(a.ended)
+          }
         },
         s
       )
@@ -965,7 +1049,10 @@ function askWhichLast(run: Run): void {
   if (!shape || !sideClashes || !run.touched.size) return
   const story = shape.stories.find((s) => s.id === run.scene.storyId)
   if (!story) return
-  const sides = [...(story.kind === 'side' ? [story] : []), ...shape.stories.filter((s) => s.kind === 'side' && s.startStoryId === story.id)]
+  const sides = [
+    ...(story.kind === 'side' ? [story] : []),
+    ...shape.stories.filter((s) => s.kind === 'side' && s.startStoryId === story.id)
+  ]
   for (const side of sides) {
     const host = shape.stories.find((s) => s.id === side.startStoryId)
     if (!host) continue
@@ -1061,4 +1148,3 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
   for (const l of run.lines) if (l.entryId) run.touched.add(l.entryId)
   return { lines: run.lines.length, entryIds: [...run.touched] }
 }
-

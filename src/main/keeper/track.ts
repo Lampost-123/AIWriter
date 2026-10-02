@@ -9,7 +9,17 @@ import type { ID, SourceLink } from '@shared/types'
 import type { KeeperScene } from '../db/keeper'
 import { linksForEntry, linksForFact } from '../db/history'
 import { sceneFacts, type SceneFact } from './facts'
-import { closestSentence, diffParagraphs, findNearQuote, findQuote, mentionAt, onlyTypos, sceneParagraphs, type Para, type ParagraphDiff } from './text'
+import {
+  closestSentence,
+  diffParagraphs,
+  findNearQuote,
+  findQuote,
+  mentionAt,
+  onlyTypos,
+  sceneParagraphs,
+  type Para,
+  type ParagraphDiff
+} from './text'
 
 type DB = Database.Database
 
@@ -80,8 +90,9 @@ function wasEdited(link: SourceLink, paras: Para[], changed: Para[]): boolean {
   return !!best && best.score >= 0.5
 }
 
-const sameSpot = (l: SourceLink, s: Spot, version: number): boolean =>
-  l.paragraphId === s.paragraphId && l.start === s.start && l.end === s.end && l.quote === s.quote && l.sceneVersion === version
+/** True when the words are where the link says (its scene version stays the one they were read from). */
+const sameSpot = (l: SourceLink, s: Spot): boolean =>
+  l.paragraphId === s.paragraphId && l.start === s.start && l.end === s.end && l.quote === s.quote
 
 /** A mention of the entry's name or one of its other names in the scene, or null. */
 export function findMention(names: string[], paras: Para[]): Spot | null {
@@ -126,7 +137,7 @@ export function planRead(db: DB, scene: KeeperScene): ReadPlan {
       // An entry is still mentioned if any of its names is: the link moves to that mention.
       if (!to && f.kind === 'entry') to = findMention([f.entry.name, ...f.entry.aliases], paras)
       if (to) {
-        if (l.state !== 'ok' || !sameSpot(l, to, version)) moves.push({ link: l, to, state: 'ok' })
+        if (l.state !== 'ok' || !sameSpot(l, to)) moves.push({ link: l, to, state: 'ok' })
         continue
       }
       if (l.state !== 'ok') continue
