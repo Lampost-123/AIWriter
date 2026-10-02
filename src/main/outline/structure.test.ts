@@ -6,9 +6,17 @@ import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { pureWorld } from '../../../tests/unit/testWorld'
-import { actDeleteNotes, cleanBeats, createChapterAt, keepOutline } from './structure'
+import { parseWhen, placeWhens } from '../worldViews/when'
+import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline } from './structure'
 
 const book = (db: Database.Database): ID => repo.listStories(db)[0].id
+
+/** A world whose story has words in its first scene already, so the outline is added after what is there. */
+function writtenWorld(): Database.Database {
+  const db = memoryWorld()
+  repo.saveSceneText(db, repo.getOutline(db, book(db)).scenes[0].id, null, 'The rain had not stopped for days.')
+  return db
+}
 
 /** "Act: chapter [scene, scene]" lines, the chapters with no act under "-". */
 function tree(db: Database.Database): string[] {
@@ -57,7 +65,7 @@ const scene = (key: string, title: string, parent: string, more: Partial<KeepIte
 
 describe('keeping what the outline helper suggested', () => {
   it('adds acts, chapters and scenes after what the story has, with each card filled', () => {
-    const db = memoryWorld()
+    const db = writtenWorld()
     const kept = keepOutline(db, book(db), [
       act('a0', 'The Arrival'),
       chapter('a0c0', 'Rain', { parent: { key: 'a0' } }),
@@ -77,7 +85,7 @@ describe('keeping what the outline helper suggested', () => {
   })
 
   it('puts each one by the suggestions kept before it, or before the one kept after it', () => {
-    const db = memoryWorld()
+    const db = writtenWorld()
     const id = book(db)
     const first = keepOutline(db, id, [
       act('a1', 'Two'),
@@ -96,7 +104,7 @@ describe('keeping what the outline helper suggested', () => {
   })
 
   it('puts a chapter with no act into the story’s last act, or among the chapters with no act when it has none', () => {
-    const db = memoryWorld()
+    const db = writtenWorld()
     const id = book(db)
     keepOutline(db, id, [chapter('c0', 'Loose')])
     expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1] Loose []'])
@@ -106,7 +114,7 @@ describe('keeping what the outline helper suggested', () => {
   })
 
   it('tidies titles and beats, and gives "Act N", "Chapter N" and "Scene N" to blank titles', () => {
-    const db = memoryWorld()
+    const db = writtenWorld()
     const kept = keepOutline(db, book(db), [
       act('a0', '  '),
       chapter('c0', ' The \n long   night ', { parent: { key: 'a0' } }),
@@ -130,11 +138,128 @@ describe('keeping what the outline helper suggested', () => {
   })
 
   it('leaves what it made marked as unchanged, so its Undo removes it for good', () => {
-    const db = memoryWorld()
+    const db = writtenWorld()
     const kept = keepOutline(db, book(db), [act('a0', 'One'), chapter('c0', 'Rain', { parent: { key: 'a0' } }), scene('s0', 'Docks', 'c0')])
     acts.takeBackKept(db, kept)
     expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]'])
     expect(repo.listDeleted(db)).toEqual([])
+  })
+
+  it('in a new story, takes the place of the empty "Chapter 1" and "Scene 1", and its Undo puts them back', () => {
+    const db = memoryWorld()
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    const kept = keepOutline(db, id, [
+      act('a0', 'The Arrival'),
+      chapter('a0c0', 'Rain', { parent: { key: 'a0' } }),
+      scene('a0c0s0', 'Docks', 'a0c0'),
+      scene('a0c0s1', 'Ferry', 'a0c0', { after: { key: 'a0c0s0' } }),
+      chapter('a0c1', 'Wind', { parent: { key: 'a0' } })
+    ])
+    expect(tree(db)).toEqual(['The Arrival: Rain [Docks, Ferry] Wind []'])
+    // The scene open on the page is still there: it is now the outline's first scene, with its card filled.
+    expect(kept[2]).toMatchObject({ id: first.id, reused: true })
+    expect(kept[1]).toMatchObject({ id: first.chapterId, reused: true })
+    expect(repo.getScene(db, first.id).card).toMatchObject({ goal: 'Docks happens.', beats: ['First', 'Second'] })
+    expect(repo.getChapter(db, first.chapterId).goal).toBe('Rain goal.')
+
+    expect(acts.takeBackKept(db, kept).sceneIds).not.toContain(first.id)
+    expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]'])
+    expect(repo.getScene(db, first.id).card.goal).toBe('')
+    expect(repo.getChapter(db, first.chapterId).goal).toBe('')
+    expect(repo.listDeleted(db)).toEqual([])
+  })
+
+  it('never takes the place of a first scene with words or a card, and its Undo keeps words written since', () => {
+    const db = writtenWorld()
+    keepOutline(db, book(db), [act('a0', 'One'), chapter('c0', 'Rain', { parent: { key: 'a0' } })])
+    expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]', 'One: Rain []'])
+
+    const carded = memoryWorld()
+    const [s] = repo.getOutline(carded, book(carded)).scenes
+    repo.updateSceneCard(carded, s.id, { ...repo.getScene(carded, s.id).card, goal: 'Mara finds the boat.' })
+    keepOutline(carded, book(carded), [chapter('c0', 'Rain')])
+    expect(tree(carded)).toEqual(['-: Chapter 1 [Scene 1] Rain []'])
+
+    // Kept into the new story, then written in: Undo leaves the scene, words and all, where it is.
+    const fresh = memoryWorld()
+    const kept = keepOutline(fresh, book(fresh), [
+      act('a0', 'One'),
+      chapter('c0', 'Rain', { parent: { key: 'a0' } }),
+      scene('s0', 'Docks', 'c0')
+    ])
+    repo.saveSceneText(fresh, kept[2].id, null, 'She came down to the docks.')
+    acts.takeBackKept(fresh, kept)
+    expect(tree(fresh)).toEqual(['-: Chapter 1 [Docks]'])
+    expect(repo.getScene(fresh, kept[2].id).text).toBe('She came down to the docks.')
+  })
+})
+
+describe('when each kept scene happens', () => {
+  const whenOf = (db: Database.Database, id: ID): string => repo.getScene(db, id).card.when
+
+  it('puts the When the AI gave on the card, and fills one it left out from the scene before', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Rain'),
+      scene('s0', 'Docks', 'c0', { when: '  Day 1,\n morning ' }),
+      scene('s1', 'Ferry', 'c0', { after: { key: 's0' }, when: 'Day 1, dusk' }),
+      scene('s2', 'Market', 'c0', { after: { key: 's1' } }),
+      chapter('c1', 'Wind', { after: { key: 'c0' } }),
+      scene('s3', 'Tower', 'c1', { when: 'Day 2, morning' }),
+      scene('s4', 'Bridge', 'c1', { after: { key: 's3' }, when: '' })
+    ])
+    const scenes = kept.filter((k) => k.kind === 'scene').map((k) => whenOf(db, k.id))
+    expect(scenes).toEqual(['Day 1, morning', 'Day 1, dusk', 'Day 1', 'Day 2, morning', 'Day 2'])
+    // Every one reads as a day on the timeline, in the order the story tells them.
+    const placed = placeWhens(scenes)
+    expect(placed.every((p) => p?.key)).toBe(true)
+    expect(placed.map((p) => p?.day)).toEqual(['~0|n|1', '~0|n|1', '~0|n|1', '~0|n|2', '~0|n|2'])
+  })
+
+  it('starts a story with no dated scenes on Day 1, and carries on after the ones it has', () => {
+    const db = writtenWorld()
+    const id = book(db)
+    const [first] = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0')]).slice(1)
+    expect(whenOf(db, first.id)).toBe('Day 1')
+    const opening = repo.getOutline(db, id).scenes[0]
+    repo.updateSceneCard(db, opening.id, { ...repo.getScene(db, opening.id).card, when: 'Day 9, Year 3, dusk' })
+    const [, later] = keepOutline(db, id, [chapter('c1', 'Wind'), scene('s1', 'Bridge', 'c1')])
+    expect(whenOf(db, later.id)).toBe('Day 1')
+    // Before a scene with a When: the day of the nearest scene before it that has one.
+    const [, between] = keepOutline(db, id, [chapter('c2', 'Fog', { after: { id: opening.chapterId } }), scene('s2', 'Gate', 'c2')])
+    expect(whenOf(db, between.id)).toBe('Day 9, Year 3')
+  })
+
+  it('never replaces a When already on the reused first scene, and its Undo leaves it there', () => {
+    const db = memoryWorld()
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    repo.updateSceneCard(db, first.id, { ...repo.getScene(db, first.id).card, when: 'Day 1', mood: 'Grey' })
+    const kept = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0', { when: 'Day 1, morning' })])
+    expect(kept[1]).toMatchObject({ id: first.id, reused: true, whenKept: true })
+    expect(repo.getScene(db, first.id).card).toMatchObject({ when: 'Day 1', mood: 'Grey', goal: 'Docks happens.' })
+    acts.takeBackKept(db, kept)
+    expect(repo.getScene(db, first.id).card).toMatchObject({ when: 'Day 1', mood: 'Grey', goal: '', beats: [] })
+
+    // A When the keep put there goes with its Undo.
+    const fresh = memoryWorld()
+    const again = keepOutline(fresh, book(fresh), [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0', { when: 'Day 1, morning' })])
+    expect(again[1].whenKept).toBeUndefined()
+    expect(whenOf(fresh, again[1].id)).toBe('Day 1, morning')
+    acts.takeBackKept(fresh, again)
+    expect(whenOf(fresh, again[1].id)).toBe('')
+  })
+
+  it('fills a missing When with the day of the scene before, or "Later that day" after one that names none', () => {
+    expect(fallbackWhen([])).toBe('Day 1')
+    expect(fallbackWhen(['', ' '])).toBe('Day 1')
+    expect(fallbackWhen(['Day 3, dusk', ''])).toBe('Day 3')
+    expect(fallbackWhen(['Day 2', 'the 3rd of March 1204, at noon'])).toBe('3 March 1204')
+    expect(fallbackWhen(['Day 2', 'The next morning'])).toBe('Later that day')
+    for (const text of ['Day 1', 'Day 3', 'Later that day', 'Day 1, morning', 'Day 2, midday', 'Day 4, dusk', 'Day 5, night'])
+      expect(parseWhen(text)).not.toBeNull()
+    expect(placeWhens(['Day 2, evening', 'The next morning', 'Later that day']).map((p) => p?.day)).toEqual(['~0|n|2', '~0|n|3', '~0|n|3'])
   })
 })
 

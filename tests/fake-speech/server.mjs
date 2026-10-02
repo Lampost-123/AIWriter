@@ -34,7 +34,7 @@
 // Use from code:  const fake = await startFakeSpeech(); ... fake.url (http://127.0.0.1:<port>/v1) ... await fake.close()
 // Or from a shell: node tests/fake-speech/server.mjs --port 8766
 // The app's tests start it as AI Write's own server (AIWRITE_FAKE_SPEECH_RUN): then it reads what is downloaded
-// from AI Write's speech folder (AIWRITE_SPEECH_HOME, AIWRITE_BREEZE_ROOT) and starts with the dictation model
+// from AI Write's speech folder (AIWRITE_SPEECH_HOME) and starts with the dictation model
 // picked (AIWRITE_DICTATION), AIWRITE_FAKE_SPEECH_OPTIONS (JSON) adds options, and it stops when AI Write does
 // (AIWRITE_PARENT_PID), as the real one does. The control file of the fake downloads (AIWRITE_FAKE_SPEECH_CONTROL,
 // install.mjs), read as it starts, can say { "run": "broken" } (it stops at once, a module missing, as a real
@@ -141,7 +141,6 @@ async function main() {
   const env = process.env
   let options = {
     ...(env.AIWRITE_SPEECH_HOME ? { home: env.AIWRITE_SPEECH_HOME } : {}),
-    ...(env.AIWRITE_BREEZE_ROOT ? { breezeRoot: env.AIWRITE_BREEZE_ROOT } : {}),
     ...(env.AIWRITE_DICTATION ? { dictationEngine: env.AIWRITE_DICTATION } : {})
   }
   try {

@@ -77,6 +77,7 @@ import {
 import { earlierBuilds, madeItems } from './lines'
 import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setParent, type Source, type Writer } from './save'
 import { BATCH_ITEM_TOKENS, BATCH_MOST, MAX_SUMMARY_CHARS, NAMES_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
+import { startTimeline } from './timeline'
 
 type DB = Database.Database
 
@@ -401,11 +402,25 @@ async function build(b: Build): Promise<void> {
       if (!halted(b)) await themesAndTone(b)
       if (!halted(b)) await check(b)
     }
+    openTimeline(b)
     end(b, b.closed || b.cancelled ? 'cancelled' : b.failure ? 'error' : 'complete')
   } catch (e) {
     console.error('The world build failed', e)
     if (!b.failure) b.failure = e instanceof UserError ? e.message : WENT_WRONG
     end(b, b.closed || b.cancelled ? 'cancelled' : 'error')
+  }
+}
+
+/**
+ * Once the build has made something, the story's timeline starts: its opening scene goes on "Day 1"
+ * while none of its scenes has a When (see timeline.ts), so the events dated in its days have a start.
+ */
+function openTimeline(b: Build): void {
+  if (b.closed || !b.ctx.db.open || !b.writer.made.length) return
+  try {
+    startTimeline(b.ctx.db, b.storyId)
+  } catch (e) {
+    console.warn('Could not start the timeline', e)
   }
 }
 

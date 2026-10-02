@@ -11,9 +11,6 @@ AIWRITE_SPEECH_HOME):
     HOME/voices          voice clips, and voices/breeze/ for the voices Breeze designs from a description
     HOME/logs            server.log and install.log
 
-Breeze can also come from MCreader's copy on this computer: AIWRITE_BREEZE_ROOT then points at MCreader's
-tts folder, which has the same layout (venvs/breeze, models/hf, models/breeze/code).
-
 The settings at the bottom are read from the environment every time they are asked for, not once at
 import: run.py sets them from its flags after this module is already loaded.
 """
@@ -42,7 +39,7 @@ LOGS = HOME / "logs"
 PARAKEET_DIR = MODELS / "parakeet"
 WHISPER_DIR = MODELS / "whisper"
 
-BREEZE_ROOT = Path(os.environ.get("AIWRITE_BREEZE_ROOT", "").strip() or HOME)
+BREEZE_ROOT = HOME
 BREEZE_HF_HOME = BREEZE_ROOT / "models" / "hf"
 BREEZE_CODE = BREEZE_ROOT / "models" / "breeze" / "code"
 

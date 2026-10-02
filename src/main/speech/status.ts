@@ -5,13 +5,13 @@ import type { DictationModel, SpeechDownload, SpeechDownloadKind, SpeechLoadProb
 
 /** The parts of the server's /v1/health answer AI Write uses. */
 export interface Health {
-  /** 'aiwrite-speech' for AI Write's own server; MCreader's says nothing here. */
+  /** 'aiwrite-speech' for AI Write's own server; another speech server at the address in Settings may say nothing here. */
   service: string
   /** "CUDA · <card>" or "CPU", as the server says it. */
   device: string
   /** `loadError`: why the voices couldn't be loaded the last time they were asked for ('' since they last loaded). */
   voices: { ready: boolean; loaded: boolean; loadError?: string }
-  /** null when the server has no dictation (MCreader's). `loadErrors`: each model's, as for the voices. */
+  /** null when the server has no dictation (another speech server). `loadErrors`: each model's, as for the voices. */
   dictation: {
     engine: 'none' | DictationModel
     loaded: DictationModel | null
@@ -76,7 +76,6 @@ export interface StatusParts {
   picked: 'none' | DictationModel
   installed: SpeechStatus['installed']
   nvidia: string | null
-  mcreader: string | null
   download: SpeechDownload | null
   queued: SpeechDownloadKind[]
   hfKey: boolean
@@ -113,7 +112,6 @@ export function buildStatus(p: StatusParts): SpeechStatus {
     },
     device: h ? deviceName(h.device) : '',
     nvidia: p.nvidia,
-    mcreader: p.mcreader ? { folder: p.mcreader } : null,
     download: p.download,
     queued: p.queued,
     hfKey: p.hfKey,
@@ -156,7 +154,7 @@ const CARD_DRIVER =
  * Plain words for the voices failing to load, from the server's reason (/v1/health), with the fix: AI Write's
  * own copy is downloaded again to repair it (their environment set up afresh, the voices themselves kept).
  */
-export function voicesLoadProblem(reason: string, copy: 'own' | 'mcreader' | null): SpeechLoadProblem {
+export function voicesLoadProblem(reason: string, copy: 'own' | null): SpeechLoadProblem {
   if (OUT_OF_MEMORY.test(reason)) {
     return {
       text: 'The graphics card ran out of memory loading the voices. Close other programs that use it (MCreader v2, games or other AI apps), then try again.',
@@ -177,12 +175,6 @@ export function voicesLoadProblem(reason: string, copy: 'own' | 'mcreader' | nul
     return {
       text: 'The voice engine couldn’t load the voices. Download it again below to set it up afresh (about 4 GB); the voices already downloaded are kept.',
       repair: true
-    }
-  }
-  if (copy === 'mcreader') {
-    return {
-      text: 'MCreader v2’s copy of the voices couldn’t be loaded. Try again; if it keeps happening, download AI Write’s own copy below.',
-      repair: false
     }
   }
   return { text: 'The speech server couldn’t load the voices. Restart it, then try again.', repair: false }

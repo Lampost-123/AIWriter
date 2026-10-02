@@ -1,15 +1,21 @@
 // Settings › Read aloud and dictation (milestone 4): the everyday choices on top (the speech engine,
 // reading aloud with the narrator's voice and speed, the dictation key) and the rest under More. Each
-// part fills its own sections (features/speech, features/readAloud, features/dictation).
+// part fills its own sections (features/speech, features/readAloud, features/dictation). Opened from the reading
+// bar's Emotion and tone, More is open and the page shows How it reads.
 import { ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { SpeechEngineSettings } from '@/features/speech/SpeechEngineSettings'
 import { ReadAloudSettings } from '@/features/readAloud/ReadAloudSettings'
+import { takeSettingsReveal } from '@/features/readAloud/control'
 import { DictationSettings } from '@/features/dictation/DictationSettings'
 
 export function SpeechSettings(): React.JSX.Element {
-  const [more, setMore] = useState(false)
+  const [reveal] = useState(takeSettingsReveal)
+  const [more, setMore] = useState(!!reveal)
+  useEffect(() => {
+    if (reveal) document.getElementById(reveal)?.scrollIntoView({ block: 'start' })
+  }, [reveal])
   return (
     <div className="flex flex-col gap-8">
       <SpeechEngineSettings section="everyday" />

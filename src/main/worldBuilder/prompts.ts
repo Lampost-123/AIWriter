@@ -73,7 +73,7 @@ Rules
 - Things are listed as they stand at the start, before the story begins. Something the summary says happens later ("in Book 2 she becomes queen") is an event or a plot thread, never part of how a character or place starts.
 - A place inside another place says which, in "in".
 - Lore the summary states as absolute, always so with no exceptions ("magic always costs blood"), has "rule" true.
-- An event's "when" is the date or time the summary gives, in its own words, or "" when it gives none.
+- An event's "when": for something that happens during the story, the day it happens on, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"); work the day out from what the summary says happens when. For something before the story begins, the date the summary gives, in its own words ("in the year 312"), or "" when it gives none. For something in a later book, say so ("in Book 2").
 
 Reply with:
 {"characters": [{"name": "...", "aliases": ["other names the summary uses"], "about": "who they are, in a few words"}],
@@ -179,7 +179,7 @@ const EXTRAS: Partial<Record<EntryKind, { rule: string; shape: string }>> = {
     shape: '"rule": false, '
   },
   event: {
-    rule: `- "when" holds the date or time the summary gives, in its own words. For something the summary says happens after the story starts, "when" says so ("in Book 2").
+    rule: `- "when" says when it happens. During the story: the day, counting the day the story opens as Day 1, with the time of day when the summary gives it ("Day 1", "Day 3, dusk"). Before the story begins: the date the summary gives, in its own words, or "" when it gives none. In a later book: say so ("in Book 2").
 - "involved" lists the characters who take part, by name.`,
     shape: '"involved": ["..."], '
   },

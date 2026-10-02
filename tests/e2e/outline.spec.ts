@@ -7,8 +7,9 @@
 //     premise gets a quiet word, not an error), and nothing is added until Adam clicks. He changes a
 //     scene, discards a chapter (Undo brings it back), keeps one scene (its chapter and act come with
 //     it; Undo takes them out again), then keeps all that's left. What he kept is in the binder under
-//     its acts, in order, each scene's card filled in. From the first Keep, the empty Chapter 1 the
-//     story was made with is one click from gone; What the AI saw and back; Start writing. A kept scene
+//     its acts, in order, each scene's card filled in. The first Keep takes the place of the empty
+//     Chapter 1 and Scene 1 the story was made with, and its Undo puts them back; What the AI saw and
+//     back; Start writing. A kept scene
 //     deleted while the helper isn't showing waits for a decision again when it opens. Asked again, it
 //     carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
@@ -146,6 +147,10 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
       'Scene: A bargain at the market'
     ])
     await expect(suggestion(win, 'Chapter', 'Rain on the Narrows')).toContainText('“Who burned the mill?” comes back to haunt her')
+    // Each scene says quietly when it happens, in the story's days, from Day 1.
+    expect(sent[1].content).toContain('It opens on Day 1.')
+    await expect(suggestion(win, 'Scene', 'Arrival at the docks').locator('[data-when]').first()).toHaveText('· Day 1, morning')
+    await expect(suggestion(win, 'Scene', 'A bargain at the market').locator('[data-when]').first()).toHaveText('· Day 3, midday')
     await expect(main(win).locator('[data-suggestion][data-state="open"]')).toHaveCount(11)
     await expect(actRows(win)).toHaveCount(0)
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
@@ -157,11 +162,14 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await form.getByLabel('Title', { exact: true }).fill('Arrival in the rain')
     await form.getByLabel('What happens', { exact: true }).fill('Mara lands at the docks in the rain, and the guild is waiting.')
     await form.getByLabel('Beats', { exact: true }).fill('Mara lands in the rain\nShe spots the watcher\nShe slips away')
+    await expect(form.getByLabel('When', { exact: true })).toHaveValue('Day 1, morning')
+    await form.getByLabel('When', { exact: true }).fill('Day 1, before dawn')
     await form.getByRole('button', { name: 'Save changes' }).click()
     await expect(form).toHaveCount(0)
     const changed = suggestion(win, 'Scene', 'Arrival in the rain')
     await expect(changed).toContainText('Changed by you')
     await expect(changed.locator('li')).toHaveText(['Mara lands in the rain', 'She spots the watcher', 'She slips away'])
+    await expect(changed.locator('[data-when]').first()).toHaveText('· Day 1, before dawn')
 
     // ----- Discard a chapter: its scenes go with it, and Undo brings them back -----
     await main(win).getByRole('button', { name: "Discard “The Ferryman's Price”" }).click()
@@ -189,14 +197,15 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(actBlock(win, 'The Arrival').locator('[data-row="chapter"]')).toContainText(['Rain on the Narrows'])
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toHaveCount(1)
     await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['A bargain at the docks'])
-    // From the first Keep, the empty Chapter 1 the story was made with (now ahead of it) is one click from gone.
-    const removeStarter = main(win).getByRole('button', { name: 'Remove the empty “Chapter 1”' })
-    await expect(removeStarter).toBeVisible()
+    // The first Keep takes the place of the empty Chapter 1 and Scene 1 the story was made with: nothing is left above it.
+    await expect(chapterRow(win, 'Chapter 1')).toHaveCount(0)
+    await expect(main(win).getByRole('button', { name: /^Remove the empty/ })).toHaveCount(0)
+    expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Rain on the Narrows'])
 
     // Undo takes them out of the story again, and they wait for a decision once more.
     await undoIn(win, keptOne).click()
     await expect(actRows(win)).toHaveCount(0)
-    await expect(removeStarter).toHaveCount(0)
+    await expect(chapterRow(win, 'Chapter 1')).toHaveCount(1)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
 
@@ -210,7 +219,7 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ).toBeVisible()
     await expect(main(win).getByRole('button', { name: 'Keep all that’s left' })).toHaveCount(0)
 
-    // In the binder: each act with its chapters and scenes, in the order suggested, after the story's Chapter 1.
+    // In the binder: each act with its chapters and scenes, in the order suggested.
     await expect(actRows(win)).toHaveCount(2)
     await expect(actRows(win)).toContainText(['The Arrival', 'The Turning'])
     await expect(actBlock(win, 'The Arrival').locator('[data-row="chapter"]')).toHaveCount(1)
@@ -232,11 +241,10 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     ])
     const actTitle = new Map(kept.acts!.map((a) => [a.id, a.title]))
     expect(kept.chapters.map((c) => [c.title, c.actId ? actTitle.get(c.actId) : null])).toEqual([
-      ['Chapter 1', null],
       ['Rain on the Narrows', 'The Arrival'],
       ['Lanterns at Low Tide', 'The Turning']
     ])
-    expect(kept.chapters[1].goal).toBe('Mara finds her footing in the city, and “Who burned the mill?” comes back to haunt her.')
+    expect(kept.chapters[0].goal).toBe('Mara finds her footing in the city, and “Who burned the mill?” comes back to haunt her.')
     // Each scene's card is filled in: what happens as its goal, and its beats (Adam's own, where he changed them).
     const cardOf = async (title: string) => (await invoke(win, 'getScene', kept.scenes.find((s) => s.title === title)!.id)).card
     expect(await cardOf('Arrival in the rain')).toMatchObject({
@@ -247,13 +255,11 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
       goal: 'Tobin offers Mara a deal at the market that she can’t refuse.',
       beats: ['Tobin names his price', 'Mara haggles and loses', 'They shake on it, both lying']
     })
-
-    // ----- The empty Chapter 1 the story was made with is one click from gone, and the page stays -----
-    await removeStarter.click()
-    await expect(toastWith(win, '“Chapter 1” and its scene deleted.')).toBeVisible()
-    await expect(chapterRow(win, 'Chapter 1')).toHaveCount(0)
-    await expect(removeStarter).toHaveCount(0)
-    await expect(main(win).getByText('Everything is decided.', { exact: false })).toBeVisible()
+    // And when it happens: Adam's When where he changed it, else the AI's (the first scene kept took the
+    // place of the empty Scene 1, whose card had none).
+    expect(
+      await Promise.all(['Arrival in the rain', 'A bargain at the docks', 'Arrival at the market', 'A bargain at the market'].map(cardOf))
+    ).toMatchObject([{ when: 'Day 1, before dawn' }, { when: 'Day 1, midday' }, { when: 'Day 3, morning' }, { when: 'Day 3, midday' }])
 
     // ----- What the AI saw, and back -----
     await main(win).getByRole('button', { name: 'What the AI saw' }).click()
@@ -307,12 +313,27 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     expect(again).toContain('## What the story has so far\nAct: The Arrival')
     expect(again).toContain('  Chapter: Lanterns at Low Tide')
     expect(again).toContain("They carry on the story's last act, “The Turning”.")
+    expect(again).toContain('- Arrival at the market (When: Day 3, morning)')
+    expect(again).toContain('Its last scene with a When is set at “Day 3, morning”')
     await keepButton(win, "The Ferryman's Price").click()
     await expect(toastWith(win, "Added “The Ferryman's Price” to the story, with a scene.")).toBeVisible()
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toHaveCount(2)
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toContainText([
       'Lanterns at Low Tide',
       "The Ferryman's Price"
+    ])
+
+    // ----- The Timeline shows every kept scene on its day, in order -----
+    await binder(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    const timeline = main(win).getByRole('list', { name: 'Timeline' })
+    await expect(timeline.getByRole('listitem').first()).toBeVisible()
+    await expect(main(win).getByText('No dates yet', { exact: false })).toHaveCount(0)
+    const points = await timeline.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''))
+    expect(points.map((n) => n.replace(/\.$/, '').split('. ').slice(0, 2).join('. '))).toEqual([
+      'Book 1, Ch 1, Sc 1, Arrival in the rain. Day 1, before dawn',
+      'Book 1, Ch 1, Sc 2, A bargain at the docks. Day 1, midday',
+      'Book 1, Ch 2, Sc 1, Arrival at the market. Day 3, morning',
+      'Book 1, Ch 3, Sc 1, Arrival at the ferry. Day 4, morning'
     ])
   } finally {
     await fake.close()

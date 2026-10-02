@@ -5,7 +5,11 @@
 //          "Suggest 2 new acts with 4 chapters in all, spread across them, and 3 scenes in each chapter"
 //          gives two "# Act:" headings with the chapters shared out (the first acts get any left over),
 //          each "## Chapter:" with a "Goal:" line and three "### Scene:" cards (a "Summary:" line and
-//          three beats). "Suggest 3 chapters with 2 scenes in each ... No acts." gives no act headings.
+//          three beats, after a "When:" line). "Suggest 3 chapters with 2 scenes in each ... No acts." gives no
+//          act headings. Each chapter is one day and its scenes run "morning", "midday", "afternoon", "dusk",
+//          "evening", "night": "When: Day 1, morning". The first day is Day 1, or the day after the one the
+//          briefing's "Its last scene with a When is set at “Day N…”" names, or Day N for "Its first scene
+//          is set at “Day N…”".
 //          Titles come from fixed lists: acts "The Arrival", "The Turning", "The Reckoning"...;
 //          chapters "Rain on the Narrows", "The Ferryman's Price", "Lanterns at Low Tide"...; scenes
 //          "Arrival at the docks", "A bargain at the docks"... (each chapter has its own place, so
@@ -14,7 +18,8 @@
 //          chapter's goal names the story's first open plot thread when the briefing has one
 //          ("... and “Who burned the mill?” comes back to haunt her.").
 //          "[[fake: messy]]" in the briefing wraps the same plan in a chatty reply: an introduction,
-//          numbered and bold headings ("**Act 1: The Arrival**"), "*" bullets and a closing note.
+//          numbered and bold headings ("**Act 1: The Arrival**"), "**When:**" labels, "*" bullets and a
+//          closing note.
 // ideas    Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
 //          wrong messenger", each with one sentence on what happens and four beats.
 
@@ -110,6 +115,16 @@ A child brings Mara a message meant for the guild, and she reads it.
 - She has to decide whether to deliver it
 `
 
+const TIMES = ['morning', 'midday', 'afternoon', 'dusk', 'evening', 'night']
+
+/** The day the plan's first scene is on, from what the briefing says of the story's dated scenes. */
+function firstDay(text) {
+  const last = text.match(/Its last scene with a When is set at “Day (\d+)/)
+  if (last) return Number(last[1]) + 1
+  const first = text.match(/Its first scene is set at “Day (\d+)/)
+  return first ? Number(first[1]) : 1
+}
+
 const ordinal = (n) => ['', ' again', ' once more', ' at last'][Math.min(3, Math.floor(n))]
 
 /** The indexes of the titles in `list` that the briefing doesn't name yet (all of them when it names every one). */
@@ -120,6 +135,7 @@ function unused(list, titleOf, briefing) {
 
 function plan(size, thread, briefing) {
   const out = []
+  const day = firstDay(briefing)
   const acts = size.acts
   const per =
     acts > 0
@@ -148,7 +164,8 @@ function plan(size, thread, briefing) {
         const [opener, summary, beats] = SCENES[s % SCENES.length]
         const again = s >= SCENES.length ? ' again' : ''
         const at = `${place}${ordinal(round)}`
-        out.push({ kind: 'scene', title: `${opener} ${at}${again}`, summary: summary.replace('{place}', at), beats })
+        const when = `Day ${day + c}, ${TIMES[s % TIMES.length]}`
+        out.push({ kind: 'scene', title: `${opener} ${at}${again}`, when, summary: summary.replace('{place}', at), beats })
       }
     }
   })
@@ -160,7 +177,7 @@ function tidy(items) {
     .map((it) => {
       if (it.kind === 'act') return `# Act: ${it.title}\nPurpose: ${it.purpose}\n`
       if (it.kind === 'chapter') return `## Chapter: ${it.title}\nGoal: ${it.goal}\n`
-      return `### Scene: ${it.title}\nSummary: ${it.summary}\n${it.beats.map((b) => `- ${b}`).join('\n')}\n`
+      return `### Scene: ${it.title}\nWhen: ${it.when}\nSummary: ${it.summary}\n${it.beats.map((b) => `- ${b}`).join('\n')}\n`
     })
     .join('\n')
 }
@@ -177,7 +194,7 @@ function messy(items) {
       s = 0
       lines.push(`## Chapter ${++c} – ${it.title}`, `**Goal:** ${it.goal}`, '')
     } else {
-      lines.push(`### Scene ${++s}: "${it.title}"`, it.summary, ...it.beats.map((b) => `* ${b}`), '')
+      lines.push(`### Scene ${++s}: "${it.title}"`, `**When:** ${it.when}`, it.summary, ...it.beats.map((b) => `* ${b}`), '')
     }
   }
   lines.push('Let me know if you would like more scenes or a different ending.')

@@ -335,8 +335,7 @@ const speechEnv = (options: Record<string, unknown> = {}): Record<string, string
   AIWRITE_FAKE_SPEECH_INSTALL: join(FAKE_SPEECH, 'install.mjs'),
   AIWRITE_FAKE_SPEECH_RUN: join(FAKE_SPEECH, 'server.mjs'),
   AIWRITE_FAKE_SPEECH_OPTIONS: JSON.stringify({ guard: true, ...options }),
-  AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090',
-  MCREADER_TTS_DIR: ''
+  AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090'
 })
 
 /** Settings' speech engine section (the everyday one, above More). */

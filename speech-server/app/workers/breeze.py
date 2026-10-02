@@ -3,7 +3,7 @@
 
 https://github.com/breezeblue-ai/breeze-tts. Its code is not a pip package, so
 tools/install.py unpacks a pinned copy into models/breeze/code and this worker
-imports it from there (AIWRITE_BREEZE_CODE: AI Write's copy, or MCreader's).
+imports it from there (AIWRITE_BREEZE_CODE: AI Write's own copy, in its speech folder).
 Weights and self-hosted output are research and non-commercial.
 
 Three things the model takes, and where each comes from:

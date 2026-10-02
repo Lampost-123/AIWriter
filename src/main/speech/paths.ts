@@ -16,8 +16,7 @@ export interface SpeechPaths {
   python: string
   /** The Python that runs the server: pythonw on Windows, so no console window opens. */
   serve: string
-  /** Breeze's environment, code and weights: AI Write's own copy (the speech folder) or MCreader's tts folder. */
-  breezeRoot: string
+  /** Breeze's own Python environment (its code and weights are in the speech folder too). */
   breezePython: string
   /** server.log and install.log. */
   logs: string
@@ -35,24 +34,17 @@ export function venvPython(venv: string, platform: NodeJS.Platform = process.pla
   return platform === 'win32' ? join(venv, 'Scripts', windowed ? 'pythonw.exe' : 'python.exe') : join(venv, 'bin', 'python')
 }
 
-/** The speech folder's layout. `breezeRoot` is MCreader's tts folder when its copy of the voices is used. */
-export function speechPaths(
-  userData: string,
-  source: string,
-  breezeRoot?: string | null,
-  platform: NodeJS.Platform = process.platform
-): SpeechPaths {
+/** The speech folder's layout. AI Write always uses its own copy of everything, never another app's (Adam, 2 October 2026). */
+export function speechPaths(userData: string, source: string, platform: NodeJS.Platform = process.platform): SpeechPaths {
   const home = join(userData, 'speech')
   const venv = join(home, 'venv')
-  const root = breezeRoot || home
   return {
     home,
     source,
     venv,
     python: venvPython(venv, platform),
     serve: venvPython(venv, platform, true),
-    breezeRoot: root,
-    breezePython: venvPython(join(root, 'venvs', 'breeze'), platform),
+    breezePython: venvPython(join(home, 'venvs', 'breeze'), platform),
     logs: join(home, 'logs'),
     cache: join(home, 'cache'),
     manifest: join(home, 'installed.json'),
@@ -61,7 +53,7 @@ export function speechPaths(
   }
 }
 
-/** The Breeze weights' folder in a Hugging Face cache (the repo id MCreader uses, so its copy is the same files). */
+/** The Breeze weights' folder in a Hugging Face cache. */
 export const breezeWeightsDir = (breezeRoot: string): string => join(breezeRoot, 'models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2')
 
 /** Breeze's inference code, unpacked from a pinned commit. */

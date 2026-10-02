@@ -26,6 +26,8 @@ export interface PlanScene {
   /** From its card. */
   goal: string
   beats: string[]
+  /** Its card's When ("Day 3, dusk"); '' or left out when it has none. */
+  when?: string
   words: number
 }
 
@@ -112,7 +114,8 @@ export function storyText(s: StoryFacts): string {
 
 const sceneLine = (sc: PlanScene, detail: boolean): string => {
   const what = clean(sc.summary) || clean(sc.goal)
-  const head = `- ${titleOf(sc.title, 'Untitled scene')}${what ? `: ${sentence(what)}` : ''}${sc.words > 0 || clean(sc.summary) ? '' : ' (planned, not written yet)'}`
+  const when = clean(sc.when)
+  const head = `- ${titleOf(sc.title, 'Untitled scene')}${when ? ` (When: ${when})` : ''}${what ? `: ${sentence(what)}` : ''}${sc.words > 0 || clean(sc.summary) ? '' : ' (planned, not written yet)'}`
   const beats = sc.beats.map(clean).filter(Boolean)
   return detail && beats.length && !clean(sc.summary) ? `${head} Beats: ${beats.map((b) => sentence(b)).join(' ')}` : head
 }
@@ -158,6 +161,16 @@ export function planText(plan: PlanAct[], level: number): string {
     }
   }
   return lines.join('\n')
+}
+
+/** The When of the story's last scene that has one, in reading order: '' when none has. */
+export function latestWhen(plan: PlanAct[]): string {
+  const scenes = plan.flatMap((a) => a.chapters).flatMap((c) => c.scenes)
+  for (let i = scenes.length - 1; i >= 0; i--) {
+    const when = clean(scenes[i].when)
+    if (when) return when
+  }
+  return ''
 }
 
 // ---------- Around one scene (next scene ideas) ----------

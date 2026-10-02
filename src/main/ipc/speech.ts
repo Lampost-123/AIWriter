@@ -7,7 +7,6 @@ import {
   checkSpeech,
   dismissSpeechDownload,
   downloadSpeech,
-  findMCreaderVoices,
   getSpeechStatus,
   getSpeechStorage,
   installPython,
@@ -18,8 +17,7 @@ import {
   setSpeechStartWithApp,
   showSpeechFolder,
   undoRemoveHuggingFaceKey,
-  undoRemoveSpeechDownloads,
-  useMCreaderVoices
+  undoRemoveSpeechDownloads
 } from '../speech'
 
 export const speechHandlers: Handlers<keyof SpeechApi> = {
@@ -32,8 +30,6 @@ export const speechHandlers: Handlers<keyof SpeechApi> = {
   cancelSpeechDownload: () => cancelSpeechDownload(),
   dismissSpeechDownload: () => dismissSpeechDownload(),
   installPython: () => installPython(),
-  useMCreaderVoices: () => useMCreaderVoices(),
-  findMCreaderVoices: () => findMCreaderVoices(),
   setHuggingFaceKey: (key) => setHuggingFaceKey(typeof key === 'string' ? key : null),
   undoRemoveHuggingFaceKey: () => undoRemoveHuggingFaceKey(),
   getSpeechStorage: () => getSpeechStorage(),

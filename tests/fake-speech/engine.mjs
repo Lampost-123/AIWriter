@@ -6,11 +6,10 @@
 // them as it goes):
 //   voices            Breeze is downloaded there (default true; voicesNotReady, the Read aloud part's, says no too)
 //   parakeet, whisper each dictation model is downloaded there (default true)
-//   home, breezeRoot  when set (AI Write started it as its own server), what isn't given above is read from
+//   home              when set (AI Write started it as its own server), what isn't given above is read from
 //                     the files the fake downloads leave there (install.mjs), with the real server's rules
-//                     (speech-server/app/downloaded.py): AI Write's own voices count with their mark, MCreader's
-//                     (breezeRoot) when their weights look whole, Parakeet with all four files in one folder,
-//                     Whisper with all of its files and nothing half-downloaded
+//                     (speech-server/app/downloaded.py): the voices count with their mark, Parakeet with all
+//                     four files in one folder, Whisper with all of its files and nothing half-downloaded
 //   dictationEngine   the dictation model it starts with: 'parakeet' (default), 'whisper' or 'none'
 //   device            what the voices run on (default 'CUDA · NVIDIA GeForce RTX 4090'; 'CPU' for the processor)
 //   healthDelayMs     how long /health takes to answer (default 0)
@@ -22,8 +21,6 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DICTATION = ['none', 'parakeet', 'whisper']
-const BREEZE_NEEDS = ['config.json', 'tokenizer.json', 'tokenizer_config.json', join('audio_tokenizer', 'model.safetensors')]
-const BREEZE_INDEX = 'model.safetensors.index.json'
 const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
 const WHISPER_FILES = ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']
 
@@ -52,26 +49,17 @@ function snapshotWith(cache, files) {
   return name ? join(cache, 'snapshots', name) : null
 }
 
-/** Breeze's weights at `root`: AI Write's own copy by its mark, MCreader's when every shard its index names is there. */
-function breezeWeights(root, own) {
-  const cache = join(root, 'models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2')
-  if (own) return existsSync(join(root, 'models', 'breeze', '.ready')) && !!snapshotWith(cache, ['config.json'])
-  const snapshot = snapshotWith(cache, [...BREEZE_NEEDS, BREEZE_INDEX])
-  if (!snapshot) return false
-  try {
-    const shards = Object.values(JSON.parse(readFileSync(join(snapshot, BREEZE_INDEX), 'utf8')).weight_map ?? {})
-    return shards.length > 0 && allIn(snapshot, shards.map(String))
-  } catch {
-    return false
-  }
+/** Breeze's weights in AI Write's speech folder: counted by the mark the voices' last download step leaves. */
+function breezeWeights(home) {
+  const cache = join(home, 'models', 'hf', 'hub', 'models--BreezeBlue--breeze-tts-2')
+  return existsSync(join(home, 'models', 'breeze', '.ready')) && !!snapshotWith(cache, ['config.json'])
 }
 
 /** What is downloaded in AI Write's speech folder, with the rules AI Write and the real server use. */
 function onDisk(options, id) {
   const home = options.home
   if (id === 'voices') {
-    const root = options.breezeRoot || home
-    return existsSync(join(root, 'models', 'breeze', 'code', 'breeze_infer')) && breezeWeights(root, root === home)
+    return existsSync(join(home, 'models', 'breeze', 'code', 'breeze_infer')) && breezeWeights(home)
   }
   if (id === 'parakeet') {
     const dir = join(home, 'models', 'parakeet')
@@ -104,7 +92,7 @@ function loadError(state, id) {
   const given = id === 'voices' ? options.voicesLoadError : options.dictationLoadError?.[id]
   if (given) return String(given)
   if (!options.home) return ''
-  const dir = id === 'voices' ? join(options.breezeRoot || options.home, 'venvs', 'breeze') : join(options.home, 'models', id)
+  const dir = id === 'voices' ? join(options.home, 'venvs', 'breeze') : join(options.home, 'models', id)
   try {
     return readFileSync(join(dir, 'damaged.txt'), 'utf8').trim()
   } catch {

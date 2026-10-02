@@ -132,6 +132,41 @@ describe('reading an outline', () => {
     const messy = parseOutline(outlineReply('[AIWRITE-OUTLINE v1] outline', ask('[[fake: messy]]'), '') as string, true)
     expect(show(messy)).toEqual(show(tidy))
     expect(outlineCounts(tidy)).toEqual({ acts: 2, chapters: 3, scenes: 6 })
+    const whens = (o: ParsedOutline): string[] => outlineScenes(o).map((sc) => sc.when)
+    expect(whens(tidy)).toEqual(['Day 1, morning', 'Day 1, midday', 'Day 2, morning', 'Day 2, midday', 'Day 3, morning', 'Day 3, midday'])
+    expect(whens(messy)).toEqual(whens(tidy))
+  })
+
+  it('reads each scene’s When, in whatever form it comes, and never takes it for the summary, a goal or a beat', () => {
+    const o = parseOutline(
+      [
+        '## Chapter: Rain',
+        'When: Day 9',
+        '### Scene: Docks',
+        'When: Day 1, morning',
+        'Summary: Mara lands.',
+        '- She comes in',
+        '### Scene: Ferry',
+        '**When:** Day 1, dusk',
+        'Tobin offers a deal.',
+        '- He names his price',
+        '### Scene: Tower',
+        '- When: Day 2, night',
+        '- She climbs',
+        '### Scene: Gate',
+        'Mara leaves.',
+        '- When the bell rings, she runs'
+      ].join('\n'),
+      true
+    )
+    expect(show(o)).toEqual([
+      'c0 Rain | ',
+      '  c0s0 Docks | Mara lands. | She comes in',
+      '  c0s1 Ferry | Tobin offers a deal. | He names his price',
+      '  c0s2 Tower |  | She climbs',
+      '  c0s3 Gate | Mara leaves. | When the bell rings, she runs'
+    ])
+    expect(outlineScenes(o).map((sc) => sc.when)).toEqual(['Day 1, morning', 'Day 1, dusk', 'Day 2, night', ''])
   })
 
   it('leaves out code fences and rules, ignores prose that only starts with "Act" or "Scene", and names untitled headings', () => {

@@ -147,9 +147,47 @@ export interface WorldBuilderApi {
   undoWorldBuild(runId: ID): Promise<{ lineIds: ID[] }>
   /** Brings back what undoWorldBuild took away (the Undo on its toast). */
   redoWorldBuild(runId: ID, lineIds: ID[]): Promise<void>
+  /** "Interview me": asks the World builder model for the next question about the summary as it stands. Stop is stopTask(taskId). */
+  askWorldQuestion(input: WorldInterviewInput): Promise<WorldInterviewQuestion>
 }
 
 export interface WorldBuilderEvents {
   'worldBuilder:progress': WorldBuildProgress
   'worldBuilder:done': WorldBuildDone
+}
+
+// ---------- "Interview me" ----------
+// The AI asks one short question at a time about what the summary is missing or thin on. Each answer is
+// added to the summary by the interface, in Adam's own words under the question's topic ("Setting: ..."),
+// with no AI call, and kept as the summary always is (saveWorldSummary). Nothing else about an interview is
+// stored. Each question is one 'world' generation record, run by the shared task runner (task:* events).
+
+/** A question asked earlier in the same interview. */
+export interface WorldInterviewAsked {
+  topic: string
+  question: string
+  /** Skipped rather than answered (its topic isn't asked about again). */
+  skipped: boolean
+}
+
+export interface WorldInterviewInput {
+  /** Made by the interface (any unique id), so the question can be stopped with stopTask. */
+  taskId: ID
+  /** The summary as it stands now, Adam's answers included. */
+  summary: string
+  /** The questions asked so far in this interview, oldest first. */
+  asked: WorldInterviewAsked[]
+}
+
+export interface WorldInterviewQuestion {
+  /** 'stopped' (Stop, or the world closed) and 'error' carry no question. */
+  status: 'complete' | 'stopped' | 'error'
+  /** What the question is about, in a few words ("Setting", "Mara's goal"): the label his answer goes under. */
+  topic: string
+  /** One short question, in plain words. */
+  question: string
+  /** Plain words with a next step, when status is 'error'. */
+  error: string | null
+  /** Its record, for "What the AI saw". */
+  generationId: ID
 }

@@ -19,6 +19,8 @@ import { undoItem } from '../keeper/undo'
 import { madeItems, redoBuild, undoBuild } from './lines'
 import { buildRunning, buildState, cancelBuild, closeBuildsFor, resetBuildsForTests, startBuild, UNUSABLE, type BuildContext } from './run'
 import { estimateCost, guessBuild, guessNames } from './estimate'
+import { startTimeline, timelineStory } from './timeline'
+import { timelineOf } from '../worldViews/index'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -380,6 +382,68 @@ describe('building in a world that has things already', () => {
     const tobin = t.named('Tobin')
     const rel = mem.changesForEntry(t.db, tobin.id).filter((c) => c.kind === 'relationship')
     expect(rel.every((c) => c.anchor === 'story-start' && c.storyId === story.id)).toBe(true)
+  })
+})
+
+describe('the timeline a build starts', () => {
+  const opening = (db: Database.Database, storyId: ID): { id: ID; when: string } => {
+    const first = repo.getOutline(db, storyId).scenes[0]
+    return { id: first.id, when: repo.getScene(db, first.id).card.when }
+  }
+
+  it('puts the story’s opening scene on Day 1 and dates the events that happen during it, so the timeline shows them', async () => {
+    const t = setup()
+    const book = repo.listStories(t.db)[0]
+    expect(opening(t.db, book.id).when).toBe('')
+    const done = await t.build(`${SUMMARY} The Storm struck on Day 3.`)
+    expect(done.status).toBe('complete')
+    expect(opening(t.db, book.id).when).toBe('Day 1')
+    const storm = t.named('The Storm')
+    expect(storm.fields.when).toBe('Day 3')
+    // Long-ago history keeps the summary's own words.
+    expect(t.named('The Great Flood').fields.when).toBe('in the year 312')
+
+    const timeline = timelineOf(t.db, book.id)
+    const dated = timeline.points.filter((p) => p.dated).map((p) => [p.kind, p.title, p.when])
+    expect(dated).toContainEqual(['scene', 'Scene 1', 'Day 1'])
+    expect(dated).toContainEqual(['event', 'The Storm', 'Day 3'])
+    // Day 1 comes before Day 3.
+    const at = (title: string): number => timeline.points.findIndex((p) => p.title === title)
+    expect(at('Scene 1')).toBeLessThan(at('The Storm'))
+  })
+
+  it('never changes a When Adam set, nor dates a story whose scenes have one already', async () => {
+    const t = setup()
+    const book = repo.listStories(t.db)[0]
+    const chapter = repo.getOutline(t.db, book.id).chapters[0]
+    const later = repo.createScene(t.db, chapter.id, { title: 'Scene 2' })
+    repo.updateSceneCard(t.db, later.id, { ...repo.getScene(t.db, later.id).card, when: 'Day 12' })
+    await t.build(SUMMARY)
+    expect(opening(t.db, book.id).when).toBe('')
+    expect(repo.getScene(t.db, later.id).card.when).toBe('Day 12')
+
+    const mine = setup()
+    const first = opening(mine.db, repo.listStories(mine.db)[0].id)
+    repo.updateSceneCard(mine.db, first.id, { ...repo.getScene(mine.db, first.id).card, when: 'Spring, Year 3' })
+    expect(startTimeline(mine.db, null)).toBeNull()
+    expect(opening(mine.db, repo.listStories(mine.db)[0].id).when).toBe('Spring, Year 3')
+  })
+
+  it('dates the story it was built for, or the first story the world starts with, and nothing when the build made nothing', async () => {
+    const t = setup()
+    const [book] = repo.listStories(t.db)
+    const two = repo.createStory(t.db, { title: 'Book 2' })
+    repo.createScene(t.db, repo.createChapter(t.db, two.id, { title: 'Chapter 1' }).id, { title: 'Scene 1' })
+    expect(timelineStory(t.db, null)).toBe(book.id)
+    expect(timelineStory(t.db, two.id)).toBe(two.id)
+    expect(timelineStory(t.db, 'gone')).toBeNull()
+    await t.build(SUMMARY, two.id)
+    expect(opening(t.db, two.id).when).toBe('Day 1')
+    expect(opening(t.db, book.id).when).toBe('')
+
+    const empty = setup({ modelId: 'fake/world-junk' })
+    await empty.build(SUMMARY)
+    expect(opening(empty.db, repo.listStories(empty.db)[0].id).when).toBe('')
   })
 })
 

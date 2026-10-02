@@ -24,6 +24,8 @@ interface FakeSpeech {
 }
 /** What the fake speech server answers (read on every recording, so a test can change it as it goes). */
 interface SpeechOptions {
+  /** The dictation model it holds: none here, so dictation is ready only once a test says so (makeDictationReady). */
+  dictationEngine?: 'none' | 'parakeet' | 'whisper'
   dictation?: string | string[]
   dictationDelayMs?: number
   dictationFail?: { status: number; detail: string }
@@ -34,6 +36,8 @@ const FAKE_SPEECH: string = '../fake-speech/server.mjs'
 
 async function startSpeech(options: SpeechOptions): Promise<FakeSpeech> {
   const { startFakeSpeech } = (await import(FAKE_SPEECH)) as { startFakeSpeech: (o: SpeechOptions) => Promise<FakeSpeech> }
+  // The same object, so a test's later changes to it still reach the server.
+  options.dictationEngine ??= 'none'
   return startFakeSpeech(options)
 }
 
@@ -47,8 +51,10 @@ const recordings = async (speech: FakeSpeech): Promise<Heard[]> =>
  * a dictation model.
  */
 async function makeDictationReady(app: ElectronApplication): Promise<void> {
-  await app.evaluate(({ BrowserWindow, ipcMain }) => {
-    const ready = { server: 'connected', voicesReady: false, dictationReady: true }
+  // The whole status the app has now, with dictation ready: Settings reads every part of it.
+  const now = await invoke(await app.firstWindow(), 'getSpeechStatus')
+  await app.evaluate(({ BrowserWindow, ipcMain }, now) => {
+    const ready = { ...now, server: 'connected', voicesReady: false, dictationReady: true }
     ipcMain.removeHandler('api:getSpeechStatus')
     ipcMain.handle('api:getSpeechStatus', () => ({ ok: true, value: ready }))
     for (const w of BrowserWindow.getAllWindows()) {
@@ -58,7 +64,7 @@ async function makeDictationReady(app: ElectronApplication): Promise<void> {
         send(channel, ...(channel === 'event:speech:status' ? [{ ...(args[0] as object), ...ready }] : args))
       wc.send('event:speech:status', ready)
     }
-  })
+  }, now)
 }
 
 /** Starts the app with the fake microphone, makes a world, and points dictation at the fake speech server. */
@@ -543,8 +549,9 @@ test('the microphone Test shows a live level and writes what it heard in the try
     await expect(keyBox(win)).toHaveText('F8')
     await expect(win.getByText('Hold F8 and talk, then let go.')).toBeVisible()
 
-    // Until the speech engine is ready, Settings says so plainly, with the way to it.
-    await expect(win.getByText("Dictation needs the speech engine, which isn't running.")).toBeVisible()
+    // Until dictation is ready (the speech engine answers, with no dictation model yet), Settings says so
+    // plainly, with the way to it.
+    await expect(win.getByText('Dictation needs a dictation model: pick Parakeet or Whisper at the top of this page.')).toBeVisible()
     await expect(win.getByRole('button', { name: 'Go to the speech engine' })).toBeVisible()
 
     // The Test still shows the level then, and says that was all it could test, and why. The line about
@@ -563,7 +570,7 @@ test('the microphone Test shows a live level and writes what it heard in the try
     expect(await below()).toBe(room)
     await win.getByRole('button', { name: 'Stop', exact: true }).click()
     await expect(line).toHaveText(
-      /^Only the level was tested\. Your words can be written down once the speech engine is running\.\s*Go to the speech engine$/
+      /^Only the level was tested\. Your words can be written down once you pick a dictation model\.\s*Go to the speech engine$/
     )
     await expect(line.getByRole('button', { name: 'Go to the speech engine' })).toBeVisible()
     await expect(meter).toHaveAttribute('aria-valuenow', '0')

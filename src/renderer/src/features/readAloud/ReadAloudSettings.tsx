@@ -4,7 +4,9 @@
 //
 // Settings › Read aloud and dictation, reading aloud's parts: turning it on, the narrator's voice, speed
 // and Sample (everyday); the dialogue voice, cast voices, How to read, who says each line, Keep reading,
-// Follow along and the audio cache (More). Owned by the Read aloud part. Every change saves at once.
+// Follow along and the audio cache (More). Owned by the Read aloud part. Every change saves at once. Mark who says
+// what and Perform written sounds say plainly whether Emotion and tone, and sighs and laughs, are on (tone.ts), as the
+// reading bar does.
 import { Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AudioCacheStats, ReadAloudVoice } from '@shared/contracts/readAloud'
@@ -16,6 +18,7 @@ import { cn } from '@/lib/cn'
 import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { Switch } from '@/features/world/parts/Switch'
+import { HOW_IT_READS, onOff, SOUNDS_OFF, SOUNDS_ON, TONE_ON } from './tone'
 import { clearSampleError, playSample, useSample } from './useSample'
 import { loadVoices, useVoices } from './useVoices'
 
@@ -459,40 +462,48 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="How it reads" description="The narrator’s manner, and who says each line and how.">
-        <div className="flex max-w-xl flex-col gap-5">
-          <TextSetting
-            label="How to read"
-            value={speech.style}
-            placeholder={DEFAULTS.style}
-            hint={
-              speech.steadyNarrator
-                ? 'A standing note for the narrator, in plain words. While the narrator’s voice is kept steady (below), narration is read plainly, without it.'
-                : 'A standing note for the narrator, in plain words.'
-            }
-            max={2000}
-            onCommit={(style) => save({ style: style || DEFAULTS.style })}
-          />
-          <SwitchRow
-            label="Keep the narrator’s voice steady"
-            checked={speech.steadyNarrator}
-            onChange={(steadyNarrator) => void save({ steadyNarrator })}
-            description="Narration is read plainly, so only dialogue is acted. A tone the AI marks for the narration is still followed, gently."
-          />
-          <SwitchRow
-            label="Mark who says what"
-            checked={speech.markSpeakers}
-            onChange={(markSpeakers) => void save({ markSpeakers })}
-            description="The AI also notes how each line is said, its tone and pace, a little ahead of the reading. Without it, the AI only marks who says a line when the rules can’t tell. It uses the Read aloud model in Settings › Models."
-          />
-          <SwitchRow
-            label="Perform written sounds"
-            checked={speech.sounds}
-            onChange={(sounds) => void save({ sounds })}
-            description="Sighs, laughs and “Ahem” are performed as real sounds instead of being read out."
-          />
-        </div>
-      </SettingsSection>
+      <div id={HOW_IT_READS} className="scroll-mt-6">
+        <SettingsSection title="How it reads" description="The narrator’s manner, and who says each line and how.">
+          <div className="flex max-w-xl flex-col gap-5">
+            <TextSetting
+              label="How to read"
+              value={speech.style}
+              placeholder={DEFAULTS.style}
+              hint={
+                speech.steadyNarrator
+                  ? 'A standing note for the narrator, in plain words. While the narrator’s voice is kept steady (below), narration is read plainly, without it.'
+                  : 'A standing note for the narrator, in plain words.'
+              }
+              max={2000}
+              onCommit={(style) => save({ style: style || DEFAULTS.style })}
+            />
+            <SwitchRow
+              label="Keep the narrator’s voice steady"
+              checked={speech.steadyNarrator}
+              onChange={(steadyNarrator) => void save({ steadyNarrator })}
+              description="Narration is read plainly, so only dialogue is acted. A tone the AI marks for the narration is still followed, gently."
+            />
+            <SwitchRow
+              label="Mark who says what"
+              checked={speech.markSpeakers}
+              onChange={(markSpeakers) => void save({ markSpeakers })}
+              status={`Emotion and tone: ${onOff(speech.markSpeakers)}`}
+              description={
+                speech.markSpeakers
+                  ? `${TONE_ON} It uses the Read aloud model in Settings › Models.`
+                  : 'Turn this on for emotion and tone: the AI notes how each line is said, its tone and pace, a little ahead of the reading. Off, lines are read evenly, with a tone only where the words say how (“she snapped”), and the AI only marks who says a line when the rules can’t tell. It uses the Read aloud model in Settings › Models.'
+              }
+            />
+            <SwitchRow
+              label="Perform written sounds"
+              checked={speech.sounds}
+              onChange={(sounds) => void save({ sounds })}
+              status={`Sighs and laughs: ${onOff(speech.sounds)}`}
+              description={speech.sounds ? SOUNDS_ON : `${SOUNDS_OFF} Turn this on to hear them performed as real sounds.`}
+            />
+          </div>
+        </SettingsSection>
+      </div>
 
       <SettingsSection title="While reading">
         <div className="flex max-w-xl flex-col gap-3">
@@ -615,21 +626,27 @@ function SwitchRow({
   label,
   description,
   checked,
-  onChange
+  onChange,
+  status
 }: {
   label: string
   description: ReactNode
   checked: boolean
   onChange: (v: boolean) => void
+  /** What the switch turns on, said as On or Off beside its name ("Emotion and tone: On"). */
+  status?: string
 }): React.JSX.Element {
   const id = useId()
   return (
     <div className="flex items-start gap-3 rounded-lg border border-line px-3 py-2.5">
       <Switch id={id} checked={checked} onChange={onChange} aria-describedby={`${id}-help`} className="mt-0.5" />
       <div className="min-w-0 flex-1">
-        <label htmlFor={id} className="text-[13px] font-medium text-fg">
-          {label}
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <label htmlFor={id} className="text-[13px] font-medium text-fg">
+            {label}
+          </label>
+          {status ? <Badge tone={checked ? 'ai' : 'neutral'}>{status}</Badge> : null}
+        </div>
         <p id={`${id}-help`} className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
           {description}
         </p>

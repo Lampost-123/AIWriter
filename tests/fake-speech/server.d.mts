@@ -10,9 +10,8 @@ export interface FakeSpeechOptions {
   /** Each dictation model is downloaded there (default true). */
   parakeet?: boolean
   whisper?: boolean
-  /** AI Write's speech folder and Breeze's folder: what isn't given above is read from the files there. */
+  /** AI Write's speech folder: what isn't given above is read from the files there. */
   home?: string
-  breezeRoot?: string
   /** The dictation model it starts with (default 'parakeet'). */
   dictationEngine?: 'none' | 'parakeet' | 'whisper'
   /** What the voices run on (default 'CUDA · NVIDIA GeForce RTX 4090'; 'CPU' for the processor). */

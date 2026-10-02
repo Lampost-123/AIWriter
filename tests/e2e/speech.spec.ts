@@ -46,7 +46,6 @@ function fakes(testInfo: TestInfo, extra: Record<string, string> = {}) {
       AIWRITE_FAKE_SPEECH_OPTIONS: JSON.stringify({ guard: true }),
       AIWRITE_FAKE_SPEECH_CONTROL: control,
       AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 4090',
-      MCREADER_TTS_DIR: '',
       ...extra
     },
     set
@@ -87,7 +86,7 @@ const answers = (address: string): Promise<boolean> =>
 const asked = async (address: string): Promise<{ method: string; path: string; ours: boolean }[]> =>
   (await (await fetch(`${address.replace(/\/v1$/, '')}/__requests`)).json()) as { method: string; path: string; ours: boolean }[]
 
-/** A copy of MCreader v2's tts folder (empty files): its environment and code, and its weights, complete or not. */
+/** A copy of MCreader v2's tts folder (empty files): its environment and code, and its weights, complete or not. AI Write never uses it. */
 function mcreaderCopy(tts: string, complete: boolean): void {
   const touch = (text: string, ...parts: string[]): void => {
     mkdirSync(join(tts, ...parts.slice(0, -1)), { recursive: true })
@@ -443,61 +442,19 @@ test('never counts voices stopped part way as downloaded, and repairs them when 
   expect(log.match(/Setting up Python for the voices \(venv\)/g)).toHaveLength(2)
 })
 
-test('uses MCreader’s copy of the voices once it is complete, so the 12 GB isn’t downloaded twice', async ({ launch }, testInfo) => {
+test('always uses its own copy of the voices, even with MCreader v2’s complete on this computer', async ({ launch }, testInfo) => {
   const mcreader = mkdtempSync(join(tmpdir(), 'aiwrite-mcreader-'))
   const tts = join(mcreader, 'mcreader-v2', 'tts')
-  mcreaderCopy(tts, false)
-  try {
-    const { win, dataDir } = await launch({ env: fakes(testInfo, { MCREADER_TTS_DIR: tts }).env })
-    await openSpeech(win)
-    const section = engine(win)
-    // Still downloading in MCreader (or stopped there part way): not offered.
-    await expect(section.getByRole('button', { name: 'Download the voices' })).toBeVisible()
-    await expect(section.getByRole('button', { name: 'Use MCreader’s copy' })).toHaveCount(0)
-
-    mcreaderCopy(tts, true)
-    await section.getByRole('button', { name: 'Check', exact: true }).click()
-    await section.getByRole('button', { name: 'Use MCreader’s copy' }).click()
-    await expect(section.getByText(`From ${tts}`)).toBeVisible()
-    await expect(fact(win, 'Voices')).toHaveText('MCreader’s copy')
-    await expect(section.getByRole('button', { name: 'Download AI Write’s own copy' })).toBeVisible()
-
-    // The server runs Breeze from MCreader's folder.
-    await section.getByRole('switch', { name: 'Start with AI Write' }).click()
-    await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-    await expect(fact(win, 'Voices')).toHaveText(/^Ready/)
-    // Nothing of the voices was downloaded into AI Write's own folder.
-    expect(existsSync(join(dataDir, 'app', 'speech', 'venvs'))).toBe(false)
-  } finally {
-    rmSync(mcreader, { recursive: true, force: true })
-  }
-})
-
-test('remembers MCreader’s folder when it was found by hand', async ({ launch }, testInfo) => {
-  const mcreader = mkdtempSync(join(tmpdir(), 'aiwrite-mcreader-'))
-  const tts = join(mcreader, 'Apps', 'MCreader v2', 'tts')
   mcreaderCopy(tts, true)
   try {
-    // Not where the search looks.
-    const { app, win } = await launch({ env: fakes(testInfo).env })
+    const { win } = await launch({ env: fakes(testInfo, { MCREADER_TTS_DIR: tts }).env })
     await openSpeech(win)
     const section = engine(win)
-    await expect(section.getByRole('button', { name: 'Use MCreader’s copy' })).toHaveCount(0)
+    await expect(section.getByRole('button', { name: 'Download the voices' })).toBeVisible()
+    await expect(fact(win, 'Voices')).toHaveText('Not downloaded')
+    await expect(win.getByText('MCreader', { exact: false })).toHaveCount(0)
     await win.getByRole('button', { name: 'More', exact: true }).click()
-    // The folder picker answers with MCreader's own folder.
-    await app.evaluate(({ dialog }, folder) => {
-      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [folder] })) as unknown as typeof dialog.showOpenDialog
-    }, dirname(tts))
-    await win.getByRole('button', { name: 'Find its folder…' }).click()
-    await expect(section.getByText(`From ${tts}`)).toBeVisible()
-    await expect(fact(win, 'Voices')).toHaveText('MCreader’s copy')
-    await expect(win.getByRole('button', { name: 'Find its folder…' })).toHaveCount(0)
-
-    // Check looks again, and still knows where it is.
-    expect((await invoke(win, 'checkSpeech')).mcreader).toEqual({ folder: tts })
-    await section.getByRole('button', { name: 'Check', exact: true }).click()
-    await expect(section.getByText(`From ${tts}`)).toBeVisible()
-    await expect(win.getByRole('button', { name: 'Find its folder…' })).toHaveCount(0)
+    await expect(win.getByText('MCreader', { exact: false })).toHaveCount(0)
   } finally {
     rmSync(mcreader, { recursive: true, force: true })
   }

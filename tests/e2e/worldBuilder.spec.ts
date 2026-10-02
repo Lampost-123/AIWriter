@@ -162,6 +162,9 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     const world = await invoke(win, 'getWorld')
     expect(world?.themes).toBe('Debt, family and what the sea takes back.')
     expect(world?.tone).toBe('Salt-stung and wary, with dry humour.')
+    // The timeline starts: the story's opening scene is on Day 1.
+    const opening = (await invoke(win, 'getOutline', storyId)).scenes[0]
+    expect((await invoke(win, 'getScene', opening.id)).card.when).toBe('Day 1')
 
     // Open goes to the entry's page, where the AI's fields say so; the page keeps the results meanwhile.
     await results(win).getByRole('button', { name: 'Open Mara Venn', exact: true }).click()
@@ -195,6 +198,12 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     await expect.poll(async () => (await entries(win)).length).toBe(9)
     expect((await entries(win)).some((e) => e.name === 'Tide Compass')).toBe(false)
     await expect(results(win).getByRole('button', { name: 'Open Mara Venn', exact: true })).toBeVisible()
+
+    // The Timeline has something to show: the opening scene on Day 1, and the flood the summary dates.
+    await worldNav(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    const timeline = main(win).getByRole('list', { name: 'Timeline' })
+    await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 1, Scene 1\. Day 1\./ })).toBeVisible()
+    await expect(timeline.getByRole('button', { name: /The Great Flood\. in the year 312\./ })).toBeVisible()
   } finally {
     await fake.close()
   }
@@ -304,6 +313,76 @@ test('Cancel stops the build and keeps what was saved; one Undo still takes it a
     // One Undo takes away what was saved.
     await main(win).getByRole('button', { name: 'Undo the whole build' }).click()
     await expect.poll(async () => (await entries(win)).length).toBe(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Interview me asks one question at a time; each answer goes into the summary in his own words, under its topic', async ({
+  launch
+}) => {
+  const fake = await fakeServer(8)
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Grey Coast')
+    // A World builder model that waits a moment before it answers, so the question on its way can be seen.
+    await connect(win, fake, 'fake/wait')
+    await openFromBinder(win)
+    const start = 'Mara Venn is a smuggler captain who owes the Salt Guild a fortune.'
+    await summaryBox(win).fill(start)
+
+    // One question at a time (tests/fake-provider/m4/worldInterview.mjs asks its topics in order).
+    await main(win).getByRole('button', { name: 'Interview me' }).click()
+    const interview = main(win).getByRole('region', { name: 'Interview' })
+    await expect(interview.getByRole('heading', { name: 'Interview · Question 1' })).toBeVisible()
+    await expect(interview.getByRole('status')).toHaveText('Reading your summary…')
+    await expect(interview.getByText('What is the story about, and what sets it going?')).toBeVisible()
+    await expect(interview.getByText('Premise', { exact: true })).toBeVisible()
+    await expect(interview.getByText('Each answer is added to the end of your summary, in your own words.')).toBeVisible()
+    const answer = interview.getByRole('textbox', { name: 'Your answer' })
+    await expect(answer).toBeFocused()
+
+    // Answer one: it goes into the summary at once, word for word, and the next question comes.
+    const premise = 'A debt comes due, and Mara has one season to pay it.'
+    await answer.fill(premise)
+    await interview.getByRole('button', { name: 'Add to summary' }).click()
+    const once = `${start}\n\nPremise: ${premise}`
+    await expect(summaryBox(win)).toHaveValue(once)
+    await expect(interview.getByRole('status')).toHaveText('Thinking of the next question…')
+    await expect(interview.getByText('Who are the main characters, and what does each of them want?')).toBeVisible()
+    await expect(interview.getByRole('heading', { name: 'Interview · Question 2' })).toBeVisible()
+    await expect(interview.getByText('1 answer added to your summary.')).toBeVisible()
+
+    // Skip one: the summary stays as it is, and the next topic comes.
+    await interview.getByRole('button', { name: 'Skip' }).click()
+    await expect(interview.getByText('Where and when does the story take place?')).toBeVisible()
+    await expect(interview.getByRole('heading', { name: 'Interview · Question 3' })).toBeVisible()
+    await expect(summaryBox(win)).toHaveValue(once)
+
+    // Enter adds an answer too, and the toast's Undo takes the last one out again.
+    await answer.fill('The Grey Coast, in the year 340.')
+    await answer.press('Enter')
+    await expect(summaryBox(win)).toHaveValue(`${once}\n\nSetting: The Grey Coast, in the year 340.`)
+    await expect(interview.getByText('What rules does the world run on, and what do they cost?')).toBeVisible()
+    await win.locator('div.fixed[aria-live="polite"]').getByRole('button', { name: 'Undo' }).click()
+    await expect(summaryBox(win)).toHaveValue(once)
+    await expect(interview.getByText('1 answer added to your summary.')).toBeVisible()
+
+    // He can still edit the summary by hand while being interviewed.
+    await summaryBox(win).press('ControlOrMeta+End')
+    await summaryBox(win).pressSequentially(' Soon.')
+    const edited = `${once} Soon.`
+    await expect(summaryBox(win)).toHaveValue(edited)
+
+    // Stop: the interview goes, and the summary is kept in the world as he left it.
+    await interview.getByRole('button', { name: 'Stop' }).click()
+    await expect(interview).toBeHidden()
+    await expect(main(win).getByRole('button', { name: 'Interview me' })).toBeVisible()
+    await expect.poll(async () => (await invoke(win, 'getWorldBuilder')).summary).toBe(edited)
+
+    // Each question was one call to the World builder model, and nothing else was asked of it.
+    expect(fake.requestCounts()['fake/wait']).toBe(4)
+    expect(String(fake.lastRequest()?.body.messages[0].content)).toMatch(/^\[AIWRITE-WORLD v1\] interview/)
   } finally {
     await fake.close()
   }

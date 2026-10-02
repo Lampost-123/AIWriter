@@ -77,7 +77,6 @@ function standIn(runServer: boolean): SpeechStatus {
     loadProblems: { voices: null, dictation: null },
     device: '',
     nvidia: null,
-    mcreader: null,
     download: null,
     queued: [],
     hfKey: false,
@@ -165,7 +164,6 @@ function voicesFact(s: SpeechStatus): { value: string; ready: boolean } {
     if (s.voicesReady) return { value: s.loaded.voices ? 'Ready, loaded' : 'Ready', ready: true }
     return { value: s.installed.voices ? 'Not ready' : 'Not downloaded', ready: false }
   }
-  if (s.installed.voices === 'mcreader') return { value: 'MCreader’s copy', ready: false }
   return { value: s.installed.voices ? 'Downloaded' : 'Not downloaded', ready: false }
 }
 
@@ -331,27 +329,12 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
   const noCard = status.nvidia === ''
   const problem = pending || stopped ? null : status.loadProblems.voices
   return (
-    <Row
-      icon={<AudioLines size={16} />}
-      title="Voices"
-      badge={
-        installed === 'own' ? (
-          <Badge tone="success">Downloaded</Badge>
-        ) : installed === 'mcreader' ? (
-          <Badge tone="success">MCreader’s copy</Badge>
-        ) : null
-      }
-    >
+    <Row icon={<AudioLines size={16} />} title="Voices" badge={installed === 'own' ? <Badge tone="success">Downloaded</Badge> : null}>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
         Breeze TTS 2 gives the narrator and each character a voice of their own, made from a description, with sighs and laughs performed.
         {installed ? null : ' About 12 GB. It needs an NVIDIA graphics card: on the processor it is far too slow.'} Its licence is for
         personal, non-commercial use.
       </p>
-      {installed === 'mcreader' && status.mcreader ? (
-        <p className="mt-1.5 truncate text-[12px] text-faint" title={status.mcreader.folder}>
-          From {status.mcreader.folder}
-        </p>
-      ) : null}
       {!installed && noCard ? (
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
           No NVIDIA graphics card was found on this computer, so the voices would be far too slow here.
@@ -367,29 +350,15 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
           }
         />
       ) : null}
-      {!installed && !pending && (!stopped || status.mcreader) ? (
+      {!installed && !pending && !stopped ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {stopped ? null : (
-            <Button
-              size="sm"
-              variant={noCard ? 'secondary' : 'primary'}
-              icon={<Download size={13} />}
-              onClick={() => void download('voices')}
-            >
-              Download the voices
-            </Button>
-          )}
-          {status.mcreader ? (
-            <Button size="sm" onClick={() => void act(() => api.useMCreaderVoices())}>
-              Use MCreader’s copy
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {installed === 'mcreader' && !pending && !stopped ? (
-        <div className="mt-2">
-          <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Download size={13} />} onClick={() => void download('voices')}>
-            Download AI Write’s own copy
+          <Button
+            size="sm"
+            variant={noCard ? 'secondary' : 'primary'}
+            icon={<Download size={13} />}
+            onClick={() => void download('voices')}
+          >
+            Download the voices
           </Button>
         </div>
       ) : null}
@@ -454,7 +423,7 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
 }
 
 const isPending = (s: SpeechStatus, kind: SpeechDownloadKind): boolean =>
-  (s.download?.kind === kind && s.download.state === 'running') || s.queued.includes(kind)
+  (s.download?.kind === kind && s.download.state === 'running') || !!s.queued?.includes(kind)
 
 // ---------- Downloads ----------
 
@@ -826,7 +795,6 @@ function More({ status }: { status: SpeechStatus | null }): React.JSX.Element {
           </p>
           <HuggingFaceKey />
         </div>
-        {!shown.mcreader && shown.installed.voices !== 'mcreader' ? <FindMCreader /> : null}
         <Storage status={shown} known={!!status} />
       </Card>
     </SettingsSection>
@@ -895,26 +863,6 @@ function Address({ status }: { status: SpeechStatus }): React.JSX.Element {
       </div>
       {error ? <p className="mt-1.5 text-[12px] leading-relaxed text-danger">{error}</p> : null}
     </form>
-  )
-}
-
-function FindMCreader(): React.JSX.Element {
-  return (
-    <div className="p-4">
-      <MoreTitle
-        icon={<AudioLines size={14} />}
-        title="MCreader v2’s voices"
-        right={
-          <Button size="sm" variant="ghost" onClick={() => void act(() => api.findMCreaderVoices())}>
-            Find its folder…
-          </Button>
-        }
-      />
-      <p className="text-[12.5px] leading-relaxed text-muted">
-        MCreader v2 wasn’t found on this computer. If it is here and its voices are downloaded, find its folder to use them instead of
-        downloading them again.
-      </p>
-    </div>
   )
 }
 
@@ -1005,7 +953,6 @@ function Storage({ status, known }: { status: SpeechStatus; known: boolean }): R
         <p className="min-w-[220px] flex-1 text-[12.5px] leading-relaxed text-muted">
           Removing the downloads frees {total > 0 ? formatSize(total) : 'their space'} and turns “Start with AI Write” off. You can download
           them again at any time.
-          {status.installed.voices === 'mcreader' ? ' MCreader’s copy of the voices is never touched.' : null}
         </p>
         <Button
           size="sm"

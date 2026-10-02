@@ -140,27 +140,23 @@ test('opening AI Write again while it runs changes nothing and leaves a draft wr
 
 test('a library folder that cannot be reached still opens the window, says so and offers a way on', async ({ launch }) => {
   const dataDir = newDataDir()
-  try {
-    mkdirSync(join(dataDir, 'app'), { recursive: true })
-    writeFileSync(join(dataDir, 'not-a-folder'), 'x')
-    const missing = join(dataDir, 'not-a-folder', 'AI Write')
-    writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ libraryPath: missing, lastWorldId: 'gone' }))
-    const { app, win } = await launch({ dataDir })
-    await expect(win.getByRole('heading', { name: "AI Write can't find your library folder" })).toBeVisible()
-    await expect(win.getByText(missing)).toBeVisible()
-    await expect(win.getByRole('heading', { name: 'Create a world' })).toHaveCount(0)
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true)
+  mkdirSync(join(dataDir, 'app'), { recursive: true })
+  writeFileSync(join(dataDir, 'not-a-folder'), 'x')
+  const missing = join(dataDir, 'not-a-folder', 'AI Write')
+  writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ libraryPath: missing, lastWorldId: 'gone' }))
+  const { app, win } = await launch({ dataDir })
+  await expect(win.getByRole('heading', { name: "AI Write can't find your library folder" })).toBeVisible()
+  await expect(win.getByText(missing)).toBeVisible()
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toHaveCount(0)
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true)
 
-    // Choosing another folder gets Adam going again.
-    const other = mkdtempSync(join(dataDir, 'lib-'))
-    await app.evaluate(({ dialog }, p) => {
-      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [p] })) as typeof dialog.showOpenDialog
-    }, other)
-    await win.getByRole('button', { name: 'Choose another folder…' }).click()
-    await createWorldFromWelcome(win, 'Fresh start')
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true })
-  }
+  // Choosing another folder gets Adam going again.
+  const other = mkdtempSync(join(dataDir, 'lib-'))
+  await app.evaluate(({ dialog }, p) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [p] })) as typeof dialog.showOpenDialog
+  }, other)
+  await win.getByRole('button', { name: 'Choose another folder…' }).click()
+  await createWorldFromWelcome(win, 'Fresh start')
 })
 
 test('changing the library folder leaves the old world behind and shows the welcome screen', async ({ launch }) => {
@@ -239,15 +235,11 @@ test('switching worlds returns to the same place, and an Undo never acts on anot
 
 test('the window opens already in the chosen theme', async ({ launch }) => {
   const dataDir = newDataDir()
-  try {
-    mkdirSync(join(dataDir, 'app'), { recursive: true })
-    writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ theme: 'dark' }))
-    const { app, win } = await launch({ dataDir })
-    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
-    expect(await win.evaluate(() => (globalThis as unknown as { aiwrite: { initialTheme: string } }).aiwrite.initialTheme)).toBe('dark')
-    await expect(win.locator('html')).toHaveAttribute('data-theme', 'dark')
-    expect((await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toLowerCase()).toBe('#161514')
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true })
-  }
+  mkdirSync(join(dataDir, 'app'), { recursive: true })
+  writeFileSync(join(dataDir, 'app', 'settings.json'), JSON.stringify({ theme: 'dark' }))
+  const { app, win } = await launch({ dataDir })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  expect(await win.evaluate(() => (globalThis as unknown as { aiwrite: { initialTheme: string } }).aiwrite.initialTheme)).toBe('dark')
+  await expect(win.locator('html')).toHaveAttribute('data-theme', 'dark')
+  expect((await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toLowerCase()).toBe('#161514')
 })

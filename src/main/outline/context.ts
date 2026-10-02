@@ -11,7 +11,16 @@ import * as mem from '../db/memory'
 import { memoryAt } from '../memory/asOf'
 import { sceneMemory } from '../memory/scene'
 import type { SceneMemory } from '../memory/types'
-import { planText, type CastLine, type EarlierStory, type PlanAct, type PlanChapter, type StoryFacts, type ThreadLine } from './brief'
+import {
+  latestWhen,
+  planText,
+  type CastLine,
+  type EarlierStory,
+  type PlanAct,
+  type PlanChapter,
+  type StoryFacts,
+  type ThreadLine
+} from './brief'
 
 type DB = Database.Database
 
@@ -45,6 +54,7 @@ export function storyPlan(db: DB, storyId: ID): PlanAct[] {
         summary: said.get(`scene:${s.id}`) ?? '',
         goal: cards.get(s.id)?.goal ?? '',
         beats: cards.get(s.id)?.beats ?? [],
+        when: cards.get(s.id)?.when ?? '',
         words: s.wordCount
       }))
   })
@@ -119,6 +129,8 @@ export interface OutlineFacts {
   /** The story's last act, which chapters carry on when no new acts are asked for. */
   lastAct: string | null
   chapterCount: number
+  /** The When of the story's last scene that has one ('' when none has), so the new scenes' days carry on from it. */
+  latestWhen: string
 }
 
 /** Everything the outline helper tells the AI about a story, as of its end. */
@@ -155,7 +167,9 @@ export function outlineFacts(db: DB, storyId: ID, premise: string): OutlineFacts
     threads,
     cast: castLines(entries, `${premise}\n${planText(plan, 0)}`),
     lastAct: acted.length ? acted[acted.length - 1].title || 'Untitled act' : null,
-    chapterCount: plan.reduce((n, a) => n + a.chapters.length, 0)
+    chapterCount: plan.reduce((n, a) => n + a.chapters.length, 0),
+    // Read from the whole story: the empty "Scene 1" a new story is made with may have a When already.
+    latestWhen: latestWhen(shape)
   }
 }
 

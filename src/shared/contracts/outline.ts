@@ -78,12 +78,23 @@ export interface KeepItem {
   text: string
   /** A scene's beats. */
   beats?: string[]
+  /**
+   * When a scene happens, in the story's count of days ("Day 3, dusk"); it goes on the scene card's When.
+   * Left out or empty: the day of the nearest scene before it that has a When ("Later that day" when that
+   * When names no day of its own), else "Day 1" (src/main/outline/structure.ts fallbackWhen). A When
+   * already on a reused first scene's card is never replaced.
+   */
+  when?: string
 }
 
 export interface KeptItem {
   key: string
   kind: 'act' | 'chapter' | 'scene'
   id: ID
+  /** It took the place of the story's untouched first chapter or scene: its Undo puts that back, never removes it. */
+  reused?: boolean
+  /** A reused scene whose card had a When already (kept as it was): its Undo leaves that When on the card. */
+  whenKept?: boolean
 }
 
 export interface OutlineApi {

@@ -12,7 +12,7 @@ const source = join('/app', 'resources', 'speech-server')
 
 function input(over: Partial<PlanInput> = {}): PlanInput {
   return {
-    paths: speechPaths(userData, source, null, 'win32'),
+    paths: speechPaths(userData, source, 'win32'),
     platform: 'win32',
     basePython: join('/py', 'python.exe'),
     serverVenv: false,
@@ -102,17 +102,13 @@ describe('the download steps', () => {
   })
 
   it('use PyTorch’s own build on a Mac (no NVIDIA there)', () => {
-    const steps = planFor('voices', input({ platform: 'darwin', paths: speechPaths(userData, source, null, 'darwin') }))
+    const steps = planFor('voices', input({ platform: 'darwin', paths: speechPaths(userData, source, 'darwin') }))
     expect(ids(steps)).not.toContain('torch-check')
     expect(steps.find((s) => s.id === 'torch')?.args).not.toContain('--index-url')
   })
 
-  it('never download into MCreader’s copy: the voices always go to AI Write’s own speech folder', () => {
-    const mcreader = join('/home', 'adam', 'mcreader-v2', 'tts')
-    const i = input({ paths: speechPaths(userData, source, mcreader, 'win32') })
-    expect(i.paths.breezeRoot).toBe(mcreader)
-    const text = JSON.stringify(planFor('voices', i))
-    expect(text).not.toContain(JSON.stringify(mcreader).slice(1, -1))
+  it('put the voices in AI Write’s own speech folder', () => {
+    const i = input({ paths: speechPaths(userData, source, 'win32') })
     for (const step of planFor('voices', i))
       if (step.args.includes('--root')) expect(step.args[step.args.indexOf('--root') + 1]).toBe(i.paths.home)
   })
@@ -141,7 +137,7 @@ describe('the download steps', () => {
   })
 
   it('keep pip’s, Python’s and Hugging Face’s own files in the speech folder’s cache, and never inherit a key', () => {
-    const p = speechPaths(userData, source, null, 'linux')
+    const p = speechPaths(userData, source, 'linux')
     const env = stepEnv(p)
     expect(env.PIP_CACHE_DIR).toBe(join(userData, 'speech', 'cache', 'pip'))
     expect(env.TMPDIR).toBe(join(userData, 'speech', 'cache', 'tmp'))
@@ -182,7 +178,6 @@ describe('the Hugging Face key never leaves secrets', () => {
       picked: 'none',
       installed: { server: true, voices: null, parakeet: false, whisper: false },
       nvidia: '',
-      mcreader: null,
       download: null,
       queued: [],
       hfKey: true,

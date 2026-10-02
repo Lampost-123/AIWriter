@@ -188,7 +188,8 @@ function moveSelectionAway(sceneIds: ID[], stay = false): boolean {
   const openId = app().sceneId
   if (!o || !openId || !sceneIds.includes(openId)) return false
   const next = neighbourAfterRemoval(readingOrder(o), sceneIds, openId)
-  if (stay) openWithoutLeaving(next, o.story.id)
+  // On the outline helper, Adam stays there: the scene it kept into the story's first place may be the one going.
+  if (stay || app().view.kind === 'outline') openWithoutLeaving(next, o.story.id)
   else app().selectScene(next, o.story.id)
   return true
 }

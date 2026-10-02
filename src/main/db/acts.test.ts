@@ -208,12 +208,17 @@ describe('acts', () => {
     acts.placeChapter(db, c1, { actId: one.id })
     expect(acts.actOfChapter(db, c1)).toBe(one.id)
     const scene = repo.getOutline(db, id).scenes[0]
-    repo.updateSceneCard(db, scene.id, { ...repo.getScene(db, scene.id).card, goal: 'Mara arrives.', beats: ['Rain', 'The door'] })
+    repo.updateSceneCard(db, scene.id, {
+      ...repo.getScene(db, scene.id).card,
+      goal: 'Mara arrives.',
+      beats: ['Rain', 'The door'],
+      when: 'Day 2, dusk'
+    })
     const extra = repo.createScene(db, c1, { title: 'Broken' })
     db.prepare('UPDATE scenes SET card_json = ? WHERE id = ?').run('{not json', extra.id)
     const cards = acts.storyCards(db, id)
-    expect(cards.get(scene.id)).toEqual({ goal: 'Mara arrives.', beats: ['Rain', 'The door'] })
-    expect(cards.get(extra.id)).toEqual({ goal: '', beats: [] })
+    expect(cards.get(scene.id)).toEqual({ goal: 'Mara arrives.', beats: ['Rain', 'The door'], when: 'Day 2, dusk' })
+    expect(cards.get(extra.id)).toEqual({ goal: '', beats: [], when: '' })
   })
 })
 

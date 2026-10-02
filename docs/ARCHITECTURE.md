@@ -462,7 +462,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   else from either repo, and never keys, tokens or voice clips. Helpers they lean on are written fresh.
   One local speech server (Python) speaks and listens: its source ships with the app; its Python
   environments and models download into the user data folder (`speech/`), never into the app, git, a world
-  folder or a backup. It listens on 127.0.0.1:8766; Settings may point at another server on this
+  folder or a backup. AI Write always installs and uses its own copy there, never another app's (Adam,
+  2 October 2026: no MCreader install is looked for or reused). It listens on 127.0.0.1:8766; Settings may point at another server on this
   computer, loopback only (`speech/url.ts`). It starts hidden with the app when "Start with AI Write" is
   on and stops as the app quits. Its routes are reached through IPC (the window never calls it directly).
   The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the
@@ -480,6 +481,21 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   or all at once on the page; the page's last build is read back from those lines. The summary is kept in
   the world's `meta` key `world_summary`. Its job is `world` ("World builder model", the character builder
   model until Adam picks one, Thinking Off).
+- **World builder: Interview me** (`src/main/worldBuilder/interview.ts`, `features/worldBuilder/WorldInterview.tsx`,
+  `interviewStore.ts`). The AI asks one short question at a time about what the summary is missing or thin on:
+  one `world` record per question (`askWorldQuestion`, prompt marker `[AIWRITE-WORLD v1] interview`, the World
+  builder model and Thinking), reading the summary as it stands and the questions asked so far. Answers never go
+  through the AI: each is added to the end of the summary in Adam's words under the question's topic
+  ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
+  stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
+- **Story days on the timeline.** The outline helper and the World builder date things in the story's own
+  count of days, which `when.ts` reads: "Day 1" is the day the story opens ("Day 3, dusk"). The outline
+  helper asks for a `When:` line on each scene (carrying on from the story's last scene with a When, from
+  Day 1 when none has one), shows it on each suggestion (Edit changes it), and keeps it on the card;
+  one the AI left out takes the day of the nearest scene before it with a When, else "Day 1"
+  (`fallbackWhen`). A finished build puts the story's opening scene on "Day 1" while none of its scenes
+  has a When (`worldBuilder/timeline.ts`), and asks for events during the story on that count. A When
+  already on a card is never replaced.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.

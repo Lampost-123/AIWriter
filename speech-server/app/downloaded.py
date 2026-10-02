@@ -3,11 +3,9 @@
 A download that was stopped part way must never read as done, or the server would offer a model it
 can't load. So:
 
-* AI Write's own copy of Breeze counts once the voices' last download step has checked it and left a
-  mark (models/breeze/.ready). AI Write removes the mark whenever the voices start downloading again.
-* MCreader v2's copy, which has no mark, counts when its weights look whole: every file its index
-  names, and what speaking needs besides, is in the snapshot the server loads, and nothing is left
-  half-downloaded.
+* Breeze counts once the voices' last download step has checked it and left a mark
+  (models/breeze/.ready). AI Write removes the mark whenever the voices start downloading again. Only
+  AI Write's own copy, in its speech folder, is ever used.
 * Parakeet counts when all four of its files are in one folder (it is unpacked aside, then moved into
   place); Whisper when all of its files are in one snapshot.
 
@@ -15,14 +13,9 @@ AI Write's main process makes the same checks (src/main/speech/installed.ts). St
 the download steps run this before anything else is installed.
 """
 
-import json
-import os
 from pathlib import Path
 
 BREEZE_REPO = "BreezeBlue/breeze-tts-2"
-# Besides the shards the weights' index names: what Breeze reads to speak (its tokenizer and the audio codec).
-BREEZE_NEEDS = ("config.json", "tokenizer.json", "tokenizer_config.json", "audio_tokenizer/model.safetensors")
-BREEZE_INDEX = "model.safetensors.index.json"
 
 PARAKEET_FILES = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
 # Where Parakeet's archive is unpacked before it is moved into place; never counted as downloaded.
@@ -72,33 +65,9 @@ def snapshot_dir(weights: Path, needs: tuple[str, ...]) -> Path | None:
     return None
 
 
-def _shards_whole(snapshot: Path) -> bool:
-    """Every shard the weights' index names is there."""
-    try:
-        names = set(json.loads((snapshot / BREEZE_INDEX).read_text(encoding="utf-8"))["weight_map"].values())
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return False
-    return bool(names) and all((snapshot / str(n)).is_file() for n in names)
-
-
-def breeze_weights_whole(root: Path) -> bool:
-    """Breeze's weights at `root` look complete (for a copy without AI Write's mark)."""
-    weights = breeze_weights_dir(root)
-    if _half_downloaded(weights):
-        return False
-    snapshot = snapshot_dir(weights, BREEZE_NEEDS + (BREEZE_INDEX,))
-    return snapshot is not None and _shards_whole(snapshot)
-
-
-def breeze_complete(root: Path, own: bool) -> bool:
-    """Breeze's weights at `root` can be loaded: AI Write's own copy (`own`) by its mark, MCreader's by its files."""
-    if own:
-        return breeze_mark(root).is_file() and snapshot_dir(breeze_weights_dir(root), ("config.json",)) is not None
-    return breeze_weights_whole(root)
-
-
-def same_folder(a: Path, b: Path) -> bool:
-    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+def breeze_complete(root: Path) -> bool:
+    """Breeze's weights at `root` can be loaded: the voices' last download step left its mark."""
+    return breeze_mark(root).is_file() and snapshot_dir(breeze_weights_dir(root), ("config.json",)) is not None
 
 
 def parakeet_dir(root: Path) -> Path | None:

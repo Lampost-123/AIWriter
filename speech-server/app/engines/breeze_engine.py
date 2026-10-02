@@ -31,7 +31,7 @@ PRESETS = [
 def weights_downloaded() -> bool:
     """All of the weights are here, so Breeze can load offline: AI Write's own copy once its download checked
     out (it leaves a mark), MCreader's when every file looks whole. A download stopped part way never counts."""
-    return downloaded.breeze_complete(config.BREEZE_ROOT, own=downloaded.same_folder(config.BREEZE_ROOT, config.HOME))
+    return downloaded.breeze_complete(config.BREEZE_ROOT)
 
 
 class BreezeEngine(WorkerEngine):

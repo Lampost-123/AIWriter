@@ -73,8 +73,8 @@ export interface SpeechStatus {
    * offers it with one click (downloadSpeech('server'); the voices and dictation models are kept).
    */
   repair: boolean
-  /** What is downloaded on this computer. `voices` says whose copy: AI Write's own or MCreader's. */
-  installed: { server: boolean; voices: 'own' | 'mcreader' | null; parakeet: boolean; whisper: boolean }
+  /** What is downloaded on this computer, in AI Write's own speech folder (`voices` is 'own' once they are). */
+  installed: { server: boolean; voices: 'own' | null; parakeet: boolean; whisper: boolean }
   /** What the server holds in memory now (a model unused for five minutes is let go). */
   loaded: { voices: boolean; dictation: DictationModel | null }
   /**
@@ -86,8 +86,6 @@ export interface SpeechStatus {
   device: string
   /** The NVIDIA graphics card on this computer ('' when there is none); null until it has been looked for. */
   nvidia: string | null
-  /** MCreader v2's copy of the voices, when it is complete on this computer (so the 12 GB isn't fetched twice). */
-  mcreader: { folder: string } | null
   /** The download running, or stopped on a problem or by Cancel; null when there's none to show. */
   download: SpeechDownload | null
   /** Downloads waiting for the one running to finish, in order. */
@@ -135,10 +133,6 @@ export interface SpeechApi {
   dismissSpeechDownload(): Promise<SpeechStatus>
   /** Installs Python with Windows' own installer (winget), then carries on with the speech engine's download. */
   installPython(): Promise<SpeechStatus>
-  /** Uses MCreader v2's copy of the voices in place of downloading them. */
-  useMCreaderVoices(): Promise<SpeechStatus>
-  /** Asks where MCreader v2 is (a folder picker) when it wasn't found; uses its voices if they're complete there. */
-  findMCreaderVoices(): Promise<SpeechStatus>
   /** Saves the Hugging Face key (kept like the AI keys), or removes it with null. Only the voices' download uses it. */
   setHuggingFaceKey(key: string | null): Promise<SpeechStatus>
   /** Undo for removing the Hugging Face key: puts it back, for a couple of minutes after (it never leaves the main process). */
@@ -147,7 +141,7 @@ export interface SpeechApi {
   getSpeechStorage(): Promise<SpeechStorage>
   /** Opens the speech folder in the file manager. */
   showSpeechFolder(): Promise<void>
-  /** Removes everything downloaded (never MCreader's copy) and turns "Start with AI Write" off. Undo puts it back. */
+  /** Removes everything downloaded and turns "Start with AI Write" off. Undo puts it back. */
   removeSpeechDownloads(): Promise<SpeechStatus>
   /** Undo for removeSpeechDownloads, while the removed files are still kept aside. */
   undoRemoveSpeechDownloads(): Promise<SpeechStatus>

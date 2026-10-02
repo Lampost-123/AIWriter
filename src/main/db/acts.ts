@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import type { Act, DeletedItem, ID } from '@shared/types'
 import type { ChapterPlace, KeptItem } from '@shared/contracts/outline'
+import { emptySceneCard } from '@shared/defaults'
 import { newId, now, UserError } from '../util'
 
 // All SQL for acts (milestone 4: acts in the binder and the outline helper). An act gathers chapters
@@ -347,17 +348,17 @@ export function chapterRestored(db: DB, chapterId: ID): void {
 
 // ---------- What the outline helper reads ----------
 
-/** The goal and beats on each live scene card of a story, by scene id, in one query. A damaged card reads as empty. */
-export function storyCards(db: DB, storyId: ID): Map<ID, { goal: string; beats: string[] }> {
+/** The goal, beats and When on each live scene card of a story, by scene id, in one query. A damaged card reads as empty. */
+export function storyCards(db: DB, storyId: ID): Map<ID, { goal: string; beats: string[]; when: string }> {
   const rows = db
     .prepare(
       `SELECT s.id, s.card_json FROM scenes s JOIN chapters c ON c.id = s.chapter_id
        WHERE c.story_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL`
     )
     .all(storyId) as Row[]
-  const out = new Map<ID, { goal: string; beats: string[] }>()
+  const out = new Map<ID, { goal: string; beats: string[]; when: string }>()
   for (const r of rows) {
-    let card: { goal?: unknown; beats?: unknown } = {}
+    let card: { goal?: unknown; beats?: unknown; when?: unknown } = {}
     try {
       card = JSON.parse(String(r.card_json ?? '{}')) as typeof card
     } catch {
@@ -365,7 +366,8 @@ export function storyCards(db: DB, storyId: ID): Map<ID, { goal: string; beats: 
     }
     out.set(r.id as string, {
       goal: typeof card.goal === 'string' ? card.goal : '',
-      beats: Array.isArray(card.beats) ? card.beats.filter((b): b is string => typeof b === 'string') : []
+      beats: Array.isArray(card.beats) ? card.beats.filter((b): b is string => typeof b === 'string') : [],
+      when: typeof card.when === 'string' ? card.when : ''
     })
   }
   return out
@@ -416,13 +418,41 @@ function sceneUsed(db: DB, id: ID, r: Row): boolean {
  * a scene with words, a draft or a change in it, or a chapter or act changed or holding something made
  * since, goes to Recently deleted instead (with what is in it), so nothing Adam did is lost.
  */
-export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id'>[]): { storyIds: ID[]; sceneIds: ID[] } {
+export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id' | 'reused' | 'whenKept'>[]): { storyIds: ID[]; sceneIds: ID[] } {
   const t = now()
-  const of = (kind: KeptItem['kind']): ID[] => kept.filter((k) => k.kind === kind).map((k) => k.id)
+  const of = (kind: KeptItem['kind']): ID[] => kept.filter((k) => k.kind === kind && !k.reused).map((k) => k.id)
   const changed = changedSince
   const stories = new Set<ID>()
   const gone: ID[] = []
   return db.transaction(() => {
+    // The story's first chapter and scene, which the kept ones took the place of, stay: put back as they
+    // were ("Chapter 1", "Scene 1", empty) while untouched since, else just out of the act going.
+    for (const k of kept.filter((k) => k.reused && k.kind === 'scene')) {
+      const r = db
+        .prepare(
+          'SELECT s.word_count, s.text, s.card_json, s.deleted_at, s.created_at, s.updated_at, c.story_id FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?'
+        )
+        .get(k.id) as Row | undefined
+      if (!r || r.deleted_at || sceneUsed(db, k.id, r)) continue
+      // Only what the keep put on its card goes: the goal and beats, and the When unless it was there before.
+      let card = emptySceneCard()
+      try {
+        card = { ...card, ...(JSON.parse(String(r.card_json ?? '{}')) as Partial<typeof card>) }
+      } catch {
+        // Put back empty.
+      }
+      const back = { ...card, goal: '', beats: [], when: k.whenKept && typeof card.when === 'string' ? card.when : '' }
+      db.prepare("UPDATE scenes SET title = 'Scene 1', card_json = ? WHERE id = ?").run(JSON.stringify(back), k.id)
+      markMade(db, 'scene', k.id)
+    }
+    for (const k of kept.filter((k) => k.reused && k.kind === 'chapter')) {
+      const r = db.prepare('SELECT story_id, deleted_at, created_at, updated_at FROM chapters WHERE id = ?').get(k.id) as Row | undefined
+      if (!r || r.deleted_at) continue
+      stories.add(r.story_id as string)
+      if (!changed(r)) db.prepare("UPDATE chapters SET title = 'Chapter 1', goal = '' WHERE id = ?").run(k.id)
+      settle(db, r.story_id as string, { chapterId: k.id, actId: null, index: 0 })
+      if (!changed(r)) markMade(db, 'chapter', k.id)
+    }
     for (const id of of('scene')) {
       const r = db
         .prepare(
