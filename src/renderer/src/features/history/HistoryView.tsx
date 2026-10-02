@@ -461,7 +461,11 @@ function Comparison({
               variant="ghost"
               size="sm"
               onClick={() =>
-                navigate({ kind: 'generation', generationId: info.generationId!, from: { history: { sceneId, snapshotId: info.id } } })
+                navigate({
+                  kind: 'generation',
+                  generationId: info.generationId!,
+                  back: { view: { kind: 'history', sceneId, snapshotId: info.id }, label: 'Back to History' }
+                })
               }
               title="See exactly what the AI was given for the change that came after this version"
               // Under the name (a narrow comparison), its words line up with the name's.

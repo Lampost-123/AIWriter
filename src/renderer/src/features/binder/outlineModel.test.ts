@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import type { Chapter, Outline, SceneMeta, Story } from '@shared/types'
+import type { Act, Chapter, Outline, SceneMeta, Story } from '@shared/types'
 import {
+  actOf,
   applyTreeOrder,
   arrayMove,
+  canStartActAt,
+  chapterRuns,
   findChapterOf,
   formatWords,
   groupOutline,
   moveSceneTo,
+  moveToActPlace,
   neighbourAfterRemoval,
+  placeChapterIn,
   readingOrder,
   scenePlace,
+  shownOrder,
   siblings,
-  treeOrder
+  treeOrder,
+  withActStartedAt
 } from './outlineModel'
 
 const story = { id: 'st', title: 'Book 1' } as Story
@@ -113,6 +120,73 @@ describe('drag and drop bookkeeping', () => {
       [],
       ['s1@a:0', 's3@a:1', 's2@a:2'],
       []
+    ])
+  })
+})
+
+describe('acts', () => {
+  const act = (id: string, position: number): Act => ({ id, storyId: 'st', title: id.toUpperCase(), purpose: '', position })
+  const inAct = (c: Chapter, actId: string | null): Chapter => ({ ...c, actId })
+  // Chapter "a" has no act; "b" and "c" are in act one, "d" in act two. Act three has none yet.
+  const withActs: Outline = {
+    story,
+    chapters: [chapter('a', 0), inAct(chapter('b', 1), 'one'), inAct(chapter('c', 2), 'one'), inAct(chapter('d', 3), 'two')],
+    scenes: [],
+    acts: [act('one', 0), act('two', 1), act('three', 2)]
+  }
+  const runs = (o: Outline): string[] =>
+    chapterRuns(
+      o,
+      o.chapters.map((c) => c.id)
+    ).map((r) => `${r.act?.id ?? '-'}: ${r.chapters.join(' ')}`)
+
+  it('shows a story without acts as it always was: one run of chapters', () => {
+    expect(runs(outline)).toEqual(['-: a b c'])
+    expect(runs({ ...outline, acts: [] })).toEqual(['-: a b c'])
+  })
+
+  it('groups chapters under their acts, the chapters with no act first', () => {
+    expect(runs(withActs)).toEqual(['-: a', 'one: b c', 'two: d', 'three: '])
+    expect(shownOrder(withActs, ['d', 'c', 'a', 'b'])).toEqual(['a', 'c', 'b', 'd'])
+    // A chapter whose act is gone counts as having none.
+    expect(runs({ ...withActs, acts: [act('one', 0), act('three', 2)] })).toEqual(['-: a d', 'one: b c', 'three: '])
+    expect(actOf(withActs, 'c')).toBe('one')
+    expect(actOf(withActs, 'a')).toBeNull()
+  })
+
+  it('moves a chapter to a later act’s start or an earlier act’s end', () => {
+    expect(moveToActPlace(withActs, 'b', 'two')).toEqual({ actId: 'two', index: 0 })
+    expect(moveToActPlace(withActs, 'a', 'one')).toEqual({ actId: 'one', index: 0 })
+    expect(moveToActPlace(withActs, 'd', 'one')).toEqual({ actId: 'one' })
+    expect(moveToActPlace(withActs, 'b', 'one')).toBeNull()
+    expect(moveToActPlace(withActs, 'b', 'gone')).toBeNull()
+  })
+
+  it('places a chapter as the server will, with fresh positions', () => {
+    const show = (o: Outline): string => o.chapters.map((c) => `${c.id}${c.position}@${c.actId ?? '-'}`).join(' ')
+    expect(show(placeChapterIn(withActs, 'd', { actId: 'one' }))).toBe('a0@- b1@one c2@one d3@one')
+    expect(show(placeChapterIn(withActs, 'a', { actId: 'three' }))).toBe('b0@one c1@one d2@two a3@three')
+    expect(show(placeChapterIn(withActs, 'c', { actId: 'one', beforeId: 'b' }))).toBe('a0@- c1@one b2@one d3@two')
+    expect(show(placeChapterIn(withActs, 'b', { actId: 'two', afterId: 'd' }))).toBe('a0@- c1@one d2@two b3@two')
+    expect(show(placeChapterIn(withActs, 'd', { actId: 'one', index: 1 }))).toBe('a0@- b1@one d2@one c3@one')
+    expect(show(placeChapterIn(withActs, 'c', { actId: null }))).toBe('a0@- c1@- b2@one d3@two')
+    expect(show(placeChapterIn({ ...withActs, chapters: withActs.chapters.slice(1) }, 'd', { actId: null }))).toBe('d0@- b1@one c2@one')
+    expect(placeChapterIn(withActs, 'd', { actId: 'gone' })).toBe(withActs)
+    expect(placeChapterIn(withActs, 'missing', { actId: 'one' })).toBe(withActs)
+  })
+
+  it('starts a new act at a chapter with no act, or after the first chapter of its act, as the server will', () => {
+    expect(['a', 'b', 'c', 'd', 'missing'].map((id) => canStartActAt(withActs, id))).toEqual([true, false, true, false, false])
+    expect(canStartActAt(outline, 'b')).toBe(true)
+    const runsAfter = (o: Outline, chapterIds: string[]): string[] => runs(withActStartedAt(o, act('new', 9), chapterIds))
+    expect(runsAfter(withActs, ['c'])).toEqual(['-: a', 'one: b', 'new: c', 'two: d', 'three: '])
+    expect(runsAfter(withActs, ['a'])).toEqual(['new: a', 'one: b c', 'two: d', 'three: '])
+    expect(runsAfter(outline, ['b', 'c'])).toEqual(['-: a', 'new: b c'])
+    expect(withActStartedAt(withActs, act('new', 9), ['c']).acts!.map((a) => `${a.id}${a.position}`)).toEqual([
+      'one0',
+      'new1',
+      'two2',
+      'three3'
     ])
   })
 })

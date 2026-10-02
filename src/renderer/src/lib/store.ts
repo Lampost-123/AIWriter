@@ -15,8 +15,8 @@ export type View =
   | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
-  /** `from`: opened from a scene's History (milestone 4), so Back returns to that version there. */
-  | { kind: 'generation'; generationId: ID; from?: { history: { sceneId: ID; snapshotId: ID } } }
+  /** `back`: opened from somewhere other than the scene a draft was for (the outline helper, say). */
+  | { kind: 'generation'; generationId: ID; back?: RecordBack }
   /** The "What changed" list: what the memory keeper did, for the whole world or (sceneId) one scene. */
   | { kind: 'memory'; sceneId: ID | null }
   // ----- Milestone 3 -----
@@ -40,6 +40,17 @@ export type View =
   | { kind: 'outline'; storyId: ID }
   /** Build the world from a summary (the World builder): lays out everything a summary names, and lists what it made. */
   | { kind: 'worldBuilder' }
+
+/**
+ * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words
+ * ("Back to the outline helper", "Back to History"), and, for an AI call that isn't a scene's draft, what the
+ * record is of ("this outline").
+ */
+export interface RecordBack {
+  view: View
+  label: string
+  what?: string
+}
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 

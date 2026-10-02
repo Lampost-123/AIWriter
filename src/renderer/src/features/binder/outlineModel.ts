@@ -1,7 +1,8 @@
 // Pure helpers for the story tree: grouping, reading order, neighbours, and the
 // bookkeeping behind drag and drop. No React, so they're unit-tested.
 
-import type { Chapter, ID, Outline, SceneMeta } from '@shared/types'
+import type { Act, Chapter, ID, Outline, SceneMeta } from '@shared/types'
+import type { ChapterPlace } from '@shared/contracts/outline'
 
 export interface ChapterGroup {
   chapter: Chapter
@@ -106,6 +107,103 @@ export function applyTreeOrder(outline: Outline, order: TreeOrder): Outline {
     })
   )
   return { ...outline, chapters, scenes }
+}
+
+// ---------- Acts (milestone 4) ----------
+
+/** A run of chapters in the binder: an act's, or (`act` null) the chapters with no act. */
+export interface ChapterRun {
+  act: Act | null
+  chapters: ID[]
+}
+
+/** The act a chapter is in, or null (none, or one that is gone). */
+export function actOf(outline: Outline, chapterId: ID): ID | null {
+  const actId = outline.chapters.find((c) => c.id === chapterId)?.actId ?? null
+  return actId && (outline.acts ?? []).some((a) => a.id === actId) ? actId : null
+}
+
+/**
+ * The chapters as the binder shows them, in the order given: those with no act first (when there are
+ * any), then each act with its chapters. A story without acts is one run with no act, as it always was.
+ */
+export function chapterRuns(outline: Outline, chapters: ID[]): ChapterRun[] {
+  const acts = outline.acts ?? []
+  if (!acts.length) return [{ act: null, chapters }]
+  const live = new Set(acts.map((a) => a.id))
+  const act = new Map(outline.chapters.map((c) => [c.id, c.actId && live.has(c.actId) ? c.actId : null]))
+  const loose = chapters.filter((id) => !act.get(id))
+  return [...(loose.length ? [{ act: null, chapters: loose }] : []), ...acts.map((a) => ({ act: a, chapters: chapters.filter((id) => act.get(id) === a.id) }))]
+}
+
+/** The chapters in the order the binder shows them (each act's together), as `chapterRuns` lays them out. */
+export const shownOrder = (outline: Outline, chapters: ID[]): ID[] => chapterRuns(outline, chapters).flatMap((r) => r.chapters)
+
+/**
+ * Where "Move to act" puts a chapter: at the start of a later act or the end of an earlier one, so it
+ * moves as little as it can. Null when it is already in that act.
+ */
+export function moveToActPlace(outline: Outline, chapterId: ID, actId: ID): ChapterPlace | null {
+  const acts = (outline.acts ?? []).map((a) => a.id)
+  const from = actOf(outline, chapterId)
+  if (from === actId || !acts.includes(actId)) return null
+  return from !== null && acts.indexOf(actId) < acts.indexOf(from) ? { actId } : { actId, index: 0 }
+}
+
+/**
+ * Whether "Start a new act here" does anything for this chapter: it has no act, or it comes after the
+ * first chapter of its act (the first one starts its act already).
+ */
+export function canStartActAt(outline: Outline, chapterId: ID): boolean {
+  const from = actOf(outline, chapterId)
+  const ids = outline.chapters.map((c) => c.id)
+  if (!from) return ids.includes(chapterId)
+  const run = chapterRuns(outline, ids).find((r) => r.act?.id === from)
+  return !!run && run.chapters.indexOf(chapterId) > 0
+}
+
+/**
+ * The outline with a new act starting at a chapter, as the server makes it (startActAt), before the
+ * reload: the act just after the chapter's own act (or before every act), holding `chapterIds`.
+ */
+export function withActStartedAt(outline: Outline, act: Act, chapterIds: ID[]): Outline {
+  const acts = (outline.acts ?? []).filter((a) => a.id !== act.id)
+  const from = chapterIds.length ? actOf(outline, chapterIds[0]) : null
+  acts.splice(from ? acts.findIndex((a) => a.id === from) + 1 : 0, 0, act)
+  const moving = new Set(chapterIds)
+  return {
+    ...outline,
+    acts: acts.map((a, position) => ({ ...a, position })),
+    chapters: outline.chapters.map((c) => (moving.has(c.id) ? { ...c, actId: act.id } : c))
+  }
+}
+
+/**
+ * The outline with a chapter moved as the server will move it (an optimistic update before the reload):
+ * into `place.actId` just after `afterId`, else just before `beforeId`, else at `index` among that act's
+ * chapters, else at its end; with every act's chapters together and fresh positions.
+ */
+export function placeChapterIn(outline: Outline, chapterId: ID, place: ChapterPlace): Outline {
+  const moving = outline.chapters.find((c) => c.id === chapterId)
+  if (!moving) return outline
+  const actId = place.actId ?? null
+  const chapters = outline.chapters.map((c) => (c.id === chapterId ? { ...c, actId } : c))
+  const runs = chapterRuns({ ...outline, chapters }, outline.chapters.map((c) => c.id).filter((id) => id !== chapterId))
+  let run = runs.find((r) => (r.act?.id ?? null) === actId)
+  if (!run && actId) return outline
+  if (!run) {
+    // The first chapter with no act: they come first.
+    run = { act: null, chapters: [] }
+    runs.unshift(run)
+  }
+  const list = run.chapters
+  let at = list.length
+  if (place.afterId && list.includes(place.afterId)) at = list.indexOf(place.afterId) + 1
+  else if (place.beforeId && list.includes(place.beforeId)) at = list.indexOf(place.beforeId)
+  else if (place.index != null && Number.isFinite(place.index)) at = Math.max(0, Math.min(Math.floor(place.index), list.length))
+  list.splice(at, 0, chapterId)
+  const byId = new Map(chapters.map((c) => [c.id, c]))
+  return { ...outline, chapters: runs.flatMap((r) => r.chapters).map((id, position) => ({ ...byId.get(id)!, position })) }
 }
 
 /** Word counts shown in the binder: blank for nothing written yet. */

@@ -106,6 +106,15 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // Stable callbacks and memoised lists, so typing in one field doesn't redraw the
   // pickers (which hold every character and place in the world).
   const onBeats = useCallback((beats: string[]) => update({ beats }), [update])
+  // Next scene ideas (milestone 4) fill the card in one click, beats too: the beats list starts again from them.
+  const [beatsRev, setBeatsRev] = useState(0)
+  const fillFromIdea = useCallback(
+    (patch: Partial<SceneCard>) => {
+      update(patch)
+      if (patch.beats) setBeatsRev((n) => n + 1)
+    },
+    [update]
+  )
   const setPov = useCallback((povId: ID | null) => update({ povId }), [update])
   const setLocation = useCallback((locationId: ID | null) => update({ locationId }), [update])
   const setPresent = useCallback((presentIds: ID[]) => update({ presentIds }), [update])
@@ -190,7 +199,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div className="flex animate-fade-in flex-col gap-5 px-4 pb-12 pt-4" onBlur={() => void autosave.flush()}>
-      <SceneIdeas sceneId={sceneId} card={card} onUse={update} />
+      <SceneIdeas sceneId={sceneId} card={card} onUse={fillFromIdea} />
       <Group title="Who and where" action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <Field label="Point of view" hint={characters.length ? 'The scene is told through their eyes.' : 'No characters yet. Type a name under Characters present to add one.'}>
           {(id) => <OptionSelect id={id} value={povValue} onChange={setPov} options={povOptions} />}
@@ -228,7 +237,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <p id={ids.beatsHint} className="-mt-0.5 mb-0.5 text-[12px] text-faint">
             The 3 to 8 things that must happen, in order
           </p>
-          <BeatsEditor id={ids.beats} aria-describedby={ids.beatsHint} initial={card.beats} onChange={onBeats} />
+          <BeatsEditor key={beatsRev} id={ids.beats} aria-describedby={ids.beatsHint} initial={card.beats} onChange={onBeats} />
         </div>
         <Field label="Goal">
           {(id) => <AutoTextarea id={id} value={card.goal} minRows={1} maxRows={10} placeholder="What they're trying to do" onChange={(e) => update({ goal: e.target.value })} />}

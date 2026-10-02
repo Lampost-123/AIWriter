@@ -13,7 +13,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
 import { variantsBackTo } from '@/features/variants/back'
-import { editRecordWords } from '@/features/edits/record'
+import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
@@ -29,14 +29,7 @@ const CHAT_ROLES: Record<GenerationRecord['messages'][number]['role'], string> =
 /** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
 const openParts = new Map<ID, Set<string>>()
 
-export function WhatTheAISaw({
-  generationId,
-  fromHistory
-}: {
-  generationId: ID
-  /** Opened from this version in a scene's History (milestone 4): Back returns there. */
-  fromHistory?: { sceneId: ID; snapshotId: ID }
-}): React.JSX.Element {
+export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.Element {
   const [rec, setRec] = useState<GenerationRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sceneTitle, setSceneTitle] = useState<string | null>(null)
@@ -44,6 +37,8 @@ export function WhatTheAISaw({
   const [sceneGone, setSceneGone] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
+  // Opened from a page other than the draft's scene (milestone 4: the outline helper, say).
+  const from = useApp((s) => (s.view.kind === 'generation' ? s.view.back : undefined))
 
   useEffect(() => {
     let live = true
@@ -55,6 +50,8 @@ export function WhatTheAISaw({
       .then((r) => {
         if (!live) return
         setRec(r)
+        // A record for the whole story (an outline) has no scene.
+        if (!r.sceneId) return
         api
           .getScene(r.sceneId)
           .then((s) => live && setSceneTitle(s.title || 'Untitled scene'))
@@ -97,9 +94,9 @@ export function WhatTheAISaw({
   // A variant's record (milestone 4) opened from the Variants page goes back there.
   const toVariants = variantsBackTo(generationId)
   const back = (): void => {
-    if (fromHistory) {
-      useApp.getState().navigate({ kind: 'history', ...fromHistory })
-    } else if (toVariants) {
+    // Opened from another page (the outline helper, or a version in History): back there.
+    if (from) useApp.getState().navigate(from.view)
+    else if (toVariants) {
       selectScene(toVariants)
       useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
     } else if (rec?.job === 'chat') {
@@ -114,8 +111,8 @@ export function WhatTheAISaw({
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {fromHistory
-            ? 'Back to History'
+          {from
+            ? from.label
             : toVariants
               ? 'Back to the variants'
               : rec?.job === 'chat'
@@ -144,6 +141,7 @@ export function WhatTheAISaw({
             sceneTitle={sceneTitle}
             sceneGone={sceneGone}
             modelLabel={writer?.modelId === rec.modelId ? writer.label : null}
+            what={from?.what}
           />
         )}
       </div>
@@ -155,12 +153,15 @@ function DraftRecord({
   rec,
   sceneTitle,
   sceneGone,
-  modelLabel
+  modelLabel,
+  what
 }: {
   rec: GenerationRecord
   sceneTitle: string | null
   sceneGone: boolean
   modelLabel: string | null
+  /** What the record is of, when it isn't a draft ("this outline"). */
+  what?: string
 }): React.JSX.Element {
   const [open, setOpenState] = useState<Set<string>>(() => openParts.get(rec.id) ?? new Set(['scene-card']))
   const setOpen = (next: Set<string> | ((s: Set<string>) => Set<string>)): void =>
@@ -181,7 +182,8 @@ function DraftRecord({
   // An answer in Ask the world (milestone 4) is called one here.
   const answer = rec.job === 'chat'
   // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
-  const edit = editRecordWords(rec, sceneTitle)
+  // A record that isn't a scene's draft at all (an outline, say) is named for what it is.
+  const edit = what ? otherRecordWords(what) : editRecordWords(rec, sceneTitle)
 
   const toggle = (id: string): void =>
     setOpen((s) => {
@@ -618,4 +620,17 @@ function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void;
 function partWords(params: GenerationRecord['params']): string {
   const part = params.variant ? { name: 'variant', ...params.variant } : params.beat ? { name: 'beat', ...params.beat } : null
   return part ? ` (${part.name} ${part.index} of ${part.of})` : ''
+}
+
+/** The words for a record that isn't a scene's draft (the outline helper's, say), named by `what`. */
+function otherRecordWords(what: string): EditRecordWords {
+  return {
+    intro: `The exact briefing for ${what}`,
+    streaming: 'This is still being written. Its text appears below as it arrives.',
+    stopped: 'This was stopped before it finished. The text that arrived is below.',
+    cutOff: 'The model ran out of room before the end: it reached its reply limit, so the answer stops part-way.',
+    error: 'Something went wrong while this was written.',
+    since: 'then',
+    direction: 'Your direction'
+  }
 }

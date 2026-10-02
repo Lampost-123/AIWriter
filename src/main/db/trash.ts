@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import { settlePlacements } from './memory'
+import { purgeActs } from './acts'
 
 // The Trash: deleting a story, chapter, scene or entry only sets deleted_at, so it can be
 // restored for 30 days. After that, purgeTrash() removes it for good (run when a world opens).
@@ -51,6 +52,8 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     }
     const delChapter = db.prepare('DELETE FROM chapters WHERE id = ?')
     for (const id of chapterSet) delChapter.run(id)
+    // Milestone 4: deleted acts too (a purged story's acts go with it).
+    purgeActs(db, cutoff)
     const delStory = db.prepare('DELETE FROM stories WHERE id = ?')
     const unlinkStory = db.prepare('UPDATE stories SET start_story_id = NULL WHERE start_story_id = ?')
     for (const id of storySet) {

@@ -178,6 +178,11 @@ export interface Outline {
   story: Story
   chapters: Chapter[]
   scenes: SceneMeta[]
+  /**
+   * The story's acts in order (milestone 4); empty when it has none. Each act's chapters follow one
+   * another in `chapters`, after any chapters with no act. A chapter whose act was deleted has no act here.
+   */
+  acts?: Act[]
 }
 
 // ---------- World bible ----------
@@ -623,19 +628,22 @@ export interface RecoveryItem {
 
 /** Something in the Trash (Recently deleted): kept for 30 days, then removed for good. */
 export interface DeletedItem {
-  kind: 'story' | 'chapter' | 'scene' | 'entry'
+  /** 'act' from milestone 4: an act comes back with api.restoreAct (contracts/outline.ts). */
+  kind: 'story' | 'act' | 'chapter' | 'scene' | 'entry'
   id: ID
   /** Its title or name, as it was. */
   title: string
   deletedAt: string
   /** For an entry: character, place, lore... */
   entryKind: EntryKind | null
-  /** The story a chapter or scene was in, and the chapter a scene was in. */
+  /** The story an act, chapter or scene was in, and the chapter a scene was in. */
   storyId: ID | null
   storyTitle: string | null
   chapterTitle: string | null
-  /** For a chapter: the scenes deleted along with it (they come back with it). */
+  /** For a chapter or act: the scenes deleted along with it (they come back with it). */
   sceneCount: number
+  /** For an act (milestone 4): the chapters deleted along with it (they come back with it). */
+  chapterCount?: number
 }
 
 // ---------- Memory over time (milestone 2) ----------
