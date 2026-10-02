@@ -345,6 +345,43 @@ is built on migrations 1 and 2.
   relationships are never copied to the other side. Positions can be fractions (SQLite REAL).
 - Undo and answers only bring back a change the line's own answer took out (`removedByLine`).
 
+**Timeline, relationship map and plot threads board** (`src/main/worldViews/`, `db/worldViews.ts`,
+`features/timeline/`, `features/map/`, `features/threads/`)
+- Pure builders over `loadShape`/`loadMemoryData`/`buildLine`/`memoryAt`, with the part's SQL in
+  `db/worldViews.ts` (scene cards, story time gaps, the saved map layout, the change count); one call
+  per view per story (`getTimeline`, `getRelationshipMap`, `getThreadsBoard`).
+- `worldViews/index.ts` keeps what the views read per open world, keyed by `changesMade(db)` (SQLite
+  `total_changes()`), so any write through the world's connection starts afresh. This relies on the
+  open world having one connection (a restore opens a new one, and so a new cache).
+- In-world dates (`when.ts`) are read forgivingly and never guessed. A comma, semicolon, bracket, dash
+  or full stop ends a reading; numbers that count something else ("3 days before", "Chapter 3",
+  "Week 3", "40 miles") are never dates; "may", "march", "fall" and short month names count only beside
+  a day or year or among date words; words of a calendar it doesn't know go in `WhenParts.qual` (such a
+  date keeps reading order and matches only the same words). Vague steps ("days later") keep order but
+  name no day. `whenSort` is never written.
+- `placeWhens(items, stories)` leans each text on its own story's dated texts before it. A story's
+  opening leans on `WhenStory.from`: a side story on its host where it starts (`sideStart` in
+  `timeline.ts`, mirroring `line.ts`: keep them in step), a following book on the end of the book
+  before, nothing after a time gap. A following book's first named date starts its own calendar;
+  yearless days before a calendar's first named year sort in that year. Events take only the year
+  before them and lend nothing on.
+- Clashes: the same named day (same calendar, same calendar words) at different most-specific places
+  (a place inside another isn't a clash). They use neutral colours; amber is for AI suggestions and the
+  board's long-open note (`LONG_OPEN_CHAPTERS = 10` in `threads.ts`).
+- Map layout: one deterministic force layout of every relationship between characters the world has
+  had, wider than tall (`WIDE` in `layout.ts`, gap `MAP_GAP` in the contract). Characters already
+  placed keep their places; only newcomers move. It is kept in the world's `meta` key `map_layout`
+  (character id to `[x, y]`), with no migration.
+- Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
+  overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
+  opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
+  `READABLE_ZOOM`, else at `OPENING_ZOOM` around the best-connected character; Fit (0) always shows
+  everyone. The map shows the Story picker until a side story, prequel or own version exists, then
+  "As seen in" (it follows `hasOtherKinds` in `features/views/asOfLogic.ts`, as `AsSeenIn` does).
+- The three screens share `features/timeline/viewParts.tsx` (`useWorldView` reloads on `outlineRev`,
+  `entriesRev`, `memoryRev` and `briefingRev`, keeping the last data while it does). Timeline lane
+  choices are in localStorage under `aiwrite.timeline.lanes` (this computer only; works without it).
+
 ### Who builds what (parallel build, milestone 3)
 
 | Part | Owns |
