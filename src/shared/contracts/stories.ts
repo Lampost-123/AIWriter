@@ -106,6 +106,8 @@ export interface StoriesApi {
   /** Makes a story with its placement, its first chapter and scene (and a new series, if named) in one go. */
   createStoryAs(input: NewStoryInput): Promise<CreatedStory>
   getStoryDetails(storyId: ID): Promise<StoryDetails>
+  /** The grey line on each story's card, by story id; stories that simply continue have none. */
+  listStoryLabels(): Promise<Record<ID, string>>
   createSeries(name: string): Promise<Series>
   updateSeries(id: ID, patch: Partial<Pick<Series, 'name' | 'themes' | 'tone'>>): Promise<Series>
   /** Marks this story as the one that leads into its prequel chain's book (on), or goes back to the last one in the chain (off). */

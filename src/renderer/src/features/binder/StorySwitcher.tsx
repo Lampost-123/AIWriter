@@ -1,43 +1,35 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Check, ChevronsUpDown, PenLine, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { BookOpen, Check, ChevronsUpDown, PenLine, Plus, Settings2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import { editorBridge } from '@/lib/editorBridge'
-import { api } from '@/lib/api'
-import { lastSceneOf } from './lastScene'
+import { installFlowEvents } from '@/features/stories/flows'
+import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
+import { openStory, openStorySettings } from '@/features/stories/storyActions'
 import * as actions from './actions'
 import { InlineTitle } from './InlineTitle'
 
 const item = 'flex h-8 items-center gap-2 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
 
-/** The open story's title, with a menu to switch stories, start a new one or rename this one. */
+/**
+ * The open story's title, with a menu to switch stories (each with its grey line when it doesn't simply
+ * continue, and its settings), start a new one (the New story dialog) or rename this one.
+ */
 export function StorySwitcher(): React.JSX.Element {
   const stories = useApp((s) => s.stories)
   const storyId = useApp((s) => s.storyId)
   const story = stories.find((s) => s.id === storyId) ?? null
+  const labels = useStoryLabels((s) => s.labels)
   const [renaming, setRenaming] = useState(false)
-  const [busy, setBusy] = useState(false)
+  useStoryLabelsLoader()
+  // The story flows report how they are doing from the background; listen from the start.
+  useEffect(() => installFlowEvents(), [])
 
   const open = (id: string): void => {
     if (id === storyId) return
-    void (async () => {
-      await editorBridge()?.flush()
-      // Reopen the scene last open in that story, else its first scene.
-      const outline = await api.getOutline(id)
-      const remembered = lastSceneOf(id)
-      const scene = outline.scenes.find((s) => s.id === remembered) ?? outline.scenes[0] ?? null
-      useApp.getState().selectScene(scene?.id ?? null, id)
-    })().catch((e: Error) => toast(e.message, { tone: 'danger' }))
-  }
-
-  const create = (): void => {
-    setBusy(true)
-    void actions.newStory().then((id) => {
-      setBusy(false)
-      if (id) setRenaming(true)
-    })
+    // Reopens the scene last open in that story, else its first scene.
+    openStory(id).catch((e: Error) => toast(e.message, { tone: 'danger' }))
   }
 
   return (
@@ -69,29 +61,55 @@ export function StorySwitcher(): React.JSX.Element {
               align="start"
               sideOffset={4}
               collisionPadding={8}
-              className="z-50 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[320px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+              className="z-50 max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[340px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
             >
               <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Stories in this world</M.Label>
-              {stories.map((s) => (
-                <M.Item key={s.id} onSelect={() => open(s.id)} className={item}>
-                  <span className="flex w-4 justify-center">{s.id === storyId ? <Check size={14} className="text-accent" /> : null}</span>
-                  <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                </M.Item>
-              ))}
+              {stories.map((s) => {
+                const title = s.title.trim() || 'Untitled story'
+                return (
+                  <div key={s.id} className="group/row flex items-stretch gap-0.5">
+                    <M.Item onSelect={() => open(s.id)} className={cn(item, 'h-auto min-h-8 min-w-0 flex-1 items-start py-1.5')}>
+                      <span className="flex h-5 w-4 shrink-0 items-center justify-center">
+                        {s.id === storyId ? <Check size={14} className="text-accent" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate leading-5">{title}</span>
+                        {labels[s.id] ? <span className="block truncate text-[12px] leading-4 text-faint">{labels[s.id]}</span> : null}
+                      </span>
+                    </M.Item>
+                    <M.Item
+                      onSelect={() => openStorySettings(s.id)}
+                      aria-label={`Settings for ${title}`}
+                      title="Story settings"
+                      className="flex w-8 shrink-0 items-center justify-center rounded-md text-faint opacity-0 outline-none transition-opacity duration-150 group-hover/row:opacity-100 data-[highlighted]:bg-surface-2 data-[highlighted]:text-fg data-[highlighted]:opacity-100"
+                    >
+                      <Settings2 size={14} />
+                    </M.Item>
+                  </div>
+                )
+              })}
               <M.Separator className="my-1 h-px bg-line" />
               {story ? (
-                <M.Item onSelect={() => setRenaming(true)} className={item}>
-                  <span className="flex w-4 justify-center text-muted">
-                    <PenLine size={14} />
-                  </span>
-                  Rename this story
-                </M.Item>
+                <>
+                  <M.Item onSelect={() => openStorySettings(story.id)} className={item}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <Settings2 size={14} />
+                    </span>
+                    Story settings
+                  </M.Item>
+                  <M.Item onSelect={() => setRenaming(true)} className={item}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <PenLine size={14} />
+                    </span>
+                    Rename this story
+                  </M.Item>
+                </>
               ) : null}
-              <M.Item onSelect={create} disabled={busy} className={cn(item, 'data-[disabled]:opacity-50')}>
+              <M.Item onSelect={() => useApp.getState().setNewStoryOpen(true)} className={item}>
                 <span className="flex w-4 justify-center text-muted">
                   <Plus size={14} />
                 </span>
-                New story
+                New story…
               </M.Item>
             </M.Content>
           </M.Portal>

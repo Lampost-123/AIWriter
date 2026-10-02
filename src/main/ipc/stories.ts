@@ -7,7 +7,7 @@ import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as stories from '../db/stories'
 import * as world from '../world'
-import { mightFollow, previewStory, suggestion } from '../stories/rules'
+import { describe, mightFollow, previewStory, suggestion } from '../stories/rules'
 import { deleteNotes, previewMove } from '../stories/points'
 import { emit } from '../events'
 import { UserError } from '../util'
@@ -34,6 +34,15 @@ export const storiesHandlers: Handlers<keyof StoriesApi> = {
     return { story: made.story, sceneId: made.sceneId, mightFollow: mightFollow(shape(), made.story.id) }
   },
   getStoryDetails: (storyId) => stories.storyDetails(world.db(), storyId),
+  listStoryLabels: () => {
+    const s = shape()
+    const out: Record<ID, string> = {}
+    for (const node of s.stories) {
+      const { label } = describe(s, node)
+      if (label) out[node.id] = label
+    }
+    return out
+  },
   createSeries: (name) => write(() => stories.createSeries(world.db(), name)),
   updateSeries: (id, patch) => write(() => stories.updateSeries(world.db(), id, patch ?? {})),
   setLeadsIn: (storyId, on) => {
