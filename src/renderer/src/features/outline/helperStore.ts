@@ -20,12 +20,14 @@ import {
   describeCounts,
   discardedMessage,
   discardKeys,
+  goneIds,
   keepPlan,
   keptMessage,
   outlineTree,
   withDiscarded,
   withKept,
   withoutDiscarded,
+  withoutGone,
   withoutKept,
   type Decisions,
   type Edits,
@@ -60,9 +62,14 @@ export interface HelperSession {
   size: OutlineSize | null
   run: HelperRun | null
   problem: Problem | null
+  /** What was kept but has since been deleted from the story (in the binder): it waits for a decision again. */
+  gone: ID[]
 }
 
-const fresh = (): HelperSession => ({ size: null, run: null, problem: null })
+const fresh = (): HelperSession => ({ size: null, run: null, problem: null, gone: [] })
+
+/** The decisions as the page shows them and its buttons go by: the run's, less what has left the story since. */
+export const decisionsOf = (s: HelperSession): Decisions => (s.run ? withoutGone(s.run.decisions, s.gone) : {})
 
 export const useOutlineHelper = create<{ sessions: Record<string, HelperSession> }>(() => ({ sessions: {} }))
 
@@ -109,6 +116,51 @@ function listen(): void {
     if (d.status === 'error')
       put(key, { problem: { message: d.error ?? 'Something went wrong while the outline was suggested. Please try again.' } })
   })
+  // Whenever the binder changes (a delete, its Undo), what was kept is looked for again, so the page
+  // never says "Kept" for something the story no longer has, even when it wasn't showing at the time.
+  useApp.subscribe((now, before) => {
+    if (now.outlineRev === before.outlineRev) return
+    const prefix = helperKey(now.world?.id, '')
+    for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions))
+      if (key.startsWith(prefix) && (s.gone.length || hasKept(s.run))) void checkKept(key.slice(prefix.length))
+  })
+}
+
+const hasKept = (run: HelperRun | null): boolean => !!run && Object.values(run.decisions).some((d) => d.status === 'kept')
+/** How many looks each session has started, so only the latest one's answer counts. */
+const checks = new Map<string, number>()
+
+/**
+ * Looks at what the story has now, so anything kept that has been deleted since waits for a decision
+ * again (and keeping it makes it anew). Only what was kept before it looked is judged, so something kept
+ * while it looked is never taken for gone.
+ */
+export async function checkKept(storyId: ID): Promise<void> {
+  const key = keyOf(storyId)
+  const run = get(key).run
+  if (!run || (!hasKept(run) && !get(key).gone.length)) return
+  const decisions = run.decisions
+  const turn = (checks.get(key) ?? 0) + 1
+  checks.set(key, turn)
+  let present: Set<ID>
+  try {
+    const o = await api.getOutline(storyId)
+    present = new Set([...(o.acts ?? []).map((a) => a.id), ...o.chapters.map((c) => c.id), ...o.scenes.map((sc) => sc.id)])
+  } catch {
+    return
+  }
+  const now = get(key)
+  // A later look knows better.
+  if (checks.get(key) !== turn || now.run?.taskId !== run.taskId) return
+  const gone = goneIds(decisions, present)
+  if (gone.length !== now.gone.length || gone.some((id, i) => id !== now.gone[i])) put(key, { gone })
+  // The last Keep's toast speaks of what has left the story since: the next Keep gets a toast of its
+  // own, and a toast offering to take back only what is gone already goes.
+  const batch = keepBatch
+  if (batch?.key === key && batch.taskId === run.taskId && batch.kept.some((k) => gone.includes(k.id))) {
+    if (batch.kept.every((k) => gone.includes(k.id))) useToasts.getState().dismiss(batch.toastId)
+    keepBatch = null
+  }
 }
 
 /** The helper opened for a story: its session as it was, or a new one. */
@@ -150,10 +202,12 @@ export async function suggestOutline(storyId: ID, premise: string, size: Outline
   }
   const taskId = crypto.randomUUID()
   const previous = s.run
+  const wasOpen = !!previous && hasOpen(previous, s.gone)
   dropReplaced()
   put(key, {
     size,
     problem: null,
+    gone: [],
     run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions: {}, edits: {} }
   })
   try {
@@ -162,28 +216,33 @@ export async function suggestOutline(storyId: ID, premise: string, size: Outline
   } catch (e) {
     if (get(key).run?.taskId !== taskId) return
     // Nothing started: what was on the page stays.
-    put(key, { run: previous, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
+    put(key, { run: previous, gone: s.gone, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
     return
   }
-  if (previous && hasOpen(previous)) offerBack(key, taskId, previous)
+  if (previous && wasOpen) offerBack(storyId, taskId, previous)
 }
 
-const hasOpen = (run: HelperRun): boolean => {
-  const tree = treeOf(run)
-  const open = (nodes: TreeNode[]): boolean => nodes.some((n) => !run.decisions[n.key] || open(n.children))
-  return open(tree)
+const hasOpen = (run: HelperRun, gone: ID[]): boolean => {
+  const decisions = withoutGone(run.decisions, gone)
+  const open = (nodes: TreeNode[]): boolean => nodes.some((n) => !decisions[n.key] || open(n.children))
+  return open(treeOf(run))
 }
 
-function offerBack(key: string, taskId: ID, run: HelperRun): void {
+function offerBack(storyId: ID, taskId: ID, run: HelperRun): void {
+  const key = keyOf(storyId)
   const toastId = toast('Replaced the earlier suggestions you hadn’t decided on.', {
     action: {
       label: 'Undo',
       run: () => {
         const now = get(key).run
+        // As it is now: an Undo of one of its keeps since then opens those suggestions again (see undoKeep).
+        const back = replaced?.toastId === toastId ? replaced.run : run
         if (replaced?.toastId === toastId) replaced = null
         if (!now || now.taskId !== taskId) return
         if (now.status === 'running') void api.stopTask(taskId).catch(() => undefined)
-        put(key, { run, problem: null })
+        put(key, { run: back, problem: null, gone: [] })
+        // What it kept may have been deleted from the story since.
+        void checkKept(storyId)
       }
     }
   })
@@ -237,10 +296,13 @@ function inTurn(key: string, job: () => Promise<void>): Promise<void> {
 export function keepSuggestions(storyId: ID, keys: string[] | 'all'): Promise<void> {
   const key = keyOf(storyId)
   return inTurn(key, async () => {
-    const run = get(key).run
+    // What was kept but deleted from the story since is made anew, rather than looked for in vain.
+    await checkKept(storyId)
+    const s = get(key)
+    const run = s.run
     if (!run || run.status === 'running') return
     const tree = treeOf(run)
-    const items = keepPlan(tree, run.decisions, run.edits, keys)
+    const items = keepPlan(tree, decisionsOf(s), run.edits, keys)
     if (!items.length) return
     let kept: KeptItem[]
     try {
@@ -327,10 +389,11 @@ let discardBatch: DiscardBatch | null = null
 /** Discard: the suggestion, and everything still open inside it, goes from the list. Undo brings it back. */
 export function discardSuggestion(storyId: ID, nodeKey: string): void {
   const key = keyOf(storyId)
-  const run = get(key).run
+  const s = get(key)
+  const run = s.run
   if (!run || run.status === 'running') return
   const tree = treeOf(run)
-  const keys = discardKeys(tree, run.decisions, nodeKey)
+  const keys = discardKeys(tree, decisionsOf(s), nodeKey)
   if (!keys.length) return
   patchRun(key, run.taskId, (r) => ({ decisions: withDiscarded(r.decisions, keys) }))
   if (discardBatch && liveToast(discardBatch.toastId) && discardBatch.key === key && discardBatch.taskId === run.taskId) {

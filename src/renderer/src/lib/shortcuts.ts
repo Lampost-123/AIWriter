@@ -68,16 +68,23 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'close', name: 'Close a menu, list or dialog', group: 'Moving around', keys: ['Esc'] },
   {
     id: 'binderMove',
-    name: 'Move between chapters and scenes',
+    name: 'Move between acts, chapters and scenes',
     where: 'in the binder',
     group: 'Moving around',
     keys: ['↑', '↓'],
     either: true
   },
-  { id: 'binderFold', name: 'Close or open a chapter', where: 'in the binder', group: 'Moving around', keys: ['←', '→'], either: true },
+  {
+    id: 'binderFold',
+    name: 'Close or open an act or chapter',
+    where: 'in the binder',
+    group: 'Moving around',
+    keys: ['←', '→'],
+    either: true
+  },
   { id: 'binderOpen', name: 'Open the scene', where: 'in the binder', group: 'Moving around', keys: ['Enter'] },
-  { id: 'binderRename', name: 'Rename a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
-  { id: 'binderDelete', name: 'Delete a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['Delete'] },
+  { id: 'binderRename', name: 'Rename an act, chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
+  { id: 'binderDelete', name: 'Delete an act, chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['Delete'] },
   { id: 'binderUndo', name: 'Bring back what you just deleted', where: 'in the binder', group: 'Moving around', keys: ['Mod', 'Z'] }
 ]
 

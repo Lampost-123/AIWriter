@@ -11,6 +11,7 @@
 //     Asked again, it carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
 //     kept. One that fails says why in plain words, and Undo brings back the suggestions it replaced.
+//     What was kept and is then deleted in the binder waits for a decision again.
 //  3. Acts in the binder: a story without acts looks as it always has; acts fold and unfold, are
 //     renamed and given a purpose, get a new chapter, take a chapter moved from another act (with
 //     Undo), and are deleted with their chapters (with Undo).
@@ -324,6 +325,20 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'kept')
     await expect(main(win).getByText(/out of credit/)).toHaveCount(0)
     await expect(main(win).getByText(/^Stopped\. What had arrived is below: /)).toBeVisible()
+
+    // Deleted from the binder, what was kept waits for a decision again, and Keep makes it anew.
+    await actRow(win, 'The Arrival').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Delete act' }).click()
+    await expect(toastWith(win, '“The Arrival” and its chapter deleted.')).toBeVisible()
+    await expect(actRows(win)).toHaveCount(0)
+    await expect(heading(win)).toHaveText('Plan the story from its premise')
+    await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
+    await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'open')
+    await keepButton(win, 'Arrival at the docks').click()
+    await expect(toastWith(win, 'Added “Arrival at the docks” to the story, in a new chapter and act.')).toHaveCount(1)
+    await expect(actBlock(win, 'The Arrival').locator('[data-row="scene"]')).toContainText(['Arrival at the docks'])
+    await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'kept')
+    expect((await invoke(win, 'getOutline', story.id)).acts!.map((a) => a.title)).toEqual(['The Arrival'])
   } finally {
     await fake.close()
   }

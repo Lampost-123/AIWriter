@@ -6,12 +6,14 @@ import {
   describeCounts,
   discardKeys,
   discardedMessage,
+  goneIds,
   keepPlan,
   keptMessage,
   outlineTree,
   withDiscarded,
   withKept,
   withoutDiscarded,
+  withoutGone,
   withoutKept,
   type Decisions
 } from './tree'
@@ -156,6 +158,31 @@ describe('what Keep adds', () => {
     ]
     const d = withoutKept(withKept({ a0: { status: 'discarded' } }, kept), kept)
     expect(d).toEqual({ a0: { status: 'discarded' } })
+    // An older Undo leaves alone what was kept again since, as something new.
+    const again = withKept({}, [{ key: 'a1', kind: 'act', id: 'A2' }])
+    expect(withoutKept(again, kept)).toEqual(again)
+  })
+
+  it('makes anew what was kept but deleted from the story since, with what is still open inside it', () => {
+    const kept = withKept({ a1: { status: 'discarded' } }, [
+      { key: 'a0', kind: 'act', id: 'A0' },
+      { key: 'a0c0', kind: 'chapter', id: 'C0' },
+      { key: 'a0c0s1', kind: 'scene', id: 'S1' }
+    ])
+    // The act was deleted in the binder, with its chapter and scene.
+    const gone = goneIds(kept, new Set(['X']))
+    expect(gone).toEqual(['A0', 'C0', 'S1'])
+    const d = withoutGone(kept, gone)
+    expect(d).toEqual({ a1: { status: 'discarded' } })
+    expect(show(keepPlan(tree, d, {}, ['a0c0s0']))).toEqual([
+      'act a0 The Arrival',
+      'chapter a0c0 Rain on the Narrows in=a0',
+      'scene a0c0s0 Arrival at the docks in=a0c0'
+    ])
+    // Only the scene was deleted: it alone waits again, and goes back beside what is still there.
+    const one = withoutGone(kept, goneIds(kept, new Set(['A0', 'C0'])))
+    expect(show(keepPlan(tree, one, {}, ['a0c0s1']))).toEqual(['scene a0c0s1 A bargain at the docks in=#C0'])
+    expect(withoutGone(kept, [])).toBe(kept)
   })
 })
 

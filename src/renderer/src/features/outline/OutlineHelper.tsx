@@ -18,6 +18,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import {
+  checkKept,
   dismissProblem,
   helperKey,
   openHelper,
@@ -32,7 +33,7 @@ import {
 import { cardIsEmpty } from './ideasLogic'
 import { SIZE_CHOICES, defaultSize, fitSize } from './size'
 import { Suggestions } from './Suggestions'
-import { countLine, countNodes, totalOf } from './tree'
+import { countLine, countNodes, totalOf, withoutGone } from './tree'
 
 export function OutlineHelper({ storyId }: { storyId: string }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id)
@@ -70,8 +71,15 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const fresh = !!shape && isFresh(shape)
   const size = s.size ?? defaultSize(fresh ? 0 : chapterCount, acts.length)
   const run = s.run
+  // As the page shows it: anything kept but deleted from the story since waits for a decision again.
+  const shown = useMemo(() => (run && s.gone.length ? { ...run, decisions: withoutGone(run.decisions, s.gone) } : run), [run, s.gone])
   const running = run?.status === 'running'
   const premiseBox = useRef<HTMLTextAreaElement>(null)
+
+  // What was kept is looked for again each time the page opens (and whenever the binder changes, see helperStore).
+  useEffect(() => {
+    void checkKept(story.id)
+  }, [story.id])
 
   // The premise is the story's own (as in its settings): changes here are saved to the story.
   const [premise, setPremise] = useState(story.premise)
@@ -96,9 +104,9 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
   const changeSize = (patch: Partial<OutlineSize>): void => setHelperSize(story.id, fitSize(size, patch))
 
   const tree = useMemo(() => (run ? treeOf(run) : []), [run])
-  const starter = useStarter(shape, run)
+  const starter = useStarter(shape, shown)
   const arrived = countNodes(tree, {}, 'all')
-  const open = run ? totalOf(countNodes(tree, run.decisions, 'open')) : 0
+  const open = shown ? totalOf(countNodes(tree, shown.decisions, 'open')) : 0
   const ended = !!run && !running
   const nothingRead = ended && tree.length === 0
   const scenes = size.chapters * size.scenes
@@ -287,7 +295,9 @@ function Helper({ story, s }: { story: Story; s: HelperSession }): React.JSX.Ele
           ) : null}
         </div>
 
-        {run && (tree.length || running) ? <Suggestions storyId={story.id} run={run} tree={tree} open={open} starter={starter} /> : null}
+        {shown && (tree.length || running) ? (
+          <Suggestions storyId={story.id} run={shown} tree={tree} open={open} starter={starter} />
+        ) : null}
       </div>
     </div>
   )

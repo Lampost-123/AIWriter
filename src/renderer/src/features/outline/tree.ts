@@ -177,10 +177,30 @@ export function withKept(decisions: Decisions, kept: KeptItem[]): Decisions {
   return next
 }
 
-/** Undo for a keep: those suggestions are open again. */
+/** Undo for a keep: those suggestions are open again (unless kept again since, as something new). */
 export function withoutKept(decisions: Decisions, kept: KeptItem[]): Decisions {
   const next = { ...decisions }
-  for (const k of kept) if (next[k.key]?.status === 'kept') delete next[k.key]
+  for (const k of kept) {
+    const d = next[k.key]
+    if (d?.status === 'kept' && d.id === k.id) delete next[k.key]
+  }
+  return next
+}
+
+/** What was kept that the story no longer has (deleted from the binder since), of what it has now. */
+export function goneIds(decisions: Decisions, present: ReadonlySet<ID>): ID[] {
+  return Object.values(decisions).flatMap((d) => (d.status === 'kept' && !present.has(d.id) ? [d.id] : []))
+}
+
+/**
+ * The decisions as the page shows them: a suggestion kept as something since deleted from the story
+ * waits for a decision again, so keeping it (or what is inside it) makes it anew.
+ */
+export function withoutGone(decisions: Decisions, gone: readonly ID[]): Decisions {
+  if (!gone.length) return decisions
+  const out = new Set(gone)
+  const next: Decisions = {}
+  for (const [key, d] of Object.entries(decisions)) if (!(d.status === 'kept' && out.has(d.id))) next[key] = d
   return next
 }
 
