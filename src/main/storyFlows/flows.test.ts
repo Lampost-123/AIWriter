@@ -4,7 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Change, ChangeData, ID } from '@shared/types'
+import type { Change, ChangeData, FullPayload, ID } from '@shared/types'
 import type { StoryFlowStatus } from '@shared/contracts/storyFlows'
 import { defaultWritingPrefs } from '@shared/defaults'
 import { dbWorld } from '../../../tests/unit/testWorld'
@@ -17,8 +17,8 @@ import { loadMemoryData, loadShape } from '../memory/scene'
 import { answerItem, undoItem } from '../keeper/undo'
 import { BROKEN_REPLY, EMPTY_REPLY, flowFailure, NO_FLOW_MODEL, REFUSED, REPLY_TOO_LONG, TOO_MUCH, type FlowModel } from './call'
 import { ShortIds, stateAtStart } from './context'
-import { gapPhrase, NO_GAP, NOT_PREQUEL, runStartingCast, runTimeGap, runWhen, STOPPED, type JobOptions } from './jobs'
-import { applyGap, OPEN_AGAIN, TAKEN_OUT } from './apply'
+import { gapPhrase, NO_GAP, NOT_PREQUEL, runStartingCast, runTimeGap, runWhen, STOPPED, STOPPED_AFTER, type JobOptions } from './jobs'
+import { applyCast, applyGap, applyWhen, OPEN_AGAIN, TAKEN_OUT } from './apply'
 import { flowPlace, flowRuns, GONE, STILL_OPEN, WHEN } from './lines'
 import { readWhen } from './parse'
 import { FlowRunner } from './runner'
@@ -80,6 +80,16 @@ function gapWorld() {
 }
 
 const startState = (db: DB, storyId: ID) => stateAtStart(loadShape(db), loadMemoryData(db), storyId)
+
+const noTotals = { providerId: null, modelId: null, promptTokens: null, completionTokens: null, cost: null, generationIds: [] }
+
+/** The relationships at a story's start between two entries, as "a -> b: type" (a is the side it is written from). */
+function between(w: ReturnType<typeof dbWorld>, storyId: ID, a: string, b: string): string[] {
+  const names = new Map([a, b].map((k) => [w.id(k), k]))
+  return startState(w.db, storyId)
+    .relationships.filter((r) => names.has(r.aId) && names.has(r.bId))
+    .map((r) => `${names.get(r.aId)} -> ${names.get(r.bId)}: ${r.type}`)
+}
 
 describe('What changed before this story starts?', () => {
   it('adds changes at the start, drafted by AI and listed under What changed, and closes open threads with a question', async () => {
@@ -252,6 +262,55 @@ describe('What changed before this story starts?', () => {
     expect(mara.map((c) => [c.origin, c.kind === 'update' ? c.payload.note : ''])).toEqual([['adam', 'became a legend']])
   })
 
+  it('never overrides a relationship or starting description Adam set at the start, recorded on either side', () => {
+    /** The gap ends Mara and Tobin's relationship, from Mara's side. */
+    const endIt = (w: ReturnType<typeof gapWorld>): number => {
+      const payload = { otherId: w.id('tobin'), type: 'friend', feels: '', otherFeels: '', ended: true }
+      const plan = { changes: [{ entryId: w.id('mara'), data: { kind: 'relationship' as const, payload } }], closed: [] }
+      return applyGap(w.db, repo.getStory(w.db, w.storyId), plan, noTotals).lines
+    }
+    const adams = (w: ReturnType<typeof gapWorld>, entry: string, data: ChangeData): void => {
+      const input = { ...data, entryId: w.id(entry), anchor: 'story-start', storyId: w.storyId, origin: 'adam' }
+      mem.insertChange(w.db, input as Parameters<typeof mem.insertChange>[1])
+    }
+
+    // His relationship is recorded on Tobin's side.
+    const w = gapWorld()
+    adams(w, 'tobin', { kind: 'relationship', payload: { otherId: w.id('mara'), type: 'keeps her memory', feels: '', otherFeels: '' } })
+    expect(endIt(w)).toBe(0)
+    expect(between(w, w.storyId, 'tobin', 'mara')).toEqual(['tobin -> mara: keeps her memory'])
+
+    // His starting description of Mara, naming Tobin.
+    const v = gapWorld()
+    const relationships = [{ otherId: v.id('tobin'), type: 'old friend', feels: '', otherFeels: '' }]
+    adams(v, 'mara', { kind: 'full', payload: { description: 'An old woman by the sea.', knows: [], relationships } })
+    expect(endIt(v)).toBe(0)
+    expect(between(v, v.storyId, 'mara', 'tobin')).toEqual(['mara -> tobin: old friend'])
+  })
+
+  it("goes before Adam's changes at the start about the same entries, so his count on top", async () => {
+    const w = gapWorld()
+    const his = mem.insertChange(w.db, {
+      kind: 'relationship',
+      payload: { otherId: w.id('tobin'), type: 'mourned by', feels: '', otherFeels: '' },
+      entryId: w.id('mara'),
+      anchor: 'story-start',
+      storyId: w.storyId,
+      origin: 'adam'
+    })
+    await runTimeGap(opts(w.db), w.storyId)
+    const key = (id: ID): string => (id === w.id('mara') ? 'mara' : id === w.id('mill') ? 'mill' : 'crown')
+    const order = fdb.startChanges(w.db, w.storyId).map((c) => [key(c.entryId), c.origin])
+    expect(order).toEqual([
+      ['mara', 'ai'],
+      ['mara', 'adam'],
+      ['mill', 'ai'],
+      ['crown', 'ai']
+    ])
+    expect(live(w.db, his.id)?.position).toBe(his.position)
+    expect(between(w, w.storyId, 'mara', 'tobin')).toEqual(['mara -> tobin: mourned by'])
+  })
+
   it('needs the time since the previous story', async () => {
     const w = gapWorld()
     repo.updateStory(w.db, w.storyId, { timeGap: '' })
@@ -358,24 +417,49 @@ describe('Starting cast for a prequel', () => {
     expect(state.facts.filter((f) => f.knownBy.includes(tobin)).map((f) => f.fact)).toEqual(['The ferry rope is frayed.'])
   })
 
-  it('keeps every relationship a draft names, on both sides, and those already at the start', async () => {
+  it('writes a relationship a draft names from its own side, after the description it names, and Undo takes it all away', async () => {
     const w = dbWorld()
     const ym = w.id('ym')
     repo.updateStory(w.db, ym, { premise: 'Mara as a girl. [[fake: related]]' })
     await runStartingCast(opts(w.db), ym, [w.id('tobin'), w.id('mill')])
-    // Tobin's draft names the mill, one way only: the mill's draft gets it the other way round.
+    // Tobin's draft names the mill, one way only; the mill's own draft is left as the model wrote it.
     const mill = fdb.startChanges(w.db, ym).find((c) => c.entryId === w.id('mill'))!
-    expect(mill.kind === 'full' && mill.payload.relationships).toEqual([
-      { otherId: w.id('tobin'), type: 'works at', feels: '', otherFeels: 'proud of it' }
-    ])
-    const of = (id: ID) =>
-      startState(w.db, ym)
-        .relationships.filter((r) => r.aId === id || r.bId === id)
-        .map((r) => r.type)
-        .sort()
+    expect(mill.kind === 'full' && mill.payload.relationships).toEqual([])
+    expect(between(w, ym, 'tobin', 'mill')).toEqual(['tobin -> mill: works at'])
+    const feels = startState(w.db, ym).relationships.find((r) => r.aId === w.id('tobin') && r.bId === w.id('mill'))
+    expect([feels?.aFeels, feels?.bFeels]).toEqual(['proud of it', ''])
     // Mara's starting description, already there, still names Tobin as her neighbour.
-    expect(of(w.id('tobin'))).toEqual(['neighbour', 'works at'])
-    expect(of(w.id('mill'))).toEqual(['works at'])
+    expect(between(w, ym, 'mara', 'tobin')).toEqual(['mara -> tobin: neighbour'])
+
+    const tobin = fdb.startChanges(w.db, ym).find((c) => c.entryId === w.id('tobin'))!
+    undoItem(w.db, lineFor(w.db, tobin.id).id)
+    expect(between(w, ym, 'tobin', 'mill')).toEqual([])
+    expect(between(w, ym, 'mara', 'tobin')).toEqual(['mara -> tobin: neighbour'])
+  })
+
+  it('keeps a relationship a draft names when it is drafted again, or drafted in a later run', () => {
+    type W = ReturnType<typeof dbWorld>
+    type Draft = { entryId: ID; payload: FullPayload }
+    const draft = (w: W, entry: string, description: string, names: [string, string][] = []): Draft => {
+      const relationships = names.map(([key, type]) => ({ otherId: w.id(key), type, feels: '', otherFeels: '' }))
+      return { entryId: w.id(entry), payload: { description, knows: [], relationships } }
+    }
+    const cast = (w: W, ...drafts: Draft[]) => applyCast(w.db, repo.getStory(w.db, w.id('ym')), drafts, noTotals)
+
+    // Tobin, then the mill, then Tobin again, now working at the mill.
+    const w = dbWorld()
+    cast(w, draft(w, 'tobin', 'A boy by the river.'))
+    cast(w, draft(w, 'mill', 'A busy mill.'))
+    cast(w, draft(w, 'tobin', 'A boy at the mill.', [['mill', 'works at']]))
+    expect(between(w, w.id('ym'), 'tobin', 'mill')).toEqual(['tobin -> mill: works at'])
+    expect(between(w, w.id('ym'), 'mara', 'tobin')).toEqual(['mara -> tobin: neighbour'])
+
+    // Mara and the mill first, then Tobin on his own, naming the mill.
+    const v = dbWorld()
+    cast(v, draft(v, 'mara', 'A girl of nine.', [['tobin', 'neighbour']]), draft(v, 'mill', 'A busy mill.'))
+    cast(v, draft(v, 'tobin', 'A boy at the mill.', [['mill', 'works at']]))
+    expect(between(v, v.id('ym'), 'tobin', 'mill')).toEqual(['tobin -> mill: works at'])
+    expect(between(v, v.id('ym'), 'mara', 'tobin')).toEqual(['mara -> tobin: neighbour'])
   })
 
   it('drafted again, moves before what it would wipe, and Undo puts it back where it was', async () => {
@@ -447,7 +531,7 @@ describe('When did these happen?', () => {
     expect([w.tobin, w.mara, w.mill].map((c) => run.places[lineFor(w.db, c.id).id])).toEqual([
       'Start of The Quiet Year',
       'Start of Book 2',
-      'The Quiet Year, Ch 1, Sc 1'
+      'Happens in The Quiet Year, Ch 1, Sc 1'
     ])
 
     // Sorting again leaves what was sorted alone.
@@ -510,7 +594,86 @@ describe('When did these happen?', () => {
     expect(picks.get('c1')).toEqual({ pick: 'after', sceneId: null })
   })
 
-  it("needs the book to continue after the new story", async () => {
+  it("goes before what is already at the new story's start, keeping the book's order, and answers do the same", () => {
+    const w = dbWorld()
+    const [qy, b2] = [w.id('qy'), w.id('b2')]
+    const change = (storyId: ID, entry: string, data: ChangeData, origin: 'adam' | 'ai'): Change => {
+      const input = { ...data, entryId: w.id(entry), anchor: 'story-start', storyId, origin }
+      return mem.insertChange(w.db, input as Parameters<typeof mem.insertChange>[1])
+    }
+    // Adam's own fact at The Quiet Year's start, and two of Book 2's that change the same.
+    change(qy, 'mara', { kind: 'relationship', payload: { otherId: w.id('tobin'), type: 'rivals', feels: '', otherFeels: '' } }, 'adam')
+    const ended = { otherId: w.id('tobin'), type: 'friend', feels: '', otherFeels: '', ended: true }
+    const first = change(b2, 'mara', { kind: 'relationship', payload: ended }, 'ai')
+    const coast = change(b2, 'mara', { kind: 'update', payload: { note: 'moved to the coast', fields: { home: 'the coast' } } }, 'ai')
+    const inland = change(b2, 'mara', { kind: 'update', payload: { note: 'moved inland', fields: { home: 'inland' } } }, 'ai')
+    const before = { pick: 'before' as const, sceneId: null }
+    const ids = [first.id, coast.id, inland.id]
+    applyWhen(w.db, repo.getStory(w.db, qy), repo.getStory(w.db, b2), ids, new Map(ids.map((id) => [id, before])), noTotals)
+
+    const order = (): ID[] => fdb.startChanges(w.db, qy).map((c) => c.id)
+    expect(order().slice(0, 3)).toEqual(ids)
+    expect(between(w, qy, 'mara', 'tobin')).toEqual(['mara -> tobin: rivals'])
+    expect(startState(w.db, qy).entries.get(w.id('mara'))!.fields.home).toBe('inland')
+
+    // Answered again, the first of them goes back in its place among them.
+    answerItem(w.db, lineFor(w.db, coast.id).id, 'after')
+    answerItem(w.db, lineFor(w.db, coast.id).id, 'before')
+    expect(order().slice(0, 3)).toEqual(ids)
+    expect(startState(w.db, qy).entries.get(w.id('mara'))!.fields.home).toBe('inland')
+  })
+
+  it('says a plot thread as its own time gap line does, and where a change it took out happens', async () => {
+    const w = whenWorld()
+    const closed = mem.insertChange(w.db, {
+      kind: 'thread',
+      payload: { status: 'resolved', note: 'left unanswered' },
+      entryId: w.id('burned'),
+      anchor: 'story-start',
+      storyId: w.id('b2'),
+      origin: 'ai'
+    })
+    const told = mem.insertChange(w.db, {
+      kind: 'thread',
+      payload: { status: 'resolved', note: 'Kell confesses to the fire' },
+      entryId: w.id('burned'),
+      anchor: 'story-start',
+      storyId: w.id('b2'),
+      origin: 'ai'
+    })
+    await runWhen(opts(w.db), w.id('qy'), w.id('b2'))
+    expect([closed, told].map((c) => [lineFor(w.db, c.id).text, lineFor(w.db, c.id).after])).toEqual([
+      ['Plot thread left unanswered', ''],
+      ['Plot thread resolved', 'Kell confesses to the fire']
+    ])
+  })
+
+  it('says where a change happens now on every line about it', async () => {
+    // Book 2 starts a hundred years after Book 1, and its time gap has the mill fall into ruin.
+    const w = whenWorld()
+    mem.deleteChange(w.db, w.mill.id)
+    repo.updateStory(w.db, w.id('b2'), { timeGap: '100 years' })
+    await runTimeGap(opts(w.db), w.id('b2'))
+    const ruin = fdb.startChanges(w.db, w.id('b2')).find((c) => c.entryId === w.id('mill'))!
+    await runWhen(opts(w.db), w.id('qy'), w.id('b2'))
+    expect(live(w.db, ruin.id)).toBeNull()
+    const runs = flowRuns(w.db, loadShape(w.db))
+    const gapLine = fdb.flowLines(w.db).find((l) => l.factId === ruin.id && l.action === 'added')!
+    const gapRun = runs.find((r) => gapLine.id in r.places)!
+    expect(gapRun.places[gapLine.id]).toBe('Happens in The Quiet Year, Ch 1, Sc 1')
+    // Its own line answers for it, so this one has nothing to answer or undo.
+    expect(gapRun.gone).toContain(gapLine.id)
+  })
+
+  it('leaves out the changes of entries in Recently deleted', async () => {
+    const w = whenWorld()
+    repo.deleteEntry(w.db, w.id('tobin'))
+    expect(fdb.startChanges(w.db, w.id('b2')).map((c) => c.id)).toEqual([w.mara.id, w.mill.id])
+    expect(await runWhen(opts(w.db), w.id('qy'), w.id('b2'))).toMatchObject({ message: 'Sorted 2 changes, listed under What changed' })
+    expect(fdb.flowLines(w.db).map((l) => l.entryName)).toEqual(['Mara', 'Harrow Mill'])
+  })
+
+  it('needs the book to continue after the new story', async () => {
     const w = whenWorld()
     const r = await runWhen(opts(w.db), w.id('b1'), w.id('b2'))
     expect(r).toEqual({ status: 'failed', message: "Book 2 doesn't continue after Book 1. Set it to continue after Book 1 first." })
@@ -659,6 +822,45 @@ describe('Running in the background', () => {
     expect(w.db.prepare('SELECT status FROM generations').all()).toEqual([{ status: 'stopped' }])
   })
 
+  it('runs a call made after Stop once the stopped run has wound down', async () => {
+    const w = gapWorld()
+    const g = gate()
+    const { r, statuses } = runner(w.db, g.fetchImpl)
+    r.start({ flow: 'time-gap', storyId: w.storyId })
+    await new Promise((res) => setTimeout(res, 20))
+    r.stop(w.storyId, 'time-gap')
+    r.start({ flow: 'time-gap', storyId: w.storyId })
+    g.release()
+    await r.idle()
+    expect(g.calls()).toBe(2)
+    expect(statuses.at(-1)).toMatchObject({ state: 'done', message: 'Added 2 changes and closed 1 plot thread, listed under What changed' })
+    expect(fdb.flowRunIds(w.db)).toHaveLength(1)
+  })
+
+  it('stopped while running again after a run that changed something, says nothing more was changed', async () => {
+    const w = gapWorld()
+    let calls = 0
+    let started: () => void = () => undefined
+    const second = new Promise<void>((res) => (started = res))
+    // The second call waits until it is stopped.
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (++calls === 1) return fetch(input, init)
+      started()
+      return new Promise<Response>((_, rej) =>
+        init?.signal?.addEventListener('abort', () => rej(Object.assign(new Error('Stopped'), { name: 'AbortError' })))
+      )
+    }
+    const { r, statuses } = runner(w.db, fetchImpl)
+    r.start({ flow: 'time-gap', storyId: w.storyId })
+    r.start({ flow: 'time-gap', storyId: w.storyId })
+    await second
+    r.stop(w.storyId, 'time-gap')
+    await r.idle()
+    expect(statuses.at(-1)).toEqual({ storyId: w.storyId, flow: 'time-gap', state: 'done', message: STOPPED_AFTER })
+    expect(STOPPED_AFTER).toBe('Stopped. Nothing more was changed.')
+    expect(fdb.flowRunIds(w.db)).toHaveLength(1)
+  })
+
   it('stops when the world closes, writing nothing after', async () => {
     const w = gapWorld()
     const g = gate()
@@ -703,8 +905,9 @@ describe('flowPlace', () => {
   it('says where the change is now', () => {
     expect(flowPlace(sorted('before'), false, { storyId: 'qy', deleted: false }, title, scene)).toBe('Start of The Quiet Year')
     expect(flowPlace(sorted('after'), false, { storyId: 'b2', deleted: false }, title, scene)).toBe('Start of Book 2')
-    expect(flowPlace(sorted('in', 's1'), false, { storyId: 'b2', deleted: true }, title, scene)).toBe('The Quiet Year, Ch 1, Sc 1')
-    expect(flowPlace(sorted('in', 's9'), false, { storyId: 'b2', deleted: true }, title, scene)).toBe('In The Quiet Year')
+    const carried = { storyId: 'b2', deleted: true }
+    expect(flowPlace(sorted('in', 's1'), false, carried, title, scene)).toBe('Happens in The Quiet Year, Ch 1, Sc 1')
+    expect(flowPlace(sorted('in', 's9'), false, carried, title, scene)).toBe('Happens in The Quiet Year')
     // Undone: back where it was.
     expect(flowPlace(sorted('in', 's1'), true, { storyId: 'b2', deleted: false }, title, scene)).toBe('Start of Book 2')
     // A time gap's change moved to another story since.
@@ -730,6 +933,10 @@ describe('gapPhrase', () => {
     expect(gapPhrase('1 year', 'Book 4')).toBe('Working out what changed over the year…')
     expect(gapPhrase('One winter later', 'Book 4')).toBe('Working out what changed over the winter…')
     expect(gapPhrase('one hundred years', 'Book 4')).toBe('Working out what changed in the one hundred years…')
+    expect(gapPhrase('A hundred years later', 'Book 4')).toBe('Working out what changed over a hundred years…')
+    expect(gapPhrase('a thousand years', 'Book 4')).toBe('Working out what changed over a thousand years…')
+    expect(gapPhrase('Over 200 years', 'Book 4')).toBe('Working out what changed over 200 years…')
+    expect(gapPhrase('over a decade', 'Book 4')).toBe('Working out what changed over a decade…')
     expect(gapPhrase('long after the war', 'Book 4')).toBe('Working out what changed before Book 4 starts…')
     expect(gapPhrase('', 'Book 4')).toBe('Working out what changed before Book 4 starts…')
   })

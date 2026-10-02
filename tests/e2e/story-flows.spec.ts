@@ -223,11 +223,14 @@ test('"When did these happen?" sorts a book\'s changes when a story is set befor
     const group = list.getByRole('region', { name: 'When did these happen?' })
     const line = (words: string) => group.getByRole('listitem').filter({ hasText: words })
     await expect(line('Died long ago').getByText('Start of The Quiet Year')).toBeVisible()
-    await expect(line('Fell into ruin').getByText('The Quiet Year, Ch 1, Sc 1')).toBeVisible()
+    await expect(line('Fell into ruin').getByText('Happens in The Quiet Year, Ch 1, Sc 1', { exact: true })).toBeVisible()
     await expect(line('Took over the ferry').getByText('Start of Book 2')).toBeVisible()
-    // The time gap's line for Mara says where her change is now.
+    // The time gap's lines say where each change is now; the mill's is answered for by its line above.
     const gap = list.getByRole('region', { name: 'Before Book 2 starts' })
-    await expect(gap.getByRole('listitem').filter({ hasText: 'Died long ago' }).getByText('Start of The Quiet Year')).toBeVisible()
+    const gapLine = (words: string) => gap.getByRole('listitem').filter({ hasText: words })
+    await expect(gapLine('Died long ago').getByText('Start of The Quiet Year')).toBeVisible()
+    await expect(gapLine('Fell into ruin').getByText('Happens in The Quiet Year, Ch 1, Sc 1', { exact: true })).toBeVisible()
+    await expect(gapLine('Fell into ruin').getByRole('button', { name: /^Undo/ })).toHaveCount(0)
     const tobinQuestion = line('Took over the ferry').getByRole('group', { name: 'When did this happen?' })
     await expect(tobinQuestion.getByRole('button', { name: 'After it' })).toHaveAttribute('aria-pressed', 'true')
 
@@ -240,6 +243,8 @@ test('"When did these happen?" sorts a book\'s changes when a story is set befor
     // Undo puts the mill's change back on Book 2.
     await line('Fell into ruin').getByRole('button', { name: /^Undo: Harrow Mill/ }).click()
     await expect.poll(() => startOf(mill.id)).toEqual([book2.id])
+    await expect(gapLine('Fell into ruin').getByText('Start of Book 2')).toBeVisible()
+    await expect(gapLine('Fell into ruin').getByRole('button', { name: 'Undo: Harrow Mill, Fell into ruin' })).toBeVisible()
 
     // Adam deletes Mara's change on her page: the line says so, with nothing left to answer or undo.
     const maraChange = (await invoke(win, 'listChanges', mara.id))[0]

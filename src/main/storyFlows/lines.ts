@@ -13,6 +13,7 @@ import * as kdb from '../db/keeper'
 import type { LogRow } from '../db/keeper'
 import * as fdb from '../db/storyFlows'
 import { UserError } from '../util'
+import { movedPosition } from './order'
 import type { WhenPick } from './parse'
 
 type DB = Database.Database
@@ -31,10 +32,14 @@ export type FlowUndo = {
       pointId?: ID | null
     }
   | {
-      /** An earlier AI-drafted change written over: the version to go back to, and where it was among the others. */
+      /**
+       * An earlier AI-drafted change written over: the version to go back to, where it was among the
+       * others, and where the run put it (a later run may move it on, to make room for its own drafts).
+       */
       did: 'replaced'
       version: number
       position?: number
+      placed?: number
       pointId?: ID | null
     }
   | { did: 'removed' }
@@ -110,11 +115,36 @@ function earlierOrigin(db: DB, id: ID, fallback: Origin): Origin {
   return kdb.versionData(db, 'change', id, v - 1)?.origin ?? fallback
 }
 
-/** Moves a change to a story's start, keeping who it is from; back on its book, it returns to its old place there. */
-function moveTo(db: DB, c: Change, storyId: ID, position?: number): void {
+/** Moves a change back to its book's start, keeping who it is from, at its old place there. */
+function moveTo(db: DB, c: Change, storyId: ID, position: number): void {
   if (c.storyId === storyId) return
   mem.replaceChange(db, c.id, { ...inputOf(c, storyId), origin: c.origin })
-  if (position !== undefined) fdb.setChangePosition(db, c.id, position)
+  fdb.setChangePosition(db, c.id, position)
+}
+
+/**
+ * The changes sorted from a book's start for a new story (by lines not undone), with their places on
+ * the book, so those moved to the new story's start keep the book's order there.
+ */
+export function sortedFromBook(db: DB, storyId: ID, bookId: ID): Map<ID, number> {
+  const out = new Map<ID, number>()
+  for (const l of fdb.flowLines(db)) {
+    const u = l.undo
+    if (!l.undone && isFlowUndo(u) && u.did === 'sorted' && u.storyId === storyId && u.bookId === bookId) out.set(u.changeId, u.position)
+  }
+  return out
+}
+
+/**
+ * Moves a change from its book's start to the new story's start, keeping who it is from. It goes
+ * before the changes already there, which say how things are at the new story's start (Adam's above
+ * all), and keeps the book's order among the others moved from it (see movedPosition in order.ts).
+ */
+export function moveBefore(db: DB, c: Change, storyId: ID, bookPosition: number, fromBook: ReadonlyMap<ID, number>): void {
+  if (c.storyId === storyId) return
+  mem.replaceChange(db, c.id, { ...inputOf(c, storyId), origin: c.origin })
+  const here = fdb.startChanges(db, storyId).filter((x) => x.id !== c.id)
+  fdb.setChangePosition(db, c.id, movedPosition(here, bookPosition, fromBook))
 }
 
 /**
@@ -133,8 +163,11 @@ function backOnBook(db: DB, u: Extract<FlowUndo, { did: 'sorted' }>): void {
 function applyPick(db: DB, u: Extract<FlowUndo, { did: 'sorted' }>, pick: WhenPick, by: { origin: Origin; runId?: ID | null }): boolean {
   const c = liveChange(db, u.changeId)
   if (!c) return false
-  if (pick === 'before') moveTo(db, c, u.storyId)
-  else if (pick === 'in') {
+  if (pick === 'before') {
+    const fromBook = sortedFromBook(db, u.storyId, u.bookId)
+    fromBook.delete(c.id)
+    moveBefore(db, c, u.storyId, u.position, fromBook)
+  } else if (pick === 'in') {
     mem.deleteChange(db, c.id, by)
     return true
   }
@@ -155,9 +188,13 @@ export function undoFlowLine(db: DB, row: LogRow): FlowOutcome {
     case 'replaced': {
       const old = kdb.versionData(db, 'change', u.changeId, u.version)
       const data = old?.data as Change | null
-      if (data && liveChange(db, u.changeId)) {
+      const current = liveChange(db, u.changeId)
+      if (data && current) {
         mem.replaceChange(db, u.changeId, { ...inputOf(data), origin: old!.origin })
-        if (u.position !== undefined) fdb.setChangePosition(db, u.changeId, u.position)
+        // Back where it was, unless a later run has moved it on since to make room for its own drafts.
+        if (u.position !== undefined && (u.placed === undefined || current.position === u.placed)) {
+          fdb.setChangePosition(db, u.changeId, u.position)
+        }
       }
       if (u.pointId) fdb.deletePoint(db, u.pointId)
       break
@@ -243,18 +280,29 @@ export const GONE = 'No longer in the memory'
 
 /**
  * True when the line's change has been taken out of the memory by something other than the line
- * itself (Adam on the entry page, or the time gap worked out again): there is nothing left to answer
- * or undo.
+ * itself (Adam on the entry page, the time gap worked out again, or another line's answer "It happens
+ * in the new story"): there is nothing left to answer or undo here.
  */
 export function changeGone(u: FlowUndo, undone: boolean, at: At): boolean {
   if (undone || (at && !at.deleted)) return false
   return !(u.did === 'removed' || (u.did === 'closed' && u.removedByLine) || (u.did === 'sorted' && u.pick === 'in' && u.removedByLine))
 }
 
+type SortedUndo = Extract<FlowUndo, { did: 'sorted' }>
+
+/** True when this line's own answer "It happens in the new story" has taken its change out: a scene of the new story carries it. */
+const carriedByLine = (u: FlowUndo, undone: boolean, at: At): u is SortedUndo =>
+  u.did === 'sorted' && u.pick === 'in' && u.removedByLine && !undone && (!at || at.deleted)
+
+/** "Happens in The Quiet Year, Ch 1, Sc 2" (or "Happens in The Quiet Year" when its scene isn't known). */
+function happensIn(u: SortedUndo, title: (storyId: ID) => string, scene: (storyId: ID, sceneId: ID) => string | null): string {
+  return `Happens in ${(u.sceneId && scene(u.storyId, u.sceneId)) || title(u.storyId)}`
+}
+
 /**
  * Where a flow line's change is now, in plain words: "Start of Book 4", or for one that happens in a
- * new story's scene, "The Quiet Year, Ch 1, Sc 2". A change moved since (by "When did these happen?")
- * shows where it went; one taken out since by something else says so.
+ * new story's scene, "Happens in The Quiet Year, Ch 1, Sc 2". A change moved since (by "When did
+ * these happen?") shows where it went; one taken out since by something else says so.
  */
 export function flowPlace(
   u: FlowUndo,
@@ -264,31 +312,38 @@ export function flowPlace(
   scene: (storyId: ID, sceneId: ID) => string | null
 ): string {
   if (changeGone(u, undone, at)) return GONE
-  if (u.did === 'sorted' && u.pick === 'in' && !undone && (!at || at.deleted)) {
-    return (u.sceneId && scene(u.storyId, u.sceneId)) || `In ${title(u.storyId)}`
-  }
+  if (carriedByLine(u, undone, at)) return happensIn(u, title, scene)
   return `Start of ${title(at?.storyId ?? u.storyId)}`
 }
 
-/** Every flow run listed in What changed, with its heading, each line's place, and the lines whose change is gone. */
+/**
+ * Every flow run listed in What changed, with its heading, each line's place, and the lines whose
+ * change is gone. Other lines about a change that "It happens in the new story" took out say where it
+ * happens now, as that line does.
+ */
 export function flowRuns(db: DB, shape: WorldShape | null): StoryFlowRun[] {
   const title = titleFinder(db, shape)
   const label = shape ? labeler(shape) : null
   const live = new Set(shape?.stories.flatMap((s) => s.chapters.flatMap((c) => c.scenes.map((sc) => sc.id))) ?? [])
   const scene = (storyId: ID, sceneId: ID): string | null => (label && live.has(sceneId) ? label({ storyId, sceneId }) : null)
   const changes = fdb.flowLineChanges(db)
+  const rows = fdb.flowLines(db).flatMap((row) => (isFlowUndo(row.undo) ? [{ row, u: row.undo }] : []))
+  const carried = new Map<ID, string>()
+  for (const { row, u } of rows) {
+    const at = changes.get(u.changeId) ?? null
+    if (carriedByLine(u, row.undone, at)) carried.set(u.changeId, happensIn(u, title, scene))
+  }
   const runs = new Map<ID, StoryFlowRun>()
-  for (const row of fdb.flowLines(db)) {
-    if (!isFlowUndo(row.undo)) continue
-    const u = row.undo
+  for (const { row, u } of rows) {
     let run = runs.get(row.runId)
     if (!run) {
       run = { runId: row.runId, flow: u.flow, storyId: u.storyId, heading: flowHeading(u, title), places: {}, gone: [] }
       runs.set(row.runId, run)
     }
     const at = changes.get(u.changeId) ?? null
-    run.places[row.id] = flowPlace(u, row.undone, at, title, scene)
-    if (changeGone(u, row.undone, at)) run.gone.push(row.id)
+    const gone = changeGone(u, row.undone, at)
+    run.places[row.id] = gone ? (carried.get(u.changeId) ?? GONE) : flowPlace(u, row.undone, at, title, scene)
+    if (gone) run.gone.push(row.id)
   }
   return [...runs.values()]
 }

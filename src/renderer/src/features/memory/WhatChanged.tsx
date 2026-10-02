@@ -335,7 +335,6 @@ function LogRow({
           ) : null}
           {item.text}
         </p>
-        {place ? <p className="mt-0.5 text-[12px] text-faint">{place}</p> : null}
         {failed && pointsToSettings(item.text) ? (
           <button type="button" onClick={onOpenSettings} className={cn(linkClass, 'mt-1 text-[12.5px] font-medium text-accent')}>
             Open Settings › Models
@@ -358,6 +357,7 @@ function LogRow({
             ) : null}
           </div>
         ) : null}
+        {place ? <p className="mt-1 text-[12px] text-faint">{place}</p> : null}
 
         {item.quote.trim() ? (
           item.sceneId && !gone ? (

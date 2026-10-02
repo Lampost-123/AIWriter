@@ -17,7 +17,8 @@ import type { LogRow, NewLog } from '../db/keeper'
 import * as fdb from '../db/storyFlows'
 import { changeContent, changeWords, fieldLabel } from '../keeper/facts'
 import { clip, plain, upperFirst } from '../keeper/text'
-import { isFlowUndo, STILL_OPEN, WHEN, type FlowUndo } from './lines'
+import { isFlowUndo, moveBefore, sortedFromBook, STILL_OPEN, WHEN, type FlowUndo } from './lines'
+import { insertInOrder, placeCast, positionBefore, touchesAny, type CastDraft } from './order'
 import type { GapPlan, WhenPick } from './parse'
 
 type DB = Database.Database
@@ -63,15 +64,32 @@ function fieldWords(kind: EntryKind | undefined, fields: Record<string, string> 
     .join('; ')
 }
 
-/** A change in plain words for a flow's line, as the keeper says it but with field names as the entry page shows them. */
+/** A plot thread a time gap closed, in What changed. */
+const LEFT_UNANSWERED = 'Plot thread left unanswered'
+
+const leftUnanswered = (c: ChangeData): boolean =>
+  c.kind === 'thread' && c.payload.status === 'resolved' && plain(c.payload.note) === 'left unanswered'
+
+/**
+ * A change in plain words for a flow's line, as the keeper says it but with field names as the entry
+ * page shows them, and a plot thread as its time gap line says it ("Plot thread left unanswered"),
+ * with any other note shown under it (afterWords).
+ */
 function words(c: ChangeData, kind: EntryKind | undefined, nameOf: (id: ID) => string): string {
   if (c.kind === 'update' && !c.payload.note.trim()) return upperFirst(fieldWords(kind, c.payload.fields)) || 'Changed'
+  if (c.kind === 'thread') {
+    if (leftUnanswered(c)) return LEFT_UNANSWERED
+    return c.payload.status === 'resolved' ? 'Plot thread resolved' : 'Plot thread opened'
+  }
   return changeWords(c, nameOf)
 }
 
-/** The new field values of a change that also has a note (one with only fields says them in its words already). */
-const afterWords = (c: ChangeData, kind: EntryKind | undefined): string =>
-  c.kind === 'update' && c.payload.note.trim() ? fieldWords(kind, c.payload.fields) : ''
+/** What shows under a change's words: the new field values of one that also has a note, or a plot thread's note. */
+function afterWords(c: ChangeData, kind: EntryKind | undefined): string {
+  if (c.kind === 'update') return c.payload.note.trim() ? fieldWords(kind, c.payload.fields) : ''
+  if (c.kind === 'thread') return leftUnanswered(c) ? '' : upperFirst(c.payload.note.trim())
+  return ''
+}
 
 /** Every flow line, by the change it is about (one read for a whole run). */
 function linesByChange(db: DB): Map<ID, LogRow[]> {
@@ -93,12 +111,19 @@ const sameContent = (a: ChangeData, b: ChangeData): boolean =>
   fieldsOf(a) === fieldsOf(b) &&
   (a.kind !== 'relationship' || (b.kind === 'relationship' && a.payload.otherId === b.payload.otherId))
 
-/** True when a change already at the start says something about the same thing (so a drafted one isn't added beside it). */
+/**
+ * True when a change already at the start says something about the same thing, so a drafted one isn't
+ * added beside it (where it would win over it): the same kind of change for the entry, any
+ * relationship between the same two (recorded on either side), or a starting description of the entry
+ * (of either one, for a relationship), which sets it afresh there.
+ */
 function sameThing(c: Change, entryId: ID, data: ChangeData): boolean {
-  if (c.entryId !== entryId) return false
-  if (c.kind === 'full') return data.kind !== 'relationship'
-  if (data.kind === 'relationship') return c.kind === 'relationship' && c.payload.otherId === data.payload.otherId
-  return c.kind === data.kind
+  if (data.kind === 'relationship') {
+    const pair = [entryId, data.payload.otherId]
+    if (c.kind === 'full') return pair.includes(c.entryId)
+    return c.kind === 'relationship' && pair.includes(c.entryId) && pair.includes(c.payload.otherId)
+  }
+  return c.entryId === entryId && (c.kind === 'full' || c.kind === data.kind)
 }
 
 /** Changes at this story's start that an earlier time gap run drafted (and nobody has edited since). */
@@ -130,8 +155,6 @@ function turnedDown(log: Map<ID, LogRow[]>, storyId: ID): { words: Set<string>; 
 
 // ---------- What changed before this story starts? ----------
 
-/** A plot thread a time gap closed, in What changed. */
-const LEFT_UNANSWERED = 'Plot thread left unanswered'
 /** A time gap's earlier change taken out when it is worked out again, in What changed. */
 export const TAKEN_OUT = 'Taken out when the time gap was worked out again'
 export const OPEN_AGAIN = 'Plot thread open again after the time gap was worked out again'
@@ -139,6 +162,8 @@ export const OPEN_AGAIN = 'Plot thread open again after the time gap was worked 
 /**
  * Writes a time gap's changes at the story's start. Running it again replaces what an earlier run
  * drafted (keeping what is the same) and leaves Adam's changes alone, and what he undid or kept open.
+ * Each new change goes before the changes already there about the same entries, so those still count
+ * on top of it.
  */
 export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals): Applied {
   const here = fdb.startChanges(db, story.id)
@@ -171,6 +196,20 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
   const toRemove = earlier.filter((c) => !kept.has(c.id))
   if (!toAdd.length && !toClose.length && !toRemove.length) return nothing()
 
+  // The changes at the start as they will be, to place each new one: before the first one about the
+  // same entries that isn't the time gap's own.
+  const work = here.filter((c) => !toRemove.includes(c))
+  const gapOwn = new Set(earlier.map((c) => c.id))
+  const positionFor = (ids: ID[]): { position?: number } => {
+    const at = positionBefore(work, (c) => !gapOwn.has(c.id) && touchesAny(c, ids))
+    return at === null ? {} : { position: at }
+  }
+  const track = (c: Change): Change => {
+    gapOwn.add(c.id)
+    insertInOrder(work, c)
+    return c
+  }
+
   const out = nothing()
   const base = { op: 'story-flow' as const, flow: 'time-gap' as const, storyId: story.id }
   const written = inRun(db, totals, (runId) => {
@@ -188,7 +227,7 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
         factId: c.id,
         entryName: nameOf(c.entryId),
         text: c.kind === 'thread' ? OPEN_AGAIN : TAKEN_OUT,
-        before: c.kind === 'thread' ? LEFT_UNANSWERED : words(c, kindOf(c.entryId), nameOf),
+        before: words(c, kindOf(c.entryId), nameOf),
         after: '',
         quote: '',
         question: null,
@@ -196,9 +235,11 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
       })
     }
     for (const item of toAdd) {
-      const c = mem.insertChange(db, { ...item.data, entryId: item.entryId, anchor: 'story-start', storyId: story.id, ...by })
+      const ids = mem.entriesTouched({ ...item.data, entryId: item.entryId })
+      const data = { ...item.data, entryId: item.entryId, anchor: 'story-start' as const, storyId: story.id }
+      const c = track(mem.insertChange(db, { ...data, ...by, ...positionFor(ids) }))
       out.added++
-      out.entryIds.push(...mem.entriesTouched(c))
+      out.entryIds.push(...ids)
       lines.push({
         action: 'added',
         what: 'change',
@@ -214,14 +255,17 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
       })
     }
     for (const threadId of toClose) {
-      const c = mem.insertChange(db, {
-        kind: 'thread',
-        payload: { status: 'resolved', note: 'left unanswered' },
-        entryId: threadId,
-        anchor: 'story-start',
-        storyId: story.id,
-        ...by
-      })
+      const c = track(
+        mem.insertChange(db, {
+          kind: 'thread',
+          payload: { status: 'resolved', note: 'left unanswered' },
+          entryId: threadId,
+          anchor: 'story-start',
+          storyId: story.id,
+          ...by,
+          ...positionFor([threadId])
+        })
+      )
       out.closed++
       out.entryIds.push(threadId)
       lines.push({
@@ -276,71 +320,43 @@ const sameStart = (a: FullPayload, b: FullPayload): boolean => {
 type Draft = { entryId: ID; payload: FullPayload }
 
 /**
- * Gives each relationship a draft names to the other draft too (the other way round), unless that one
- * names its own. A starting description sets its entry's relationships afresh, on both sides, so
- * without this the description written later would wipe it.
- */
-export function bothSides(drafts: Draft[]): Draft[] {
-  const out = drafts.map((d) => ({ entryId: d.entryId, payload: { ...d.payload, relationships: [...d.payload.relationships] } }))
-  const byId = new Map(out.map((d) => [d.entryId, d]))
-  for (const d of out) {
-    for (const r of [...d.payload.relationships]) {
-      const other = byId.get(r.otherId)
-      if (!other || other.payload.relationships.some((x) => x.otherId === d.entryId)) continue
-      const back = { otherId: d.entryId, type: r.type, feels: r.otherFeels, otherFeels: r.feels }
-      other.payload.relationships.push(r.ended ? { ...back, ended: true } : back)
-    }
-  }
-  return out
-}
-
-/**
- * Where an entry's drafted starting description goes among the changes at the start: just before the
- * first one it would otherwise wipe (the entry's own changes, relationships with it, other starting
- * descriptions naming it), so those still count on top of it, Adam's included. Null when there is
- * none: after the others, or where it was when drafted again.
- */
-export function draftPosition(here: Change[], entryId: ID, replaced: ReadonlySet<ID>): number | null {
-  const later = here.filter((c) => !replaced.has(c.id) && mem.entriesTouched(c).includes(entryId))
-  return later.length ? Math.min(...later.map((c) => c.position)) - 1 : null
-}
-
-/**
  * Writes each drafted starting description at the prequel's start, replacing an earlier AI-drafted
  * one, and makes each entry exist from the prequel's start. An entry with a starting description of
- * Adam's (or the text's) is left alone, and each draft goes before the changes at the start it would
- * otherwise wipe (see draftPosition).
+ * Adam's (or the text's) is left alone. Each draft goes before the changes at the start about its
+ * entry, so those still count on top of it, and after the starting description of each entry it names,
+ * so the relationship holds as it says it (see placeCast in order.ts).
  */
 export function applyCast(db: DB, story: Story, drafts: Draft[], totals: RunTotals): Applied {
   const here = fdb.startChanges(db, story.id)
   const entries = liveEntries(db, drafts.flatMap((d) => [d.entryId, ...d.payload.relationships.map((r) => r.otherId)]))
-  const usable = drafts
-    .filter((d) => entries.has(d.entryId) && !hasOwnStart(here, d.entryId))
-    .map((d) => ({ ...d, payload: { ...d.payload, relationships: d.payload.relationships.filter((r) => entries.has(r.otherId)) } }))
-  const plan: (Draft & { old: Change | null })[] = []
-  for (const d of bothSides(usable)) {
+  const plan: CastDraft[] = []
+  for (const d of drafts) {
+    if (!entries.has(d.entryId) || hasOwnStart(here, d.entryId) || plan.some((p) => p.entryId === d.entryId)) continue
+    const payload = { ...d.payload, relationships: d.payload.relationships.filter((r) => entries.has(r.otherId)) }
     const old = here.find((c) => c.entryId === d.entryId && c.kind === 'full') ?? null
-    if (old && old.kind === 'full' && sameStart(old.payload, d.payload)) continue
-    plan.push({ ...d, old })
+    if (old && old.kind === 'full' && sameStart(old.payload, payload)) continue
+    plan.push({ entryId: d.entryId, payload, old })
   }
   if (!plan.length) return nothing()
-  const replaced = new Set(plan.flatMap((p) => (p.old ? [p.old.id] : [])))
+  const placed = placeCast(here, plan)
 
   const out = nothing()
   const base = { op: 'story-flow' as const, flow: 'starting-cast' as const, storyId: story.id }
   const written = inRun(db, totals, (runId) => {
     const lines: Line[] = []
     const by = { origin: 'ai' as const, runId }
+    // Earlier drafts making room move only past changes about other entries, so what they say stays the same.
+    for (const [id, position] of placed.moved) fdb.setChangePosition(db, id, position)
     for (const p of plan) {
       const name = entries.get(p.entryId)!.name
       const data = { kind: 'full' as const, payload: p.payload, entryId: p.entryId, anchor: 'story-start' as const, storyId: story.id }
       const pointId = startPoint(db, entries.get(p.entryId)!, story.id)
-      const at = draftPosition(here, p.entryId, replaced)
+      const at = placed.at.get(p.entryId)!
       let c: Change
       if (p.old) {
         const version = kdb.latestVersion(db, 'change', p.old.id)
         c = mem.replaceChange(db, p.old.id, { ...data, ...by })
-        if (at !== null && at < p.old.position) fdb.setChangePosition(db, c.id, at)
+        if (at !== p.old.position) fdb.setChangePosition(db, c.id, at)
         lines.push({
           action: 'updated',
           what: 'change',
@@ -352,10 +368,10 @@ export function applyCast(db: DB, story: Story, drafts: Draft[], totals: RunTota
           after: startWords(p.payload),
           quote: '',
           question: null,
-          undo: { ...base, changeId: c.id, did: 'replaced', version, position: p.old.position, pointId }
+          undo: { ...base, changeId: c.id, did: 'replaced', version, position: p.old.position, placed: at, pointId }
         })
       } else {
-        c = mem.insertChange(db, { ...data, ...by, ...(at !== null ? { position: at } : {}) })
+        c = mem.insertChange(db, { ...data, ...by, position: at })
         out.added++
         lines.push({
           action: 'added',
@@ -397,7 +413,8 @@ export function alreadySorted(db: DB, storyId: ID, bookId: ID, changes: Change[]
  * Sorts each of the book's start-of-story changes as picked: moved to the new story's start, left on
  * the book, or removed because a scene of the new story carries it. Every one gets a line asking
  * "When did this happen?". Adam's own changes are moved too, keeping his origin, but never removed
- * automatically: for those "It happens in the new story" waits for his answer.
+ * automatically: for those "It happens in the new story" waits for his answer. A moved change goes
+ * before the changes already at the new story's start, which say how things are there (see moveBefore).
  */
 export function applyWhen(
   db: DB,
@@ -424,19 +441,16 @@ export function applyWhen(
 
   const entries = liveEntries(db, plan.flatMap((p) => mem.entriesTouched(p.c)))
   const nameOf = (id: ID): string => entries.get(id)?.name ?? repo.getEntries(db, [id])[0]?.name ?? 'someone'
+  // Those moved to the new story's start from this book before, and their places on it, so the ones
+  // moved now keep the book's order among them.
+  const fromBook = sortedFromBook(db, story.id, book.id)
   const out = nothing()
   const written = inRun(db, totals, (runId) => {
     const lines: Line[] = []
     for (const { c, pick, sceneId } of plan) {
       if (pick === 'before') {
-        mem.replaceChange(db, c.id, {
-          kind: c.kind,
-          payload: c.payload,
-          entryId: c.entryId,
-          anchor: 'story-start',
-          storyId: story.id,
-          origin: c.origin
-        } as Parameters<typeof mem.replaceChange>[2])
+        moveBefore(db, c, story.id, c.position, fromBook)
+        fromBook.set(c.id, c.position)
         out.moved++
       } else if (pick === 'in') {
         mem.deleteChange(db, c.id, { origin: 'ai', runId })

@@ -43,6 +43,8 @@ export type FlowArgs =
   | { flow: 'when'; storyId: ID; bookId: ID }
 
 export const STOPPED = 'Stopped. Nothing was changed.'
+/** Stopped while running again after a run that did change something (that run's changes stay). */
+export const STOPPED_AFTER = 'Stopped. Nothing more was changed.'
 export const NO_STORY = 'That story no longer exists.'
 export const NO_GAP = 'Add the time since the previous story first.'
 export const NOT_PREQUEL = 'Only a prequel gets a drafted starting cast. Make this story a prequel to a book first.'
@@ -62,7 +64,7 @@ function storyOrNull(db: DB, id: ID): Story | null {
 }
 
 const NUMBER_WORDS =
-  /^(\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a hundred|a thousand|thousand)\b/i
+  /^(\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/i
 const SPAN_WORDS = /^(a|an|some|several|many|a few|a couple of|about|almost|nearly|over|more than)\b/i
 const UNITS = /\b(second|minute|hour|day|night|week|fortnight|month|season|year|decade|century|centuries|generation|age|winter|summer|spring|autumn|lifetime)s?$/i
 
@@ -71,7 +73,8 @@ const ONE_UNIT = /^(1|one)\s+([a-z]+)$/i
 
 /**
  * The running note for a time gap, with the gap in Adam's words when they read as a span of time:
- * "Working out what changed in the 200 years…", "…over a few weeks…", "…over the year…".
+ * "Working out what changed in the 200 years…", "…over a few weeks…", "…over the year…", "…over a
+ * hundred years…", and "…over 200 years…" as he wrote it.
  */
 export function gapPhrase(timeGap: string, title: string): string {
   const said = timeGap
@@ -85,7 +88,7 @@ export function gapPhrase(timeGap: string, title: string): string {
     const one = gap.match(ONE_UNIT)
     if (one) return `Working out what changed over the ${one[2].toLowerCase()}…`
     if (NUMBER_WORDS.test(gap)) return `Working out what changed in the ${gap}…`
-    return `Working out what changed over ${gap}…`
+    return `Working out what changed ${/^over\b/i.test(gap) ? '' : 'over '}${gap}…`
   }
   return `Working out what changed before ${title} starts…`
 }

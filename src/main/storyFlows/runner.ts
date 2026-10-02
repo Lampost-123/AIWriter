@@ -1,16 +1,17 @@
 // Runs the story flows of the open world in the background, one at a time per story and flow: a call
 // while the same flow runs for that story waits and runs once the first has finished (a starting cast
-// asked for meanwhile is drafted together). Keeps how each flow last went for this session, so story
-// settings can show it as soon as they open; a run that follows one which changed something, and
-// changes nothing itself, keeps the earlier result on show rather than "Nothing needed changing".
-// Closing the world stops everything; nothing is written to a closed database. No Electron imports
-// (index.ts connects it to the window).
+// asked for meanwhile is drafted together). Stop drops what was waiting; a call after Stop runs once
+// the stopped run has wound down. Keeps how each flow last went for this session, so story settings
+// can show it as soon as they open; a run that follows one which changed something, and changes
+// nothing itself, keeps the earlier result on show rather than "Nothing needed changing". Closing the
+// world stops everything; nothing is written to a closed database. No Electron imports (index.ts
+// connects it to the window).
 
 import type Database from 'better-sqlite3'
 import type { ID, WritingPrefs } from '@shared/types'
 import type { StoryFlowKind, StoryFlowStatus } from '@shared/contracts/storyFlows'
 import type { FlowModel } from './call'
-import { runFlow, runningMessage, STOPPED, type FlowArgs, type JobResult } from './jobs'
+import { runFlow, runningMessage, STOPPED, STOPPED_AFTER, type FlowArgs, type JobResult } from './jobs'
 
 export interface RunnerDeps {
   db: Database.Database
@@ -92,13 +93,14 @@ export class FlowRunner {
     if (this.closed) return
     if (r.status === 'done' && r.runId) this.deps.emitChanged({ sceneId: null, entryIds: r.entryIds })
     const changed = r.status === 'done' && r.runId ? r : slot.earlier
-    if (slot.next && !slot.controller.signal.aborted) {
+    // Asked for again meanwhile (Stop drops what was waiting, so this was asked for after any Stop).
+    if (slot.next) {
       this.run(key, slot.next, changed)
       return
     }
     if (r.status === 'failed') this.status(slot.args, 'failed', r.message)
-    else if (r.status === 'done' && (r.runId || !changed)) this.status(slot.args, 'done', r.message)
-    else this.status(slot.args, 'done', changed ? changed.message : STOPPED)
+    else if (r.status === 'stopped') this.status(slot.args, 'done', changed ? STOPPED_AFTER : STOPPED)
+    else this.status(slot.args, 'done', r.runId || !changed ? r.message : changed.message)
   }
 
   /** Stops the flow running for this story (and drops one waiting after it). Nothing it worked out is kept. */

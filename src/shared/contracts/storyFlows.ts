@@ -32,7 +32,10 @@ export interface StoryFlowsApi {
   listStoryFlows(storyId: ID): Promise<StoryFlowStatus[]>
   /**
    * Stops a flow running for this story (and drops one waiting to run after it). Nothing it had worked
-   * out is kept; its status becomes done with "Stopped. Nothing was changed."
+   * out is kept; its status becomes done with "Stopped. Nothing was changed.", or "Stopped. Nothing
+   * more was changed." when it was running again straight after a run of the same flow that did change
+   * something (those changes stay). A call after Stop starts the flow afresh once the stopped run has
+   * wound down.
    */
   stopStoryFlow(storyId: ID, flow: StoryFlowKind): Promise<void>
   /**
@@ -63,11 +66,15 @@ export interface StoryFlowRun {
   storyId: ID
   /** The heading of its group in What changed: "Before Book 4 starts". */
   heading: string
-  /** Where each of its lines is now, by line id: "Start of Book 4", or "No longer in the memory". */
+  /**
+   * Where each of its lines is now, by line id: "Start of Book 4", "Happens in The Quiet Year, Ch 1,
+   * Sc 2", or "No longer in the memory".
+   */
   places: Record<ID, string>
   /**
-   * Lines whose change something else has taken out of the memory since (Adam, or the time gap
-   * worked out again): nothing is left to answer or undo, so they show neither.
+   * Lines whose change something else has taken out of the memory since (Adam, the time gap worked out
+   * again, or another line's answer "It happens in the new story"): nothing is left to answer or undo
+   * here, so they show neither.
    */
   gone: ID[]
 }

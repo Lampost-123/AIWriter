@@ -15,11 +15,15 @@ type Row = Record<string, unknown>
 /** The scene a flow's memory run is recorded against: none. */
 export const FLOW_RUN_SCENE = ''
 
-/** Every live change at a story's start, in order. */
+/**
+ * Every live change at a story's start, in order. Changes of entries in Recently deleted are left out,
+ * as the memory leaves them out (they come back with their entry).
+ */
 export function startChanges(db: DB, storyId: ID): Change[] {
   const ids = db
     .prepare(
-      "SELECT id FROM changes WHERE story_id = ? AND anchor = 'story-start' AND deleted_at IS NULL ORDER BY position, created_at, rowid"
+      `SELECT c.id FROM changes c JOIN entries e ON e.id = c.entry_id AND e.deleted_at IS NULL
+       WHERE c.story_id = ? AND c.anchor = 'story-start' AND c.deleted_at IS NULL ORDER BY c.position, c.created_at, c.rowid`
     )
     .all(storyId) as Row[]
   return ids.map((r) => getChange(db, r.id as string))
