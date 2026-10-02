@@ -24,6 +24,11 @@ src/shared/      Types and the API contract shared by both sides. Only additive 
   fields.ts      Character / place / lore field lists (forms and context assembly both use them)
   defaults.ts    Default scene card, style guide, settings, creativity presets, countWords
 src/main/        Electron main process
+  memory/        The memory engine (milestone 2): types.ts is its contract; line.ts (which stories,
+                 chapters and scenes come before a point), state.ts (what is true there), scene.ts
+                 (reads the database: what counts for one scene). Pure where it can be.
+  keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
+                 the memory in step with it, plus summaries at every level
   index.ts       Window, lifecycle, flush-on-close
   world.ts       The open world (one folder: world.db, images/, backups/)
   db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
@@ -80,6 +85,62 @@ src/renderer/src/
   top-level one rather than adding to it.
 - The installer isn't code-signed yet, so Windows shows "Windows protected your PC" when it is
   first run; the README says what to click.
+
+## Milestone 2: memory that keeps up
+
+What it adds: accept scene; summaries at every level; changes over time (baseline plus changes);
+relationships and knowledge; plot threads; the memory keeper; context budgeting with short forms;
+the Context tab with pins. It also stores everything stories outside one series need (story kinds,
+start and end points, start-of-story changes, where entries first exist, Adam's answers), with
+the rules in the spec's "Multi-story rules" tab; most of their screens arrive in milestone 3.
+
+**The data model is frozen after this milestone** (migration 2). A later change needs a written
+reason here and a new migration, never a rewrite. Until 0.2.0 ships, migration 2 may still change.
+
+### How memory over time works
+
+- An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:
+  `baseline` (relationships and knowledge Adam sets on the entry page), `story-start` (before a
+  story's first scene) or `scene` (it happens in that scene). Kinds: `update` (a note of what is
+  now different, plus new field values), `full` (start-of-story full description), `relationship`
+  (one per pair of entries, from either side; a later one replaces it), `knowledge` (a character
+  learns or forgets a fact; facts are shared by id), `thread` (a plot thread opens or is resolved).
+- **The line** (`memory/line.ts`) decides what counts at a point, exactly as the Multi-story rules
+  say. Every question about what came earlier goes through `buildLine`: state, the previous scene
+  (block 3), story-so-far, the "knows what happened in" sentence, the memory keeper.
+- **State** (`memory/state.ts`) applies the baseline, then every change that counts, in line order.
+  A full description resets the entry's description, knowledge and relationships (both sides).
+  Where a side story and its host change the same thing between the side story's start and end,
+  the host wins until Adam answers "Which happened last?" (`answers`, kind `which-last`).
+- **Existence:** an entry counts at a scene only if one of its `exists_points` is on the line at or
+  before it. Defaults follow the rules (made by hand in the world's first story or outside any story:
+  the beginning of the world; in another story: that story's start; found by the memory keeper:
+  characters and items at the scene, everything else at the story's start).
+- **Places in plain words:** "Book 1, Ch 12, Sc 3" counts live chapters and scenes from 1. Never
+  "line", "main history" or "entry" on screen.
+
+### The memory keeper (Adam, 2026-10-02)
+
+The memory updates itself whenever a scene changes, so Adam never has to manage it. Each fact the
+keeper adds remembers the words it came from (`changes.quote`, `source = 'memory'`): editing those
+words updates the fact, deleting them removes it. Anything Adam typed himself (entries with
+`by_hand`, changes with `source = 'hand'`, summaries with `by_hand`) is never overwritten or
+removed by the keeper. A quiet "What changed" list lets him undo a wrong guess, and an undone guess
+is never made again for the same words; he never has to look at it. It runs in the background,
+reads only what changed since it last read a scene, resumes after a restart, and says in plain
+words (quietly, in the top bar) when it can't run.
+
+### Who builds what (parallel build, milestone 2)
+
+| Part | Owns |
+|---|---|
+| Memory core | `memory/line.ts`, `memory/state.ts`, `memory/scene.ts`, `db/memory.ts` (SQL for changes, exists points, summaries, pins, answers, placement), `ipc/memory.ts`, the test world (`tests/unit/testWorld*`) |
+| Memory keeper | `keeper/*`, `db/keeper.ts`, `ipc/keeper.ts`, its tables at the end of migration 2, memory-model prompts, the fake provider's memory replies |
+| Briefing | `ai/context.ts`, `ai/gather.ts`, `ai/prompts.ts` (writer), short forms and budgeting, pins and block modes in the briefing |
+| Interface | `src/renderer/**`: Accept, Context tab, entry pages for every kind with relationships, knowledge and changes, plot threads on the scene card, summaries, the "What changed" list and the keeper's status |
+
+Shared files (`src/shared/*`, `migrations.ts`, `ARCHITECTURE.md`) change only additively; say so in
+the commit message.
 
 ## Milestone 1 scope
 

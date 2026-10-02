@@ -11,7 +11,10 @@ export const emptySceneCard = (): SceneCard => ({
   outcome: '',
   mood: '',
   targetWords: 1500,
-  notes: ''
+  notes: '',
+  whenSort: null,
+  setsUpIds: [],
+  paysOffIds: []
 })
 
 export const defaultStyleGuide = (): StyleGuide => ({

@@ -4,11 +4,13 @@ import { UserError } from '../util'
 import { coreHandlers } from './core'
 import { aiHandlers } from './ai'
 import { maintenanceHandlers } from './maintenance'
+import { memoryHandlers } from './memory'
+import { keeperHandlers } from './keeper'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
 /** Every API method must be implemented exactly once; TypeScript checks this. */
-const all: Handlers<ApiMethod> = { ...coreHandlers, ...aiHandlers, ...maintenanceHandlers }
+const all: Handlers<ApiMethod> = { ...coreHandlers, ...aiHandlers, ...maintenanceHandlers, ...memoryHandlers, ...keeperHandlers }
 
 function plainMessage(err: unknown): { message: string; code?: string } {
   if (err instanceof UserError) return { message: err.message, code: err.code }

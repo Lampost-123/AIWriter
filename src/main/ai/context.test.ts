@@ -36,6 +36,10 @@ const entry = (kind: EntryKind, name: string, extra: Partial<Entry> = {}): Entry
   fields: {},
   parentId: null,
   hardRule: false,
+  origin: 'hand',
+  originStoryId: null,
+  originSceneId: null,
+  byHand: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
   ...extra

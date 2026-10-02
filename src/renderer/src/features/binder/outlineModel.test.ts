@@ -15,13 +15,14 @@ import {
 } from './outlineModel'
 
 const story = { id: 'st', title: 'Book 1' } as Story
-const chapter = (id: string, position: number): Chapter => ({ id, storyId: 'st', title: id.toUpperCase(), goal: '', position })
+const chapter = (id: string, position: number): Chapter => ({ id, storyId: 'st', title: id.toUpperCase(), goal: '', position, actId: null })
 const scene = (id: string, chapterId: string, position: number, wordCount = 0): SceneMeta => ({
   id,
   chapterId,
   title: id,
   position,
   status: 'planned',
+  acceptedAt: null,
   wordCount,
   updatedAt: ''
 })

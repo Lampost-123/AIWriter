@@ -94,6 +94,13 @@ const toStory = (r: Row): Story => ({
   tone: r.tone as string,
   kind: r.kind as Story['kind'],
   startStoryId: (r.start_story_id as string) ?? null,
+  startAt: ((r.start_at as string) ?? 'end') as Story['startAt'],
+  startRefId: (r.start_ref_id as string) ?? null,
+  endAt: ((r.end_at as string) ?? null) as Story['endAt'],
+  endRefId: (r.end_ref_id as string) ?? null,
+  leadsIntoId: (r.leads_into_id as string) ?? null,
+  leadsIn: !!r.leads_in,
+  timeGap: (r.time_gap as string) ?? '',
   position: r.position as number,
   createdOrder: r.created_order as number,
   style: json<Partial<StyleGuide>>(r.style_json, {}),
@@ -150,7 +157,8 @@ const toChapter = (r: Row): Chapter => ({
   storyId: r.story_id as string,
   title: r.title as string,
   goal: r.goal as string,
-  position: r.position as number
+  position: r.position as number,
+  actId: (r.act_id as string) ?? null
 })
 
 export function getChapter(db: DB, id: ID): Chapter {
@@ -291,7 +299,8 @@ const toSceneMeta = (r: Row): SceneMeta => ({
   position: r.position as number,
   status: r.status as SceneStatus,
   wordCount: r.word_count as number,
-  updatedAt: r.updated_at as string
+  updatedAt: r.updated_at as string,
+  acceptedAt: (r.accepted_at as string) ?? null
 })
 
 const toScene = (r: Row): Scene => ({
@@ -315,7 +324,7 @@ export function getScene(db: DB, id: ID): Scene {
 
 export function getSceneMeta(db: DB, id: ID): SceneMeta {
   const r = db
-    .prepare('SELECT id, chapter_id, title, position, status, word_count, updated_at FROM scenes WHERE id = ? AND deleted_at IS NULL')
+    .prepare('SELECT id, chapter_id, title, position, status, word_count, updated_at, accepted_at FROM scenes WHERE id = ? AND deleted_at IS NULL')
     .get(id) as Row | undefined
   if (!r) throw new UserError('That scene no longer exists.')
   return toSceneMeta(r)
@@ -402,7 +411,7 @@ export function getOutline(db: DB, storyId: ID): Outline {
   const scenes = (
     db
       .prepare(
-        `SELECT s.id, s.chapter_id, s.title, s.position, s.status, s.word_count, s.updated_at
+        `SELECT s.id, s.chapter_id, s.title, s.position, s.status, s.word_count, s.updated_at, s.accepted_at
          FROM scenes s JOIN chapters c ON c.id = s.chapter_id
          WHERE c.story_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL
          ORDER BY c.position, s.position`
@@ -459,6 +468,10 @@ const toEntry = (r: Row): Entry => ({
   fields: json<Record<string, string>>(r.fields_json, {}),
   parentId: (r.parent_id as string) ?? null,
   hardRule: !!r.hard_rule,
+  origin: ((r.origin as string) ?? 'hand') as Entry['origin'],
+  originStoryId: (r.origin_story_id as string) ?? null,
+  originSceneId: (r.origin_scene_id as string) ?? null,
+  byHand: !!r.by_hand,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string
 })

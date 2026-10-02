@@ -115,6 +115,136 @@ export const MIGRATIONS: string[] = [
     entry_version TEXT NOT NULL,
     PRIMARY KEY (generation_id, entry_id)
   );
+  `,
+  // 2: milestone 2, memory over time. The data model is frozen after this one (spec: Guiding
+  // principles); later changes need a written reason in docs/ARCHITECTURE.md and a new migration.
+  `
+  -- Where each story starts and (side stories) ends, and what a prequel leads into.
+  -- Milestone 1 stories continue after their start story (or start at the beginning of the world).
+  ALTER TABLE stories ADD COLUMN start_at TEXT NOT NULL DEFAULT 'end';
+  ALTER TABLE stories ADD COLUMN start_ref_id TEXT;
+  ALTER TABLE stories ADD COLUMN end_at TEXT;
+  ALTER TABLE stories ADD COLUMN end_ref_id TEXT;
+  ALTER TABLE stories ADD COLUMN leads_into_id TEXT;
+  ALTER TABLE stories ADD COLUMN leads_in INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stories ADD COLUMN time_gap TEXT NOT NULL DEFAULT '';
+
+  CREATE TABLE acts (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    purpose TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    deleted_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  ALTER TABLE chapters ADD COLUMN act_id TEXT;
+
+  -- Accepting a scene, and the text it was accepted with (so a re-accept only re-reads what changed).
+  -- context_json holds Adam's per-scene briefing choices (block modes) from the Context tab.
+  ALTER TABLE scenes ADD COLUMN accepted_at TEXT;
+  ALTER TABLE scenes ADD COLUMN accepted_text TEXT;
+  ALTER TABLE scenes ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}';
+
+  -- How each entry was made. by_hand: Adam has edited it, so the memory keeper never overwrites it.
+  ALTER TABLE entries ADD COLUMN origin TEXT NOT NULL DEFAULT 'hand';
+  ALTER TABLE entries ADD COLUMN origin_story_id TEXT;
+  ALTER TABLE entries ADD COLUMN origin_scene_id TEXT;
+  ALTER TABLE entries ADD COLUMN by_hand INTEGER NOT NULL DEFAULT 0;
+  -- Milestone 1 entries were all typed by Adam.
+  UPDATE entries SET by_hand = 1;
+
+  -- Where each entry first exists (one or more points). kind: world | story-pre | story-post | scene.
+  CREATE TABLE exists_points (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    story_id TEXT,
+    scene_id TEXT,
+    by_hand INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX exists_points_entry ON exists_points(entry_id);
+  -- Milestone 1 entries were made outside any story's memory: the starting setup.
+  INSERT INTO exists_points (id, entry_id, kind, by_hand, created_at)
+    SELECT lower(hex(randomblob(16))), id, 'world', 0, created_at FROM entries;
+
+  -- Every change to an entry over time: baseline relationships and knowledge, start-of-story
+  -- changes (including full descriptions) and changes pinned to scenes.
+  --   anchor: baseline | story-start | scene     kind: update | full | relationship | knowledge | thread
+  --   source: hand | memory    quote: the words in the scene a memory change rests on
+  CREATE TABLE changes (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    anchor TEXT NOT NULL,
+    story_id TEXT,
+    scene_id TEXT,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    position INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'hand',
+    quote TEXT NOT NULL DEFAULT '',
+    run_id TEXT,
+    deleted_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX changes_entry ON changes(entry_id);
+  CREATE INDEX changes_scene ON changes(scene_id);
+  CREATE INDEX changes_story ON changes(story_id, anchor);
+
+  -- Summaries at every level: scene, chapter, story, series.
+  CREATE TABLE summaries (
+    level TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    text TEXT NOT NULL DEFAULT '',
+    by_hand INTEGER NOT NULL DEFAULT 0,
+    stale INTEGER NOT NULL DEFAULT 0,
+    source_hash TEXT NOT NULL DEFAULT '',
+    generation_id TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (level, target_id)
+  );
+
+  -- Entries pinned to (or kept out of) briefings for a scene, a story or the world (scope_id '' for the world).
+  CREATE TABLE pins (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    scope_id TEXT NOT NULL DEFAULT '',
+    entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (scope, scope_id, entry_id)
+  );
+
+  -- Adam's answers to multi-story questions (side story order, "Which happened last?", end of prequel).
+  CREATE TABLE answers (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (kind, key)
+  );
+
+  -- Consistency checker results (milestone 5), stored now with their out-of-date mark.
+  CREATE TABLE issues (
+    id TEXT PRIMARY KEY,
+    scene_id TEXT,
+    story_id TEXT,
+    kind TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    quote TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    out_of_date INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX issues_scene ON issues(scene_id);
   `
 ]
 
