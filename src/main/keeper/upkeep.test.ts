@@ -13,6 +13,7 @@ import type { MemoryModel } from './model'
 import { runScene, type RunOutcome } from './run'
 import { Keeper } from './engine'
 import { undoItem } from './undo'
+import * as scene from '../memory/scene'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -428,5 +429,45 @@ describe('what the memory model is told', () => {
     expect(sent).toContain('Mara')
     expect(sent).not.toContain('left hand')
     expect(sent).not.toContain('Duke')
+  })
+
+  it('a detail read in a what-if story or a prequel stays there', async () => {
+    const w = world()
+    const mara = repo.createEntry(w.db, 'character', { name: 'Mara' })
+    const tobin = repo.createEntry(w.db, 'character', { name: 'Tobin' })
+    const place = (kind: 'own' | 'prequel', title: string): ID => {
+      const s = repo.createStory(w.db, { title })
+      mem.setStoryPlacement(w.db, s.id, {
+        kind,
+        startStoryId: w.storyId,
+        startAt: kind === 'own' ? 'end' : 'pre',
+        startRefId: null,
+        endAt: null,
+        endRefId: null,
+        leadsIntoId: kind === 'prequel' ? w.storyId : null
+      })
+      return repo.createScene(w.db, repo.createChapter(w.db, s.id, { title: 'One' }).id, { title: 'Opening' }).id
+    }
+    const whatIf = place('own', 'What if')
+    const prequel = place('prequel', 'Before')
+    const next = (id: ID): ID => repo.createScene(w.db, repo.sceneLocation(w.db, id).chapter.id, { title: 'Next' }).id
+    const whatIfNext = next(whatIf)
+    const prequelNext = next(prequel)
+    // Book 1 has a second scene, after both stories were read.
+    const book1Next = repo.createScene(w.db, w.chapterId, { title: 'Next' }).id
+    save(w.db, whatIf, [['d', "Mara's eyes were green."]])
+    await read(w.db, whatIf)
+    save(w.db, prequel, [['e', "Tobin's eyes were brown."]])
+    await read(w.db, prequel)
+    // The entries as Book 1 sees them are untouched...
+    expect(repo.getEntry(w.db, mara.id).fields.eyes ?? '').toBe('')
+    expect(repo.getEntry(w.db, tobin.id).fields.eyes ?? '').toBe('')
+    const book1 = scene.sceneMemory(w.db, book1Next).entries
+    expect(book1.find((e) => e.id === mara.id)?.fields.eyes ?? '').toBe('')
+    expect(book1.find((e) => e.id === tobin.id)?.fields.eyes ?? '').toBe('')
+    // ...while each story knows its own, from that scene on.
+    expect(scene.sceneMemory(w.db, whatIfNext).entries.find((e) => e.id === mara.id)?.fields.eyes).toBe('green')
+    expect(scene.sceneMemory(w.db, prequelNext).entries.find((e) => e.id === tobin.id)?.fields.eyes).toBe('brown')
+    expect(kdb.listLog(w.db).find((l) => l.entryId === mara.id)).toMatchObject({ action: 'added', text: 'Eyes: green' })
   })
 })

@@ -179,7 +179,8 @@ export function factContent(f: SceneFact): string {
   switch (f.kind) {
     case 'change': {
       const c = f.change
-      if (c.kind === 'update') return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')}`
+      if (c.kind === 'update')
+        return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')} ${c.payload.description ?? ''} ${c.payload.summary ?? ''}`
       if (c.kind === 'relationship') return `${c.payload.type} ${c.payload.ended ? 'ended' : ''}`
       if (c.kind === 'knowledge') return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : ''}`
       if (c.kind === 'thread') return `${c.payload.status} ${c.payload.note}`

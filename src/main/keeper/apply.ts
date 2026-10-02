@@ -372,6 +372,32 @@ class Run {
     return true
   }
 
+  /**
+   * True when a detail about this entry, read here, must count only in this scene's story: the story
+   * is an own version of events or a prequel (or follows on from one), whose events reach no other
+   * story, and the entry isn't one of its own. Writing such a detail on the entry's page would show
+   * it in every story.
+   */
+  keepsToItsStory(e: Entry): boolean {
+    if (e.originStoryId === this.scene.storyId || this.madeHere.has(e.id)) return false
+    const byId = new Map((this.ctx.shape?.stories ?? []).map((s) => [s.id, s]))
+    const seen = new Set<ID>()
+    for (
+      let cur = byId.get(this.scene.storyId);
+      cur && !seen.has(cur.id);
+      cur = cur.startStoryId ? byId.get(cur.startStoryId) : undefined
+    ) {
+      seen.add(cur.id)
+      if (cur.kind === 'own' || cur.kind === 'prequel') return true
+    }
+    return false
+  }
+
+  /** The entry as it is at this scene (with the changes that count here), or null. */
+  stateHere(id: ID): Entry | null {
+    return this.ctx.memory?.entries.find((x) => x.id === id) ?? null
+  }
+
   noteRemovedChange(entryId: ID): void {
     this.removedChangeEntries.add(entryId)
   }
@@ -383,7 +409,7 @@ class Run {
 const changeContent = (c: ChangeData): string => {
   switch (c.kind) {
     case 'update':
-      return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')}`
+      return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')} ${c.payload.description ?? ''} ${c.payload.summary ?? ''}`
     case 'relationship':
       return `${c.payload.type} ${c.payload.ended ? 'ended' : ''}`
     case 'knowledge':
@@ -742,7 +768,7 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
 }
 
 /** Adds a change pinned to this scene, with its link, unless it is already there or Adam undid it from these words. */
-function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | null {
+function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot, text?: string): Change | null {
   const fp = fingerprint({ type: 'change', entryId: entry.id, change: data })
   if (run.suppressed(fp, s.quote) || run.duplicate(fp, changeContent(data))) return null
   const c = mem.insertChange(run.db, {
@@ -762,7 +788,7 @@ function addChange(run: Run, entry: Entry, data: ChangeData, s: Spot): Change | 
     entryId: entry.id,
     factId: c.id,
     entryName: entry.name,
-    text: changeWords(data, nameOf),
+    text: text ?? changeWords(data, nameOf),
     before: '',
     after: '',
     quote: s.quote,
@@ -793,6 +819,17 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
     // Words elsewhere still say the old value: that is a clash between scenes, not a change.
     const support = hist.linksForEntry(db, e.id).filter((l) => l.factKind === 'field' && l.field === field && l.state === 'ok')
     if (support.some((l) => l.sceneId !== run.scene.sceneId)) return clash(run, e, field, before, value, s)
+  }
+  if (run.keepsToItsStory(e)) {
+    // An own version of events or a prequel: the detail is a change in this scene, so no other story sees it.
+    const here = run.stateHere(e.id)
+    if (here && plain(fieldValue(here, field)) === plain(value)) return
+    const data: ChangeData =
+      field === 'summary' || field === 'description'
+        ? { kind: 'update', payload: { note: '', [field]: value } }
+        : { kind: 'update', payload: { note: '', fields: { [field]: value } } }
+    addChange(run, e, data, s, `${fieldLabel(e, field)}: ${value}`)
+    return
   }
   repo.updateEntry(db, e.id, patchFor(e, field, value), run.by)
   const link = run.addLink('field', e.id, field, s)
