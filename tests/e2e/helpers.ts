@@ -47,6 +47,13 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   }
 }
 
+/** Closes the window the way Adam does (the X), so pending saves run first, and waits for the app to exit. */
+export async function closeWindow(app: ElectronApplication): Promise<void> {
+  const closed = new Promise<void>((r) => app.once('close', () => r()))
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+  await closed
+}
+
 /** Calls the app's API from the window, like the interface does. Throws the plain-words error on failure. */
 export async function invoke<M extends ApiMethod>(win: Page, method: M, ...args: Parameters<AppApi[M]>): Promise<Awaited<ReturnType<AppApi[M]>>> {
   const res = (await win.evaluate(

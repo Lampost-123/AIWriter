@@ -6,8 +6,9 @@
 //   GET  /__last               the last chat request (body and headers), so tests can see what the AI saw
 //   GET  /__requests           how many chat requests each model has had
 //
-// Special model ids:
-//   fake/credit            402 out of credit
+// Special model ids (the list also has fake/writer, 32k, and fake/8k, a small-context model that
+// writes normally: a sensible briefing for a full-length scene must be shortened to fit it):
+//   fake/credit           402 out of credit
 //   fake/badkey            401 key not accepted
 //   fake/ratelimit-once    429 (Retry-After: 1) on the first request, then a normal stream
 //   fake/servererror-once  503 on the first request, then a normal stream
@@ -46,6 +47,7 @@ import { pathToFileURL } from 'node:url'
 export const FAKE_MODELS = [
   { id: 'fake/writer', name: 'Fake: Writer', context_length: 32000, pricing: { prompt: '0.000003', completion: '0.000015' } },
   { id: 'fake/small', name: 'Fake: Small context', context_length: 3000, pricing: { prompt: '0.0000005', completion: '0.0000015' } },
+  { id: 'fake/8k', name: 'Fake: 8k context', context_length: 8000, pricing: { prompt: '0.0000005', completion: '0.0000015' } },
   { id: 'fake/free', name: 'Fake: Free', context_length: 8000, pricing: { prompt: '0', completion: '0' } },
   { id: 'fake/slow', name: 'Fake: Slow', context_length: 32000, pricing: { prompt: '0.000001', completion: '0.000002' } },
   { id: 'fake/think', name: 'Fake: Thinker', context_length: 64000, pricing: { prompt: '0.000001', completion: '0.000004' } },
