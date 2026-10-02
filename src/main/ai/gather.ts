@@ -6,7 +6,7 @@ import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
 import * as repo from '../db/repo'
 import type { ContextInput } from './context'
-import { effectiveStyle } from './style'
+import { effectiveStyle } from '@shared/style'
 
 export const MIN_TARGET_WORDS = 100
 export const MAX_TARGET_WORDS = 12_000

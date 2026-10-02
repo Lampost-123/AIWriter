@@ -1,5 +1,6 @@
-import { forwardRef, useId, useLayoutEffect, useRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
+import { forwardRef, useId, useRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { cn } from '@/lib/cn'
+import { useFitHeight } from './useFitHeight'
 
 const control =
   'w-full rounded-md border border-line bg-page px-2.5 text-[13.5px] text-fg placeholder:text-faint transition-[border-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60'
@@ -20,15 +21,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   outerRef
 ) {
   const inner = useRef<HTMLTextAreaElement | null>(null)
-  useLayoutEffect(() => {
-    const el = inner.current
-    if (!el || !autoGrow) return
-    const lh = parseFloat(getComputedStyle(el).lineHeight) || 20
-    el.style.height = 'auto'
-    const pad = el.offsetHeight - el.clientHeight + parseFloat(getComputedStyle(el).paddingTop) + parseFloat(getComputedStyle(el).paddingBottom)
-    const h = Math.min(Math.max(el.scrollHeight, lh * minRows + pad), lh * maxRows + pad)
-    el.style.height = `${h}px`
-  }, [value, autoGrow, minRows, maxRows])
+  // Grows with the text and re-measures when the box is resized (a side panel dragged wider).
+  useFitHeight(inner, value, autoGrow ? minRows : 0, autoGrow ? maxRows : 0)
   return (
     <textarea
       ref={(el) => {

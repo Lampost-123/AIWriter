@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
 import { defaultStyleGuide } from '@shared/defaults'
@@ -80,7 +80,52 @@ export function listWorlds(): WorldSummary[] {
     const s = readSummary(join(lib, name.name))
     if (s) out.push(s)
   }
-  return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return separateCopies(out).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+/**
+ * A world folder copied by hand (Explorer's "My world - Copy") carries the same
+ * world id as the original, so opening by id could open either. The copy is a
+ * separate world from then on: it gets its own id and "(copy)" on its name.
+ * The open world, or else the oldest folder, keeps the original id.
+ */
+function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
+  const byId = new Map<ID, WorldSummary[]>()
+  for (const w of worlds) byId.set(w.id, [...(byId.get(w.id) ?? []), w])
+  for (const group of byId.values()) {
+    if (group.length < 2) continue
+    const age = (w: WorldSummary): number => {
+      try {
+        const st = statSync(w.folder)
+        return st.birthtimeMs || st.ctimeMs
+      } catch {
+        return Number.MAX_SAFE_INTEGER
+      }
+    }
+    const keeper =
+      group.find((w) => current && w.folder === current.folder) ??
+      [...group].sort((a, b) => age(a) - age(b) || a.folder.length - b.folder.length)[0]
+    for (const w of group) {
+      if (w === keeper) continue
+      let d: Database.Database | null = null
+      try {
+        d = openDatabase(worldDbPath(w.folder))
+        const id = newId()
+        const name = `${w.name} (copy)`
+        d.transaction(() => {
+          repo.setMeta(d!, 'id', id)
+          repo.setMeta(d!, 'name', name)
+        })()
+        w.id = id
+        w.name = name
+      } catch (e) {
+        console.warn('Could not separate a copied world', w.folder, e)
+      } finally {
+        d?.close()
+      }
+    }
+  }
+  return worlds
 }
 
 const toSummary = (w: World): WorldSummary => ({ id: w.id, name: w.name, folder: w.folder, updatedAt: w.updatedAt })

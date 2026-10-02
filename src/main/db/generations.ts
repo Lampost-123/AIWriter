@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextBlock, ContextBudget, EntryKind, GenerationRecord, GenerationStatus, GenerationSummary, ID } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { UserError } from '../util'
+import { touchWorld } from './repo'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -59,6 +60,7 @@ export function insertGeneration(db: DB, g: NewGeneration): void {
     )
     const add = db.prepare('INSERT OR IGNORE INTO generation_entries (generation_id, entry_id, entry_version) VALUES (?, ?, ?)')
     for (const e of g.entries) add.run(g.id, e.entryId, e.version)
+    touchWorld(db)
   })()
 }
 
@@ -85,6 +87,8 @@ export function finishGeneration(db: DB, id: ID, f: Finish): void {
        params_json = COALESCE(?, params_json)
      WHERE id = ?`
   ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, f.params ? JSON.stringify(f.params) : null, id)
+  // Backups watch the world's last-changed time, so a finished draft gets backed up.
+  touchWorld(db)
 }
 
 /** After a crash or a forced quit: drafts left 'streaming' become 'stopped', keeping their text. */

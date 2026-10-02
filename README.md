@@ -5,7 +5,7 @@ so every scene stays consistent.
 
 ## Installing (Windows)
 
-Download `AI Write Setup x.y.z.exe` from the latest release on the
+Download `AI-Write-Setup-x.y.z.exe` from the latest release on the
 [Releases page](../../releases) and double-click it. AI Write then opens from the Start menu.
 
 ## For developers

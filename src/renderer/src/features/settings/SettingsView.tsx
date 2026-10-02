@@ -35,7 +35,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
           </button>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 overflow-auto">
+      <div className="min-w-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
         <div className="mx-auto max-w-[760px] px-8 py-8">
           <h1 className="text-[20px] font-semibold text-fg">{current.label}</h1>
           <p className="mb-6 mt-1 text-[13px] text-muted">{current.blurb}</p>

@@ -8,6 +8,7 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
   return (
     <Tabs defaultValue="card" className="flex h-full min-h-0 flex-col">
       <TabsList
+        tall
         items={[
           { value: 'card', label: 'Scene card' },
           { value: 'drafts', label: 'Drafts' }
