@@ -461,6 +461,29 @@ function linksHere(f: SceneFact, run: Run): SourceLink[] {
   return f.links.filter((l) => l.sceneId === run.scene.sceneId)
 }
 
+/**
+ * The fact as it is now, or null when it is gone. The plan was made before the memory model was
+ * asked, and Adam may have edited (made his own) or removed the fact meanwhile; an earlier step of
+ * this run may also have changed the same entry. Every write starts from this, never from the plan.
+ */
+function freshFact(run: Run, f: SceneFact): SceneFact | null {
+  if (f.kind === 'change') {
+    let change: Change
+    try {
+      change = mem.getChange(run.db, f.change.id)
+    } catch {
+      return null
+    }
+    const entry = run.entry(change.entryId)
+    return entry ? { ...f, change, entry, origin: change.origin } : null
+  }
+  const entry = run.entry(f.entry.id)
+  if (!entry) return null
+  if (f.kind === 'field') return { ...f, entry, origin: fieldOrigin(entry, f.field) }
+  if (f.kind === 'voice') return { ...f, entry, origin: fieldOrigin(entry, 'sampleLines') }
+  return { ...f, entry, origin: entry.origin }
+}
+
 /** Adam's fact lost its words: keep it, and offer to refresh it from the scene (once per set of words). */
 function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refresh' }>['proposal'], s: Spot | null): void {
   if (f.kind !== 'field' && f.kind !== 'change') return
@@ -508,8 +531,10 @@ function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refre
 }
 
 /** Removes a text (or AI-drafted) fact whose words are gone or no longer say it. */
-function removeFact(run: Run, f: SceneFact, why: string): void {
+function removeFact(run: Run, planned: SceneFact, why: string): void {
   const db = run.db
+  const f = freshFact(run, planned)
+  if (!f) return
   if (f.origin === 'adam') return askRefresh(run, f, null, null)
   const quote = f.links[0]?.quote ?? ''
   const nameOf = (id: ID): string => run.entry(id)?.name ?? 'someone'
@@ -580,9 +605,11 @@ function removeFact(run: Run, f: SceneFact, why: string): void {
   }
 }
 
-function applyVerdict(run: Run, f: SceneFact, v: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
+function applyVerdict(run: Run, planned: SceneFact, v: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const verdict = str(v.do ?? v.verdict ?? v.action, 20).toLowerCase()
   const db = run.db
+  const f = freshFact(run, planned)
+  if (!f) return
   const links = linksHere(f, run)
   if (verdict === 'remove' || verdict === 'delete') return removeFact(run, f, 'the scene no longer says this')
   const s = run.place(v.quote, chunk.paras)
