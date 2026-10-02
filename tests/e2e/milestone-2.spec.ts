@@ -321,13 +321,15 @@ async function fillFields(win: Page, groups: Record<string, Record<string, strin
 /** Picks a model for writing in Settings › Models. */
 async function chooseWriter(win: Page, modelId: string): Promise<void> {
   if (!(await win.getByRole('heading', { level: 1, name: 'Models' }).isVisible())) await openSettings(win, 'Models')
-  const change = main(win).getByRole('button', { name: 'Change', exact: true })
+  // The memory model's section below names the writer model too, so this looks only in the writer's.
+  const writer = main(win).locator('section').filter({ has: win.getByRole('heading', { name: 'Writer model', exact: true }) })
+  const change = writer.getByRole('button', { name: 'Change', exact: true })
   if (await change.isVisible()) await change.click()
   await win
     .getByRole('listbox', { name: 'Models' })
     .getByRole('option', { name: new RegExp(`^${modelId.replace('/', '\\/')}\\b`) })
     .click()
-  await expect(main(win).getByTitle(modelId, { exact: true })).toBeVisible()
+  await expect(writer.getByTitle(modelId, { exact: true })).toBeVisible()
 }
 
 const draftRows = (win: Page) => win.getByRole('tabpanel', { name: 'Drafts' }).getByRole('button', { name: /What the AI saw/ })
