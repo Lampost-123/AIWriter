@@ -31,6 +31,8 @@ import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
 import { OutlineHelper } from '@/features/outline/OutlineHelper'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
+import { AskPanel } from '@/features/ask/AskPanel'
+import { closeAsk } from '@/features/ask/open'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -116,9 +118,11 @@ function Workspace(): React.JSX.Element {
   const update = useApp((s) => s.updateSettings)
   const view = useApp((s) => s.view)
   const sceneId = useApp((s) => s.sceneId)
+  const askOpen = useApp((s) => s.askOpen)
   const { layout } = settings
   const writing = view.kind === 'write'
-  const scenePanel = writing && !!sceneId
+  // Ask the world (milestone 4) shows in this panel too, even with no scene open.
+  const scenePanel = writing && (!!sceneId || askOpen)
   // In a small window the open panels give up some width, so the page keeps room to write in.
   // Adam's chosen widths are kept and come back when the window is wider.
   const win = useWindowWidth()
@@ -186,10 +190,10 @@ function Workspace(): React.JSX.Element {
             </div>
           ) : null}
         </main>
-        {scenePanel && sceneId ? (
+        {scenePanel ? (
           <ResizablePane
             side="right"
-            label="Scene panel"
+            label={sceneId ? 'Scene panel' : 'Ask the world'}
             width={layout.inspectorOpen ? fit.right : layout.inspectorWidth}
             open={layout.inspectorOpen}
             min={sceneMin}
@@ -199,7 +203,7 @@ function Workspace(): React.JSX.Element {
               void update({ layout: { inspectorWidth: chosenWidthFor(w, win.width, 'right', right, left, SCENE_PANEL.max, pageMin) } })
             }
           >
-            <Inspector sceneId={sceneId} />
+            {sceneId ? <Inspector sceneId={sceneId} /> : <AskPanel sceneId={null} onClose={closeAsk} />}
           </ResizablePane>
         ) : null}
       </div>

@@ -8,6 +8,7 @@ import { isMac } from './api'
 export type ShortcutId =
   | 'generate'
   | 'stop'
+  | 'stopAnswer'
   | 'markDone'
   | 'save'
   | 'bold'
@@ -51,6 +52,7 @@ export interface Shortcut {
 export const SHORTCUTS: Shortcut[] = [
   { id: 'generate', name: 'Generate a draft of the scene', group: 'Writing', keys: ['Mod', 'G'] },
   { id: 'stop', name: 'Stop the draft', group: 'Writing', keys: ['Esc'] },
+  { id: 'stopAnswer', name: 'Stop the answer', where: 'in Ask the world', group: 'Writing', keys: ['Esc'] },
   { id: 'markDone', name: 'Mark scene done', group: 'Writing', keys: ['Mod', 'Enter'] },
   { id: 'save', name: 'Save now (AI Write also saves as you type)', group: 'Writing', keys: ['Mod', 'S'] },
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },

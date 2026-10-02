@@ -18,6 +18,13 @@ import { Skeleton, useDelayed } from './parts'
 
 type Entry = GenerationRecord['entries'][number]
 
+/** The messages of an answer in Ask the world (milestone 4): its briefing, then the chat's earlier turns and the question. */
+const CHAT_ROLES: Record<GenerationRecord['messages'][number]['role'], string> = {
+  system: 'Instructions and briefing',
+  user: 'Question',
+  assistant: 'Earlier answer'
+}
+
 /** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
 const openParts = new Map<ID, Set<string>>()
 
@@ -85,6 +92,10 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     if (toVariants) {
       selectScene(toVariants)
       useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
+    } else if (rec?.job === 'chat') {
+      // An answer in Ask the world (milestone 4) goes back to its chat, beside the page.
+      useApp.getState().navigate({ kind: 'write' })
+      useApp.getState().setAskOpen(true)
     } else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
   }
@@ -93,7 +104,13 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {toVariants ? 'Back to the variants' : rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
+          {toVariants
+            ? 'Back to the variants'
+            : rec?.job === 'chat'
+              ? 'Back to Ask the world'
+              : rec && sceneTitle
+                ? `Back to “${sceneTitle}”`
+                : 'Back to the scene'}
         </Button>
 
         {error ? (
@@ -149,6 +166,8 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // An answer in Ask the world (milestone 4) is called one here.
+  const answer = rec.job === 'chat'
 
   const toggle = (id: string): void =>
     setOpen((s) => {
@@ -162,28 +181,46 @@ function DraftRecord({
     <div className="animate-fade-in">
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
       <p className="mt-1 text-[13px] text-muted">
-        The exact briefing for this draft{sceneTitle ? ` of “${sceneTitle}”` : ''}, written {fullDate(rec.createdAt)}.
+        {answer ? (
+          <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
+        ) : (
+          <>
+            The exact briefing for this draft{sceneTitle ? ` of “${sceneTitle}”` : ''}, written {fullDate(rec.createdAt)}.
+          </>
+        )}
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
-        {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
+        {rec.status === 'streaming' ? (
+          <Notice tone="ai">This {answer ? 'answer' : 'draft'} is still being written. Its text appears below as it arrives.</Notice>
+        ) : null}
         {rec.status === 'stopped' ? (
           <Notice>
-            {rec.params.variant
-              ? 'This variant was stopped before it finished. The text that arrived is kept with it.'
-              : 'This draft was stopped before it finished. The text that arrived is kept in the scene.'}
+            {answer
+              ? 'This answer was stopped before it finished. The words that arrived are kept in the chat.'
+              : rec.params.variant
+                ? 'This variant was stopped before it finished. The text that arrived is kept with it.'
+                : 'This draft was stopped before it finished. The text that arrived is kept in the scene.'}
           </Notice>
         ) : null}
-        {rec.status === 'complete' && rec.params.cutOff ? (
+        {rec.status === 'complete' && rec.params.cutOff && answer ? (
+          <Notice>
+            The answer reached the most the model can write in one go, so it stops part-way. Ask it to go on, or for a shorter answer.
+          </Notice>
+        ) : null}
+        {rec.status === 'complete' && rec.params.cutOff && !answer ? (
           <Notice>
             The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
             stops part-way. Try a shorter length, or a writer model that can write more in one go.
           </Notice>
         ) : null}
-        {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? 'Something went wrong while this draft was written.'}</Notice> : null}
+        {rec.status === 'error' ? (
+          <Notice tone="danger">{rec.error ?? `Something went wrong while this ${answer ? 'answer' : 'draft'} was written.`}</Notice>
+        ) : null}
         {changed ? (
           <Notice tone="ai">
-            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since this draft, so the AI saw an older version. They're marked below.
+            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since this {answer ? 'answer' : 'draft'}, so the AI
+            saw an older version. They're marked below.
           </Notice>
         ) : null}
       </div>
@@ -237,7 +274,7 @@ function DraftRecord({
 
       {rec.direction ? (
         <section className="mt-6">
-          <SectionTitle>Your direction for this draft</SectionTitle>
+          <SectionTitle>{answer ? 'Your question' : 'Your direction for this draft'}</SectionTitle>
           <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
         </section>
       ) : null}
@@ -291,7 +328,15 @@ function DraftRecord({
             {rec.messages.map((m, i) => (
               <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
                 <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                  <span>{m.role === 'system' ? 'Instructions message' : m.role === 'user' ? 'Briefing message' : 'Reply'}</span>
+                  <span>
+                    {answer
+                      ? CHAT_ROLES[m.role]
+                      : m.role === 'system'
+                        ? 'Instructions message'
+                        : m.role === 'user'
+                          ? 'Briefing message'
+                          : 'Reply'}
+                  </span>
                   <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
                 </div>
                 <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
