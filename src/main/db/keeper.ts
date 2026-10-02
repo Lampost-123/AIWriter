@@ -126,12 +126,16 @@ export function scenesBackFromTrash(db: DB): ID[] {
   ).map((r) => r.id as string)
 }
 
-/** The runs that took a scene's facts away when it was deleted, newest first. */
-export function removalRuns(db: DB, sceneId: ID): ID[] {
+/** The runs that took these scenes' facts away when they were deleted, newest first. */
+export function removalRuns(db: DB, sceneIds: ID[]): ID[] {
+  if (!sceneIds.length) return []
   return (
     db
-      .prepare("SELECT id FROM memory_runs WHERE scene_id = ? AND status = 'removed' ORDER BY created_at DESC, rowid DESC")
-      .all(sceneId) as Row[]
+      .prepare(
+        `SELECT id FROM memory_runs WHERE status = 'removed' AND scene_id IN (${sceneIds.map(() => '?').join(', ')})
+         ORDER BY created_at DESC, rowid DESC`
+      )
+      .all(...sceneIds) as Row[]
   ).map((r) => r.id as string)
 }
 

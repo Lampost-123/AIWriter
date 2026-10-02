@@ -82,14 +82,17 @@ function overAdam(db: DB, u: Undo | null): boolean {
  */
 export function restoreScenes(db: DB): ScenesOutcome {
   const out: ScenesOutcome = { sceneIds: [], entryIds: [] }
-  for (const sceneId of kdb.scenesBackFromTrash(db)) {
-    for (const runId of kdb.removalRuns(db, sceneId)) {
-      for (const l of kdb.logForRun(db, runId).reverse()) {
-        if (l.undone || overAdam(db, l.undo as Undo | null)) continue
-        out.entryIds.push(...undoItem(db, l.id).entryIds)
-      }
-      kdb.setRunStatus(db, runId, 'restored')
+  const back = kdb.scenesBackFromTrash(db)
+  // Newest first, across all the scenes coming back: an entry one scene's run moved to the Trash
+  // comes back before another scene's links to it are looked for.
+  for (const runId of kdb.removalRuns(db, back)) {
+    for (const l of kdb.logForRun(db, runId).reverse()) {
+      if (l.undone || overAdam(db, l.undo as Undo | null)) continue
+      out.entryIds.push(...undoItem(db, l.id).entryIds)
     }
+    kdb.setRunStatus(db, runId, 'restored')
+  }
+  for (const sceneId of back) {
     const scene = kdb.keeperScene(db, sceneId)
     if (!scene) continue
     for (const m of planRead(db, scene).moves) {

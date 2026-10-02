@@ -737,7 +737,7 @@ describe('deleting a scene, and bringing it back', () => {
     expect(entryNamed(w.db, 'Kell')).not.toBeNull() // scene 2 still names him
     expect(mem.listAllChanges(w.db).map(note).sort()).toEqual(['lost his boots in the mud', 'lost his map'])
     expect(scene.sceneMemory(w.db, c).entries.map((e) => e.name)).not.toContain('Mara')
-    const lines = kdb.logForRun(w.db, kdb.removalRuns(w.db, a)[0])
+    const lines = kdb.logForRun(w.db, kdb.removalRuns(w.db, [a])[0])
     expect(lines.map((l) => l.text)).toEqual(
       expect.arrayContaining([
         'Lost her left hand: those words were deleted with the scene',
