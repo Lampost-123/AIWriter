@@ -162,7 +162,12 @@ export const THREAD_GROUPS: FieldGroup[] = [
     id: 'thread',
     label: 'Plot thread',
     fields: [
-      { key: 'promise', label: "What's promised to the reader", type: 'text', placeholder: 'The question the reader is waiting to see answered' },
+      {
+        key: 'promise',
+        label: "What's promised to the reader",
+        type: 'text',
+        placeholder: 'The question the reader is waiting to see answered'
+      },
       { key: 'clues', label: 'Clues given so far', type: 'text', optionalInShort: true },
       { key: 'payoff', label: 'How it should pay off', type: 'text', optionalInShort: true }
     ]
@@ -175,7 +180,12 @@ export const GLOSSARY_GROUPS: FieldGroup[] = [
     label: 'Term',
     fields: [
       { key: 'pronunciation', label: 'How to say it', type: 'line', placeholder: 'KEL-oh-ran' },
-      { key: 'spelling', label: 'Notes on spelling', type: 'text', placeholder: "Always capitalised. The plural is Kel'oran, never Kel'orans." },
+      {
+        key: 'spelling',
+        label: 'Notes on spelling',
+        type: 'text',
+        placeholder: "Always capitalised. The plural is Kel'oran, never Kel'orans."
+      },
       { key: 'usage', label: 'Who uses it, and when', type: 'text', optionalInShort: true }
     ]
   }

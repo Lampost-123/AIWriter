@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import type { EntryKind } from '@shared/types'
+import type { Entry, EntryKind } from '@shared/types'
 import {
   filledCount,
   filterEntries,
   keepRowOrder,
   findNearDuplicates,
   isPlaceholderName,
+  kindNounMany,
+  mergeEntry,
   normalizeName,
   parentPlaceOptions,
   parseList,
   placeAndDescendants,
   placePath,
+  withArticle,
   withinOneEdit
 } from './entryLogic'
 
@@ -93,6 +96,9 @@ describe('isPlaceholderName', () => {
     expect(isPlaceholderName('new place')).toBe(true)
     expect(isPlaceholderName('Unnamed')).toBe(true)
     expect(isPlaceholderName('New Tobin')).toBe(false)
+    expect(isPlaceholderName('New plot thread')).toBe(true)
+    expect(isPlaceholderName('New term')).toBe(true)
+    expect(isPlaceholderName('New group')).toBe(true)
   })
 })
 
@@ -210,5 +216,51 @@ describe('keepRowOrder', () => {
     expect(ids(keepRowOrder(rows('a', 'b', 'd'), rows('a', 'b', 'c', 'd'), removed))).toEqual(['a', 'b', 'c', 'd'])
     expect(ids(keepRowOrder(rows('b', 'c', 'd'), rows('a', 'b', 'c', 'd'), new Map([['a', 0]])))).toEqual(['a', 'b', 'c', 'd'])
     expect(ids(keepRowOrder(rows('a', 'b', 'c'), rows('a', 'b', 'c', 'd'), new Map([['d', 3]])))).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+describe('nouns for every kind', () => {
+  it('uses the right article and plural', () => {
+    expect(withArticle('item')).toBe('an item')
+    expect(withArticle('event')).toBe('an event')
+    expect(withArticle('plot thread')).toBe('a plot thread')
+    expect(kindNounMany('glossary')).toBe('terms')
+    expect(kindNounMany('lore')).toBe('lore')
+    expect(kindNounMany('group')).toBe('groups')
+  })
+})
+
+describe('mergeEntry', () => {
+  const entry = (patch: Partial<Entry>): Entry =>
+    ({
+      id: 'mara',
+      kind: 'character',
+      name: 'Mara',
+      aliases: [],
+      summary: '',
+      description: '',
+      tags: [],
+      notes: '',
+      fields: {},
+      parentId: null,
+      hardRule: false,
+      updatedAt: '1',
+      ...patch
+    }) as Entry
+
+  it('keeps what Adam changed and takes everything else from the newer copy', () => {
+    const base = entry({ summary: 'A ferrywoman', fields: { hair: 'long', eyes: 'grey' } })
+    const mine = entry({ summary: 'A ferrywoman who owes the Duke', fields: { hair: 'long', eyes: 'grey', fears: 'deep water' } })
+    const theirs = entry({
+      summary: 'A ferrywoman',
+      description: 'Older now.',
+      fields: { hair: 'cropped short', eyes: 'grey' },
+      updatedAt: '2'
+    })
+    const merged = mergeEntry(base, mine, theirs)
+    expect(merged.summary).toBe('A ferrywoman who owes the Duke')
+    expect(merged.description).toBe('Older now.')
+    expect(merged.fields).toEqual({ hair: 'cropped short', eyes: 'grey', fears: 'deep water' })
+    expect(merged.updatedAt).toBe('2')
   })
 })

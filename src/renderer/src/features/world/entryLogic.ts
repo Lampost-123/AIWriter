@@ -211,6 +211,31 @@ export function kindNounMany(kind: EntryKind): string {
   return `${kind}s`
 }
 
+const sameValue = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * Adam's edits laid over a newer saved copy (the memory keeper changed the entry while its page was
+ * open): what he changed since `base` keeps his value, everything else takes the newer copy's.
+ */
+export function mergeEntry(base: Entry, mine: Entry, theirs: Entry): Entry {
+  const out: Entry = { ...theirs, fields: { ...theirs.fields } }
+  const keep = <K extends 'name' | 'aliases' | 'summary' | 'description' | 'tags' | 'notes' | 'parentId' | 'hardRule'>(k: K): void => {
+    if (!sameValue(mine[k], base[k])) out[k] = mine[k]
+  }
+  keep('name')
+  keep('aliases')
+  keep('summary')
+  keep('description')
+  keep('tags')
+  keep('notes')
+  keep('parentId')
+  keep('hardRule')
+  for (const k of new Set([...Object.keys(mine.fields), ...Object.keys(base.fields)])) {
+    if ((mine.fields[k] ?? '') !== (base.fields[k] ?? '')) out.fields[k] = mine.fields[k] ?? ''
+  }
+  return out
+}
+
 /**
  * Orders a freshly loaded list like the one on screen, so rows don't jump while
  * Adam works: rows already shown keep their places, a row brought back by Undo
