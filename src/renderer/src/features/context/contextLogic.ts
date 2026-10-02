@@ -79,7 +79,16 @@ export function briefingEntries(
         if (seen.has(id)) continue
         seen.add(id)
         const k = known.get(id)
-        list.push({ entryId: id, name: k?.name ?? 'Unnamed', kind: k?.kind ?? 'character', blockId: b.id, why: b.title, pinned: null, hidden: false, label: null })
+        list.push({
+          entryId: id,
+          name: k?.name ?? 'Unnamed',
+          kind: k?.kind ?? 'character',
+          blockId: b.id,
+          why: b.title,
+          pinned: null,
+          hidden: false,
+          label: null
+        })
       }
     }
   }
@@ -108,6 +117,50 @@ export function withPin(entries: ContextEntry[], entryId: ID, scope: PinScope, a
     // Cleared: the next briefing says why it is (or isn't) there now.
     return e.hidden ? { ...e, hidden: false } : { ...e, pinned: null }
   })
+}
+
+/** The list with an entry Adam has just pinned, added at the end if the briefing didn't have it yet. */
+export function withNewPin(
+  entries: ContextEntry[],
+  entry: { entryId: ID; name: string; kind: EntryKind },
+  scope: PinScope
+): ContextEntry[] {
+  if (entries.some((e) => e.entryId === entry.entryId)) return withPin(entries, entry.entryId, scope, 'pin')
+  return [...entries, { ...entry, blockId: 'mentioned', why: `Pinned for ${PIN_WORDS[scope]}`, pinned: scope, hidden: false, label: null }]
+}
+
+/** One call to setPin. */
+export interface PinCall {
+  scope: PinScope
+  action: 'pin' | 'hide' | null
+}
+
+/**
+ * The setPin calls that pin an entry for one scope only. The pin it had elsewhere is cleared, so the
+ * menu works as a choice of one (the most specific pin decides, so an old scene pin would win).
+ */
+export function pinCalls(current: PinScope | null, scope: PinScope): PinCall[] {
+  const calls: PinCall[] = [{ scope, action: 'pin' }]
+  if (current && current !== scope) calls.push({ scope: current, action: null })
+  return calls
+}
+
+/** What one entry row says under its name: its kind, why it is there, and anything to know. */
+export function entryDetail(entry: Pick<ContextEntry, 'why' | 'label'>, kindWord: string, leftOutForRoom: boolean): string {
+  const parts = [kindWord, entry.why]
+  if (entry.label) parts.push(entry.label)
+  if (leftOutForRoom) parts.push("left out: there wasn't room")
+  return parts.filter(Boolean).join(' · ')
+}
+
+/** Said for a part of AI Write that this version doesn't have yet. */
+export const NOT_READY = "This isn't ready yet in this version of AI Write."
+
+/** A failed change, in plain words, for a quiet note. */
+export function quietReason(err: unknown): string {
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+  if (/not built yet/i.test(msg)) return NOT_READY
+  return msg || 'Something went wrong.'
 }
 
 // ---------- Story so far ----------
@@ -141,6 +194,25 @@ export function usedSummaries(blockText: string, summaries: Summary[]): UsedSumm
   return found.sort((a, b) => a.at - b.at).map(({ summary, label }) => ({ summary, label }))
 }
 
+export const summaryKey = (s: Pick<Summary, 'level' | 'targetId'>): string => `${s.level}:${s.targetId}`
+
+/**
+ * The summaries to show after the part was worked out again. One Adam has been editing stays in
+ * its place even when it no longer matches (he emptied it, or is rewriting it), so the box he is
+ * typing in never disappears under him.
+ */
+export function keepTouched(prev: UsedSummary[], next: UsedSummary[], touched: ReadonlySet<string>): UsedSummary[] {
+  const out = [...next]
+  const have = new Set(next.map((u) => summaryKey(u.summary)))
+  prev.forEach((u, i) => {
+    const key = summaryKey(u.summary)
+    if (!touched.has(key) || have.has(key)) return
+    out.splice(Math.min(i, out.length), 0, u)
+    have.add(key)
+  })
+  return out
+}
+
 /** The label just before a summary in the text: "Label: " on its line, or the line above. */
 function labelBefore(text: string, summaryText: string): string {
   const first = summaryText.split('\n')[0].trim()
@@ -152,7 +224,11 @@ function labelBefore(text: string, summaryText: string): string {
   const lines = text.slice(0, lineStart).split('\n')
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim()
-    if (line) return line.replace(/^#+\s*/, '').replace(/:\s*$/, '').trim()
+    if (line)
+      return line
+        .replace(/^#+\s*/, '')
+        .replace(/:\s*$/, '')
+        .trim()
   }
   return ''
 }

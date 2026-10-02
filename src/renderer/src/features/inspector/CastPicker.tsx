@@ -20,6 +20,7 @@ export const CastPicker = memo(function CastPicker({
   value,
   characters,
   povId = null,
+  placeholder,
   onChange,
   onCreate,
   id,
@@ -31,9 +32,11 @@ export const CastPicker = memo(function CastPicker({
   /** The entries to pick from (characters, unless `noun` says otherwise). */
   characters: Entry[]
   povId?: ID | null
+  /** The text box's hint when nothing is picked (default "Type a name…"). */
+  placeholder?: string
   onChange: (ids: ID[]) => void
-  /** Creates an entry with this name and returns it (or null if that failed). */
-  onCreate: (name: string) => Promise<Entry | null>
+  /** Creates an entry with this name and returns it (or null if that failed). Without it, only existing entries are offered. */
+  onCreate?: (name: string) => Promise<Entry | null>
   id?: string
   /** What one of them is called, for "Add "…" as a new character". */
   noun?: string
@@ -66,9 +69,9 @@ export const CastPicker = memo(function CastPicker({
     const name = query.trim()
     const n = normalizeName(name)
     const exists = name && characters.some((c) => normalizeName(c.name) === n || c.aliases.some((a) => normalizeName(a) === n))
-    if (name && !exists) list.push({ type: 'create', name })
+    if (name && !exists && onCreate) list.push({ type: 'create', name })
     return { options: list, more: Math.max(0, all.length - MAX_SHOWN) }
-  }, [characters, value, query])
+  }, [characters, value, query, onCreate])
 
   const open = focused && !dismissed && options.length > 0
   const hi = Math.min(highlight, Math.max(0, options.length - 1))
@@ -82,7 +85,7 @@ export const CastPicker = memo(function CastPicker({
     if (o.type === 'entry') {
       onChange([...value, o.entry.id])
     } else {
-      if (busy) return
+      if (busy || !onCreate) return
       setBusy(true)
       const made = await onCreate(o.name)
       setBusy(false)
@@ -155,7 +158,7 @@ export const CastPicker = memo(function CastPicker({
             aria-activedescendant={open ? `${listId}-${hi}` : undefined}
             aria-describedby={describedBy}
             value={query}
-            placeholder={chosen.length ? 'Add…' : 'Type a name…'}
+            placeholder={chosen.length ? 'Add…' : (placeholder ?? 'Type a name…')}
             onChange={(e) => {
               setQuery(e.target.value)
               setHighlight(0)
