@@ -35,14 +35,20 @@ export function loadShape(db: DB): WorldShape {
   return mem.loadShape(db)
 }
 
-/** Every live entry, change and first-exists point. */
+/** Every live entry, change and first-exists point (a point at a deleted scene counts just after the place before it). */
 export function loadMemoryData(db: DB): MemoryData {
   const entries = repo.listEntries(db)
   const live = new Set(entries.map((e) => e.id))
+  const points = mem.listExistsPoints(db).filter((p) => live.has(p.entryId))
+  const atScenes = [...new Set(points.flatMap((p) => (p.kind === 'scene' && p.sceneId ? [p.sceneId] : [])))]
+  const before = mem.placesBeforeDeletedScenes(db, atScenes)
   return {
     entries,
     changes: mem.listAllChanges(db).filter((c) => live.has(c.entryId)),
-    exists: mem.listExistsPoints(db).filter((p) => live.has(p.entryId)),
+    exists: points.map((p) => {
+      const place = p.kind === 'scene' && p.sceneId ? before.get(p.sceneId) : undefined
+      return place ? { ...p, storyId: place.storyId, after: { at: place.at, refId: place.refId } } : p
+    }),
     answers: mem.listAnswers(db)
   }
 }

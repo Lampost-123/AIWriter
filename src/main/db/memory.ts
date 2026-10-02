@@ -354,6 +354,48 @@ export function addExistsPoint(db: DB, p: Omit<ExistsPoint, 'id'>): ExistsPoint 
   return toExists(db.prepare('SELECT * FROM exists_points WHERE id = ?').get(id) as Row)
 }
 
+/**
+ * For first-exists points at scenes that are deleted (the scene or its chapter; not its story):
+ * the place just before each such scene that is still there, as loadShape moves a start point.
+ * The scene before it in its chapter, else the end of the chapter before, else the story's start
+ * after its start-of-story changes. One query when none are deleted, which is nearly always.
+ */
+export function placesBeforeDeletedScenes(
+  db: DB,
+  sceneIds: ID[]
+): Map<ID, { storyId: ID; at: 'post' | 'chapter' | 'scene'; refId: ID | null }> {
+  const out = new Map<ID, { storyId: ID; at: 'post' | 'chapter' | 'scene'; refId: ID | null }>()
+  if (!sceneIds.length) return out
+  const gone = db
+    .prepare(
+      `SELECT s.id, s.chapter_id, s.position, c.story_id, c.position AS chapter_position, c.deleted_at AS chapter_deleted
+       FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id AND st.deleted_at IS NULL
+       WHERE s.id IN (SELECT value FROM json_each(?)) AND (s.deleted_at IS NOT NULL OR c.deleted_at IS NOT NULL)`
+    )
+    .all(JSON.stringify(sceneIds)) as Row[]
+  if (!gone.length) return out
+  const sceneBefore = db.prepare(
+    'SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL AND position < ? ORDER BY position DESC, created_at DESC LIMIT 1'
+  )
+  const chapterBefore = db.prepare(
+    'SELECT id FROM chapters WHERE story_id = ? AND deleted_at IS NULL AND position < ? ORDER BY position DESC, created_at DESC LIMIT 1'
+  )
+  for (const r of gone) {
+    const storyId = r.story_id as string
+    const scene = r.chapter_deleted ? undefined : (sceneBefore.get(r.chapter_id, r.position) as Row | undefined)
+    const chapter = scene ? undefined : (chapterBefore.get(storyId, r.chapter_position) as Row | undefined)
+    out.set(
+      r.id as string,
+      scene
+        ? { storyId, at: 'scene', refId: scene.id as string }
+        : chapter
+          ? { storyId, at: 'chapter', refId: chapter.id as string }
+          : { storyId, at: 'post', refId: null }
+    )
+  }
+  return out
+}
+
 /** Replaces an entry's default points (Adam's own are kept). */
 export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>[]): void {
   db.transaction(() => {

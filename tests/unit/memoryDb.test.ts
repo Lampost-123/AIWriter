@@ -234,6 +234,40 @@ describe('where entries first exist', () => {
     expect(point('character', { origin: 'ai', originStoryId: w.b2, originStart: true })).toEqual([['story-post', w.b2, null]])
   })
 
+  it('an entry first found in a scene that is then deleted still exists after the place before it', () => {
+    const w = small()
+    const kell = repo.createEntry(
+      w.db,
+      'character',
+      { name: 'Kell' },
+      { origin: 'text', originStoryId: w.b1, originSceneId: w.sc[1][1] }
+    ).id
+    const has = (sceneId: ID) => sceneMemory(w.db, sceneId).entries.some((e) => e.id === kell)
+    const isNew = (sceneId: ID) => sceneMemory(w.db, sceneId).firstHere.includes(kell)
+    expect([has(w.sc[1][0]), has(w.sc[1][1]), isNew(w.sc[1][1]), has(w.sc[2][0]), has(w.b2sc)]).toEqual([false, true, true, true, true])
+
+    // Ch 2 Sc 2 deleted: Kell exists after Ch 2 Sc 1, so from the scene that now follows it.
+    repo.deleteScene(w.db, w.sc[1][1])
+    expect([has(w.sc[1][0]), has(w.sc[2][0]), isNew(w.sc[2][0]), has(w.b2sc)]).toEqual([false, true, false, true])
+    // The whole of Ch 2 deleted: after the end of Ch 1.
+    repo.deleteChapter(w.db, w.ch[1])
+    expect([has(w.sc[0][1]), has(w.sc[2][0]), has(w.b2sc)]).toEqual([false, true, true])
+    // Back again: first here in Ch 2 Sc 2.
+    repo.restoreDeleted(w.db, 'chapter', w.ch[1])
+    repo.restoreDeleted(w.db, 'scene', w.sc[1][1])
+    expect([has(w.sc[1][0]), isNew(w.sc[1][1]), has(w.sc[2][0])]).toEqual([false, true, true])
+    // The first scene of a story deleted: from the story's start, after its start-of-story changes.
+    const reed = repo.createEntry(w.db, 'item', { name: 'Reed' }, { origin: 'text', originStoryId: w.b1, originSceneId: w.sc[0][0] }).id
+    repo.deleteScene(w.db, w.sc[0][0])
+    expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[0][0]]).get(w.sc[0][0])).toEqual({ storyId: w.b1, at: 'post', refId: null })
+    expect(sceneMemory(w.db, w.sc[0][1]).entries.some((e) => e.id === reed)).toBe(true)
+    repo.restoreDeleted(w.db, 'scene', w.sc[0][0])
+    // A story that is itself deleted takes its points with it.
+    expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[1][1]]).size).toBe(0)
+    repo.deleteStory(w.db, w.b1)
+    expect(mem.placesBeforeDeletedScenes(w.db, [w.sc[1][1]]).size).toBe(0)
+  })
+
   it('makes the book after a deleted first book the first story, as it now starts at the beginning of the world', () => {
     const w = small()
     const b3 = repo.createStory(w.db, { title: 'Book 3' }).id
