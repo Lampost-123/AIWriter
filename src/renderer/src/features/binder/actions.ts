@@ -7,7 +7,8 @@ import type { ID, SceneStatus } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
-import { announceDelete } from '@/lib/undoDelete'
+import type { Noun } from '@/lib/deleteWords'
+import { announceDelete, type Deletion } from '@/lib/undoDelete'
 import { useApp } from '@/lib/store'
 import { neighbourAfterRemoval, readingOrder } from './outlineModel'
 import { useOutlineStore } from './outlineStore'
@@ -132,6 +133,39 @@ export async function newStory(): Promise<ID | null> {
   }
 }
 
+/**
+ * What a move or delete does to other stories that start or end there ("This moved “The ferry” before
+ * where Mara's Hand starts, so that story now includes it."). Asked before the change; a failure to ask
+ * never stops the change itself. A delete's notes go in its own toast, so Undo takes them away with it.
+ */
+const notesFor = (ask: () => Promise<string[]>): Promise<string[]> => ask().catch(() => [])
+
+/**
+ * A delete for the Undo toast: "“Ashore” deleted." with where another story now starts or ends ("Kell's
+ * Road now starts after Book 1, Ch 1 instead."). The notes also travel on their own, for a toast that
+ * gathers several deletes to keep (see the report's "Needs from integration" for lib/undoDelete.ts).
+ */
+const deletion = (message: string, notes: string[], noun: Noun, undo: () => Promise<void>): Deletion & { notes: string[] } => ({
+  message: [message, ...notes].join(' '),
+  notes,
+  noun,
+  undo
+})
+
+/** Tells Adam what a move changed for other stories, with Undo (moving it back). */
+function tellMoved(notes: string[], undo: () => Promise<void>): void {
+  if (!notes.length) return
+  toast(notes.join(' '), {
+    action: {
+      label: 'Undo',
+      run: () =>
+        void undo()
+          .then(() => app().bumpOutline())
+          .catch(failed)
+    }
+  })
+}
+
 function removeFromOutline(sceneIds: ID[], chapterId?: ID): void {
   const gone = new Set(sceneIds)
   outlineStore().patch((o) => ({
@@ -155,6 +189,7 @@ export async function deleteScene(id: ID): Promise<void> {
   const o = outlineStore().outline
   const scene = o?.scenes.find((s) => s.id === id)
   const storyId = o?.story.id
+  const notes = await notesFor(() => api.deleteNotes('scene', id))
   try {
     await saveIfOpen([id])
     await api.deleteScene(id)
@@ -165,10 +200,8 @@ export async function deleteScene(id: ID): Promise<void> {
   const wasOpen = moveSelectionAway([id])
   removeFromOutline([id])
   app().bumpOutline()
-  announceDelete({
-    message: `“${scene?.title || 'Untitled scene'}” deleted.`,
-    noun: ['scene', 'scenes'],
-    undo: () =>
+  announceDelete(
+    deletion(`“${scene?.title || 'Untitled scene'}” deleted.`, notes, ['scene', 'scenes'], () =>
       api
         .restoreDeleted('scene', id)
         .then(() => {
@@ -176,7 +209,8 @@ export async function deleteScene(id: ID): Promise<void> {
           if (wasOpen && storyId && app().storyId === storyId) app().selectScene(id, storyId)
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-  })
+    )
+  )
 }
 
 export async function deleteChapter(id: ID): Promise<void> {
@@ -185,6 +219,7 @@ export async function deleteChapter(id: ID): Promise<void> {
   const sceneIds = o?.scenes.filter((s) => s.chapterId === id).map((s) => s.id) ?? []
   const storyId = o?.story.id
   const openBefore = app().sceneId
+  const notes = await notesFor(() => api.deleteNotes('chapter', id))
   try {
     await saveIfOpen(sceneIds)
     await api.deleteChapter(id)
@@ -197,10 +232,8 @@ export async function deleteChapter(id: ID): Promise<void> {
   app().bumpOutline()
   const count = sceneIds.length
   const what = count === 0 ? '' : count === 1 ? ' and its scene' : ` and its ${count} scenes`
-  announceDelete({
-    message: `“${chapter?.title || 'Untitled chapter'}”${what} deleted.`,
-    noun: ['chapter', 'chapters'],
-    undo: () =>
+  announceDelete(
+    deletion(`“${chapter?.title || 'Untitled chapter'}”${what} deleted.`, notes, ['chapter', 'chapters'], () =>
       api
         .restoreDeleted('chapter', id)
         .then(() => {
@@ -208,25 +241,33 @@ export async function deleteChapter(id: ID): Promise<void> {
           if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-  })
+    )
+  )
 }
 
 export async function moveScene(id: ID, chapterId: ID, index: number): Promise<void> {
+  let preview: { notes: string[]; from: { chapterId: ID | null; index: number } } | null = null
   try {
+    preview = await api.previewMove({ kind: 'scene', id, chapterId, index }).catch(() => null)
     await api.moveScene(id, chapterId, index)
   } catch (e) {
     failed(e)
     return
   }
   app().bumpOutline()
+  const from = preview?.from
+  if (preview && from?.chapterId) tellMoved(preview.notes, () => api.moveScene(id, from.chapterId!, from.index))
 }
 
 export async function moveChapter(id: ID, index: number): Promise<void> {
+  let preview: { notes: string[]; from: { chapterId: ID | null; index: number } } | null = null
   try {
+    preview = await api.previewMove({ kind: 'chapter', id, index }).catch(() => null)
     await api.moveChapter(id, index)
   } catch (e) {
     failed(e)
     return
   }
   app().bumpOutline()
+  if (preview) tellMoved(preview.notes, () => api.moveChapter(id, preview!.from.index))
 }
