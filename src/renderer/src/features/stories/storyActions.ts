@@ -14,6 +14,7 @@ import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { lastSceneOf } from '@/features/binder/lastScene'
+import { openStyleTab } from '@/features/style/StyleView'
 import { runFlow } from './flows'
 
 const app = useApp.getState
@@ -206,17 +207,8 @@ export async function declineFollow(story: Pick<Story, 'id' | 'title'>, book: St
  */
 export async function editStoryStyle(storyId: ID): Promise<void> {
   if (app().storyId !== storyId) await openStory(storyId).catch(failed)
+  openStyleTab('story')
   app().navigate({ kind: 'style' })
-  // The style guide remembers its last tab and has no way to be opened on one yet (see the report's
-  // "Needs from integration"); its tabs switch when focused, so focusing "This story" opens it.
-  let frames = 0
-  const focusTab = (): void => {
-    const tab = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.trim() === 'This story')
-    if (tab) tab.focus()
-    // The page may still be loading Adam's preferences for a frame or two.
-    else if (++frames < 30 && app().view.kind === 'style') requestAnimationFrame(focusTab)
-  }
-  requestAnimationFrame(focusTab)
 }
 
 // ---------- Changing what a story is ----------

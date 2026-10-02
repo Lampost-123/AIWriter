@@ -145,7 +145,7 @@ const notesFor = (ask: () => Promise<string[]>): Promise<string[]> => ask().catc
  * Road now starts after Book 1, Ch 1 instead."). The notes also travel on their own, for a toast that
  * gathers several deletes to keep (see the report's "Needs from integration" for lib/undoDelete.ts).
  */
-const deletion = (message: string, notes: string[], noun: Noun, undo: () => Promise<void>): Deletion & { notes: string[] } => ({
+const deletion = (message: string, notes: string[], noun: Noun, undo: () => Promise<void>): Deletion => ({
   message: [message, ...notes].join(' '),
   notes,
   noun,

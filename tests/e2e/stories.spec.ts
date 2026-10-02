@@ -2,7 +2,8 @@
 // with its live sentence and warnings), the questions that follow a new story, story settings with
 // Undo, the grey line on story cards and their reading order, and deleting a story, chapter or scene
 // with Undo. The automatic story flows are another part's; here they only need to be started and
-// reported quietly.
+// reported quietly. No model is chosen in these worlds, so a flow that starts says it needs one, or
+// that nothing needed doing.
 import type { Locator, Page } from '@playwright/test'
 import type { StoryPlacement } from '../../src/shared/api'
 import type { Story } from '../../src/shared/types'
@@ -180,7 +181,7 @@ test('a story set between Book 1 and Book 2 asks "Should Book 2 now continue aft
   await expectShelf(win, 'The Quiet Year', ['Book 1', 'Book 2', 'The Quiet Year'])
   const sorting = win
     .getByRole('status')
-    .filter({ hasText: /Working out when the changes at the start of Book 2 happened|isn’t ready yet/ })
+    .filter({ hasText: /Working out when the changes at the start of Book 2 happened|Nothing needed sorting|Choose a memory model/ })
 
   // Story settings ask too. No says Book 2 stays where it is, with Undo, which asks again.
   await openSettings(win, 'The Quiet Year', 'The Quiet Year')
@@ -228,7 +229,7 @@ test('the flows\' quiet line can be stopped, and a world switch never leaves it 
       state,
       message
     })
-  const sorting = win.getByRole('status').filter({ hasText: /Working out when|isn’t ready yet|Stopped/ })
+  const sorting = win.getByRole('status').filter({ hasText: /Working out when|Nothing needed sorting|Choose a memory model|Stopped/ })
   const sortAgain = win.getByRole('button', { name: 'When did these happen?' })
 
   await openSettings(win, 'Book 1', 'Dawn')
@@ -236,6 +237,8 @@ test('the flows\' quiet line can be stopped, and a world switch never leaves it 
   await expect.poll(async () => (await storyNamed(win, 'Book 2'))?.startStoryId).toBe(dawn.id)
   await toastWith(win, 'Book 2 now continues after Dawn.').getByRole('button', { name: 'Dismiss' }).click()
   await expect(sortAgain).toBeVisible()
+  // Book 2 has no changes at its start yet, so the real run finishes straight away.
+  await expect(sorting).toContainText('Nothing needed sorting')
 
   // While a flow runs, its line offers Stop; stopped, it says so without a tick or Try again.
   await flow('running', 'Working out when the changes at the start of Book 2 happened…')
@@ -279,7 +282,7 @@ test('the flows\' quiet line can be stopped, and a world switch never leaves it 
   await expect(sortAgain).toBeVisible()
   await expect(sorting).toHaveCount(0)
   await sortAgain.click()
-  await expect(sorting).toBeVisible()
+  await expect(sorting).toContainText('Nothing needed sorting')
 })
 
 test('a prequel asks for its starting cast', async ({ launch }) => {
@@ -320,7 +323,7 @@ test('a prequel asks for its starting cast', async ({ launch }) => {
   await expect(win.getByRole('button', { name: 'Remove Mara' })).toBeVisible()
   await win.getByRole('button', { name: 'Draft how they start' }).click()
   // The drafting runs by itself; its progress is one quiet line.
-  await expect(win.getByRole('status').filter({ hasText: /Drafting how each of them starts|isn’t ready yet/ })).toBeVisible()
+  await expect(win.getByRole('status').filter({ hasText: /Drafting how each of them starts|Choose a memory model/ })).toBeVisible()
 
   // Its card says what it is.
   await switcher(win, 'Young Mara').click()
@@ -506,7 +509,7 @@ test('the time before a story is saved as it is typed, even when the window clos
   await gap.fill('200 years')
   await gap.press('Tab')
   // Leaving the box asks the AI to fill in what changed, and says so quietly.
-  const filling = first.win.getByRole('status').filter({ hasText: /Working out what changed in the 200 years|isn’t ready yet/ })
+  const filling = first.win.getByRole('status').filter({ hasText: /Working out what changed in the 200 years|Choose a memory model/ })
   await expect(filling).toBeVisible()
   await expect.poll(async () => (await storyNamed(first.win, 'Book 2'))?.timeGap).toBe('200 years')
 

@@ -710,8 +710,9 @@ export interface Pin {
  * - 'side-order': the order of side stories that end at the same point (key: host id + end point; value: story ids)
  * - 'which-last': "Which happened last?" for a side story and its host (key: side story id + entry id + aspect; value: 'host' | 'side')
  * - 'prequel-end': end-of-prequel choices (key: prequel id + item; value: 'ignore' | 'keep')
+ * - 'follow-declined': Adam's No to "Should Book 2 now continue after it?" (key: the story asked about; value: true)
  */
-export type AnswerKind = 'side-order' | 'which-last' | 'prequel-end'
+export type AnswerKind = 'side-order' | 'which-last' | 'prequel-end' | 'follow-declined'
 
 export interface Answer {
   id: ID

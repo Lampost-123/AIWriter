@@ -11,16 +11,6 @@ import { useApp } from '@/lib/store'
 
 type Flow = StoryFlowStatus['flow']
 
-/**
- * The Story flows part's calls for this screen: how a story's flows are doing (`listStoryFlows`) and
- * Stop (`stopStoryFlow`). They are in that part's contract, which joins AppApi when the parts are put
- * together; until then they are reached by name, and without them nothing is listed or stopped.
- */
-const flowCalls = api as unknown as {
-  listStoryFlows(storyId: ID): Promise<StoryFlowStatus[]>
-  stopStoryFlow(storyId: ID, flow: Flow): Promise<void>
-}
-
 const keyOf = (storyId: ID, flow: Flow): string => `${storyId}:${flow}`
 
 interface FlowState {
@@ -93,7 +83,7 @@ export function runFlow(storyId: ID, flow: Flow, start: () => Promise<void>, abo
 }
 
 /** Stops a running flow. Its own event then says so ("Stopped. Nothing was changed."). */
-export const stopFlow = (storyId: ID, flow: Flow): Promise<void> => flowCalls.stopStoryFlow(storyId, flow)
+export const stopFlow = (storyId: ID, flow: Flow): Promise<void> => api.stopStoryFlow(storyId, flow)
 
 /**
  * How a story's flows are doing, for its settings as they open: a run that started before the window
@@ -102,7 +92,7 @@ export const stopFlow = (storyId: ID, flow: Flow): Promise<void> => flowCalls.st
 export function loadFlows(storyId: ID): void {
   installFlowEvents()
   const worldId = useApp.getState().world?.id
-  flowCalls
+  api
     .listStoryFlows(storyId)
     .then((list) => {
       if (useApp.getState().world?.id !== worldId || !Array.isArray(list)) return

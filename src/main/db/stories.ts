@@ -120,10 +120,8 @@ export function storyCast(db: DB, storyId: ID): ID[] {
 
 // ---------- "Should Book 2 now continue after it?" ----------
 
-// Adam's "No" is kept with the world (so it travels with backups and restores), keyed by the story
-// asked about. AnswerKind doesn't list this kind yet (see the report's "Needs from integration"); the
-// answers table takes any kind, and the memory only reads the kinds it knows.
-const FOLLOW_DECLINED = 'follow-declined' as AnswerKind
+// Adam's "No" is kept with the world (so it travels with backups and restores), keyed by the story asked about.
+const FOLLOW_DECLINED: AnswerKind = 'follow-declined'
 
 /**
  * Adam said No to "Should Book 2 now continue after it?" for this story, so story settings stops asking;
