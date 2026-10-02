@@ -3,7 +3,14 @@ import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SHORTCUTS, isShortcut, isTyping, shortcutKeys, shortcutText, withShortcut, type KeyPress } from './shortcuts'
 
-const press = (key: string, mods: Partial<KeyPress> = {}): KeyPress => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...mods })
+const press = (key: string, mods: Partial<KeyPress> = {}): KeyPress => ({
+  key,
+  ctrlKey: false,
+  metaKey: false,
+  shiftKey: false,
+  altKey: false,
+  ...mods
+})
 
 describe('the shortcuts list', () => {
   it('names keys for Windows and for a Mac, where Cmd replaces Ctrl', () => {
@@ -49,7 +56,8 @@ describe('the shortcuts list', () => {
   })
 
   it('knows when Adam is typing, so ? goes into the text', () => {
-    const el = (match: string | null) => ({ closest: (sel: string) => (match && sel.includes(match) ? {} : null) }) as unknown as EventTarget
+    const el = (match: string | null) =>
+      ({ closest: (sel: string) => (match && sel.includes(match) ? {} : null) }) as unknown as EventTarget
     expect(isTyping(el('textarea'))).toBe(true)
     expect(isTyping(el('[contenteditable="true"]'))).toBe(true)
     expect(isTyping(el(null))).toBe(false)
@@ -75,7 +83,9 @@ const label = (key: string): string => LABELS[key] ?? (key.length === 1 ? key.to
 
 /** True when the list has a shortcut with these keys (with or without Ctrl/⌘). */
 function listed(key: string, mod: boolean): boolean {
-  return SHORTCUTS.some((s) => [s.keys, s.mac ?? []].some((keys) => keys.includes('Mod') === mod && keys.map((k) => k.toUpperCase()).includes(label(key).toUpperCase())))
+  const want = label(key).toUpperCase()
+  const has = (keys: string[]): boolean => keys.includes('Mod') === mod && keys.some((k) => k.toUpperCase() === want)
+  return SHORTCUTS.some((s) => has(s.keys) || has(s.mac ?? []))
 }
 
 const KEY_LITERAL = /key(?:\.toLowerCase\(\))?\s*[!=]==\s*'([^']+)'/g
@@ -99,7 +109,8 @@ describe('every shortcut the app handles is listed', () => {
         // The key is on the same line, named by the `case` just above it, or (`const mod = e.ctrlKey || e.metaKey`) just below.
         const before = lines.slice(Math.max(0, i - 3), i).join('\n')
         const after = /=\s*e\.(ctrl|meta)Key\s*\|\|/.test(line) ? lines.slice(i + 1, i + 4).join('\n') : ''
-        for (const key of [...literals(line, KEY_LITERAL), ...literals(before, CASE_LITERAL), ...literals(after, KEY_LITERAL)]) found.add(`${label(key)} ${file}`)
+        const named = [...literals(line, KEY_LITERAL), ...literals(before, CASE_LITERAL), ...literals(after, KEY_LITERAL)]
+        for (const key of named) found.add(`${label(key)} ${file}`)
       })
       // The editor's own shortcuts ('Mod-Enter').
       for (const m of text.matchAll(/'Mod-([^']+)'\s*:/g)) found.add(`${label(m[1])} ${file}`)
@@ -113,7 +124,8 @@ describe('every shortcut the app handles is listed', () => {
   it('lists every key the window listens for, and the binder’s keys', () => {
     const found: string[] = []
     for (const { file, text } of files) {
-      if (text.includes("window.addEventListener('keydown'")) for (const key of literals(text, KEY_LITERAL)) found.push(`${label(key)} ${file}`)
+      if (!text.includes("window.addEventListener('keydown'")) continue
+      for (const key of literals(text, KEY_LITERAL)) found.push(`${label(key)} ${file}`)
     }
     // Home and End go to the first and last row, as in any list.
     const tree = files.find((f) => f.file.endsWith('StoryTree.tsx'))!
