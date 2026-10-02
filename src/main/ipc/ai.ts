@@ -13,6 +13,7 @@ import { catchUpBeforeDraft, gatherContextInput } from '../ai/gather'
 import { countTokens } from '../ai/tokenService'
 import { isLocalUrl, providerWho } from '../ai/errors'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
+import { memorySettingsChanged } from '../keeper'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -34,14 +35,20 @@ async function assemble(sceneId: ID, options: Partial<DraftOptions> | undefined)
   return { input, preview: finishContext(prepared, counts) }
 }
 
+function afterProviders<T>(result: T): T {
+  memorySettingsChanged()
+  return result
+}
+
 /** Scenes whose draft is being started (the memory may be catching up first). */
 const starting = new Set<ID>()
 
 export const aiHandlers: Handlers<AiMethods> = {
   listProviders: () => providers.listProviders(),
-  saveProvider: (input) => providers.saveProvider(input),
-  deleteProvider: (id) => providers.deleteProvider(id),
-  restoreProvider: (id) => providers.restoreProvider(id),
+  // A key added or a provider removed changes what the memory keeper can use, so it tries again now.
+  saveProvider: (input) => afterProviders(providers.saveProvider(input)),
+  deleteProvider: (id) => afterProviders(providers.deleteProvider(id)),
+  restoreProvider: (id) => afterProviders(providers.restoreProvider(id)),
   testProvider: (id, modelId) => providers.testProvider(id, modelId),
   listModels: (providerId) => providers.listModels(providerId),
 

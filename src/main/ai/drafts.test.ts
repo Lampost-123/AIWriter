@@ -6,44 +6,11 @@ import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { setBlockMode, setPin } from '../db/memory'
-import type { SceneMemory } from '../memory/types'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { assembleContext, replyTokenLimit, sentEntryVersions } from './context'
 import { draftCost, isDrafting, startDraftJob, stopDraft, stopDraftsFor, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
-
-// Until the memory engine is joined in, its sceneMemory says "Not built yet": then every live entry
-// counts and the previous scene is the one before in reading order. Once it is built, it is used.
-vi.mock('../memory/scene', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../memory/scene')>()
-  const repo = await import('../db/repo')
-  return {
-    ...real,
-    sceneMemory: (db: Database.Database, sceneId: string): SceneMemory => {
-      try {
-        return real.sceneMemory(db, sceneId)
-      } catch (e) {
-        if (!(e instanceof Error) || e.message !== 'Not built yet') throw e
-        const previous = repo.previousScene(db, sceneId)
-        return {
-          storyId: repo.sceneLocation(db, sceneId).story.id,
-          sceneId,
-          knows: '',
-          previous: previous ? { sceneId: previous.id, title: previous.title, text: previous.text } : null,
-          entries: repo.listEntries(db).map((e) => ({ ...e, happened: [], changed: [] })),
-          firstHere: [],
-          elsewhere: [],
-          relationships: [],
-          facts: [],
-          threads: [],
-          storySoFar: { scenes: [], chapters: [], stories: [], series: [], leadsInto: null },
-          bringAbout: []
-        }
-      }
-    }
-  }
-})
 
 let fake: FakeProvider
 beforeAll(async () => {
