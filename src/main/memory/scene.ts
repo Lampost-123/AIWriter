@@ -88,7 +88,9 @@ function elsewhere(shape: WorldShape, line: Line, data: MemoryData, state: Memor
 
   const out: SceneMemory['elsewhere'] = []
   for (const [id, entry] of state.absent) {
-    const stories = (pointsOf.get(id) ?? []).map((p) => (p.kind === 'scene' && p.sceneId ? (sceneStory.get(p.sceneId) ?? p.storyId) : p.storyId))
+    const stories = (pointsOf.get(id) ?? []).map((p) =>
+      p.kind === 'scene' && p.sceneId ? (sceneStory.get(p.sceneId) ?? p.storyId) : p.storyId
+    )
     const from = stories.find((s): s is ID => !!s && titles.has(s))
     const label = stories.some((s) => s && onWalk.has(s))
       ? 'not in the story yet at this point'
@@ -136,7 +138,13 @@ function storySoFar(
     if (step.storyId !== targetId || step.via !== 'line') continue
     if (step.type === 'scene') {
       const t = text('scene', step.sceneId)
-      if (t) out.scenes.push({ sceneId: step.sceneId, chapterId: step.chapterId, label: label({ storyId: targetId, sceneId: step.sceneId }), text: t })
+      if (t)
+        out.scenes.push({
+          sceneId: step.sceneId,
+          chapterId: step.chapterId,
+          label: label({ storyId: targetId, sceneId: step.sceneId }),
+          text: t
+        })
     } else if (step.type === 'chapter-end') {
       const t = text('chapter', step.chapterId)
       if (t) out.chapters.push({ chapterId: step.chapterId, label: label({ storyId: targetId, chapterId: step.chapterId }), text: t })
@@ -167,7 +175,8 @@ function storySoFar(
   for (const [seriesId, name] of seriesNames) {
     const t = text('series', seriesId)
     const covered = shape.stories.filter((s) => s.seriesId === seriesId && !apart(s))
-    if (t && covered.length && covered.every((s) => whole.has(s.id))) out.series.push({ seriesId, name, storyIds: covered.map((s) => s.id), text: t })
+    if (t && covered.length && covered.every((s) => whole.has(s.id)))
+      out.series.push({ seriesId, name, storyIds: covered.map((s) => s.id), text: t })
   }
   return out
 }
@@ -257,7 +266,10 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
   const label = labeler(shape)
   const order = storyOrder(shape)
   const keyed = changes
-    .map((c) => ({ c, key: c.anchor === 'baseline' ? [-1] : order({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }) }))
+    .map((c) => ({
+      c,
+      key: c.anchor === 'baseline' ? [-1] : order({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null })
+    }))
     .filter(({ key }) => key[0] !== Infinity)
   keyed.sort(
     (a, b) =>
@@ -267,8 +279,7 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
   )
   return keyed.map(({ c }) => ({
     ...c,
-    where:
-      c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
+    where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
     links: linksForFact(db, 'change', c.id)
   }))
 }

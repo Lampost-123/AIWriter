@@ -242,7 +242,10 @@ function orderSides(host: StoryInfo, at: number, list: StoryNode[], ix: WorldInd
     const i = order.indexOf(s.id)
     return i < 0 ? order.length : i
   }
-  return sorted.map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s)
+  return sorted
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i)
+    .map((x) => x.s)
 }
 
 // ---------- Placement ----------
@@ -337,7 +340,12 @@ export function placeLabel(shape: WorldShape, place: { storyId: ID; chapterId?: 
 }
 
 /** One part of the sentence for a segment, or null when it contributes nothing (cut before its start-of-story changes). */
-function segmentWords(seg: LineSegment, story: StoryNode, chapterNo: (id: ID) => number, sceneAt: (id: ID) => [number, number]): string | null {
+function segmentWords(
+  seg: LineSegment,
+  story: StoryNode,
+  chapterNo: (id: ID) => number,
+  sceneAt: (id: ID) => [number, number]
+): string | null {
   if (seg.whole || !seg.stop || seg.stop.at === 'end') return story.title
   switch (seg.stop.at) {
     case 'pre':

@@ -32,7 +32,8 @@ export interface MemoryStateAll extends MemoryState {
   absent: Map<ID, EntryState>
 }
 
-const byPlace = (a: Change, b: Change): number => a.position - b.position || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0)
+const byPlace = (a: Change, b: Change): number =>
+  a.position - b.position || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0)
 
 /** Changes by where they are pinned, each list in order. */
 export interface ChangeIndex {
@@ -112,7 +113,12 @@ interface ThreadWork {
 }
 
 /** Applies every change that counts on the line, in line order, to the baselines. */
-export function stateAt(data: MemoryData, shape: WorldShape, line: Line, changes: ChangeIndex = indexChanges(data.changes)): MemoryStateAll {
+export function stateAt(
+  data: MemoryData,
+  shape: WorldShape,
+  line: Line,
+  changes: ChangeIndex = indexChanges(data.changes)
+): MemoryStateAll {
   const label = labeler(shape)
   const spanOf = hostSpans(shape)
   const titles = new Map(shape.stories.map((s) => [s.id, s.title]))
@@ -168,7 +174,10 @@ export function stateAt(data: MemoryData, shape: WorldShape, line: Line, changes
     const span = spanOf(storyId)
     const hostAspects = new Set<string>()
     if (span) {
-      const host = [...(span.startChanges ? (changes.byStory.get(span.hostId) ?? []) : []), ...span.sceneIds.flatMap((id) => changes.byScene.get(id) ?? [])]
+      const host = [
+        ...(span.startChanges ? (changes.byStory.get(span.hostId) ?? []) : []),
+        ...span.sceneIds.flatMap((id) => changes.byScene.get(id) ?? [])
+      ]
       for (const c of host) for (const a of aspectsOf(c)) hostAspects.add(a)
     }
     frames.push({ storyId, hostAspects, touched: new Map() })
@@ -397,14 +406,24 @@ export function changesInScene(data: MemoryData, sceneId: ID): Change[] {
  * Where a side story and its host both change the same thing between the side story's start and end
  * (for the "Which happened last?" question): each entry and aspect, and what Adam answered, if anything.
  */
-export function sideClashes(data: MemoryData, shape: WorldShape, sideStoryId: ID): { entryId: ID; aspect: string; answer: 'host' | 'side' | null }[] {
+export function sideClashes(
+  data: MemoryData,
+  shape: WorldShape,
+  sideStoryId: ID
+): { entryId: ID; aspect: string; answer: 'host' | 'side' | null }[] {
   const span = hostSpans(shape)(sideStoryId)
   const side = shape.stories.find((s) => s.id === sideStoryId)
   if (!span || !side) return []
   const ix = indexChanges(data.changes)
-  const hostChanges = [...(span.startChanges ? (ix.byStory.get(span.hostId) ?? []) : []), ...span.sceneIds.flatMap((id) => ix.byScene.get(id) ?? [])]
+  const hostChanges = [
+    ...(span.startChanges ? (ix.byStory.get(span.hostId) ?? []) : []),
+    ...span.sceneIds.flatMap((id) => ix.byScene.get(id) ?? [])
+  ]
   const host = new Set(hostChanges.flatMap(aspectsOf))
-  const sideChanges = [...(ix.byStory.get(sideStoryId) ?? []), ...side.chapters.flatMap((c) => c.scenes.flatMap((s) => ix.byScene.get(s.id) ?? []))]
+  const sideChanges = [
+    ...(ix.byStory.get(sideStoryId) ?? []),
+    ...side.chapters.flatMap((c) => c.scenes.flatMap((s) => ix.byScene.get(s.id) ?? []))
+  ]
   const out = new Map<string, { entryId: ID; aspect: string; answer: 'host' | 'side' | null }>()
   for (const c of sideChanges) {
     for (const key of aspectsOf(c)) {

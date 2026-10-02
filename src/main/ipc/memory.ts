@@ -11,6 +11,7 @@ import { changeViews } from '../memory/scene'
 import { emit } from '../events'
 import { UserError } from '../util'
 
+// prettier-ignore
 type MemoryMethods =
   | 'setStoryPlacement'
   | 'listChanges' | 'createChange' | 'updateChange' | 'deleteChange' | 'restoreChange'
@@ -30,7 +31,8 @@ function write<T>(fn: () => T): T {
 /** Tells every window the memory changed, so lists, the scene card and the Context tab reload. */
 const changed = (sceneId: ID | null, entryIds: ID[]): void => emit('memory:changed', { sceneId, entryIds: [...new Set(entryIds)] })
 
-const view = (c: Change): ChangeView => changeViews(world.db(), [c])[0] ?? { ...c, where: '', links: history.linksForFact(world.db(), 'change', c.id) }
+const view = (c: Change): ChangeView =>
+  changeViews(world.db(), [c])[0] ?? { ...c, where: '', links: history.linksForFact(world.db(), 'change', c.id) }
 
 const LEVELS: SummaryLevel[] = ['scene', 'chapter', 'story', 'series']
 function checkLevel(level: SummaryLevel): void {

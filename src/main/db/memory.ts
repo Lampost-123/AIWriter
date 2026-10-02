@@ -46,7 +46,13 @@ const json = <T>(s: unknown, fallback: T): T => {
 /** A payload as stored, with the lists a kind always has filled in (so a damaged row can't break the memory). */
 function cleanPayload(kind: ChangeData['kind'], raw: unknown): ChangeData['payload'] {
   const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  if (kind === 'full') return { ...p, description: p.description ?? '', knows: Array.isArray(p.knows) ? p.knows : [], relationships: Array.isArray(p.relationships) ? p.relationships : [] } as ChangeData['payload']
+  if (kind === 'full')
+    return {
+      ...p,
+      description: p.description ?? '',
+      knows: Array.isArray(p.knows) ? p.knows : [],
+      relationships: Array.isArray(p.relationships) ? p.relationships : []
+    } as ChangeData['payload']
   if (kind === 'update') return { ...p, note: p.note ?? '' } as ChangeData['payload']
   return p as unknown as ChangeData['payload']
 }
@@ -113,7 +119,9 @@ function nextPosition(db: DB, anchor: ChangeAnchor, storyId: ID | null, sceneId:
     anchor === 'scene'
       ? db.prepare("SELECT MAX(position) AS p FROM changes WHERE scene_id = ? AND anchor = 'scene' AND deleted_at IS NULL").get(sceneId)
       : anchor === 'story-start'
-        ? db.prepare("SELECT MAX(position) AS p FROM changes WHERE story_id = ? AND anchor = 'story-start' AND deleted_at IS NULL").get(storyId)
+        ? db
+            .prepare("SELECT MAX(position) AS p FROM changes WHERE story_id = ? AND anchor = 'story-start' AND deleted_at IS NULL")
+            .get(storyId)
         : db.prepare("SELECT MAX(position) AS p FROM changes WHERE anchor = 'baseline' AND deleted_at IS NULL").get()
   const p = (r as Row | undefined)?.p
   return typeof p === 'number' ? p + 1 : 0
@@ -231,12 +239,18 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
       const p = input.payload
       if (!p || !text(p.description)) throw new UserError('Write the starting description first.')
       const knows = (p.knows ?? []).filter((k) => text(k.fact)).map((k) => ({ factId: k.factId || newId(), fact: text(k.fact) }))
-      const relationships = (p.relationships ?? []).filter((r) => r.otherId && r.otherId !== input.entryId).map((r) => ({ ...r, otherId: other(r.otherId) }))
+      const relationships = (p.relationships ?? [])
+        .filter((r) => r.otherId && r.otherId !== input.entryId)
+        .map((r) => ({ ...r, otherId: other(r.otherId) }))
       return { ...base, kind: 'full', payload: { ...p, description: p.description, knows, relationships } }
     }
     case 'relationship': {
       const p = input.payload
-      return { ...base, kind: 'relationship', payload: { ...p, otherId: other(p?.otherId), type: text(p?.type), feels: p?.feels ?? '', otherFeels: p?.otherFeels ?? '' } }
+      return {
+        ...base,
+        kind: 'relationship',
+        payload: { ...p, otherId: other(p?.otherId), type: text(p?.type), feels: p?.feels ?? '', otherFeels: p?.otherFeels ?? '' }
+      }
     }
     case 'knowledge': {
       const p = input.payload
@@ -482,8 +496,12 @@ export function loadShape(db: DB): WorldShape {
          position, created_order, deleted_at FROM stories`
     )
     .all() as Row[]
-  const chapterRows = db.prepare('SELECT id, story_id, title, position, deleted_at FROM chapters ORDER BY story_id, position, created_at').all() as Row[]
-  const sceneRows = db.prepare('SELECT id, chapter_id, title, position, deleted_at FROM scenes ORDER BY chapter_id, position, created_at').all() as Row[]
+  const chapterRows = db
+    .prepare('SELECT id, story_id, title, position, deleted_at FROM chapters ORDER BY story_id, position, created_at')
+    .all() as Row[]
+  const sceneRows = db
+    .prepare('SELECT id, chapter_id, title, position, deleted_at FROM scenes ORDER BY chapter_id, position, created_at')
+    .all() as Row[]
 
   const rowOf = new Map(storyRows.map((r) => [r.id as string, r]))
   const live = (r: Row | undefined): boolean => !!r && !r.deleted_at
@@ -690,7 +708,8 @@ const toPin = (r: Row): Pin => ({
 })
 
 export function setPin(db: DB, entryId: ID, scope: PinScope, scopeId: ID | null, action: Pin['action'] | null): void {
-  if (scope !== 'scene' && scope !== 'story' && scope !== 'world') throw new UserError('Pin it to this scene, this story or the whole world.')
+  if (scope !== 'scene' && scope !== 'story' && scope !== 'world')
+    throw new UserError('Pin it to this scene, this story or the whole world.')
   if (action !== null && action !== 'pin' && action !== 'hide') throw new UserError("That briefing choice isn't known.")
   const sid = scope === 'world' ? '' : (scopeId ?? '')
   if (scope !== 'world' && !sid) throw new UserError('Pick the scene or story to pin this to.')
@@ -731,7 +750,8 @@ export function getBlockModes(db: DB, sceneId: ID): Record<string, BlockMode> {
 export function setBlockMode(db: DB, sceneId: ID, blockId: string, mode: BlockMode): void {
   const r = db.prepare('SELECT context_json FROM scenes WHERE id = ? AND deleted_at IS NULL').get(sceneId) as Row | undefined
   if (!r) throw new UserError('That scene no longer exists.')
-  if (mode !== 'auto' && mode !== 'full' && mode !== 'short') throw new UserError('Choose full, short or automatic for that part of the briefing.')
+  if (mode !== 'auto' && mode !== 'full' && mode !== 'short')
+    throw new UserError('Choose full, short or automatic for that part of the briefing.')
   const prefs = json<SceneContextPrefs>(r.context_json, {})
   const modes = { ...(prefs.blockModes ?? {}) }
   if (mode === 'auto') delete modes[blockId]
