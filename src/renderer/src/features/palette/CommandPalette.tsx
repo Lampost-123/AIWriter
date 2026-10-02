@@ -17,6 +17,7 @@ import {
   Feather,
   FilePlus2,
   FileText,
+  Folder,
   FolderPlus,
   Globe2,
   HardDriveDownload,
@@ -60,6 +61,7 @@ import {
   isOption,
   matchActions,
   paletteRows,
+  stepIndex,
   suggestedActions,
   type ActionContext,
   type ActionDef,
@@ -74,6 +76,13 @@ import { followRecent, recentPlaces } from './recent'
 const RECENT = 5
 /** How far Page Up and Page Down move. */
 const PAGE = 8
+/** The keys that move through the list, and how far. */
+const MOVES = new Map([
+  ['ArrowDown', 1],
+  ['ArrowUp', -1],
+  ['PageDown', PAGE],
+  ['PageUp', -PAGE]
+])
 
 const NONE: ReadonlySet<string> = new Set()
 
@@ -135,16 +144,21 @@ function actionIcon(a: ActionDef): LucideIcon {
   return ACTION_ICONS[a.id] ?? ArrowRight
 }
 
-/** A result's icon: its kind of entry, or what sort of text it is (its group, from the row's key). */
-function hitIcon(row: Extract<Row, { type: 'hit' }>): LucideIcon {
-  const open = row.hit.open
-  const group = row.key.slice(0, row.key.indexOf(':')) as SearchGroupId | 'recent'
-  if (group === 'summaries') return AlignLeft
-  if (group === 'notes') return StickyNote
-  if (open.kind === 'entry') return KIND_ICONS[open.entryKind]
-  if (open.kind === 'story') return BookOpen
-  if (open.kind === 'style') return Feather
-  return FileText
+/** A result's icon: what it is, from the start of its key ('summary:…', 'chapter:…'), or its kind of entry. */
+function hitIcon(hit: SearchHit): LucideIcon {
+  switch (hit.key.split(':')[0]) {
+    case 'summary':
+      return AlignLeft
+    case 'note':
+      return StickyNote
+    case 'chapter':
+      return Folder
+    case 'story':
+      return BookOpen
+    case 'style':
+      return Feather
+  }
+  return hit.open.kind === 'entry' ? KIND_ICONS[hit.open.entryKind] : FileText
 }
 
 // ---------- Parts ----------
@@ -211,17 +225,18 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
   }
 
   if (row.type === 'more') {
+    const all = `${row.total.toLocaleString('en-GB')} in all`
     return (
-      <div {...props} className={cn(base, 'h-8 items-center text-[12.5px] text-muted')}>
+      <div {...props} aria-label={`${row.label}, ${all}`} className={cn(base, 'h-8 items-center text-[12.5px] text-muted')}>
         <ChevronDown size={14} className="shrink-0" aria-hidden />
         <span className="flex-1">{row.label}</span>
-        <span className="tabular-nums text-faint">{row.total.toLocaleString('en-GB')}</span>
+        <span className="tabular-nums text-faint">{all}</span>
       </div>
     )
   }
 
   const { hit } = row
-  const Icon = hitIcon(row)
+  const Icon = hitIcon(hit)
   return (
     <div {...props} className={cn(base, 'items-start py-2')}>
       <Icon size={15} className={cn('mt-[3px] shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
@@ -313,12 +328,17 @@ export function CommandPalette(): React.JSX.Element {
   const pending = useRef<{ run: () => Promise<void>; away: boolean } | null>(null)
   // Words typed a moment ago are saved first, so search finds them too.
   const saved = useRef<Promise<void>>(Promise.resolve())
+  // Keys pressed while the list is still the one for what was in the box before (its search is a few
+  // milliseconds away, or longer while a world's words are first read): they wait for the new list.
+  const early = useRef<{ moves: number[]; enter: boolean }>({ moves: [], enter: false })
 
   useOpenShortcut(inputRef)
   useEffect(() => followRecent(), [])
 
-  // Builds the search a moment after the world opens, so the first search is instant too.
+  // Builds the search a moment after the world opens, so the first search is instant too. Whatever
+  // was open over the last world (the palette, the shortcuts list) is closed.
   useEffect(() => {
+    usePalette.setState({ open: false, shortcuts: false })
     if (!worldId) return
     const t = setTimeout(() => void api.prepareSearch().catch(() => undefined), 1500)
     return () => clearTimeout(t)
@@ -329,6 +349,7 @@ export function CommandPalette(): React.JSX.Element {
   useEffect(() => {
     if (!open) {
       tickets.current++
+      early.current = { moves: [], enter: false }
       setText('')
       setWant(NONE)
       setShown(EMPTY)
@@ -401,11 +422,8 @@ export function CommandPalette(): React.JSX.Element {
   const point = (o: Option, i: number): void => setActive({ key: o.key, index: i })
 
   const move = (by: number): void => {
-    const n = options.length
-    if (!n) return
-    // Single steps wrap around the ends; page steps stop at them.
-    const next = Math.abs(by) === 1 ? (activeIndex + by + n) % n : Math.max(0, Math.min(n - 1, activeIndex + by))
-    point(options[next], next)
+    const next = stepIndex(activeIndex, by, options.length)
+    if (next >= 0) point(options[next], next)
   }
 
   const runPending = (): void => {
@@ -430,31 +448,44 @@ export function CommandPalette(): React.JSX.Element {
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // The box's own keys (moving through the list and opening a row), not the app's shortcuts.
+    let by = 0
     switch (e.key) {
-      case 'ArrowDown':
-        move(1)
-        break
-      case 'ArrowUp':
-        move(-1)
-        break
-      case 'PageDown':
-        move(PAGE)
-        break
-      case 'PageUp':
-        move(-PAGE)
-        break
-      case 'Enter':
-        if (e.nativeEvent.isComposing) return
-        if (activeOption) choose(activeOption)
-        break
       case 'Tab':
         // The box is the one place to type in; Tab doesn't wander off into the list.
+        e.preventDefault()
+        return
+      case 'Enter':
+        if (e.nativeEvent.isComposing) return
         break
       default:
-        return
+        by = MOVES.get(e.key) ?? 0
+        if (!by) return
     }
     e.preventDefault()
+    // The keys always act on the list for what is in the box: until its results are in, they wait.
+    if (e.currentTarget.value !== shown.query) {
+      if (by) early.current.moves.push(by)
+      else early.current.enter = true
+    } else if (!ready) {
+      // Nothing is listed yet to move through or open.
+    } else if (by) move(by)
+    else if (activeOption) choose(activeOption)
   }
+
+  // The list for what is in the box is in: keys pressed while it was coming act on it now, as if
+  // pressed just after it (a new list starts at its first row).
+  useEffect(() => {
+    const keys = early.current
+    if (shown.query !== text || (!keys.enter && !keys.moves.length)) return
+    early.current = { moves: [], enter: false }
+    if (!ready) return
+    let i = options.length ? 0 : -1
+    for (const by of keys.moves) i = stepIndex(i, by, options.length)
+    if (i < 0) return
+    point(options[i], i)
+    if (keys.enter) choose(options[i])
+  }, [shown])
 
   const renderRow = (r: Row): React.ReactNode => {
     if (r.type === 'heading') return null
@@ -509,6 +540,8 @@ export function CommandPalette(): React.JSX.Element {
                 setText(e.target.value)
                 setWant(NONE)
                 wantRef.current = NONE
+                // Keys still waiting were meant for the words before these.
+                early.current = { moves: [], enter: false }
               }}
               onKeyDown={onKeyDown}
               placeholder="Search your story and world, or type an action…"

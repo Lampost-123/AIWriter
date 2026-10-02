@@ -5,7 +5,7 @@
 import * as D from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { Fragment, useEffect } from 'react'
-import { Kbd } from '@/components/ui'
+import { IconButton, Kbd } from '@/components/ui'
 import { isShortcut, isTyping, SHORTCUT_GROUPS, SHORTCUTS, shortcutKeys, shortcutText, type Shortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { giveFocusBack, openShortcuts, PALETTE_LAYER, usePalette } from './paletteStore'
@@ -70,8 +70,10 @@ export function ShortcutsList(): React.JSX.Element {
                 Everything else is a few letters away in search ({shortcutText('search')}).
               </D.Description>
             </div>
-            <D.Close className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-fg" aria-label="Close">
-              <X size={16} />
+            <D.Close asChild>
+              <IconButton label="Close" size="sm">
+                <X size={16} />
+              </IconButton>
             </D.Close>
           </div>
           {SHORTCUT_GROUPS.map((group) => (

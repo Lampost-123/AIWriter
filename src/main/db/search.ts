@@ -8,6 +8,7 @@
 
 import type Database from 'better-sqlite3'
 import type { EntryKind, ID, StyleGuide, SummaryLevel } from '@shared/types'
+import type { CardPart } from '@shared/contracts/search'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -99,16 +100,16 @@ export interface SceneWords {
   title: string
   text: string
   /** The card's goal, conflict, outcome, mood, when and beats. */
-  card: { label: string; text: string }[]
+  card: { part: CardPart; label: string; text: string }[]
   /** The card's notes for the AI. */
   notes: string
 }
 
-const CARD_FIELDS: [string, string][] = [
+const CARD_FIELDS: [CardPart, string][] = [
   ['goal', 'Goal'],
   ['conflict', 'Conflict'],
   ['outcome', 'Outcome'],
-  ['mood', 'Mood'],
+  ['mood', 'Mood or tone'],
   ['when', 'When']
 ]
 
@@ -121,8 +122,8 @@ function toSceneWords(r: Row): SceneWords {
     title: r.title as string,
     text: r.text as string,
     card: [
-      ...CARD_FIELDS.map(([k, label]) => ({ label, text: text(k) })),
-      ...(beats.length ? [{ label: 'Beats', text: beats.join('\n') }] : [])
+      ...CARD_FIELDS.map(([part, label]) => ({ part, label, text: text(part) })),
+      ...(beats.length ? [{ part: 'beats' as const, label: 'Beats', text: beats.join('\n') }] : [])
     ].filter((f) => f.text.trim() !== ''),
     notes: text('notes')
   }

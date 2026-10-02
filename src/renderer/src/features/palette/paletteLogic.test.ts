@@ -11,6 +11,7 @@ import {
   matchActions,
   paletteRows,
   remember,
+  stepIndex,
   suggestedActions,
   type ActionContext,
   type Row
@@ -97,6 +98,13 @@ describe('the actions', () => {
     expect(ids({ ...writing, drafting: true })).not.toContain('generate')
     expect(ids({ ...writing, sceneDone: true })).not.toContain('mark-done')
     expect(ids({ ...writing, sceneId: null })).not.toContain('mark-done')
+    // A scene marked done can be reopened instead.
+    expect(ids(writing)).not.toContain('reopen-scene')
+    expect(ids({ ...writing, sceneDone: true })).toContain('reopen-scene')
+    // Deleting only the scene on screen; marking done goes back to it from another page.
+    expect(ids(writing)).toContain('delete-scene')
+    expect(ids({ ...writing, view: 'codex' })).not.toContain('delete-scene')
+    expect(ids({ ...writing, view: 'codex' })).toContain('mark-done')
     expect(ids(writing)).not.toContain('go-write')
     expect(ids({ ...writing, view: 'codex' })).toContain('go-write')
     expect(ids({ ...writing, theme: 'dark' })).not.toContain('theme-dark')
@@ -124,6 +132,14 @@ describe('finding actions by typing', () => {
     expect(labels('trash')).toEqual(['Delete this scene', 'Settings › Recently deleted'])
   })
 
+  it('finds What changed first by "memory", as the top bar\'s "Memory updated" note calls it', () => {
+    expect(labels('memory')[0]).toBe('What changed')
+    expect(labels('memory updated')).toEqual(['What changed'])
+    // Each kind's list isn't found by "memory" or "world".
+    expect(labels('memory')).not.toContain('Characters')
+    expect(labels('world')).toEqual(['New world', 'Switch to another world', 'Rename this world', 'Codex'])
+  })
+
   it('suggests the most useful actions when nothing is typed', () => {
     expect(suggestedActions(writing).map((a) => a.id)).toEqual(['generate', 'mark-done', 'new-scene', 'go-codex', 'new-character', 'quick-character'])
     expect(suggestedActions({ ...writing, drafting: true })[0].id).toBe('stop')
@@ -138,6 +154,16 @@ describe('finding actions by typing', () => {
 
   it('folds like the search does', () => {
     expect(fold('Élodie')).toBe('elodie')
+  })
+
+  it('moves through the list: single steps wrap around, page steps stop at the ends', () => {
+    expect(stepIndex(0, 1, 3)).toBe(1)
+    expect(stepIndex(2, 1, 3)).toBe(0)
+    expect(stepIndex(0, -1, 3)).toBe(2)
+    expect(stepIndex(-1, 1, 3)).toBe(0)
+    expect(stepIndex(1, 8, 3)).toBe(2)
+    expect(stepIndex(1, -8, 3)).toBe(0)
+    expect(stepIndex(0, 1, 0)).toBe(-1)
   })
 })
 

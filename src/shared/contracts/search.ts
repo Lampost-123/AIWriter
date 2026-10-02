@@ -62,7 +62,11 @@ export interface TextPart {
 }
 
 export interface SearchHit {
-  /** Unique within one set of results: 'scene:<id>', 'entry:<id>', 'note:scene:<id>'... */
+  /**
+   * Unique within one set of results, and starting with what it is (the palette's icons go by it):
+   * 'scene:<id>', 'entry:<id>', 'summary:<level>:<id>', 'note:scene:<id>', 'note:entry:<id>',
+   * 'chapter:<id>', 'story:<id>', 'style' or 'style:<storyId>'.
+   */
   key: string
   /** Its name or title, with the matching words marked. */
   title: TextPart[]
@@ -76,15 +80,19 @@ export interface SearchHit {
   open: SearchOpen
 }
 
+/** A part of a scene's card, by the name of its field (the scene's summary is shown on the card too). */
+export type CardPart = 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'beats' | 'notes' | 'summary'
+
 /**
  * What opening a result does:
- * - 'scene': opens the scene; with `words`, selects and scrolls to them; with `panel`, shows that tab of the scene panel
+ * - 'scene': opens the scene; with `words`, selects and scrolls to them; with `card`, shows the scene card in the
+ *   scene panel, scrolled to that part of it
  * - 'entry': opens the entry's page
  * - 'story': opens the story at `sceneId` (or where Adam last was in it)
  * - 'style': the world's style guide, or (with `storyId`) that story's settings
  */
 export type SearchOpen =
-  | { kind: 'scene'; sceneId: ID; storyId: ID; words: string | null; panel: 'card' | null }
+  | { kind: 'scene'; sceneId: ID; storyId: ID; words: string | null; card: CardPart | null }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind }
   | { kind: 'story'; storyId: ID; sceneId: ID | null }
   | { kind: 'style'; storyId: ID | null }

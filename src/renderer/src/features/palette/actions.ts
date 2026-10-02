@@ -14,11 +14,12 @@ import * as binder from '@/features/binder/actions'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
-import { markSceneDone } from '@/features/editor/markDone'
+import { markSceneDone, reopenScene } from '@/features/editor/markDone'
 import { requestReveal } from '@/features/editor/reveal'
 import { createEntry } from '@/features/world/entryActions'
+import { revealCardPart } from './cardReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
-import { openShortcuts, usePalette } from './paletteStore'
+import { openShortcuts, openWorldMenu, startRenamingWorld, usePalette } from './paletteStore'
 
 const app = useApp.getState
 
@@ -90,10 +91,24 @@ export async function runAction(id: ActionId): Promise<void> {
         pressShortcut('generate')
         return
       case 'stop':
-        if (a.activeGeneration) await api.stopGeneration(a.activeGeneration.id)
+        if (a.activeGeneration) {
+          await api.stopGeneration(a.activeGeneration.id)
+          return
+        }
+        // A draft still getting ready (the memory catching up first) has nothing to stop yet: Esc on
+        // the writing page calls it off, as the Stop button does.
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        pressShortcut('stop')
         return
       case 'mark-done':
-        if (a.sceneId) await markSceneDone(a.sceneId)
+        if (!a.sceneId) return
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        await markSceneDone(a.sceneId)
+        return
+      case 'reopen-scene':
+        if (!a.sceneId) return
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        await reopenScene(a.sceneId)
         return
       case 'new-scene':
         return await newScene()
@@ -153,10 +168,10 @@ export async function runAction(id: ActionId): Promise<void> {
         usePalette.setState({ newWorld: true })
         return
       case 'switch-world':
-        usePalette.setState({ worldMenu: true })
+        openWorldMenu()
         return
       case 'rename-world':
-        usePalette.setState({ renamingWorld: true })
+        startRenamingWorld()
         return
       case 'shortcuts':
         openShortcuts()
@@ -188,11 +203,14 @@ export async function openResult(open: SearchOpen): Promise<void> {
         // Asked for before the scene opens: the editor selects the words (or puts the caret in the page) once it shows.
         if (open.words) requestReveal(open.sceneId, open.words)
         else requestEditorFocus(open.sceneId)
-        if (open.panel) {
-          a.setInspectorTab(open.panel)
+        if (open.card) {
+          // The scene panel shows the card (not an entry looked at beside the page), at the part found.
+          a.setInspectorTab('card')
+          a.peekEntry(null)
           if (a.settings && !a.settings.layout.inspectorOpen) void a.updateSettings({ layout: { inspectorOpen: true } })
         }
         a.selectScene(open.sceneId, open.storyId)
+        if (open.card) revealCardPart(open.sceneId, open.card)
         return
       case 'entry':
         a.navigate({ kind: 'entries', entryKind: open.entryKind, entryId: open.entryId })

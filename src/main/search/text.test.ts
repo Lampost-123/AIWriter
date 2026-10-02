@@ -87,7 +87,7 @@ describe('marked text and snippets', () => {
     expect(text.endsWith('…')).toBe(true)
     expect(text).toContain('the iron [gate] creaked open and [Mara] walked')
     expect(text.length).toBeLessThan(230)
-    // The words to open the scene at: the first match, whole.
+    // The words to open the scene at: the first match (both words are as rare), whole.
     expect(s.words).toBe('gate')
     expect(para.slice(s.at, s.at + 4)).toBe('gate')
   })
@@ -96,7 +96,22 @@ describe('marked text and snippets', () => {
     const text = `Mara slept. ${'Nothing happened for a long while after that. '.repeat(8)}At dawn Mara found the gate open.`
     const s = snippet(text, terms('mara gate'))
     expect(show(s.parts)).toContain('[Mara] found the [gate] open.')
-    expect(s.words).toBe('Mara')
+    // The scene opens at the rarer of the two words there.
+    expect(s.words).toBe('gate')
+  })
+
+  it('finds a rarer word in a long scene full of a common one', () => {
+    // 600 of "the" before the one "gate": the common word doesn't crowd it out.
+    const long = `${'The man and the dog walked on. '.repeat(300)}Then the iron gate creaked open.`
+    const s = snippet(long, terms('the gate'))
+    expect(show(s.parts)).toContain('Then [the] iron [gate] creaked open.')
+    expect(s.words).toBe('gate')
+    expect(wordsToReveal(long, s.at, s.words!)).toBe('gate')
+    // Where no spot has both, the rarer word is the one shown.
+    const apart = `${'The cat sat on the mat. '.repeat(20)}\n\nA gate.`
+    expect(show(snippet(apart, terms('the gate')).parts)).toBe('…A [gate].')
+    // Words of the query side by side are opened at together.
+    expect(snippet(long, terms('iron gate')).words).toBe('iron gate')
   })
 
   it('selects the whole word for a word still being typed', () => {

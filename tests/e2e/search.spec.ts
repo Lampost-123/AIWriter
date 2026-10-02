@@ -191,3 +191,80 @@ test('Generate a draft and Stop the draft run from the palette, from any page', 
     await fake.close()
   }
 })
+
+test('Keys pressed before the list catches up act on what was typed; a note opens the card at it; the world menu and name box keep their places', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  await prose(win).click()
+  await win.keyboard.type('Rain on the roof.')
+
+  // The words and Enter in the same moment, before the search for the words is back: Enter acts on
+  // those words (the Codex), not on the list that was showing (whose first row is Generate).
+  await win.keyboard.press('Control+K')
+  await expect(group(win, 'Suggested').getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+  await win.evaluate(`(() => {
+    const input = document.querySelector('input[aria-label="Search, or find an action"]')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'codex')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })()`)
+  await expect(palette(win)).toBeHidden()
+  await expect(binder(win).getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-current', 'page')
+  await expect(win.getByText('Choose a writer model first')).toHaveCount(0)
+
+  // A scene's notes for the AI: opening one shows the scene with its card scrolled to the notes.
+  const [story] = await invoke(win, 'listStories')
+  const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+  const { card } = await invoke(win, 'getScene', sceneId)
+  await invoke(win, 'updateSceneCard', sceneId, { ...card, notes: 'Keep the brass lantern out of sight until the very end.' })
+  const notes = win.getByRole('textbox', { name: 'Notes for the AI' })
+  await search(win, 'brass lantern')
+  const note = group(win, 'Notes').getByRole('option').first()
+  await expect(note).toContainText('Notes for the AI')
+  await win.keyboard.press('Enter')
+  await expect(notes).toHaveValue('Keep the brass lantern out of sight until the very end.')
+  await expect(notes).toBeInViewport()
+  await expect(prose(win)).toBeFocused()
+
+  // Renaming the world from the palette: the name box opens in place, so the search box beside the
+  // name doesn't move, and once the name is in the caret is back in the page.
+  const searchBox = win.getByRole('banner').getByRole('button', { name: 'Search (Ctrl+K)' })
+  const before = await searchBox.boundingBox()
+  await search(win, 'rename world')
+  await win.keyboard.press('Enter')
+  const name = win.getByRole('textbox', { name: 'World name' })
+  await expect(name).toBeFocused()
+  expect(await searchBox.boundingBox()).toEqual(before)
+  await win.keyboard.type('The Saltmarsh Chronicles of the Long Coast')
+  expect(await searchBox.boundingBox()).toEqual(before)
+  await win.keyboard.press('Enter')
+  await expect(win.getByRole('banner')).toContainText('The Saltmarsh Chronicles')
+  await expect(prose(win)).toBeFocused()
+  // From the world menu too; Esc there puts the keyboard back on the world's button.
+  const worldButton = win.getByRole('banner').getByRole('button', { name: 'The Saltmarsh Chronicles of the Long Coast' })
+  const renamed = await searchBox.boundingBox()
+  await worldButton.click()
+  await win.getByRole('menuitem', { name: 'Rename this world' }).click()
+  await expect(name).toBeFocused()
+  expect(await searchBox.boundingBox()).toEqual(renamed)
+  await win.keyboard.press('Escape')
+  await expect(name).toHaveCount(0)
+  await expect(worldButton).toBeFocused()
+
+  // Switching worlds from the palette: the menu opens with the worlds in place and the keyboard on
+  // the other one; Esc closes it and the caret goes back to the page.
+  await search(win, 'new world')
+  await expect(palette(win).getByRole('option', { name: 'New world' })).toHaveAttribute('aria-selected', 'true')
+  await win.keyboard.press('Enter')
+  const newWorld = win.getByRole('dialog', { name: 'New world' })
+  await newWorld.getByLabel('World name').fill('Beta')
+  await newWorld.getByRole('button', { name: 'Create world' }).click()
+  await expect(win.getByRole('banner')).toContainText('Beta')
+  await prose(win).click()
+  await search(win, 'switch')
+  await win.keyboard.press('Enter')
+  await expect(win.getByRole('menuitem', { name: 'The Saltmarsh Chronicles of the Long Coast' })).toBeFocused()
+  await win.keyboard.press('Escape')
+  await expect(win.getByRole('menu')).toHaveCount(0)
+  await expect(prose(win)).toBeFocused()
+})

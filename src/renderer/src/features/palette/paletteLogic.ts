@@ -31,6 +31,7 @@ export type FixedActionId =
   | 'generate'
   | 'stop'
   | 'mark-done'
+  | 'reopen-scene'
   | 'delete-scene'
   | 'go-write'
   | 'go-codex'
@@ -78,6 +79,8 @@ export interface ActionDef {
   id: ActionId
   /** What it does, in plain words (also its accessible name). */
   label: string
+  /** Another name it goes by elsewhere in the app, found as its own name is. */
+  also?: string
   /** Other words it is found by. */
   keywords: string
   shortcut?: ShortcutId
@@ -89,6 +92,8 @@ export interface ActionDef {
 
 const hasStory = (c: ActionContext): boolean => !!c.storyId
 const hasScene = (c: ActionContext): boolean => !!c.sceneId
+/** The scene is on screen (not only open behind another page). */
+const seesScene = (c: ActionContext): boolean => hasScene(c) && c.view === 'write'
 const notTheme = (t: ThemeName) => (c: ActionContext) => c.theme !== t
 
 /** "New character", "New plot thread", "New term". */
@@ -97,21 +102,25 @@ const newLabel = (kind: EntryKind): string => `New ${KIND_LABELS[kind].one.toLow
 export const ACTIONS: ActionDef[] = [
   { id: 'generate', label: 'Generate a draft', keywords: 'write ai scene draft', shortcut: 'generate', when: (c) => hasScene(c) && !c.drafting },
   { id: 'stop', label: 'Stop the draft', keywords: 'cancel halt writing', shortcut: 'stop', when: (c) => c.drafting },
+  // From another page these two go back to the scene first, as Generate does, so Adam sees which scene it was.
   { id: 'mark-done', label: 'Mark scene done', keywords: 'finish finished complete accept', shortcut: 'markDone', when: (c) => hasScene(c) && !c.sceneDone },
+  { id: 'reopen-scene', label: 'Reopen this scene', keywords: 'done undo mark more work revise', when: (c) => hasScene(c) && c.sceneDone },
   { id: 'new-scene', label: 'New scene', keywords: 'add write', when: hasStory },
   { id: 'new-chapter', label: 'New chapter', keywords: 'add', when: hasStory },
   { id: 'new-story', label: 'New story', keywords: 'add book sequel prequel side novella series' },
-  { id: 'delete-scene', label: 'Delete this scene', keywords: 'remove trash bin', when: hasScene },
+  // Only with the scene on screen: never a scene Adam isn't looking at.
+  { id: 'delete-scene', label: 'Delete this scene', keywords: 'remove trash bin', when: seesScene },
   { id: 'go-write', label: 'Back to writing', keywords: 'page scene editor manuscript', away: true, when: (c) => c.view !== 'write' },
   { id: 'go-codex', label: 'Codex', keywords: 'entries cards world bible memory everything', away: true },
-  ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `go-${kind}`, label: KIND_LABELS[kind].many, keywords: 'list world memory', away: true })),
+  ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `go-${kind}`, label: KIND_LABELS[kind].many, keywords: 'list', away: true })),
   { id: 'go-timeline', label: 'Timeline', keywords: 'when dates order events calendar', away: true },
   { id: 'go-map', label: 'Relationship map', keywords: 'relationships characters web family', away: true },
   { id: 'go-threads', label: 'Plot threads board', keywords: 'threads setups payoffs promises', away: true },
   { id: 'go-style', label: 'Style guide', keywords: 'voice prose point view tense spelling', away: true },
-  { id: 'go-memory', label: 'What changed', keywords: 'memory updated history log', away: true },
+  // The top bar's "Memory updated" note opens it.
+  { id: 'go-memory', label: 'What changed', also: 'Memory updated', keywords: 'history log', away: true },
   { id: 'go-story', label: 'Story settings', keywords: 'this story premise start kind time gap', away: true, when: hasStory },
-  ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `new-${kind}`, label: newLabel(kind), keywords: 'add create make world memory', away: true })),
+  ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `new-${kind}`, label: newLabel(kind), keywords: 'add create make', away: true })),
   { id: 'quick-character', label: 'Quick start a character', keywords: 'builder ai make create new character', away: true },
   { id: 'theme-light', label: 'Light theme', keywords: 'appearance colours colors mode', when: notTheme('light') },
   { id: 'theme-dark', label: 'Dark theme', keywords: 'appearance colours colors mode night', when: notTheme('dark') },
@@ -142,7 +151,7 @@ export function entryAction(id: ActionId): { verb: 'go' | 'new'; kind: EntryKind
 export const availableActions = (c: ActionContext): ActionDef[] => ACTIONS.filter((a) => !a.when || a.when(c))
 
 /**
- * The actions that match what Adam typed: every word must start a word of the action's name or
+ * The actions that match what Adam typed: every word must start a word of the action's names or
  * its other words. Names that start with the query come first, then names holding every word, then
  * matches through the other words; otherwise in the list's own order.
  */
@@ -152,11 +161,12 @@ export function matchActions(query: string, c: ActionContext): ActionDef[] {
   const whole = words.join(' ')
   const found: { a: ActionDef; rank: number; i: number }[] = []
   availableActions(c).forEach((a, i) => {
-    const name = wordsOf(a.label)
+    const names = [a.label, ...(a.also ? [a.also] : [])].map(wordsOf)
+    const name = names.flat()
     const extra = wordsOf(a.keywords)
     const starts = (list: string[], w: string): boolean => list.some((x) => x.startsWith(w))
     if (!words.every((w) => starts(name, w) || starts(extra, w))) return
-    const rank = name.join(' ').startsWith(whole) ? 0 : words.every((w) => starts(name, w)) ? 1 : 2
+    const rank = names.some((n) => n.join(' ').startsWith(whole)) ? 0 : words.every((w) => starts(name, w)) ? 1 : 2
     found.push({ a, rank, i })
   })
   return found.sort((x, y) => x.rank - y.rank || x.i - y.i).map((f) => f.a)
@@ -187,6 +197,16 @@ export type Row =
 export type Option = Extract<Row, { type: 'action' | 'hit' | 'more' }>
 
 export const isOption = (r: Row): r is Option => r.type === 'action' || r.type === 'hit' || r.type === 'more'
+
+/**
+ * The row a move of `by` lands on in a list of `n` options, from `index` (-1: none yet). Single steps
+ * wrap around the ends; page steps stop at them.
+ */
+export function stepIndex(index: number, by: number, n: number): number {
+  if (!n) return -1
+  if (Math.abs(by) === 1) return index < 0 ? (by > 0 ? 0 : n - 1) : (index + by + n) % n
+  return Math.max(0, Math.min(n - 1, index + by))
+}
 
 export interface ListInput {
   query: string

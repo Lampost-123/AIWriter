@@ -151,11 +151,17 @@ interface Match {
   term: number
 }
 
-/** Every match of every word in folded text, in order (at most `cap`). */
-function matchesIn(folded: string, terms: Term[], cap = 400): Match[] {
+/**
+ * Every match of every word in folded text, in order. At most `cap` of each word, so a word found all
+ * through a long scene ("the") can't crowd out the others.
+ */
+function matchesIn(folded: string, terms: Term[], cap = 2000): Match[] {
   const out: Match[] = []
   terms.forEach((t, term) => {
-    for (let i = findTerm(folded, t); i >= 0 && out.length < cap; i = findTerm(folded, t, i + 1)) out.push({ from: i, to: i + t.word.length, term })
+    let n = 0
+    for (let i = findTerm(folded, t); i >= 0 && n < cap; i = findTerm(folded, t, i + 1), n++) {
+      out.push({ from: i, to: i + t.word.length, term })
+    }
   })
   out.sort((a, b) => a.from - b.from || b.to - a.to)
   // Overlaps ("ma" inside "mara") become one mark.
@@ -207,8 +213,9 @@ export interface Snippet {
 
 /**
  * The words around the best match in `text`: the spot where the most different words of the query
- * are close together, earliest first. About `size` characters of its paragraph, cut at word breaks,
- * with "…" where text was left out and every match marked. With no match, the start of the text.
+ * are close together (the rarest words, then the earliest, where that is a tie). About `size`
+ * characters of its paragraph, cut at word breaks, with "…" where text was left out and every match
+ * marked. With no match, the start of the text.
  */
 export function snippet(text: string, terms: Term[], size = 180): Snippet {
   const map = foldMap(text)
@@ -219,29 +226,51 @@ export function snippet(text: string, terms: Term[], size = 180): Snippet {
     return { parts: parts([{ text: oneLine(text.slice(0, end)).trim() }, { text: end < text.length ? '…' : '' }]), words: null, at: 0 }
   }
 
-  // The window (from each match, `size` folded characters on) holding the most different words.
+  // The window (from each match, `size` folded characters on, within its paragraph) holding the most
+  // different words; of those, the one with the rarest: in "the gate", a lone "gate" says more than
+  // any of a hundred "the".
+  const count = new Array<number>(terms.length).fill(0)
+  const para: number[] = []
+  all.forEach((m, i) => {
+    count[m.term]++
+    para.push(i === 0 ? 0 : para[i - 1] + (map.folded.slice(all[i - 1].to, m.from).includes('\n') ? 1 : 0))
+  })
   let best = 0
   let bestCount = 0
+  let bestRare = 0
   for (let i = 0; i < all.length; i++) {
     const seen = new Set<number>()
-    for (let j = i; j < all.length && all[j].from < all[i].from + size - before; j++) seen.add(all[j].term)
-    if (seen.size > bestCount) {
+    for (let j = i; j < all.length && all[j].from < all[i].from + size - before && para[j] === para[i]; j++) seen.add(all[j].term)
+    // Added up in the words' order, so the same words always come to the same sum (the earliest window wins ties).
+    let rare = 0
+    for (let t = 0; t < terms.length; t++) if (seen.has(t)) rare += 1 / count[t]
+    if (seen.size > bestCount || (seen.size === bestCount && rare > bestRare)) {
       best = i
       bestCount = seen.size
+      bestRare = rare
       if (seen.size === terms.length) break
     }
   }
-  const anchor = all[best]
-  const anchorFrom = map.start[anchor.from]
+  const anchorFrom = map.start[all[best].from]
 
-  // The anchor's whole word(s): to the end of the last word of the query found right after it.
-  let wordsEnd = map.end[anchor.to - 1]
-  for (let j = best + 1; j < all.length && map.start[all[j].from] - wordsEnd <= 3 && !/\n/.test(text.slice(wordsEnd, map.start[all[j].from])); j++) {
-    wordsEnd = map.end[all[j].to - 1]
+  // The words to open the scene at: the window's rarest word, whole, with the words of the query
+  // right before and after it ("iron gate").
+  let pick = best
+  for (let j = best + 1; j < all.length && all[j].from < all[best].from + size - before && para[j] === para[best]; j++) {
+    if (count[all[j].term] < count[all[pick].term]) pick = j
   }
-  while (wordsEnd < text.length && isWordChar(text[wordsEnd])) wordsEnd++
-  let wordsStart = anchorFrom
+  const next = (a: Match, b: Match): boolean => {
+    const gap = text.slice(map.end[a.to - 1], map.start[b.from])
+    return gap.length <= 3 && !gap.includes('\n')
+  }
+  let first = pick
+  let last = pick
+  while (first > 0 && next(all[first - 1], all[first])) first--
+  while (last + 1 < all.length && next(all[last], all[last + 1])) last++
+  let wordsStart = map.start[all[first].from]
+  let wordsEnd = map.end[all[last].to - 1]
   while (wordsStart > 0 && isWordChar(text[wordsStart - 1])) wordsStart--
+  while (wordsEnd < text.length && isWordChar(text[wordsEnd])) wordsEnd++
 
   // The paragraph the anchor is in bounds the snippet, so it reads as one passage.
   const paraStart = text.lastIndexOf('\n', anchorFrom) + 1

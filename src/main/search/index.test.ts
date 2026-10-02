@@ -82,7 +82,7 @@ describe('search', () => {
     expect(ferry.detail).toBe('Book 1, Ch 1, Sc 1')
     expect(show(ferry.snippet)).toBe('…[Mara] watched the iron gate from the dock, counting the gulls.')
     expect(ferry.prose).toBe(true)
-    expect(ferry.open).toEqual({ kind: 'scene', sceneId: w.s1.id, storyId: w.book1.id, words: 'Mara', panel: null })
+    expect(ferry.open).toEqual({ kind: 'scene', sceneId: w.s1.id, storyId: w.book1.id, words: 'Mara', card: null })
     expect(group(r, 'summaries')!.hits[0].detail).toBe('Scene summary · Book 1, Ch 1, Sc 1')
     expect(r.ms).toBeGreaterThanOrEqual(0)
   })
@@ -113,6 +113,21 @@ describe('search', () => {
     expect(ix.search('tides').groups).toEqual([])
   })
 
+  it('lists what is found by its name first, then the scenes, then entries found only in what else is known about them', () => {
+    const w = world()
+    repo.createEntry(w.db, 'place', { name: 'The Iron Gate', summary: 'A sea gate across the harbour mouth' })
+    repo.createEntry(w.db, 'character', { name: 'Brannoc', description: 'Afraid of the iron gate since he was a boy' })
+    repo.createChapter(w.db, w.book2.id, { title: 'Beyond the Iron Gate' })
+    const r = searchIndex(w.db).search('iron gate')
+    expect(r.groups.map((g) => g.id)).toEqual(['place', 'stories', 'scenes', 'character'])
+    expect(titles(group(r, 'stories'))).toEqual(['Beyond the [Iron] [Gate]'])
+    // A chapter found by its goal rather than its title comes after the scenes and summaries.
+    expect(searchIndex(w.db).search('far shore').groups.map((g) => g.id)).toEqual(['stories'])
+    repo.saveSceneText(w.db, w.s4.id, null, 'They reached the far shore at last.')
+    mem.putSummary(w.db, { level: 'scene', targetId: w.s4.id, text: 'The far shore, at last.', origin: 'text' })
+    expect(searchIndex(w.db).search('far shore').groups.map((g) => g.id)).toEqual(['scenes', 'summaries', 'stories'])
+  })
+
   it('ranks names first, and puts the kind whose name matches before the others', () => {
     const w = world()
     const r = searchIndex(w.db).search('ashford')
@@ -128,13 +143,27 @@ describe('search', () => {
     const ix = searchIndex(w.db)
     const crossing = ix.search('crossing')
     expect(group(crossing, 'summaries')!.hits[0]).toMatchObject({ detail: 'Chapter summary · Book 1, Ch 2' })
-    expect(group(crossing, 'summaries')!.hits[0].open).toEqual({ kind: 'scene', sceneId: w.s3.id, storyId: w.book1.id, words: null, panel: null })
+    expect(group(crossing, 'summaries')!.hits[0].open).toEqual({
+      kind: 'scene',
+      sceneId: w.s3.id,
+      storyId: w.book1.id,
+      words: null,
+      card: null
+    })
     expect(titles(group(crossing, 'stories'))).toEqual(['The [Crossing]'])
     expect(group(crossing, 'stories')!.hits[0].detail).toBe('Book 1, Ch 2')
 
+    // A scene's summary and its notes for the AI open the scene card at them.
+    expect(group(ix.search('never comes'), 'summaries')!.hits[0].open).toEqual({
+      kind: 'scene',
+      sceneId: w.s1.id,
+      storyId: w.book1.id,
+      words: null,
+      card: 'summary'
+    })
     const lantern = group(ix.search('lantern'), 'notes')!.hits[0]
     expect(lantern.detail).toBe('Notes for the AI · Book 1, Ch 1, Sc 2')
-    expect(lantern.open).toEqual({ kind: 'scene', sceneId: w.s2.id, storyId: w.book1.id, words: null, panel: 'card' })
+    expect(lantern.open).toEqual({ kind: 'scene', sceneId: w.s2.id, storyId: w.book1.id, words: null, card: 'notes' })
     const note = group(ix.search('lost hand'), 'notes')!.hits[0]
     expect(note).toMatchObject({ detail: 'Private notes · Character', open: { kind: 'entry', entryId: w.mara.id } })
     expect(show(note.snippet)).toBe('Maybe she [lost] her [hand] in Book 2?')
@@ -142,7 +171,7 @@ describe('search', () => {
     // The card's goal finds the scene, opening its card.
     const smugglers = ix.search('smugglers')
     expect(show(group(smugglers, 'scenes')!.hits[0].snippet)).toBe('Goal: Tobin learns about the [smugglers]')
-    expect(group(smugglers, 'scenes')!.hits[0].open).toMatchObject({ panel: 'card', words: null })
+    expect(group(smugglers, 'scenes')!.hits[0].open).toMatchObject({ card: 'goal', words: null })
     expect(group(ix.search('smuggling'), 'stories')!.hits[0]).toMatchObject({ detail: 'Story', open: { kind: 'story', storyId: w.book1.id } })
 
     const style = group(ix.search('semicolons'), 'style')!.hits[0]

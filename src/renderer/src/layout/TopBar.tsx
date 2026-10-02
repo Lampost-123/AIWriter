@@ -1,6 +1,6 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import { Check, ChevronDown, Globe2, PanelLeft, PanelRight, PenLine, Plus, Search as SearchIcon, Settings as SettingsIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { WorldSummary } from '@shared/types'
 import { IconButton, Kbd, toast } from '@/components/ui'
 import { api, isMac } from '@/lib/api'
@@ -11,7 +11,7 @@ import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
-import { openPalette, usePalette } from '@/features/palette/paletteStore'
+import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { saveNote } from './saveNote'
 import { UpdateBanner } from './UpdateBanner'
 
@@ -47,7 +47,7 @@ async function renameWorld(name: string): Promise<void> {
 
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-surface-2'
 
-function WorldMenu(): React.JSX.Element {
+function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element {
   const world = useApp((s) => s.world)
   const openWorld = useApp((s) => s.openWorld)
   const [worlds, setWorlds] = useState<WorldSummary[]>([])
@@ -56,15 +56,21 @@ function WorldMenu(): React.JSX.Element {
   const newOpen = usePalette((s) => s.newWorld)
   const renaming = usePalette((s) => s.renamingWorld)
   const setNewOpen = (o: boolean): void => usePalette.setState({ newWorld: o })
-  const setRenaming = (o: boolean): void => usePalette.setState({ renamingWorld: o })
   // Set when the chosen item moves focus elsewhere (the name box, the New world dialog),
   // so the closing menu doesn't pull focus back to its button.
   const keepFocus = useRef(false)
+  // Opened from the palette: closing it puts the caret back where Adam was, not on the menu's button.
+  const fromPalette = useRef(false)
+  // Set when Rename is chosen: the name box opens once the menu has closed, as an open menu keeps
+  // the keyboard inside it and the box would lose it.
+  const renameNext = useRef(false)
+  // The first world other than this one, where the keyboard starts when the palette asks to switch.
+  const otherWorld = useRef<HTMLDivElement>(null)
+  const worldId = world?.id
 
-  // The list of worlds is fetched each time the menu opens, however it was opened.
-  useEffect(() => {
-    if (!menuOpen) return
-    keepFocus.current = false
+  // The list of worlds is there before the menu first opens, so it opens whole (from the palette too),
+  // and it is fetched again each time the menu opens.
+  const load = (): (() => void) => {
     let live = true
     api
       .listWorlds()
@@ -73,27 +79,35 @@ function WorldMenu(): React.JSX.Element {
     return () => {
       live = false
     }
+  }
+  useEffect(load, [worldId])
+  useEffect(() => {
+    if (!menuOpen) return
+    keepFocus.current = false
+    renameNext.current = false
+    fromPalette.current = menuOpen === 'palette'
+    return load()
   }, [menuOpen])
 
-  if (renaming && world) {
-    return (
-      <div className="flex h-7 w-[260px] items-center gap-1.5 px-2">
-        <Globe2 size={14} className="shrink-0 text-muted" />
-        <InlineTitle
-          label="World name"
-          value={world.name}
-          className="h-6 text-[13px] font-semibold"
-          onCommit={(n) => renameWorld(n)}
-          onDone={() => setRenaming(false)}
-        />
-      </div>
-    )
-  }
+  // "Switch to another world": once the menu is up, the keyboard is on the first other world.
+  useEffect(() => {
+    if (menuOpen !== 'palette') return
+    const f = requestAnimationFrame(() => otherWorld.current?.focus())
+    return () => cancelAnimationFrame(f)
+  }, [menuOpen])
 
+  const firstOther = worlds.find((w) => w.id !== worldId)?.id
   return (
     <>
-      <M.Root open={menuOpen} onOpenChange={(o) => usePalette.setState({ worldMenu: o })}>
-        <M.Trigger className="flex h-7 max-w-[260px] items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2">
+      <M.Root open={!!menuOpen} onOpenChange={(o) => usePalette.setState({ worldMenu: o ? 'bar' : false })}>
+        {/* While the world is renamed, its name box covers this; the button keeps its room, so nothing moves. */}
+        <M.Trigger
+          ref={trigger}
+          className={cn(
+            'flex h-7 max-w-[260px] items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
+            renaming && 'invisible'
+          )}
+        >
           <Globe2 size={14} className="shrink-0 text-muted" />
           <span className="truncate">{world?.name ?? 'No world open'}</span>
           <ChevronDown size={13} className="shrink-0 text-muted" />
@@ -103,8 +117,13 @@ function WorldMenu(): React.JSX.Element {
             align="start"
             sideOffset={4}
             onCloseAutoFocus={(e) => {
-              if (keepFocus.current) e.preventDefault()
+              if (keepFocus.current || fromPalette.current) e.preventDefault()
+              // Rename was chosen: the name box opens now that the menu is closed (opened from the
+              // palette, the caret goes back to the page once the name is in).
+              if (renameNext.current) usePalette.setState({ renamingWorld: fromPalette.current ? 'palette' : 'bar' })
+              else if (fromPalette.current && !keepFocus.current) giveFocusBack()
               keepFocus.current = false
+              renameNext.current = false
             }}
             className="z-50 min-w-[240px] max-w-[360px] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
           >
@@ -112,6 +131,7 @@ function WorldMenu(): React.JSX.Element {
             {worlds.map((w) => (
               <M.Item
                 key={w.id}
+                ref={w.id === firstOther ? otherWorld : undefined}
                 onSelect={() => {
                   if (w.id === world?.id) return
                   void flushBeforeWorldChange()
@@ -121,7 +141,8 @@ function WorldMenu(): React.JSX.Element {
                 className={menuItem}
               >
                 <span className="w-4 shrink-0">{w.id === world?.id ? <Check size={14} className="text-accent" /> : null}</span>
-                <span className="truncate">{w.name}</span>
+                {/* The open world by its name now, so a rename shows here at once (the list was read before it). */}
+                <span className="truncate">{w.id === world?.id ? world.name : w.name}</span>
               </M.Item>
             ))}
             <M.Separator className="my-1 h-px bg-line" />
@@ -129,7 +150,7 @@ function WorldMenu(): React.JSX.Element {
               <M.Item
                 onSelect={() => {
                   keepFocus.current = true
-                  setRenaming(true)
+                  renameNext.current = true
                 }}
                 className={menuItem}
               >
@@ -150,6 +171,38 @@ function WorldMenu(): React.JSX.Element {
       </M.Root>
       <NewWorldDialog open={newOpen} onOpenChange={setNewOpen} />
     </>
+  )
+}
+
+/**
+ * The world's name box, over the world's name and the search box beside it, so nothing in the bar
+ * moves while Adam types (the old width of the name would be too small for a new one). Once the name
+ * is in, the keyboard goes back where it was: the world's button, or (renamed from the palette) the
+ * page. Not if Adam has clicked somewhere else meanwhile.
+ */
+function RenameWorld({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }): React.JSX.Element | null {
+  const world = useApp((s) => s.world)
+  const renaming = usePalette((s) => s.renamingWorld)
+  if (!renaming || !world) return null
+  const done = (): void => {
+    usePalette.setState({ renamingWorld: false })
+    requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return
+      if (renaming === 'palette') giveFocusBack()
+      else trigger.current?.focus()
+    })
+  }
+  return (
+    <div className="absolute inset-y-0 left-0 right-0 z-10 flex items-center gap-1.5 bg-surface px-2">
+      <Globe2 size={14} className="shrink-0 text-muted" />
+      <InlineTitle
+        label="World name"
+        value={world.name}
+        className="h-6 text-[13px] font-semibold"
+        onCommit={(n) => renameWorld(n)}
+        onDone={done}
+      />
+    </div>
   )
 }
 
@@ -193,6 +246,7 @@ export function TopBar(): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
   const drafting = useApp((s) => s.activeGeneration !== null)
   const hasWorld = useApp((s) => s.world !== null)
+  const worldButton = useRef<HTMLButtonElement>(null)
   const layout = settings?.layout
   // The scene panel belongs to an open scene in the writing view; elsewhere the button rests.
   const panelAvailable = view.kind === 'write' && !!sceneId
@@ -214,8 +268,13 @@ export function TopBar(): React.JSX.Element {
       <IconButton label="Show or hide the binder" active={layout?.binderOpen} onClick={() => layout && void update({ layout: { binderOpen: !layout.binderOpen } })}>
         <PanelLeft size={16} />
       </IconButton>
-      <WorldMenu />
-      <SearchBox />
+      {/* The world's name and the search box: renaming the world happens over both, so nothing in the bar moves. */}
+      <div className="relative flex min-w-0 items-center gap-1">
+        <WorldMenu trigger={worldButton} />
+        {/* Search needs an open world (with none, the bar is only the way to Settings). */}
+        {hasWorld ? <SearchBox /> : null}
+        <RenameWorld trigger={worldButton} />
+      </div>
       {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it. */}
       <div className="flex min-w-0 flex-1 justify-center px-3">
         <UpdateBanner />
@@ -241,7 +300,8 @@ export function TopBar(): React.JSX.Element {
         label="Settings"
         title={withShortcut('Settings', 'settings')}
         active={view.kind === 'settings'}
-        onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}>
+        onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}
+      >
         <SettingsIcon size={16} />
       </IconButton>
       <IconButton

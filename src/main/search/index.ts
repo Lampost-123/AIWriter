@@ -7,7 +7,17 @@
 
 import type Database from 'better-sqlite3'
 import type { EntryKind, ID, StyleGuide, SummaryLevel } from '@shared/types'
-import type { SearchGroup, SearchGroupId, SearchHit, SearchOpen, SearchOptions, SearchPlace, SearchResults, TextPart } from '@shared/contracts/search'
+import type {
+  CardPart,
+  SearchGroup,
+  SearchGroupId,
+  SearchHit,
+  SearchOpen,
+  SearchOptions,
+  SearchPlace,
+  SearchResults,
+  TextPart
+} from '@shared/contracts/search'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import * as rows from '../db/search'
 import { loadShape } from '../db/memory'
@@ -34,13 +44,18 @@ interface Field {
 
 const field = (label: string, text: string): Field => ({ label, text, f: fold(text) })
 
+/** A field of a scene's card, with the part it is (to open the card there). */
+interface CardField extends Field {
+  part: CardPart
+}
+
 interface SceneDoc {
   id: ID
   title: string
   titleF: string
   text: string
   textF: string
-  card: Field[]
+  card: CardField[]
   notes: Field
   /** Everything a scene result matches on (not its notes, which are listed under Notes). */
   all: string[]
@@ -315,7 +330,7 @@ export class SearchIndex {
   private sceneDoc(s: rows.SceneWords): SceneDoc {
     const titleF = fold(s.title)
     const textF = fold(s.text)
-    const card = s.card.map((c) => field(c.label, c.text))
+    const card = s.card.map((c): CardField => ({ ...field(c.label, c.text), part: c.part }))
     return { id: s.id, title: s.title, titleF, text: s.text, textF, card, notes: field('Notes for the AI', s.notes), all: [titleF, textF, ...card.map((c) => c.f)] }
   }
 
@@ -370,19 +385,29 @@ export class SearchIndex {
     const expand = new Set(options.expand ?? [])
     const take = (id: SearchGroupId): number => (expand.has(id) ? MORE_LIMIT : limit)
 
+    // What is found by its name comes first (entries by a name or their summary, chapters and stories
+    // by title), then the manuscript, then the rest: entries found only in their description or what
+    // the memory has about them would otherwise fill the list before the first scene.
+    const entries = this.entryGroups(terms, take)
+    const stories = this.storyGroup(terms, take('stories'))
     const groups: SearchGroup[] = [
-      ...this.entryGroups(terms, take),
+      ...entries.filter((e) => e.named).map((e) => e.group),
+      ...(stories.named ? [stories.group] : []),
       this.sceneGroup(terms, take('scenes'), options.storyId ?? null),
+      ...entries.filter((e) => !e.named).map((e) => e.group),
       this.summaryGroup(terms, take('summaries')),
       this.noteGroup(terms, take('notes')),
-      this.storyGroup(terms, take('stories')),
+      ...(stories.named ? [] : [stories.group]),
       this.styleGroup(terms, take('style'))
     ].filter((g) => g.total > 0)
     return { query, groups, ms: Math.round((performance.now() - started) * 10) / 10 }
   }
 
-  /** Entries, a group per kind: names first, then aliases, then the one-line summary, then everything else. */
-  private entryGroups(terms: Term[], take: (id: SearchGroupId) => number): SearchGroup[] {
+  /**
+   * Entries, a group per kind: names first, then aliases, then the one-line summary, then everything
+   * else. `named`: the group's best is found by a name or the summary (it is listed before the scenes).
+   */
+  private entryGroups(terms: Term[], take: (id: SearchGroupId) => number): { group: SearchGroup; named: boolean }[] {
     const words = terms.map((t) => t.word).join(' ')
     const found = new Map<EntryKind, Ranked<EntryDoc>[]>()
     for (const e of this.entries.values()) {
@@ -402,7 +427,7 @@ export class SearchIndex {
       return [{ group: { id: kind, label: KIND_LABELS[kind].many, total: list.length, hits: list.slice(0, take(kind)).map((r) => this.entryHit(r.doc, terms, r.rank[0])) }, best: list[0].rank }]
     })
       .sort((a, b) => a.best[0] - b.best[0] || a.best[1] - b.best[1])
-      .map((g) => g.group)
+      .map((g) => ({ group: g.group, named: g.best[0] < 3 }))
   }
 
   private entryHit(e: EntryDoc, terms: Term[], tier: number): SearchHit {
@@ -457,7 +482,7 @@ export class SearchIndex {
       detail: place.label,
       snippet: parts,
       prose: !card,
-      open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words, panel: card ? 'card' : null }
+      open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words, card: card?.part ?? null }
     }
   }
 
@@ -509,7 +534,7 @@ export class SearchIndex {
       const place = o.scenes.get(s.targetId)!
       title = this.scenes.get(s.targetId)?.title || 'Untitled scene'
       detail = `${detail} · ${place.label}`
-      open = { kind: 'scene', sceneId: s.targetId, storyId: place.storyId, words: null, panel: 'card' }
+      open = { kind: 'scene', sceneId: s.targetId, storyId: place.storyId, words: null, card: 'summary' }
     } else if (s.level === 'chapter') {
       const place = o.chapters.get(s.targetId)!
       title = this.chapters.get(s.targetId)?.title.text || 'Untitled chapter'
@@ -528,7 +553,7 @@ export class SearchIndex {
   private chapterOpen(chapterId: ID): SearchOpen {
     const c = this.outline.chapters.get(chapterId)!
     return c.firstSceneId
-      ? { kind: 'scene', sceneId: c.firstSceneId, storyId: c.storyId, words: null, panel: null }
+      ? { kind: 'scene', sceneId: c.firstSceneId, storyId: c.storyId, words: null, card: null }
       : { kind: 'story', storyId: c.storyId, sceneId: null }
   }
 
@@ -563,15 +588,18 @@ export class SearchIndex {
           detail: `Notes for the AI · ${place.label}`,
           snippet: snippet(s.notes.text, terms, 180).parts,
           prose: false,
-          open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words: null, panel: 'card' }
+          open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words: null, card: 'notes' }
         }
       })
     ]
     return { id: 'notes', label: GROUP_LABELS.notes, total, hits }
   }
 
-  /** Stories (title and premise) and chapters (title and goal): titles first, then in reading order. */
-  private storyGroup(terms: Term[], take: number): SearchGroup {
+  /**
+   * Stories (title and premise) and chapters (title and goal): titles first, then in reading order.
+   * `named`: one is found by its title (the group is listed before the scenes).
+   */
+  private storyGroup(terms: Term[], take: number): { group: SearchGroup; named: boolean } {
     type Doc = { story: StoryDoc } | { chapter: ChapterDoc }
     const found: Ranked<Doc>[] = []
     for (const [id, place] of this.outline.stories) {
@@ -605,7 +633,7 @@ export class SearchIndex {
         open: this.chapterOpen(c.id)
       }
     })
-    return { id: 'stories', label: GROUP_LABELS.stories, total: found.length, hits }
+    return { group: { id: 'stories', label: GROUP_LABELS.stories, total: found.length, hits }, named: found[0]?.rank[0] === 0 }
   }
 
   /** The world's style guide, and each story's own style for the AI. */
@@ -647,7 +675,7 @@ export class SearchIndex {
           detail: place.label,
           snippet: [],
           prose: false,
-          open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words: null, panel: null }
+          open: { kind: 'scene', sceneId: s.id, storyId: place.storyId, words: null, card: null }
         })
       } else if (p?.kind === 'entry') {
         const e = this.entries.get(p.id)
