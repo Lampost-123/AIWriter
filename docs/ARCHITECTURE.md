@@ -12,6 +12,9 @@ better-sqlite3 (N-API prebuilds ship in the package, so no native rebuild is
 needed for Electron), electron-builder for the Windows installer, electron-updater
 for updates, Vitest for logic tests and Playwright (`_electron`) for app tests.
 
+Electron 44 no longer downloads its own binary when installed, and `electron-vite dev` won't
+fetch it ("Error: Electron uninstall"), so the `postinstall` script runs `install-electron`.
+
 ## Layout
 
 ```

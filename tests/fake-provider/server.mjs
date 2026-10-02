@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // A tiny OpenAI-compatible server for tests. No dependencies.
 //
 //   GET  /v1/models            a few models with context_length and pricing (OpenRouter style); 401 for the key "bad"
