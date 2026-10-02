@@ -1,25 +1,28 @@
-import { BookOpen, FileText, Folder, MapPin, RotateCcw, ScrollText, Trash2, Users } from 'lucide-react'
+import { BookOpen, FileText, Folder, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { DeletedItem } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { Button, Card, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { KIND_ICONS } from '@/features/world/kindIcons'
 import { formatBackupDate, inSentence } from './backupText'
 
 // The Trash: scenes, chapters and world entries deleted from the open world, kept for
 // 30 days (then purged when the world opens). Each can be brought back with one click.
 
-const ICONS: Record<string, ReactNode> = {
+const OUTLINE_ICONS: Record<Exclude<DeletedItem['kind'], 'entry'>, ReactNode> = {
   story: <BookOpen size={15} />,
   chapter: <Folder size={15} />,
-  scene: <FileText size={15} />,
-  character: <Users size={15} />,
-  place: <MapPin size={15} />,
-  lore: <ScrollText size={15} />
+  scene: <FileText size={15} />
 }
 
-const iconFor = (d: DeletedItem): ReactNode => ICONS[d.kind === 'entry' ? (d.entryKind ?? '') : d.kind] ?? <ScrollText size={15} />
+/** Each kind of world entry has the same icon here as in the binder. */
+function iconFor(d: DeletedItem): ReactNode {
+  if (d.kind !== 'entry') return OUTLINE_ICONS[d.kind]
+  const Icon = d.entryKind ? KIND_ICONS[d.entryKind] : ScrollText
+  return <Icon size={15} />
+}
 
 const fallbackTitle = (d: DeletedItem): string =>
   d.kind === 'entry' ? 'Unnamed' : d.kind === 'scene' ? 'Untitled scene' : d.kind === 'chapter' ? 'Untitled chapter' : 'Untitled story'

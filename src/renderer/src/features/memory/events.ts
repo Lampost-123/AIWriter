@@ -16,12 +16,15 @@ export function installMemoryEvents(): () => void {
     if (before && ((before.reading && before.reading.sceneId !== status.reading?.sceneId) || before.failed !== status.failed))
       app.bumpOutline()
   })
-  const offChanged = onEvent('memory:changed', () => {
+  const offChanged = onEvent('memory:changed', (change) => {
     const app = useApp.getState()
+    // Every time, so open entry pages and lists show what the memory now holds.
     app.bumpEntries()
     app.bumpMemory()
     // A scene's "Memory not updated" mark may have come or gone.
     app.bumpOutline()
+    // Not about one scene (a story's placement changed, say): the stories themselves may have changed too.
+    if (change.sceneId === null) void app.refreshStories().catch(() => undefined)
   })
 
   // Each world has its own memory: ask what it is doing whenever a world opens.

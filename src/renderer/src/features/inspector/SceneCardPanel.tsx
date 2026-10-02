@@ -117,9 +117,10 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const povOptions = useMemo(() => characters.map((c) => ({ value: c.id, label: c.name.trim() || 'Unnamed' })), [characters])
   const locOptions = useMemo(() => placeOptions(places), [places])
 
+  // Entries made here are made in this scene's story, so the memory knows where they first exist.
   const createCharacter = useCallback(async (name: string): Promise<Entry | null> => {
     try {
-      const e = await api.createEntry('character', { name })
+      const e = await api.createEntry('character', { name, originStoryId: useApp.getState().storyId })
       setEntries((prev) => [...(prev ?? []), e])
       useApp.getState().bumpEntries()
       toast(`Added ${e.name} to your characters. Fill in their profile under Characters when you're ready.`)
@@ -132,7 +133,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   const createThread = useCallback(async (name: string): Promise<Entry | null> => {
     try {
-      const e = await api.createEntry('thread', { name })
+      const e = await api.createEntry('thread', { name, originStoryId: useApp.getState().storyId })
       setEntries((prev) => [...(prev ?? []), e])
       useApp.getState().bumpEntries()
       toast(`Added “${e.name}” to your plot threads.`)
