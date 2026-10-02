@@ -1,0 +1,361 @@
+// Builds the memory model's reading requests for one scene: the changed paragraphs split into
+// chunks that fit the model, each with a little surrounding text, the scene card, the facts whose
+// words changed, the facts already read from the scene and the memory at this point (entries the
+// chunk mentions first, then names of the rest while there is room). Entries, facts and known facts
+// are given short ids (E1, F1, K1), mapped back when the reply is applied. No Electron imports.
+
+import type { ChatMessage, ContextBlock, EntryState, ID, ModelChoice, SceneCard } from '@shared/types'
+import type { SceneMemory } from '../memory/types'
+import { READING_SYSTEM } from './prompts'
+import { changeWords, fieldValue, type SceneFact } from './facts'
+import { clip, estimateTokens, firstWords, lastWords, likeness, mentionAt, splitLong, type Para } from './text'
+import { DEFAULT_MEMORY_CONTEXT } from './model'
+
+/** How much of the model's window each request may use. */
+export interface ReadingBudget {
+  contextLength: number
+  /** Room kept for the reply. */
+  reply: number
+  /** Tokens for everything but the instructions. */
+  available: number
+  /** Tokens for the scene's paragraphs in one request. */
+  text: number
+}
+
+export function readingBudget(choice: Pick<ModelChoice, 'contextLength' | 'maxOutput'>): ReadingBudget | null {
+  const contextLength = choice.contextLength && choice.contextLength > 0 ? choice.contextLength : DEFAULT_MEMORY_CONTEXT
+  let reply = Math.max(400, Math.min(4000, Math.floor(contextLength * 0.2)))
+  if (choice.maxOutput && choice.maxOutput > 0) reply = Math.min(reply, choice.maxOutput)
+  const available = Math.floor(contextLength * 0.9) - reply - estimateTokens(READING_SYSTEM)
+  if (available < 350) return null
+  return { contextLength, reply, available, text: Math.max(120, Math.floor(available * 0.45)) }
+}
+
+/** One piece of a chunk: a paragraph (or part of a long one) to read, or surrounding text. */
+interface Piece {
+  label: string
+  text: string
+  para: Para | null
+}
+
+export interface ReadingChunk {
+  /** Paragraphs (or parts) to read, labelled P1, P2... by their place in the scene. */
+  pieces: Piece[]
+  /** The paragraphs this chunk reads. */
+  paras: Para[]
+  atRisk: SceneFact[]
+}
+
+/** Splits the paragraphs to read into chunks that fit, with a little surrounding text, and gives each fact whose words changed to one. */
+export function planChunks(all: Para[], toRead: Para[], atRisk: SceneFact[], budget: ReadingBudget): ReadingChunk[] {
+  if (!toRead.length) return []
+  const index = new Map(all.map((p, i) => [p, i]))
+  const reading = new Set(toRead)
+  const chunks: ReadingChunk[] = []
+  let cur: ReadingChunk = { pieces: [], paras: [], atRisk: [] }
+  let used = 0
+  const flush = (): void => {
+    if (cur.paras.length) chunks.push(cur)
+    cur = { pieces: [], paras: [], atRisk: [] }
+    used = 0
+  }
+  const contextFor = (i: number, before: boolean): Piece | null => {
+    const p = all[i]
+    if (!p || reading.has(p)) return null
+    return { label: 'Context', text: before ? lastWords(p.text, 50) : firstWords(p.text, 50), para: null }
+  }
+  for (const p of toRead) {
+    const i = index.get(p) ?? 0
+    const parts = splitLong(p.text, budget.text)
+    for (const part of parts) {
+      const cost = estimateTokens(part) + 4
+      if (cur.paras.length && used + cost > budget.text) flush()
+      if (!cur.paras.includes(p)) {
+        const prev = cur.pieces.length ? null : contextFor(i - 1, true)
+        if (prev && used + estimateTokens(prev.text) + cost <= budget.text) {
+          cur.pieces.push(prev)
+          used += estimateTokens(prev.text) + 4
+        }
+        cur.paras.push(p)
+      }
+      cur.pieces.push({ label: `P${i + 1}`, text: part, para: p })
+      used += cost
+    }
+    const next = contextFor(i + 1, false)
+    if (next && used + estimateTokens(next.text) + 4 <= budget.text) {
+      cur.pieces.push(next)
+      used += estimateTokens(next.text) + 4
+    }
+  }
+  flush()
+  // Each fact whose words changed goes with the chunk holding its paragraph, or the most alike text.
+  for (const f of atRisk) {
+    const link = f.links[0]
+    let best = link?.paragraphId ? chunks.findIndex((c) => c.paras.some((p) => p.pid === link.paragraphId)) : -1
+    if (best < 0) {
+      let score = -1
+      chunks.forEach((c, n) => {
+        const s = Math.max(0, ...c.paras.map((p) => likeness(link?.quote ?? '', p.text)))
+        if (s > score) {
+          score = s
+          best = n
+        }
+      })
+    }
+    chunks[Math.max(0, best)].atRisk.push(f)
+  }
+  return chunks
+}
+
+/** Short ids for one request, and what they stand for. */
+export class Ids {
+  readonly entries = new Map<string, ID>()
+  readonly byEntry = new Map<ID, string>()
+  readonly facts = new Map<string, SceneFact>()
+  readonly known = new Map<string, ID>()
+  readonly knownText = new Map<string, string>()
+
+  entry(id: ID): string {
+    let e = this.byEntry.get(id)
+    if (!e) {
+      e = `E${this.byEntry.size + 1}`
+      this.byEntry.set(id, e)
+      this.entries.set(e, id)
+    }
+    return e
+  }
+  fact(f: SceneFact): string {
+    const id = `F${this.facts.size + 1}`
+    this.facts.set(id, f)
+    return id
+  }
+  knownFact(factId: ID, fact: string): string {
+    for (const [k, v] of this.known) if (v === factId) return k
+    const k = `K${this.known.size + 1}`
+    this.known.set(k, factId)
+    this.knownText.set(k, fact)
+    return k
+  }
+}
+
+export interface ReadingRequest {
+  messages: ChatMessage[]
+  blocks: ContextBlock[]
+  ids: Ids
+  /** Entries told about, for the record of what the model saw. */
+  entryIds: ID[]
+}
+
+const q = (s: string): string => `"${s.replace(/\s+/g, ' ').trim()}"`
+
+/** A fact as the memory model is told it ("change E1: lost her left hand"). */
+function describeFact(f: SceneFact, ids: Ids): string {
+  const e = ids.entry(f.entry.id)
+  switch (f.kind) {
+    case 'change': {
+      const c = f.change
+      if (c.kind === 'relationship') return `relationship ${e} with ${ids.entry(c.payload.otherId)}: ${c.payload.type}${c.payload.ended ? ' (ended)' : ''}`
+      if (c.kind === 'knowledge') return `${c.payload.forgets ? 'forgets' : 'knows'} ${e}: ${c.payload.fact}`
+      if (c.kind === 'thread') return `thread ${e}: ${c.payload.status}${c.payload.note ? ` (${c.payload.note})` : ''}`
+      const fields = Object.entries(c.kind === 'update' ? (c.payload.fields ?? {}) : {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ')
+      return `change ${e}: ${changeWords(c, () => '').toLowerCase()}${fields ? ` (${fields})` : ''}`
+    }
+    case 'field':
+      return `detail ${e} ${f.field}: ${clip(fieldValue(f.entry, f.field), 30)}`
+    case 'voice':
+      return `voice ${e}: ${q(f.line)}`
+    case 'entry':
+      return `entry ${e} ${f.entry.kind} ${q(f.entry.name)}`
+  }
+}
+
+/** One entry as the memory model is told it: in full (state at this point) or as a name only. */
+function entryLine(e: EntryState, id: string, full: boolean): string {
+  const head = `- ${id} ${e.kind} ${q(e.name)}${e.aliases.length ? ` (also: ${e.aliases.join(', ')})` : ''}`
+  if (!full) return head
+  const parts: string[] = []
+  if (e.summary.trim()) parts.push(clip(e.summary, 30))
+  if (e.description.trim()) parts.push(clip(e.description, 40))
+  const fields = Object.entries(e.fields ?? {})
+    .filter(([k, v]) => k !== 'sampleLines' && v && v.trim())
+    .slice(0, 14)
+    .map(([k, v]) => `${k}: ${clip(v, 15)}`)
+  if (fields.length) parts.push(fields.join('; '))
+  const happened = e.happened.slice(-5).map((h) => h.note)
+  if (happened.length) parts.push(`So far: ${happened.join('; ')}`)
+  return `${head}. ${parts.join('. ')}`.replace(/\.\s*\./g, '.').trim()
+}
+
+function mentioned(e: EntryState, text: string): boolean {
+  return [e.name, ...e.aliases].some((n) => mentionAt(text, n) !== null)
+}
+
+/** Lines added while they fit the room left. */
+class Room {
+  constructor(public left: number) {}
+  take(line: string): boolean {
+    const t = estimateTokens(line) + 1
+    if (t > this.left) return false
+    this.left -= t
+    return true
+  }
+}
+
+export interface RequestInput {
+  where: string
+  title: string
+  card: SceneCard
+  chunk: ReadingChunk
+  /** Facts read from this scene whose words are still there. */
+  found: SceneFact[]
+  memory: SceneMemory | null
+  budget: ReadingBudget
+}
+
+/** The messages for one chunk, and the blocks saved for "What the AI saw". */
+export function buildRequest(r: RequestInput): ReadingRequest {
+  const ids = new Ids()
+  const sm = r.memory
+  const chunkText = r.chunk.pieces.map((p) => p.text).join('\n')
+  const here = sm?.entries ?? []
+  const byId = new Map<ID, EntryState>(here.map((e) => [e.id, e]))
+  const onCard = new Set<ID>([r.card.povId, ...r.card.presentIds, r.card.locationId].filter((x): x is ID => !!x))
+
+  // The scene's paragraphs first: they must go in.
+  const sceneLines = [
+    `## Scene: ${r.where}${r.title ? ` ${q(r.title)}` : ''}`,
+    ...cardLines(r.card, ids, byId),
+    ...r.chunk.pieces.map((p) => `${p.label}: ${p.text}`)
+  ]
+  const room = new Room(r.budget.available - estimateTokens(sceneLines.join('\n')))
+
+  // Facts whose words changed: they need a verdict, so they go in too.
+  const riskLines = r.chunk.atRisk.map((f) => {
+    const id = ids.fact(f)
+    return `- ${id} ${describeFact(f, ids)} | words, no longer in the scene: ${q(f.links[0]?.quote ?? '')}`
+  })
+  for (const l of riskLines) room.take(l)
+
+  // The memory: entries this chunk mentions (or the scene card lists) in full, as of this scene.
+  const memoryLines: string[] = []
+  const shown = new Set<ID>()
+  const relevant = here.filter((e) => onCard.has(e.id) || mentioned(e, chunkText) || r.chunk.atRisk.some((f) => f.entry.id === e.id))
+  for (const e of relevant) {
+    const line = entryLine(e, ids.entry(e.id), true)
+    if (room.take(line)) {
+      memoryLines.push(line)
+      shown.add(e.id)
+    }
+  }
+  // Facts already read from this scene (so they aren't repeated), nearest the chunk first.
+  const foundLines: string[] = []
+  const pids = new Set(r.chunk.paras.map((p) => p.pid).filter(Boolean))
+  const near = (f: SceneFact): number => (f.links.some((l) => l.paragraphId && pids.has(l.paragraphId)) ? 0 : 1)
+  const found = [...r.found].sort((a, b) => near(a) - near(b))
+  for (const f of found) {
+    const line = `- ${ids.fact(f)} ${describeFact(f, ids)} | words: ${q(f.links.find((l) => l.state === 'ok')?.quote ?? f.links[0]?.quote ?? '')}`
+    if (!room.take(line)) break
+    foundLines.push(line)
+  }
+  // Relationships, known facts and open plot threads among those shown.
+  const relLines: string[] = []
+  for (const rel of sm?.relationships ?? []) {
+    if (!shown.has(rel.aId) || !shown.has(rel.bId)) continue
+    const line = `- ${ids.entry(rel.aId)} and ${ids.entry(rel.bId)}: ${rel.type}${rel.aFeels || rel.bFeels ? ` (${ids.entry(rel.aId)}: ${rel.aFeels || '-'}; ${ids.entry(rel.bId)}: ${rel.bFeels || '-'})` : ''}`
+    if (room.take(line)) relLines.push(line)
+  }
+  const factLines: string[] = []
+  for (const f of sm?.facts ?? []) {
+    if (!f.knownBy.some((k) => shown.has(k)) && !relevant.some((e) => mentionAt(f.fact, e.name))) continue
+    const known = f.knownBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
+    const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
+    if (factLines.length < 40 && room.take(line)) factLines.push(line)
+  }
+  const threadLines: string[] = []
+  for (const t of sm?.threads ?? []) {
+    if (t.status !== 'open') continue
+    const e = byId.get(t.entryId)
+    if (!e) continue
+    const line = `- ${ids.entry(e.id)} ${q(e.name)}`
+    if (threadLines.length < 30 && room.take(line)) {
+      threadLines.push(line)
+      shown.add(e.id)
+    }
+  }
+  // Entries from elsewhere in the world that this chunk mentions: reuse them, never duplicate them.
+  const elsewhereLines: string[] = []
+  for (const x of sm?.elsewhere ?? []) {
+    if (!mentioned(x.entry, chunkText)) continue
+    const line = `${entryLine(x.entry, ids.entry(x.entry.id), false)}: ${x.label}`
+    if (room.take(line)) elsewhereLines.push(line)
+  }
+  // Names of everything else here, while there is room, so a new entry isn't a duplicate.
+  const nameLines: string[] = []
+  for (const e of here) {
+    if (shown.has(e.id) || e.kind === 'thread' || e.kind === 'event') continue
+    const line = entryLine(e, ids.entry(e.id), false)
+    if (!room.take(line)) break
+    nameLines.push(line)
+  }
+
+  const memoryText = [
+    sm?.knows ? sm.knows : '',
+    memoryLines.length || nameLines.length ? ['## Memory at this point', ...memoryLines, ...nameLines].join('\n') : '## Memory at this point\n(nothing yet)',
+    relLines.length ? ['Relationships:', ...relLines].join('\n') : '',
+    factLines.length ? ['Facts (who knows what):', ...factLines].join('\n') : '',
+    threadLines.length ? ['Open plot threads:', ...threadLines].join('\n') : '',
+    elsewhereLines.length ? ['## Elsewhere in the world (not at this point yet; use these ids)', ...elsewhereLines].join('\n') : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+  const foundText = foundLines.length ? ['## Facts from this scene', ...foundLines].join('\n') : ''
+  const riskText = riskLines.length ? ['## Facts whose words changed (a verdict for each)', ...riskLines].join('\n') : ''
+  const sceneText = sceneLines.join('\n')
+  const user = [memoryText, foundText, riskText, sceneText].filter(Boolean).join('\n\n')
+
+  const entryIds = [...ids.entries.values()]
+  const block = (id: string, priority: number, title: string, text: string, entries: ID[] = []): ContextBlock => ({
+    id,
+    priority,
+    title,
+    text,
+    tokens: estimateTokens(text),
+    entryIds: entries,
+    dropped: false
+  })
+  const blocks = [
+    block('instructions', 1, 'Instructions for the memory model', READING_SYSTEM),
+    block('memory', 3, 'The memory at this point', memoryText, entryIds),
+    ...(foundText ? [block('scene-facts', 4, 'Facts already read from this scene', foundText)] : []),
+    ...(riskText ? [block('changed-facts', 2, 'Facts whose words changed', riskText)] : []),
+    block('scene-text', 2, 'The new and changed paragraphs', sceneText)
+  ]
+  return {
+    messages: [
+      { role: 'system', content: READING_SYSTEM },
+      { role: 'user', content: user }
+    ],
+    blocks,
+    ids,
+    entryIds
+  }
+}
+
+function cardLines(card: SceneCard, ids: Ids, byId: Map<ID, EntryState>): string[] {
+  const name = (id: ID | null): string | null => {
+    if (!id) return null
+    const e = byId.get(id)
+    return e ? `${ids.entry(id)} ${e.name}` : null
+  }
+  const parts: string[] = []
+  const pov = name(card.povId)
+  if (pov) parts.push(`point of view ${pov}`)
+  const present = card.presentIds.map(name).filter(Boolean)
+  if (present.length) parts.push(`present ${present.join(', ')}`)
+  const place = name(card.locationId)
+  if (place) parts.push(`place ${place}`)
+  if (card.when.trim()) parts.push(`when ${card.when.trim()}`)
+  return parts.length ? [`Scene card: ${parts.join('; ')}`] : []
+}

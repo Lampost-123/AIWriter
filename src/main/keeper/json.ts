@@ -88,26 +88,32 @@ export function parseLenient(reply: string): Parsed {
   }
 }
 
-/** What a reading reply holds: a verdict for each fact whose words changed, and new items. */
+/** What a reading reply holds: a verdict for each fact whose words changed, new facts, and clashes with the memory. */
 export interface ReadingReply {
   facts: Record<string, unknown>[]
-  new: Record<string, unknown>[]
+  add: Record<string, unknown>[]
+  clashes: Record<string, unknown>[]
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
 /** Checks the shape of a reading reply. Items it can't use are left for the caller to skip one by one. */
 export function readingReply(value: unknown): { ok: true; reply: ReadingReply } | { ok: false; why: string } {
-  if (Array.isArray(value)) return { ok: true, reply: { facts: [], new: value.filter(isObj) } }
   if (!isObj(value)) return { ok: false, why: 'it was not a JSON object' }
-  const facts = value.facts ?? value.verdicts ?? []
-  const items = value.new ?? value.items ?? []
-  if (!Array.isArray(facts)) return { ok: false, why: 'its "facts" was not a list' }
-  if (!Array.isArray(items)) return { ok: false, why: 'its "new" was not a list' }
-  if (!('facts' in value) && !('new' in value) && !('verdicts' in value) && !('items' in value)) {
-    return { ok: false, why: 'it had neither a "facts" nor a "new" list' }
+  const lists: Record<keyof ReadingReply, string[]> = { facts: ['facts', 'verdicts'], add: ['add', 'new'], clashes: ['clashes', 'clash'] }
+  const reply: ReadingReply = { facts: [], add: [], clashes: [] }
+  let any = false
+  for (const [key, names] of Object.entries(lists) as [keyof ReadingReply, string[]][]) {
+    const name = names.find((n) => n in value)
+    if (!name) continue
+    any = true
+    const v = value[name]
+    if (v == null) continue
+    if (!Array.isArray(v)) return { ok: false, why: `its "${key}" was not a list` }
+    reply[key] = v.filter(isObj)
   }
-  return { ok: true, reply: { facts: facts.filter(isObj), new: items.filter(isObj) } }
+  if (!any) return { ok: false, why: 'it had none of the "facts", "add" and "clashes" lists' }
+  return { ok: true, reply }
 }
 
 /** A string field, trimmed and capped; '' when missing. */
