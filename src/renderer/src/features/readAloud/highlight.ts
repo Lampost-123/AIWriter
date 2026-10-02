@@ -4,6 +4,7 @@
 // It is a decoration only: the words and their marks never change, nothing is saved and nothing goes in the
 // undo history. It also keeps where the clip being read starts and ends, mapped through every edit, so reading
 // carries on from the right place after Adam edits while it reads (control.ts). Its look is in readAloud.css.
+// While the reading bar lies over the top of the page, the cursor is kept clear of it when the page scrolls to it.
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -37,6 +38,22 @@ function mapped(range: { from: number; to: number } | null, tr: Transaction): { 
   return to > from ? { from, to } : { from: Math.min(from, to), to: Math.min(from, to) }
 }
 
+/**
+ * The room the reading bar takes at the top of the page (ReadAloudBar sets it). ProseMirror reads these when it
+ * scrolls the cursor into view: the plugin keeps the objects themselves, so they change in place.
+ */
+const barThreshold = { top: 0, right: 0, bottom: 0, left: 0 }
+const barMargin = { top: 5, right: 5, bottom: 5, left: 5 }
+
+/** The reading bar's height over the page, in pixels (0 when it is closed). */
+export function setBarRoom(px: number): void {
+  barThreshold.top = Math.max(0, Math.round(px))
+  barMargin.top = barThreshold.top + 5
+}
+
+/** The room the reading bar takes at the top of the page now. */
+export const barRoom = (): number => barThreshold.top
+
 export const readingPlugin = new Plugin<State>({
   key: readingKey,
   state: {
@@ -59,7 +76,9 @@ export const readingPlugin = new Plugin<State>({
     }
   },
   props: {
-    decorations: (state) => readingKey.getState(state)?.decorations ?? DecorationSet.empty
+    decorations: (state) => readingKey.getState(state)?.decorations ?? DecorationSet.empty,
+    scrollThreshold: barThreshold,
+    scrollMargin: barMargin
   }
 })
 

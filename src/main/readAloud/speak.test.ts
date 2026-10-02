@@ -79,6 +79,19 @@ describe('asking the speech server for a clip', () => {
     })
     const empty = server(() => new Response(new Uint8Array(44)))
     await expect(speak({ ...clip, input: 'Third.' }, cache, 'breeze', empty.fetcher)).rejects.toMatchObject({ code: 'speech-failed' })
+    // The server stops partway through sending the audio.
+    const cut = server(
+      () =>
+        new Response(
+          new ReadableStream({
+            start: (c) => c.error(new Error('socket hang up'))
+          })
+        )
+    )
+    await expect(speak({ ...clip, input: 'Fourth.' }, cache, 'breeze', cut.fetcher)).rejects.toMatchObject({
+      message: SPEECH_FAILED,
+      code: 'speech-failed'
+    })
     // Nothing failed is kept.
     expect((await cache.stats()).files).toBe(0)
   })

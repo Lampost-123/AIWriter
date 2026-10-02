@@ -4,8 +4,9 @@
 //
 //   speakers  Who says each numbered quote ("[3]“Get out.”" in the user message). Reply: a JSON object from each
 //             number to a name, taking turns between the first two characters the system prompt lists under
-//             "Characters in this story:" (odd numbers the first, even the second); "?" when it lists nobody.
-//             e.g. {"1": "Mara", "2": "Tobin", "3": "Mara"}
+//             "Characters in this story:" (odd numbers the first, even the second); "?" when it lists nobody; and
+//             "a stranger" for a quote followed by "someone" (“Fine,” someone muttered).
+//             e.g. {"1": "Mara", "2": "Tobin", "3": "a stranger"}
 //
 //   marks     Mark who says what: a note for each numbered line. A number before a quote gets
 //             "<speaker> | quiet and wary" (the speaker taking turns as above, the tone "bright and quick" on even
@@ -39,9 +40,13 @@ const userText = (messages) =>
     messages.filter((m) => m.role === 'user').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))[0] ?? ''
   )
 
-/** Each numbered line in the user message: its number, and whether it is a quote. */
+/** Each numbered line in the user message: its number, whether it is a quote, and whether "someone" says it. */
 function numberedLines(text) {
-  return [...text.matchAll(/\[(\d+)\](.)/gs)].map((m) => ({ n: Number(m[1]), quote: m[2] === '"' || m[2] === '“' }))
+  return [...text.matchAll(/\[(\d+)\](.)/gs)].map((m) => ({
+    n: Number(m[1]),
+    quote: m[2] === '"' || m[2] === '“',
+    someone: /^["“][^"”]*["”],?\s+someone\b/.test(text.slice(m.index + m[0].length - 1))
+  }))
 }
 
 export function readAloudReply(system, messages, _model) {
@@ -51,7 +56,9 @@ export function readAloudReply(system, messages, _model) {
   const who = (n) => (names.length ? names[(n - 1) % Math.min(2, names.length)] : '?')
   const lines = numberedLines(userText(messages))
 
-  if (job === 'speakers') return JSON.stringify(Object.fromEntries(lines.filter((l) => l.quote).map((l) => [String(l.n), who(l.n)])))
+  if (job === 'speakers') {
+    return JSON.stringify(Object.fromEntries(lines.filter((l) => l.quote).map((l) => [String(l.n), l.someone ? 'a stranger' : who(l.n)])))
+  }
 
   if (job === 'marks') {
     return JSON.stringify(

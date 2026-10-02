@@ -8,7 +8,10 @@
 //  - Settings: the narrator's voices with Hear, Sample, picking another voice and the saved audio; Listen from here
 //    reads from the selected words in the voice picked.
 //  - Editing while it reads: the next lines are read as they now stand. Keep reading goes on into the next scene.
-//  - Mark who says what: the AI's notes on each line reach the voice and the bar ("Mara · quiet and wary").
+//  - Mark who says what: the AI's notes on each line reach the voice and the bar ("Mara · quiet and wary"), and
+//    keep ahead of the reading to the end of a long scene.
+//  - A line the rules can't place (someone outside the cast) is marked by the AI, with no voices of their own.
+//  - A line the voice can't read stays lit, with Try again and Skip this line.
 //  - The speech engine not running, then its voices not ready: plain words, with the way to fix it.
 import type { Page } from '@playwright/test'
 import { join } from 'node:path'
@@ -106,6 +109,7 @@ test('Ctrl+L reads from the cursor with the narrator and Mara in her own voice; 
     await on.click()
     await expect(on).toBeChecked()
     await expect.poll(async () => (await spoken(speech)).map((s) => s.input), { timeout: 30_000 }).toContain('Ready when you are.')
+    await expect(win.getByText('The voices are ready.')).toBeVisible()
     await expect(win.getByRole('radiogroup', { name: "Narrator's voice" }).getByRole('radio')).toHaveCount(9)
 
     // Mara's page: Suggest describes her voice, and nothing is kept until Use this.
@@ -237,9 +241,10 @@ test('Settings: Hear a voice, Sample, pick the narrator, clear saved audio; List
       .toBe(true)
     await expect(voice('Narrator')).toHaveAttribute('aria-checked', 'true')
 
-    // Sample: the sentence typed, read as reading will sound.
+    // Sample: the sentence typed, read as reading will sound (Enter plays it, and adds no new line).
     await win.getByLabel('Sample sentence').fill('The tide came in over the causeway at dusk.')
-    await win.getByRole('button', { name: 'Sample', exact: true }).click()
+    await win.getByLabel('Sample sentence').press('Enter')
+    await expect(win.getByLabel('Sample sentence')).toHaveValue('The tide came in over the causeway at dusk.')
     await expect
       .poll(async () =>
         (await spoken(speech)).some((s) => s.voice === 'narrator' && s.input === 'The tide came in over the causeway at dusk.')
@@ -252,6 +257,17 @@ test('Settings: Hear a voice, Sample, pick the narrator, clear saved audio; List
     await voice('Bright narrator').click()
     await expect(voice('Bright narrator')).toHaveAttribute('aria-checked', 'true')
     await expect(voice('Narrator')).toHaveAttribute('aria-checked', 'false')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.narratorVoice).toBe('narrator-bright')
+    // From the keyboard: the list is one stop for Tab, and the arrow keys move and pick.
+    await expect(voice('Bright narrator')).toHaveAttribute('tabindex', '0')
+    await expect(voice('Narrator')).toHaveAttribute('tabindex', '-1')
+    await expect(voices.getByRole('button', { name: 'Hear Deep narrator' })).toHaveAttribute('tabindex', '-1')
+    await voice('Bright narrator').focus()
+    await win.keyboard.press('ArrowDown')
+    await expect(voice('Young woman')).toBeFocused()
+    await expect(voice('Young woman')).toHaveAttribute('aria-checked', 'true')
+    await win.keyboard.press('ArrowUp')
+    await expect(voice('Bright narrator')).toHaveAttribute('aria-checked', 'true')
     await expect.poll(async () => (await invoke(win, 'getSettings')).speech.narratorVoice).toBe('narrator-bright')
 
     // More: the saved audio, and Clear.
@@ -353,6 +369,122 @@ test('Mark who says what: the AI notes who says each line and how, and the bar s
   } finally {
     await speech.close()
     await fake.close()
+  }
+})
+
+/** A long scene: ten paragraphs of about 840 characters, each starting "Part n." (8,400 characters in all). */
+const LONG = Array.from({ length: 10 }, (_, i) =>
+  `Part ${i + 1}. ${'The tide crept in over the stones while the gulls argued on the harbour wall below. '.repeat(10)}`.trim()
+)
+
+test('Mark who says what keeps its notes ahead of the reading, to the end of a long scene', async ({ launch }) => {
+  test.setTimeout(180_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    const [story] = await invoke(win, 'listStories')
+    const { chapters } = await invoke(win, 'getOutline', story.id)
+    const long = await invoke(win, 'createScene', chapters[0].id, { title: 'The long crossing' })
+    await invoke(win, 'saveSceneText', long.id, null, LONG.join('\n\n'))
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true, speed: 2 } })
+    await useFakeModel(win, fake)
+
+    await binder(win).locator('[data-row]', { hasText: 'The long crossing' }).first().click()
+    await expect(prose(win)).toContainText('Part 10.')
+    await prose(win).click()
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Narrator', { timeout: 30_000 })
+    // Far past the part noted as reading started (about 4,000 characters), each paragraph is still read with the
+    // AI's note on it: the notes kept ahead of the reading.
+    await expect.poll(async () => (await spoken(speech)).some((s) => s.input.startsWith('Part 9.')), { timeout: 120_000 }).toBe(true)
+    await win.keyboard.press('Control+Shift+Space')
+    const said = await spoken(speech)
+    for (const n of [2, 5, 7, 8, 9]) {
+      expect(said.find((s) => s.input.startsWith(`Part ${n}.`))?.delivery, `Part ${n}`).toBe('hushed and steady')
+    }
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})
+
+test('a line the rules can’t place is marked by the AI, with no voices of their own', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara' })
+    await invoke(win, 'createEntry', 'character', { name: 'Tobin' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    await useFakeModel(win, fake)
+
+    await prose(win).click()
+    const lines = [
+      SCENE[0],
+      '"Get out of the rain," said Mara.',
+      '"I was waiting for you," Tobin snapped.',
+      '"Fine," someone muttered from the dark.',
+      'Nobody answered, and the rain came down harder on the slate roofs.'
+    ]
+    for (const [i, para] of lines.entries()) {
+      if (i) await win.keyboard.press('Enter')
+      await win.keyboard.type(para)
+    }
+    await win.keyboard.press('Control+Home')
+    await watchReading(win)
+    await win.keyboard.press('Control+l')
+    // The rules give the exchange its speakers; someone outside it is nobody's turn, and the AI says who.
+    await expect.poll(async () => (await seen(win)).bar.some((b) => b.startsWith('A stranger')), { timeout: 30_000 }).toBe(true)
+    const who = (await seen(win)).bar.map((b) => b.split(' · ')[0])
+    expect(who.indexOf('Mara')).toBeGreaterThan(-1)
+    expect(who.indexOf('Tobin')).toBeGreaterThan(who.indexOf('Mara'))
+    expect(who.indexOf('A stranger')).toBeGreaterThan(who.indexOf('Tobin'))
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})
+
+test('a line the voice can’t read stays lit, to try again or skip', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    await prose(win).click()
+    await win.keyboard.type('The ferry was late again.')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('The engine coughed twice. Then it FAIL-SPEECH stalled out on the black water.')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Mara counted the lamps on the far shore.')
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText("The voice couldn't read this line.", { timeout: 30_000 })
+    // The line it couldn't read is lit, all of it (both sentences, as Skip this line skips both), so it is clear which.
+    await expect.poll(() => lit(win)).toBe('The engine coughed twice. Then it FAIL-SPEECH stalled out on the black water.')
+    await expect(readingBar(win).getByRole('button', { name: 'Try again' })).toBeVisible()
+
+    // Skip this line: reading carries on after it, to the end, and the line isn't asked for again.
+    const failing = async (): Promise<number> => (await spoken(speech)).filter((s) => s.input.includes('FAIL-SPEECH')).length
+    const tries = await failing()
+    await watchReading(win)
+    await readingBar(win).getByRole('button', { name: 'Skip this line' }).click()
+    await expect(readingBar(win)).toContainText('Read to the end of the story.', { timeout: 30_000 })
+    const after = (await seen(win)).lit
+    expect(litAt(after, 'Mara counted the lamps')).toBeGreaterThan(-1)
+    expect(after.findIndex((l, i) => i > 0 && l.trimStart().startsWith('The engine coughed'))).toBe(-1)
+    expect((await spoken(speech)).some((s) => s.input.startsWith('Mara counted the lamps'))).toBe(true)
+    expect(await failing()).toBe(tries)
+  } finally {
+    await speech.close()
   }
 })
 

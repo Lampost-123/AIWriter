@@ -23,6 +23,7 @@ import {
   parseLabels,
   parseNumbered,
   UNKNOWN,
+  unmarkedIn,
   withLabels,
   withMarks,
   type Para
@@ -74,14 +75,16 @@ export class MarkStore {
   }
 
   /**
-   * Keeps new marks for some paragraphs. `scene`: the scene's paragraphs now, so marks for paragraphs it no longer
-   * has, or whose words changed, are dropped.
+   * Keeps new marks for some paragraphs. `scene`: the paragraphs whose words are known now (a reading sends the scene
+   * from a little before where it starts), so marks for any of them whose words changed are dropped. `all`: every
+   * paragraph the scene has now, when known, so marks for paragraphs it no longer has are dropped too.
    */
-  save(worldId: ID, sceneId: ID, blocks: Para[], scene: readonly { pid: string; text: string }[]): void {
+  save(worldId: ID, sceneId: ID, blocks: Para[], scene: readonly { pid: string; text: string }[], all?: ReadonlySet<string>): void {
     const file = this.fileOf(worldId, sceneId)
     if (!file) return
     const now = new Map(scene.map((p) => [p.pid, textHash(p.text)]))
-    const kept = Object.fromEntries(Object.entries(this.load(worldId, sceneId)).filter(([pid, k]) => now.get(pid) === k.hash))
+    const stays = ([pid, k]: [string, KeptParagraph]): boolean => (now.has(pid) ? now.get(pid) === k.hash : !all || all.has(pid))
+    const kept = Object.fromEntries(Object.entries(this.load(worldId, sceneId)).filter(stays))
     for (const b of blocks) {
       if (now.get(b.id) !== textHash(b.text)) continue
       const speakers = b.speakers && Object.keys(b.speakers).length ? b.speakers : undefined
@@ -107,27 +110,75 @@ export type Ask = (call: {
 export interface MarkingScene {
   worldId: ID
   sceneId: ID
-  /** The whole scene's paragraphs as they are now, with the marks kept for them. */
+  /** The scene's paragraphs as they are now (from a little before where reading is), with the marks kept for them. */
   blocks: Para[]
   /** The paragraphs being read, in order, from where reading is now. */
   run: string[]
+  /** Where reading is in the run's first paragraph, in characters. */
+  offset?: number
   /** The characters the AI is told about. */
   cast: CastMember[]
   /** Who tells the story, when it is told in the first person. */
   pov?: string
+  /** Every paragraph id the scene has now, when known (marks for others are let go). */
+  pids?: ReadonlySet<string>
+}
+
+/** Where reading asks for its clips again (ReadingPlan.markAhead): in paragraph `pid`, `at` characters into its words. */
+export interface MarkAhead {
+  pid: string
+  at: number
 }
 
 /** Paragraphs that failed to be marked are left alone this long, so a reading doesn't ask again and again. */
 const RETRY_MS = 120_000
+
+/** One paragraph of the run: where its words start and end, counted from where reading is, and where it is read from. */
+interface RunEntry {
+  b: Para
+  from: number
+  start: number
+  end: number
+}
+
+/** The run as reading goes through it. */
+function runOf(s: MarkingScene): RunEntry[] {
+  const byId = new Map(s.blocks.map((b) => [b.id, b]))
+  const out: RunEntry[] = []
+  let pos = 0
+  s.run.forEach((pid, i) => {
+    const b = byId.get(pid)
+    if (!b) return
+    const from = i === 0 ? Math.min(Math.max(0, s.offset ?? 0), b.text.length) : 0
+    out.push({ b, from, start: pos, end: pos + b.text.length - from })
+    pos += b.text.length - from
+  })
+  return out
+}
+
+/** A place in the run, as a paragraph and a place in its words. */
+function placeIn(run: RunEntry[], at: number): MarkAhead | undefined {
+  const e = run.find((x) => at < x.end) ?? run.at(-1)
+  return e ? { pid: e.b.id, at: e.from + Math.max(0, Math.min(at, e.end) - e.start) } : undefined
+}
+
+/** A call the Marker made: its way to ask, and the number that tells its reply from a later call's. */
+interface Call {
+  call: Ask
+  stop: () => void
+  token: number
+}
 
 /**
  * Starts and keeps track of the AI's marking: at most one call per paragraph at a time, a little ahead of the
  * reading, and nothing asked again soon after it failed.
  */
 export class Marker {
-  private busy = new Map<string, Set<string>>()
+  /** The paragraphs of each scene being marked now, each with the call marking it. */
+  private busy = new Map<string, Map<string, number>>()
   private failed = new Map<string, Map<string, { hash: string; at: number }>>()
   private stops = new Map<string, Set<() => void>>()
+  private calls = 0
 
   constructor(
     private readonly store: MarkStore,
@@ -139,7 +190,7 @@ export class Marker {
 
   /** The paragraphs of a scene being marked now. */
   busyIn(worldId: ID, sceneId: ID): Set<string> {
-    return new Set(this.busy.get(this.key(worldId, sceneId)) ?? [])
+    return new Set(this.busy.get(this.key(worldId, sceneId))?.keys() ?? [])
   }
 
   private gaveUp(key: string, b: Para): boolean {
@@ -147,46 +198,57 @@ export class Marker {
     return !!f && f.hash === textHash(b.text) && Date.now() - f.at < RETRY_MS
   }
 
-  /**
-   * Mark who says what: has the AI note who says each line and how, for the paragraphs a little ahead of the reading
-   * (the part reading is in, and the next), where nothing is kept yet. Returns the paragraphs being noted now.
-   */
-  note(s: MarkingScene): Set<string> {
-    const key = this.key(s.worldId, s.sceneId)
-    const busy = this.busy.get(key) ?? new Set<string>()
+  /** Paragraphs that couldn't be marked: read by the rules, and not asked about again for a while. */
+  private gaveUpOn(key: string, s: MarkingScene, pids: string[]): void {
+    const failed = this.failed.get(key) ?? this.failed.set(key, new Map()).get(key)!
     const byId = new Map(s.blocks.map((b) => [b.id, b]))
-    // A little ahead: about the first part and the next.
-    const ahead: string[] = []
-    let size = 0
-    for (const pid of s.run) {
+    for (const pid of pids) {
       const b = byId.get(pid)
-      if (!b) continue
-      ahead.push(pid)
-      size += b.text.length
-      if (size >= MARK_FIRST + MARK_PART) break
+      if (b) failed.set(pid, { hash: textHash(b.text), at: Date.now() })
     }
-    const skip = new Set([...busy, ...s.blocks.filter((b) => this.gaveUp(key, b)).map((b) => b.id)])
-    const parts = markParts(s.blocks, ahead, skip)
-    for (const part of parts) {
-      const run = this.begin(key, s.sceneId, part.blockIds)
-      if (!run) break
-      const reply = 200 + part.asks.length * 40
-      void run
-        .call({ system: MARK_PROMPT(s.cast, s.pov), user: contextFor(part.before, part.text), reply, temperature: 0.3 })
-        .then(({ text, error }) => {
-          const said = text == null ? {} : parseNumbered(text, 300)
-          const got = Object.keys(said).length ? marksFrom(part, said, s.pov) : null
-          this.finish(
-            key,
-            s,
-            part.blockIds,
-            got ? s.blocks.filter((b) => got.has(b.id)).map((b) => withMarks(b, got.get(b.id)!)) : null,
-            error,
-            run.stop
-          )
-        })
+  }
+
+  /**
+   * Mark who says what: has the AI note who says each line and how, a part of the scene at a time, a little ahead of
+   * the reading: when the reading is about to need notes it hasn't got, the part from there (and, as a reading
+   * starts, a small part whose notes come back while the first clip plays, then the next). Returns the paragraphs
+   * being noted now, and `again`: where the reading asks again, a part's length before the next paragraph that
+   * needs notes, so they keep ahead of it to the end of the scene.
+   */
+  note(s: MarkingScene): { busy: Set<string>; again?: MarkAhead } {
+    const key = this.key(s.worldId, s.sceneId)
+    const run = runOf(s)
+    const open = (e: RunEntry): boolean =>
+      !this.busy.get(key)?.has(e.b.id) && !this.gaveUp(key, e.b) && unmarkedIn(e.b.text, e.b.speakers, e.b.delivery).length > 0
+    const first = run.find(open)
+    if (first && first.start <= MARK_FIRST) {
+      const start = first.start < MARK_FIRST / 2
+      const ids = run.filter((e) => e.end > first.start && e.start < first.start + MARK_FIRST + MARK_PART).map((e) => e.b.id)
+      const skip = new Set([...(this.busy.get(key)?.keys() ?? []), ...s.blocks.filter((b) => this.gaveUp(key, b)).map((b) => b.id)])
+      const parts = markParts(s.blocks, ids, skip, start ? MARK_FIRST : MARK_PART).slice(0, start ? 2 : 1)
+      for (const [i, part] of parts.entries()) {
+        const call = this.begin(key, s.sceneId, part.blockIds)
+        if ('error' in call) {
+          // The AI can't be asked (no model for it): these parts are read by the rules, and the reading is told once.
+          const pids = parts.slice(i).flatMap((p) => p.blockIds)
+          this.gaveUpOn(key, s, pids)
+          this.done(s.sceneId, pids, call.error)
+          break
+        }
+        const reply = 200 + part.asks.length * 40
+        void call
+          .call({ system: MARK_PROMPT(s.cast, s.pov), user: contextFor(part.before, part.text), reply, temperature: 0.3 })
+          .then(({ text, error }) => {
+            const said = text == null ? {} : parseNumbered(text, 300)
+            const got = Object.keys(said).length ? marksFrom(part, said, s.pov) : null
+            const blocks = got ? s.blocks.filter((b) => got.has(b.id)).map((b) => withMarks(b, got.get(b.id)!)) : null
+            this.finish(key, s, call, part.blockIds, blocks, error)
+          })
+      }
     }
-    return new Set(this.busy.get(key) ?? [])
+    const next = run.find(open)
+    const again = next ? placeIn(run, Math.max(0, next.start - MARK_FIRST)) : undefined
+    return { busy: this.busyIn(s.worldId, s.sceneId), ...(again ? { again } : {}) }
   }
 
   /**
@@ -195,79 +257,73 @@ export class Marker {
    */
   label(s: MarkingScene, unplaced: Map<string, Set<string>>): Set<string> {
     const key = this.key(s.worldId, s.sceneId)
-    const busy = this.busy.get(key) ?? new Set<string>()
+    const busy = this.busy.get(key)
     const wanted = (b: Para, quote: string): boolean =>
-      !!unplaced.get(b.id)?.has(quote) && !busy.has(b.id) && !this.gaveUp(key, b) && b.speakers?.[quote] === undefined
+      !!unplaced.get(b.id)?.has(quote) && !busy?.has(b.id) && !this.gaveUp(key, b) && b.speakers?.[quote] === undefined
     const { parts, quotes } = numbered(s.blocks, wanted)
-    if (!quotes.length) return new Set(busy)
+    if (!quotes.length) return this.busyIn(s.worldId, s.sceneId)
     const pids = [...new Set(quotes.map((q) => q.blockId))]
-    const run = this.begin(key, s.sceneId, pids)
-    if (!run) return new Set(this.busy.get(key) ?? [])
+    const call = this.begin(key, s.sceneId, pids)
+    if ('error' in call) {
+      // The AI can't be asked: these lines are read by the rules, and the reading is told once.
+      this.gaveUpOn(key, s, pids)
+      this.done(s.sceneId, pids, call.error)
+      return this.busyIn(s.worldId, s.sceneId)
+    }
     void Promise.all(
       parts.map((part) => {
         const n = (part.text.match(/\[\d+\]/g) ?? []).length
-        return run.call({ system: LABEL_PROMPT(s.cast), user: contextFor(part.before, part.text), reply: 80 + n * 16, temperature: 0 })
+        return call.call({ system: LABEL_PROMPT(s.cast), user: contextFor(part.before, part.text), reply: 80 + n * 16, temperature: 0 })
       })
     ).then((replies) => {
       const error = replies.find((r) => r.error)?.error ?? null
-      if (replies.every((r) => r.text == null)) return this.finish(key, s, pids, null, error, run.stop)
+      if (replies.every((r) => r.text == null)) return this.finish(key, s, call, pids, null, error)
       const said: Record<string, string> = Object.assign({}, ...replies.map((r) => (r.text == null ? {} : parseLabels(r.text))))
       const labels = new Map<string, Record<string, string>>()
       quotes.forEach((q, i) => {
         const of = labels.get(q.blockId) ?? labels.set(q.blockId, {}).get(q.blockId)!
         of[q.key] = said[String(i + 1)] ?? UNKNOWN
       })
-      this.finish(
-        key,
-        s,
-        pids,
-        s.blocks.filter((b) => labels.has(b.id)).map((b) => withLabels(b, labels.get(b.id)!)),
-        null,
-        run.stop
-      )
+      const blocks = s.blocks.filter((b) => labels.has(b.id)).map((b) => withLabels(b, labels.get(b.id)!))
+      this.finish(key, s, call, pids, blocks, null)
     })
-    return new Set(this.busy.get(key) ?? [])
+    return this.busyIn(s.worldId, s.sceneId)
   }
 
-  /** Marks the paragraphs busy and gets a way to ask; null (and says why, once) when the AI can't be asked. */
-  private begin(key: string, sceneId: ID, pids: string[]): { call: Ask; stop: () => void } | null {
+  /** Marks the paragraphs busy with a new call and gets a way to ask, or why the AI can't be asked. */
+  private begin(key: string, sceneId: ID, pids: string[]): Call | { error: string } {
     const got = this.ask(sceneId)
-    if ('error' in got) {
-      this.done(sceneId, pids, got.error)
-      return null
-    }
-    const busy = this.busy.get(key) ?? this.busy.set(key, new Set()).get(key)!
-    for (const pid of pids) busy.add(pid)
+    if ('error' in got) return got
+    const token = ++this.calls
+    const busy = this.busy.get(key) ?? this.busy.set(key, new Map()).get(key)!
+    for (const pid of pids) busy.set(pid, token)
     const stops = this.stops.get(key) ?? this.stops.set(key, new Set()).get(key)!
     stops.add(got.stop)
-    return got
+    return { ...got, token }
   }
 
-  private finish(key: string, s: MarkingScene, pids: string[], blocks: Para[] | null, error: string | null, stop: () => void): void {
-    this.stops.get(key)?.delete(stop)
+  private finish(key: string, s: MarkingScene, call: Call, pids: string[], blocks: Para[] | null, error: string | null): void {
+    this.stops.get(key)?.delete(call.stop)
     const busy = this.busy.get(key)
-    // Stopped (the reading ended, or the world closed): nothing is kept and nobody is told.
-    if (!busy || !pids.some((p) => busy.has(p))) return
-    for (const pid of pids) busy.delete(pid)
+    // A call that was stopped (the reading ended, or the world closed), or that a later call took over from: its
+    // reply is dropped, and nobody is told.
+    const mine = pids.filter((pid) => busy?.get(pid) === call.token)
+    if (!busy || !mine.length) return
+    for (const pid of mine) busy.delete(pid)
     if (blocks) {
       try {
         this.store.save(
           s.worldId,
           s.sceneId,
-          blocks,
-          s.blocks.map((b) => ({ pid: b.id, text: b.text }))
+          blocks.filter((b) => mine.includes(b.id)),
+          s.blocks.map((b) => ({ pid: b.id, text: b.text })),
+          s.pids
         )
       } catch (e) {
         console.warn('[read aloud] could not keep the marks', e)
       }
-    } else {
-      const failed = this.failed.get(key) ?? this.failed.set(key, new Map()).get(key)!
-      for (const pid of pids) {
-        const b = s.blocks.find((x) => x.id === pid)
-        if (b) failed.set(pid, { hash: textHash(b.text), at: Date.now() })
-      }
-    }
-    this.done(s.sceneId, pids, blocks ? null : (error ?? "The AI's marks couldn't be read, so this part is read by the rules alone."))
+    } else this.gaveUpOn(key, s, mine)
+    this.done(s.sceneId, mine, blocks ? null : (error ?? "The AI's marks couldn't be read, so this part is read by the rules alone."))
   }
 
   /** Stops marking a scene (its reading stopped): calls in flight are stopped and their replies dropped. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attributeRun, castOf, everyone, memberNamed, namesFor, speakerOf, type SceneCast } from './cast'
+import { attributeRun, castOf, everyone, memberNamed, namesFor, speakerOf, strangerTag, type SceneCast } from './cast'
 import { QUOTE } from './speakers'
 
 const world = castOf([
@@ -52,6 +52,22 @@ describe('speech tags', () => {
     expect(check('“Hold the line!” she shouted.')).toBeUndefined()
   })
 
+  it('finds names in any alphabet, and a capitalised name only as it is written', () => {
+    const cast = everyone(
+      castOf([
+        { id: 'zoe', name: 'Zoë', aliases: [], about: '' },
+        { id: 'elodie', name: 'Élodie Marchand', aliases: [], about: '' },
+        { id: 'will', name: 'Will', aliases: [], about: '' }
+      ])
+    )
+    expect(speakers(['“Wait,” said Zoë.'], cast)).toEqual(['zoe'])
+    expect(speakers(['“Wait,” Élodie whispered.'], cast)).toEqual(['elodie'])
+    expect(speakers(['Zoë leaned on the rail. “Rain again.”'], cast)).toEqual(['zoe'])
+    // "will" is not Will.
+    expect(speakers(['They will go at dawn. “Ready?”'], cast)).toEqual([null])
+    expect(speakers(['Will leaned in. “Ready?”'], cast)).toEqual(['will'])
+  })
+
   it('gives "I said" to the viewpoint character', () => {
     const para = '“Not tonight,” I said.'
     expect(speakerOf(para, 0, 14, { ...all, pov: tom })?.who.id).toBe('tom')
@@ -93,6 +109,22 @@ describe('who says each line over a conversation', () => {
     expect(speakers(['Tomas was gone. “Hello?”'], scene)).toEqual([null])
     // ...but a tag naming him does.
     expect(speakers(['“Hello?” Tomas called.'], scene)).toEqual(['tom'])
+  })
+
+  it('leaves a line whose tag names someone outside the cast to the AI, and the exchange keeps its turns around it', () => {
+    const exchange = ['“Where were you?” said Mara.', '“Out,” Tomas said.']
+    expect(speakers([...exchange, '“Fine,” someone muttered.', '“Out where?”'])).toEqual(['mara', 'tom', null, 'mara'])
+    // The verb first, and the lines after it in the same paragraph.
+    expect(speakers([...exchange, '“Tickets,” said the driver. “All of them.”'])).toEqual(['mara', 'tom', null, null])
+    // Someone named after a character is not that character.
+    expect(speakers([...exchange, '“Not me,” Mara’s brother said.'])).toEqual(['mara', 'tom', null])
+    expect(speakers(['“Not me,” said Mara’s brother.'])).toEqual([null])
+    // "She said" is someone in the exchange: whose turn it is.
+    expect(speakers([...exchange, '“Go,” she said.'])).toEqual(['mara', 'tom', 'mara'])
+    expect(strangerTag('“Fine,” someone muttered.', 0, 7, all)).toBe(true)
+    expect(strangerTag('The driver said, “Out.”', 17, 6, all)).toBe(true)
+    expect(strangerTag('“Fine,” the captain muttered.', 0, 7, all)).toBe(false)
+    expect(strangerTag('“Fine.” He turned away.', 0, 7, all)).toBe(false)
   })
 
   it('gives a quote to the speaker the AI marked, and never guesses a turn for someone the cast lacks', () => {

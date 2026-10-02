@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -69,13 +70,54 @@ describe('the spoken audio kept on disk', () => {
     expect(await again.get(key('a'))).not.toBeNull()
   })
 
+  it('counts each clip once when two are kept at the same moment over the limit', async () => {
+    const cache = new AudioCache(dir, () => 250)
+    await cache.put(key('a'), clip(1))
+    later(1)
+    await cache.put(key('b'), clip(2))
+    later(1)
+    await Promise.all([cache.put(key('c'), clip(3)), cache.put(key('d'), clip(4))])
+    const stats = await cache.stats()
+    expect(stats).toMatchObject({ files: 2, bytes: 200 })
+    // What it counts is what is on the disk.
+    const onDisk = readdirSync(dir).flatMap((shard) => readdirSync(join(dir, shard)))
+    expect(onDisk).toHaveLength(2)
+    expect(await cache.get(key('c'))).not.toBeNull()
+    expect(await cache.get(key('d'))).not.toBeNull()
+  })
+
   it('clears only its own clips', async () => {
     const cache = new AudioCache(dir, () => 10_000)
     await cache.put(key('a'), clip(1))
     writeFileSync(join(dir, 'keep.txt'), 'not a clip')
+    // A clip half written when the app closed goes too.
+    mkdirSync(join(dir, 'ab'), { recursive: true })
+    writeFileSync(join(dir, 'ab', `${key('x')}.wav.1234.tmp`), 'half')
     await cache.clear()
     expect(readdirSync(dir)).toEqual(['keep.txt'])
     expect(await cache.stats()).toMatchObject({ files: 0, bytes: 0 })
+  })
+
+  it('clears what it can when a clip is in use, and says so in plain words', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const cache = new AudioCache(dir, () => 10_000)
+    await cache.put(key('a'), clip(1))
+    await cache.put(key('b'), clip(2))
+    // On Windows a file that is open can't be deleted.
+    const rm = fs.rm
+    const busy = vi.spyOn(fs, 'rm').mockImplementation(async (file, options) => {
+      if (String(file).includes(key('a'))) throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+      return rm(file, options)
+    })
+    await expect(cache.clear()).rejects.toThrow("Some saved audio is in use and couldn't be cleared. Try again in a moment.")
+    expect(await cache.stats()).toMatchObject({ files: 1, bytes: 100 })
+    expect(await cache.get(key('b'))).toBeNull()
+    // Trimming to a lower limit leaves it too, rather than failing.
+    const small = new AudioCache(dir, () => 10)
+    expect(await small.prune()).toBe(0)
+    busy.mockRestore()
+    await cache.clear()
+    expect(readdirSync(dir)).toEqual([])
   })
 
   it('never makes a path from anything but a hash', async () => {

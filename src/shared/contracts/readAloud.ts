@@ -10,8 +10,9 @@
 //
 // How a reading works: the window sends the scene's paragraphs (planReading) and gets back its clips, each
 // with who says it, how, and what to ask the speech server for; it plays them (speakClip gives each one's
-// audio, from the disk cache when heard before), three ahead, and asks again after an edit or when the AI's
-// marks come in ('readAloud:marked'). Speed is the player's (pitch kept); the server speaks at its own pace.
+// audio, from the disk cache when heard before), three ahead, and asks again after an edit, when the AI's marks
+// come in ('readAloud:marked') and, with Mark who says what, when it reaches `markAhead`, so the AI's notes keep a
+// little ahead of it. Speed is the player's (pitch kept); the server speaks at its own pace.
 import type { ID } from '../types'
 
 /** One voice the speech server offers: one of Breeze's own, or one of Adam's clips. */
@@ -62,6 +63,8 @@ export interface ReadingRequest {
   offset?: number
   /** A new reading: its first clip is a single sentence, so the sound starts quickly. */
   quick?: boolean
+  /** Every paragraph id the scene has now, so the AI's marks kept for paragraphs it no longer has are let go. */
+  pids?: string[]
 }
 
 /** What is asked of the speech server for one clip: everything that changes how it sounds. */
@@ -108,6 +111,11 @@ export interface ReadingPlan {
   clips: PlannedClip[]
   /** The paragraphs the AI is marking now ('readAloud:marked' says when it is done). */
   marking: string[]
+  /**
+   * Mark who says what: where reading asks for its clips again, so the AI's notes keep a little ahead of it. Reached
+   * by a clip in paragraph `pid` that ends past `at` (in its words), or by any clip after that paragraph.
+   */
+  markAhead?: { pid: string; at: number }
 }
 
 /** What a Sample, Hear or Listen button plays, exactly as reading will sound. */

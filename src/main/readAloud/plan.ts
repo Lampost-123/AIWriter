@@ -272,18 +272,26 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   all.forEach((u, k) => {
     // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again.
     if (u.role !== 'other' || !u.quote || attributed[k] || labels[k] !== undefined) return
-    const of = unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!
-    of.add(quoteKey(u.para.slice(u.quote.at, u.quote.at + u.quote.len)))
+    const key = quoteKey(u.para.slice(u.quote.at, u.quote.at + u.quote.len))
+    if (key) (unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!).add(key)
   })
   const found = attributed.slice(context.length)
-  const clips = run.map((u, i) => {
+  const clips: PlannedClip[] = []
+  run.forEach((u, i) => {
     const p = prepare(u, found[i], input, italicsOf.get(u.pid))
     const quote = u.role === 'other'
     // What the AI is marking: a clip waits for it, except a new reading's first narration (it starts straight away).
     const noting = marking.has(u.pid) && !(i === 0 && input.quick && !quote)
     const naming = labelling.has(u.pid) && quote && !p.known
     const { known: _known, ...clip } = p
-    return { ...clip, restMs: restBetween(u, run[i + 1]), waits: noting || naming }
+    const restMs = restBetween(u, run[i + 1])
+    // Nothing a voice can say (an empty quote, a row of dashes): no clip, and its pause goes to the one before.
+    if (!/[\p{L}\p{N}]/u.test(clip.clip.input)) {
+      const before = clips.at(-1)
+      if (before) before.restMs = Math.max(before.restMs, restMs)
+      return
+    }
+    clips.push({ ...clip, restMs, waits: noting || naming })
   })
   return { clips, unplaced }
 }

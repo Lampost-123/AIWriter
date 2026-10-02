@@ -1,10 +1,13 @@
 /* Reading aloud. Colours come from the theme tokens in styles.css. */
 
-/* The sentence being read: a soft wash behind the words that takes no room, so nothing moves. */
+/*
+ * The sentence being read: a soft wash behind the words that takes no room, so nothing moves. Only a background (a
+ * little taller than the letters), so where the highlight is in pieces (around a name's underline) they meet with
+ * no seam.
+ */
 .scene-prose .aw-reading {
   background-color: color-mix(in srgb, var(--accent) 15%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
-  border-radius: 3px;
+  padding-block: 2px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   animation: aw-reading-in 160ms ease-out;
@@ -13,7 +16,6 @@
 @keyframes aw-reading-in {
   from {
     background-color: transparent;
-    box-shadow: 0 0 0 2px transparent;
   }
 }
 

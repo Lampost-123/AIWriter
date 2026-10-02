@@ -30,7 +30,7 @@ import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
 import { everyone } from './cast'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
-import { Marker, MarkStore, type Ask } from './marks'
+import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
 import { quoteKey } from './speakers'
@@ -124,10 +124,17 @@ function paragraphOf(p: ReadParagraph): ReadParagraph {
   return { pid: typeof p?.pid === 'string' ? p.pid.slice(0, 40) : '', text, ...(italics?.length ? { italics } : {}) }
 }
 
+/** Every paragraph id the scene has, from the window, when it is a list it could be. */
+function pidsOf(v: unknown): Set<string> | undefined {
+  if (!Array.isArray(v) || v.length > 20_000 || !v.every((p) => typeof p === 'string')) return undefined
+  return new Set((v as string[]).map((p) => p.slice(0, 40)))
+}
+
 /**
  * The clips for a stretch of a scene, as the rules and the marks kept so far decide them, and the AI started on
- * what they can't tell: with Mark who says what, the tone and pace a little ahead of the reading; otherwise the
- * speakers of quotes the rules can't place, when someone in the scene has a voice of their own.
+ * what they can't tell: with Mark who says what, who says each line and how, a little ahead of the reading (and
+ * `markAhead` says where the reading asks again, so the notes keep ahead of it); otherwise the speakers of the quotes
+ * the rules can't place.
  */
 export function planReading(req: ReadingRequest): ReadingPlan {
   const w = world.currentWorld()
@@ -135,7 +142,8 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   const paragraphs = (req.paragraphs ?? []).map(paragraphOf).filter((p) => p.pid)
   const before = (req.before ?? []).map(paragraphOf).filter((p) => p.pid)
   const scene = [...before, ...paragraphs]
-  const rc = readingCast(w.db, req.sceneId)
+  const sceneText = scene.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, req.sceneId, sceneText)
   const kept = markStore().current(w.id, req.sceneId, scene)
   const base = {
     paragraphs,
@@ -149,20 +157,27 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   }
   const first = planClips(base)
   const m = theMarker()
-  const marking = {
+  const marking: MarkingScene = {
     worldId: w.id,
     sceneId: req.sceneId,
     blocks: scene.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
     run: paragraphs.map((p) => p.pid),
-    cast: rc.forAi(scene.map((p) => p.text).join('\n\n')),
-    pov: rc.narrator
+    offset: base.offset,
+    cast: rc.forAi(sceneText),
+    pov: rc.narrator,
+    pids: pidsOf(req.pids)
   }
-  if (s.markSpeakers) m.note(marking)
-  else if (first.unplaced.size && rc.cast.scene.some((c) => hasOwnVoice(c, s))) m.label(marking, first.unplaced)
+  let markAhead: ReadingPlan['markAhead']
+  if (s.markSpeakers) markAhead = m.note(marking).again
+  // Where the rules can't tell who says a line, the AI marks the speakers for the scene.
+  else if (first.unplaced.size) m.label(marking, first.unplaced)
+  const ahead = markAhead ? { markAhead } : {}
   const busy = m.busyIn(w.id, req.sceneId)
-  if (!busy.size) return { clips: first.clips, marking: [] }
+  if (!busy.size) return { clips: first.clips, marking: [], ...ahead }
+  // A line waits for its speaker only when that changes its voice: with nobody's own voice, only the bar's name does.
+  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return { clips: first.clips, marking: [...busy], ...ahead }
   const again = planClips({ ...base, ...(s.markSpeakers ? { marking: busy } : { labelling: busy }) })
-  return { clips: again.clips, marking: [...busy] }
+  return { clips: again.clips, marking: [...busy], ...ahead }
 }
 
 /** Stops the AI marking a scene (its reading stopped). */
@@ -329,8 +344,8 @@ export async function suggestCharacterVoice(
 
 export async function cacheStats(): Promise<AudioCacheStats> {
   const cache = audioCache()
-  // A lower limit takes effect at once.
-  await cache.prune()
+  // A lower limit takes effect at once (a clip in use stays until next time).
+  await cache.prune().catch((e) => console.warn('[read aloud] could not trim the saved audio', e))
   return cache.stats()
 }
 

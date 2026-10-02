@@ -153,17 +153,30 @@ export function closeReading(): void {
   useReading.setState({ sceneId: null })
 }
 
-/** After Stop, a problem, or the end: reads again, from the line it stopped at (or the cursor). */
-export function listenAgain(): void {
+/** Where the reading that ended was, when the page shows its scene still. */
+function lastPlace(): { editor: Editor; sceneId: ID; from: number; to: number } | null {
   const open = openPage()
   const s = session
-  if (!open || !s || s.sceneId !== open.sceneId || s.editor !== open.editor) return startFromCursor()
+  if (!open || !s || s.sceneId !== open.sceneId || s.editor !== open.editor) return null
   const place = readingPlace(open.editor.state).clip
-  const bar = useReading.getState().bar
-  // A problem tries the clip that failed (the one after the last that played); Stop repeats the one it cut off.
-  const pos = place ? (bar?.phase === 'problem' ? place.to : place.from) : null
-  if (pos == null || bar?.phase === 'finished') return startFromCursor()
-  begin(open.editor, open.sceneId, pos)
+  return place ? { ...open, ...place } : null
+}
+
+/**
+ * After Stop, a problem, or the end: reads again, from the line it stopped at (or the cursor). Stop repeats the line
+ * it cut off, and a problem tries the line that failed (or carries on from where reading got to).
+ */
+export function listenAgain(): void {
+  const at = lastPlace()
+  if (!at || useReading.getState().bar?.phase === 'finished') return startFromCursor()
+  begin(at.editor, at.sceneId, at.from)
+}
+
+/** After a line the voice couldn't read: reading carries on from the line after it. */
+export function skipLine(): void {
+  const at = lastPlace()
+  if (!at) return startFromCursor()
+  begin(at.editor, at.sceneId, at.to)
 }
 
 /** Settings › Read aloud and dictation, where the speech engine is set up. */

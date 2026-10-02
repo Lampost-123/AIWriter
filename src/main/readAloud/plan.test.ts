@@ -115,6 +115,21 @@ describe('the plan as a whole', () => {
   it('lists the lines nobody can be sure of, for the AI', () => {
     expect([...(plan('“Who’s there?”').unplaced.get('p1') ?? [])]).toEqual(['who s there'])
     expect(plan('“Hello,” said Ann.').unplaced.size).toBe(0)
+    // A tag naming someone outside the cast.
+    expect([...(plan('“Fine,” someone muttered.').unplaced.get('p1') ?? [])]).toEqual(['fine'])
+    // An empty quote has nothing to ask about.
+    expect(plan('He said nothing. “”').unplaced.size).toBe(0)
+  })
+
+  it('makes no clip of a quote with no words in it, and keeps its pause', () => {
+    const clips = plan('', {
+      paragraphs: [
+        { pid: 'p1', text: '“Hello,” said Ann. “”' },
+        { pid: 'p2', text: 'Then quiet.' }
+      ]
+    }).clips
+    expect(clips.map((c) => c.clip.input)).toEqual(['Hello,', 'said Ann.', 'Then quiet.'])
+    expect(clips[1].restMs).toBe(450)
   })
 
   it('has the clips the AI is marking wait for it, except a new reading’s first narration', () => {

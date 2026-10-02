@@ -5,8 +5,8 @@
 // Settings › Read aloud and dictation, reading aloud's parts: turning it on, the narrator's voice, speed
 // and Sample (everyday); the dialogue voice, cast voices, How to read, who says each line, Keep reading,
 // Follow along and the audio cache (More). Owned by the Read aloud part. Every change saves at once.
-import { Check, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AudioCacheStats, ReadAloudVoice } from '@shared/contracts/readAloud'
 import type { SpeechSettings } from '@shared/types'
 import { defaultSpeechSettings } from '@shared/defaults'
@@ -42,7 +42,7 @@ export function ReadAloudSettings({ section }: { section: 'everyday' | 'more' })
 
 // ---------- Everyday: on or off, the narrator, speed and Sample ----------
 
-type WarmUp = { state: 'loading' } | { state: 'failed'; message: string; code: string | undefined } | null
+type WarmUp = { state: 'loading' } | { state: 'ready' } | { state: 'failed'; message: string; code: string | undefined } | null
 
 /** The speech engine's problems as this page puts them: its own section, where they are fixed, is just above. */
 function engineWords(message: string, code: string | undefined): string {
@@ -63,7 +63,8 @@ function Everyday({ speech }: { speech: SpeechSettings }): React.JSX.Element {
     setWarm({ state: 'loading' })
     try {
       await api.warmUpVoices()
-      setWarm(null)
+      // The line stays, saying so, rather than going and moving the page up.
+      setWarm({ state: 'ready' })
       void playSample('settings:ready', { kind: 'ready' })
     } catch (e) {
       setWarm({ state: 'failed', message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined })
@@ -97,10 +98,19 @@ function Everyday({ speech }: { speech: SpeechSettings }): React.JSX.Element {
               : 'Shows Listen in the scene’s toolbar. The voices run on this computer, so nothing you write is sent anywhere to be read.'
           }
         />
-        {on && warm?.state === 'loading' ? (
-          <p className="flex items-center gap-2 text-[12.5px] text-muted animate-fade-in">
-            <Spinner size={13} className="text-faint" />
-            Loading the voices… The first time takes a minute or two.
+        {on && (warm?.state === 'loading' || warm?.state === 'ready') ? (
+          <p className="flex h-5 items-center gap-2 text-[12.5px] text-muted animate-fade-in">
+            {warm.state === 'loading' ? (
+              <>
+                <Spinner size={13} className="text-faint" />
+                Loading the voices… The first time takes a minute or two.
+              </>
+            ) : (
+              <>
+                <CircleCheck size={14} className="text-success" aria-hidden />
+                The voices are ready.
+              </>
+            )}
           </p>
         ) : null}
         {on && engineProblem ? (
@@ -158,12 +168,26 @@ function NarratorVoice({
   const [filter, setFilter] = useState('')
   const sample = useSample(OURS)
   const labelId = useId()
+  const group = useRef<HTMLDivElement>(null)
   const list = voices ?? []
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase()
     return q ? list.filter((v) => `${v.name} ${v.id} ${v.about}`.toLowerCase().includes(q)) : list
   }, [list, filter])
   const described = !!speech.narratorDescription.trim()
+  // One stop for Tab in the list: the voice picked (or the first shown); the arrow keys move and pick.
+  const focusable = shown.some((v) => v.id === speech.narratorVoice) ? speech.narratorVoice : shown[0]?.id
+  const onArrows = (e: React.KeyboardEvent): void => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) || !shown.length) return
+    const rows = [...(group.current?.querySelectorAll<HTMLElement>('[role="radio"]') ?? [])]
+    const at = rows.findIndex((r) => r.contains(document.activeElement))
+    e.preventDefault()
+    const step = e.key === 'ArrowDown' ? 1 : -1
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : at < 0 ? 0 : (at + step + rows.length) % rows.length
+    rows[next]?.focus()
+    const v = shown[next]
+    if (v && v.id !== speech.narratorVoice) void save({ narratorVoice: v.id })
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -177,60 +201,67 @@ function NarratorVoice({
           </span>
         ) : null}
       </div>
-      {list.length > 8 ? (
-        <div className="relative">
-          <Search size={14} aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
-          <Input
-            className="pl-8"
-            placeholder="Filter voices"
-            aria-label="Filter voices"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-      ) : null}
-      <div
-        role="radiogroup"
-        aria-labelledby={labelId}
-        className={cn('max-h-[264px] overflow-y-auto rounded-lg border border-line bg-surface', described && 'opacity-80')}
-      >
-        {!list.length ? (
-          <p className="flex min-h-[52px] items-center justify-center gap-2 px-4 py-4 text-center text-[13px] text-muted">
-            {loading && !failed ? (
-              <>
-                <Spinner size={13} className="text-faint" /> Looking for the voices…
-              </>
-            ) : failed ? (
-              'The voices show here once the speech engine is ready.'
-            ) : (
-              'The speech engine has no voices yet.'
-            )}
-          </p>
-        ) : !shown.length ? (
-          <p className="px-4 py-4 text-center text-[13px] text-muted">No voice matches that.</p>
-        ) : (
-          shown.map((v) => (
-            <VoiceRow
-              key={v.id}
-              voice={v}
-              on={v.id === speech.narratorVoice}
-              playing={sample.playing === `settings:voice:${v.id}`}
-              loading={sample.loading === `settings:voice:${v.id}`}
-              onPick={() => void save({ narratorVoice: v.id })}
-              onHear={() => void playSample(`settings:voice:${v.id}`, { kind: 'voice', voice: v.id })}
+      {/* The same room while the voices load as once they are listed, so nothing below moves when they come. */}
+      <div className="flex h-[304px] flex-col gap-2">
+        {list.length > 8 ? (
+          <div className="relative shrink-0">
+            <Search size={14} aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
+            <Input
+              className="pl-8"
+              placeholder="Filter voices"
+              aria-label="Filter voices"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
             />
-          ))
-        )}
+          </div>
+        ) : null}
+        <div
+          ref={group}
+          role="radiogroup"
+          aria-labelledby={labelId}
+          onKeyDown={onArrows}
+          className={cn('min-h-0 flex-1 overflow-y-auto rounded-lg border border-line bg-surface', described && 'opacity-80')}
+        >
+          {!list.length ? (
+            <p className="flex h-full items-center justify-center gap-2 px-4 py-4 text-center text-[13px] text-muted">
+              {loading && !failed ? (
+                <>
+                  <Spinner size={13} className="text-faint" /> Looking for the voices…
+                </>
+              ) : failed ? (
+                'The voices show here once the speech engine is ready.'
+              ) : (
+                'The speech engine has no voices yet.'
+              )}
+            </p>
+          ) : !shown.length ? (
+            <p className="px-4 py-4 text-center text-[13px] text-muted">No voice matches that.</p>
+          ) : (
+            shown.map((v) => (
+              <VoiceRow
+                key={v.id}
+                voice={v}
+                on={v.id === speech.narratorVoice}
+                focusable={v.id === focusable}
+                playing={sample.playing === `settings:voice:${v.id}`}
+                loading={sample.loading === `settings:voice:${v.id}`}
+                onPick={() => void save({ narratorVoice: v.id })}
+                onHear={() => void playSample(`settings:voice:${v.id}`, { kind: 'voice', voice: v.id })}
+              />
+            ))
+          )}
+        </div>
       </div>
       {described ? <p className="text-[12px] text-faint">The description below is used instead while it is filled in.</p> : null}
     </div>
   )
 }
 
-/** One voice: the row picks it, the button plays it. */
+/** One voice: the row picks it, the button plays it (Sample plays the voice picked, for the keyboard). */
 function VoiceRow({
   voice,
   on,
+  focusable,
   playing,
   loading,
   onPick,
@@ -238,6 +269,7 @@ function VoiceRow({
 }: {
   voice: ReadAloudVoice
   on: boolean
+  focusable: boolean
   playing: boolean
   loading: boolean
   onPick: () => void
@@ -248,7 +280,7 @@ function VoiceRow({
       role="radio"
       aria-checked={on}
       aria-label={voice.name}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : -1}
       onClick={onPick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -257,12 +289,14 @@ function VoiceRow({
         }
       }}
       className={cn(
-        'flex items-center gap-3 border-b border-line px-2.5 py-2 outline-none transition-colors duration-150 last:border-b-0 focus-visible:bg-surface-2',
+        'flex items-center gap-3 border-b border-line px-2.5 py-2 outline-none transition-colors duration-150 last:border-b-0',
+        'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40',
         on ? 'bg-accent-soft/60' : 'hover:bg-surface-2'
       )}
     >
       <button
         type="button"
+        tabIndex={-1}
         aria-label={playing ? `Stop ${voice.name}` : `Hear ${voice.name}`}
         title={playing ? 'Stop' : 'Hear this voice'}
         onClick={(e) => {
@@ -327,23 +361,34 @@ function SampleSetting({ speech }: { speech: SpeechSettings }): React.JSX.Elemen
   return (
     <Field
       label="Sample sentence"
-      hint="Sample plays it exactly as reading will sound: the voice, its description, How to read and the speed."
+      hint={
+        // A steady narrator reads narration without How to read (plan.ts), and so does Sample.
+        speech.steadyNarrator
+          ? 'Sample plays it exactly as reading will sound: the voice, its description and the speed.'
+          : 'Sample plays it exactly as reading will sound: the voice, its description, How to read and the speed.'
+      }
     >
       {(id) => (
         <div className="flex items-start gap-2">
-          <Input
+          <Textarea
             id={id}
             value={text}
             maxLength={500}
+            minRows={1}
+            maxRows={3}
             placeholder={DEFAULTS.sample}
-            onChange={(e) => setText(e.target.value)}
+            // One sentence: a new line is a space, and Enter plays it.
+            onChange={(e) => setText(e.target.value.replace(/\s*\n\s*/g, ' '))}
             onBlur={commit}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
+                e.preventDefault()
                 commit()
                 void playSample('settings:sample', { kind: 'narrator', text: text.trim() || undefined })
               }
             }}
+            // One row as tall as the button beside it.
+            style={{ paddingTop: 5, paddingBottom: 5, lineHeight: '20px' }}
             className="flex-1"
           />
           <Button
@@ -496,7 +541,12 @@ function SavedAudio({ limitGb }: { limitGb: number }): React.JSX.Element {
       setStats(await api.clearReadAloudCache())
       toast('Saved audio cleared.')
     } catch (e) {
-      toast(`The saved audio couldn't be cleared. ${(e as Error).message}`, { tone: 'danger' })
+      // Some of it was in use (it says so in plain words); the rest went.
+      toast((e as Error).message || "The saved audio couldn't be cleared. Try again in a moment.")
+      api
+        .getReadAloudCache()
+        .then(setStats)
+        .catch(() => undefined)
     } finally {
       setClearing(false)
     }
@@ -531,7 +581,13 @@ function SavedAudio({ limitGb }: { limitGb: number }): React.JSX.Element {
               options={limits.map((gb) => ({ value: String(gb), label: `Up to ${gb} GB` }))}
               className="w-[140px]"
             />
-            <Button variant="danger" icon={<Trash2 size={14} />} loading={clearing} disabled={!stats?.files} onClick={() => void clear()}>
+            <Button
+              variant="secondary"
+              icon={<Trash2 size={14} />}
+              loading={clearing}
+              disabled={!stats?.files}
+              onClick={() => void clear()}
+            >
               Clear
             </Button>
           </div>

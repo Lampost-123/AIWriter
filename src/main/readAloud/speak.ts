@@ -28,9 +28,12 @@ export interface SpeechPayload {
 /** Plain words for the speech server answering that it can't speak yet (the voices aren't downloaded, or won't load). */
 export const VOICES_NOT_READY =
   "The voices aren't ready yet. Download them, or check the speech engine, in Settings › Read aloud and dictation."
-/** Plain words for a line the speech server turned down or couldn't make. */
+/**
+ * Plain words for a line the speech server turned down or couldn't make. Short enough for two lines of the reading
+ * bar beside its Try again and Skip this line, in the smallest window.
+ */
 export const SPEECH_FAILED =
-  "The voice couldn't read this line. Try again; if it keeps happening, check the speech engine in Settings › Read aloud and dictation."
+  "The voice couldn't read this line. If it keeps happening, check the speech engine in Settings › Read aloud and dictation."
 
 /**
  * What the server is asked to say for a clip. The server speaks at its own pace (`speed` 1): the player changes the
@@ -93,7 +96,14 @@ async function synthesise(payload: SpeechPayload, fetcher: Fetcher): Promise<Buf
     if (res.status === 503 || res.status === 404) throw new UserError(VOICES_NOT_READY, 'voices-not-ready')
     throw new UserError(SPEECH_FAILED, 'speech-failed')
   }
-  const audio = Buffer.from(await res.arrayBuffer())
+  let audio: Buffer
+  try {
+    audio = Buffer.from(await res.arrayBuffer())
+  } catch (e) {
+    // The server stopped partway through sending it (it closed, or the time ran out).
+    console.warn('[read aloud] a clip from the speech server was cut off', e)
+    throw new UserError(SPEECH_FAILED, 'speech-failed')
+  }
   // A WAV header alone is 44 bytes: anything less isn't a clip.
   if (audio.length <= 44) throw new UserError(SPEECH_FAILED, 'speech-failed')
   return audio

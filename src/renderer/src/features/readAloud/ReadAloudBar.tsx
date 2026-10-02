@@ -3,11 +3,12 @@
 // part.
 //
 // It lies over the top edge of the page rather than pushing the page down, so the words never move when it
-// comes and goes; it fades in and out. It also hands the page to the reading (control.ts) and listens for
+// comes and goes; it fades in and out. While it shows, the page keeps the cursor and the sentence being read clear
+// of it (highlight.ts, follow.ts). It also hands the page to the reading (control.ts) and listens for
 // Ctrl+Shift+Space, which stops reading from anywhere.
 import type { Editor } from '@tiptap/core'
 import { Pause, Play, Square, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { Button, IconButton, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -20,10 +21,12 @@ import {
   pauseReading,
   resumeReading,
   sceneShown,
+  skipLine,
   stopReading,
   useReading,
   type ReadingBar
 } from './control'
+import { setBarRoom } from './highlight'
 import { stopSample } from './useSample'
 import './readAloud.css'
 
@@ -78,14 +81,37 @@ export function ReadAloudBar({
     return () => clearTimeout(t)
   }, [bar])
 
+  // While it shows, the room it takes over the top of the page: the cursor is scrolled clear of it, and so is
+  // anything brought into view (the page's own scroll padding).
+  const box = useRef<HTMLDivElement>(null)
+  const open = !!shown
+  useLayoutEffect(() => {
+    const el = box.current
+    const page = scrollerRef.current
+    if (!open || !el) return
+    const room = (): void => {
+      setBarRoom(el.offsetHeight)
+      if (page) page.style.scrollPaddingTop = `${el.offsetHeight}px`
+    }
+    room()
+    const ro = new ResizeObserver(room)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      setBarRoom(0)
+      if (page) page.style.scrollPaddingTop = ''
+    }
+  }, [open, scrollerRef])
+
   if (!shown) return null
   return (
     <div className="relative z-20 h-0 shrink-0">
       <div
+        ref={box}
         role="region"
         aria-label="Reading aloud"
         className={cn(
-          'absolute inset-x-0 top-0 flex min-h-9 items-center gap-2 border-b border-line/70 bg-page/95 pl-4 pr-2 font-sans backdrop-blur-sm',
+          'absolute inset-x-0 top-0 flex min-h-9 items-center gap-2 border-b border-line/70 bg-page pl-4 pr-2 font-sans',
           'transition-opacity duration-150',
           leaving ? 'pointer-events-none opacity-0' : 'animate-fade-in'
         )}
@@ -115,8 +141,9 @@ function Words({ bar }: { bar: ReadingBar }): React.JSX.Element {
   const speaking = (bar.phase === 'playing' || bar.phase === 'paused') && !!bar.who
   return (
     <p
-      // What went wrong may take two lines (the bar grows over the page, so nothing moves); the rest is one line.
-      className={cn('min-w-0 flex-1 text-[12.5px]', bar.phase === 'problem' ? 'line-clamp-2 py-2 leading-snug' : 'truncate leading-none')}
+      // What went wrong may take two lines (the bar grows over the page, so nothing moves); the rest is one line. The
+      // room around two lines is margin, not padding, so no part of a third line shows in it.
+      className={cn('min-w-0 flex-1 text-[12.5px]', bar.phase === 'problem' ? 'my-2 line-clamp-2 leading-snug' : 'truncate leading-none')}
       aria-live={bar.phase === 'problem' || bar.phase === 'stopped' || bar.phase === 'finished' ? 'polite' : undefined}
       title={speaking ? [bar.who, bar.how].filter(Boolean).join(' · ') : bar.note}
     >
@@ -148,6 +175,11 @@ function Actions({ bar }: { bar: ReadingBar }): React.JSX.Element {
       {bar.phase === 'problem' && bar.fix ? (
         <Button size="sm" variant={bar.fix === 'retry' ? 'secondary' : 'ghost'} className="mr-1 h-6" onClick={listenAgain}>
           Try again
+        </Button>
+      ) : null}
+      {bar.phase === 'problem' && bar.skip ? (
+        <Button size="sm" variant="ghost" className="mr-1 h-6" onClick={skipLine}>
+          Skip this line
         </Button>
       ) : null}
       {bar.phase === 'stopped' ? (

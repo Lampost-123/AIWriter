@@ -54,9 +54,9 @@ export const playRate = (speed: number | undefined): number => Math.max(0.5, Mat
 /** How a clip's playing came to an end. */
 export type PlayEnd = 'ended' | 'stopped' | 'failed'
 
-/** Plain words for audio the window couldn't play. */
+/** Plain words for audio the window couldn't play (two lines of the reading bar, beside its buttons). */
 export const PLAY_FAILED =
-  "The audio for this line couldn't be played. Try again; if it keeps happening, check the speech engine in Settings › Read aloud and dictation."
+  "The audio for this line couldn't be played. If it keeps happening, check the speech engine in Settings › Read aloud and dictation."
 
 /**
  * Plays clips one at a time. `play` resolves 'ended' when the clip has played to its end, 'stopped' when it was

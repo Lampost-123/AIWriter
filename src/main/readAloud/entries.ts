@@ -6,7 +6,7 @@ import type { EntryReadAloud } from '@shared/contracts/readAloud'
 import type { Entry, ID } from '@shared/types'
 import * as repo from '../db/repo'
 import { getWritingPrefs } from '../settings'
-import { castOf, type CastMember, type SceneCast } from './cast'
+import { castOf, namedIn, type CastMember, type SceneCast } from './cast'
 import { lexiconOf, type SayRule } from './say'
 
 type DB = Database.Database
@@ -20,7 +20,6 @@ interface Stored {
 
 export const emptyReadAloud = (): EntryReadAloud => ({ voice: { design: '', voice: '' }, say: '' })
 
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 
 /** A value as it is kept: trimmed, cut to size, and every part present. */
@@ -79,20 +78,26 @@ export interface ReadingCast {
   narrator?: string
 }
 
-/** The cast a scene is read with: its card's people (and viewpoint character) narrow the choice when it lists any. */
-export function readingCast(db: DB, sceneId: ID | null): ReadingCast {
+/**
+ * The cast a scene is read with: its card's people (and viewpoint character) when it lists any, else the characters
+ * its words name (`sceneText`) and the viewpoint character, else everyone in the world.
+ */
+export function readingCast(db: DB, sceneId: ID | null, sceneText = ''): ReadingCast {
   const kept = readAloudOf(db)
   const characters = repo.listEntries(db, 'character')
   const all = characters.flatMap((e) => member(e, kept[e.id]) ?? [])
+  // Who the scene's words name, worked out once (the AI is told about them too).
+  const namedNow = sceneText ? all.filter((c) => namedIn(c, sceneText)) : []
   let scene = all
   let pov: CastMember | null = null
   if (sceneId) {
     try {
       const card = repo.getScene(db, sceneId).card
       pov = all.find((c) => c.id === card.povId) ?? null
-      const ids = new Set([...card.presentIds, ...(card.povId ? [card.povId] : [])])
-      const listed = all.filter((c) => ids.has(c.id))
-      if (listed.length) scene = listed
+      const present = new Set(card.presentIds)
+      const named = all.filter((c) => c === pov || namedNow.includes(c))
+      if (all.some((c) => present.has(c.id))) scene = all.filter((c) => present.has(c.id) || c === pov)
+      else if (named.length) scene = named
     } catch {
       /* The scene has gone: everyone in the world it is. */
     }
@@ -103,11 +108,12 @@ export function readingCast(db: DB, sceneId: ID | null): ReadingCast {
     cast: { all, scene, pov },
     lexicon: worldLexicon(db, kept),
     narrator: firstPerson && pov ? pov.name : undefined,
-    forAi: (sceneText) => {
-      // The scene's own people (when its card lists them), and anyone else its words name, up to a list the AI can take in.
+    forAi: (text) => {
+      // The scene's own people (when its card lists them or its words name them), and anyone else its words name, up to
+      // a list the AI can take in.
       const own = scene === all ? [] : scene
-      const named = (c: CastMember): boolean => c.names.some((n) => new RegExp(`\\b${escape(n)}\\b`, 'i').test(sceneText))
-      return [...own, ...all.filter((c) => !own.includes(c) && named(c))].slice(0, 40)
+      const named = text === sceneText ? namedNow : all.filter((c) => namedIn(c, text))
+      return [...own, ...named.filter((c) => !own.includes(c))].slice(0, 40)
     }
   }
 }

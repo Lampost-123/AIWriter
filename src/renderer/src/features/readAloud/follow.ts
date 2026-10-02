@@ -1,5 +1,6 @@
-// Follow along: keeps the sentence being read a third of the way down the page, gliding there rather than
-// jumping. While Adam scrolls or types himself, the page is left alone for a few seconds.
+// Follow along: keeps the sentence being read a third of the way down the page (the part of it the reading bar
+// leaves clear), gliding there rather than jumping. While Adam scrolls or types himself, the page is left alone for
+// a few seconds.
 
 const reducedMotion = (): boolean => {
   try {
@@ -18,7 +19,11 @@ export class FollowAlong {
   private raf = 0
   private heldUntil = 0
 
-  constructor(private readonly scroller: () => HTMLElement | null) {}
+  /** `inset`: the room at the top of the page that something lies over (the reading bar). */
+  constructor(
+    private readonly scroller: () => HTMLElement | null,
+    private readonly inset: () => number = () => 0
+  ) {}
 
   /** Adam moved the page or typed: leave it alone for a while. */
   hold(ms = HOLD_MS): void {
@@ -31,7 +36,9 @@ export class FollowAlong {
     const el = this.scroller()
     if (!el || Date.now() < this.heldUntil) return
     const box = el.getBoundingClientRect()
-    const target = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + (top - box.top) - el.clientHeight / 3))
+    const inset = Math.min(Math.max(0, this.inset()), el.clientHeight / 2)
+    const at = inset + (el.clientHeight - inset) / 3
+    const target = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + (top - box.top) - at))
     if (Math.abs(target - el.scrollTop) < 4) return
     this.cancel()
     if (reducedMotion()) {

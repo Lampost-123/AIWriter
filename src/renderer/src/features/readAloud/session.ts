@@ -2,7 +2,8 @@
 // voice), gets their audio three ahead, plays them one after another with a breath between, moves the
 // highlight sentence by sentence and keeps it in view (Follow along). Adam can keep editing while it reads:
 // the clip playing finishes, and the next ones are planned again from the words as they now stand, from
-// where that clip ends on the page (highlight.ts keeps that place through the edits).
+// where that clip ends on the page (highlight.ts keeps that place through the edits). With Mark who says what it
+// also plans again where each plan asks (markAhead.ts), so the AI's notes keep ahead of it.
 import type { Editor } from '@tiptap/core'
 import type { PlannedClip, ReadingRequest } from '@shared/contracts/readAloud'
 import type { ID } from '@shared/types'
@@ -11,7 +12,8 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { ClipPlayer, clipAudio, hasAudio, playRate, PLAY_FAILED } from './audio'
 import { FollowAlong } from './follow'
-import { readingPlace, setReadingPlace, type ReadingPlace } from './highlight'
+import { barRoom, readingPlace, setReadingPlace, type ReadingPlace } from './highlight'
+import { reachedMarkAhead, type MarkAhead } from './markAhead'
 import { forPlan, hasWords, pageParagraphs, placeOf, posIn, type PageParagraph } from './pageText'
 import { toFetch } from './prefetch'
 
@@ -27,6 +29,8 @@ export interface ReadingBar {
   note: string
   /** A problem's next step: the speech settings (and trying again once it is fixed), or trying again. */
   fix: 'settings' | 'retry' | null
+  /** A problem with one line (it stays lit): reading can skip it and carry on after it. */
+  skip?: boolean
 }
 
 export interface SessionHooks {
@@ -51,6 +55,10 @@ export class Session {
   private sentence = -1
   /** Each paragraph's words when the queue was planned. */
   private texts = new Map<string, string>()
+  /** Each paragraph's place on the page when the queue was planned. */
+  private order = new Map<string, number>()
+  /** Mark who says what: where to plan again, so the AI's notes keep ahead of the reading. */
+  private markAhead: MarkAhead | null = null
   /** Bumped on every edit; a plan made before the latest edit is out of date. */
   private version = 0
   private plannedAt = -1
@@ -78,7 +86,7 @@ export class Session {
     scroller: () => HTMLElement | null,
     private readonly hooks: SessionHooks
   ) {
-    this.follow = new FollowAlong(scroller)
+    this.follow = new FollowAlong(scroller, barRoom)
     const onUpdate = (): void => this.edited()
     editor.on('update', onUpdate)
     this.offs.push(() => editor.off('update', onUpdate))
@@ -187,7 +195,8 @@ export class Session {
           .filter(words)
           .map(forPlan),
         offset: i < all.length ? offset : 0,
-        quick
+        quick,
+        pids: all.map((p) => p.pid)
       },
       texts
     }
@@ -205,6 +214,8 @@ export class Session {
       if (seq !== this.planSeq) return true
       this.queue = plan.clips
       this.texts = made.texts
+      this.order = new Map([...made.texts.keys()].map((pid, i) => [pid, i]))
+      this.markAhead = plan.markAhead ?? null
       this.plannedAt = version
       void this.prefetch()
       return true
@@ -243,9 +254,14 @@ export class Session {
   /** The AI finished marking some paragraphs: plan again so their clips get their speakers and tones. */
   private marked(e: { sceneId: ID; pids: string[]; error: string | null }): void {
     if (!this.alive || e.sceneId !== this.sceneId) return
-    if (e.error && !this.toldMarks) {
-      this.toldMarks = true
-      toast(e.error)
+    if (e.error) {
+      // It couldn't: those lines are read by the rules, as planned already, and nothing waits for them.
+      if (!this.toldMarks) {
+        this.toldMarks = true
+        toast(e.error)
+      }
+      for (const pid of e.pids) this.waited.add(pid)
+      return
     }
     if (e.pids.some((pid) => this.queue.some((c) => c.pid === pid))) this.replanSoon()
   }
@@ -299,7 +315,7 @@ export class Session {
         try {
           url = await clipAudio(next.key, next.clip)
         } catch (e) {
-          if (this.alive) this.problem(e)
+          if (this.alive) this.problem(e, next)
           return
         } finally {
           clearTimeout(slow)
@@ -317,11 +333,8 @@ export class Session {
         const end = await this.player.play(url, this.rate(), (p) => this.progress(next, p))
         if (!this.alive || end === 'stopped') return
         if (end === 'failed') {
-          // Audio the window can't play: say so, rather than racing silently through the scene. Try again starts
-          // with this line (the place a problem carries on from is where the clip ends: here, its start).
-          const at = this.place().clip?.from
-          if (at != null) this.setPlace({ clip: { from: at, to: at } })
-          this.problem(new Error(PLAY_FAILED))
+          // Audio the window can't play: say so, rather than racing silently through the scene.
+          this.problem(new Error(PLAY_FAILED), next)
           return
         }
         if (next.restMs) await sleep(next.restMs / this.rate())
@@ -349,19 +362,31 @@ export class Session {
     }
   }
 
+  /** Where a clip is on the page now; null when its paragraph's words have changed. */
+  private onPage(clip: PlannedClip): { from: number; to: number } | null {
+    const p = pageParagraphs(this.editor.state.doc).find((x) => x.pid === clip.pid)
+    if (!p || p.text !== this.texts.get(clip.pid)) return null
+    return { from: posIn(p, clip.from), to: posIn(p, clip.to) }
+  }
+
   /** A clip starts: the highlight goes on its first sentence, and the bar says who and how. */
   private showClip(clip: PlannedClip): boolean {
-    const p = pageParagraphs(this.editor.state.doc).find((x) => x.pid === clip.pid)
-    if (!p || p.text !== this.texts.get(clip.pid)) {
+    const at = this.onPage(clip)
+    if (!at) {
       // Its words changed after all: plan again from here.
       this.version++
       return false
     }
     this.current = clip
     this.sentence = -1
-    this.setPlace({ clip: { from: posIn(p, clip.from), to: posIn(p, clip.to) } })
+    this.setPlace({ clip: at })
     this.progress(clip, 0)
     this.show({ phase: this.paused ? 'paused' : 'playing', who: clip.who, how: clip.how, note: '', fix: null })
+    // Mark who says what: the reading has reached where it asks again, so the AI notes the next part ahead of it.
+    if (this.markAhead && reachedMarkAhead(clip, this.markAhead, this.order)) {
+      this.markAhead = null
+      this.replanSoon()
+    }
     return true
   }
 
@@ -400,8 +425,12 @@ export class Session {
     this.hooks.end()
   }
 
-  /** Reading can't go on: says why in plain words, with the next step. */
-  private problem(e: unknown): void {
+  /**
+   * Reading can't go on: says why in plain words, with the next step. `clip`: the line that couldn't be read, which
+   * stays lit (all of it, as Skip this line skips all of it) and in view, to try again or skip; otherwise reading
+   * carries on from where it got to.
+   */
+  private problem(e: unknown, clip?: PlannedClip): void {
     const code = e instanceof ApiError ? e.code : undefined
     // The speech engine's own problems are short here: the bar's button opens the settings where they are fixed.
     const note =
@@ -413,7 +442,17 @@ export class Session {
             ? e.message
             : 'Reading aloud stopped. Try again.'
     const engine = code === 'speech-not-running' || code === 'voices-not-ready'
-    this.stop(true, { phase: 'problem', who: '', how: '', note, fix: engine ? 'settings' : 'retry' })
+    // The speech engine's problems are no one line's: skipping a line wouldn't help.
+    const failed = !engine && clip ? this.onPage(clip) : null
+    const place = this.place().clip
+    // Where Try again starts: the line that failed; else the end of the clip read last (or, when the clip that
+    // failed was showing, its start).
+    const from = place ? (clip && clip === this.current ? place.from : place.to) : null
+    this.stop(true, { phase: 'problem', who: '', how: '', note, fix: engine ? 'settings' : 'retry', skip: !!failed })
+    if (failed) {
+      this.setPlace({ clip: failed, sentence: failed })
+      this.followTo(failed.from)
+    } else if (from != null) this.setPlace({ clip: { from, to: from } })
   }
 
   private show(bar: ReadingBar): void {
