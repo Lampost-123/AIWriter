@@ -302,13 +302,14 @@ export function listLog(db: DB, o: { sceneId?: ID; entryId?: ID; limit?: number 
     args.push(o.entryId)
   }
   const limit = Math.max(1, Math.min(Math.floor(o.limit ?? 200), 1000))
-  // Runs newest first (by their last line); a run's own lines in the order they were made.
+  // Runs newest first (by their last line shown); a run's own lines in the order they were made.
+  const filter = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const rows = db
     .prepare(
-      `SELECT l.* FROM memory_log l JOIN (SELECT run_id, MAX(rowid) AS last FROM memory_log GROUP BY run_id) r ON r.run_id = l.run_id
+      `SELECT l.* FROM memory_log l JOIN (SELECT run_id, MAX(rowid) AS last FROM memory_log ${filter} GROUP BY run_id) r ON r.run_id = l.run_id
        ${where.length ? `WHERE ${where.map((w) => `l.${w}`).join(' AND ')}` : ''} ORDER BY r.last DESC, l.rowid ASC LIMIT ${limit}`
     )
-    .all(...args) as Row[]
+    .all(...args, ...args) as Row[]
   return rows.map(toLog)
 }
 
@@ -328,15 +329,19 @@ export function setLogQuestion(db: DB, id: ID, question: LogRow['question'], und
   )
 }
 
-/** The last run that changed something, for the quiet "Memory updated" note. */
+/**
+ * The last run that changed something, for the quiet "Memory updated" note. Asked after every save,
+ * so it reads only the newest line and its run's lines (by index), never the whole list.
+ */
 export function lastUpdate(db: DB): { at: string; runId: ID; changes: number } | null {
+  const last = db.prepare("SELECT run_id FROM memory_log WHERE action <> 'failed' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as
+    | Row
+    | undefined
+  if (!last) return null
   const r = db
-    .prepare(
-      `SELECT run_id, MAX(created_at) AS at, COUNT(*) AS n FROM memory_log WHERE action <> 'failed'
-       GROUP BY run_id ORDER BY at DESC LIMIT 1`
-    )
-    .get() as Row | undefined
-  return r ? { at: r.at as string, runId: r.run_id as string, changes: r.n as number } : null
+    .prepare("SELECT MAX(created_at) AS at, COUNT(*) AS n FROM memory_log WHERE run_id = ? AND action <> 'failed'")
+    .get(last.run_id) as Row
+  return { at: r.at as string, runId: last.run_id as string, changes: r.n as number }
 }
 
 // ---------- Suppressions: facts Adam undid, not added again from the same words ----------

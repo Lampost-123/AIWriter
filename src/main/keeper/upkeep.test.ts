@@ -250,3 +250,20 @@ describe('two details of one entry lost in one run', () => {
     expect(after.fields.hair ?? '').toBe('')
   })
 })
+
+describe('the "Memory updated" note and the What changed list', () => {
+  it('names the newest run that changed something, and filters by scene', async () => {
+    const w = world()
+    const second = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    await read(w.db, w.sceneId)
+    save(w.db, second, [['q1', 'Tobin lost his boots. Tobin learned that the ferry was cursed.']])
+    const out = (await read(w.db, second)) as { runId: ID }
+    // A failure afterwards doesn't count as an update.
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand. Kell lost his hat.']])
+    await read(w.db, w.sceneId, undefined, modelFor('fake/memory-junk'))
+    expect(kdb.lastUpdate(w.db)).toMatchObject({ runId: out.runId, changes: 3 })
+    expect(kdb.listLog(w.db, { sceneId: w.sceneId }).map((l) => l.action)).toEqual(['failed', 'added', 'added'])
+    expect(kdb.listLog(w.db, { sceneId: second }).every((l) => l.runId === out.runId)).toBe(true)
+  })
+})
