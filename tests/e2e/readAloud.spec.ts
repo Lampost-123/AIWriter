@@ -5,6 +5,9 @@
 //    way to say her name. Ctrl+L reads from the cursor: the bar says who is speaking, the highlight moves sentence by
 //    sentence, Ctrl+L pauses and carries on, her line is read in her own voice, Ctrl+Shift+Space stops, Carry on and
 //    Close, and reading on to the end of the story.
+//  - The player bar: Next line and Back one line step through the lines (the highlight and "Paragraph 2 of 5"
+//    follow), the speed list is heard and saved, and Emotion and tone says Off, then On once turned on from the bar
+//    (and Settings says so beside Mark who says what).
 //  - Settings: the narrator's voices with Hear, Sample, picking another voice and the saved audio; Listen from here
 //    reads from the selected words in the voice picked.
 //  - Editing while it reads: the next lines are read as they now stand. Keep reading goes on into the next scene.
@@ -213,6 +216,84 @@ test('Ctrl+L reads from the cursor with the narrator and Mara in her own voice; 
   } finally {
     await speech.close()
     await fake.close()
+  }
+})
+
+/** Five paragraphs of one long sentence each (each a line of about four seconds at 0.75×), starting "Part n." */
+const PARTS = Array.from(
+  { length: 5 },
+  (_, i) =>
+    `Part ${i + 1}. The tide crept in over the stones of the old harbour wall while the gulls argued above the boats and the lamps came on one by one along the quay.`
+)
+
+test('the player bar: Next line and Back one line, the speed, and Emotion and tone', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, speed: 0.75 } })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    await prose(win).click()
+    for (const [i, para] of PARTS.entries()) {
+      if (i) await win.keyboard.press('Enter')
+      await win.keyboard.type(para)
+    }
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    const bar = readingBar(win)
+    await expect(bar).toContainText('Narrator', { timeout: 30_000 })
+    await expect(bar).toContainText('Paragraph 1 of 5')
+    await expect.poll(() => lit(win)).toMatch(/^Part 1\./)
+    await expect(bar.getByRole('button', { name: /^Pause/ })).toBeVisible()
+    await expect(bar.getByRole('button', { name: 'Speed: 0.75×' })).toBeVisible()
+
+    // Next line: on to the next paragraph's line at once; again; then Back one line reads the one before again.
+    await bar.getByRole('button', { name: 'Next line' }).click()
+    await expect.poll(() => lit(win)).toMatch(/^Part 2\./)
+    await expect(bar).toContainText('Paragraph 2 of 5')
+    await bar.getByRole('button', { name: 'Next line' }).click()
+    await expect.poll(() => lit(win)).toMatch(/^Part 3\./)
+    await bar.getByRole('button', { name: 'Back one line' }).click()
+    await expect.poll(() => lit(win)).toMatch(/^Part 2\./)
+    await expect(bar).toContainText('Paragraph 2 of 5')
+    // Paused, Next line carries on with the next line.
+    await win.keyboard.press('Control+l')
+    await expect(bar).toContainText('Paused')
+    await bar.getByRole('button', { name: 'Next line' }).click()
+    await expect.poll(() => lit(win)).toMatch(/^Part 3\./)
+    await expect(bar).not.toContainText('Paused')
+
+    // The speed: a short list, heard at once and saved as the read-aloud speed.
+    await bar.getByRole('button', { name: 'Speed: 0.75×' }).click()
+    await win.getByRole('menuitemradio', { name: '1.5×' }).click()
+    await expect(bar.getByRole('button', { name: 'Speed: 1.5×' })).toBeVisible()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.speed).toBe(1.5)
+
+    // Stopped, the big button carries on and the steps wait for a line.
+    await win.keyboard.press('Control+Shift+Space')
+    await expect(bar).toContainText('Stopped.')
+    await expect(bar.getByRole('button', { name: 'Next line' })).toBeDisabled()
+    await expect(bar.getByRole('button', { name: 'Carry on' })).toBeEnabled()
+
+    // Emotion and tone: Off, says what it does, and turns on from the bar; Settings says so beside its switch.
+    const tone = bar.getByRole('button', { name: 'Emotion and tone: Off' })
+    await expect(tone).toBeVisible()
+    await expect(tone).toHaveAttribute('title', /^Emotion and tone: Off\./)
+    await tone.click()
+    const panel = win.getByRole('dialog')
+    await panel.getByRole('switch', { name: 'Emotion and tone' }).click()
+    await expect.poll(async () => (await invoke(win, 'getSettings')).speech.markSpeakers).toBe(true)
+    await expect(bar.getByRole('button', { name: 'Emotion and tone: On' })).toBeVisible()
+    await expect(panel.getByRole('switch', { name: 'Sighs and laughs' })).not.toBeChecked()
+    await panel.getByRole('button', { name: 'Open settings' }).click()
+    await expect(win.getByRole('heading', { level: 1, name: 'Read aloud and dictation' })).toBeVisible()
+    await expect(win.getByRole('switch', { name: 'Mark who says what' })).toBeChecked()
+    await expect(win.getByText('Emotion and tone: On', { exact: true })).toBeVisible()
+    await expect(win.getByText('Sighs and laughs: Off', { exact: true })).toBeVisible()
+  } finally {
+    await speech.close()
   }
 })
 

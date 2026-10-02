@@ -1,12 +1,13 @@
 // Reading aloud, from anywhere in the window: whether it is reading now, Listen (Ctrl+L) and Stop reading
-// (Ctrl+Shift+Space), Listen from here, and what the bar above the page shows. Owned by the Read aloud part.
+// (Ctrl+Shift+Space), Listen from here, the bar's Back one line, Next line and speed, and what the bar above the
+// page shows. Owned by the Read aloud part.
 //
 // A reading belongs to the scene it started in. Opening another scene, closing the world or turning read aloud
 // off ends it; Keep reading carries it on into the next scene of the story by itself. The page it reads is the
 // scene editor's (ReadAloudBar hands it over), whichever page of the app is showing.
 import type { Editor } from '@tiptap/core'
 import { create } from 'zustand'
-import type { ID } from '@shared/types'
+import type { ID, SpeechSettings } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
@@ -16,9 +17,10 @@ import { readingPlace } from './highlight'
 import { sceneAfter } from './nextScene'
 import { hasWords, pageParagraphs, placeOf, posIn, wordStart } from './pageText'
 import { Session, type ReadingBar } from './session'
+import { HOW_IT_READS } from './tone'
 import { onSampleStart, stopSample } from './useSample'
 
-export type { ReadingBar, ReadingPhase } from './session'
+export type { ReadingAt, ReadingBar, ReadingPhase } from './session'
 
 interface ReadingState {
   /** A reading is under way (playing, paused, or getting its next lines ready). */
@@ -132,6 +134,36 @@ export function resumeReading(): void {
   session?.resume()
 }
 
+/** Back one line: the line before the one playing is read again, and reading goes on from there. */
+export function stepBack(): void {
+  session?.back()
+}
+
+/** Next line: on to the line after the one playing. */
+export function stepNext(): void {
+  session?.next()
+}
+
+/** The bar's speeds. Settings' slider can set any speed from 0.5× to 2×, which the bar shows as it is. */
+export const SPEEDS = [0.75, 1, 1.25, 1.5, 2]
+
+/** "1×", "1.25×". */
+export const speedText = (speed: number): string => `${Number(speed.toFixed(2))}×`
+
+/** Saves read-aloud settings from the bar, saying so in plain words when that can't be done. */
+export function saveSpeech(patch: Partial<SpeechSettings>): void {
+  useApp
+    .getState()
+    .updateSettings({ speech: patch })
+    .catch((e: unknown) => toast(`That change couldn't be saved. ${(e as Error).message}`, { tone: 'danger' }))
+}
+
+/** A speed from the bar: heard at once, and saved as the read-aloud speed (Settings › Read aloud and dictation). */
+export function setSpeed(speed: number): void {
+  session?.setRate(playRate(speed))
+  saveSpeech({ speed })
+}
+
 /** Stops reading, from anywhere (Ctrl+Shift+Space). The bar stays, so it can carry on from there. */
 export function stopReading(): void {
   stopSample()
@@ -179,8 +211,25 @@ export function skipLine(): void {
   begin(at.editor, at.sceneId, at.to)
 }
 
+/** A part of Settings › Read aloud and dictation to show when it opens (its element's id), under More. */
+let reveal: string | null = null
+
+/** The id of a part of the speech settings asked for when they were opened, once. */
+export function takeSettingsReveal(): string | null {
+  const id = reveal
+  reveal = null
+  return id
+}
+
 /** Settings › Read aloud and dictation, where the speech engine is set up. */
 export function openSpeechSettings(): void {
+  reveal = null
+  useApp.getState().navigate({ kind: 'settings', tab: 'speech' })
+}
+
+/** Settings › Read aloud and dictation open at How it reads (More opens, and the page scrolls to it). */
+export function openHowItReads(): void {
+  reveal = HOW_IT_READS
   useApp.getState().navigate({ kind: 'settings', tab: 'speech' })
 }
 
@@ -266,7 +315,15 @@ function watch(): void {
       stopSample()
       return
     }
-    const speed = now.settings?.speech.speed
-    if (speed !== before.settings?.speech.speed) session?.setRate(playRate(speed))
+    const speech = now.settings?.speech
+    const was = before.settings?.speech
+    if (speech?.speed !== was?.speed) session?.setRate(playRate(speech?.speed))
+    // How the lines are read changed: the next lines are planned again with it.
+    if (
+      speech &&
+      was &&
+      (speech.markSpeakers !== was.markSpeakers || speech.sounds !== was.sounds || speech.steadyNarrator !== was.steadyNarrator)
+    )
+      session?.settingsChanged()
   })
 }

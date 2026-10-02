@@ -3,7 +3,8 @@
 // highlight sentence by sentence and keeps it in view (Follow along). Adam can keep editing while it reads:
 // the clip playing finishes, and the next ones are planned again from the words as they now stand, from
 // where that clip ends on the page (highlight.ts keeps that place through the edits). With Mark who says what it
-// also plans again where each plan asks (markAhead.ts), so the AI's notes keep ahead of it.
+// also plans again where each plan asks (markAhead.ts), so the AI's notes keep ahead of it. Back one line and Next
+// line step through the clips (a clip is one line: one voice's words, a sentence or a few).
 import type { Editor } from '@tiptap/core'
 import type { PlannedClip, ReadingRequest } from '@shared/contracts/readAloud'
 import type { ID } from '@shared/types'
@@ -31,6 +32,15 @@ export interface ReadingBar {
   fix: 'settings' | 'retry' | null
   /** A problem with one line (it stays lit): reading can skip it and carry on after it. */
   skip?: boolean
+  /** Where reading is in the scene, while it reads (and where it stopped). */
+  at?: ReadingAt
+}
+
+/** Where reading is in the scene: the paragraph (counting those with words), and how far through its words (0 to 1). */
+export interface ReadingAt {
+  paragraph: number
+  paragraphs: number
+  share: number
 }
 
 export interface SessionHooks {
@@ -46,8 +56,6 @@ const MARK_WAIT_MS = 30_000
 const SLOW_MS = 250
 /** Paragraphs before the start sent along, so the rules know who is talking. */
 const BEFORE = 60
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 export class Session {
   private queue: PlannedClip[] = []
@@ -77,6 +85,14 @@ export class Session {
   private replanFirst = 0
   private toldMarks = false
   private stopWaiting: (() => void) | null = null
+  /** The lines read before the one showing, oldest first: Back one line plays the last of them again. */
+  private history: PlannedClip[] = []
+  /** Back one line put lines before the one showing ahead of the queue: the next clip shown isn't one read past. */
+  private rewound = false
+  /** Bumped by Back one line and Next line: the reading drops what it was playing or waiting on, and goes on from the queue. */
+  private jumps = 0
+  /** Where the clip showing is in the scene's words, for the bar's progress. */
+  private span: { paragraph: number; paragraphs: number; before: number; length: number; total: number } | null = null
   private bar: ReadingBar = { phase: 'starting', who: '', how: '', note: 'Getting the first lines ready…', fix: null }
   private readonly offs: (() => void)[] = []
 
@@ -146,6 +162,56 @@ export class Session {
 
   setRate(rate: number): void {
     this.player.setRate(rate)
+  }
+
+  /** A line is playing (or paused): Back one line and Next line can step from it. */
+  get canStep(): boolean {
+    return this.alive && !!this.current
+  }
+
+  /** Next line: the line playing stops, and the one after it starts (past the last line, the scene is read). */
+  next(): void {
+    if (!this.canStep) return
+    this.jump()
+  }
+
+  /**
+   * Back one line: the line before the one showing plays again, and reading goes on from there (at the first line,
+   * that line again). Pressed again before it plays, one more line back.
+   */
+  back(): void {
+    const current = this.current
+    if (!this.canStep || !current) return
+    const prev = this.history.pop()
+    const clips = this.rewound ? (prev ? [prev] : []) : prev ? [prev, current] : [current]
+    if (!clips.length) return
+    const at = this.onPage(clips[0])
+    if (at && !this.stale) this.queue.unshift(...clips)
+    else {
+      // Its words changed, or the page did since the plan: planned again from where it starts (or its paragraph's start).
+      const p = pageParagraphs(this.editor.state.doc).find((x) => x.pid === clips[0].pid)
+      const from = at?.from ?? (p ? posIn(p, 0) : this.place().clip?.from)
+      if (from == null) return
+      this.setPlace({ clip: { from, to: from }, sentence: null })
+      this.version++
+    }
+    this.rewound = true
+    this.jump()
+  }
+
+  /** Plans again from the next line, so changed settings (Mark who says what, Perform written sounds) reach it. */
+  settingsChanged(): void {
+    if (this.alive) this.replanSoon()
+  }
+
+  /** Stepping: playing goes on (from paused too), and the reading takes the queue's first clip at once. */
+  private jump(): void {
+    this.jumps++
+    this.paused = false
+    this.player.stop()
+    const wake = this.wake
+    this.wake = []
+    wake.forEach((fn) => fn())
   }
 
   /** Stops reading. `keepPlace`: the bar stays, and Listen again carries on from the clip that was playing. */
@@ -290,6 +356,7 @@ export class Session {
     this.running = true
     try {
       while (this.alive) {
+        const jump = this.jumps
         if (this.stale) {
           if (!(await this.plan(false))) return
           continue
@@ -321,8 +388,9 @@ export class Session {
           clearTimeout(slow)
         }
         if (!this.alive) return
-        // An edit while it was being got: plan again first (the audio is kept, by its key, if it is still wanted).
-        if (this.stale) continue
+        // An edit while it was being got: plan again first (the audio is kept, by its key, if it is still wanted). A step
+        // meanwhile: the queue's first clip may be another now.
+        if (this.stale || this.jumps !== jump) continue
         if (this.paused) {
           await new Promise<void>((r) => this.wake.push(r))
           continue
@@ -331,17 +399,32 @@ export class Session {
         if (!this.showClip(next)) continue
         void this.prefetch()
         const end = await this.player.play(url, this.rate(), (p) => this.progress(next, p))
-        if (!this.alive || end === 'stopped') return
+        if (!this.alive) return
+        // Back one line or Next line: on to the queue's first clip, without the breath after this one.
+        if (this.jumps !== jump) continue
+        if (end === 'stopped') return
         if (end === 'failed') {
           // Audio the window can't play: say so, rather than racing silently through the scene.
           this.problem(new Error(PLAY_FAILED), next)
           return
         }
-        if (next.restMs) await sleep(next.restMs / this.rate())
+        if (next.restMs) await this.rest(next.restMs / this.rate())
       }
     } finally {
       this.running = false
     }
+  }
+
+  /** The breath after a clip; a step (or carrying on) cuts it short. */
+  private rest(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      this.wake.push(done)
+    })
   }
 
   /** Gets the next clips' audio, one at a time and in order, three ahead of the one playing. */
@@ -377,11 +460,23 @@ export class Session {
       this.version++
       return false
     }
+    // The line it replaces was read past (unless Back one line went back before it).
+    if (this.current && this.current !== clip && !this.rewound) this.history.push(this.current)
+    if (this.history.length > 200) this.history.shift()
+    this.rewound = false
     this.current = clip
     this.sentence = -1
+    this.span = this.measure(clip)
     this.setPlace({ clip: at })
+    this.show({
+      phase: this.paused ? 'paused' : 'playing',
+      who: clip.who,
+      how: clip.how,
+      note: '',
+      fix: null,
+      at: this.at(0)
+    })
     this.progress(clip, 0)
-    this.show({ phase: this.paused ? 'paused' : 'playing', who: clip.who, how: clip.how, note: '', fix: null })
     // Mark who says what: the reading has reached where it asks again, so the AI notes the next part ahead of it.
     if (this.markAhead && reachedMarkAhead(clip, this.markAhead, this.order)) {
       this.markAhead = null
@@ -390,9 +485,33 @@ export class Session {
     return true
   }
 
-  /** How far through the clip it is: the highlight moves to the sentence being said (by its share of the words). */
+  /** Where a clip is in the scene's words: its paragraph's number (of those with words), and the words before it. */
+  private measure(clip: PlannedClip): Session['span'] {
+    const all = pageParagraphs(this.editor.state.doc).filter((p) => hasWords(p))
+    const i = all.findIndex((p) => p.pid === clip.pid)
+    if (i < 0) return null
+    const total = all.reduce((n, p) => n + p.text.length, 0)
+    const before = all.slice(0, i).reduce((n, p) => n + p.text.length, 0) + clip.from
+    return { paragraph: i + 1, paragraphs: all.length, before, length: Math.max(0, clip.to - clip.from), total }
+  }
+
+  /** Where reading is in the scene, `done` (0 to 1) of the way through the clip showing. */
+  private at(done: number): ReadingAt | undefined {
+    const s = this.span
+    if (!s) return undefined
+    const share = s.total ? Math.min(1, (s.before + done * s.length) / s.total) : 0
+    return { paragraph: s.paragraph, paragraphs: s.paragraphs, share }
+  }
+
+  /**
+   * How far through the clip it is: the bar's progress moves on, and the highlight moves to the sentence being said
+   * (by its share of the words).
+   */
   private progress(clip: PlannedClip, at: number): void {
     if (!this.alive || this.current !== clip || this.editor.isDestroyed) return
+    const where = this.at(at)
+    // The progress line moves on in steps a person can see (about every half a percent), not every frame.
+    if (where && this.bar.at && Math.abs(where.share - this.bar.at.share) >= 0.005) this.show({ ...this.bar, at: where })
     const lengths = clip.sentences.map(([a, b]) => Math.max(1, b - a))
     const total = lengths.reduce((a, b) => a + b, 0)
     let i = 0

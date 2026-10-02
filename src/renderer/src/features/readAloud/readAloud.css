@@ -19,6 +19,14 @@
   }
 }
 
+/*
+ * The player bar over the top of the page: a wash of the accent over the page's own colour (opaque, so the words it
+ * lies over don't show through), in every theme.
+ */
+.aw-bar {
+  background-color: color-mix(in srgb, var(--accent-soft) 70%, var(--page));
+}
+
 /* The little bars in the reading bar that move while a voice speaks. */
 .aw-speaking > span {
   transform-origin: bottom;
