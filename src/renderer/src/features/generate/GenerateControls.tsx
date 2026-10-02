@@ -16,6 +16,7 @@ import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { snapshotBefore } from '@/features/history/snapshot'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
@@ -366,6 +367,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         return
       }
       const { generationId } = await api.startDraft(sceneId, options)
+      // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
+      await snapshotBefore(sceneId, 'Before a new draft', { generationId })
       if (s.cancelled || session.current !== s) {
         void api.stopGeneration(generationId).catch(() => undefined)
         giveUp()
