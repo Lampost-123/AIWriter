@@ -70,6 +70,7 @@ export type FixedActionId =
   | 'listen'
   | 'stop-reading'
   | 'settings-speech'
+  | 'world-builder'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -246,6 +247,12 @@ export const ACTIONS: ActionDef[] = [
     id: 'settings-speech',
     label: 'Settings › Read aloud and dictation',
     keywords: 'voice speech speak listen microphone dictate talk narrator',
+    away: true
+  },
+  {
+    id: 'world-builder',
+    label: 'Build the world from a summary',
+    keywords: 'builder ai quick start lay out fill make characters places lore rules premise paste',
     away: true
   }
 ]

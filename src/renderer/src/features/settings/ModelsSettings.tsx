@@ -1,7 +1,8 @@
 // Settings › Models: connect OpenRouter or another provider, test it, and pick the writer model
-// and, if Adam wants others, the memory, character builder, chat and brainstorm, and read aloud models.
+// and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, and read
+// aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, Check, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
+import { AudioLines, Check, Globe2, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -105,6 +106,14 @@ export function ModelsSettings(): React.JSX.Element {
         providerResults={results}
         onTest={(pid, mid) => void test('builder', pid, mid)}
         onClearResult={() => clearResult('builder')}
+      />
+      <HelperModel
+        job="world"
+        providers={providers}
+        result={results.world}
+        providerResults={results}
+        onTest={(pid, mid) => void test('world', pid, mid)}
+        onClearResult={() => clearResult('world')}
       />
       <HelperModel
         job="chat"
@@ -583,13 +592,14 @@ function ProviderForm({
   )
 }
 
-// ---------- Writer, memory, character builder, chat and brainstorm, and read aloud models ----------
+// ---------- Writer, memory, character builder, world builder, chat and brainstorm, and read aloud models ----------
 
 /**
  * The jobs chosen on this page: the model that drafts scenes, the one that keeps the memory up to date, the
- * character builder's, Ask the world's and the outline helper's (chat and brainstorm), and read aloud's.
+ * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
+ * and read aloud's.
  */
-type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech'
+type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -654,11 +664,12 @@ function WriterModel({
 
 /**
  * What each helper's section says. Each uses the writer model unless Adam chooses another, except read
- * aloud, which uses the memory model (itself the writer model unless Adam chose one for the memory).
+ * aloud, which uses the memory model (itself the writer model unless Adam chose one for the memory), and
+ * the world builder, which uses the character builder model (the writer model unless Adam chose one).
  */
 const HELPERS: Record<
   HelperJob,
-  { title: string; description: string; icon: ReactNode; waiting: string; noWriter: string; thinking: string; fallback?: 'memory' }
+  { title: string; description: string; icon: ReactNode; waiting: string; noWriter: string; thinking: string; fallback?: 'memory' | 'builder' }
 > = {
   memory: {
     title: 'Memory model',
@@ -675,6 +686,16 @@ const HELPERS: Record<
     waiting: 'Once a provider is connected above, the character builder uses the writer model, or one you choose here.',
     noWriter: 'Choose a writer model above, or a model just for the character builder here.',
     thinking: 'Off is quickest, and the profile starts filling in straight away. It applies even when the builder uses the writer model.'
+  },
+  world: {
+    title: 'World builder model',
+    description: 'Builds the world from a summary you type or paste: its characters, places, lore, events and plot threads.',
+    icon: <Globe2 size={16} />,
+    waiting: 'Once a provider is connected above, the world builder uses the character builder model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the world builder here.',
+    thinking:
+      'Off is quickest, and the world starts filling in straight away. It applies even when the world builder uses the character builder model.',
+    fallback: 'builder'
   },
   chat: {
     title: 'Chat and brainstorm model',
@@ -695,7 +716,10 @@ const HELPERS: Record<
   }
 }
 
-/** A helper job's model: the writer model (for read aloud, the memory model) unless Adam chooses another. */
+/**
+ * A helper job's model: the writer model (for read aloud, the memory model; for the world builder, the
+ * character builder model) unless Adam chooses another.
+ */
 function HelperModel({
   job,
   providers,
@@ -715,9 +739,11 @@ function HelperModel({
   const chosen = useApp((s) => s.settings?.models[job] ?? null)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
   const memory = useApp((s) => s.settings?.models.memory ?? null)
+  const builder = useApp((s) => s.settings?.models.builder ?? null)
   // What the job uses while Adam hasn't chosen a model for it.
-  const fallsBackTo = words.fallback === 'memory' ? 'memory model' : 'writer model'
-  const fallbackModel = words.fallback === 'memory' ? (memory && providers.some((p) => p.id === memory.providerId) ? memory : writer) : writer
+  const fallsBackTo = words.fallback === 'memory' ? 'memory model' : words.fallback === 'builder' ? 'character builder model' : 'writer model'
+  const helper = words.fallback === 'memory' ? memory : words.fallback === 'builder' ? builder : null
+  const fallbackModel = helper && providers.some((p) => p.id === helper.providerId) ? helper : writer
   const update = useApp((s) => s.updateSettings)
   const [picking, setPicking] = useState(false)
   // A model whose provider has gone isn't used: the job goes back to the writer model.
@@ -869,7 +895,9 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
               ? "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
               : job === 'memory'
                 ? "AI Write fits how much of a scene it reads at once to this. Change it if the model's page says it can read more or less."
-                : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
+                : job === 'world'
+                  ? "AI Write reads a long summary in parts that fit this. Change it if the model's page says it can read more or less."
+                  : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
         {(id) => (
@@ -1103,6 +1131,7 @@ const THINKING_NAMES: Record<ModelJob, string> = {
   writer: 'Writer model thinking',
   memory: 'Memory model thinking',
   builder: 'Character builder model thinking',
+  world: 'World builder model thinking',
   chat: 'Chat and brainstorm model thinking',
   speech: 'Read aloud model thinking'
 }

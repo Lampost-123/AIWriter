@@ -1,9 +1,10 @@
-import { BookOpen, FolderX, Globe2 } from 'lucide-react'
+import { BookOpen, FolderX, Globe2, WandSparkles } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { AppInfo, WorldSummary } from '@shared/types'
 import { Button, Card, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { createWorldAndBuild } from '@/features/worldBuilder/open'
 
 /** Shown when no world is open: create the first world, or open an existing one. */
 export function Welcome(): React.JSX.Element {
@@ -12,7 +13,8 @@ export function Welcome(): React.JSX.Element {
   const [worlds, setWorlds] = useState<WorldSummary[] | null>(null)
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
+  // Which way the world is being made: 'build' opens the World builder in it once it is made.
+  const [busy, setBusy] = useState<false | 'create' | 'build'>(false)
 
   const load = useCallback(async (): Promise<{ info: AppInfo; worlds: WorldSummary[] }> => {
     const [i, w] = await Promise.all([api.getAppInfo(), api.listWorlds()])
@@ -25,11 +27,11 @@ export function Welcome(): React.JSX.Element {
     void load().catch((e: Error) => toast(e.message, { tone: 'danger' }))
   }, [load])
 
-  const create = async (): Promise<void> => {
+  const create = async (build = false): Promise<void> => {
     if (!name.trim() || busy) return
-    setBusy(true)
+    setBusy(build ? 'build' : 'create')
     try {
-      await createWorld(name)
+      await (build ? createWorldAndBuild(name) : createWorld(name))
     } catch (e) {
       toast((e as Error).message, { tone: 'danger' })
       setBusy(false)
@@ -67,8 +69,19 @@ export function Welcome(): React.JSX.Element {
               <Field label="World name">
                 {(id) => <Input id={id} autoFocus value={name} placeholder="For example, The Northern Reaches" onChange={(e) => setName(e.target.value)} />}
               </Field>
-              <Button variant="primary" size="lg" type="submit" loading={busy} disabled={!name.trim()}>
+              <Button variant="primary" size="lg" type="submit" loading={busy === 'create'} disabled={!name.trim() || !!busy}>
                 Create world
+              </Button>
+              <Button
+                size="lg"
+                type="button"
+                icon={<WandSparkles size={15} />}
+                loading={busy === 'build'}
+                disabled={!name.trim() || !!busy}
+                title="Create the world, then lay it out from a summary you type or paste"
+                onClick={() => void create(true)}
+              >
+                Build from a summary
               </Button>
             </form>
           </Card>

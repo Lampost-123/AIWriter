@@ -70,6 +70,7 @@ import type { OutlineApi, OutlineEvents } from './contracts/outline'
 import type { SpeechApi, SpeechEvents } from './contracts/speech'
 import type { ReadAloudApi, ReadAloudEvents } from './contracts/readAloud'
 import type { DictationApi, DictationEvents } from './contracts/dictation'
+import type { WorldBuilderApi, WorldBuilderEvents } from './contracts/worldBuilder'
 
 /** Every call the interface can make. Milestone 3's and 4's parts each add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -89,7 +90,8 @@ export interface AppApi
     OutlineApi,
     SpeechApi,
     ReadAloudApi,
-    DictationApi {
+    DictationApi,
+    WorldBuilderApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -304,7 +306,8 @@ export interface AppEvents
     OutlineEvents,
     SpeechEvents,
     ReadAloudEvents,
-    DictationEvents {
+    DictationEvents,
+    WorldBuilderEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

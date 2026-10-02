@@ -27,6 +27,7 @@ import { openAsk } from '@/features/ask/open'
 import { openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
+import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -243,6 +244,9 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'stop-reading':
         stopReading()
+        return
+      case 'world-builder':
+        openWorldBuilder()
         return
       default: {
         const unknown: never = fixed

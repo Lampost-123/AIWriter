@@ -3,7 +3,7 @@
 // last appearance; a card opens the entry's page, and the codex keeps its filters and scroll while
 // Adam goes back and forth. Plot threads live on their own board, so they aren't here.
 
-import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { CodexCard } from '@shared/contracts/entryViews'
@@ -14,6 +14,7 @@ import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
 import { createEntry } from '@/features/world/entryActions'
+import { openWorldBuilder } from '@/features/worldBuilder/open'
 import {
   CODEX_KINDS,
   NO_FILTERS,
@@ -209,6 +210,9 @@ export function CodexView(): React.JSX.Element {
             </Button>
             <Button icon={<Sparkles size={15} />} onClick={quickStart}>
               Quick start from a few notes
+            </Button>
+            <Button icon={<WandSparkles size={15} />} onClick={() => openWorldBuilder()}>
+              Build from a summary
             </Button>
           </>
         }
