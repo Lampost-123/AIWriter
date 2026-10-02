@@ -4,15 +4,21 @@
 //   piece. What is kept is always the scene's own text, cut out exactly.
 // - An issue's key is its check, what it is about (an entry, an earlier scene, another story) and its quote
 //   made plain, so the same thing found again is the same issue, and an ignored one is never raised again.
+//   Reworded or requoted, it is still the same issue when its quote overlaps (quotesOverlap; see
+//   db/checks.ts saveFound).
 
 import type { CheckKind, IssueKind } from '@shared/contracts/checks'
-import { findQuote, plain, wordCount } from '../keeper/text'
+import { findQuote, plain, plainWithMap, wordCount } from '../keeper/text'
 
 /** Quotation marks a model wraps the words in. */
 const WRAP = /^["“”'‘’«»]+|["“”'‘’«»]+$/g
 
-/** The scene's own words for a quote from the check model, or null when they aren't in the scene. */
-export function sceneQuote(text: string, quote: unknown): string | null {
+/**
+ * Where a quote from the check model is in the scene: the scene's own words, where they start, and whether
+ * they are the model's whole quote (false when only the longest piece of "A ... B" was found). Null when
+ * the words aren't in the scene.
+ */
+export function findSceneQuote(text: string, quote: unknown): { quote: string; start: number; whole: boolean } | null {
   if (typeof quote !== 'string') return null
   const raw = quote.trim()
   if (!raw || !text) return null
@@ -20,7 +26,7 @@ export function sceneQuote(text: string, quote: unknown): string | null {
   for (const q of [raw, bare]) {
     if (!q) continue
     const r = findQuote(text, q)
-    if (r) return text.slice(r.start, r.end)
+    if (r) return { quote: text.slice(r.start, r.end), start: r.start, whole: true }
   }
   // Pieces joined with "...": the longest that is in the scene (a few words at least, so it means something).
   const parts = bare
@@ -31,9 +37,35 @@ export function sceneQuote(text: string, quote: unknown): string | null {
   if (parts.length < 2) return null
   for (const p of parts) {
     const r = findQuote(text, p)
-    if (r) return text.slice(r.start, r.end)
+    if (r) return { quote: text.slice(r.start, r.end), start: r.start, whole: false }
   }
   return null
+}
+
+/** The scene's own words for a quote from the check model, or null when they aren't in the scene. */
+export const sceneQuote = (text: string, quote: unknown): string | null => findSceneQuote(text, quote)?.quote ?? null
+
+/**
+ * Which of the quote's appearances in the text starts at `start` (0 for the first), so the page can find the
+ * same words when they appear more than once.
+ */
+export function occurrenceAt(text: string, quote: string, start: number): number {
+  const t = plainWithMap(text)
+  const q = plain(quote)
+  if (!q) return 0
+  let n = 0
+  for (let i = t.plain.indexOf(q); i >= 0; i = t.plain.indexOf(q, i + 1)) {
+    if (t.from[i] >= start) return n
+    n++
+  }
+  return 0
+}
+
+/** True when two quotes overlap: either, made plain, holds the other. Empty quotes never do. */
+export function quotesOverlap(a: string, b: string): boolean {
+  const x = plainQuote(a)
+  const y = plainQuote(b)
+  return !!x && !!y && (x.includes(y) || y.includes(x))
 }
 
 /** True when the words are still in the text (with the same allowances as sceneQuote's first step). */

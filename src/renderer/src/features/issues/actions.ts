@@ -3,6 +3,7 @@
 // undoable), check the scene, and follow an issue's links. Nothing asks "are you sure?".
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Entry, EntryInput, ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, type ApiError } from '@/lib/api'
@@ -16,7 +17,7 @@ import { showReplacement, startTool } from '@/features/edits/session'
 import { wordsIn } from '@/features/edits/text'
 import { openScene } from '@/features/memory/openScene'
 import { openStorySettings } from '@/features/stories/storyActions'
-import { fieldWords, fixDirection, sentenceAround } from './issuesLogic'
+import { fieldWords, fixDirection, occurrencesIn, pickOccurrence, sentenceAround } from './issuesLogic'
 import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
 
 const WORDS_GONE = 'Those words aren’t in the scene any more.'
@@ -39,10 +40,24 @@ const markFixed = (issue: Issue) => (): void => {
   void api.markIssueFixed(issue.id).catch(() => undefined)
 }
 
+/** Every place the quote appears in the page, each inside one paragraph, in reading order. */
+function placesInPage(doc: PMNode, quote: string): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  doc.descendants((node, pos) => {
+    if (!node.isTextblock) return true
+    // One character per position: a line break inside the paragraph reads as a space.
+    const text = node.textBetween(0, node.content.size, undefined, ' ')
+    for (const r of occurrencesIn(text, quote)) out.push({ from: pos + 1 + r.from, to: pos + 1 + r.to })
+    return false
+  })
+  return out
+}
+
 /**
- * Fix the text: the check's suggested rewrite shows in the page as a tracked change (no AI call); without
- * one, the AI tools' Rewrite works on the sentence the words are in, told what the problem is. Accepting
- * the change marks the issue fixed; rejecting it leaves the issue as it was.
+ * Fix the text: the check's suggested rewrite shows in the page as a tracked change (no AI call) when its
+ * words are found whole, in one place it can be sure of; otherwise the AI tools' Rewrite works on the
+ * sentence the words are in, told what the problem is. Accepting the change marks the issue fixed;
+ * rejecting it leaves the issue as it was.
  */
 export function fixTheText(issue: Issue): void {
   const bridge = editorBridge()
@@ -52,14 +67,17 @@ export function fixTheText(issue: Issue): void {
     return
   }
   const doc = editor.state.doc
-  const range = findTextRange(doc, issue.quote)
-  if (!issue.quote.trim() || !range) {
+  const places = issue.quote.trim() ? placesInPage(doc, issue.quote) : []
+  const exact = pickOccurrence(places, issue.occurrence)
+  // Not whole in one paragraph (it runs across two): where its first part is.
+  const range = exact ?? places[0] ?? (issue.quote.trim() ? findTextRange(doc, issue.quote) : null)
+  if (!range) {
     toast(WORDS_GONE)
     void loadIssues(issue.sceneId)
     return
   }
-  if (issue.fix) {
-    showReplacement({ ...range, text: issue.fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue) })
+  if (issue.fix && exact) {
+    showReplacement({ ...exact, text: issue.fix, note: 'The consistency check’s suggested rewrite.', onAccepted: markFixed(issue) })
     return
   }
   // The whole sentence the words are in, within their paragraph.
@@ -140,7 +158,9 @@ export async function ignore(issue: Issue): Promise<void> {
 export async function reopen(issue: Issue): Promise<void> {
   if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'open' })
   try {
-    await api.reopenIssue(issue.id)
+    const now = await api.reopenIssue(issue.id)
+    // A live flag Adam ignored isn't kept as an open issue: it goes, and shows in the page again.
+    if (issue.sceneId && now.status !== 'open') patchIssue(issue.sceneId, issue.id, { status: now.status })
   } catch (e) {
     if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: issue.status })
     toast(plainReason(e), { tone: 'danger' })

@@ -71,6 +71,8 @@ export interface Issue {
    * sets, and the value from the text. Null when updating the memory makes no sense for this issue.
    */
   memoryFix: { entryId: ID; field: string; value: string } | null
+  /** Which of the quote's appearances in the scene it is (0 for the first), when known: Fix the text works on that one. */
+  occurrence?: number
   createdAt: string
   updatedAt: string
 }

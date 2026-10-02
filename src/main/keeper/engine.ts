@@ -166,10 +166,15 @@ export class Keeper {
 
   /**
    * Resolves once the scene's queued or running read has been tried (at once when none is; milestone 5's
-   * checks wait for it, so a clash the keeper raises isn't raised by a check as well).
+   * checks wait for it, so a clash the keeper raises isn't raised by a check as well). A scene still waiting
+   * out its quiet time after a save is read now.
    */
   async whenRead(sceneId: ID): Promise<void> {
     if (this.closed) return
+    if (this.timers.has(sceneId)) {
+      this.clearTimer(sceneId)
+      if (kdb.needsReading(this.db, sceneId)) this.enqueue(sceneId)
+    }
     if (this.reading?.sceneId !== sceneId && !this.queue.includes(sceneId) && !this.urgent.includes(sceneId)) return
     if ('error' in this.deps.model()) return
     await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))

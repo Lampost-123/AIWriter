@@ -22,14 +22,18 @@ const CATCH_UP_MS = 60_000
 
 const modelSources = () => ({ settings: getSettings(), getProvider: providers.getProvider, providerTarget: providers.providerTarget })
 
-/** Resolves when the promise does, or after `ms`, whichever is first. */
-const within = (p: Promise<unknown>, ms: number): Promise<void> =>
+/** Resolves when the promise does, after `ms`, or as soon as `signal` is aborted, whichever is first. */
+const within = (p: Promise<unknown>, ms: number, signal: AbortSignal): Promise<void> =>
   new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms)
-    void p.finally(() => {
+    if (signal.aborted) return resolve()
+    const done = (): void => {
       clearTimeout(t)
+      signal.removeEventListener('abort', done)
       resolve()
-    })
+    }
+    const t = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
+    void p.finally(done)
   })
 
 setRunDeps({
@@ -38,10 +42,11 @@ setRunDeps({
   emit,
   // As drafting does: queued or failed reads of earlier scenes on the line first, then the scene's own queued
   // read (so a clash the memory keeper raises from it isn't raised again by the check).
-  beforeScene: async (db, sceneId) => {
-    await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS)
+  // Stop and the world closing end the wait at once.
+  beforeScene: async (db, sceneId, signal) => {
+    await catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal)
     const k = currentKeeper()
-    if (k && k.db === db) await within(k.whenRead(sceneId), CATCH_UP_MS)
+    if (k && k.db === db && !signal.aborted) await within(k.whenRead(sceneId), CATCH_UP_MS, signal)
   },
   onKeyRejected: (model) => providers.markCheck(model.target.id, false)
 })
@@ -63,7 +68,7 @@ function asIssues(rows: Record<string, unknown>[]): Issue[] {
     entry: (id) => {
       const e = entries.get(id)
       if (!e) return null
-      return { name: e.name, isAdams: (field) => cdb.fieldOriginOf(e.origin, e.fieldOrigins, field) === 'adam' }
+      return { name: e.name, kind: e.kind, value: e.value, isAdams: (field) => cdb.fieldOriginOf(e.origin, e.fieldOrigins, field) === 'adam' }
     },
     sceneLabel: (id) => {
       if (!label) {
@@ -127,7 +132,14 @@ export const issuesHandlers: Handlers<
     return cdb.openCounts(db, storyId)
   },
   ignoreIssue: (id) => setStatus(id, 'ignored'),
-  reopenIssue: (id) => setStatus(id, 'open'),
+  // A live flag Adam ignored goes (as unignoreLive does) rather than becoming an open issue.
+  reopenIssue: (id) => {
+    const db = world.db()
+    const row = cdb.reopenIssue(db, id)
+    if (!row) throw new UserError('That issue is no longer there.')
+    repo.touchWorld(db)
+    return asIssues([row])[0]
+  },
   markIssueFixed: (id) => setStatus(id, 'fixed'),
   updateMemoryFromIssue: (id) => {
     const db = world.db()

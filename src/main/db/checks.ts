@@ -14,7 +14,9 @@ import type Database from 'better-sqlite3'
 import type { CheckKind, Issue, IssueKind, IssueSeverity, IssueSource, IssueStatus } from '@shared/contracts/checks'
 import type { ID, Origin } from '@shared/types'
 import { newId, now } from '../util'
-import { plainQuote, quoteAt, stillThere } from '../checks/quote'
+import { quoteAt, quotesOverlap, stillThere } from '../checks/quote'
+import { memoryFixable } from '../checks/memoryFix'
+import { plain } from '../keeper/text'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -47,6 +49,8 @@ export interface IssuePayload {
   memoryFix?: Issue['memoryFix']
   /** A story issue: the other story it was compared with. */
   otherStoryId?: ID
+  /** Which of the quote's appearances in the scene it is (0 for the first), when it was found by a check. */
+  occurrence?: number
 }
 
 // ---------- Telling the window ----------
@@ -83,7 +87,7 @@ export function issuesTouched(storyId: ID | null | undefined, sceneId: ID | null
 
 /** What reading an issue needs to know beyond its row: entries' names and who wrote their fields, places in plain words. */
 export interface IssueNames {
-  entry(id: ID): { name: string; isAdams: (field: string) => boolean } | null
+  entry(id: ID): { name: string; kind: string; isAdams: (field: string) => boolean; value: (field: string) => string } | null
   sceneLabel(id: ID): string | null
   storyTitle(id: ID): string | null
 }
@@ -116,7 +120,17 @@ export function readIssue(r: Row, names: IssueNames): Issue {
   else sources = p.entryId && entry ? [{ kind: 'entry', entryId: p.entryId, name: entry.name, field: p.field ?? null }] : []
   // The keeper's and the world builder's clashes with one of Adam's own fields: the text's value can become his.
   let memoryFix = p.memoryFix ?? null
-  if (p.memoryFix === undefined && p.entryId && entry && p.field && p.field !== 'name' && (p.text ?? '').trim() && entry.isAdams(p.field)) {
+  // Only for a short value of a one-line field, and only while the memory's value was his note itself (not
+  // something an earlier scene's change set).
+  if (
+    p.memoryFix === undefined &&
+    p.entryId &&
+    entry &&
+    p.field &&
+    memoryFixable(entry.kind, p.field, p.text) &&
+    entry.isAdams(p.field) &&
+    (p.memory === undefined || plain(p.memory) === plain(entry.value(p.field)))
+  ) {
     memoryFix = { entryId: p.entryId, field: p.field, value: (p.text ?? '').trim() }
   }
   const severity = r.severity as IssueSeverity
@@ -133,30 +147,48 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     sources,
     fix: typeof p.fix === 'string' && p.fix.trim() ? p.fix : null,
     memoryFix,
+    ...(typeof p.occurrence === 'number' ? { occurrence: p.occurrence } : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }
 }
 
-/** Entries' names and who wrote each field, for the entries these rows name (one query). */
-export function entryNamesFor(db: DB, rows: Row[]): Map<ID, { name: string; origin: Origin; fieldOrigins: Record<string, Origin> }> {
+/** What reading an issue needs of an entry: its name and kind, who wrote each field, and the fields' values. */
+export interface EntryFacts {
+  name: string
+  kind: string
+  origin: Origin
+  fieldOrigins: Record<string, Origin>
+  value: (field: string) => string
+}
+
+/** Entries' names, kinds, who wrote each field and the values, for the entries these rows name (one query). */
+export function entryNamesFor(db: DB, rows: Row[]): Map<ID, EntryFacts> {
   const ids = new Set<ID>()
   for (const r of rows) {
     const p = json<IssuePayload>(r.payload_json, {})
     if (p.entryId) ids.add(p.entryId)
     for (const s of p.sources ?? []) if (s && (s.kind === 'entry' || s.kind === 'thread')) ids.add(s.entryId)
   }
-  const out = new Map<ID, { name: string; origin: Origin; fieldOrigins: Record<string, Origin> }>()
+  const out = new Map<ID, EntryFacts>()
   if (!ids.size) return out
   const list = [...ids]
   for (let i = 0; i < list.length; i += 500) {
     const part = list.slice(i, i + 500)
-    const got = db.prepare(`SELECT id, name, origin, field_origins_json FROM entries WHERE id IN (${part.map(() => '?').join(',')})`).all(...part) as Row[]
+    const got = db
+      .prepare(
+        `SELECT id, name, kind, origin, field_origins_json, summary, description, fields_json FROM entries WHERE id IN (${part.map(() => '?').join(',')})`
+      )
+      .all(...part) as Row[]
     for (const e of got) {
+      const fields = json<Record<string, string>>(e.fields_json, {})
       out.set(e.id as ID, {
         name: e.name as string,
+        kind: e.kind as string,
         origin: ((e.origin as Origin) || 'adam') as Origin,
-        fieldOrigins: json<Record<string, Origin>>(e.field_origins_json, {})
+        fieldOrigins: json<Record<string, Origin>>(e.field_origins_json, {}),
+        value: (field) =>
+          field === 'summary' ? ((e.summary as string) ?? '') : field === 'description' ? ((e.description as string) ?? '') : (fields[field] ?? '')
       })
     }
   }
@@ -169,6 +201,14 @@ export function storyTitles(db: DB): Map<ID, string> {
 }
 
 // ---------- Lists and counts ----------
+
+/**
+ * Kinds the live checks keep as rows only for what Adam ignored (milestone 5, Live checks part): never an
+ * open issue, never counted. Reopening one deletes its row, as unignoreLive does.
+ */
+export const LIVE_KINDS = ['phrase', 'repetition', 'spelling'] as const
+const LIVE_SQL = "('phrase', 'repetition', 'spelling')"
+export const isLiveKind = (kind: unknown): boolean => (LIVE_KINDS as readonly unknown[]).includes(kind)
 
 const RANK: Record<string, number> = { 'must-fix': 0, warning: 1, minor: 2 }
 const STATUS_RANK: Record<string, number> = { open: 0, ignored: 1, fixed: 2, gone: 3 }
@@ -188,7 +228,9 @@ export function sortIssues(rows: Row[], textOf: (sceneId: ID) => string): Row[] 
 
 /** A scene's issues (not those whose words have gone), unsorted. */
 export function sceneIssueRows(db: DB, sceneId: ID): Row[] {
-  return db.prepare("SELECT * FROM issues WHERE scene_id = ? AND status <> 'gone'").all(sceneId) as Row[]
+  return db
+    .prepare(`SELECT * FROM issues WHERE scene_id = ? AND status <> 'gone' AND (kind NOT IN ${LIVE_SQL} OR status = 'ignored')`)
+    .all(sceneId) as Row[]
 }
 
 /** A story's issues: its scenes' (live scenes only) and its story-wide ones, not those whose words have gone. */
@@ -196,7 +238,7 @@ export function storyIssueRows(db: DB, storyId: ID): Row[] {
   return db
     .prepare(
       `SELECT i.* FROM issues i
-       WHERE i.status <> 'gone' AND (
+       WHERE i.status <> 'gone' AND (i.kind NOT IN ${LIVE_SQL} OR i.status = 'ignored') AND (
          i.scene_id IN (SELECT sc.id FROM scenes sc JOIN chapters c ON c.id = sc.chapter_id
                         WHERE c.story_id = ? AND sc.deleted_at IS NULL AND c.deleted_at IS NULL)
          OR ((i.scene_id IS NULL OR i.scene_id = '') AND i.story_id = ?))`
@@ -210,7 +252,7 @@ export function openCounts(db: DB, storyId: ID): Record<ID, { count: number; mus
     .prepare(
       `SELECT i.scene_id AS scene_id, COUNT(*) AS n, SUM(CASE WHEN i.severity = 'must-fix' THEN 1 ELSE 0 END) AS m
        FROM issues i JOIN scenes sc ON sc.id = i.scene_id JOIN chapters c ON c.id = sc.chapter_id
-       WHERE i.status = 'open' AND c.story_id = ? AND sc.deleted_at IS NULL AND c.deleted_at IS NULL
+       WHERE i.status = 'open' AND i.kind NOT IN ${LIVE_SQL} AND c.story_id = ? AND sc.deleted_at IS NULL AND c.deleted_at IS NULL
        GROUP BY i.scene_id`
     )
     .all(storyId) as Row[]
@@ -241,10 +283,12 @@ export function sceneTexts(db: DB, sceneIds: ID[]): Map<ID, string> {
 export function sweepGone(db: DB, where: { sceneId: ID } | { storyId: ID }): ID[] {
   const rows = (
     'sceneId' in where
-      ? db.prepare("SELECT id, scene_id, story_id, quote FROM issues WHERE status = 'open' AND scene_id = ? AND quote <> ''").all(where.sceneId)
+      ? db
+          .prepare(`SELECT id, scene_id, story_id, quote FROM issues WHERE status = 'open' AND kind NOT IN ${LIVE_SQL} AND scene_id = ? AND quote <> ''`)
+          .all(where.sceneId)
       : db
           .prepare(
-            `SELECT id, scene_id, story_id, quote FROM issues WHERE status = 'open' AND quote <> '' AND scene_id IS NOT NULL AND scene_id <> ''
+            `SELECT id, scene_id, story_id, quote FROM issues WHERE status = 'open' AND kind NOT IN ${LIVE_SQL} AND quote <> '' AND scene_id IS NOT NULL AND scene_id <> ''
              AND (story_id = ? OR scene_id IN (SELECT sc.id FROM scenes sc JOIN chapters c ON c.id = sc.chapter_id WHERE c.story_id = ?))`
           )
           .all(where.storyId, where.storyId)
@@ -286,6 +330,19 @@ export function setIssueStatus(db: DB, id: ID, status: IssueStatus): Row | null 
   return issueRow(db, id)
 }
 
+/**
+ * Reopens an issue. A live flag Adam ignored (LIVE_KINDS) is never a stored open issue: its row goes instead,
+ * as unignoreLive does. Returns the row as it is now (as it was, with status 'gone', when it went), or null.
+ */
+export function reopenIssue(db: DB, id: ID): Row | null {
+  const r = issueRow(db, id)
+  if (!r) return null
+  if (!isLiveKind(r.kind)) return setIssueStatus(db, id, 'open')
+  db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+  issuesTouched(r.story_id as ID | null, (r.scene_id as ID) || null)
+  return { ...r, status: 'gone' }
+}
+
 // ---------- Saving what a check found ----------
 
 /** One thing a check found, ready to save. */
@@ -300,13 +357,17 @@ export interface FoundIssue {
   payload: IssuePayload
 }
 
-/** True when two rows are about the same thing in the same place: the same entry and field, or the same words for the same kind. */
-function sameThing(p: IssuePayload, row: Row, f: FoundIssue): boolean {
+/**
+ * True when two rows are about the same thing in the same place: the same key, the same entry and field,
+ * or the same kind with overlapping words (whatever entry or scene each names, so a reworded or requoted
+ * finding is still the issue Adam ignored).
+ */
+export function sameThing(p: IssuePayload, row: Row, f: Pick<FoundIssue, 'key' | 'sceneId' | 'kind' | 'quote'>): boolean {
   const q = json<IssuePayload>(row.payload_json, {})
   if (q.key && q.key === f.key) return true
   if ((row.scene_id || null) !== (f.sceneId || null)) return false
   if (p.entryId && q.entryId === p.entryId && p.field && q.field === p.field) return true
-  return row.kind === f.kind && !!f.quote && plainQuote(row.quote as string) === plainQuote(f.quote) && (q.entryId ?? null) === (p.entryId ?? null)
+  return row.kind === f.kind && quotesOverlap((row.quote as string) ?? '', f.quote)
 }
 
 /**

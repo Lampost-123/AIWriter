@@ -12,7 +12,9 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
 import { checkScene, type CheckOptions } from './run'
-import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck } from './runs'
+import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
+import { Keeper } from '../keeper/engine'
+import * as kdb from '../db/keeper'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -114,7 +116,7 @@ describe('checking a scene', () => {
 })
 
 describe('check runs', () => {
-  function deps(m: () => JobModel = () => model()) {
+  function deps(m: () => JobModel = () => model(), beforeScene?: RunDeps['beforeScene']) {
     const events: { name: keyof AppEvents; payload: unknown }[] = []
     const done = new Map<ID, (d: CheckDone) => void>()
     const ended = (runId: ID): Promise<CheckDone> => new Promise((r) => done.set(runId, r))
@@ -125,7 +127,8 @@ describe('check runs', () => {
         events.push({ name, payload })
         if (name === 'checks:done') done.get((payload as CheckDone).runId)?.(payload as CheckDone)
       },
-      retryDelays: [5]
+      retryDelays: [5],
+      beforeScene
     })
     return { events, ended }
   }
@@ -185,5 +188,59 @@ describe('check runs', () => {
     await new Promise((r) => setTimeout(r, 150))
     await stopCheck('r1')
     expect((await end).status).toBe('stopped')
+  })
+
+  it('names each scene as "Ch 1, Sc 2: The tavern"', async () => {
+    const w = world()
+    const { events, ended } = deps()
+    const end = ended('r1')
+    startCheck(w.db, { runId: 'r1', target: { scope: 'chapter', id: w.chapterId }, checks: ['facts'] })
+    await end
+    const named = events.filter((e) => e.name === 'checks:progress').map((e) => (e.payload as CheckProgress).current)
+    expect(named).toContain('Ch 1, Sc 2: The tavern')
+  })
+
+  it('a check Adam asks for takes over a waiting mark-done check of the same scene, and Stop ends a check waiting for the memory at once', async () => {
+    const w = world()
+    // The memory never catches up by itself here: only Stop ends the wait.
+    const { events } = deps(
+      () => model(),
+      (_db, _scene, signal) => new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+    )
+    const first = checkWhenDone(w.db, w.s1)!
+    const second = checkWhenDone(w.db, w.s2)!
+    startCheck(w.db, { runId: 'r1', target: { scope: 'story', id: w.storyId }, checks: ['facts', 'knowledge', 'timeline'] })
+    const done = (): CheckDone[] => events.filter((e) => e.name === 'checks:done').map((e) => e.payload as CheckDone)
+    // The waiting one for Scene 2 is dropped (said as stopped); the one already going isn't.
+    expect(done()).toEqual([expect.objectContaining({ runId: second, status: 'stopped', background: true })])
+    // Marking Scene 2 done again while Adam's check will get to it adds nothing.
+    expect(checkWhenDone(w.db, w.s2)).toBeNull()
+    const t = Date.now()
+    await stopCheck(first)
+    expect(Date.now() - t).toBeLessThan(1000)
+    expect(done().find((d) => d.runId === first)).toMatchObject({ status: 'stopped' })
+    await stopCheck('r1')
+    expect(done().find((d) => d.runId === 'r1')).toMatchObject({ status: 'stopped' })
+  })
+})
+
+describe('the memory keeper before a check', () => {
+  it('reads a scene still waiting out its quiet time after a save, and resolves once it has', async () => {
+    const w = world()
+    const keeper = new Keeper({
+      db: w.db,
+      model: () => ({ target: model().target, choice: model().choice }),
+      emitStatus: () => {},
+      emitChanged: () => {},
+      quietMs: 600_000,
+      summaries: false,
+      retryDelays: [0]
+    })
+    repo.saveSceneText(w.db, w.s2, null, 'Mara lost her left hand.')
+    keeper.sceneSaved(w.s2)
+    expect(kdb.needsReading(w.db, w.s2)).toBe(true)
+    await keeper.whenRead(w.s2)
+    expect(kdb.needsReading(w.db, w.s2)).toBe(false)
+    keeper.stop()
   })
 })
