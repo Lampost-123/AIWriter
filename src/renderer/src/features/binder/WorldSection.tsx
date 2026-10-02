@@ -1,17 +1,19 @@
-import { MapPin, Palette, ScrollText, Users } from 'lucide-react'
+import { Palette } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { KIND_ICONS } from '@/features/world/kindIcons'
 
 type Counts = Partial<Record<EntryKind, number>>
 
-const ENTRY_LINKS: { kind: EntryKind; label: string; icon: ReactNode }[] = [
-  { kind: 'character', label: 'Characters', icon: <Users size={15} /> },
-  { kind: 'place', label: 'Places', icon: <MapPin size={15} /> },
-  { kind: 'lore', label: 'Lore', icon: <ScrollText size={15} /> }
-]
+// Every kind of entry, in a calm fixed order: characters, places, groups, items, lore, events, plot threads, glossary.
+const ENTRY_LINKS: { kind: EntryKind; label: string; icon: ReactNode }[] = ENTRY_KINDS.map((kind) => {
+  const Icon = KIND_ICONS[kind]
+  return { kind, label: KIND_LABELS[kind].many, icon: <Icon size={15} /> }
+})
 
 /** Counts of world bible entries, reloaded whenever entries change. Null until first loaded. */
 function useEntryCounts(): Counts | null {
@@ -54,14 +56,15 @@ function Link({ active, icon, label, count, onClick }: { active: boolean; icon: 
   )
 }
 
-/** The world's characters, places, lore and style guide, pinned to the bottom of the binder. */
+/** The world's entries of every kind and its style guide, pinned to the bottom of the binder. */
 export function WorldSection(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const navigate = useApp((s) => s.navigate)
   const counts = useEntryCounts()
 
   return (
-    <nav aria-label="World" className="shrink-0 border-t border-line px-1.5 pb-2 pt-2">
+    // In a short window the list scrolls rather than squeezing out the chapters above it.
+    <nav aria-label="World" className="max-h-[50%] shrink-0 overflow-y-auto border-t border-line px-1.5 pb-2 pt-2">
       <h3 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">World</h3>
       {ENTRY_LINKS.map((l) => (
         <Link

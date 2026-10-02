@@ -1,15 +1,49 @@
 import Database from 'better-sqlite3'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
 import type { DraftOptions, ModelChoice } from '@shared/types'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
+import { setBlockMode, setPin } from '../db/memory'
+import type { SceneMemory } from '../memory/types'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { assembleContext, replyTokenLimit } from './context'
+import { assembleContext, replyTokenLimit, sentEntryVersions } from './context'
 import { draftCost, isDrafting, startDraftJob, stopDraft, stopDraftsFor, type Emit } from './drafts'
-import { cleanOptions, gatherContextInput } from './gather'
+import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
+
+// Until the memory engine is joined in, its sceneMemory says "Not built yet": then every live entry
+// counts and the previous scene is the one before in reading order. Once it is built, it is used.
+vi.mock('../memory/scene', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../memory/scene')>()
+  const repo = await import('../db/repo')
+  return {
+    ...real,
+    sceneMemory: (db: Database.Database, sceneId: string): SceneMemory => {
+      try {
+        return real.sceneMemory(db, sceneId)
+      } catch (e) {
+        if (!(e instanceof Error) || e.message !== 'Not built yet') throw e
+        const previous = repo.previousScene(db, sceneId)
+        return {
+          storyId: repo.sceneLocation(db, sceneId).story.id,
+          sceneId,
+          knows: '',
+          previous: previous ? { sceneId: previous.id, title: previous.title, text: previous.text } : null,
+          entries: repo.listEntries(db).map((e) => ({ ...e, happened: [], changed: [] })),
+          firstHere: [],
+          elsewhere: [],
+          relationships: [],
+          facts: [],
+          threads: [],
+          storySoFar: { scenes: [], chapters: [], stories: [], series: [], leadsInto: null },
+          bringAbout: []
+        }
+      }
+    }
+  }
+})
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -90,7 +124,7 @@ function start(
       preview,
       provider: { id: 'p1', name: 'Fake', kind, baseUrl: fake.url, apiKey: 'k' },
       model: model({ modelId, ...modelOver }),
-      entryVersions: new Map(input.entries.map((e) => [e.id, e.updatedAt])),
+      entryVersions: sentEntryVersions(input.memory, preview.blocks),
       emit,
       onKeyRejected,
       onWorked,
@@ -99,18 +133,91 @@ function start(
   }
 }
 
+const plain = {
+  prefs: { spelling: 'UK' as const, pov: '', tense: '', voiceNotes: '', avoidWords: [] },
+  contextLength: null,
+  creativity: 'steady' as const
+}
+
 describe('gatherContextInput', () => {
   it('reads the card, the previous scene, entries and the merged style', () => {
     const w = setup()
     const input = gatherContextInput(w.db, w.second.id, undefined, { prefs: { spelling: 'US', pov: 'First person', tense: 'Present', voiceNotes: '', avoidWords: ['very'] }, contextLength: null, creativity: 'adventurous' })
-    expect(input.previousText).toContain('She left the docks')
+    expect(input.memory.previous?.text).toContain('She left the docks')
     expect(input.scene.card.beats).toEqual(['Mara meets Tobin', 'Someone knocks'])
-    expect(input.entries.map((e) => e.name).sort()).toEqual(['Mara', 'The Binding', 'The Gilded Eel', 'Tobin'])
+    expect(input.memory.entries.map((e) => e.name).sort()).toEqual(['Mara', 'The Binding', 'The Gilded Eel', 'Tobin'])
     expect(input.style.pov).toBe('First person')
     expect(input.style.avoidPhrases).toEqual(['very'])
     // Defaults come from the card and settings.
     expect(input.options).toEqual({ direction: '', targetWords: 600, creativity: 'adventurous' })
+    expect(input.series).toEqual({ name: 'Test world', themes: '', tone: '' })
+    expect(input.pins).toEqual([])
+    expect(input.blockModes).toEqual({})
   })
+
+  it("reads the scene's pins, its story's and the world's, and its block modes", () => {
+    const w = setup()
+    setPin(w.db, w.tobin.id, 'scene', w.second.id, 'hide')
+    setPin(w.db, w.rule.id, 'world', null, 'pin')
+    setPin(w.db, w.eel.id, 'scene', w.first.id, 'pin')
+    setBlockMode(w.db, w.second.id, 'pov', 'short')
+    const input = gatherContextInput(w.db, w.second.id, undefined, plain)
+    expect(input.pins.map((p) => [p.entryId, p.scope, p.action])).toEqual([
+      [w.tobin.id, 'scene', 'hide'],
+      [w.rule.id, 'world', 'pin']
+    ])
+    expect(input.blockModes).toEqual({ pov: 'short' })
+    const preview = assembleContext(input, countRaw)
+    expect(preview.blocks.find((b) => b.id === 'present')).toBeUndefined()
+    expect(preview.blocks.find((b) => b.id === 'pov')!.mode).toBe('short')
+    const tobin = preview.entries!.find((e) => e.entryId === w.tobin.id)
+    expect(tobin).toMatchObject({ hidden: true, blockId: null, why: 'Kept out of this scene' })
+  })
+
+  it('records the version of each entry actually sent', () => {
+    const w = setup()
+    const input = gatherContextInput(w.db, w.second.id, undefined, plain)
+    const preview = assembleContext(input, countRaw)
+    const versions = sentEntryVersions(input.memory, preview.blocks)
+    expect([...versions.keys()].sort()).toEqual([w.mara.id, w.tobin.id, w.eel.id, w.rule.id].sort())
+    expect(versions.get(w.mara.id)).toBe(w.mara.updatedAt)
+    const withoutPov = preview.blocks.map((b) => (b.id === 'pov' ? { ...b, dropped: true } : b))
+    expect(sentEntryVersions(input.memory, withoutPov).has(w.mara.id)).toBe(false)
+  })
+})
+
+describe('catching the memory up before a draft', () => {
+  const db = {} as Database.Database
+
+  it('goes ahead at once when nothing is registered', async () => {
+    setBeforeDraft(null)
+    expect(await catchUpBeforeDraft(db, 's1')).toBe('none')
+  })
+
+  it('waits for the catch-up, and drafts anyway when it fails or takes too long', async () => {
+    const seen: string[] = []
+    setBeforeDraft(async (_db, sceneId) => {
+      seen.push(sceneId)
+    })
+    expect(await catchUpBeforeDraft(db, 's1')).toBe('done')
+    expect(seen).toEqual(['s1'])
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    setBeforeDraft(() => {
+      throw new Error('no memory model')
+    })
+    expect(await catchUpBeforeDraft(db, 's1')).toBe('failed')
+    setBeforeDraft(() => Promise.reject(new Error('offline')))
+    expect(await catchUpBeforeDraft(db, 's1')).toBe('failed')
+    warn.mockRestore()
+
+    setBeforeDraft(() => new Promise(() => undefined))
+    expect(await catchUpBeforeDraft(db, 's1', 20)).toBe('timed-out')
+    setBeforeDraft(null)
+  })
+})
+
+describe('gatherContextInput, options', () => {
 
   it('cleans draft options', () => {
     expect(cleanOptions({ targetWords: 5, creativity: 'wild' as never, direction: '  hi  ' }, { targetWords: 1500, creativity: 'balanced' })).toEqual({

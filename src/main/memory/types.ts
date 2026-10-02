@@ -97,7 +97,7 @@ export interface LineSegment {
   via: 'line' | 'side'
   /** For a side story: the story whose walk added it. */
   addedIn: ID | null
-  /** True when every scene of the story is on the walk. */
+  /** True when every scene of the story is on the walk: the walk reached the story's end. */
   whole: boolean
   /** Where the walk stopped in this story when not whole: its start (before or after its start-of-story changes), after a chapter or after a scene. */
   stop: { at: StartAt; refId: ID | null } | null

@@ -18,7 +18,8 @@ import type {
 } from '@shared/types'
 import { countWords, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { newId, now, UserError } from '../util'
-import { addExistsPoint, defaultExistsPoint } from './memory'
+import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
+import { buildLine, previousSceneStep } from '../memory/line'
 import { recordVersion } from './history'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
@@ -435,29 +436,14 @@ export function sceneLocation(db: DB, sceneId: ID): { scene: SceneMeta; chapter:
 }
 
 /**
- * The scene before this one in reading order: earlier in this story, or the
- * last scene of the story this one continues after. Milestone 2 replaces this
- * with the full line-building rules.
+ * Block 3's previous scene: the last scene on this story's line before this one (spec, Multi-story
+ * rules), never a side story added whole. Empty for a prequel's first scene and for the first scene
+ * of a story that starts at the beginning of the world. Built by the line, like every "what came earlier".
  */
 export function previousScene(db: DB, sceneId: ID): Scene | null {
   const { story } = sceneLocation(db, sceneId)
-  const order = getOutline(db, story.id).scenes
-  const i = order.findIndex((s) => s.id === sceneId)
-  if (i > 0) return getScene(db, order[i - 1].id)
-  let prevStoryId = story.startStoryId
-  const seen = new Set<ID>([story.id])
-  while (prevStoryId && !seen.has(prevStoryId)) {
-    seen.add(prevStoryId)
-    try {
-      const prev = getOutline(db, prevStoryId)
-      const last = prev.scenes[prev.scenes.length - 1]
-      if (last) return getScene(db, last.id)
-      prevStoryId = prev.story.startStoryId
-    } catch {
-      return null
-    }
-  }
-  return null
+  const step = previousSceneStep(buildLine(loadShape(db), { storyId: story.id, before: sceneId }))
+  return step ? getScene(db, step.sceneId) : null
 }
 
 // ---------- Entries ----------
