@@ -72,7 +72,7 @@ class Totals {
 }
 
 /** Common first words that start a sentence without being a name, so they can follow a colon or semicolon in lower case. */
-const COMMON_START = /^(The|It|Its|A|An|Add|Try|Pick|Choose|Check|Wait|This|That|Your|You|Something|Nothing|There)\b/
+const COMMON_START = /^(The|It|Its|A|An|Add|Try|Pick|Choose|Check|Set|Wait|This|That|Your|You|Something|Nothing|There)\b/
 
 const lowerStart = (s: string): string => s.replace(COMMON_START, (w) => w.toLowerCase())
 

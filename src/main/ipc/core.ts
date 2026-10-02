@@ -68,8 +68,8 @@ export const coreHandlers: Handlers<CoreMethods> = {
   getSettings: () => getSettings(),
   updateSettings: (patch) => {
     const settings = updateSettings(patch)
-    // A memory model chosen (or changed): the memory tries the scenes it couldn't read straight away.
-    if (patch.models) memorySettingsChanged()
+    // A memory model chosen (or changed), or its thinking: the memory tries the scenes it couldn't read straight away.
+    if (patch.models || patch.thinking?.memory) memorySettingsChanged()
     return settings
   },
   getWritingPrefs: () => getWritingPrefs(),

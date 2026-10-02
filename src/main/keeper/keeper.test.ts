@@ -12,7 +12,7 @@ import * as mem from '../db/memory'
 import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import * as gens from '../db/generations'
-import type { MemoryModel } from './model'
+import { memoryReplyLimits, type MemoryModel } from './model'
 import { runScene, type RunOutcome } from './run'
 import { answerItem, undoItem } from './undo'
 import { nextRollUp, sceneSummaryDue, writeRollUp, writeSceneSummary } from './summaries'
@@ -24,10 +24,11 @@ beforeAll(async () => {
 })
 afterAll(() => fake.close())
 
-function modelFor(modelId = 'fake/writer', contextLength: number | null = 32000): MemoryModel {
+function modelFor(modelId = 'fake/writer', contextLength: number | null = 32000, thinking?: MemoryModel['thinking']): MemoryModel {
   return {
     target: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'test' },
-    choice: { providerId: 'p1', modelId, label: modelId, contextLength, promptPrice: null, completionPrice: null }
+    choice: { providerId: 'p1', modelId, label: modelId, contextLength, promptPrice: null, completionPrice: null },
+    thinking
   }
 }
 
@@ -399,6 +400,63 @@ describe('failures', () => {
     controller.abort()
     w.db.close()
     expect((await running).status).toBe('stopped')
+  })
+})
+
+describe('models that think', () => {
+  const lastMemoryRecord = (db: Database.Database) => {
+    const { id } = db.prepare("SELECT id FROM generations WHERE job = 'memory' ORDER BY created_at DESC, rowid DESC LIMIT 1").get() as { id: ID }
+    return gens.getGeneration(db, id)!
+  }
+
+  it('asks the memory model not to think, and leaves it room to answer if it thinks anyway', async () => {
+    const w = world()
+    fake.reset()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    const out = await read(w.db, w.sceneId, modelFor('fake/overthinker', 16000))
+    expect(out.status).toBe('done')
+    expect(entryNamed(w.db, 'Mara')).not.toBeNull()
+    expect(fake.requestCounts()['fake/overthinker']).toBe(1)
+    const sent = fake.lastRequest()!.body
+    expect(sent.reasoning_effort).toBe('none')
+    expect(sent.max_tokens).toBeGreaterThan(3000)
+    expect(lastMemoryRecord(w.db).params).toMatchObject({ thinking: 'off', max_tokens: sent.max_tokens })
+  })
+
+  it('asks with the thinking level from Settings, with room for the thinking', async () => {
+    const w = world()
+    fake.reset()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    expect((await read(w.db, w.sceneId, modelFor('fake/writer', 64000, 'high'))).status).toBe('done')
+    const sent = fake.lastRequest()!.body
+    expect(sent.reasoning_effort).toBe('high')
+    expect(lastMemoryRecord(w.db).params.thinking).toBe('high')
+    // The reply's own room is at most 4000 tokens; at High the thinking may take 80% of the limit.
+    expect(sent.max_tokens).toBeGreaterThanOrEqual(15000)
+  })
+
+  it("says in plain words when a model that won't stop thinking leaves no room to answer", async () => {
+    const w = world()
+    fake.reset()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    const out = await read(w.db, w.sceneId, modelFor('fake/overthinker', 4000))
+    expect(out.status).toBe('failed')
+    expect(lines(w.db)[0].text).toBe(
+      'The memory model thinks even with Thinking off, and used up its room before it answered; pick another memory model in Settings › Models.'
+    )
+  })
+
+  it('works out the reply limit from the reply, the thinking level and what the model can take', () => {
+    const choice = (contextLength: number | null, maxOutput: number | null = null) => ({ ...modelFor('fake/writer', contextLength).choice, maxOutput })
+    expect(memoryReplyLimits(choice(64000), 2000, 4000)).toEqual({ limit: 8000, thinkingRoom: 20384 })
+    expect(memoryReplyLimits(choice(64000), 2000, 4000, 'off')).toEqual({ limit: 8000, thinkingRoom: 20384 })
+    expect(memoryReplyLimits(choice(64000), 2000, 4000, 'high')).toEqual({ limit: 20000, thinkingRoom: 40000 })
+    expect(memoryReplyLimits(choice(64000), 2000, 700, 'medium')).toEqual({ limit: 4700, thinkingRoom: 17084 })
+    // Never past what the window has left (5% spare), nor what the model writes in one go, nor below the reply's own room.
+    expect(memoryReplyLimits(choice(16000), 9000, 3200)).toEqual({ limit: 6200, thinkingRoom: 6200 })
+    expect(memoryReplyLimits(choice(64000), 2000, 700, 'high')).toEqual({ limit: 4700, thinkingRoom: 23500 })
+    expect(memoryReplyLimits(choice(64000, 1000), 2000, 700)).toEqual({ limit: 1000, thinkingRoom: 1000 })
+    expect(memoryReplyLimits(choice(4000), 3900, 800)).toEqual({ limit: 800, thinkingRoom: 800 })
   })
 })
 

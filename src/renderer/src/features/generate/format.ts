@@ -1,7 +1,7 @@
 // Small formatting helpers for the drafting screens. Pure (no React, no
 // window), so they are unit-tested.
 
-import type { Creativity, ModelChoice, ModelInfo } from '@shared/types'
+import type { Creativity, ModelChoice, ModelInfo, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
 
 /** "Maker: Model Name" -> "Model Name"; "maker/model-name" -> "model-name". */
@@ -87,6 +87,15 @@ export const CREATIVITY_HINTS: Record<Creativity, string> = {
   steady: 'Sticks closely to the card, with plainer choices.',
   balanced: 'Follows the card, with some fresh turns of phrase.',
   adventurous: 'Takes more risks with wording and ideas.'
+}
+
+/** How much a model thinks before it answers, as named on screen, in the order offered. */
+export const THINKING_LABELS: Record<ThinkingLevel, string> = {
+  auto: 'Model decides',
+  off: 'Off',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High'
 }
 
 /** Rough cost of a draft before it is written: the briefing plus the target length, at the model's prices. */

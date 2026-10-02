@@ -19,8 +19,8 @@ export type Failure =
   | { type: 'timeout' }
   /** The model refused (content filter / moderation). */
   | { type: 'refused' }
-  /** The model finished without writing anything. */
-  | { type: 'empty' }
+  /** The model finished without writing anything (thinking: its thinking used up the reply limit). */
+  | { type: 'empty'; thinking?: boolean }
   /** The connection dropped after text had started arriving. */
   | { type: 'dropped' }
   /** The server answered with something that isn't the expected API. */
@@ -127,6 +127,11 @@ export function describeFailure(f: Failure, p: ProviderRef, ctx: { during: Durin
     case 'refused':
       return onPage ? 'This model turned the request down. Try another model.' : `This model refused the scene. Try another model in ${SETTINGS}.`
     case 'empty':
+      if (f.thinking) {
+        return onPage
+          ? 'This model used up its room thinking and sent nothing back. Try again, or try another model.'
+          : `The writer model used up its room thinking and wrote nothing. Try again, or set the writer's Thinking lower in ${SETTINGS}.`
+      }
       return onPage ? `${who} sent back an empty reply. Try again, or try another model.` : `${who} sent back an empty draft. Try again, or pick another writer model in ${SETTINGS}.`
     case 'dropped':
       return `The connection to ${who} dropped before the draft was finished. The text that arrived is kept.`

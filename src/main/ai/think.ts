@@ -23,6 +23,8 @@ function partialTagTail(s: string): number {
 }
 
 export class ThinkFilter {
+  /** True once any thinking has been seen (and removed). */
+  sawThinking = false
   private inThink = false
   private pending = ''
   private started = false
@@ -50,6 +52,7 @@ export class ThinkFilter {
           s = s.slice(m.index + m[0].length)
           // A stray closing tag (thinking that began before the text did) is just dropped.
           if (!m[1]) this.inThink = true
+          this.sawThinking = true
           continue
         }
         const tail = partialTagTail(s)

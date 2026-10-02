@@ -300,12 +300,17 @@ export type Job = 'writer' | 'memory' | 'chat'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
+/** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
+export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
+
 export type ThemeName = 'system' | 'light' | 'dark' | 'sepia'
 
 export interface Settings {
   libraryPath: string
   providers: ProviderConfig[]
   models: Record<Job, ModelChoice | null>
+  /** How much each job's model thinks before it answers. */
+  thinking: Record<Job, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
   editor: { fontSize: number; lineHeight: number; pageWidth: number }
@@ -440,6 +445,8 @@ export interface GenerationRecord extends GenerationSummary {
     sampling?: boolean
     /** The reply reached the limit, so the scene stops before its end. */
     cutOff?: boolean
+    /** How much the model was asked to think, as sent; left out when it was left to the model. */
+    thinking?: Exclude<ThinkingLevel, 'auto'>
   }
   direction: string
   blocks: ContextBlock[]

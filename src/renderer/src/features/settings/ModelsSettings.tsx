@@ -2,14 +2,14 @@
 // and, if Adam wants another, the memory model. Keys are sent to the main process once and never come back.
 import { Check, KeyRound, NotebookText, PenLine, Plus, Search, Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings } from '@shared/types'
+import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
 import { isLocalUrl } from '@shared/urls'
 import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { CREATIVITY_HINTS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
+import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 
 type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
@@ -613,6 +613,7 @@ function WriterModel({
           onCancel={writer && writerProvider ? () => setPicking(false) : undefined}
         />
       )}
+      {providers.length ? <ThinkingChoice job="writer" about="Thinking can help a model plan a scene, but drafts take longer. Models that don't think aren't affected." /> : null}
     </SettingsSection>
   )
 }
@@ -688,6 +689,12 @@ function MemoryModel({
           </div>
         </Card>
       )}
+      {providers.length ? (
+        <ThinkingChoice
+          job="memory"
+          about="The memory doesn't need to think: Off is quickest, and leaves the model room to answer. It applies even when the memory uses the writer model."
+        />
+      ) : null}
     </SettingsSection>
   )
 }
@@ -998,6 +1005,48 @@ function TypedRow({ name, onPick }: { name: string; onPick: () => void }): React
         Use <span className="font-mono text-[12.5px]">{name}</span> as the model name
       </span>
     </button>
+  )
+}
+
+// ---------- Thinking ----------
+
+const THINKING_OPTIONS = (Object.keys(THINKING_LABELS) as ThinkingLevel[]).map((k) => ({ value: k, label: THINKING_LABELS[k] }))
+
+const THINKING_HINTS: Record<ThinkingLevel, string> = {
+  auto: 'The model thinks as much as it usually would.',
+  off: 'Answers straight away: fastest and cheapest. A model that always thinks is asked to think as little as it can.',
+  low: 'Thinks a little before it answers.',
+  medium: 'Thinks for a while before it answers: slower, and costs more.',
+  high: 'Thinks the most before it answers: slowest, and costs the most.'
+}
+
+/** How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model does the job. */
+function ThinkingChoice({ job, about }: { job: ModelJob; about: string }): React.JSX.Element {
+  const level = useApp((s) => s.settings?.thinking?.[job] ?? 'off')
+  const update = useApp((s) => s.updateSettings)
+  const choose = (l: ThinkingLevel): void =>
+    void update({ thinking: job === 'writer' ? { writer: l } : { memory: l } }).catch((e: Error) => toast(e.message, { tone: 'danger' }))
+  return (
+    <div className="mt-5">
+      <h3 className="text-[13.5px] font-medium text-fg">Thinking</h3>
+      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{about}</p>
+      {/* The four levels share one width and "Model decides" takes the room its name needs, so the row fits the narrowest window. */}
+      <Segmented
+        label={job === 'writer' ? 'Writer model thinking' : 'Memory model thinking'}
+        value={level}
+        onChange={choose}
+        options={THINKING_OPTIONS}
+        className="mt-2.5 *:min-w-[72px] *:flex-none *:px-2.5"
+      />
+      {/* Every hint sits in the same cell, so the space under the choice is the longest hint's and never jumps. */}
+      <div className="mt-2 grid text-[12.5px] text-faint">
+        {THINKING_OPTIONS.map((o) => (
+          <p key={o.value} className={cn('col-start-1 row-start-1', o.value !== level && 'invisible')}>
+            {THINKING_HINTS[o.value]}
+          </p>
+        ))}
+      </div>
+    </div>
   )
 }
 

@@ -266,6 +266,97 @@ describe('streamChat', () => {
   })
 })
 
+describe('streamChat: thinking', () => {
+  const openrouter = (): ChatTarget => target({ kind: 'openrouter', name: 'OpenRouter' })
+
+  it('asks for each thinking level the way the provider takes it, and nothing when left to the model', async () => {
+    await run('fake/writer', { thinking: 'off' })
+    expect(fake.lastRequest()!.body.reasoning_effort).toBe('none')
+    expect(fake.lastRequest()!.body.reasoning).toBeUndefined()
+    await run('fake/writer', { target: openrouter(), thinking: 'high' })
+    expect(fake.lastRequest()!.body.reasoning).toEqual({ effort: 'high' })
+    expect(fake.lastRequest()!.body.reasoning_effort).toBeUndefined()
+    const { outcome } = await run('fake/writer', { target: openrouter(), thinking: 'medium' })
+    expect(outcome.effort).toBe('medium')
+    await run('fake/writer', { thinking: 'auto' })
+    expect(fake.lastRequest()!.body).not.toHaveProperty('reasoning_effort')
+    await run('fake/writer')
+    expect(fake.lastRequest()!.body).not.toHaveProperty('reasoning_effort')
+  })
+
+  it("asks a model that can't stop thinking to think as little as it can, and remembers", async () => {
+    const { outcome, retries } = await run('fake/must-think', { target: openrouter(), thinking: 'off' })
+    expect(outcome.status).toBe('complete')
+    expect(retries).toEqual([])
+    expect(outcome.effort).toBe('low')
+    expect(fake.lastRequest()!.body.reasoning).toEqual({ effort: 'low' })
+    expect(fake.requestCounts()['fake/must-think']).toBe(2)
+    await run('fake/must-think', { target: openrouter(), thinking: 'off' })
+    expect(fake.requestCounts()['fake/must-think']).toBe(3)
+  })
+
+  it('stops asking a model that takes no thinking setting, and remembers', async () => {
+    const { outcome } = await run('fake/no-thinking-option', { thinking: 'off' })
+    expect(outcome.status).toBe('complete')
+    expect(outcome.effort).toBeNull()
+    expect(fake.lastRequest()!.body).not.toHaveProperty('reasoning_effort')
+    // Still asks for usage: only the thinking setting was turned down.
+    expect(fake.lastRequest()!.body.stream_options).toEqual({ include_usage: true })
+    expect(fake.requestCounts()['fake/no-thinking-option']).toBe(3)
+    await run('fake/no-thinking-option', { thinking: 'high' })
+    expect(fake.requestCounts()['fake/no-thinking-option']).toBe(5)
+    await run('fake/no-thinking-option', { thinking: 'off' })
+    expect(fake.requestCounts()['fake/no-thinking-option']).toBe(6)
+  })
+
+  it('drops stream_options before the thinking setting when the server turns down stream_options', async () => {
+    const { outcome } = await run('fake/no-stream-options', { thinking: 'off' })
+    expect(outcome.status).toBe('complete')
+    expect(outcome.effort).toBe('none')
+    expect(fake.lastRequest()!.body.reasoning_effort).toBe('none')
+    expect(fake.requestCounts()['fake/no-stream-options']).toBe(2)
+  })
+
+  it('asks once more with room to think when the thinking used up the reply limit, and remembers the model', async () => {
+    const { outcome } = await run('fake/overthinker', { thinkingRoom: 5000 })
+    expect(outcome.status).toBe('complete')
+    expect(outcome.text).toMatch(/^The rain/)
+    expect(outcome.maxTokens).toBe(5000)
+    expect(fake.requestCounts()['fake/overthinker']).toBe(2)
+    // Both tries are counted: the first was billed for its thinking.
+    expect(outcome.completionTokens).toBeGreaterThan(400)
+    const again = await run('fake/overthinker', { thinkingRoom: 5000 })
+    expect(again.outcome.status).toBe('complete')
+    expect(fake.requestCounts()['fake/overthinker']).toBe(3)
+    expect(fake.lastRequest()!.body.max_tokens).toBe(5000)
+  })
+
+  it('says so in plain words when thinking used up all the room', async () => {
+    const { outcome } = await run('fake/overthinker')
+    expect(outcome.status).toBe('error')
+    expect(outcome.failure).toEqual({ type: 'empty', thinking: true })
+    expect(outcome.error).toBe("The writer model used up its room thinking and wrote nothing. Try again, or set the writer's Thinking lower in Settings › Models.")
+    // Not enough room even with more: the same, after one more try.
+    const bigger = await run('fake/overthinker', { thinkingRoom: 2000 })
+    expect(bigger.outcome.failure).toEqual({ type: 'empty', thinking: true })
+    expect(fake.requestCounts()['fake/overthinker']).toBe(3)
+  })
+
+  it('reads replies sent as lists of parts, leaving out thinking parts', async () => {
+    const { outcome } = await run('fake/content-parts')
+    expect(outcome.status).toBe('complete')
+    expect(outcome.text).toMatch(/^The rain/)
+    expect(outcome.text).not.toContain('private thought')
+  })
+
+  it('tries again when the server stops with an error before writing anything', async () => {
+    const { outcome, retries } = await run('fake/finish-error-once')
+    expect(outcome.status).toBe('complete')
+    expect(retries).toHaveLength(1)
+    expect(fake.requestCounts()['fake/finish-error-once']).toBe(2)
+  })
+})
+
 describe('requestJson', () => {
   it('fetches JSON and reports failures as plain-words failures', async () => {
     const ok = await requestJson(target(), 'models')
