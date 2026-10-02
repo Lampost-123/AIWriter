@@ -1,8 +1,223 @@
-// What shows over the page while writing beat by beat: which beat is next, a box to steer it, Write the
-// next beat, Stop. Rendered by SceneView over the bottom of the page. Owned by the Beat by beat part.
-// Groundwork stand-in.
+// What shows over the bottom of the page while writing beat by beat (milestone 4). Between beats: which
+// beat is next and its words, a box to steer it, Write the next beat (Enter in the box), Write it again
+// (the beat just written, afresh in its place) and Finish. While a beat is being written: that it is,
+// with Stop (Esc also stops). Rendered by SceneView over the page's room below the text, so it never
+// covers the words being written; its rows keep their size whatever it shows, so it never jumps.
+import * as P from '@radix-ui/react-popover'
+import { Check, ListOrdered, RotateCcw, Sparkles, Square } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ID } from '@shared/types'
+import { Button, Textarea } from '@/components/ui'
+import { modKey } from '@/lib/api'
+import { cn } from '@/lib/cn'
+import { editorBridge } from '@/lib/editorBridge'
+import { useApp } from '@/lib/store'
+import { useDelayed } from '@/features/generate/parts'
+import { clearHeight, dismissQuestion, finish, reloadBeats, stopBeat, watchPage, writeAgain, writeNext } from './flow'
+import { MAX_NOTE_CHARS, nextBeat } from './sessionLogic'
+import { QuestionPanel } from './parts'
+import { patchSession, useBeats, type BeatSession } from './session'
 
-export function BeatBar(_props: { sceneId: ID }): React.JSX.Element | null {
-  return null
+/** The last request for the keyboard the bar has met, so showing it again (back from another scene) doesn't take it. */
+let focusSeen = 0
+
+export function BeatBar({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+  const session = useBeats((s) => (s.session?.sceneId === sceneId ? s.session : null))
+  // Another scene shows: a page height held while a beat was written again goes with the last one.
+  useLayoutEffect(() => () => clearHeight(), [sceneId])
+  return session ? <Bar session={session} /> : null
+}
+
+/** How far the session has got, one mark a beat: written, being written, still to come. */
+function Progress({ of, written, writing }: { of: number; written: number; writing: number | null }): React.JSX.Element | null {
+  if (of < 2 || of > 12) return null
+  return (
+    <span className="flex shrink-0 items-center gap-[3px] @max-[460px]:hidden" aria-hidden>
+      {Array.from({ length: of }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            'h-1.5 w-3 rounded-full transition-colors duration-150',
+            writing === i + 1 ? 'bg-ai animate-pulse' : i < written ? 'bg-success' : 'bg-line-strong'
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
+  const question = useBeats((x) => (x.question?.sceneId === s.sceneId && x.question.from === 'bar' ? x.question : null))
+  const focusRev = useBeats((x) => x.focusRev)
+  const memoryReading = useApp((x) => !!x.memoryStatus?.reading)
+  const briefingRev = useApp((x) => x.briefingRev)
+  const boxRef = useRef<HTMLTextAreaElement>(null)
+
+  // The beats on the page are counted as it changes (Ctrl+Z on a beat takes the bar back a beat).
+  useEffect(() => {
+    const ed = editorBridge()?.editor
+    return ed ? watchPage(ed) : undefined
+  }, [s.sceneId])
+
+  // The card's beats as they are now, and again whenever the card is saved.
+  useEffect(() => {
+    void reloadBeats(s.sceneId)
+  }, [s.sceneId, briefingRev])
+
+  // The keyboard into the box when asked (a session starting, a beat written...).
+  useEffect(() => {
+    if (focusRev <= focusSeen) return
+    focusSeen = focusRev
+    if (useApp.getState().view.kind === 'write') boxRef.current?.focus({ preventScroll: true })
+  }, [focusRev])
+
+  const of = s.beats.length
+  const busy = s.phase !== 'paused'
+  const next = nextBeat(s.written, of)
+  const writing = busy && s.current ? s.current.index : null
+  // The beat the bar is about: the one being written, else the next one, else the last.
+  const shown = writing ?? next ?? of
+  // Between beats, a beat after the one written (or being written) that the note in the box is for.
+  const after = writing != null ? (writing < of ? writing + 1 : null) : next
+
+  // Getting ready is usually quick; when it isn't because the memory is catching up first, the bar says so.
+  const startingSlow = useDelayed(s.phase === 'starting', 700)
+  let status: string
+  let statusTitle: string | undefined
+  if (busy) {
+    if (s.phase === 'stopping') status = 'Stopping…'
+    else if (s.retrying) {
+      status = 'Retrying…'
+      statusTitle = s.retrying
+    } else if (startingSlow && memoryReading) {
+      status = 'Updating memory…'
+      statusTitle = 'Bringing the memory up to date with earlier scenes first, so the beat knows what happened in them.'
+    } else status = s.current?.again ? `Writing beat ${writing} again…` : `Writing beat ${writing} of ${of}…`
+  } else if (next != null) status = `Beat ${next} of ${of}`
+  else status = of === 1 ? 'The beat is written' : `All ${of} beats are written`
+
+  const words = busy || next != null ? (s.beats[shown - 1] ?? '') : 'That was the last beat on the scene card. Write it again, or finish.'
+  const again = s.written >= 1 ? s.written : null
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Enter writes (Shift+Enter starts a new line in the note). Ctrl+Enter does too, here, and not Mark done.
+    if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return
+    e.preventDefault()
+    if (busy) return
+    if (next != null) writeNext(true)
+    else if (s.steer.trim()) writeAgain()
+  }
+
+  return (
+    // The page fades out just above the bar and stays out below it, so no words peek round it (clear of
+    // the page's scroll bar).
+    <div className="pointer-events-none absolute bottom-0 left-0 right-2.5 z-10 flex justify-center bg-[linear-gradient(to_top,var(--page)_calc(100%-20px),transparent)] px-4 pb-4 pt-5">
+      <section
+        data-beat-bar
+        aria-label="Beat by beat"
+        className="@container pointer-events-auto w-full max-w-[680px] rounded-xl border border-line bg-surface px-4 pb-3 pt-2 shadow-pop animate-slide-up"
+      >
+        <div className="flex h-8 items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span
+              role="status"
+              title={statusTitle}
+              className={cn('flex min-w-0 items-center gap-2 text-[12.5px] font-semibold', busy ? 'text-ai' : 'text-fg')}
+            >
+              {busy ? (
+                <span className="h-2 w-2 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
+              ) : (
+                <ListOrdered size={14} className="shrink-0 text-muted" aria-hidden />
+              )}
+              <span className="truncate">{status}</span>
+            </span>
+            <Progress of={of} written={s.written} writing={writing} />
+          </div>
+          {/* Between beats only; the room is kept while a beat is written, so nothing moves. Once every beat is
+              written, Finish is the big button below instead. */}
+          <div className={cn('-mr-1.5 flex shrink-0 items-center gap-0.5', busy && 'invisible')}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(next == null && 'invisible')}
+              onClick={finish}
+              title="Close this bar. The beats stay as they are."
+            >
+              Finish
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RotateCcw size={13} />}
+              disabled={again == null}
+              onClick={writeAgain}
+              title={
+                again != null
+                  ? `Write beat ${again} again in its place, following your note if you wrote one. ${modKey()}+Z brings it back as it was.`
+                  : undefined
+              }
+            >
+              Write it again
+            </Button>
+          </div>
+        </div>
+        <p className="line-clamp-2 h-10 text-[13.5px] leading-5 text-muted" title={words}>
+          {words}
+        </p>
+        <div className="mt-2.5 flex items-end gap-2">
+          <Textarea
+            ref={boxRef}
+            minRows={1}
+            maxRows={4}
+            maxLength={MAX_NOTE_CHARS}
+            value={s.steer}
+            onChange={(e) => patchSession({ steer: e.target.value })}
+            onKeyDown={onKeyDown}
+            aria-label={after != null ? 'Your note for the next beat' : 'Your note if the beat is written again'}
+            placeholder={after != null ? 'Anything to change for the next beat?' : 'Anything to change if you write it again?'}
+            className="min-w-0 flex-1"
+          />
+          <P.Root open={!!question} onOpenChange={(open) => !open && dismissQuestion()}>
+            <P.Anchor asChild>
+              <div className="w-[172px] shrink-0">
+                {busy ? (
+                  <Button
+                    variant="secondary"
+                    className="h-[35px] w-full"
+                    icon={<Square size={11} fill="currentColor" />}
+                    onClick={stopBeat}
+                    disabled={s.phase === 'stopping'}
+                    title="Stop writing (Esc). The text so far is kept."
+                  >
+                    Stop
+                  </Button>
+                ) : next != null ? (
+                  <Button
+                    variant="primary"
+                    className="h-[35px] w-full"
+                    icon={<Sparkles size={14} />}
+                    onClick={() => writeNext(false)}
+                    title={`Write beat ${next} of ${of}, following your note if you wrote one (Enter in the box)`}
+                  >
+                    Write the next beat
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    className="h-[35px] w-full"
+                    icon={<Check size={14} />}
+                    onClick={finish}
+                    title="Close this bar. The beats stay as they are."
+                  >
+                    Finish
+                  </Button>
+                )}
+              </div>
+            </P.Anchor>
+            {question ? <QuestionPanel key={question.kind} question={question} side="top" /> : null}
+          </P.Root>
+        </div>
+      </section>
+    </div>
+  )
 }
