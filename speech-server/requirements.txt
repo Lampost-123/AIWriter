@@ -1,0 +1,8 @@
+# Adapted from mcreader-v2, tts/requirements.txt (Adam's rule, 2 October 2026: only speech code is reused).
+# What the server itself needs, installed by AI Write into the speech folder's venv/ ("Start with AI Write").
+# Breeze has its own environment under venvs/breeze/ (tools/install.py), since its pinned transformers can't
+# share this one. Dictation adds sherpa-onnx (Parakeet) or faster-whisper (Whisper) here when it is downloaded.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+soundfile>=0.12
+numpy>=1.24
