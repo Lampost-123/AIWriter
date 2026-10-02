@@ -155,6 +155,24 @@ describe('what Keep adds', () => {
     expect(items[0].beats).toBeUndefined()
   })
 
+  it('keeps each scene’s When, Adam’s where he changed it, and leaves it out when there is none', () => {
+    const dated = outlineTree(
+      parseOutline('## Chapter: One\n### Scene: A\nWhen: Day 1, morning\n### Scene: B\nWhen: Day 1, dusk\n### Scene: C\n- Beat', true)
+    )
+    expect(dated[0].children.map((n) => n.when)).toEqual(['Day 1, morning', 'Day 1, dusk', ''])
+    expect(dated[0].when).toBe('')
+    const edits = { c0s1: { title: 'B', text: '', beats: [], when: '  Day 2, night ' }, c0s0: { title: 'A', text: '', beats: [] } }
+    const items = keepPlan(dated, {}, edits, 'all')
+    expect(items.map((i) => [i.key, i.when])).toEqual([
+      ['c0', undefined],
+      ['c0s0', 'Day 1, morning'],
+      ['c0s1', 'Day 2, night'],
+      ['c0s2', undefined]
+    ])
+    // Cleared by Adam: the story fills it in.
+    expect(keepPlan(dated, {}, { c0s0: { title: 'A', text: '', beats: [], when: ' ' } }, ['c0s0'])[1].when).toBeUndefined()
+  })
+
   it('keeps a chapter of a reply with no acts on its own, for the story to place', () => {
     const flat = outlineTree(parseOutline('## Chapter: One\n### Scene: A\n- Beat\n## Chapter: Two\n### Scene: B', true))
     expect(show(keepPlan(flat, {}, {}, ['c1s0']))).toEqual(['chapter c1 Two', 'scene c1s0 B in=c1'])

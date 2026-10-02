@@ -16,6 +16,8 @@ export interface TreeNode {
   text: string
   /** A scene's beats. */
   beats: string[]
+  /** When a scene happens ("Day 3, dusk"); '' for acts and chapters, and for a scene the reply gave none. */
+  when: string
   /** Fully arrived (see parse.ts). */
   complete: boolean
   children: TreeNode[]
@@ -26,6 +28,8 @@ export interface NodeEdit {
   title: string
   text: string
   beats: string[]
+  /** A scene's When as Adam changed it; left out: the AI's. */
+  when?: string
 }
 
 /** What became of a suggestion. Not listed: still open. */
@@ -46,6 +50,7 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
   title: c.title,
   text: c.goal,
   beats: [],
+  when: '',
   complete: c.complete,
   children: c.scenes.map((s) => ({
     key: s.key,
@@ -53,6 +58,7 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
     title: s.title,
     text: s.summary,
     beats: s.beats,
+    when: s.when,
     complete: s.complete,
     children: []
   }))
@@ -69,6 +75,7 @@ export function outlineTree(o: ParsedOutline): TreeNode[] {
         title: a.title,
         text: a.purpose,
         beats: [],
+        when: '',
         complete: a.complete,
         children: a.chapters.map(chapterNode)
       })
@@ -165,7 +172,12 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
     const before = after ? undefined : siblings.slice(at + 1).find((s) => decisions[s.key]?.status === 'kept')
     const words = edits[node.key] ?? node
     const item: KeepItem = { key: node.key, kind: node.kind, title: words.title.trim(), text: words.text.trim() }
-    if (node.kind === 'scene') item.beats = words.beats.map((b) => b.trim()).filter(Boolean)
+    if (node.kind === 'scene') {
+      item.beats = words.beats.map((b) => b.trim()).filter(Boolean)
+      // Adam's When if he changed it, else the AI's; empty, the story fills it in (keepOutline).
+      const when = (edits[node.key]?.when ?? node.when).trim()
+      if (when) item.when = when
+    }
     const p = ref(parent)
     if (p) item.parent = p
     const a = ref(after)

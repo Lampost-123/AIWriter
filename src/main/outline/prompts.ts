@@ -30,6 +30,7 @@ export function cleanSize(size: Partial<OutlineSize> | null | undefined): Outlin
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
 const SCENE_FORM = `### Scene: <the scene's title>
+When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
 Summary: <one sentence: what happens in it>
 - <a beat: one thing that must happen in the scene>
 - <the next beat>
@@ -39,6 +40,7 @@ const CHAPTER_FORM = `## Chapter: <the chapter's title>
 Goal: <one sentence: what this chapter achieves>`
 
 const SHARED_RULES = `- Each scene has 3 to 6 beats, in order, each a short line.
+- Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day ("Day 1, morning", "Day 2, evening", "Day 5, dusk"). Days carry on from the story's scenes before and never go back. Scenes on the same day keep the same day number. If the story's scenes already give their time another way (a date or a year), use that way instead.
 - Titles are a few words, with no numbers.
 - Continue from what the story already has. Never repeat or retell it.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the story needs it.
@@ -69,7 +71,7 @@ ${withActs ? '- Every chapter belongs to the act above it, and every scene to th
 }
 
 /** What to suggest, in plain words: the last part of the briefing. */
-export function outlineAsk(size: OutlineSize, o: { lastAct: string | null; chapters: number }): string {
+export function outlineAsk(size: OutlineSize, o: { lastAct: string | null; chapters: number; latestWhen?: string }): string {
   const scenes = size.chapters * size.scenes
   const each = plural(size.scenes, 'scene')
   const lines: string[] = []
@@ -86,7 +88,16 @@ export function outlineAsk(size: OutlineSize, o: { lastAct: string | null; chapt
       ? 'They come after everything the story already has, and carry it on.'
       : 'The story has nothing written or planned yet: start it from the premise.'
   )
+  lines.push(whenAsk(o.chapters > 0, (o.latestWhen ?? '').replace(/\s+/g, ' ').trim()))
   return lines.join(' ')
+}
+
+/** Where the new scenes' days start: on from the story's last dated scene, else on Day 1. */
+function whenAsk(carriesOn: boolean, latest: string): string {
+  if (!latest) return carriesOn ? 'None of its scenes has a When yet: the new scenes start on Day 1.' : 'It opens on Day 1.'
+  return carriesOn
+    ? `Its last scene with a When is set at “${latest}”: the new scenes' Whens carry on from there.`
+    : `Its first scene is set at “${latest}”: start there.`
 }
 
 /** Next scene ideas' instructions: three different directions for one scene, in a fixed plain-text form. */

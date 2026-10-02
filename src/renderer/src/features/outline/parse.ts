@@ -1,6 +1,6 @@
 // Reading the outline helper's and next scene ideas' answers as they arrive. The AI is asked for a fixed
 // plain-text form (src/main/outline/prompts.ts: "# Act:", "## Chapter:", "### Scene:", "Purpose:",
-// "Goal:", "Summary:", "- beat"; ideas as "## 1. Title", a sentence and "- beat" lines), but models
+// "Goal:", "When:", "Summary:", "- beat"; ideas as "## 1. Title", a sentence and "- beat" lines), but models
 // wander: numbered or bold headings ("**Act 1: The Arrival**"), "Act One —", "Scene 2.3", "Chapter
 // Twenty-One", a "## Prologue", scenes as list items ("- **Scene 1: Docks** — Mara lands."), a title on
 // its own line ("## Chapter 2" then "Title: Rain"), ideas numbered with no "##", "*" bullets, labels in
@@ -15,6 +15,8 @@ export interface SuggestedScene {
   /** One line on what happens (it goes on the scene card as its goal). */
   summary: string
   beats: string[]
+  /** When it happens, in the story's count of days ("Day 3, dusk"); '' when the reply gives none. */
+  when: string
   /** Fully arrived: something after it has started, or the reply has ended. */
   complete: boolean
 }
@@ -158,9 +160,9 @@ function splitTitle(s: string): { title: string; text: string } {
   return m ? { title: plain(m[1]), text: plain(m[2]) } : { title: s, text: '' }
 }
 
-const LABEL = /^(purpose|goal|aim|summary|what happens|beats|logline|title)\s*(?:[:：—–-]\s*(.*))?$/i
+const LABEL = /^(purpose|goal|aim|summary|what happens|beats|logline|title|when)\s*(?:[:：—–-]\s*(.*))?$/i
 
-/** "Purpose: …", "**Goal:** …", "Summary — …", "Title: …", "**Beats**": the label (lower case) and what follows. */
+/** "Purpose: …", "**Goal:** …", "Summary — …", "Title: …", "**Beats**", "When: …": the label (lower case) and what follows. */
 function labelled(line: string): { label: string; text: string } | null {
   const m = plain(line.trim().replace(/^#{1,6}\s*/, '')).match(LABEL)
   return m ? { label: m[1].toLowerCase(), text: (m[2] ?? '').trim() } : null
@@ -254,7 +256,7 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
           list.push(chapter)
         }
         const c = chapter as SuggestedChapter
-        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: said, beats: [], complete: false }
+        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: said, beats: [], when: '', complete: false }
         c.scenes.push(scene)
         node = scene
       }
@@ -263,7 +265,9 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
       continue
     }
 
-    const field = labelled(line)
+    // A When may come as a list item too ("- When: Day 2, dusk"); any other labelled list item is a beat.
+    const listed = bullet ? labelled(bullet[1]) : null
+    const field = labelled(line) ?? (listed?.label === 'when' ? listed : null)
     const given = field?.label === 'title' ? plain(field.text) : untitled && first && !field && !bullet ? boldTitle(line) : ''
     first = false
     if (given && untitled) {
@@ -276,7 +280,11 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
     const s = scene as SuggestedScene | null
     const c = chapter as SuggestedChapter | null
     const a = act as SuggestedAct | null
-    if (s) {
+    if (field?.label === 'when') {
+      // A scene's When ("Day 3, dusk"); an act or chapter has none.
+      if (s && !s.when) s.when = plain(field.text)
+      inBeats = false
+    } else if (s) {
       if (field && (field.label === 'summary' || field.label === 'what happens' || field.label === 'goal' || field.label === 'logline')) {
         if (!s.summary) s.summary = plain(field.text)
         inBeats = false
@@ -417,7 +425,9 @@ export function parseIdeas(text: string, done: boolean): SceneIdea[] {
     if (!idea) continue
     first = false
     const bullet = line.match(BULLET)
-    if (field && field.label !== 'beats') {
+    if (field?.label === 'when') {
+      // Ideas carry no When.
+    } else if (field && field.label !== 'beats') {
       if (!idea.summary) idea.summary = plain(field.text)
     } else if (field?.label === 'beats') {
       if (field.text)

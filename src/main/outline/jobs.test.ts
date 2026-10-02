@@ -13,7 +13,7 @@ import { dbWorld } from '../../../tests/unit/testWorld'
 import { fitBlocks, planText, type BlockDraft, type PlanAct } from './brief'
 import { isBlankPlan, storyPlan } from './context'
 import { briefingBudget, outlineReplyTokens, startIdeasJob, startOutlineJob } from './jobs'
-import { cleanSize, MARKER, outlineAsk } from './prompts'
+import { cleanSize, MARKER, outlineAsk, outlineSystem } from './prompts'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -56,17 +56,29 @@ describe('what the outline helper asks', () => {
     expect(cleanSize({ acts: 9, chapters: 0, scenes: 2.6 })).toEqual({ acts: 1, chapters: 1, scenes: 3 })
     expect(cleanSize(null)).toEqual({ acts: 3, chapters: 9, scenes: 3 })
     expect(outlineAsk({ acts: 2, chapters: 6, scenes: 3 }, { lastAct: null, chapters: 0 })).toBe(
-      'Suggest 2 new acts with 6 chapters in all, spread across them, and 3 scenes in each chapter: about 18 scenes. The story has nothing written or planned yet: start it from the premise.'
+      'Suggest 2 new acts with 6 chapters in all, spread across them, and 3 scenes in each chapter: about 18 scenes. The story has nothing written or planned yet: start it from the premise. It opens on Day 1.'
     )
     expect(outlineAsk({ acts: 0, chapters: 1, scenes: 1 }, { lastAct: 'The Turning', chapters: 4 })).toBe(
-      "Suggest 1 chapter with 1 scene in each: about 1 scene. No acts. They carry on the story's last act, “The Turning”. They come after everything the story already has, and carry it on."
+      "Suggest 1 chapter with 1 scene in each: about 1 scene. No acts. They carry on the story's last act, “The Turning”. They come after everything the story already has, and carry it on. None of its scenes has a When yet: the new scenes start on Day 1."
     )
   })
 
+  it('carries the scenes’ days on from the story’s last dated scene', () => {
+    const size = { acts: 0, chapters: 1, scenes: 1 }
+    expect(outlineAsk(size, { lastAct: null, chapters: 3, latestWhen: ' Day 3,  dusk ' })).toContain(
+      "Its last scene with a When is set at “Day 3, dusk”: the new scenes' Whens carry on from there."
+    )
+    expect(outlineAsk(size, { lastAct: null, chapters: 0, latestWhen: 'Day 1' })).toContain(
+      'Its first scene is set at “Day 1”: start there.'
+    )
+    expect(outlineSystem(true)).toContain('When: <the day it happens on')
+    expect(outlineSystem(false)).toContain('counting the day the story opens as Day 1')
+  })
+
   it('leaves room for the reply and its thinking', () => {
-    expect(outlineReplyTokens({ acts: 3, chapters: 9, scenes: 3 })).toBe(3465)
+    expect(outlineReplyTokens({ acts: 3, chapters: 9, scenes: 3 })).toBe(3600)
     expect(outlineReplyTokens({ acts: 6, chapters: 30, scenes: 6 })).toBe(12000)
-    expect(briefingBudget({ choice: choice(32000), thinking: 'off' }, 3465)).toBe(32000 - 3465 - 1600)
+    expect(briefingBudget({ choice: choice(32000), thinking: 'off' }, 3600)).toBe(32000 - 3600 - 1600)
   })
 
   it('never asks for more scene cards than the reply has room for', () => {
@@ -77,7 +89,7 @@ describe('what the outline helper asks', () => {
         const size = cleanSize({ acts: 6, chapters, scenes })
         expect(size.chapters * size.scenes).toBeLessThanOrEqual(100)
         // Room for every card it asks for: the reply is never cut short by its own limit.
-        expect(300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 95).toBeLessThanOrEqual(12_000)
+        expect(300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 100).toBeLessThanOrEqual(12_000)
       }
   })
 })
@@ -242,10 +254,14 @@ describe('asking for an outline', () => {
     expect(user).toContain('The story has nothing written or planned yet: start it from the premise.')
     expect(user).not.toContain('## What the story has so far')
     expect(user).toContain('## Earlier stories\nBook 1: Mara learns she is the heir, and the mill burns.')
+    // Its days start on Day 1, and each suggested scene says when it happens.
+    expect(user).toContain('It opens on Day 1.')
+    expect(record.response).toContain('### Scene: Arrival at the docks\nWhen: Day 1, morning\n')
 
-    // Once the scene has a name of its own, it is something to carry on from.
+    // Once the scene has a name of its own, it is something to carry on from, with its When.
     const scene = repo.getOutline(w.db, story.id).scenes[0]
     repo.updateScene(w.db, scene.id, { title: 'The north road' })
+    repo.updateSceneCard(w.db, scene.id, { ...repo.getScene(w.db, scene.id).card, when: 'Day 4, dawn' })
     const again = await run(
       (emit) =>
         startOutlineJob(
@@ -254,8 +270,13 @@ describe('asking for an outline', () => {
         ),
       w.db
     )
-    expect(again.record.messages[1].content).toContain('## What the story has so far\nChapter: Chapter 1\n  - The north road')
+    expect(again.record.messages[1].content).toContain(
+      '## What the story has so far\nChapter: Chapter 1\n  - The north road (When: Day 4, dawn)'
+    )
     expect(again.record.messages[1].content).toContain('They come after everything the story already has, and carry it on.')
+    expect(again.record.messages[1].content).toContain('Its last scene with a When is set at “Day 4, dawn”')
+    // The fake model carries the days on from there.
+    expect(again.record.response).toContain('When: Day 5, morning')
   })
 
   it('counts a story as having nothing planned only while it has just its empty “Chapter 1” and “Scene 1”', () => {

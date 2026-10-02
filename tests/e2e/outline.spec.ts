@@ -147,6 +147,10 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
       'Scene: A bargain at the market'
     ])
     await expect(suggestion(win, 'Chapter', 'Rain on the Narrows')).toContainText('“Who burned the mill?” comes back to haunt her')
+    // Each scene says quietly when it happens, in the story's days, from Day 1.
+    expect(sent[1].content).toContain('It opens on Day 1.')
+    await expect(suggestion(win, 'Scene', 'Arrival at the docks').locator('[data-when]').first()).toHaveText('· Day 1, morning')
+    await expect(suggestion(win, 'Scene', 'A bargain at the market').locator('[data-when]').first()).toHaveText('· Day 3, midday')
     await expect(main(win).locator('[data-suggestion][data-state="open"]')).toHaveCount(11)
     await expect(actRows(win)).toHaveCount(0)
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
@@ -158,11 +162,14 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await form.getByLabel('Title', { exact: true }).fill('Arrival in the rain')
     await form.getByLabel('What happens', { exact: true }).fill('Mara lands at the docks in the rain, and the guild is waiting.')
     await form.getByLabel('Beats', { exact: true }).fill('Mara lands in the rain\nShe spots the watcher\nShe slips away')
+    await expect(form.getByLabel('When', { exact: true })).toHaveValue('Day 1, morning')
+    await form.getByLabel('When', { exact: true }).fill('Day 1, before dawn')
     await form.getByRole('button', { name: 'Save changes' }).click()
     await expect(form).toHaveCount(0)
     const changed = suggestion(win, 'Scene', 'Arrival in the rain')
     await expect(changed).toContainText('Changed by you')
     await expect(changed.locator('li')).toHaveText(['Mara lands in the rain', 'She spots the watcher', 'She slips away'])
+    await expect(changed.locator('[data-when]').first()).toHaveText('· Day 1, before dawn')
 
     // ----- Discard a chapter: its scenes go with it, and Undo brings them back -----
     await main(win).getByRole('button', { name: "Discard “The Ferryman's Price”" }).click()
@@ -248,6 +255,11 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
       goal: 'Tobin offers Mara a deal at the market that she can’t refuse.',
       beats: ['Tobin names his price', 'Mara haggles and loses', 'They shake on it, both lying']
     })
+    // And when it happens: Adam's When where he changed it, else the AI's (the first scene kept took the
+    // place of the empty Scene 1, whose card had none).
+    expect(
+      await Promise.all(['Arrival in the rain', 'A bargain at the docks', 'Arrival at the market', 'A bargain at the market'].map(cardOf))
+    ).toMatchObject([{ when: 'Day 1, before dawn' }, { when: 'Day 1, midday' }, { when: 'Day 3, morning' }, { when: 'Day 3, midday' }])
 
     // ----- What the AI saw, and back -----
     await main(win).getByRole('button', { name: 'What the AI saw' }).click()
@@ -301,12 +313,27 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     expect(again).toContain('## What the story has so far\nAct: The Arrival')
     expect(again).toContain('  Chapter: Lanterns at Low Tide')
     expect(again).toContain("They carry on the story's last act, “The Turning”.")
+    expect(again).toContain('- Arrival at the market (When: Day 3, morning)')
+    expect(again).toContain('Its last scene with a When is set at “Day 3, morning”')
     await keepButton(win, "The Ferryman's Price").click()
     await expect(toastWith(win, "Added “The Ferryman's Price” to the story, with a scene.")).toBeVisible()
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toHaveCount(2)
     await expect(actBlock(win, 'The Turning').locator('[data-row="chapter"]')).toContainText([
       'Lanterns at Low Tide',
       "The Ferryman's Price"
+    ])
+
+    // ----- The Timeline shows every kept scene on its day, in order -----
+    await binder(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    const timeline = main(win).getByRole('list', { name: 'Timeline' })
+    await expect(timeline.getByRole('listitem').first()).toBeVisible()
+    await expect(main(win).getByText('No dates yet', { exact: false })).toHaveCount(0)
+    const points = await timeline.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''))
+    expect(points.map((n) => n.replace(/\.$/, '').split('. ').slice(0, 2).join('. '))).toEqual([
+      'Book 1, Ch 1, Sc 1, Arrival in the rain. Day 1, before dawn',
+      'Book 1, Ch 1, Sc 2, A bargain at the docks. Day 1, midday',
+      'Book 1, Ch 2, Sc 1, Arrival at the market. Day 3, morning',
+      'Book 1, Ch 3, Sc 1, Arrival at the ferry. Day 4, morning'
     ])
   } finally {
     await fake.close()

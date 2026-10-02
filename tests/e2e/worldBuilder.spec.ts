@@ -162,6 +162,9 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     const world = await invoke(win, 'getWorld')
     expect(world?.themes).toBe('Debt, family and what the sea takes back.')
     expect(world?.tone).toBe('Salt-stung and wary, with dry humour.')
+    // The timeline starts: the story's opening scene is on Day 1.
+    const opening = (await invoke(win, 'getOutline', storyId)).scenes[0]
+    expect((await invoke(win, 'getScene', opening.id)).card.when).toBe('Day 1')
 
     // Open goes to the entry's page, where the AI's fields say so; the page keeps the results meanwhile.
     await results(win).getByRole('button', { name: 'Open Mara Venn', exact: true }).click()
@@ -195,6 +198,12 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     await expect.poll(async () => (await entries(win)).length).toBe(9)
     expect((await entries(win)).some((e) => e.name === 'Tide Compass')).toBe(false)
     await expect(results(win).getByRole('button', { name: 'Open Mara Venn', exact: true })).toBeVisible()
+
+    // The Timeline has something to show: the opening scene on Day 1, and the flood the summary dates.
+    await worldNav(win).getByRole('button', { name: 'Timeline', exact: true }).click()
+    const timeline = main(win).getByRole('list', { name: 'Timeline' })
+    await expect(timeline.getByRole('button', { name: /^Book 1, Ch 1, Sc 1, Scene 1\. Day 1\./ })).toBeVisible()
+    await expect(timeline.getByRole('button', { name: /The Great Flood\. in the year 312\./ })).toBeVisible()
   } finally {
     await fake.close()
   }

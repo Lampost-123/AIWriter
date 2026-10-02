@@ -44,9 +44,9 @@ export const IDEAS_TEMPERATURE = 0.95
 /** Room for three ideas, with some to spare. */
 export const IDEAS_REPLY = 900
 
-/** Room for an outline's reply: about 50 tokens for each act and chapter heading and 95 for each scene card. */
+/** Room for an outline's reply: about 50 tokens for each act and chapter heading and 100 for each scene card (with its When). */
 export const outlineReplyTokens = (size: OutlineSize): number =>
-  Math.min(12_000, 300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 95)
+  Math.min(12_000, 300 + (size.acts + size.chapters) * 50 + size.chapters * size.scenes * 100)
 
 /** Tokens the briefing may use: the model's window less the reply's room (and its thinking's) and 5% spare. */
 export function briefingBudget(model: Pick<JobModel, 'choice' | 'thinking'>, reply: number): number {
@@ -103,7 +103,7 @@ export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generat
       id: 'ask',
       title: 'What to suggest',
       priority: 0,
-      forms: [outlineAsk(size, { lastAct: facts.lastAct, chapters: facts.chapterCount })]
+      forms: [outlineAsk(size, { lastAct: facts.lastAct, chapters: facts.chapterCount, latestWhen: facts.latestWhen })]
     }
   ]
   let fitted: FittedBriefing

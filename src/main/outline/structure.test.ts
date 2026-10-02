@@ -6,7 +6,8 @@ import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { pureWorld } from '../../../tests/unit/testWorld'
-import { actDeleteNotes, cleanBeats, createChapterAt, keepOutline } from './structure'
+import { parseWhen, placeWhens } from '../worldViews/when'
+import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline } from './structure'
 
 const book = (db: Database.Database): ID => repo.listStories(db)[0].id
 
@@ -191,6 +192,74 @@ describe('keeping what the outline helper suggested', () => {
     acts.takeBackKept(fresh, kept)
     expect(tree(fresh)).toEqual(['-: Chapter 1 [Docks]'])
     expect(repo.getScene(fresh, kept[2].id).text).toBe('She came down to the docks.')
+  })
+})
+
+describe('when each kept scene happens', () => {
+  const whenOf = (db: Database.Database, id: ID): string => repo.getScene(db, id).card.when
+
+  it('puts the When the AI gave on the card, and fills one it left out from the scene before', () => {
+    const db = memoryWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'Rain'),
+      scene('s0', 'Docks', 'c0', { when: '  Day 1,\n morning ' }),
+      scene('s1', 'Ferry', 'c0', { after: { key: 's0' }, when: 'Day 1, dusk' }),
+      scene('s2', 'Market', 'c0', { after: { key: 's1' } }),
+      chapter('c1', 'Wind', { after: { key: 'c0' } }),
+      scene('s3', 'Tower', 'c1', { when: 'Day 2, morning' }),
+      scene('s4', 'Bridge', 'c1', { after: { key: 's3' }, when: '' })
+    ])
+    const scenes = kept.filter((k) => k.kind === 'scene').map((k) => whenOf(db, k.id))
+    expect(scenes).toEqual(['Day 1, morning', 'Day 1, dusk', 'Day 1', 'Day 2, morning', 'Day 2'])
+    // Every one reads as a day on the timeline, in the order the story tells them.
+    const placed = placeWhens(scenes)
+    expect(placed.every((p) => p?.key)).toBe(true)
+    expect(placed.map((p) => p?.day)).toEqual(['~0|n|1', '~0|n|1', '~0|n|1', '~0|n|2', '~0|n|2'])
+  })
+
+  it('starts a story with no dated scenes on Day 1, and carries on after the ones it has', () => {
+    const db = writtenWorld()
+    const id = book(db)
+    const [first] = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0')]).slice(1)
+    expect(whenOf(db, first.id)).toBe('Day 1')
+    const opening = repo.getOutline(db, id).scenes[0]
+    repo.updateSceneCard(db, opening.id, { ...repo.getScene(db, opening.id).card, when: 'Day 9, Year 3, dusk' })
+    const [, later] = keepOutline(db, id, [chapter('c1', 'Wind'), scene('s1', 'Bridge', 'c1')])
+    expect(whenOf(db, later.id)).toBe('Day 1')
+    // Before a scene with a When: the day of the nearest scene before it that has one.
+    const [, between] = keepOutline(db, id, [chapter('c2', 'Fog', { after: { id: opening.chapterId } }), scene('s2', 'Gate', 'c2')])
+    expect(whenOf(db, between.id)).toBe('Day 9, Year 3')
+  })
+
+  it('never replaces a When already on the reused first scene, and its Undo leaves it there', () => {
+    const db = memoryWorld()
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    repo.updateSceneCard(db, first.id, { ...repo.getScene(db, first.id).card, when: 'Day 1', mood: 'Grey' })
+    const kept = keepOutline(db, id, [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0', { when: 'Day 1, morning' })])
+    expect(kept[1]).toMatchObject({ id: first.id, reused: true, whenKept: true })
+    expect(repo.getScene(db, first.id).card).toMatchObject({ when: 'Day 1', mood: 'Grey', goal: 'Docks happens.' })
+    acts.takeBackKept(db, kept)
+    expect(repo.getScene(db, first.id).card).toMatchObject({ when: 'Day 1', mood: 'Grey', goal: '', beats: [] })
+
+    // A When the keep put there goes with its Undo.
+    const fresh = memoryWorld()
+    const again = keepOutline(fresh, book(fresh), [chapter('c0', 'Rain'), scene('s0', 'Docks', 'c0', { when: 'Day 1, morning' })])
+    expect(again[1].whenKept).toBeUndefined()
+    expect(whenOf(fresh, again[1].id)).toBe('Day 1, morning')
+    acts.takeBackKept(fresh, again)
+    expect(whenOf(fresh, again[1].id)).toBe('')
+  })
+
+  it('fills a missing When with the day of the scene before, or "Later that day" after one that names none', () => {
+    expect(fallbackWhen([])).toBe('Day 1')
+    expect(fallbackWhen(['', ' '])).toBe('Day 1')
+    expect(fallbackWhen(['Day 3, dusk', ''])).toBe('Day 3')
+    expect(fallbackWhen(['Day 2', 'the 3rd of March 1204, at noon'])).toBe('3 March 1204')
+    expect(fallbackWhen(['Day 2', 'The next morning'])).toBe('Later that day')
+    for (const text of ['Day 1', 'Day 3', 'Later that day', 'Day 1, morning', 'Day 2, midday', 'Day 4, dusk', 'Day 5, night'])
+      expect(parseWhen(text)).not.toBeNull()
+    expect(placeWhens(['Day 2, evening', 'The next morning', 'Later that day']).map((p) => p?.day)).toEqual(['~0|n|2', '~0|n|3', '~0|n|3'])
   })
 })
 

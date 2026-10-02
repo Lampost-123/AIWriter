@@ -6,19 +6,20 @@
 
 import type Database from 'better-sqlite3'
 import type { ChapterPlace, KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
-import type { Chapter, ID } from '@shared/types'
+import type { Chapter, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import type { WorldShape } from '../memory/types'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import { deleteNotes } from '../stories/points'
+import { dayName } from '../worldViews/when'
 import { isBlankPlan, storyPlan } from './context'
 import { UserError } from '../util'
 
 type DB = Database.Database
 
-/** The longest title, purpose, goal or beat the helper keeps, and the most beats on one card. */
-export const KEEP_LIMITS = { title: 200, text: 2000, beat: 500, beats: 12 }
+/** The longest title, purpose, goal, beat or When the helper keeps, and the most beats on one card. */
+export const KEEP_LIMITS = { title: 200, text: 2000, beat: 500, beats: 12, when: 200 }
 
 const oneLine = (s: unknown, max: number): string =>
   String(s ?? '')
@@ -34,6 +35,28 @@ export const cleanBeats = (beats: unknown): string[] =>
     .filter(Boolean)
     .slice(0, KEEP_LIMITS.beats)
 
+/**
+ * The When for a kept scene the AI gave none: the same day as the nearest scene before it in the story
+ * that has a When ("Day 3, dusk" gives "Day 3"; a When that names no day of its own, such as "the next
+ * morning", gives "Later that day", which follows it), or "Day 1" when no scene before it has one.
+ * `before`: the Whens of the scenes before it, in reading order.
+ */
+export function fallbackWhen(before: string[]): string {
+  for (let i = before.length - 1; i >= 0; i--) {
+    const when = before[i].replace(/\s+/g, ' ').trim()
+    if (when) return dayName(when) ?? 'Later that day'
+  }
+  return 'Day 1'
+}
+
+/** The Whens of the story's scenes before this one, in reading order. */
+function whensBefore(db: DB, storyId: ID, sceneId: ID): string[] {
+  const order = repo.getOutline(db, storyId).scenes.map((s) => s.id)
+  const cards = acts.storyCards(db, storyId)
+  const at = order.indexOf(sceneId)
+  return order.slice(0, at < 0 ? order.length : at).map((id) => cards.get(id)?.when ?? '')
+}
+
 /** A new chapter, straight into an act (or among the chapters with no act): see ChapterPlace for where. */
 export function createChapterAt(db: DB, storyId: ID, place: ChapterPlace & { title?: string }): Chapter {
   return db.transaction(() => {
@@ -46,7 +69,8 @@ export function createChapterAt(db: DB, storyId: ID, place: ChapterPlace & { tit
 
 /**
  * Adds what Adam kept from the outline helper, in the order given (see KeepItem): acts, chapters with
- * their goals, and scenes whose cards carry the suggestion's summary (as the goal) and beats. Says what
+ * their goals, and scenes whose cards carry the suggestion's summary (as the goal), beats and When (see
+ * fallbackWhen for a scene the AI gave none). Says what
  * was made from each item, so the helper can mark it kept and its Undo can take it back. All or nothing.
  *
  * A story with nothing in it yet but the empty "Chapter 1" and "Scene 1" it was made with (no words, no
@@ -81,6 +105,7 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
         .trim()
       let id: ID
       let reused = false
+      let whenKept = false
       if (item.kind === 'act') {
         id = acts.createAct(db, storyId, {
           title,
@@ -130,12 +155,17 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
             if (order.includes(before)) repo.moveScene(db, scene.id, chapterId, order.indexOf(before))
           }
         }
-        repo.updateSceneCard(db, scene.id, { ...emptySceneCard(), goal: text, beats: cleanBeats(item.beats) })
+        // A reused scene keeps what its card has; a When already on it (Adam's) is never replaced.
+        const card: SceneCard = reuse ? repo.getScene(db, scene.id).card : emptySceneCard()
+        const had = !!card.when.trim()
+        const when = had ? card.when : oneLine(item.when, KEEP_LIMITS.when) || fallbackWhen(whensBefore(db, storyId, scene.id))
+        repo.updateSceneCard(db, scene.id, { ...card, goal: text, beats: cleanBeats(item.beats), when })
+        whenKept = reuse !== null && had
         id = scene.id
       } else throw new UserError('Those suggestions are muddled. Please suggest again.')
       // Its Undo can then tell whether Adam has changed it since.
       acts.markMade(db, item.kind, id)
-      const k: KeptItem = reused ? { key, kind: item.kind, id, reused } : { key, kind: item.kind, id }
+      const k: KeptItem = reused ? { key, kind: item.kind, id, reused, ...(whenKept ? { whenKept } : {}) } : { key, kind: item.kind, id }
       made.set(key, k)
       kept.push(k)
     }

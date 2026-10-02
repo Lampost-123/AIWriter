@@ -136,6 +136,7 @@ function NodeBox({ node, storyId, run, current, setEditing }: TreeProps & { node
   const kept = decision?.status === 'kept'
   const edit = run.edits[node.key]
   const words = edit ?? node
+  const when = (edit?.when ?? node.when).trim()
   const running = run.status === 'running'
   // Only the suggestion arriving now has the caret, not the act and chapter it is in.
   const writing = running && node.key === current
@@ -163,6 +164,11 @@ function NodeBox({ node, storyId, run, current, setEditing }: TreeProps & { node
       <div className="min-w-0 flex-1">
         <div className="flex min-h-[18px] items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-faint">
           {KIND_LABELS[node.kind]}
+          {when ? (
+            <span className="min-w-0 truncate font-normal normal-case tracking-normal" title="When it happens in the story" data-when>
+              · {when}
+            </span>
+          ) : null}
           {edit && !kept ? (
             <span className="font-normal normal-case tracking-normal">
               <MarkLine mark="edited" />
@@ -273,6 +279,7 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
   const [title, setTitle] = useState(words.title)
   const [text, setText] = useState(words.text)
   const [beats, setBeats] = useState(words.beats.join('\n'))
+  const [when, setWhen] = useState(run.edits[node.key]?.when ?? node.when)
   const form = useRef<HTMLDivElement>(null)
   const noun = node.kind
 
@@ -291,6 +298,7 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
         .map((b) => b.trim())
         .filter(Boolean)
     }
+    if (node.kind === 'scene') edit.when = when.replace(/\s+/g, ' ').trim()
     saveEdit(storyId, node.key, edit)
     close()
   }
@@ -341,6 +349,26 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
         {node.kind === 'scene' ? (
           <Field label="Beats" hint="One a line, in order.">
             {(id) => <AutoTextarea id={id} value={beats} minRows={3} maxRows={12} onChange={(e) => setBeats(e.target.value)} />}
+          </Field>
+        ) : null}
+        {node.kind === 'scene' ? (
+          <Field
+            label="When"
+            hint="When it happens in the story, such as “Day 2, evening”. Left empty, it takes the day of the scene before."
+          >
+            {(id) => (
+              <Input
+                id={id}
+                value={when}
+                onChange={(e) => setWhen(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    save()
+                  }
+                }}
+              />
+            )}
           </Field>
         ) : null}
         <div className="flex items-center justify-end gap-2">

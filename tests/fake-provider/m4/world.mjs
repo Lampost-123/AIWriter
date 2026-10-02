@@ -5,7 +5,8 @@
 //                    a sentence ending "?"                        a plot thread named by it ("Who sank the Merrow")
 //                    "X always ..." or "X never ..."              lore X, a rule never to break
 //                    "The X happened|took place|began|ended|struck [in|on|at|during W]"
-//                                                                 event "The X", when "in W"
+//                                                                 event "The X", when "in W" ("on Day 3"
+//                                                                 gives "Day 3": a day of the story)
 //                    'The word "w" means ...' or '"w" means ...'  glossary word w
 //                    "X is a/an ... town|city|village|port|land|island|kingdom|castle|tavern|inn|forest|
 //                     valley|harbour|river|mountain|coast [... in Y]"
@@ -93,7 +94,7 @@ function overview(summary) {
       continue
     }
     if ((m = s.match(EVENT))) {
-      add(out.events, { name: m[1], about: s, when: m[2] ?? '' })
+      add(out.events, { name: m[1], about: s, when: (m[2] ?? '').replace(/^on (Day \d+)$/, '$1') })
       continue
     }
     if ((m = s.match(PLACE))) add(out.places, { name: m[1], aliases: [], about: s, in: m[2].match(INSIDE)?.[1] ?? '' })

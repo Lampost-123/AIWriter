@@ -142,6 +142,8 @@ function listen(): void {
       last: d,
       problem: d.status === 'error' && d.error ? { message: d.error, code: d.code ?? undefined } : null
     })
+    // The story's opening scene may be on "Day 1" now: the timeline and scene cards read it afresh.
+    if (d.made.length) useApp.getState().bumpOutline()
     if (themesChanged(d.made))
       void useApp
         .getState()

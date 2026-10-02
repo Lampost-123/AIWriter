@@ -488,6 +488,14 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   through the AI: each is added to the end of the summary in Adam's words under the question's topic
   ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
   stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
+- **Story days on the timeline.** The outline helper and the World builder date things in the story's own
+  count of days, which `when.ts` reads: "Day 1" is the day the story opens ("Day 3, dusk"). The outline
+  helper asks for a `When:` line on each scene (carrying on from the story's last scene with a When, from
+  Day 1 when none has one), shows it on each suggestion (Edit changes it), and keeps it on the card;
+  one the AI left out takes the day of the nearest scene before it with a When, else "Day 1"
+  (`fallbackWhen`). A finished build puts the story's opening scene on "Day 1" while none of its scenes
+  has a When (`worldBuilder/timeline.ts`), and asks for events during the story on that count. A When
+  already on a card is never replaced.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
