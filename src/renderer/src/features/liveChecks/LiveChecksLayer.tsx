@@ -1,8 +1,9 @@
 // The live checks in the page: keeps the words they check against in step with the world, and shows the
 // card over an underline, when the pointer rests on it (as over a name), when Adam clicks into it, when
 // the caret comes to rest in it from the arrow keys, or when the Issues tab asks to show the next one.
-// Tab then takes the keyboard into the card and Esc gives it back. Any other key, a press elsewhere or a
-// scroll closes it, and the key goes on to the page.
+// Tab then takes the keyboard into the card and Esc closes it; neither reaches the page, so an AI tool's
+// change waiting there isn't accepted (Tab) or rejected (Esc) by them. Any other key, a press elsewhere or
+// a scroll closes the card, and the key goes on to the page.
 import type { Editor } from '@tiptap/core'
 import type { EditorState } from '@tiptap/pm/state'
 import { useEffect, useRef, useState } from 'react'
@@ -10,9 +11,9 @@ import type { ID } from '@shared/types'
 import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
 import { HoverIntent, OPEN_DELAY, type HoverTarget } from '@/features/editor/names/hoverIntent'
-import { LiveCard, liveCardPosition, movesIntoCard } from './LiveCard'
+import { closesCard, LiveCard, liveCardPosition, movesIntoCard } from './LiveCard'
 import { changeSpelling, ignoreFlag, rewritePhrase } from './liveActions'
-import { LIVE_CLASS, liveFlagAt, liveHidden, setLiveTabHandler, type PlacedFlag } from './liveDecorations'
+import { LIVE_CLASS, liveFlagAt, liveHidden, type PlacedFlag } from './liveDecorations'
 import { onLiveCardRequest } from './liveStore'
 import { useLiveWords } from './liveWords'
 import './liveChecks.css'
@@ -77,10 +78,22 @@ export function LiveChecksLayer({ editor, sceneId }: { editor: Editor; sceneId: 
     const onLeave = (): void => intent.leaveName()
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!open() || MODIFIER_KEYS.has(e.key) || inCard(e.target)) return
-      // Tab takes the keyboard into the card (the page's own handler does it).
-      if (movesIntoCard(e)) return
-      // Any other key closes the card and goes on to the page; an Esc is used up by closing it.
-      takeEscape(e)
+      const button = cardRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      // Tab takes the keyboard into the card, and Esc closes it, before the page hears either.
+      if (button && movesIntoCard(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+        button.focus()
+        return
+      }
+      if (closesCard(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+        takeEscape(e)
+        close()
+        return
+      }
+      // Any other key closes the card and goes on to the page.
       close()
     }
     const onPageKey = (e: KeyboardEvent): void => {
@@ -129,12 +142,6 @@ export function LiveChecksLayer({ editor, sceneId }: { editor: Editor; sceneId: 
     }
     const onBlur = (): void => close()
 
-    setLiveTabHandler(() => {
-      const button = cardRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
-      if (!button) return false
-      button.focus()
-      return true
-    })
     const offRequest = onLiveCardRequest((pos) => {
       intent.dismiss()
       setCaret(pos)
@@ -152,7 +159,6 @@ export function LiveChecksLayer({ editor, sceneId }: { editor: Editor; sceneId: 
       clearRest()
       intent.destroy()
       intentRef.current = null
-      setLiveTabHandler(null)
       offRequest()
       dom.removeEventListener('mousemove', onMove)
       dom.removeEventListener('mouseleave', onLeave)

@@ -33,6 +33,9 @@ export function liveCardPosition(word: DOMRect, view: { width: number; height: n
 /** True for the key that takes the keyboard from the page into the card. */
 export const movesIntoCard = (e: KeyboardEvent): boolean => e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
 
+/** True for the key that closes the card. */
+export const closesCard = (e: KeyboardEvent): boolean => e.key === 'Escape'
+
 interface Props {
   flag: PlacedFlag
   at: { left: number; top: number }
