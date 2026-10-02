@@ -2,10 +2,13 @@
 // that made it. Each line names the entry, shows the change as before and after, and links to the
 // words it came from. Undo on any line reverses it (the memory won't add it again from those words);
 // a question-marked line shows the choice the memory made and lets Adam pick another, any time.
-// Adam never has to look at it, so nothing here asks to be confirmed.
+// Adam never has to look at it, so nothing here asks to be confirmed. The story flows' runs (a time
+// gap, a prequel's starting cast, "When did these happen?") belong to no scene: they get their own
+// heading and say where each change is, such as "Start of Book 4".
 import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
+import type { StoryFlowRun } from '@shared/contracts/storyFlows'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -33,6 +36,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   const openSceneId = useApp((s) => s.sceneId)
   const navigate = useApp((s) => s.navigate)
   const [items, setItems] = useState<MemoryLogItem[] | null>(null)
+  const [flowRuns, setFlowRuns] = useState<Map<ID, StoryFlowRun>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
   const [entries, setEntries] = useState<Map<ID, Entry>>(new Map())
@@ -43,11 +47,13 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
 
   const load = useCallback(() => {
     const t = ++ticket.current
-    api
-      .listMemoryLog({ sceneId: sceneId ?? undefined, limit })
-      .then((list) => {
+    // The story flows' runs come with the list, so their headings never change after it shows.
+    const runs: Promise<StoryFlowRun[]> = sceneId ? Promise.resolve([]) : api.listStoryFlowRuns().catch(() => [])
+    Promise.all([api.listMemoryLog({ sceneId: sceneId ?? undefined, limit }), runs])
+      .then(([list, flows]) => {
         if (t !== ticket.current) return
         setItems(list)
+        setFlowRuns(new Map(flows.map((r) => [r.runId, r])))
         setError(null)
       })
       .catch((e: unknown) => t === ticket.current && setError(plainReason(e)))
@@ -82,14 +88,17 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
     }
   }, [sceneId, openSceneId])
 
-  const groups = useMemo(() => (items ? groupLog(items) : []), [items])
+  const groups = useMemo(
+    () => (items ? groupLog(items, new Map([...flowRuns.values()].map((r) => [r.runId, r.heading]))) : []),
+    [items, flowRuns]
+  )
   const slow = useDelayed(!items && !error)
 
   const undo = async (item: MemoryLogItem): Promise<void> => {
     setItems((list) => (list ? markUndone(list, item.id) : list))
     try {
       await api.undoMemoryItem(item.id)
-      toast("Undone. The memory won't add that again from the same words.")
+      toast(flowRuns.has(item.runId) ? 'Undone.' : "Undone. The memory won't add that again from the same words.")
     } catch (e) {
       setItems((list) => (list ? markUndone(list, item.id, false) : list))
       toast(`That couldn't be undone. ${plainReason(e)}`)
@@ -214,6 +223,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
                       <LogRow
                         key={item.id}
                         item={item}
+                        place={flowRuns.get(item.runId)?.places[item.id] ?? null}
                         canOpen={!!item.entryId && entries.has(item.entryId)}
                         onOpen={() => item.entryId && openEntry(item.entryId)}
                         onShowWords={() => showWords(item)}
@@ -248,6 +258,7 @@ const linkClass = 'rounded outline-none hover:underline focus-visible:ring-2 foc
 
 function LogRow({
   item,
+  place,
   canOpen,
   onOpen,
   onShowWords,
@@ -257,6 +268,8 @@ function LogRow({
   onOpenSettings
 }: {
   item: MemoryLogItem
+  /** Where a story flow's change is now ("Start of Book 4"); null for the memory keeper's lines. */
+  place: string | null
   canOpen: boolean
   onOpen: () => void
   onShowWords: () => void
@@ -317,6 +330,7 @@ function LogRow({
           ) : null}
           {item.text}
         </p>
+        {place ? <p className="mt-0.5 text-[12px] text-faint">{place}</p> : null}
         {failed && pointsToSettings(item.text) ? (
           <button type="button" onClick={onOpenSettings} className={cn(linkClass, 'mt-1 text-[12.5px] font-medium text-accent')}>
             Open Settings › Models
@@ -413,7 +427,7 @@ function LogRow({
               onUndo()
             }}
             aria-label={`Undo: ${name ? `${name}, ` : ''}${item.text}`}
-            title="Undo this. The memory won't add it again from the same words."
+            title={place === null ? "Undo this. The memory won't add it again from the same words." : 'Undo this'}
           >
             Undo
           </Button>
