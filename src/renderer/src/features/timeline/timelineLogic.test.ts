@@ -4,6 +4,7 @@ import {
   clashCount,
   dayBands,
   DEFAULT_LANES,
+  INFO_KEEP,
   INFO_MAX,
   INFO_MIN,
   infoWidth,
@@ -11,9 +12,11 @@ import {
   laneChoices,
   lanesThatFit,
   laneSpans,
+  laneWidth,
   markOf,
   rowLabel,
   shownLanes,
+  THREAD_LANE_MAX,
   WHEN_W
 } from './timelineLogic'
 
@@ -101,6 +104,22 @@ describe('timeline lanes', () => {
     expect(infoWidth(2000, 6)).toBe(INFO_MAX)
     expect(infoWidth(600, 8)).toBe(INFO_MIN)
     expect(infoWidth(1000, 0)).toBe(1000 - WHEN_W)
+  })
+
+  it('widens plot thread lanes into room the scene column can spare, never past the window', () => {
+    // 1280 by 800 with the binder open leaves the timeline about 1008 pixels.
+    expect(laneWidth(1008, 4, 'characters')).toBe(LANE_W)
+    expect(laneWidth(1008, 4, 'threads')).toBe(111)
+    expect(laneWidth(2000, 4, 'threads')).toBe(THREAD_LANE_MAX)
+    // With no room to spare, as narrow as a character's.
+    expect(laneWidth(688, lanesThatFit(688), 'threads')).toBe(LANE_W)
+    expect(laneWidth(0, 3, 'threads')).toBe(LANE_W)
+    for (const width of [688, 800, 1008, 1400]) {
+      const n = lanesThatFit(width)
+      const laneW = laneWidth(width, n, 'threads')
+      expect(WHEN_W + infoWidth(width, n, laneW) + n * laneW).toBeLessThanOrEqual(width)
+      expect(infoWidth(width, n, laneW)).toBeGreaterThanOrEqual(Math.min(INFO_KEEP, infoWidth(width, n)))
+    }
   })
 
   it('runs each lane from its first mark to its last', () => {

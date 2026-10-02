@@ -1,7 +1,7 @@
 // The relationship map on the fixed test world (tests/unit/testWorld.ts): Mara and Tobin are friends
 // before any story, enemies from Book 2, Ch 2, Sc 2, and neighbours in the prequel Young Mara.
 import { describe, expect, it } from 'vitest'
-import type { AsOf } from '@shared/types'
+import type { AsOf, ID } from '@shared/types'
 import type { RelationshipMap } from '@shared/contracts/worldViews'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
@@ -85,14 +85,61 @@ describe('the relationship map', () => {
   it('lists the groups along the story, with their members at the point, leaving out ties against a group', () => {
     // The group stays on offer before anyone belongs to it, so the filter doesn't change as the slider moves.
     expect(map('b1', scene('b1.c1.s1', 'b1')).groups).toEqual([
-      { id: w.guild.id, name: 'The Tide Guild', memberIds: [], allMemberIds: [w.id('mara')] }
+      { id: w.guild.id, name: 'The Tide Guild', memberIds: [], allMemberIds: [w.id('mara')], hadMembers: false, joinsLater: true }
     ])
     const m = map('b1')
-    expect(m.groups).toEqual([{ id: w.guild.id, name: 'The Tide Guild', memberIds: [w.id('mara')], allMemberIds: [w.id('mara')] }])
+    expect(m.groups).toEqual([
+      {
+        id: w.guild.id,
+        name: 'The Tide Guild',
+        memberIds: [w.id('mara')],
+        allMemberIds: [w.id('mara')],
+        hadMembers: true,
+        joinsLater: false
+      }
+    ])
     expect(belongs('member (lieutenant)')).toBe(true)
     expect(belongs('leader')).toBe(true)
     expect(belongs('sworn enemy')).toBe(false)
     expect(belongs('former member')).toBe(false)
+  })
+
+  describe('a group nobody belongs to at the point', () => {
+    const joined = (v: ReturnType<typeof world>, who: string, group: ID, type: string, scene?: string) =>
+      mem.insertChange(v.db, {
+        kind: 'relationship',
+        payload: { otherId: group, type, feels: '', otherFeels: '' },
+        entryId: v.id(who),
+        anchor: scene ? 'scene' : 'baseline',
+        sceneId: scene ? v.id(scene) : null,
+        origin: 'adam'
+      })
+    const groupAt = (v: ReturnType<typeof world>, id: ID, at: AsOf | null) =>
+      relationshipMapOf(v.db, v.id('b1'), at, null).groups.find((g) => g.id === id)
+
+    it('says it had members, and nobody joins later, once they have all left', () => {
+      const v = world()
+      joined(v, 'mara', v.guild.id, 'former member', 'b1.c3.s1')
+      expect(groupAt(v, v.guild.id, null)).toMatchObject({ memberIds: [], hadMembers: true, joinsLater: false })
+    })
+
+    it('says someone joins later, even after others have left', () => {
+      const v = world()
+      joined(v, 'mara', v.guild.id, 'former member', 'b1.c3.s1')
+      joined(v, 'tobin', v.guild.id, 'member', 'b1.c3.s2')
+      const at: AsOf = { kind: 'scene', storyId: v.id('b1'), sceneId: v.id('b1.c3.s1') }
+      expect(groupAt(v, v.guild.id, at)).toMatchObject({ memberIds: [], hadMembers: true, joinsLater: true })
+    })
+
+    it('counts a member who comes into the world later as joining when they do', () => {
+      const v = world()
+      // Kell belongs from before any story, but first appears in Kell's Road, after Book 1's Ch 2.
+      const crew = repo.createEntry(v.db, 'group', { name: 'The Ferry Crew' })
+      joined(v, 'kell', crew.id, 'member')
+      const at: AsOf = { kind: 'scene', storyId: v.id('b1'), sceneId: v.id('b1.c1.s1') }
+      expect(groupAt(v, crew.id, at)).toMatchObject({ memberIds: [], hadMembers: false, joinsLater: true })
+      expect(groupAt(v, crew.id, null)).toMatchObject({ memberIds: [v.id('kell')], hadMembers: true, joinsLater: false })
+    })
   })
 
   it('says who can appear anywhere on the slider, so the map can be fitted to them all', () => {

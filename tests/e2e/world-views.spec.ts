@@ -25,6 +25,13 @@ async function inside(win: Page, inner: ReturnType<Page['locator']>, outer: Retu
   return a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.width <= b.x + b.width + 0.5 && a.y + a.height <= b.y + b.height + 0.5
 }
 
+/** Whether two elements on screen don't overlap at all. */
+async function apart(one: ReturnType<Page['locator']>, other: ReturnType<Page['locator']>): Promise<boolean> {
+  const [a, b] = [await one.boundingBox(), await other.boundingBox()]
+  if (!a || !b) return false
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y
+}
+
 /**
  * What the map shows on screen: how many characters there are and how many sit wholly in the window
  * above the help line, how many names show and the smallest one's height, and how many lines show
@@ -176,6 +183,9 @@ test('the timeline: lanes, a clash in plain words, and a click opens the scene',
   await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText('2 of 2')
   await main(win).getByRole('radio', { name: 'Plot threads' }).click()
   await expect(main(win).getByTitle('Who burned the mill?')).toBeVisible()
+  // With room to spare, a thread's lane is wide enough for its whole name.
+  const laneName = main(win).getByTitle('Who burned the mill?').locator('span').last()
+  expect(await laneName.evaluate((e) => e.scrollHeight <= e.clientHeight && e.scrollWidth <= e.clientWidth)).toBe(true)
 
   // A long When shows in full on hover.
   await expect(timeline.getByTitle('Day 12, at dusk', { exact: true })).toBeVisible()
@@ -231,9 +241,12 @@ test('the relationship map: portraits joined by labelled lines that change with 
   await expect(map.getByRole('button', { name: /^Mara and Tobin: friend\. Mara feels fond\. Tobin feels wary\.$/ })).toBeVisible()
   await expect(map.getByRole('button', { name: 'Kell', exact: true })).toHaveCount(0)
 
-  // How each feels shows beside the line on focus.
+  // How each feels shows beside the line on focus, covering neither of them.
   await map.getByRole('button', { name: /^Mara and Tobin/ }).focus()
   await expect(main(win).getByText('Mara feels fond')).toBeVisible()
+  const card = main(win).getByText('Mara feels fond').locator('xpath=ancestor::div[@aria-hidden="true"][1]')
+  await expect(card).toContainText('Mara and Tobin')
+  for (const who of ['Mara', 'Tobin']) expect(await apart(card, map.getByRole('button', { name: who, exact: true }))).toBe(true)
 
   // At the end of the book they are rivals, and Kell owes Tobin money. Kell, who wasn't there at the
   // start, turns up inside the window: the map was fitted to everyone the slider can show.

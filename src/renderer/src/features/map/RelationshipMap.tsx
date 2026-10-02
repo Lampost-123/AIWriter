@@ -10,7 +10,7 @@
 import { Maximize, Network, ZoomIn, ZoomOut } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
-import type { MapNode, MapPlace, RelationshipMap as MapData } from '@shared/contracts/worldViews'
+import type { MapGroup, MapNode, MapPlace, RelationshipMap as MapData } from '@shared/contracts/worldViews'
 import { Button, EmptyState, IconButton, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -22,12 +22,17 @@ import { Portrait } from '@/features/views/Portrait'
 import { StoryFilter, useSize, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
 import {
   along,
+  cardPlace,
+  clearSpots,
   countText,
   feelsText,
   fitView,
+  inSentence,
   labelsAt,
+  labelWidth,
   LABEL_MAX,
   NAME_MAX,
+  openingView,
   PORTRAIT,
   portraitScale,
   reveal,
@@ -42,6 +47,7 @@ import {
 
 /** How far the arrow keys move the map (with Shift, further). */
 const STEP = 60
+const NO_SPOTS = new Map<string, number>()
 /** How long moving to a new view takes, in ms. */
 const GLIDE = 180
 
@@ -140,20 +146,19 @@ export function RelationshipMap(): React.JSX.Element {
                   owes money) and how each feels about it. You can also add them yourself under Relationships on a character’s page.
                 </EmptyState>
               ) : groupId && !visible.nodes.length ? (
-                <EmptyState
-                  icon={<Network size={20} />}
-                  title={`Nobody in ${groupName.current || 'this group'} yet`}
-                  actions={<Button onClick={() => pickGroup(null)}>Show everyone</Button>}
-                >
-                  No one belongs to {groupName.current || 'this group'} as of {data.label}. Move the slider on to see who joins.
-                </EmptyState>
+                <NobodyInGroup
+                  name={groupName.current || 'this group'}
+                  group={data.groups.find((g) => g.id === groupId)}
+                  label={data.label}
+                  onShowEveryone={() => pickGroup(null)}
+                />
               ) : !visible.nodes.length ? (
                 <EmptyState
                   icon={<Network size={20} />}
                   title="No relationships at this point"
                   actions={<Button onClick={() => data.stops.length && setAt(data.stops[data.stops.length - 1].at)}>Go to the end</Button>}
                 >
-                  Nobody is tied to anyone yet as of {data.label}. Move the slider on to watch relationships form.
+                  Nobody is tied to anyone yet as of {inSentence(data.label)}. Move the slider on to watch relationships form.
                 </EmptyState>
               ) : null
             }
@@ -169,6 +174,34 @@ export function RelationshipMap(): React.JSX.Element {
         <ViewLoading />
       )}
     </div>
+  )
+}
+
+/**
+ * A group nobody belongs to at the point: nobody may have joined it yet, or everyone in it may have left
+ * by now. Says which way the slider shows its members.
+ */
+function NobodyInGroup({
+  name,
+  group,
+  label,
+  onShowEveryone
+}: {
+  name: string
+  /** Missing for a group no longer on offer. */
+  group: MapGroup | undefined
+  label: string
+  onShowEveryone: () => void
+}): React.JSX.Element {
+  return (
+    <EmptyState
+      icon={<Network size={20} />}
+      title={group && !group.hadMembers ? `Nobody in ${name} yet` : `Nobody in ${name} at this point`}
+      actions={<Button onClick={onShowEveryone}>Show everyone</Button>}
+    >
+      No one belongs to {name} as of {inSentence(label)}.
+      {group?.joinsLater ? ' Move the slider on to see who joins.' : group?.hadMembers ? ' Move the slider back to see who belonged.' : ''}
+    </EmptyState>
   )
 }
 
@@ -197,6 +230,8 @@ function MapCanvas({
   const [hotTie, setHotTie] = useState<string | null>(null)
   const fitRef = useRef(fitTo)
   fitRef.current = fitTo
+  const drawn = useRef({ nodes, ties })
+  drawn.current = { nodes, ties }
   const viewRef = useRef(view)
   viewRef.current = view
   const sizeRef = useRef({ width, height })
@@ -228,7 +263,8 @@ function MapCanvas({
   }, [])
   useEffect(() => () => cancelAnimationFrame(glide.current), [])
 
-  // Fits the map to the window when it opens, when the group changes, and when characters first appear.
+  // Fits the map to the window when it opens, when the group changes, and when characters first appear;
+  // a cast too big to read that way opens around its best-connected character instead (mapLogic.openingView).
   const fitted = useRef<string | null>(null)
   const lastSize = useRef({ width: 0, height: 0 })
   useLayoutEffect(() => {
@@ -236,7 +272,7 @@ function MapCanvas({
     if (fitted.current !== fitKey) {
       const opening = fitted.current === null
       fitted.current = fitKey
-      move(() => fitView(fitRef.current, width, height), !opening)
+      move(() => openingView(fitRef.current, drawn.current.nodes, drawn.current.ties, width, height), !opening)
     } else {
       // The window changed size: keep what was in the middle in the middle.
       const dw = width - lastSize.current.width
@@ -345,6 +381,12 @@ function MapCanvas({
 
   const names = useMemo(() => new Map(map.nodes.map((n) => [n.id, n.name])), [map])
   const shown = useMemo(() => labelsAt(nodes, ties, view.k), [nodes, ties, view.k])
+  // The words of a lit line that had no room among the others sit where they cover no portrait.
+  const litSpots = useMemo(() => {
+    if (!hotNode && !hotTie) return NO_SPOTS
+    const lit = ties.filter((t) => !shown.ties.has(t.key) && (t.key === hotTie || t.a.id === hotNode || t.b.id === hotNode))
+    return lit.length ? clearSpots(nodes, lit, view.k) : NO_SPOTS
+  }, [hotNode, hotTie, nodes, ties, shown, view.k])
   const tie = hotTie ? ties.find((t) => t.key === hotTie) : undefined
   const hasMap = nodes.length > 0
   const ps = portraitScale(view.k)
@@ -394,6 +436,7 @@ function MapCanvas({
               hotTie={hotTie}
               shownNames={shown.names}
               shownTies={shown.ties}
+              litSpots={litSpots}
               onHotNode={setHotNode}
               onHotTie={setHotTie}
               onFocusNode={onFocusNode}
@@ -401,7 +444,16 @@ function MapCanvas({
             />
           </div>
         ) : null}
-        {tie && !dragging ? <TieCard tie={tie} at={shown.ties.get(tie.key) ?? 0.5} view={view} names={names} /> : null}
+        {tie && !dragging ? (
+          <TieCard
+            key={tie.key}
+            tie={tie}
+            at={shown.ties.get(tie.key) ?? litSpots.get(tie.key) ?? 0.5}
+            view={view}
+            names={names}
+            room={{ width, height }}
+          />
+        ) : null}
       </div>
       {!hasMap ? (
         <div className="pointer-events-none absolute inset-0 flex items-start justify-center pt-[8vh] [&>*]:pointer-events-auto">
@@ -445,6 +497,7 @@ const Layer = memo(function Layer({
   hotTie,
   shownNames,
   shownTies,
+  litSpots,
   onHotNode,
   onHotTie,
   onFocusNode,
@@ -458,6 +511,8 @@ const Layer = memo(function Layer({
   shownNames: Set<ID>
   /** The lines whose words show, and where along each they sit. */
   shownTies: Map<string, number>
+  /** Where the words of lit lines not in `shownTies` sit, clear of the portraits. */
+  litSpots: Map<string, number>
   onHotNode: (id: ID | null) => void
   onHotTie: (key: string | null) => void
   onFocusNode: (n: MapNode) => void
@@ -498,7 +553,7 @@ const Layer = memo(function Layer({
           on={lit(t)}
           dim={quiet && !lit(t)}
           show={shownTies.has(t.key) || lit(t)}
-          at={shownTies.get(t.key) ?? 0.5}
+          at={shownTies.get(t.key) ?? litSpots.get(t.key) ?? 0.5}
           onHot={onHotTie}
           onFocus={onFocusTie}
         />
@@ -628,8 +683,9 @@ const TieWords = memo(function TieWords({
       onFocus={() => onFocus(t)}
       onBlur={() => onHot(null)}
       className={cn(
-        'absolute z-[1] truncate rounded-full border bg-surface px-2 text-[11px] leading-[18px] outline-none transition-[opacity,color,border-color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/50',
-        on ? 'border-accent/50 text-fg' : 'border-line text-muted',
+        'absolute truncate rounded-full border bg-surface px-2 text-[11px] leading-[18px] outline-none transition-[opacity,color,border-color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/50',
+        // A lit line's words are drawn over the portraits, so they can always be read.
+        on ? 'z-[3] border-accent/50 text-fg' : 'z-[1] border-line text-muted',
         // No room for it here: hidden (even while another line is lit), but still reached with Tab, and
         // shown when focused.
         !show || !label ? 'pointer-events-none opacity-0 focus-visible:opacity-100' : dim && 'opacity-25'
@@ -646,17 +702,48 @@ const TieWords = memo(function TieWords({
   )
 })
 
-/** How each feels about a relationship, under the line's words. Drawn at screen size, whatever the zoom. */
-function TieCard({ tie, at, view, names }: { tie: Tie; at: number; view: View; names: Map<ID, string> }): React.JSX.Element {
+/**
+ * How each feels about a relationship, by the line's words: under them, or wherever it covers neither
+ * character (mapLogic.cardPlace). Measured before it is first drawn, so it never jumps. Drawn at screen
+ * size, whatever the zoom.
+ */
+function TieCard({
+  tie,
+  at,
+  view,
+  names,
+  room
+}: {
+  tie: Tie
+  at: number
+  view: View
+  names: Map<ID, string>
+  room: { width: number; height: number }
+}): React.JSX.Element {
   const name = (id: ID): string => names.get(id) ?? 'Someone'
+  const card = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = card.current
+    if (el) setSize({ width: el.offsetWidth, height: el.offsetHeight })
+  }, [])
   const spot = along(tie, at)
-  const x = spot.x * view.k + view.tx
-  const y = spot.y * view.k + view.ty
+  const onScreen = (p: { x: number; y: number }): { x: number; y: number } => ({ x: p.x * view.k + view.tx, y: p.y * view.k + view.ty })
+  const place = size
+    ? cardPlace(
+        size,
+        { ...onScreen(spot), width: labelWidth(tie) },
+        [tie.a, tie.b].map((n) => ({ ...onScreen(n), name: n.name })),
+        (PORTRAIT / 2) * portraitScale(view.k),
+        room
+      )
+    : null
   return (
     <div
+      ref={card}
       aria-hidden
-      className="pointer-events-none absolute z-20 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px] leading-relaxed shadow-pop animate-fade-in"
-      style={{ left: x, top: y + 16 }}
+      className="pointer-events-none absolute z-20 w-max max-w-[280px] rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px] leading-relaxed shadow-pop animate-fade-in"
+      style={place ? { left: place.left, top: place.top } : { left: 0, top: 0, visibility: 'hidden' }}
     >
       <p className="font-medium text-fg">
         {tie.a.name} and {tie.b.name}

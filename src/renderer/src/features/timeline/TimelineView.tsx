@@ -24,7 +24,7 @@ import {
   laneChoices,
   lanesThatFit,
   laneSpans,
-  LANE_W,
+  laneWidth,
   markOf,
   rowLabel,
   shownLanes,
@@ -36,6 +36,8 @@ import {
 import { StoryFilter, useSize, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from './viewParts'
 
 const ROW = 52
+/** The sticky header: each lane's portrait over up to two lines of its name. */
+const HEAD = 60
 /** Room for the timeline's own scroll bar, so the lanes that fit never make it scroll sideways. */
 const SCROLLBAR = 16
 /** How long the rows of a clash stay lit after its sentence is clicked. */
@@ -259,7 +261,7 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
       const el = scroller.current
       if (!el || i < 0 || i >= n) return
       const top = i * ROW
-      const view = el.clientHeight - ROW // the sticky header row
+      const view = el.clientHeight - HEAD // the sticky header row
       if (top < el.scrollTop) el.scrollTop = top
       else if (top + ROW > el.scrollTop + view) el.scrollTop = top + ROW - view
       pendingFocus.current = i
@@ -289,7 +291,7 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
     const el = scroller.current
     if (i < 0 || !el) return
     const top = i * ROW
-    if (top < el.scrollTop || top + 2 * ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 3)
+    if (top < el.scrollTop || top + HEAD + ROW > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top - el.clientHeight / 3)
     pendingFocus.current = i
     setFocused(i)
     setScrollTop(el.scrollTop)
@@ -348,8 +350,9 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
   const hereIndex = timeline.points.findIndex((p) => p.id === here)
   const active = focused !== null && focused < n ? focused : Math.max(0, hereIndex)
   if (active < first || active > last) rows.push(active)
-  const infoW = infoWidth(width, lanes.length)
-  const rowWidth = Math.max(width, WHEN_W + infoW + lanes.length * LANE_W)
+  const laneW = laneWidth(width, lanes.length, mode)
+  const infoW = infoWidth(width, lanes.length, laneW)
+  const rowWidth = Math.max(width, WHEN_W + infoW + lanes.length * laneW)
 
   return (
     <>
@@ -361,7 +364,7 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
         onKeyDown={onKeyDown}
       >
         {/* The lane names repeat in each row's own name, so screen readers skip this header. */}
-        <div aria-hidden className="sticky top-0 z-10 flex h-[52px] border-b border-line bg-bg" style={{ width: rowWidth }}>
+        <div aria-hidden className="sticky top-0 z-10 flex border-b border-line bg-bg" style={{ width: rowWidth, height: HEAD }}>
           <div
             className="flex shrink-0 items-end px-6 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
             style={{ width: WHEN_W }}
@@ -375,7 +378,7 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
             Scene
           </div>
           {lanes.map((l) => (
-            <LaneHead key={l.id} lane={l} />
+            <LaneHead key={l.id} lane={l} width={laneW} wrap={mode === 'threads'} />
           ))}
         </div>
         <div role="list" aria-label="Timeline" className="relative" style={{ height: n * ROW, width: rowWidth }}>
@@ -391,6 +394,7 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
               here={timeline.points[i].id === here}
               lit={!!flash?.has(timeline.points[i].id)}
               infoW={infoW}
+              laneW={laneW}
               tabbable={i === active}
               location={timeline.points[i].locationId ? places.get(timeline.points[i].locationId!)?.name : undefined}
               label={rowLabel(timeline.points[i], timeline.clashes)}
@@ -404,11 +408,19 @@ function TimelineBody({ timeline, mode, fit }: { timeline: Timeline; mode: LaneM
   )
 }
 
-function LaneHead({ lane }: { lane: TimelineEntry }): React.JSX.Element {
+/** A lane's portrait and name. A plot thread's name runs to a few words, so it wraps onto a second line. */
+function LaneHead({ lane, width, wrap }: { lane: TimelineEntry; width: number; wrap: boolean }): React.JSX.Element {
   return (
-    <div className="flex shrink-0 flex-col items-center justify-end gap-1 pb-1.5" style={{ width: LANE_W }} title={lane.name}>
+    <div className="flex shrink-0 flex-col items-center justify-end gap-1 pb-1.5" style={{ width }} title={lane.name}>
       <Portrait entry={lane} size={22} />
-      <span className="w-full truncate px-1 text-center text-[11px] font-medium text-muted">{lane.name}</span>
+      <span
+        className={cn(
+          'w-full px-1 text-center text-[11px] leading-[13px] font-medium text-muted',
+          wrap ? 'line-clamp-2 break-words' : 'truncate'
+        )}
+      >
+        {lane.name}
+      </span>
     </div>
   )
 }
@@ -468,6 +480,7 @@ const Row = memo(function Row({
   here,
   lit,
   infoW,
+  laneW,
   location,
   label,
   clashText,
@@ -484,6 +497,7 @@ const Row = memo(function Row({
   /** One of the scenes of a clash just clicked. */
   lit: boolean
   infoW: number
+  laneW: number
   location: string | undefined
   label: string
   clashText: string
@@ -561,7 +575,7 @@ const Row = memo(function Row({
           ) : null}
         </span>
         {lanes.map((id) => (
-          <LaneCell key={id} mark={markOf(p, id, mode)} span={spans.get(id)} index={index} />
+          <LaneCell key={id} mark={markOf(p, id, mode)} span={spans.get(id)} index={index} width={laneW} />
         ))}
       </button>
     </div>
@@ -571,15 +585,17 @@ const Row = memo(function Row({
 function LaneCell({
   mark,
   span,
-  index
+  index,
+  width
 }: {
   mark: Mark
   span: { first: number; last: number } | undefined
   index: number
+  width: number
 }): React.JSX.Element {
   const inside = span && index >= span.first && index <= span.last && span.first !== span.last
   return (
-    <span className="relative flex shrink-0 items-center justify-center" style={{ width: LANE_W }}>
+    <span className="relative flex shrink-0 items-center justify-center" style={{ width }}>
       {inside ? (
         <span
           aria-hidden

@@ -41,7 +41,10 @@ export interface TimelinePoint {
   title: string
   /** Adam's own words from the When box (or the event's When field); '' when it is empty. */
   when: string
-  /** False when the When text can't be read as a date: the point keeps its reading order and shows "No date". */
+  /**
+   * False when the When text can't be read as a date: the point keeps its reading order and shows "No date".
+   * A date in a calendar of Adam's own ("the 3rd of Frostmoon") is dated but also keeps its reading order.
+   */
   dated: boolean
   /** Points on the same in-world day share this value; null when no day is named. */
   day: string | null
@@ -85,6 +88,13 @@ export interface Timeline {
 
 // ---------- Relationship map ----------
 
+/**
+ * The least distance between two characters on the map, in map units (one unit is one pixel at life
+ * size): the layout keeps them this far apart, and the map never draws a portrait wider than this at
+ * any zoom, so portraits never cover each other.
+ */
+export const MAP_GAP = 96
+
 /** A character on the map, at its place in the layout (which stays put as the slider moves). */
 export interface MapNode {
   id: ID
@@ -115,6 +125,10 @@ export interface MapGroup {
   memberIds: ID[]
   /** Everyone who belongs to it anywhere on the story's slider: the map fits them all when the group is picked. */
   allMemberIds: ID[]
+  /** Whether anyone has belonged to it by the point: when nobody belongs now, they have left. */
+  hadMembers: boolean
+  /** Whether someone joins it later on the slider than the point. */
+  joinsLater: boolean
 }
 
 /** Where a character sits on the map. */

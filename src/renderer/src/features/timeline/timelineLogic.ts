@@ -14,6 +14,10 @@ export const WHEN_W = 184
 export const INFO_MIN = 300
 export const INFO_MAX = 520
 export const LANE_W = 68
+/** The widest a plot thread's lane grows, so its name shows on two lines rather than cut short. */
+export const THREAD_LANE_MAX = 112
+/** What the scene column keeps before plot thread lanes grow into its room. */
+export const INFO_KEEP = 380
 
 /** How many lanes show before Adam picks his own: as many as fit beside the scenes, up to DEFAULT_LANES. Unmeasured, the most. */
 export function lanesThatFit(width: number): number {
@@ -21,9 +25,18 @@ export function lanesThatFit(width: number): number {
   return Math.max(1, Math.min(DEFAULT_LANES, Math.floor((width - WHEN_W - INFO_MIN) / LANE_W)))
 }
 
+/**
+ * How wide each lane is. A character's name is short, so its lane stays LANE_W; a plot thread's name runs
+ * to a few words, so its lane grows into room the scene column can spare, up to THREAD_LANE_MAX.
+ */
+export function laneWidth(width: number, lanes: number, mode: LaneMode): number {
+  if (mode === 'characters' || !lanes) return LANE_W
+  return Math.max(LANE_W, Math.min(THREAD_LANE_MAX, Math.floor((width - WHEN_W - INFO_KEEP) / lanes)))
+}
+
 /** How wide the scene column is beside this many lanes: what is left, within its limits (lanes after it may go off the side). */
-export function infoWidth(width: number, lanes: number): number {
-  return lanes ? Math.max(INFO_MIN, Math.min(INFO_MAX, width - WHEN_W - lanes * LANE_W)) : Math.max(INFO_MIN, width - WHEN_W)
+export function infoWidth(width: number, lanes: number, laneW = LANE_W): number {
+  return lanes ? Math.max(INFO_MIN, Math.min(INFO_MAX, width - WHEN_W - lanes * laneW)) : Math.max(INFO_MIN, width - WHEN_W)
 }
 
 /** What a point shows in a lane. */

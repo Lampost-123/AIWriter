@@ -80,6 +80,25 @@ describe('the relationship map layout', () => {
     expect(dist(p, 'a', 'b')).toBeLessThan(400)
   })
 
+  it('fits newcomers into a crowded cast without putting them on top of anyone', () => {
+    const g = graph(330, 700)
+    const before = layoutGraph(g)
+    const more: LayoutGraph = {
+      nodes: [...g.nodes, ...Array.from({ length: 10 }, (_, i) => ({ id: `new${i}`, name: `Newcomer ${i}` }))],
+      edges: [...g.edges, ...Array.from({ length: 10 }, (_, i) => [`new${i}`, `c${i % 5}`] as [string, string])]
+    }
+    const t = performance.now()
+    const after = layoutGraph(more, before)
+    const ms = performance.now() - t
+    console.log(`ten newcomers fitted into 330 characters: ${ms.toFixed(1)} ms`)
+    expect(ms).toBeLessThan(40)
+    for (const [id, p] of before) expect(after.get(id)).toEqual(p)
+    for (let i = 0; i < 10; i++) {
+      const id = `new${i}`
+      for (const other of after.keys()) if (other !== id) expect(dist(after, id, other)).toBeGreaterThanOrEqual(MIN_GAP - 2)
+    }
+  })
+
   it('lays out a few hundred characters quickly', () => {
     const g = graph(400, 1200)
     const t = performance.now()

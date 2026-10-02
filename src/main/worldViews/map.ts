@@ -12,7 +12,7 @@ import type { MapGroup, MapLink, MapNode, MapPlace, RelationshipMap } from '@sha
 import type { Line, MemoryData } from '../memory/types'
 import type { MemoryStateAll } from '../memory/state'
 import { layoutGraph, type LayoutGraph, type Positions } from './layout'
-import { existsStep, walkOf } from './walk'
+import { existsStep, walkOf, type Walk } from './walk'
 
 /** Ties to a group that don't make a character one of its members. */
 const AGAINST =
@@ -148,12 +148,17 @@ export function buildMap(input: MapInput): RelationshipMap {
   // Who can appear anywhere on the slider, and the groups anyone belongs to there.
   const along = alongStory(line, data)
   const byId = new Map(data.entries.map((e) => [e.id, e]))
+  const w = along.walk
+  const point =
+    (at.kind === 'scene' ? w.scene.get(at.sceneId) : at.kind === 'start' ? w.post.get(at.storyId) : w.end.get(at.storyId)) ?? Infinity
   const groups: MapGroup[] = [...new Set([...along.members.keys(), ...members.keys()])]
     .flatMap((id) => {
       const name = (state.entries.get(id)?.name ?? byId.get(id)?.name ?? '').trim() || 'Unnamed group'
       const now = [...(members.get(id) ?? [])].filter((m) => shown.has(m))
       const all = [...new Set([...(along.members.get(id) ?? []), ...now])].filter((m) => positions.has(m))
-      return all.length ? [{ id, name, memberIds: now, allMemberIds: all }] : []
+      const joined = along.joins.get(id)
+      const hadMembers = now.length > 0 || (!!joined && joined.first <= point)
+      return all.length ? [{ id, name, memberIds: now, allMemberIds: all, hadMembers, joinsLater: !!joined && joined.last > point }] : []
     })
     .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
   const everyone: MapPlace[] = [...new Set([...along.characters, ...shown])].flatMap((id) => {
@@ -171,9 +176,14 @@ const tiesOf = (c: Change): RelationshipPayload[] =>
 /**
  * Who the map can show anywhere along a story's line (before any story, at a story's start or in a
  * scene on it): characters tied to another character or belonging to a group, while they exist there,
- * and each group's members. `tied` says whether any two characters are tied anywhere along it.
+ * and each group's members, with the first and last steps on the line where someone joins it (-1 from
+ * the start; a member who only comes into the world later joins when they do). `tied` says whether any
+ * two characters are tied anywhere along it.
  */
-function alongStory(line: Line, data: MemoryData): { characters: Set<ID>; members: Map<ID, Set<ID>>; tied: boolean } {
+function alongStory(
+  line: Line,
+  data: MemoryData
+): { characters: Set<ID>; members: Map<ID, Set<ID>>; joins: Map<ID, { first: number; last: number }>; tied: boolean; walk: Walk } {
   const kinds = new Map(data.entries.map((e) => [e.id, e.kind]))
   const scenes = new Set<ID>()
   const starts = new Set<ID>()
@@ -188,15 +198,17 @@ function alongStory(line: Line, data: MemoryData): { characters: Set<ID>; member
     if (list) list.push(p)
     else pointsOf.set(p.entryId, [p])
   }
-  const exists = new Map<ID, boolean>()
-  const there = (id: ID): boolean => {
-    let yes = exists.get(id)
-    if (yes === undefined) exists.set(id, (yes = existsStep(w, pointsOf.get(id)) !== null))
-    return yes
+  const firstAt = new Map<ID, number | null>()
+  const existsAt = (id: ID): number | null => {
+    let at = firstAt.get(id)
+    if (at === undefined) firstAt.set(id, (at = existsStep(w, pointsOf.get(id))))
+    return at
   }
+  const there = (id: ID): boolean => existsAt(id) !== null
 
   const characters = new Set<ID>()
   const members = new Map<ID, Set<ID>>()
+  const joins = new Map<ID, { first: number; last: number }>()
   let tied = false
   for (const c of data.changes) {
     const counts =
@@ -204,6 +216,8 @@ function alongStory(line: Line, data: MemoryData): { characters: Set<ID>; member
       (c.anchor === 'story-start' && !!c.storyId && starts.has(c.storyId)) ||
       (c.anchor === 'scene' && !!c.sceneId && scenes.has(c.sceneId))
     if (!counts) continue
+    // Where on the line it happens: a change that counts has its scene or story set.
+    const step = (c.anchor === 'scene' ? w.scene.get(c.sceneId!) : c.anchor === 'story-start' ? w.post.get(c.storyId!) : -1) ?? -1
     for (const r of tiesOf(c)) {
       const [a, b] = [c.entryId, r.otherId]
       const [ka, kb] = [kinds.get(a), kinds.get(b)]
@@ -217,7 +231,10 @@ function alongStory(line: Line, data: MemoryData): { characters: Set<ID>; member
       if (!person || !group || !belongs(r.type) || !there(person)) continue
       characters.add(person)
       members.set(group, (members.get(group) ?? new Set()).add(person))
+      const at = Math.max(step, existsAt(person) ?? -1)
+      const seen = joins.get(group)
+      joins.set(group, seen ? { first: Math.min(seen.first, at), last: Math.max(seen.last, at) } : { first: at, last: at })
     }
   }
-  return { characters, members, tied }
+  return { characters, members, joins, tied, walk: w }
 }

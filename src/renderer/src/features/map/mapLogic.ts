@@ -2,7 +2,7 @@
 // zooming about a point, which names and words fit on screen, and the words for each relationship.
 // Tested in mapLogic.test.ts.
 import type { ID } from '@shared/types'
-import type { MapLink, MapNode, RelationshipMap } from '@shared/contracts/worldViews'
+import { MAP_GAP, type MapLink, type MapNode, type RelationshipMap } from '@shared/contracts/worldViews'
 
 /** How the map sits in its window: a point (x, y) on the map shows at (x * k + tx, y * k + ty). */
 export interface View {
@@ -28,10 +28,14 @@ export const FIT_PAD = { x: 72, top: 36, bottom: 96 }
 
 /**
  * How big a portrait is on screen at a zoom, as a share of life size: it shrinks as the map is zoomed out,
- * but never so far that it can't be told apart. Names and the words on the lines stay the same size at
- * every zoom, so they can always be read.
+ * but no further than 60%, so it can still be told apart, unless that would make portraits touch. The
+ * layout keeps characters MAP_GAP apart, so a portrait is never wider than nine tenths of that on screen.
+ * Names and the words on the lines stay the same size at every zoom, so they can always be read.
  */
-export const portraitScale = (k: number): number => Math.max(k, 0.6)
+export const portraitScale = (k: number): number => Math.max(k, Math.min(0.6, (0.9 * MAP_GAP * k) / PORTRAIT))
+
+/** The zoom a map too big to read when it all fits opens at, so names and the words on the lines show. */
+export const READABLE_ZOOM = 0.5
 
 const clampZoom = (k: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))
 
@@ -88,6 +92,54 @@ export function fitView(points: Pick<MapNode, 'x' | 'y'>[], width: number, heigh
   return { tx: cx - ((minX + maxX) / 2) * k, ty: cy - ((minY + maxY) / 2) * k, k }
 }
 
+/**
+ * The view the map opens at: fitted to `points` (as fitView) when they can still be read that way. A cast
+ * too big for that opens at READABLE_ZOOM with its best-connected character in the middle, moved only as
+ * far as keeps empty space past the cast's edges out of the window. "Fit the map to the window" still
+ * shows everyone.
+ */
+export function openingView(
+  points: Pick<MapNode, 'x' | 'y'>[],
+  nodes: MapNode[],
+  ties: Tie[],
+  width: number,
+  height: number,
+  pad = FIT_PAD
+): View {
+  const fit = fitView(points, width, height, pad)
+  const best = byConnections(nodes, ties)[0]
+  if (fit.k >= READABLE_ZOOM || !best) return fit
+  const k = READABLE_ZOOM
+  let [minX, minY, maxX, maxY] = [best.x, best.y, best.x, best.y]
+  for (const p of points) {
+    minX = Math.min(minX, p.x)
+    maxX = Math.max(maxX, p.x)
+    minY = Math.min(minY, p.y)
+    maxY = Math.max(maxY, p.y)
+  }
+  /** The offset that puts `at` in the middle of the room from lo to hi, kept so the cast covers the room. */
+  const place = (at: number, min: number, max: number, lo: number, hi: number): number => {
+    if ((max - min) * k <= hi - lo) return (lo + hi) / 2 - ((min + max) / 2) * k
+    return Math.min(lo - min * k, Math.max(hi - max * k, (lo + hi) / 2 - at * k))
+  }
+  return {
+    k,
+    tx: place(best.x, minX, maxX, pad.x, width - pad.x),
+    ty: place(best.y, minY, maxY, pad.top, height - pad.bottom)
+  }
+}
+
+/** Characters with the most relationships first (then by name), as labelsAt gives them room. */
+function byConnections(nodes: MapNode[], ties: Tie[]): MapNode[] {
+  const degree = new Map<ID, number>()
+  for (const t of ties) {
+    degree.set(t.a.id, (degree.get(t.a.id) ?? 0) + 1)
+    degree.set(t.b.id, (degree.get(t.b.id) ?? 0) + 1)
+  }
+  const deg = (id: ID): number => degree.get(id) ?? 0
+  return [...nodes].sort((a, b) => deg(b.id) - deg(a.id) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
+}
+
 /** Zooms by `factor`, keeping the map point under the window point (cx, cy) where it is. */
 export function zoomAt(view: View, factor: number, cx: number, cy: number): View {
   const k = clampZoom(view.k * factor)
@@ -119,6 +171,13 @@ export function feelsText(link: MapLink, name: (id: ID) => string): string[] {
 /** Where a relationship last changed, in words. */
 export const whereText = (link: MapLink): string => (link.where ? `Last changed in ${link.where}` : 'Since before the story begins')
 
+/**
+ * A point on the slider inside a sentence: "Start of Book 1" reads "the start of Book 1"; a scene's place
+ * stays as it is. Each number keeps to its word ("Sc 2"), so a sentence never wraps between them.
+ */
+export const inSentence = (label: string): string =>
+  label.replace(/^(Start|End) of /, (_, w: string) => `the ${w.toLowerCase()} of `).replace(/ (?=\d)/g, '\u00a0')
+
 /** A line's accessible name: who, how they are tied, and how each feels. */
 export function tieName(tie: Tie, name: (id: ID) => string): string {
   const who = `${tie.a.name} and ${tie.b.name}`
@@ -147,6 +206,9 @@ interface Box {
 
 /** Where along a line its words may sit, as shares of the way from one end: the middle first. */
 const SPOTS = [0.5, 0.4, 0.6, 0.3, 0.7]
+
+/** How wide a line's words are on screen, about. */
+export const labelWidth = (t: Tie): number => Math.min(LABEL_MAX, tieLabel(t).length * LABEL_LETTER + 18)
 
 /** The point a share of the way along a line, in map units. */
 export const along = (t: Tie, at: number): { x: number; y: number } => ({
@@ -194,8 +256,7 @@ export function labelsAt(nodes: MapNode[], ties: Tie[], k: number): { names: Set
   for (const n of nodes) put({ x0: n.x * k - r, y0: n.y * k - r, x1: n.x * k + r, y1: n.y * k + r, owner: n.id })
 
   const names = new Set<ID>()
-  const byRank = [...nodes].sort((a, b) => deg(b.id) - deg(a.id) || a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
-  for (const n of byRank) {
+  for (const n of byConnections(nodes, ties)) {
     const w = Math.min(NAME_MAX, n.name.length * NAME_LETTER + 12)
     const top = n.y * k + r + 3
     const box = { x0: n.x * k - w / 2, y0: top, x1: n.x * k + w / 2, y1: top + 18, owner: n.id }
@@ -207,9 +268,8 @@ export function labelsAt(nodes: MapNode[], ties: Tie[], k: number): { names: Set
   const words = new Map<string, number>()
   const tiesByRank = [...ties].sort((a, b) => deg(b.a.id) + deg(b.b.id) - deg(a.a.id) - deg(a.b.id) || (a.key < b.key ? -1 : 1))
   for (const t of tiesByRank) {
-    const label = tieLabel(t)
-    if (!label) continue
-    const w = Math.min(LABEL_MAX, label.length * LABEL_LETTER + 18)
+    if (!tieLabel(t)) continue
+    const w = labelWidth(t)
     for (const at of SPOTS) {
       const p = along(t, at)
       const [x, y] = [p.x * k, p.y * k]
@@ -221,4 +281,76 @@ export function labelsAt(nodes: MapNode[], ties: Tie[], k: number): { names: Set
     }
   }
   return { names, ties: words }
+}
+
+/**
+ * Where along each line its words sit clear of every portrait at a zoom, as a share of the way along it:
+ * for a line lit up by pointing whose words had no room among the others. A line with no clear spot is
+ * left out (its words then sit in the middle, drawn over the portraits while it is lit).
+ */
+export function clearSpots(nodes: MapNode[], ties: Tie[], k: number): Map<string, number> {
+  const r = (PORTRAIT / 2) * portraitScale(k)
+  const out = new Map<string, number>()
+  for (const t of ties) {
+    const w = labelWidth(t)
+    const at = [...SPOTS, 0.2, 0.8].find((s) => {
+      const p = along(t, s)
+      return !nodes.some((n) => Math.abs(n.x - p.x) * k < w / 2 + r + 2 && Math.abs(n.y - p.y) * k < 10 + r + 2)
+    })
+    if (at !== undefined) out.set(t.key, at)
+  }
+  return out
+}
+
+/**
+ * Where the card telling how each feels about a line goes, in window pixels, kept in the window: under
+ * the line's words, or above them, or off one of their corners (to the side of a slanting line away from
+ * both its characters), or beside them, or under or over both characters (a short, level line); the
+ * first that covers neither character (their portraits and names), else the one that covers least.
+ * `words` is the middle of the line's words, `ends` its two characters where they are on screen, `r` a
+ * portrait's radius on screen.
+ */
+export function cardPlace(
+  card: { width: number; height: number },
+  words: { x: number; y: number; width: number },
+  ends: { x: number; y: number; name: string }[],
+  r: number,
+  room: { width: number; height: number }
+): { left: number; top: number } {
+  const { width: w, height: h } = card
+  const [below, above] = [words.y + 16, words.y - 16 - h]
+  const [rightOf, leftOf] = [words.x + 8, words.x - 8 - w]
+  // Just clear of both characters, names included.
+  const under = ends.reduce((y, e) => Math.max(y, e.y + r + 29), below)
+  const over = ends.reduce((y, e) => Math.min(y, e.y - r - 8 - h), above)
+  const candidates = [
+    { left: words.x - w / 2, top: below },
+    { left: words.x - w / 2, top: above },
+    { left: rightOf, top: below - 4 },
+    { left: leftOf, top: below - 4 },
+    { left: rightOf, top: above + 4 },
+    { left: leftOf, top: above + 4 },
+    { left: words.x + words.width / 2 + 10, top: words.y - h / 2 },
+    { left: words.x - words.width / 2 - 10 - w, top: words.y - h / 2 },
+    { left: words.x - w / 2, top: under },
+    { left: words.x - w / 2, top: over }
+  ].map((c) => ({
+    left: Math.max(8, Math.min(room.width - w - 8, c.left)),
+    top: Math.max(8, Math.min(room.height - h - 8, c.top))
+  }))
+  // How much of a character, its portrait with its name under it, a place for the card covers.
+  const covered = (c: { left: number; top: number }, e: { x: number; y: number; name: string }): number => {
+    const half = Math.max(r, Math.min(NAME_MAX, e.name.length * NAME_LETTER + 12) / 2) + 4
+    const across = Math.min(c.left + w, e.x + half) - Math.max(c.left, e.x - half)
+    const down = Math.min(c.top + h, e.y + r + 25) - Math.max(c.top, e.y - r - 4)
+    return across > 0 && down > 0 ? across * down : 0
+  }
+  let best = candidates[0]
+  let least = Infinity
+  for (const c of candidates) {
+    const n = ends.reduce((sum, e) => sum + covered(c, e), 0)
+    if (n < least) [best, least] = [c, n]
+    if (!n) break
+  }
+  return best
 }

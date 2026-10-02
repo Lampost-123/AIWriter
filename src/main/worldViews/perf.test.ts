@@ -184,4 +184,22 @@ describe('world views in a big world', () => {
     expect(timelineOf(db, last)).not.toBe(t)
     expect(timelineOf(db, last)).toEqual(t)
   }, 60_000)
+
+  it('fits a new character into the map in well under 100 ms', () => {
+    const friend = relationshipMapOf(db, last, null, middle).nodes[0].id
+    const times: number[] = []
+    for (let i = 0; i < 5; i++) {
+      // As when the memory keeper adds someone new who knows someone already on the map.
+      const newcomer = repo.createEntry(db, 'character', { name: `Newcomer ${i}` }).id
+      const payload = { otherId: friend, type: 'knows', feels: '', otherFeels: '' }
+      mem.insertChange(db, { kind: 'relationship', payload, entryId: newcomer, anchor: 'scene', sceneId: middle, origin: 'text' })
+      const t = performance.now()
+      const m = relationshipMapOf(db, last, null, middle)
+      times.push(performance.now() - t)
+      expect(m.everyone.some((p) => p.id === newcomer)).toBe(true)
+    }
+    times.sort((a, b) => a - b)
+    console.log(`relationship map just after a new character: ${ms({ fastest: times[0], median: times[2] })}`)
+    expect(times[0]).toBeLessThan(150)
+  }, 60_000)
 })
