@@ -7,8 +7,9 @@ import { askReply } from './ask.mjs'
 import { outlineReply } from './outline.mjs'
 import { readAloudReply } from './readAloud.mjs'
 import { worldReply } from './world.mjs'
+import { worldInterviewReply } from './worldInterview.mjs'
 
-const PARTS = [editsReply, askReply, outlineReply, readAloudReply, worldReply]
+const PARTS = [editsReply, askReply, outlineReply, readAloudReply, worldReply, worldInterviewReply]
 
 /** The reply for a milestone 4 request, or null when it isn't one. */
 export function m4Reply(system, messages, model = '') {

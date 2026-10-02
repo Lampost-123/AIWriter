@@ -40,6 +40,7 @@ import {
   undoWholeBuild,
   useWorldBuilder
 } from './worldBuilderStore'
+import { InterviewButton, WorldInterview } from './WorldInterview'
 
 export function WorldBuilderView(): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
@@ -115,7 +116,10 @@ function Page(): React.JSX.Element {
           <label htmlFor="world-summary" className="block text-[12px] font-medium text-muted">
             Your summary
           </label>
-          <MicButton disabled={running} onText={(t) => box.current && insertIntoBox(box.current, t, setWorldSummary)} />
+          <div className="flex h-7 items-center gap-1">
+            <InterviewButton disabled={running} />
+            <MicButton disabled={running} onText={(t) => box.current && insertIntoBox(box.current, t, setWorldSummary)} />
+          </div>
         </div>
         <AutoTextarea
           ref={box}
@@ -135,6 +139,7 @@ function Page(): React.JSX.Element {
             }
           }}
         />
+        <WorldInterview running={running} />
 
         <div className="mt-4 flex max-w-[360px] flex-col gap-1">
           <label htmlFor={whenId} className="text-[12px] font-medium text-muted">

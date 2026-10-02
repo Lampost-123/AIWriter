@@ -481,6 +481,13 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   or all at once on the page; the page's last build is read back from those lines. The summary is kept in
   the world's `meta` key `world_summary`. Its job is `world` ("World builder model", the character builder
   model until Adam picks one, Thinking Off).
+- **World builder: Interview me** (`src/main/worldBuilder/interview.ts`, `features/worldBuilder/WorldInterview.tsx`,
+  `interviewStore.ts`). The AI asks one short question at a time about what the summary is missing or thin on:
+  one `world` record per question (`askWorldQuestion`, prompt marker `[AIWRITE-WORLD v1] interview`, the World
+  builder model and Thinking), reading the summary as it stands and the questions asked so far. Answers never go
+  through the AI: each is added to the end of the summary in Adam's words under the question's topic
+  ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
+  stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.

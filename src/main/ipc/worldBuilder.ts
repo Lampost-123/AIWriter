@@ -15,6 +15,7 @@ import { entryNames } from '../db/worldBuilder'
 import { buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
 import { redoBuild, undoBuild } from '../worldBuilder/lines'
 import { estimateCost, guessBuild } from '../worldBuilder/estimate'
+import { askQuestion } from '../worldBuilder/interview'
 
 /** Where the summary is kept in the world (its meta table), so the page reopens with it. */
 const SUMMARY_KEY = 'world_summary'
@@ -92,5 +93,9 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
     const out = db.transaction(() => redoBuild(db, runId, Array.isArray(lineIds) ? lineIds : []))()
     repo.touchWorld(db)
     changed(out.entryIds)
+  },
+  askWorldQuestion: (input) => {
+    const model = jobModel('world', modelSources())
+    return askQuestion({ db: world.db(), model, emit, onKeyRejected: () => providers.markCheck(model.target.id, false) }, input)
   }
 }
