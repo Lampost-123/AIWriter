@@ -60,7 +60,7 @@ export function HoverCard({
         </div>
       </div>
       <p className="mt-2 line-clamp-2 h-[38px] shrink-0 text-[12.5px] leading-[19px] text-muted">
-        {entry.summary || <span className="text-faint">No one-line summary yet.</span>}
+        {entry.summary || <span className="text-faint">No summary yet.</span>}
       </p>
       <div className="mt-1.5 min-h-0 flex-1 border-t border-line pt-1.5">
         {lines.length && !entry.absent ? (
