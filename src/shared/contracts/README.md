@@ -29,3 +29,4 @@ Milestone 4:
 | speech.ts | The speech engine: the local speech server, its downloads and status |
 | readAloud.ts | Reading aloud: Listen, voices, who says each line, calibration |
 | dictation.ts | Dictation: hold to talk, the microphone button, the microphone test |
+| worldBuilder.ts | Build the world from a summary (the World builder) |

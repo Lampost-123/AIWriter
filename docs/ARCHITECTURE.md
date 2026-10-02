@@ -469,6 +469,17 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   world's `meta` key `read_aloud`, by entry id; speaker marks and spoken audio are a cache in the user data
   folder (audio up to the limit Adam picks, oldest removed first). Dictated audio is never saved.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
+- **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
+  reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
+  places first, then groups, items, lore and rules, events, plot threads, the glossary, relationships, and
+  the world's themes and tone when they are empty), saving each thing as it is made. Characters get full
+  profiles from the character builder (`src/main/builder/`). The summary's own sentences go in as Adam's
+  (`origin 'adam'`); what the AI fills in is `'ai'`. Anything already in the world (by name, alias or a
+  near match) is left as it is, and where the summary disagrees with it, that is a consistency issue. A
+  build is one memory run with no scene (`db/worldBuilder.ts`): its lines undo one by one in What changed,
+  or all at once on the page; the page's last build is read back from those lines. The summary is kept in
+  the world's `meta` key `world_summary`. Its job is `world` ("World builder model", the character builder
+  model until Adam picks one, Thinking Off).
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
@@ -486,6 +497,7 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
 | Speech engine | `contracts/speech.ts`, `ipc/speech.ts`, `src/main/speech/`, the speech server's source, `features/speech/`, `tests/fake-speech/` |
 | Read aloud | `contracts/readAloud.ts`, `ipc/readAloud.ts`, `src/main/readAloud/`, `features/readAloud/`, `tests/fake-provider/m4/readAloud.mjs` |
 | Dictation | `contracts/dictation.ts`, `ipc/dictation.ts`, `src/main/dictation/`, `features/dictation/`, the hold-to-talk line in the shortcuts list |
+| World builder | `contracts/worldBuilder.ts`, `ipc/worldBuilder.ts`, `src/main/worldBuilder/`, `db/worldBuilder.ts`, `features/worldBuilder/`, `tests/fake-provider/m4/world.mjs` |
 
 The groundwork (shared before the parts start): the task runner, `jobModel`, `draftFlow`, the contracts'
 first lines, the new Settings › Models entries, the views, the slots and the editor bridge additions above.

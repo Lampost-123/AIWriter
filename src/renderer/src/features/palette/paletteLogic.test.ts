@@ -171,7 +171,14 @@ describe('finding actions by typing', () => {
     expect(labels('memory updated')).toEqual(['What changed'])
     // Each kind's list isn't found by "memory" or "world".
     expect(labels('memory')).not.toContain('Characters')
-    expect(labels('world')).toEqual(['New world', 'Switch to another world', 'Rename this world', 'Ask the world', 'Codex'])
+    expect(labels('world')).toEqual([
+      'New world',
+      'Switch to another world',
+      'Rename this world',
+      'Ask the world',
+      'Build the world from a summary',
+      'Codex'
+    ])
   })
 
   it('suggests the most useful actions when nothing is typed', () => {

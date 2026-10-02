@@ -37,6 +37,8 @@ export type View =
   | { kind: 'variants'; sceneId: ID }
   /** The outline helper: acts, chapters and scene cards suggested from a premise. */
   | { kind: 'outline'; storyId: ID }
+  /** Build the world from a summary (the World builder): lays out everything a summary names, and lists what it made. */
+  | { kind: 'worldBuilder' }
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 

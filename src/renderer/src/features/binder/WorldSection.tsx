@@ -1,4 +1,4 @@
-import { CalendarRange, History, LayoutGrid, Network, Palette, Spool } from 'lucide-react'
+import { CalendarRange, History, LayoutGrid, Network, Palette, Spool, WandSparkles } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
@@ -7,6 +7,7 @@ import { cn } from '@/lib/cn'
 import { watchMoreBelow } from '@/lib/moreBelow'
 import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
+import { openWorldBuilder } from '@/features/worldBuilder/open'
 
 type Counts = Partial<Record<EntryKind, number>>
 
@@ -79,7 +80,8 @@ function Link({
 
 /**
  * The world's pages, pinned to the bottom of the binder: the codex with each kind's list one click
- * away under it, then the timeline, relationship map, plot threads board, style guide and what changed.
+ * away under it, building the world from a summary, then the timeline, relationship map, plot threads
+ * board, style guide and what changed.
  */
 export function WorldSection(): React.JSX.Element {
   const view = useApp((s) => s.view)
@@ -110,6 +112,12 @@ export function WorldSection(): React.JSX.Element {
           />
         ))}
       </div>
+      <Link
+        icon={<WandSparkles size={15} />}
+        label="Build from a summary"
+        active={view.kind === 'worldBuilder'}
+        onClick={() => openWorldBuilder()}
+      />
       <Link
         icon={<CalendarRange size={15} />}
         label="Timeline"

@@ -116,8 +116,8 @@ describe('the model for each job', () => {
   }
   const src = (models: Partial<Record<'writer' | 'memory' | 'chat' | 'builder' | 'speech', ModelChoice | null>>): ModelSources => ({
     settings: {
-      models: { writer: null, memory: null, chat: null, builder: null, speech: null, ...models },
-      thinking: { writer: 'off', memory: 'low', chat: 'off', builder: 'off', speech: 'high' }
+      models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, ...models },
+      thinking: { writer: 'off', memory: 'low', chat: 'off', builder: 'off', speech: 'high', world: 'off' }
     },
     getProvider: (id) => (id === 'p1' ? provider : null),
     providerTarget: (p) => ({ id: p.id, name: p.name, kind: p.kind, baseUrl: p.baseUrl, apiKey: 'k' })

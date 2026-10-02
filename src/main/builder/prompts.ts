@@ -132,7 +132,7 @@ function hintOf(f: FieldDef): string | undefined {
 }
 
 /** The fields, with what each holds, for the model's reply. */
-function fieldList(kind: BuilderKind, only?: string[]): string {
+export function fieldList(kind: BuilderKind, only?: string[]): string {
   return profileFields(kind)
     .filter((f) => !only || only.includes(f.key))
     .map((f) => {

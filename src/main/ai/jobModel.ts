@@ -4,6 +4,9 @@
 //           Settings › Models, or the writer model while that is left as "Same as the writer model".
 //   speech  "Read aloud" (who says each line and how, voice suggestions): its own model, or the memory
 //           model while left as "Same as the memory model" (which is the writer model until Adam picks one).
+//   world   "World builder" (building the world from a summary): its own model, or the character builder
+//           model while left as "Same as the character builder model" (which is the writer model until
+//           Adam picks one).
 // Each job asks its model to think as that job's own Thinking says (Off unless Adam changes it).
 // No Electron imports: the caller passes the settings and the providers.
 
@@ -20,7 +23,7 @@ import {
 } from './errors'
 import { UserError } from '../util'
 
-export type ModelJob = 'writer' | 'chat' | 'speech'
+export type ModelJob = 'writer' | 'chat' | 'speech' | 'world'
 
 /** A job's model and how to reach it. */
 export interface JobModel {
@@ -43,14 +46,16 @@ export const MODEL_NAMES: Record<Job, string> = {
   memory: 'memory model',
   chat: 'chat and brainstorm model',
   builder: 'character builder model',
-  speech: 'read aloud model'
+  speech: 'read aloud model',
+  world: 'world builder model'
 }
 
 /** Where each job's model comes from while Adam hasn't picked one of its own, nearest first. */
 const FALLBACKS: Record<ModelJob, Job[]> = {
   writer: ['writer'],
   chat: ['chat', 'writer'],
-  speech: ['speech', 'memory', 'writer']
+  speech: ['speech', 'memory', 'writer'],
+  world: ['world', 'builder', 'writer']
 }
 
 /** The job's model, or a plain-words UserError saying what to set up in Settings › Models. */

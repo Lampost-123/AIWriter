@@ -24,6 +24,7 @@ import { outlineHandlers } from './outline'
 import { speechHandlers } from './speech'
 import { readAloudHandlers } from './readAloud'
 import { dictationHandlers } from './dictation'
+import { worldBuilderHandlers } from './worldBuilder'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -52,7 +53,8 @@ const all: Handlers<ApiMethod> = {
   ...outlineHandlers,
   ...speechHandlers,
   ...readAloudHandlers,
-  ...dictationHandlers
+  ...dictationHandlers,
+  ...worldBuilderHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

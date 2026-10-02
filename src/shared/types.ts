@@ -300,9 +300,10 @@ export interface ModelChoice {
  * The AI jobs, each with its own model and Thinking level in Settings › Models. 'builder' is the character
  * builder (milestone 3). From milestone 4: 'chat' is "Chat and brainstorm" (Ask the world, the outline helper,
  * next scene ideas; the writer model until Adam picks one) and 'speech' is "Read aloud" (who says each line
- * and how, voice suggestions; the memory model until Adam picks one).
+ * and how, voice suggestions; the memory model until Adam picks one). 'world' is the World builder (building
+ * the world from a summary; the character builder's model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
@@ -474,9 +475,21 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * Milestone 4 adds: 'beat' (one beat of a Beat by beat draft), 'edit' (an AI edit of selected words, or
  * Continue), 'chat' (a turn of Ask the world), 'outline' (the outline helper), 'ideas' (next scene ideas)
  * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
- * with `params.variant`.
+ * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
  */
-export type GenerationJob = 'draft' | 'memory' | 'summary' | 'builder' | 'story' | 'beat' | 'edit' | 'chat' | 'outline' | 'ideas' | 'speech'
+export type GenerationJob =
+  | 'draft'
+  | 'memory'
+  | 'summary'
+  | 'builder'
+  | 'story'
+  | 'beat'
+  | 'edit'
+  | 'chat'
+  | 'outline'
+  | 'ideas'
+  | 'speech'
+  | 'world'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'

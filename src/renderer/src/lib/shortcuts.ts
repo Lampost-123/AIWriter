@@ -30,6 +30,7 @@ export type ShortcutId =
   // Milestone 4
   | 'listen'
   | 'stopReading'
+  | 'buildWorld'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -60,6 +61,13 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'showName', name: 'Show who or what an underlined name is, beside the page', group: 'Writing', keys: ['Mod', 'Click'] },
   { id: 'listen', name: 'Listen from the cursor, or pause and carry on', group: 'Writing', keys: ['Mod', 'L'] },
   { id: 'stopReading', name: 'Stop reading aloud', group: 'Writing', keys: ['Mod', 'Shift', 'Space'] },
+  {
+    id: 'buildWorld',
+    name: 'Build the world from your summary',
+    where: 'on the World builder page',
+    group: 'Writing',
+    keys: ['Mod', 'Enter']
+  },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },
