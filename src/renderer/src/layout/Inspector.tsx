@@ -9,9 +9,10 @@ import { CastPanel } from '@/features/cast/CastPanel'
 import { GenerationsPanel } from '@/features/generate/GenerationsPanel'
 import { PeekPanel } from '@/features/peek/PeekPanel'
 import { AskPanel } from '@/features/ask/AskPanel'
+import { IssuesPanel } from '@/features/issues/IssuesPanel'
 
-const TAB_LABELS: Record<InspectorTab, string> = { card: 'Scene card', context: 'Context', cast: 'Cast', drafts: 'Drafts' }
-const TABS: InspectorTab[] = ['card', 'context', 'cast', 'drafts']
+const TAB_LABELS: Record<InspectorTab, string> = { card: 'Scene card', context: 'Context', cast: 'Cast', issues: 'Issues', drafts: 'Drafts' }
+const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'drafts']
 
 /**
  * The right-hand panel beside a scene: its card, the briefing a draft would get, who is in it, and
@@ -66,6 +67,9 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </TabsContent>
         <TabsContent value="cast" className="overflow-auto">
           <CastPanel key={sceneId} sceneId={sceneId} />
+        </TabsContent>
+        <TabsContent value="issues" className="overflow-auto">
+          <IssuesPanel key={sceneId} sceneId={sceneId} />
         </TabsContent>
         <TabsContent value="drafts" className="overflow-auto">
           <GenerationsPanel key={sceneId} sceneId={sceneId} />

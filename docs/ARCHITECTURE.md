@@ -528,6 +528,36 @@ The groundwork (shared before the parts start): the task runner, `jobModel`, `dr
 first lines, the new Settings › Models entries, the views, the slots and the editor bridge additions above.
 Each part also owns its tests. Shared files change only additively, and only at integration.
 
+## Milestone 5: the consistency checker
+
+What it adds (spec, Build plan 5 and "Consistency checker"): live checks (phrases to avoid, repetition,
+name spelling) underlined as Adam types; AI checks (facts, knowledge, timeline and place, voice, style and
+tone) when a scene is marked done or on request for a scene, chapter or story; the Issues tab with Fix the
+text, Update the memory and Ignore; badges in the binder; the repetition and plot threads reports; and, in
+the briefing, ties to people not in the scene (block 11). The data model stays frozen (migrations 1 and 2).
+
+- **Issues** are rows of `issues` (migration 2). Everything beyond its columns goes in `payload_json`
+  (`key`, `sources`, `fix`, `memoryFix`). An issue's `key` stops it being raised twice; an ignored key is
+  never raised again. Severity is `must-fix` (red), `warning` ("Worth a look") or `minor`. The contract is
+  `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks.ts`.
+- **The model.** AI checks are the job `check`: "Consistency check model" in Settings › Models
+  (`settings.models.check`, the memory model until Adam picks one, then the writer model), with its own
+  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; prompts start with
+  `[AIWRITE-CHECK v1] <check>`.
+- **Ties to people not in this scene** (block 11, priority 11, `ties`): for each character present, the
+  characters they have a relationship with who aren't in the scene, as of the scene: the other person's one
+  line, where the relationship stands, and the events and changes that name both, newest first. Closest
+  and most recent ties first. It is the first block shortened (names and relationship only) and dropped.
+
+### Who builds what (parallel build, milestone 5)
+
+| Part | Owns |
+|---|---|
+| Live checks | `src/shared/liveChecks.ts` (pure), `features/liveChecks/` (TipTap decorations, the hover card), the live handlers in `ipc/checks.ts`, `src/main/checks/live.ts` |
+| AI checks | `src/main/checks/` (but `live.ts`, `reports.ts`), `db/checks.ts`, the issue and run handlers in `ipc/checks.ts`, the `check` job (types, defaults, `jobModel`, `providers`, Settings › Models), `features/issues/`, `tests/fake-provider/m5/` |
+| Reports | `src/main/checks/reports.ts`, the report handlers in `ipc/checks.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
+| Briefing | `ai/context.ts` block 11 |
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
