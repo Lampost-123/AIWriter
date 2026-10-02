@@ -8,8 +8,11 @@ test('About shows the version and update status; a downloaded update is offered,
 
   const version = await app.evaluate(({ app }) => app.getVersion())
   await expect(win.getByText(`Version ${version}`, { exact: true })).toBeVisible()
-  // Not an installed app, so updates are off, said calmly.
-  await expect(win.getByText('Automatic updates only run in the installed app.')).toBeVisible()
+  // Adam updates by hand (AUTO_UPDATES is off): the page says how, and links to the installers.
+  await expect(win.getByText('Get new versions from GitHub')).toBeVisible()
+  await expect(win.getByText(/download the newest installer from GitHub and run it/)).toBeVisible()
+  await expect(win.getByRole('link', { name: 'Open GitHub' })).toHaveAttribute('href', RELEASES_URL)
+  await expect(win.getByRole('button', { name: 'Check for updates' })).toHaveCount(0)
   await expect(win.getByRole('link', { name: /All versions on GitHub/ })).toHaveAttribute('href', RELEASES_URL)
   await expect(win.getByRole('button', { name: 'Open folder' })).toBeEnabled()
 

@@ -4,6 +4,7 @@ import type { UpdateStatus } from '@shared/types'
 
 export const UPDATES_NOT_SET_UP = "Automatic updates aren't set up yet. Download new versions from GitHub."
 export const UPDATES_DEV_ONLY = 'Automatic updates only run in the installed app.'
+export const UPDATES_BY_HAND = 'To update, download the newest installer from GitHub and run it. Your worlds, settings and keys are kept.'
 const OFFLINE = "Couldn't reach GitHub to check for updates. Check your internet connection, then try again."
 const BAD_DOWNLOAD = "The update didn't download properly. AI Write will try again the next time it starts."
 const OTHER = "Couldn't check for updates just now. Try again later, or download the latest version from GitHub."

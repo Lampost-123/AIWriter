@@ -38,6 +38,13 @@ export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 /** Where installers for every version are published. */
 export const RELEASES_URL = 'https://github.com/lampost-123/aiwriter/releases'
 
+/**
+ * Whether the installed app looks for new versions by itself. Off: Adam chose to update by hand
+ * (2026-10-02) because the repository is private, and installed copies can only read public
+ * releases. Turn it on once the installers are published somewhere anyone can read.
+ */
+export const AUTO_UPDATES = false
+
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],

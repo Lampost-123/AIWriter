@@ -101,6 +101,16 @@ function Updates(): React.JSX.Element {
             <Button variant="primary" loading={restarting} onClick={() => void restart()}>
               Restart to update
             </Button>
+          ) : status?.state === 'disabled' ? (
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-line bg-surface px-3 text-[13.5px] font-medium text-fg transition-[background-color,border-color] duration-150 hover:border-line-strong hover:bg-surface-2"
+            >
+              <ExternalLink size={13} />
+              Open GitHub
+            </a>
           ) : (
             <Button icon={<RefreshCw size={13} />} disabled={!status || busy} onClick={() => void check()}>
               Check for updates

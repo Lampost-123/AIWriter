@@ -5,7 +5,8 @@ import type { AppUpdater } from 'electron-updater'
 import type { UpdateStatus } from '@shared/types'
 import { emit } from '../events'
 import { UserError } from '../util'
-import { describeUpdateError, releaseNotesText, UPDATES_DEV_ONLY } from './updateText'
+import { AUTO_UPDATES } from '@shared/defaults'
+import { describeUpdateError, releaseNotesText, UPDATES_BY_HAND, UPDATES_DEV_ONLY } from './updateText'
 
 const FIRST_CHECK_DELAY_MS = 5_000
 const RECHECK_EVERY_MS = 6 * 60 * 60 * 1000
@@ -55,9 +56,17 @@ async function load(): Promise<AppUpdater> {
   return autoUpdater
 }
 
+/** Why updates don't run here, or null when they do. */
+function offReason(): string | null {
+  if (!AUTO_UPDATES) return UPDATES_BY_HAND
+  if (!app.isPackaged) return UPDATES_DEV_ONLY
+  return null
+}
+
 export function checkForUpdates(): Promise<UpdateStatus> {
-  if (!app.isPackaged) {
-    status = { state: 'disabled', message: UPDATES_DEV_ONLY }
+  const off = offReason()
+  if (off) {
+    status = { state: 'disabled', message: off }
     return Promise.resolve(status)
   }
   if (status.state === 'ready' || status.state === 'downloading') return Promise.resolve(status)
@@ -91,8 +100,9 @@ export async function installUpdate(): Promise<void> {
 }
 
 export function initUpdater(): void {
-  if (!app.isPackaged) {
-    status = { state: 'disabled', message: UPDATES_DEV_ONLY }
+  const off = offReason()
+  if (off) {
+    status = { state: 'disabled', message: off }
     return
   }
   setTimeout(() => void checkForUpdates(), FIRST_CHECK_DELAY_MS).unref()
