@@ -111,6 +111,8 @@ export interface RepetitionItem {
   count: number
   /** Chapters it appears in (for a pet phrase), in story order. */
   chapterIds: ID[]
+  /** The first scene it appears in, to open at the words (Reports part; optional, added in milestone 5). */
+  sceneId?: ID | null
 }
 
 export interface RepetitionReport {
@@ -124,7 +126,14 @@ export interface RepetitionReport {
 export interface ThreadsReport {
   storyId: ID
   /** Plot threads open for many chapters with nothing happening to them. */
-  openTooLong: { entryId: ID; name: string; openedIn: string; chapters: number }[]
+  openTooLong: {
+    entryId: ID
+    name: string
+    openedIn: string
+    chapters: number
+    /** The scene it was set up in, to open (Reports part; optional, added in milestone 5). */
+    openedAt?: { storyId: ID; sceneId: ID } | null
+  }[]
   /** Payoffs (scene cards' "pays off") with no setup on the line before them. */
   noSetup: { entryId: ID; name: string; sceneId: ID; label: string }[]
 }
