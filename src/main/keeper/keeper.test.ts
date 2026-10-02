@@ -449,6 +449,46 @@ describe('first seen elsewhere', () => {
   })
 })
 
+describe('side stories', () => {
+  it('asks "Which happened last?" when a side story and its host change the same thing', async () => {
+    const w = world()
+    const ch2 = repo.createChapter(w.db, w.storyId, { title: 'Chapter 2' })
+    const hostScene = repo.createScene(w.db, ch2.id, { title: 'Later' }).id
+    const side = repo.createStory(w.db, { title: "Kell's Road" })
+    mem.setStoryPlacement(w.db, side.id, {
+      kind: 'side',
+      startStoryId: w.storyId,
+      startAt: 'chapter',
+      startRefId: w.chapterId,
+      endAt: 'end',
+      endRefId: null,
+      leadsIntoId: null
+    })
+    const sideCh = repo.createChapter(w.db, side.id, { title: 'One' })
+    const sideScene = repo.createScene(w.db, sideCh.id, { title: 'On the road' }).id
+
+    save(w.db, hostScene, [['h1', 'Mara lost her left hand.']])
+    await read(w.db, hostScene)
+    save(w.db, sideScene, [['s1', 'Mara lost her left eye.']])
+    await read(w.db, sideScene)
+
+    const line = lines(w.db).find((l) => l.question?.text === 'Which happened last?')!
+    expect(line.entryName).toBe('Mara')
+    expect(line.question!.options.map((o) => o.label)).toEqual(['What happens in Book 1', "What happens in Kell's Road"])
+    expect(line.question!.answer).toBe('host')
+    const mara = entryNamed(w.db, 'Mara')!
+    const key = `${side.id}:${mara.id}:marks`
+    answerItem(w.db, line.id, 'side')
+    expect(mem.listAnswers(w.db).find((a) => a.kind === 'which-last' && a.key === key)?.value).toBe('side')
+    w.db.transaction(() => undoItem(w.db, line.id))()
+    expect(mem.listAnswers(w.db).some((a) => a.key === key)).toBe(false)
+    // Asked once only.
+    save(w.db, sideScene, [['s1', 'Mara lost her left eye. The road was long.']])
+    await read(w.db, sideScene)
+    expect(lines(w.db).filter((l) => l.question?.text === 'Which happened last?')).toHaveLength(1)
+  })
+})
+
 describe('summaries', () => {
   const longText = (n: number): string =>
     Array.from({ length: n }, (_, i) => `Mara walked along the quay for the ${i + 1}th time and thought about the ferry.`).join(' ')

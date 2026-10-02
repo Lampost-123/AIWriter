@@ -133,9 +133,11 @@ export function planRead(db: DB, scene: KeeperScene): ReadPlan {
 
   for (const f of facts) {
     for (const l of f.links) {
-      let to = relocate(l, paras)
-      // An entry is still mentioned if any of its names is: the link moves to that mention.
-      if (!to && f.kind === 'entry') to = findMention([f.entry.name, ...f.entry.aliases], paras)
+      // An entry is still mentioned if any of its names is (as a whole word): the link moves to that mention.
+      const to =
+        f.kind === 'entry'
+          ? findMention([l.quote, f.entry.name, ...f.entry.aliases], [...paras.filter((p) => p.pid && p.pid === l.paragraphId), ...paras])
+          : relocate(l, paras)
       if (to) {
         if (l.state !== 'ok' || !sameSpot(l, to)) moves.push({ link: l, to, state: 'ok' })
         continue

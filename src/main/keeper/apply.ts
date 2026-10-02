@@ -1116,6 +1116,8 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
       const atRisk = plan.atRisk.some((x) => x.key === f.key)
       const reread = f.links.some((l) => l.paragraphId && chunk.paras.some((p) => p.pid === l.paragraphId))
       if (!atRisk && !reread) continue
+      // Words that are still there aren't taken away on the model's say-so; they can be read anew.
+      if (!atRisk && /^(remove|delete)$/i.test(str(v.do ?? v.verdict ?? v.action, 20))) continue
       verdicts.set(f.key, v)
       applyVerdict(run, f, v, chunk, refs)
     }

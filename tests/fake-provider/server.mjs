@@ -30,7 +30,7 @@
 //
 // Memory keeper requests (any model) are recognised by the markers in their system prompt
 // (src/main/keeper/prompts.ts) and answered with deterministic JSON instead of prose:
-//   - "<Name> lost her|his|their <thing>."          a change for <Name>: "lost her <thing>"
+//   - "<Name> lost her|his|their <thing>."          a change for <Name>: "lost her <thing>" (marks: "<thing> lost")
 //   - "<Name>'s eyes are|were <colour>."            a detail: eyes
 //   - "<Name> learned|learns|discovered that <x>."  <Name> knows <x>
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
@@ -124,7 +124,7 @@ const sentencesOf = (p) => (p.match(/[^.!?]+[.!?]+["'’”]?|[^.!?]+$/g) ?? [])
 /** What the rules read in one sentence: { kind, name, ... } or null. */
 function readSentence(s) {
   let m = s.match(/\b([A-Z][a-z]+) (?:lost|loses) (her|his|their) ([a-z][a-z ]*[a-z])/)
-  if (m) return { kind: 'change', name: m[1], note: `lost ${m[2]} ${m[3]}` }
+  if (m) return { kind: 'change', name: m[1], note: `lost ${m[2]} ${m[3]}`, fields: { marks: `${m[3]} lost` } }
   m = s.match(/\b([A-Z][a-z]+)'s eyes (?:are|were) ([a-z]+)/)
   if (m) return { kind: 'detail', name: m[1], field: 'eyes', value: m[2] }
   m = s.match(/\b([A-Z][a-z]+) (?:learns|learned|learnt|discovers|discovered) that ([^.!?]+)/)
@@ -158,7 +158,7 @@ export function fakeMemoryReply(user) {
     const r = readSentence(s)
     if (!r) continue
     const entry = ref(r.name)
-    if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, quote: s })
+    if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, fields: r.fields, quote: s })
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })
     if (r.kind === 'knows') add.push({ type: 'knows', entry, fact: r.fact, quote: s })
   }
@@ -173,7 +173,7 @@ export function fakeMemoryReply(user) {
     }
     const read = best && best.score >= 0.5 ? readSentence(best.s) : null
     if (read && best.score < 0.95) {
-      const value = read.kind === 'change' ? { note: read.note } : read.kind === 'detail' ? { value: read.value } : { fact: read.fact }
+      const value = read.kind === 'change' ? { note: read.note, fields: read.fields } : read.kind === 'detail' ? { value: read.value } : { fact: read.fact }
       facts.push({ id: m[1], do: 'update', quote: best.s, ...value })
     } else if (best && best.score >= 0.8) facts.push({ id: m[1], do: 'keep', quote: best.s })
     else facts.push({ id: m[1], do: 'remove' })
