@@ -173,7 +173,7 @@ export class SceneController {
   private leaving = new Set<SceneSession>()
   private loadTicket = 0
   private requested: ID | null = null
-  private stream: { generationId: ID; split: SplitState } | null = null
+  private stream: { generationId: ID; split: SplitState; quiet?: boolean } | null = null
   /** The draft being written starts below the visible page. */
   private draftBelow = false
   /** The draft being stopped because Adam opened another scene (no "added below" message for it). */
@@ -445,11 +445,11 @@ export class SceneController {
     this.keyboardBack()
   }
 
-  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean; noBreak?: boolean } = {}): boolean {
+  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean; noBreak?: boolean; quiet?: boolean } = {}): boolean {
     if (this.destroyed || !this.session || this.session.id !== sceneId || this.requested !== sceneId) return false
     if (this.stream) this.finishStream()
     this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, { replace: !!opts.replace, noBreak: !!opts.noBreak }))
-    this.stream = { generationId, split: newSplitState() }
+    this.stream = { generationId, split: newSplitState(), quiet: !!opts.quiet }
     this.updateDraftBelow()
     return true
   }
@@ -507,6 +507,7 @@ export class SceneController {
    */
   private finishStream({ announce = false, failed = false }: { announce?: boolean; failed?: boolean } = {}): { replaced: boolean } {
     const generationId = this.stream?.generationId ?? null
+    const quiet = !!this.stream?.quiet
     this.stream = null
     if (this.destroyed) return { replaced: false }
     const view = this.editor.view
@@ -524,7 +525,7 @@ export class SceneController {
     this.setDraftBelow(false)
     if (generationId) this.lastEnded = { generationId, replaced }
     this.keyboardBack()
-    if (!announce || !info) return { replaced }
+    if (!announce || !info || quiet) return { replaced }
     if (replaced && old) {
       if (failed) return { replaced }
       const sceneId = this.session?.id
@@ -749,7 +750,7 @@ export class SceneController {
 
   /** Shows the "new draft below" pointer while the draft's start is out of sight below. */
   updateDraftBelow(): void {
-    const info = this.stream ? streamDoc.activeStream(this.editor.state) : null
+    const info = this.stream && !this.stream.quiet ? streamDoc.activeStream(this.editor.state) : null
     this.setDraftBelow(!!info && this.isBelowView(info.from))
   }
 

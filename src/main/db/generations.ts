@@ -166,12 +166,12 @@ const toSummary = (r: Row): GenerationSummary => ({
 /** 1 when the record keeps the text its draft replaced (read without parsing the whole of params_json). */
 const REPLACED_SQL = "CASE WHEN json_valid(params_json) THEN json_type(params_json, '$.replaced.text') = 'text' ELSE 0 END"
 
-/** This scene's drafts, newest first (the memory keeper's calls are left out). */
+/** This scene's drafts and Beat by beat's beats, newest first (the memory keeper's calls are left out). */
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(
       `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at, ${REPLACED_SQL} AS replaced
-       FROM generations WHERE scene_id = ? AND job = 'draft' ORDER BY created_at DESC, rowid DESC`
+       FROM generations WHERE scene_id = ? AND job IN ('draft', 'beat') ORDER BY created_at DESC, rowid DESC`
     )
     .all(sceneId) as Row[]
   return rows.map(toSummary)
