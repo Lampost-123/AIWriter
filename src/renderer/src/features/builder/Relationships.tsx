@@ -90,7 +90,7 @@ export function Relationships({
       data.update((list) => [...list, c])
       setFocusId(c.id)
     } catch (err) {
-      setAddError(`Couldn't add ${nameOf(other)}. ${(err as Error).message}`)
+      setAddError(`Couldn’t add ${nameOf(other)}. ${(err as Error).message}`)
       throw err
     }
   }
@@ -148,7 +148,7 @@ export function Relationships({
             role={addError ? 'alert' : undefined}
             className={cn('mt-1.5 min-h-[18px] text-[12px]', addError ? 'text-danger' : 'text-faint')}
           >
-            {addError ?? (nobody ? `None of your characters is called "${query.trim()}". Add them first, then pick them here.` : null)}
+            {addError ?? (nobody ? `None of your characters is called “${query.trim()}”. Add them first, then pick them here.` : null)}
           </p>
         </div>
       ) : (
@@ -260,7 +260,7 @@ const RelationRow = memo(function RelationRow({
       await api.deleteChange(id)
     } catch (err) {
       removing.current = false
-      toast(`Couldn't remove the relationship with ${otherName}. ${(err as Error).message}`, { tone: 'danger' })
+      toast(`Couldn’t remove the relationship with ${otherName}. ${(err as Error).message}`, { tone: 'danger' })
       return
     }
     onRemoved(view)
@@ -271,7 +271,7 @@ const RelationRow = memo(function RelationRow({
         api
           .restoreChange(id)
           .then(() => useApp.getState().bumpEntries())
-          .catch((err: Error) => void toast(`Couldn't bring back the relationship with ${otherName}. ${err.message}`, { tone: 'danger' }))
+          .catch((err: Error) => void toast(`Couldn’t bring back the relationship with ${otherName}. ${err.message}`, { tone: 'danger' }))
     })
   }
 

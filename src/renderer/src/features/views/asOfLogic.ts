@@ -25,3 +25,13 @@ export function nextChange(stops: AsOfStop[], from: number, step: 1 | -1): numbe
 
 /** Whether the world has a story that isn't simply the next book (a side story, prequel or own version). */
 export const hasOtherKinds = (stories: Pick<Story, 'kind'>[]): boolean => stories.some((s) => s.kind !== 'continues')
+
+/**
+ * A point on the slider inside a sentence: "Start of Book 1" reads "the start of Book 1"; a scene's place
+ * stays as it is. Each number keeps to its word ("Sc 2"), so a sentence never wraps between them.
+ */
+export const inSentence = (label: string): string =>
+  label.replace(/^(Start|End) of /, (_, w: string) => `the ${w.toLowerCase()} of `).replace(/ (?=\d)/g, '\u00a0')
+
+/** The longest place on a slider (by its letters), to keep room for it as the slider moves. */
+export const longestLabel = (stops: AsOfStop[]): string => stops.reduce((long, s) => (s.label.length > long.length ? s.label : long), '')

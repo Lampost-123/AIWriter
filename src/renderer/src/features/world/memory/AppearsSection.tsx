@@ -59,10 +59,14 @@ const AppearRow = memo(function AppearRow({ a, kind }: { a: Appearance; kind: En
         onClick={() => openAt(a)}
         className="group flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left transition-colors duration-150 hover:bg-surface-2"
       >
-        <span className="flex w-full min-w-0 items-baseline gap-2">
-          <span className="shrink-0 text-[13px] font-medium text-fg transition-colors duration-150 group-hover:text-accent">{a.label}</span>
-          {title ? <span className="min-w-0 truncate text-[12.5px] text-muted">{title}</span> : null}
-          {how ? <span className="ml-auto shrink-0 pl-2 text-[11.5px] text-faint">{how}</span> : null}
+        {/* When the column is narrow, the "how" words drop under the place rather than run past the row;
+            the title keeps a little room beside the place and is cut short past it. */}
+        <span className="flex w-full min-w-0 flex-wrap items-baseline justify-between gap-x-2">
+          <span className="max-w-full shrink-0 truncate text-[13px] font-medium text-fg transition-colors duration-150 group-hover:text-accent">
+            {a.label}
+          </span>
+          {title ? <span className="min-w-0 flex-1 basis-20 truncate text-[12.5px] text-muted">{title}</span> : null}
+          {how ? <span className="max-w-full text-[11.5px] text-faint">{how}</span> : null}
         </span>
         {a.quote ? (
           // "…" where the sentence goes on: the quote itself stays exactly as the scene has it.

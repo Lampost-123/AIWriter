@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { create } from 'zustand'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -13,6 +13,8 @@ interface ToastState {
   dismiss: (id: number) => void
   /** Removes every toast with a button (e.g. Undo); plain messages stay. */
   clearActions: () => void
+  /** How far up from the window's foot a bar showing along it reaches (px): the toasts sit above it. */
+  lift: number
 }
 
 /** How long a toast stays while the pointer and keyboard are elsewhere. */
@@ -29,8 +31,41 @@ export const useToasts = create<ToastState>((set, get) => ({
   },
   update: (id, patch) => set({ items: get().items.map((i) => (i.id === id ? { ...i, ...patch, rev: i.rev + 1 } : i)) }),
   dismiss: (id) => set({ items: get().items.filter((i) => i.id !== id) }),
-  clearActions: () => set({ items: get().items.filter((i) => !i.action) })
+  clearActions: () => set({ items: get().items.filter((i) => !i.action) }),
+  lift: 0
 }))
+
+// The bars kept clear of the toasts, by a number of their own, and how far up each reaches.
+const bars = new Map<number, number>()
+let barSeq = 0
+
+/**
+ * Keeps the toasts above a bar along the foot of the window while it shows (the builder's buttons, the
+ * interview's question box), so a toast, and its Undo for 15 seconds, never covers it. The highest
+ * bar showing wins; a hidden one counts for nothing.
+ */
+export function useToastsAbove(ref: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const id = ++barSeq
+    const measure = (): void => {
+      const box = el.getBoundingClientRect()
+      bars.set(id, box.height ? Math.max(0, window.innerHeight - box.top) : 0)
+      useToasts.setState({ lift: Math.max(0, ...bars.values()) })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+      bars.delete(id)
+      useToasts.setState({ lift: Math.max(0, ...bars.values()) })
+    }
+  }, [ref])
+}
 
 /** Shows a short message in the corner and returns its id. Use for undoable actions ("Scene deleted · Undo") and errors. */
 export const toast = (
@@ -40,8 +75,13 @@ export const toast = (
 
 export function Toaster(): React.JSX.Element {
   const items = useToasts((s) => s.items)
+  const lift = useToasts((s) => s.lift)
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[360px] flex-col gap-2" aria-live="polite">
+    <div
+      className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[360px] flex-col gap-2 transition-[bottom] duration-200"
+      style={lift ? { bottom: lift + 8 } : undefined}
+      aria-live="polite"
+    >
       {items.map((t) => (
         <Toast key={t.id} t={t} />
       ))}

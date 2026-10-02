@@ -154,7 +154,7 @@ export function CodexView(): React.JSX.Element {
       const e = await createEntry('character')
       openFromCodex(e, { scroll: 0, top: null })
     } catch (err) {
-      toast(`Couldn't create the character. ${(err as Error).message}`, { tone: 'danger' })
+      toast(`Couldn’t create the character. ${(err as Error).message}`, { tone: 'danger' })
       setCreating(false)
     }
   }
@@ -183,7 +183,7 @@ export function CodexView(): React.JSX.Element {
             </Button>
           }
         >
-          Couldn't load the codex. {error}
+          Couldn’t load the codex. {error}
         </Notice>
       </div>
     )
@@ -258,15 +258,20 @@ export function CodexView(): React.JSX.Element {
       }}
     >
       <div className="mx-auto w-full max-w-[1120px] px-8 pb-20 pt-6">
-        <div className="flex h-8 items-center gap-2">
-          <h1 className="text-[20px] font-semibold text-fg">Codex</h1>
-          {all.length ? <span className="text-[13px] tabular-nums text-faint">{all.length}</span> : null}
-          <div className="flex-1" />
+        {/* Headed like the other world pages (the timeline, the map, the board): a title and what the page is for. */}
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div className="min-w-[220px] flex-1">
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">Codex</h1>
+              {all.length ? <span className="text-[13px] tabular-nums text-faint">{all.length}</span> : null}
+            </div>
+            <p className="mt-0.5 text-[13px] text-muted">Everything the AI remembers about your world.</p>
+          </div>
           {all.length ? <SortSelect value={sort} onChange={setSort} /> : null}
         </div>
         {error && cards ? (
           <p className="mt-1 text-[12.5px] text-muted" role="status">
-            Couldn't refresh the codex. {error}{' '}
+            Couldn’t refresh the codex. {error}{' '}
             <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={retry}>
               Try again
             </button>
@@ -475,7 +480,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
         </span>
         <span id={ids.about} className="block">
           <span className={cn('mt-0.5 line-clamp-2 text-[12.5px] leading-snug', card.summary.trim() ? 'text-muted' : 'italic text-faint')}>
-            {card.summary.trim() || 'No one-liner yet'}
+            {card.summary.trim() || 'No summary yet'}
           </span>
           {card.tags.length ? (
             <span className="mt-1.5 flex flex-wrap gap-1">

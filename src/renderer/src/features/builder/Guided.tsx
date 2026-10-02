@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderDone, BuilderKind, BuilderProgress, BuilderValues, InterviewTurn } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
-import { Button, toast } from '@/components/ui'
+import { Button, toast, useToastsAbove } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -48,7 +48,8 @@ export function Guided({
   kind,
   initial,
   firstStep,
-  onQuickStart
+  onQuickStart,
+  fromPage = false
 }: {
   kind: BuilderKind
   /** The entry to build on, or null to start a new one. */
@@ -56,6 +57,8 @@ export function Guided({
   firstStep?: string
   /** Back to Quick start (offered until the entry exists). */
   onQuickStart?: () => void
+  /** Opened from the entry's own page ("Open in the builder"): a button at the top goes back to it. */
+  fromPage?: boolean
 }): React.JSX.Element {
   const storyId = useApp((s) => s.storyId)
   const steps = stepsFor(kind)
@@ -142,6 +145,9 @@ export function Guided({
 
   const scroller = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // A toast (Undo after picking an option, say) sits above the buttons at the foot, never over them.
+  const bottomBar = useRef<HTMLDivElement>(null)
+  useToastsAbove(bottomBar)
   const focusHeading = useRef(false)
   // Options belong to a field on the step being left: they close (and stop, if still arriving). An
   // interview open over the step closes, so the step shows.
@@ -202,7 +208,7 @@ export function Guided({
       } catch (e) {
         for (const k of keys) decided.current.delete(k)
         setSuggestions((s) => ({ ...chosen, ...s }))
-        toast(`Couldn't keep ${keys.length === 1 ? 'that suggestion' : 'those suggestions'}. ${(e as Error).message}`, { tone: 'danger' })
+        toast(`Couldn’t keep ${keys.length === 1 ? 'that suggestion' : 'those suggestions'}. ${(e as Error).message}`, { tone: 'danger' })
       }
     },
     [open, draft]
@@ -250,7 +256,7 @@ export function Guided({
       try {
         await draft.keep({ [key]: value }, { replace: true })
       } catch (e) {
-        toast(`Couldn't use that option. ${(e as Error).message}`, { tone: 'danger' })
+        toast(`Couldn’t use that option. ${(e as Error).message}`, { tone: 'danger' })
         return
       }
       // What it said before is one click away.
@@ -261,7 +267,7 @@ export function Guided({
           label: 'Undo',
           run: () => {
             setFocusKey(key)
-            const failed = (e: Error): void => void toast(`Couldn't put ${label.toLowerCase()} back. ${e.message}`, { tone: 'danger' })
+            const failed = (e: Error): void => void toast(`Couldn’t put ${label.toLowerCase()} back. ${e.message}`, { tone: 'danger' })
             void draft.revert(key, was).catch(failed)
           }
         }
@@ -358,6 +364,12 @@ export function Guided({
           onBlur={() => void draft.flush()}
         >
           <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-5">
+            {fromPage && entry ? (
+              // Everything is saved as Adam goes; this writes the last of it and goes back to the page.
+              <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} className="-ml-2.5 mb-2" onClick={() => void save()}>
+                Back to {name || `the ${noun}`}
+              </Button>
+            ) : null}
             <div className="flex h-8 items-center gap-2">
               <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">
                 {KIND_LABELS[kind].one} · Step {index + 1} of {steps.length}
@@ -450,7 +462,7 @@ export function Guided({
           </div>
         </div>
 
-        <div className="@container flex h-12 shrink-0 items-center gap-2 border-t border-line bg-surface px-4">
+        <div ref={bottomBar} className="@container flex h-12 shrink-0 items-center gap-2 border-t border-line bg-surface px-4">
           {fleshing ? (
             <>
               <Button

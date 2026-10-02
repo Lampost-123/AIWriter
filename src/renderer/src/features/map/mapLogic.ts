@@ -38,6 +38,8 @@ export const portraitScale = (k: number): number => Math.max(k, Math.min(0.6, (0
 export const READABLE_ZOOM = 0.5
 /** The zoom a cast too big to fit readably opens at: from here on most names and many words have room. */
 export const OPENING_ZOOM = 0.6
+/** A cast this small always opens fitted to everyone, below READABLE_ZOOM too, so no one counted is off screen. */
+export const SMALL_CAST = 12
 
 const clampZoom = (k: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))
 
@@ -95,10 +97,10 @@ export function fitView(points: Pick<MapNode, 'x' | 'y'>[], width: number, heigh
 }
 
 /**
- * The view the map opens at: fitted to `points` (as fitView) when they can still be read that way. A cast
- * too big for that opens at OPENING_ZOOM with its best-connected character in the middle, moved only as
- * far as keeps empty space past the cast's edges out of the window. "Fit the map to the window" still
- * shows everyone.
+ * The view the map opens at: fitted to `points` (as fitView) when they can still be read that way, or
+ * when there are no more than SMALL_CAST of them (a small window). A bigger cast too big for that opens
+ * at OPENING_ZOOM with its best-connected character in the middle, moved only as far as keeps empty
+ * space past the cast's edges out of the window. "Fit the map to the window" still shows everyone.
  */
 export function openingView(
   points: Pick<MapNode, 'x' | 'y'>[],
@@ -110,7 +112,7 @@ export function openingView(
 ): View {
   const fit = fitView(points, width, height, pad)
   const best = byConnections(nodes, ties)[0]
-  if (fit.k >= READABLE_ZOOM || !best) return fit
+  if (fit.k >= READABLE_ZOOM || !best || points.length <= SMALL_CAST) return fit
   const k = OPENING_ZOOM
   let [minX, minY, maxX, maxY] = [best.x, best.y, best.x, best.y]
   for (const p of points) {
@@ -172,13 +174,6 @@ export function feelsText(link: MapLink, name: (id: ID) => string): string[] {
 
 /** Where a relationship last changed, in words. */
 export const whereText = (link: MapLink): string => (link.where ? `Last changed in ${link.where}` : 'Since before the story begins')
-
-/**
- * A point on the slider inside a sentence: "Start of Book 1" reads "the start of Book 1"; a scene's place
- * stays as it is. Each number keeps to its word ("Sc 2"), so a sentence never wraps between them.
- */
-export const inSentence = (label: string): string =>
-  label.replace(/^(Start|End) of /, (_, w: string) => `the ${w.toLowerCase()} of `).replace(/ (?=\d)/g, '\u00a0')
 
 /** A line's accessible name: who, how they are tied, and how each feels. */
 export function tieName(tie: Tie, name: (id: ID) => string): string {

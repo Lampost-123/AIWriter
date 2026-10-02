@@ -44,14 +44,16 @@ export function useWidth(ref: RefObject<HTMLElement | null>): number {
 /**
  * "Very close to Mara, another character. Same one?", with a button to open the other one, when the
  * name (or an alias) is the same as or very like another entry's, as the entry page warns. Nothing
- * when it isn't; the line it sits on keeps its room either way, so nothing moves.
+ * when it isn't. It has lines of its own under the name and wraps, so all of it can be read in the
+ * narrowest window.
  */
 export function DuplicateHint({
   kind,
   entryId,
   name,
   aliases,
-  entries
+  entries,
+  className
 }: {
   kind: BuilderKind
   /** The entry being built, once it exists, so it isn't counted as a duplicate of itself. */
@@ -60,6 +62,7 @@ export function DuplicateHint({
   aliases: string
   /** Every entry in the world, or null while loading. */
   entries: Entry[] | null
+  className?: string
 }): React.JSX.Element | null {
   const dups = useMemo(
     () => (entries && name.trim() ? findNearDuplicates({ id: entryId ?? '', kind, name, aliases: splitAliases(aliases) }, entries) : []),
@@ -73,26 +76,28 @@ export function DuplicateHint({
   const more = dups.length > 1 ? `, and ${dups.length - 1} more` : ''
   const text =
     d.reason === 'same'
-      ? `There's already ${what} called ${otherName}${more}.`
+      ? `There’s already ${what} called ${otherName}${more}.`
       : d.reason === 'similar'
         ? `Very close to ${otherName}, ${what}${more}.`
         : `Shares a name with ${otherName}, ${what}${more}.`
   return (
-    <span
+    <div
       role="status"
-      title="If they're the same, keep one, so the AI doesn't mix them up."
-      className="flex min-w-0 animate-fade-in items-center gap-1.5 text-ai"
+      title="If they’re the same, keep one, so the AI doesn’t mix them up."
+      className={cn('flex min-w-0 animate-fade-in items-start gap-1.5 leading-[18px] text-ai', className)}
     >
-      <AlertTriangle size={13} className="shrink-0" aria-hidden />
-      <span className="min-w-0 truncate">{text} Same one?</span>
-      <button
-        type="button"
-        onClick={() => useApp.getState().navigate({ kind: 'entries', entryKind: other.kind, entryId: other.id })}
-        className="shrink-0 rounded-sm font-medium underline-offset-2 hover:underline"
-      >
-        Open {otherName}
-      </button>
-    </span>
+      <AlertTriangle size={13} className="mt-[2.5px] shrink-0" aria-hidden />
+      <span className="min-w-0">
+        {text} Same one?{' '}
+        <button
+          type="button"
+          onClick={() => useApp.getState().navigate({ kind: 'entries', entryKind: other.kind, entryId: other.id })}
+          className="whitespace-nowrap rounded-sm font-medium underline-offset-2 hover:underline"
+        >
+          Open {otherName}
+        </button>
+      </span>
+    </div>
   )
 }
 

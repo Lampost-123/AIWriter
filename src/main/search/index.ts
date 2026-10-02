@@ -529,8 +529,19 @@ export class SearchIndex {
 
   private sceneHit(s: SceneDoc, terms: Term[]): SearchHit {
     const place = this.outline.scenes.get(s.id)!
-    const inText = terms.some((t) => hasTerm(s.textF, t))
-    const card = inText ? undefined : s.card.find((c) => terms.some((t) => hasTerm(c.f, t)))
+    // How well a text holds the query: the words together, then every word, then how many of them.
+    // A card part that holds it better than the text opens instead, so a phrase from the card's goal
+    // isn't opened at one common word ("out", "the") the text shares with it. The text wins a tie.
+    const fit = (f: string): number =>
+      hasPhrase(f, terms) ? terms.length + 2 : matchesAll([f], terms) ? terms.length + 1 : terms.filter((t) => hasTerm(f, t)).length
+    const textFit = fit(s.textF)
+    const inText = textFit > 0
+    let card: CardField | undefined
+    let cardFit = textFit
+    for (const c of s.card) {
+      const n = fit(c.f)
+      if (n > cardFit) [card, cardFit] = [c, n]
+    }
     let parts: TextPart[]
     let words: string | null = null
     if (card) parts = labelled(card.label, snippet(card.text, terms, 160).parts)

@@ -8,7 +8,6 @@ import {
   feelsText,
   FIT_PAD,
   fitView,
-  inSentence,
   labelsAt,
   MAX_ZOOM,
   MIN_ZOOM,
@@ -18,6 +17,7 @@ import {
   portraitScale,
   READABLE_ZOOM,
   reveal,
+  SMALL_CAST,
   tieLabel,
   tieName,
   visibleGraph,
@@ -85,14 +85,6 @@ describe('who the map shows', () => {
     const pair = visibleGraph(map, null).ties.find((t) => t.links.length === 2)!
     expect(tieName(pair, name)).toBe('Mara and Tobin: friend. Mara feels guilty. Tobin feels betrayed; owes money.')
     expect(countText(1, 2)).toBe('1 character, 2 relationships')
-  })
-
-  it('puts a point on the slider into a sentence', () => {
-    // Each number keeps to its word: the spaces before them don't break.
-    const plain = (s: string) => s.replaceAll('\u00a0', ' ')
-    expect(plain(inSentence('Start of Book 1'))).toBe('the start of Book 1')
-    expect(plain(inSentence('End of The Long Road'))).toBe('the end of The Long Road')
-    expect(inSentence('Book 1, Ch 3, Sc 2')).toBe('Book\u00a01, Ch\u00a03, Sc\u00a02')
   })
 })
 
@@ -266,6 +258,22 @@ describe('a big cast', () => {
     const few = visibleGraph(map, null)
     expect(openingView(map.nodes, few.nodes, few.ties, 1000, 800)).toEqual(fitView(map.nodes, 1000, 800))
     expect(openingView([], [], [], 400, 300)).toEqual(fitView([], 400, 300))
+  })
+
+  it('opens a small cast fitted to everyone even in the smallest window, so no one counted is off screen', () => {
+    // One family of eight, spread out as the layout spreads a long chain, in the room a 960 by 600 window leaves.
+    const family = nodes.filter((n) => n.id.startsWith('0.')).map((n, i) => ({ ...n, x: n.x + i * 3 * MAP_GAP }))
+    const small = visibleGraph({ ...map, nodes: family, links: [], groups: [] }, null)
+    expect(family.length).toBeLessThanOrEqual(SMALL_CAST)
+    expect(fitView(family, 688, 378).k).toBeLessThan(READABLE_ZOOM)
+    const v = openingView(family, small.nodes, small.ties, 688, 378)
+    expect(v).toEqual(fitView(family, 688, 378))
+    for (const n of family) {
+      const [x, y] = [n.x * v.k + v.tx, n.y * v.k + v.ty]
+      expect(x).toBeGreaterThanOrEqual(FIT_PAD.x - 0.01)
+      expect(x).toBeLessThanOrEqual(688 - FIT_PAD.x + 0.01)
+      expect(y).toBeLessThanOrEqual(378 - FIT_PAD.bottom + 0.01)
+    }
   })
 })
 

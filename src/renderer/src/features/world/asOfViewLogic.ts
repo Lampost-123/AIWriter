@@ -4,7 +4,7 @@
 import { FIELD_GROUPS } from '@shared/fields'
 import type { AsOf, AsOfStop, ChangeView, EntryKind, EntryState, ID, Origin, RelationshipState } from '@shared/types'
 import { stopForScene, stopIndex } from '@/features/views/asOfLogic'
-import { relationPhrase, sourceNote, upperFirst, type SourceNote } from './memoryLogic'
+import { allAdams, relationPhrase, sourceNote, upperFirst, type SourceNote } from './memoryLogic'
 
 export interface AsOfValue {
   key: string
@@ -50,7 +50,8 @@ export function asOfProfile(state: Pick<EntryState, 'summary' | 'description' | 
 
 /**
  * The line above the entry as of a point: whether what is shown has changed by then, and for an
- * entry Adam made, that he wrote it. Always one line, so the page doesn't move as the slider does.
+ * entry that is all Adam's writing (`allAdams`), that he wrote it. Always one line, so the page
+ * doesn't move as the slider does.
  */
 export function asOfLead(p: Pick<AsOfProfile, 'changedCount'>, happened: number, mine: boolean): string {
   if (mine) {
@@ -64,15 +65,17 @@ export function asOfLead(p: Pick<AsOfProfile, 'changedCount'>, happened: number,
 
 /**
  * Who each value shown as of a point came from, for a quiet note beside it, when it is still as
- * written (a change hasn't set it by then: those are marked "Changed"). An entry Adam made says once
- * that he wrote it (see asOfLead), so his own values there need no note.
+ * written (a change hasn't set it by then: those are marked "Changed"). An entry that is all Adam's
+ * writing says once that he wrote it (see asOfLead), so his own values there need no note; on one
+ * with fields drafted by AI (a builder's), his values say so beside those.
  */
 export function asOfOrigins(state: Pick<EntryState, 'origin' | 'fieldOrigins' | 'changed'>, p: AsOfProfile): Map<string, Origin> {
   const out = new Map<string, Origin>()
+  const mine = allAdams(state)
   for (const r of [p.summary, p.description, ...p.groups.flatMap((g) => g.rows)]) {
     if (!r || r.changed) continue
     const origin = state.fieldOrigins?.[r.key] ?? state.origin
-    if (origin !== 'adam' || state.origin !== 'adam') out.set(r.key, origin)
+    if (origin !== 'adam' || !mine) out.set(r.key, origin)
   }
   return out
 }

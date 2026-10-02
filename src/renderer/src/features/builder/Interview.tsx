@@ -4,7 +4,7 @@ import { Check, MessageCircle, Send, Square, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { InterviewTurn } from '@shared/contracts/builder'
 import type { ID } from '@shared/types'
-import { Button, IconButton, Textarea } from '@/components/ui'
+import { Button, IconButton, Textarea, useToastsAbove } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { hasSampleLine } from './builderLogic'
@@ -46,6 +46,9 @@ export function InterviewPanel({
   const last = useRef<{ question: string; turns: InterviewTurn[] } | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
+  // Toasts sit above the question box, so Ask is never under one.
+  const askBar = useRef<HTMLFormElement>(null)
+  useToastsAbove(askBar)
 
   const job = useBuilderJob({
     stopOnLeave: true,
@@ -150,7 +153,15 @@ export function InterviewPanel({
                     <p className="max-w-[92%] whitespace-pre-wrap rounded-lg border border-line bg-page px-3 py-2 font-serif text-[14px] leading-relaxed text-fg">
                       {t.text}
                     </p>
-                    <SaveLine saved={hasSampleLine(samples, t.text)} onSave={() => onSaveLine(t.text)} />
+                    <SaveLine
+                      saved={hasSampleLine(samples, t.text)}
+                      onSave={() => {
+                        onSaveLine(t.text)
+                        // The button gives way to "Saved": the keyboard goes back to the question box, so
+                        // Escape still closes the interview and the next question can be typed.
+                        input.current?.focus()
+                      }}
+                    />
                   </>
                 )}
               </li>
@@ -184,6 +195,7 @@ export function InterviewPanel({
       </div>
 
       <form
+        ref={askBar}
         className={cn('flex shrink-0 items-end gap-2 border-t border-line py-3', over ? 'px-[max(12px,calc(50%_-_320px))]' : 'px-3')}
         onSubmit={(e) => {
           e.preventDefault()

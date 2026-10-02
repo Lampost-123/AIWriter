@@ -94,6 +94,14 @@ describe('an entry as of a point', () => {
     // An entry Adam made says once that he wrote it: only what came from elsewhere has a note.
     const mine = { ...state, origin: 'adam' as const, fieldOrigins: { hair: 'text' as const } }
     expect([...asOfOrigins(mine, asOfProfile(mine, 'character'))]).toEqual([['hair', 'text']])
+    // One he made with fields drafted by AI (a builder's) isn't all his writing: his own values say so too.
+    const built = { ...state, origin: 'adam' as const, fieldOrigins: { hair: 'ai' as const, motivation: 'ai' as const } }
+    expect([...asOfOrigins(built, asOfProfile(built, 'character'))]).toEqual([
+      ['summary', 'adam'],
+      ['description', 'adam'],
+      ['hair', 'ai'],
+      ['motivation', 'ai']
+    ])
   })
 
   it('reads relationships from the entry’s side, whichever side they were written from', () => {

@@ -162,12 +162,18 @@ const FieldBox = memo(function FieldBox(p: StepFieldsProps & { field: StepField;
       )}
 
       {isName ? (
-        // Under the name: the near-duplicate warning (its line kept even when empty) and the name's Options.
-        <div className="flex h-6 min-w-0 items-center gap-2 text-[12.5px]">
-          <DuplicateHint kind={p.kind} entryId={p.entry?.id ?? null} name={value} aliases={p.values.aliases ?? ''} entries={p.entries} />
-          <div className="flex-1" />
-          {optionsButton}
-        </div>
+        // Under the name: its Options, then the near-duplicate warning on lines of its own, so all of it shows.
+        <>
+          <div className="flex h-6 items-center justify-end">{optionsButton}</div>
+          <DuplicateHint
+            kind={p.kind}
+            entryId={p.entry?.id ?? null}
+            name={value}
+            aliases={p.values.aliases ?? ''}
+            entries={p.entries}
+            className="text-[12.5px]"
+          />
+        </>
       ) : suggestion !== undefined ? null : (
         <MarkLine mark={writing !== null ? null : mark}>{field.hint}</MarkLine>
       )}

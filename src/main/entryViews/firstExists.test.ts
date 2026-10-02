@@ -55,9 +55,9 @@ describe('where an entry first exists, from its page', () => {
     expect(listFirstExists(db, mara).map((p) => [p.kind, p.storyId, p.byHand])).toEqual([['story-pre', b2, true]])
   })
 
-  it('refuses no point at all, or a place gone for good, in plain words', () => {
+  it('refuses no point at all, or a point gone for good, in plain words', () => {
     const { db, b2, s2, mara } = world()
-    expect(() => setFirstExists(db, mara, [])).toThrow('Choose at least one place where it first appears.')
+    expect(() => setFirstExists(db, mara, [])).toThrow('Choose at least one point where it first appears.')
     repo.deleteScene(db, s2)
     purgeTrash(db, 0, Date.now() + 60_000)
     expect(() => setFirstExists(db, mara, [{ kind: 'scene', storyId: b2, sceneId: s2, byHand: true }])).toThrow(
@@ -68,7 +68,7 @@ describe('where an entry first exists, from its page', () => {
     )
   })
 
-  it('lets Adam add a place beside a point on a scene deleted since, then remove that point, and Undo bring it back', () => {
+  it('lets Adam add a point beside one on a scene deleted since, then remove that point, and Undo bring it back', () => {
     const { db, b1, b2, s2, mara } = world()
     // Found in Book 2's scene by the memory keeper, which Adam then deleted.
     setFirstExists(db, mara, [{ kind: 'scene', storyId: b2, sceneId: s2, byHand: false }])

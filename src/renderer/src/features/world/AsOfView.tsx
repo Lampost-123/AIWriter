@@ -16,6 +16,7 @@ import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AsOfSlider } from '@/features/views/AsOfSlider'
 import { AsSeenIn } from '@/features/views/AsSeenIn'
+import { hasOtherKinds } from '@/features/views/asOfLogic'
 import { useAsOfStopsState, useEntryAsOf } from '@/features/views/useAsOf'
 import {
   asOfHappened,
@@ -34,7 +35,7 @@ import { QuietError } from './memory/QuietError'
 import { relationshipsTitle } from './memory/RelationshipsSection'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
-import { linksFor, sourceNote } from './memoryLogic'
+import { allAdams, linksFor, sourceNote } from './memoryLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 
 export function EntryAsOfView({
@@ -61,6 +62,8 @@ export function EntryAsOfView({
   const chosen = useAsOfMode((s) => s.at)
   const seenIn = useAsOfMode((s) => s.seenIn)
   const story = seenIn && stories.some((s) => s.id === seenIn) ? seenIn : storyId
+  // Whether "As seen in" shows (as AsSeenIn decides).
+  const picker = hasOtherKinds(stories)
   const { stops, error: stopsError, reload: reloadStops } = useAsOfStopsState(story, entry.id)
   const stop = stops ? chosenStop(stops, chosen, sceneId) : null
   const asOf = useEntryAsOf(entry.id, stop?.at ?? null)
@@ -84,11 +87,17 @@ export function EntryAsOfView({
   return (
     <>
       {/* Stays at the top while Adam scrolls, so the slider never moves out from under his hand. On a
-          narrow page "As seen in" goes above, so the slider keeps room to read its place and to drag. */}
+          narrow page with "As seen in", the slider takes a row of its own under it and "Back to editing"
+          sits beside it, so the slider keeps room to read its place and to drag. */}
       <div ref={bar} className="sticky top-0 z-10 -mx-8 mt-2 border-b border-line bg-bg px-8 pb-3 pt-2.5">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-2.5">
           <AsSeenIn value={story} onChange={(id) => setAsOfMode({ seenIn: id, at: null })} className="w-[170px] shrink-0" />
-          <div className="flex min-h-[52px] min-w-[min(100%,22rem)] flex-1 items-end gap-4">
+          <div
+            className={cn(
+              'flex min-h-[52px] min-w-[min(100%,12rem)] flex-1 items-end',
+              picker && '@max-[34rem]:order-last @max-[34rem]:basis-full'
+            )}
+          >
             {stops?.length ? (
               <AsOfSlider stops={stops} value={stop?.at ?? null} onChange={(at) => setAsOfMode({ at })} className="min-w-0 flex-1" />
             ) : (
@@ -100,10 +109,16 @@ export function EntryAsOfView({
                 ) : null}
               </div>
             )}
-            <Button size="sm" icon={<Pencil size={13} />} onClick={onBack} className="mb-0.5 shrink-0" data-back-to-editing>
-              Back to editing
-            </Button>
           </div>
+          <Button
+            size="sm"
+            icon={<Pencil size={13} />}
+            onClick={onBack}
+            className={cn('mb-0.5 shrink-0', picker && '@max-[34rem]:ml-auto')}
+            data-back-to-editing
+          >
+            Back to editing
+          </Button>
         </div>
       </div>
 
@@ -157,7 +172,8 @@ const AsOfContent = memo(function AsOfContent({
   const nameOf = (id: ID): string | null => (id === entry.id ? name : byId.get(id)?.name.trim() || (byId.has(id) ? 'Unnamed' : null))
   const profile = useMemo(() => (state ? asOfProfile(state, entry.kind) : null), [state, entry.kind])
   const relations = asOfRelations(data.relationships, entry.id, nameOf, changes)
-  const adamsEntry = state?.origin === 'adam'
+  // All Adam's writing: the line at the top says he wrote it, so his relationships and facts need no note.
+  const adamsEntry = !!state && allAdams(state)
   // Where each value still as written came from; the words only load when some were read from the story.
   const origins = useMemo(() => (state && profile ? asOfOrigins(state, profile) : null), [state, profile])
   const fromText = !!origins && [...origins.values()].includes('text')
@@ -184,7 +200,7 @@ const AsOfContent = memo(function AsOfContent({
   const happened = asOfHappened(state.happened)
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-[12.5px] text-muted">{asOfLead(profile, happened.length, state.origin === 'adam')}</p>
+      <p className="text-[12.5px] text-muted">{asOfLead(profile, happened.length, adamsEntry)}</p>
 
       {profile.summary || profile.description ? (
         <dl className="flex flex-col gap-4">

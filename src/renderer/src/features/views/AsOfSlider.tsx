@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AsOf, AsOfStop } from '@shared/types'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { nextChange, stopIndex } from './asOfLogic'
+import { inSentence, longestLabel, nextChange, stopIndex } from './asOfLogic'
 
 export function AsOfSlider({
   stops,
@@ -17,7 +17,7 @@ export function AsOfSlider({
   stops: AsOfStop[]
   value: AsOf | null
   onChange: (at: AsOf) => void
-  /** Words before the place: "As of Book 1, Ch 2, Sc 3". */
+  /** Words before the place: "As of Book 1, Ch 2, Sc 3", "As of the start of Book 1". */
   label?: string
   className?: string
 }): React.JSX.Element | null {
@@ -25,6 +25,7 @@ export function AsOfSlider({
   const found = stopIndex(stops, value)
   const index = found >= 0 ? found : stops.length - 1
   const current = stops[index]
+  const longest = longestLabel(stops)
   const marks = stops.map((s, i) => (s.changes > 0 ? i : -1)).filter((i) => i >= 0)
   const prev = nextChange(stops, index, -1)
   const next = nextChange(stops, index, 1)
@@ -35,9 +36,16 @@ export function AsOfSlider({
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <div className="flex h-6 items-center gap-1">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
-          {label} <span className="font-medium text-fg">{current.label}</span>
+      <div className="flex min-h-6 items-start gap-1">
+        {/* The place wraps rather than being cut short. The longest place on the slider is laid out unseen
+            in the same spot, so the bar keeps one height while the slider moves. */}
+        <span className="grid min-w-0 flex-1 py-1 text-[12.5px] leading-4 text-muted" title={current.label}>
+          <span className="col-start-1 row-start-1">
+            {label} <span className="font-medium text-fg">{inSentence(current.label)}</span>
+          </span>
+          <span aria-hidden className="invisible col-start-1 row-start-1">
+            {label} <span className="font-medium">{inSentence(longest)}</span>
+          </span>
         </span>
         {marks.length ? (
           <>

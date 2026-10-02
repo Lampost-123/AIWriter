@@ -23,7 +23,7 @@ export function ViewHeader({
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div className="min-w-[220px] flex-1">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">{title}</h1>
-          {subtitle ? <div className="mt-0.5 min-h-[20px] text-[13px] text-muted">{subtitle}</div> : null}
+          {subtitle ? <div className="mt-0.5 min-h-[20px] text-balance text-[13px] text-muted">{subtitle}</div> : null}
         </div>
         {children ? <div className="flex flex-wrap items-end gap-2">{children}</div> : null}
       </div>

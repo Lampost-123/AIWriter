@@ -290,7 +290,7 @@ test('the plot threads board: open, resolved and planned, a thread left open hig
 
   // With no plot threads yet, the board says what they are and makes one.
   await open(win, 'Plot threads board')
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Plot threads' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Plot threads board', exact: true })).toBeVisible()
   await expect(main(win).getByRole('heading', { name: 'No plot threads yet' })).toBeVisible()
   await main(win).getByRole('button', { name: 'Create a plot thread' }).click()
   await expect(binder(win).getByRole('button', { name: /^Plot threads\s*\d/ })).toHaveAttribute('aria-current', 'page')
@@ -392,4 +392,45 @@ test('the relationship map stays readable with a big cast, at any window size', 
   expect(closer.words).toBeGreaterThanOrEqual(1)
   expect(closer.smallestName).toBeGreaterThanOrEqual(17)
   expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
+})
+
+test('in the smallest window a small cast opens with everyone on the map, and "As seen in" beside the title', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  const [book] = await invoke(win, 'listStories')
+  // Nine characters in a chain, which the layout spreads wider than the smallest window shows readably.
+  const names = ['Ash Blythe', 'Bryn Cole', 'Cato Marsh', 'Dara Venn', 'Elsa Rook', 'Finn Hale', 'Gus Ward', 'Hale Brook', 'Ida Stone']
+  const ids: ID[] = []
+  for (const name of names) ids.push((await invoke(win, 'createEntry', 'character', { name, fields: {} })).id)
+  for (let i = 0; i + 1 < ids.length; i++) {
+    const payload = { otherId: ids[i + 1], type: 'old friend', feels: '', otherFeels: '' }
+    await invoke(win, 'createChange', { kind: 'relationship', payload, entryId: ids[i], anchor: 'baseline' })
+  }
+  const side = await invoke(win, 'createStory', { title: 'The Ferrywoman', startStoryId: book.id })
+  await invoke(win, 'setStoryPlacement', side.id, {
+    kind: 'side',
+    startStoryId: book.id,
+    startAt: 'pre',
+    startRefId: null,
+    endAt: 'end',
+    endRefId: null,
+    leadsIntoId: null
+  })
+  await win.reload()
+  await expect(binder(win)).toBeVisible()
+  await windowSize(app, win, 960, 600)
+  await win.getByRole('button', { name: 'Show or hide the binder' }).click()
+
+  await open(win, 'Relationship map')
+  const map = main(win).getByRole('group', { name: 'Relationship map' })
+  await expect(main(win).getByText('9 characters, 8 relationships')).toBeVisible()
+  // Everyone counted is in the window, clear of the help line.
+  await expect.poll(async () => (await readMap(win)).inWindow).toBe(9)
+  // "As seen in" sits beside the title, so the map below keeps its height.
+  const [title, seenIn] = [
+    await main(win).getByRole('heading', { level: 1, name: 'Relationship map' }).boundingBox(),
+    await main(win).getByRole('combobox', { name: 'As seen in' }).boundingBox()
+  ]
+  expect(seenIn!.y).toBeLessThan(title!.y + title!.height + 40)
+  expect((await map.boundingBox())!.height).toBeGreaterThanOrEqual(370)
 })

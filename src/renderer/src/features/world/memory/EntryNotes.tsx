@@ -1,20 +1,21 @@
 import { Check, PenLine, Sparkles } from 'lucide-react'
 import type { Entry } from '@shared/types'
 import { cn } from '@/lib/cn'
-import { MADE_YOURS, YOU_WROTE, madeByNote } from '../memoryLogic'
+import { MADE_YOURS, YOU_MADE, YOU_WROTE, madeByNote } from '../memoryLogic'
 import { useSceneLabels } from '../useSceneLabels'
 import { PlaceLink } from './SourceLine'
 
 /**
  * The quiet note on an entry Adam made: he wrote it, and AI Write keeps it as he wrote it. Fields
- * the memory keeper or the AI filled in since say so on their own lines.
+ * the memory keeper or the AI filled in since say so on their own lines. When some of its fields
+ * were drafted by AI (`drafted`, as the builders draft them), it says he made it, not that he wrote it.
  */
-export function YouWroteNote(): React.JSX.Element {
+export function YouWroteNote({ drafted = false }: { drafted?: boolean }): React.JSX.Element {
   return (
     <div className="grid min-h-6 items-center text-[12.5px] text-faint" role="note">
       <span className="flex min-w-0 items-start gap-1.5 leading-[18px]">
         <PenLine size={12} className="mt-[3px] shrink-0" aria-hidden />
-        <span className="min-w-0">{YOU_WROTE}</span>
+        <span className="min-w-0">{drafted ? YOU_MADE : YOU_WROTE}</span>
       </span>
     </div>
   )

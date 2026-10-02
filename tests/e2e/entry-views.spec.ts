@@ -231,6 +231,7 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
 
   await binder(win).getByRole('button', { name: 'Codex' }).click()
   await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByText('Everything the AI remembers about your world.')).toBeVisible()
   // Every entry but the plot thread (it has its own board), grouped by kind, by name to begin with.
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
   expect(await cardNames(win, 'Characters')).toEqual(['Kell', 'Mara', 'Tobin'])
@@ -428,7 +429,7 @@ test('where an entry first appears can be changed from its page, and the change 
   await expect(panel.getByText('Worked out for you')).toBeVisible()
   // The only place can't be removed until there is another.
   await expect(panel.getByRole('button', { name: 'Remove the beginning of the world' })).toBeDisabled()
-  await panel.getByRole('button', { name: 'Add another place' }).click()
+  await panel.getByRole('button', { name: 'Add another point in the story' }).click()
   await panel.getByRole('combobox').fill('ch 1 sc 2')
   await win.getByRole('option', { name: /^Book 1, Ch 1, Sc 2/ }).click()
   await expect(panel.getByText('Book 1, Ch 1, Sc 2', { exact: true })).toBeVisible()
@@ -482,8 +483,20 @@ test('"As seen in" appears on entry pages once the world has a side story', asyn
 test('in a small window the as-of bar and the page’s buttons keep their room, with "As seen in" there too', async ({ launch }) => {
   const { app, win } = await launch()
   await createWorldFromWelcome(win, 'Small')
-  const { b1 } = await bookOne(win)
-  await invoke(win, 'createEntry', 'character', { name: 'Mara', originStoryId: b1 })
+  const { b1, s } = await bookOne(win)
+  const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara', originStoryId: b1 })
+  // Long scene titles and every way of being in a scene, for "Appears in".
+  await invoke(win, 'updateScene', s[0], { title: 'Morning at the Narrows ferry crossing, before the tide' })
+  const { card } = await invoke(win, 'getScene', s[0])
+  await invoke(win, 'updateSceneCard', s[0], { ...card, povId: mara.id, presentIds: [mara.id] })
+  const lost = {
+    kind: 'update' as const,
+    payload: { note: 'Lost her left hand' },
+    entryId: mara.id,
+    anchor: 'scene' as const,
+    sceneId: s[0]
+  }
+  await invoke(win, 'createChange', lost)
   const side = await invoke(win, 'createStory', { title: 'The Ferrywoman', startStoryId: b1 })
   await invoke(win, 'setStoryPlacement', side.id, {
     kind: 'side',
@@ -511,21 +524,51 @@ test('in a small window the as-of bar and the page’s buttons keep their room, 
   await builder.click({ trial: true })
   expect(await inRow()).toBe(true)
 
+  // "Appears in": the words saying how it is in a scene drop under the place rather than run past the
+  // row, so nothing is cut and the page never scrolls sideways.
+  await openSection(win, 'Appears in')
+  const row = main(win).getByRole('button', { name: /^Book 1, Ch 1, Sc 1/ })
+  await expect(row).toContainText('Point of view · In the scene · Changes here')
+  const fits = await row.evaluate((b) => {
+    const box = b.getBoundingClientRect()
+    return [...b.querySelectorAll('span')].every((s) => s.getBoundingClientRect().right <= box.right + 0.5)
+  })
+  expect(fits).toBe(true)
+  const sideways = await win.locator('[data-entry-page]').evaluate((page) => {
+    const scroller = page.closest('.overflow-y-auto')!
+    return scroller.scrollWidth - scroller.clientWidth
+  })
+  expect(sideways).toBeLessThanOrEqual(0)
+
   await main(win).getByRole('button', { name: 'View as of a scene' }).click()
   await main(win).getByRole('combobox', { name: 'As seen in' }).click()
   await win.getByRole('option', { name: 'The Ferrywoman' }).click()
   const slider = main(win).getByRole('slider', { name: 'As of' })
   await expect(slider).toHaveAttribute('aria-valuetext', /The Ferrywoman/)
-  // The slider is wide enough to drag, and says in full which scene it is at.
-  const room = await slider.evaluate((input) => {
-    const label = input.closest('.flex-col')?.querySelector('.truncate')
-    return { track: input.getBoundingClientRect().width, cut: !label || label.scrollWidth > label.clientWidth }
-  })
-  expect(room.track).toBeGreaterThan(180)
-  expect(room.cut).toBe(false)
+  // "Back to editing" sits beside "As seen in", so the slider has the row under them to itself: wide
+  // enough to drag, saying in full (wrapped if need be) which scene it is at, in a sentence.
+  const back = main(win).getByRole('button', { name: 'Back to editing' })
+  const seenIn = main(win).getByRole('combobox', { name: 'As seen in' })
+  const [backBox, seenBox, track] = [await back.boundingBox(), await seenIn.boundingBox(), await slider.boundingBox()]
+  expect(Math.abs(backBox!.y + backBox!.height - (seenBox!.y + seenBox!.height))).toBeLessThanOrEqual(4)
+  expect(track!.y).toBeGreaterThan(seenBox!.y + seenBox!.height)
+  expect(track!.width).toBeGreaterThan(300)
+  // The place's own words (its full name is its tooltip too).
+  const place = slider.locator('xpath=ancestor::div[contains(@class,"flex-col")][1]').locator('span[title]').first()
+  await expect(place).toBeVisible()
+  expect(await place.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)).toBe(true)
+  await slider.press('Home')
+  await expect(place.locator('span').first()).toHaveText(/^As of the start of /)
+  // The bar keeps one height as the slider moves, so the slider never moves under Adam's hand.
+  const bar = async (): Promise<number> => (await slider.boundingBox())!.y
+  const at = await bar()
+  for (const key of ['ArrowRight', 'ArrowRight', 'End']) {
+    await slider.press(key)
+    expect(await bar()).toBe(at)
+  }
   await builder.click({ trial: true })
   expect(await inRow()).toBe(true)
-  await main(win).getByRole('button', { name: 'Back to editing' }).click({ trial: true })
+  await back.click({ trial: true })
 })
 
 test('an edit made while working in a later story offers to keep it for that story on', async ({ launch }) => {

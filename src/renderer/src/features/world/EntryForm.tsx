@@ -29,7 +29,7 @@ import { EntryMemorySections } from './memory/EntryMemory'
 import { MadeByNote, YouWroteNote } from './memory/EntryNotes'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
-import { fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
+import { allAdams, fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
 import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
@@ -180,8 +180,10 @@ export const EntryForm = memo(function EntryForm({
   const [sources, setSources] = useState(() => initial)
   // Whether AI Write made this entry and Adam hadn't touched it when the page opened (the note's line is kept while open).
   const [madeByAI] = useState(() => initial.origin !== 'adam' && !initial.byHand)
-  // Whether Adam made it himself and has written in it: then a note says so (also kept while open).
+  // Whether Adam made it himself and has written in it: then a note says so (also kept while open), that
+  // he wrote it only when none of its fields was drafted by AI (a builder drafts most of them).
   const [madeByAdam] = useState(() => initial.origin === 'adam' && hasWords(initial))
+  const [aiDrafted] = useState(() => !allAdams(initial))
   // The names it goes by as last saved, for reloading "Appears in" when they change.
   const [savedNames, setSavedNames] = useState(() => namesOf(initial))
   // The newest saved copy this form knows of (and its time), so a newer one loaded from elsewhere
@@ -518,7 +520,7 @@ export const EntryForm = memo(function EntryForm({
         <EntryAsOfView entry={draft} others={others} firsts={firsts.data} onBack={backToEditing} onOpen={onOpen} autoFocus={focusSlider} />
       ) : (
         <>
-          {madeByAdam ? <YouWroteNote /> : <MadeByNote entry={owner} shown={madeByAI} />}
+          {madeByAdam ? <YouWroteNote drafted={aiDrafted} /> : <MadeByNote entry={owner} shown={madeByAI} />}
           <DuplicateHint dups={dups} kind={kind} onOpen={onOpen} />
 
           <div className="mt-3 flex flex-col gap-4">
@@ -748,21 +750,24 @@ function DuplicateHint({
   const more = dups.length > 1 ? `, and ${dups.length - 1} more` : ''
   const text =
     d.reason === 'same'
-      ? `There's already ${what} called ${otherName}${more}.`
+      ? `There’s already ${what} called ${otherName}${more}.`
       : d.reason === 'similar'
         ? `Very close to ${otherName}, ${what}${more}.`
         : `Shares a name with ${otherName}, ${what}${more}.`
+  // On a narrow page it wraps onto a second line rather than being cut short, as the builder's does.
   return (
     <div
       role="status"
-      title="If they're the same, keep one, so the AI doesn't mix them up."
-      className="flex h-6 animate-fade-in items-center gap-1.5 text-[12.5px] text-ai"
+      title="If they’re the same, keep one, so the AI doesn’t mix them up."
+      className="flex min-h-6 animate-fade-in items-start gap-1.5 py-[3px] text-[12.5px] leading-[18px] text-ai"
     >
-      <AlertTriangle size={13} className="shrink-0" aria-hidden />
-      <span className="min-w-0 truncate">{text} Same one?</span>
-      <button type="button" onClick={() => onOpen(other)} className="shrink-0 font-medium underline-offset-2 hover:underline">
-        Open {otherName}
-      </button>
+      <AlertTriangle size={13} className="mt-[2.5px] shrink-0" aria-hidden />
+      <span className="min-w-0">
+        {text} Same one?{' '}
+        <button type="button" onClick={() => onOpen(other)} className="whitespace-nowrap font-medium underline-offset-2 hover:underline">
+          Open {otherName}
+        </button>
+      </span>
     </div>
   )
 }

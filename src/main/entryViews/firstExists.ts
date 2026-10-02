@@ -55,14 +55,14 @@ const samePlace = (a: Place, b: Place): boolean =>
  */
 export function setFirstExists(db: DB, entryId: ID, points: FirstExistsInput[]): FirstExists[] {
   repo.getEntry(db, entryId)
-  if (!Array.isArray(points) || !points.length) throw new UserError('Choose at least one place where it first appears.')
+  if (!Array.isArray(points) || !points.length) throw new UserError('Choose at least one point where it first appears.')
   const shape = loadShape(db)
   const sceneStory = sceneStories(shape)
   const stories = new Set(shape.stories.map((s) => s.id))
   const had = mem.listExistsPoints(db, entryId)
   const clean: FirstExistsInput[] = []
   for (const p of points) {
-    if (!KINDS.includes(p?.kind)) throw new UserError("That place in the story isn't known.")
+    if (!KINDS.includes(p?.kind)) throw new UserError("That point in the story isn't known.")
     const byHand = !!p.byHand
     let next: FirstExistsInput
     if (p.kind === 'world') next = { kind: 'world', storyId: null, sceneId: null, byHand }
@@ -72,7 +72,7 @@ export function setFirstExists(db: DB, entryId: ID, points: FirstExistsInput[]):
       const live = scene ? sceneStory.get(sceneId ?? '') : p.storyId && stories.has(p.storyId) ? p.storyId : undefined
       const kept = had.find((h) => samePlace(h, p))
       const story = live ?? (kept ? kept.storyId : views.storyOfPlace(db, { kind: p.kind, storyId: p.storyId ?? null, sceneId }))
-      if (!story && !kept) throw new UserError(`That ${scene ? 'scene' : 'story'} no longer exists. Choose another place.`)
+      if (!story && !kept) throw new UserError(`That ${scene ? 'scene' : 'story'} no longer exists. Choose another point.`)
       next = { kind: p.kind, storyId: story ?? null, sceneId, byHand }
     }
     if (!clean.some((c) => samePlace(c, next))) clean.push(next)
