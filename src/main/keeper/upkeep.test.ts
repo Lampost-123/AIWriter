@@ -478,6 +478,37 @@ describe('Adam typing while the keeper reads', () => {
   })
 })
 
+describe('Adam’s own facts whose words change', () => {
+  it('are asked about once, and the new words aren’t added as a second fact', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', "Mara lost her left hand. Kell's eyes were grey."]])
+    await read(w.db, w.sceneId)
+    const [c] = mem.listAllChanges(w.db)
+    mem.replaceChange(w.db, c.id, {
+      kind: 'update',
+      payload: { note: 'lost her left hand to the river', fields: { marks: 'left hand lost' } },
+      entryId: c.entryId,
+      anchor: 'scene',
+      sceneId: w.sceneId,
+      origin: 'adam'
+    })
+    const kell = entryNamed(w.db, 'Kell')!
+    repo.updateEntry(w.db, kell.id, { fields: { ...kell.fields, eyes: 'grey-green' } })
+    save(w.db, w.sceneId, [['p1', "Mara lost her right hand. Kell's eyes were blue."]])
+    await read(w.db, w.sceneId)
+    // His words are kept, and each is asked about...
+    expect(mem.listAllChanges(w.db).map((x) => x.payload)).toEqual([
+      { note: 'lost her left hand to the river', fields: { marks: 'left hand lost' } }
+    ])
+    expect(repo.getEntry(w.db, kell.id).fields.eyes).toBe('grey-green')
+    const asked = kdb.listLog(w.db).filter((l) => l.question)
+    expect(asked.map((l) => l.question!.text)).toEqual(['Keep your words?', 'Keep your words?'])
+    // ...with nothing else said about the same words.
+    expect(w.db.prepare('SELECT COUNT(*) AS n FROM issues').get()).toEqual({ n: 0 })
+    expect(kdb.listLog(w.db).filter((l) => l.action === 'added' && l.runId === asked[0].runId)).toEqual([])
+  })
+})
+
 describe('undo', () => {
   it('an entry Adam deletes isn’t made again from the same words, but is from new ones', async () => {
     const w = world()

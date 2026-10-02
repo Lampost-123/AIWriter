@@ -200,6 +200,8 @@ class Run {
   private readonly removedChangeEntries = new Set<ID>()
   private readonly adamDeleted = new Map<EntryKind, { id: ID; name: string; aliases: string[] }[]>()
   private earlier: ((entryId: ID) => boolean) | null | undefined
+  /** Values offered for Adam's fields in this run's "Keep your words?" questions. */
+  private readonly offered = new Set<string>()
 
   constructor(
     readonly db: DB,
@@ -451,6 +453,14 @@ class Run {
     return this.earlier?.(e.id) ?? false
   }
 
+  /** Notes a value offered for one of Adam's fields, so the same words don't raise an issue as well. */
+  offer(entryId: ID, field: string, value: string): void {
+    this.offered.add(`${entryId}|${field}|${plain(value)}`)
+  }
+  wasOffered(entryId: ID, field: string, value: string): boolean {
+    return this.offered.has(`${entryId}|${field}|${plain(value)}`)
+  }
+
   /** The entry as it is at this scene (with the changes that count here), or null. */
   stateHere(id: ID): Entry | null {
     return this.ctx.memory?.entries.find((x) => x.id === id) ?? null
@@ -556,6 +566,11 @@ function freshFact(run: Run, f: SceneFact): SceneFact | null {
 /** Adam's fact lost its words: keep it, and offer to refresh it from the scene (once per set of words). */
 function askRefresh(run: Run, f: SceneFact, proposal: Extract<Undo, { op: 'refresh' }>['proposal'], s: Spot | null): void {
   if (f.kind !== 'field' && f.kind !== 'change') return
+  // The scene's new words are this question's offer: they aren't added as a second fact, or raised as an issue, too.
+  if (f.kind === 'change' && proposal && 'change' in proposal) {
+    run.remember(fingerprint({ type: 'change', entryId: f.change.entryId, change: proposal.change }), changeContent(proposal.change))
+  }
+  if (f.kind === 'field' && proposal && 'value' in proposal) run.offer(f.entry.id, f.field, proposal.value)
   const key = `refresh:${f.key}:${s ? wordsOf(s.quote) : 'gone'}`
   if (kdb.questionAsked(run.db, key)) return
   const entry = f.entry
@@ -863,7 +878,10 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
     return
   }
   if (run.suppressed(fp, s.quote)) return
-  if (adamField(e, field)) return clash(run, e, field, before, value, s)
+  if (adamField(e, field)) {
+    if (!run.wasOffered(e.id, field, value)) clash(run, e, field, before, value, s)
+    return
+  }
   if (before.trim() && fieldOrigin(e, field) === 'text') {
     // Words elsewhere still say the old value: that is a clash between scenes, not a change.
     const support = hist.linksForEntry(db, e.id).filter((l) => l.factKind === 'field' && l.field === field && l.state === 'ok')
