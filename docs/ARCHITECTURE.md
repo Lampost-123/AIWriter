@@ -70,9 +70,14 @@ src/renderer/src/
 ## Releases and updates
 
 - `.github/workflows/release.yml` publishes the installer to GitHub Releases of
-  Lampost-123/AIWriter when a tag `vX.Y.Z` matching `version` in package.json is pushed.
-  CI also builds one on every push (the run's Artifacts) and checks it holds only the app
-  (`build/check-package.mjs`).
+  Lampost-123/AIWriter when a tag `vX.Y.Z` matching `version` in package.json is pushed, or
+  when it is run by hand on `main`. CI also builds one on every push (the run's Artifacts) and
+  checks it holds only the app (`build/check-package.mjs`).
+- Each release's text is `build/release-notes.md`: plain words for Adam, shown on the release
+  page and, through latest.yml, under "What's new" when the app offers the update (about 600
+  characters at most, or the app cuts it short). Its first line is `<!-- version: X.Y.Z -->`
+  and must match package.json; the release workflow and `tests/unit/releaseNotes.test.ts`
+  check it, so bumping the version means writing that version's notes.
 - Installed copies look for updates there (electron-updater, `publish` in electron-builder.yml)
   **without a token**, so the releases must be readable by anyone: the repository has to be
   public, or the installers published to a separate public releases repository (point `publish`
