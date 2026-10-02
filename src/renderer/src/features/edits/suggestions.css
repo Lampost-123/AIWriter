@@ -1,0 +1,106 @@
+/* AI edits in the page (features/edits/suggestions.ts): the old words struck through, the new words
+   highlighted in the AI's amber, and the room below for the buttons. Colours come from the theme tokens. */
+
+/* The words an AI tool is about to work on (its menu is open, or it's getting ready). */
+.scene-prose .aw-sugg-target {
+  background: color-mix(in srgb, var(--ai) 16%, transparent);
+  border-radius: 2px;
+}
+
+/* The words the change takes away. */
+.scene-prose .aw-sugg-old {
+  color: var(--muted);
+  text-decoration-line: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ai) 80%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+
+/* A name among them is struck through too (its underline comes back if the change goes). */
+.scene-prose .aw-sugg-old.aw-name,
+.scene-prose .aw-sugg-old .aw-name {
+  text-decoration-line: line-through;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, var(--ai) 80%, transparent);
+}
+
+.scene-prose .aw-sugg-new {
+  white-space: pre-wrap;
+  cursor: default;
+}
+
+/* A little space between the struck words and the new ones on the same line. */
+.scene-prose .aw-sugg-new.after-old {
+  margin-left: 0.3em;
+}
+
+/* The new words. */
+.scene-prose .aw-sugg-words {
+  background: var(--ai-soft);
+  color: var(--fg);
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  box-shadow: 0 0 0 1.5px var(--ai-soft);
+}
+
+/* The gap before a new paragraph among them, as between the page's own (their words stay inline). */
+.scene-prose .aw-sugg-gap {
+  display: block;
+  height: 0.85em;
+}
+
+/* New paragraphs ahead of a paragraph (Continue from its start): a block of their own, spaced like one. */
+.scene-prose .aw-sugg-new.on-its-own {
+  display: block;
+  margin: 0 0 0.85em;
+}
+
+/* A scene break among them. */
+.scene-prose .aw-sugg-break {
+  display: block;
+  margin: 1.4em 0 1.55em;
+  text-align: center;
+  white-space: pre;
+  color: var(--faint);
+  font-size: 0.9em;
+  letter-spacing: 0.2em;
+  line-height: 1;
+}
+
+/* Where the words are being written. */
+.aw-sugg-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--ai);
+  animation: aw-sugg-blink 1.1s ease-in-out infinite;
+}
+
+@keyframes aw-sugg-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-sugg-caret {
+    animation: none;
+  }
+}
+
+/* The room below the change for its buttons (SuggestionLayer.tsx sets its height). It starts closer to the
+   change than a paragraph's gap, so the buttons read as the change's, not the next paragraph's. */
+.scene-prose .aw-sugg-room {
+  height: var(--aw-sugg-room, 58px);
+  margin-top: -0.45em;
+  pointer-events: none;
+  user-select: none;
+}

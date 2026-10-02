@@ -9,6 +9,8 @@ export type ShortcutId =
   | 'generate'
   | 'stop'
   | 'stopAnswer'
+  | 'acceptChange'
+  | 'rejectChange'
   | 'markDone'
   | 'save'
   | 'bold'
@@ -53,6 +55,14 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'generate', name: 'Generate a draft of the scene', group: 'Writing', keys: ['Mod', 'G'] },
   { id: 'stop', name: 'Stop the draft', group: 'Writing', keys: ['Esc'] },
   { id: 'stopAnswer', name: 'Stop the answer', where: 'in Ask the world', group: 'Writing', keys: ['Esc'] },
+  { id: 'acceptChange', name: 'Accept the AI’s change to the words', where: 'in the page', group: 'Writing', keys: ['Tab'] },
+  {
+    id: 'rejectChange',
+    name: 'Reject the AI’s change, or stop it while it’s being written',
+    where: 'in the page',
+    group: 'Writing',
+    keys: ['Esc']
+  },
   { id: 'markDone', name: 'Mark scene done', group: 'Writing', keys: ['Mod', 'Enter'] },
   { id: 'save', name: 'Save now (AI Write also saves as you type)', group: 'Writing', keys: ['Mod', 'S'] },
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },
