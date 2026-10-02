@@ -3,7 +3,7 @@
 // a real database. If one of these fails, a multi-story rule has changed.
 
 import { describe, expect, it } from 'vitest'
-import type { EntryState, ID } from '@shared/types'
+import type { ChangeData, EntryState, ID } from '@shared/types'
 import { placementProblem, previousSceneStep } from '../../src/main/memory/line'
 import * as mem from '../../src/main/db/memory'
 import * as repo from '../../src/main/db/repo'
@@ -152,6 +152,14 @@ describe.each(routes)('the test world %s', (_, make) => {
     expect(entry(w.state('other', 'other.c1.s1'), w, 'mara')).toBeDefined()
   })
 
+  it('a story written later and set between Book 1 and Book 2: Book 2 and later books know it, Book 1 does not', () => {
+    expect(w.line('b2', 'start').segments.map((s) => s.storyId)).toEqual([w.id('b1'), w.id('kr'), w.id('qy'), w.id('b2')])
+    expect(notes(entry(w.state('b2', 'b2.c1.s1'), w, 'tobin'))).toEqual(['mended the ferry'])
+    expect(notes(entry(w.state('b4'), w, 'tobin'))).toContain('mended the ferry')
+    expect(notes(entry(w.state('b1', 'end'), w, 'tobin'))).toEqual([])
+    expect(previousSceneStep(w.line('b2', 'b2.c1.s1'))?.sceneId).toBe(w.id('qy.c1.s1'))
+  })
+
   it('a time gap: Mara died long ago in The Long Dark, but not in its prequel', () => {
     expect(notes(entry(w.state('ld', 'ld.c1.s1'), w, 'mara'))).toContain('died long ago')
     expect(entry(w.state('ld', 'ld.c1.s1'), w, 'mara')?.happened.at(-1)?.where).toBe('the start of The Long Dark')
@@ -288,8 +296,23 @@ describe('the test world in a database', () => {
     expect(later.previous?.sceneId).toBe(w.id('b1.c3.s1'))
     expect(later.facts.find((f) => f.factId === 'f-heir')?.knownBy.sort()).toEqual([w.id('kell'), w.id('tobin')].sort())
 
+    expect(later.previous).toMatchObject({ storyId: w.id('b1'), storyTitle: 'Book 1', otherStory: null })
     const b3 = sceneMemory(db, w.id('b3.c1.s1'))
-    expect(b3.previous).toMatchObject({ sceneId: w.id('b2.c6.s1'), title: 'Scene 1' })
+    expect(b3.previous).toMatchObject({
+      sceneId: w.id('b2.c6.s1'),
+      title: 'Scene 1',
+      storyId: w.id('b2'),
+      storyTitle: 'Book 2',
+      otherStory: { ended: true, timeGap: '' }
+    })
+    // A later series 200 years on: the previous scene is how Book 4 ended, with The Long Dark's time gap.
+    db.prepare('UPDATE stories SET time_gap = ? WHERE id = ?').run('200 years', w.id('ld'))
+    expect(sceneMemory(db, w.id('ld.c1.s1')).previous).toMatchObject({
+      storyTitle: 'Book 4',
+      otherStory: { ended: true, timeGap: '200 years' }
+    })
+    // A side story starting partway through its book: where that book had got to.
+    expect(sceneMemory(db, w.id('ember.c1.s1')).previous).toMatchObject({ storyId: w.id('b2'), otherStory: { ended: false } })
     const wren = sceneMemory(db, w.id('b2.c3.s1')).elsewhere.find((x) => x.entry.name === 'Wren')
     expect(wren?.label).toBe('not in the story yet at this point')
     expect(sceneMemory(db, w.id('b2.c4.s1')).firstHere).toEqual([w.id('wren')])
@@ -390,5 +413,77 @@ describe('story so far, from the summaries', () => {
     )
     // A single prequel leads into its book by itself.
     expect(sceneMemory(db, w.id('bd.c1.s1')).storySoFar.leadsInto?.title).toBe('The Long Dark')
+  })
+})
+
+describe('drafting an earlier scene does not show later changes (milestone 2 acceptance)', () => {
+  it('holds for every kind of change, first-exists point and summary', () => {
+    const w = dbWorld()
+    const { db } = w
+    // Book 2 Ch 2 Sc 1: Ash and Ember are still running, and everything after it is later.
+    const scene = w.id('b2.c2.s1')
+    const before = sceneMemory(db, scene)
+    const at = (key: string) => (key.split('.').length === 3 ? { anchor: 'scene' as const, sceneId: w.id(key) } : null)
+    const add = (entry: string, where: string, data: ChangeData) =>
+      mem.insertChange(db, {
+        ...data,
+        entryId: w.id(entry),
+        ...(at(where) ?? { anchor: 'story-start' as const, storyId: w.id(where) }),
+        origin: 'text'
+      })
+
+    add('mara', 'b2.c2.s2', {
+      kind: 'update',
+      payload: { note: 'braided her hair', fields: { hair: 'braided' }, description: 'Later.', summary: 'Later.' }
+    })
+    add('tobin', 'ash.c1.s1', { kind: 'update', payload: { note: 'met the Ash folk', fields: { marks: 'burned hand' } } })
+    add('tobin', 'ember.c1.s1', { kind: 'knowledge', payload: { factId: 'f-ember', fact: 'Ember burns.' } })
+    add('tobin', 'b3', {
+      kind: 'full',
+      payload: {
+        description: 'An old ferryman.',
+        knows: [{ factId: 'f-old', fact: 'The ferry is failing.' }],
+        relationships: [{ otherId: w.id('mara'), type: 'stranger', feels: '', otherFeels: '' }]
+      }
+    })
+    add('mara', 'b2.c3.s1', { kind: 'relationship', payload: { otherId: w.id('tobin'), type: 'allies', feels: '', otherFeels: '' } })
+    add('mara', 'b4.c1.s1', { kind: 'knowledge', payload: { factId: 'f-heir', fact: 'She is the heir.' } })
+    add('burned', 'b2.c2.s2', { kind: 'thread', payload: { status: 'resolved', note: 'Solved early.' } })
+    const own = add('mara', 'b2.c2.s1', { kind: 'update', payload: { note: 'what this scene brings about' } })
+    // New entries first existing later, and a later point for one that doesn't exist here yet.
+    const bram = repo.createEntry(db, 'character', { name: 'Bram', originStoryId: w.id('b3') })
+    const found = repo.createEntry(db, 'item', { name: 'The Lamp' }, { origin: 'text', originSceneId: w.id('b2.c4.s1') })
+    mem.addExistsPoint(db, { entryId: w.id('wren'), kind: 'scene', storyId: w.id('b2'), sceneId: w.id('b2.c2.s2'), byHand: false })
+    // Summaries of this scene, later scenes, this chapter (not ended), this story, running side stories, later books and the series.
+    const put = (level: 'scene' | 'chapter' | 'story' | 'series', key: string) =>
+      mem.putSummary(db, { level, targetId: w.id(key), text: `Later: ${key}.`, origin: 'text' })
+    for (const key of ['b2.c2.s1', 'b2.c2.s2', 'ash.c1.s1', 'ember.c1.s1']) put('scene', key)
+    put('chapter', 'b2.c2')
+    for (const key of ['b2', 'ash', 'ember', 'b3']) put('story', key)
+    put('series', 'reach')
+
+    const after = sceneMemory(db, scene)
+    const { elsewhere, bringAbout, ...rest } = after
+    const { elsewhere: elsewhereBefore, bringAbout: bringAboutBefore, ...restBefore } = before
+    expect(rest).toEqual(restBefore)
+    expect(elsewhere.filter((x) => elsewhereBefore.some((y) => y.entry.id === x.entry.id))).toEqual(elsewhereBefore)
+    expect(elsewhere.find((x) => x.entry.id === bram.id)?.label).toBe('from Book 3, not in this story so far')
+    expect(elsewhere.find((x) => x.entry.id === found.id)?.label).toBe('not in the story yet at this point')
+    expect(bringAbout.map((c) => c.id)).toEqual([...bringAboutBefore.map((c) => c.id), own.id])
+
+    // They do count later on.
+    const later = sceneMemory(db, w.id('b4.c1.s1'))
+    const state = (id: ID) => later.entries.find((e) => e.id === id)
+    expect(state(w.id('mara'))?.fields.hair).toBe('braided')
+    expect(state(w.id('tobin'))?.description).toBe('An old ferryman.')
+    expect(sceneMemory(db, w.id('b2.c4.s1')).facts.find((f) => f.factId === 'f-ember')?.knownBy).toEqual([w.id('tobin')])
+    // Book 3's full description of Tobin starts what he knows again.
+    expect(later.facts.map((f) => [f.factId, f.knownBy])).toEqual([
+      ['f-heir', [w.id('kell')]],
+      ['f-old', [w.id('tobin')]]
+    ])
+    expect(later.threads.find((t) => t.entryId === w.id('burned'))?.status).toBe('resolved')
+    expect(state(bram.id) && state(found.id)).toBeTruthy()
+    expect(later.storySoFar.stories.map((s) => s.text)).toContain('Later: b3.')
   })
 })

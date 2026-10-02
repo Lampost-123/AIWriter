@@ -361,7 +361,11 @@ function segmentWords(
   }
 }
 
-/** "This story knows what happened in: Book 1; Kell's Road; Book 2 up to the end of Ch 5." */
+/**
+ * "This story knows what happened in: Book 1; Kell's Road; Book 2 up to the end of Ch 5." For a side
+ * story, other side stories of the same book still running where it starts are named too: "Does not
+ * know: Ash, which is still running here."
+ */
 export function knowsSentence(shape: WorldShape, line: Line): string {
   const ix = indexWorld(shape)
   const chapterNo = (id: ID): number => ix.chapters.get(id)?.chapterNo ?? 0
@@ -376,8 +380,26 @@ export function knowsSentence(shape: WorldShape, line: Line): string {
       return story ? segmentWords(seg, story, chapterNo, sceneAt) : null
     })
     .filter((p): p is string => !!p)
-  return parts.length ? `This story knows what happened in: ${parts.join('; ')}.` : 'This story knows only the starting setup.'
+  const knows = parts.length ? `This story knows what happened in: ${parts.join('; ')}.` : 'This story knows only the starting setup.'
+  const running = stillRunning(ix, line).map((s) => s.title)
+  if (!running.length) return knows
+  return `${knows} Does not know: ${joinAnd(running)}, which ${running.length === 1 ? 'is' : 'are'} still running here.`
 }
+
+/** Other side stories of a side story's book that started at or before its start and end after it, in the order they start. */
+function stillRunning(ix: WorldIndex, line: Line): StoryNode[] {
+  const me = ix.stories.get(line.target.storyId)?.node
+  const host = me?.kind === 'side' && me.startStoryId ? ix.stories.get(me.startStoryId) : undefined
+  if (!me || !host) return []
+  const at = startStep(host, me.startAt, me.startRefId)
+  const walked = new Set(line.segments.map((s) => s.storyId))
+  return (ix.sides.get(host.node.id) ?? [])
+    .filter((s) => s.id !== me.id && !walked.has(s.id))
+    .filter((s) => startStep(host, s.startAt, s.startRefId) <= at && at < sideAddStep(host, s))
+    .sort((a, b) => startStep(host, a.startAt, a.startRefId) - startStep(host, b.startAt, b.startRefId) || a.createdOrder - b.createdOrder)
+}
+
+const joinAnd = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
 
 /** The last scene step on the line itself (never a side story added whole), or null. */
 export function previousSceneStep(line: Line): Extract<LineStep, { type: 'scene' }> | null {

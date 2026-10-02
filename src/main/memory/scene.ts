@@ -19,12 +19,12 @@
 
 import type Database from 'better-sqlite3'
 import type { Change, ChangeView, EntryState, ID } from '@shared/types'
-import type { Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
+import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
-import { linksForFact } from '../db/history'
+import { linksForFacts } from '../db/history'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 
@@ -35,14 +35,34 @@ export function loadShape(db: DB): WorldShape {
   return mem.loadShape(db)
 }
 
-/** Every live entry, change and first-exists point. */
+/**
+ * Every live entry, change and first-exists point. A point at a deleted scene counts just after the
+ * place before it; a point in a deleted story counts at the start of each story that takes over its
+ * start (as the line has them), so deleting where something first appeared never makes it vanish.
+ */
 export function loadMemoryData(db: DB): MemoryData {
   const entries = repo.listEntries(db)
   const live = new Set(entries.map((e) => e.id))
+  const points = mem.listExistsPoints(db).filter((p) => live.has(p.entryId))
+  const atScenes = [...new Set(points.flatMap((p) => (p.kind === 'scene' && p.sceneId ? [p.sceneId] : [])))]
+  const before = mem.placesBeforeDeletedScenes(db, atScenes)
+  const takers = mem.storiesTakingOver(db)
   return {
     entries,
     changes: mem.listAllChanges(db).filter((c) => live.has(c.entryId)),
-    exists: mem.listExistsPoints(db).filter((p) => live.has(p.entryId)),
+    exists: points.flatMap((p): ExistsAt[] => {
+      const place = p.kind === 'scene' && p.sceneId ? before.get(p.sceneId) : undefined
+      if (place) return [{ ...p, storyId: place.storyId, after: { at: place.at, refId: place.refId } }]
+      // Only to stories that started after the point (a prequel never sees the start-of-story changes). The
+      // point itself is kept too: it is on no line while its story is deleted, and counts again once it is back.
+      const all = p.kind !== 'world' && p.storyId ? takers.get(p.storyId) : undefined
+      if (!all) return [p]
+      const after =
+        p.kind === 'scene' && p.sceneId
+          ? mem.startsAfterScene(db, p.sceneId, all)
+          : all.map((t) => p.kind === 'story-pre' || t.at !== 'pre')
+      return [p, ...all.filter((_, i) => after[i]).map((t) => ({ ...p, kind: 'story-pre' as const, storyId: t.storyId, sceneId: null }))]
+    }),
     answers: mem.listAnswers(db)
   }
 }
@@ -57,15 +77,13 @@ export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
   const state = stateAt(data, shape, line, changes)
 
-  const prevStep = previousSceneStep(line)
-  const prevText = prevStep ? mem.sceneText(db, prevStep.sceneId) : null
   const summaries: SummaryIndex = new Map(mem.listSummaries(db).map((s) => [summaryKey(s.level, s.targetId), s]))
 
   return {
     storyId: story.id,
     sceneId,
     knows: knowsSentence(shape, line),
-    previous: prevStep && prevText ? { sceneId: prevStep.sceneId, title: prevText.title, text: prevText.text } : null,
+    previous: previousScene(db, shape, story.id, line),
     entries: [...state.entries.values()],
     firstHere: [...state.firstHere],
     elsewhere: elsewhere(shape, line, data, state),
@@ -74,6 +92,30 @@ export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
     threads: state.threads,
     storySoFar: storySoFar(shape, line, summaries, mem.seriesNames(db), leadsInto(shape, line, data, changes, state, summaries)),
     bringAbout: changes.byScene.get(sceneId) ?? []
+  }
+}
+
+/**
+ * Block 3: the last scene on the line before this one, with the story it is in. When that is
+ * another story (this story's first scene), whether it was that story's last scene and this
+ * story's time gap, so the briefing doesn't ask for this story to carry on from it seamlessly.
+ */
+function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): SceneMemory['previous'] {
+  const step = previousSceneStep(line)
+  const text = step ? mem.sceneText(db, step.sceneId) : null
+  if (!step || !text) return null
+  const from = shape.stories.find((s) => s.id === step.storyId)
+  const scenes = from ? from.chapters.flatMap((c) => c.scenes) : []
+  return {
+    sceneId: step.sceneId,
+    title: text.title,
+    text: text.text,
+    storyId: step.storyId,
+    storyTitle: from?.title ?? '',
+    otherStory:
+      step.storyId === storyId
+        ? null
+        : { ended: scenes.length > 0 && scenes[scenes.length - 1].id === step.sceneId, timeGap: repo.getStory(db, storyId).timeGap.trim() }
   }
 }
 
@@ -269,10 +311,18 @@ function leadsInto(
 export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadShape(db)): ChangeView[] {
   const label = labeler(shape)
   const order = storyOrder(shape)
+  // A scene's story as it is now (a change keeps the story its scene was in when it was made).
+  const storyOf = new Map<ID, ID>()
+  for (const s of shape.stories) for (const c of s.chapters) for (const sc of c.scenes) storyOf.set(sc.id, s.id)
   const keyed = changes
     .map((c) => ({
       c,
-      key: c.anchor === 'baseline' ? [-1] : order({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null })
+      key:
+        c.anchor === 'baseline'
+          ? [-1]
+          : c.anchor === 'scene' && c.sceneId
+            ? order({ storyId: storyOf.get(c.sceneId) ?? c.storyId, sceneId: c.sceneId })
+            : order({ storyId: c.storyId, sceneId: null })
     }))
     .filter(({ key }) => key[0] !== Infinity)
   keyed.sort(
@@ -281,9 +331,14 @@ export function changeViews(db: DB, changes: Change[], shape: WorldShape = loadS
       a.c.position - b.c.position ||
       (a.c.createdAt < b.c.createdAt ? -1 : a.c.createdAt > b.c.createdAt ? 1 : 0)
   )
+  const links = linksForFacts(
+    db,
+    'change',
+    keyed.map(({ c }) => c.id)
+  )
   return keyed.map(({ c }) => ({
     ...c,
     where: c.anchor === 'baseline' ? 'Before any story' : label({ storyId: c.storyId, sceneId: c.anchor === 'scene' ? c.sceneId : null }),
-    links: linksForFact(db, 'change', c.id)
+    links: links.get(c.id) ?? []
   }))
 }

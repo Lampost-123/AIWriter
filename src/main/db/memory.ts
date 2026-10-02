@@ -20,6 +20,7 @@ import type {
   Origin,
   Pin,
   PinScope,
+  StartAt,
   Summary,
   SummaryLevel
 } from '@shared/types'
@@ -148,20 +149,7 @@ export function insertChange(db: DB, c: NewChange): Change {
   db.prepare(
     `INSERT INTO changes (id, entry_id, anchor, story_id, scene_id, kind, payload_json, position, origin, run_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    c.entryId,
-    c.anchor,
-    storyId,
-    sceneId,
-    c.kind,
-    JSON.stringify(c.payload ?? {}),
-    position,
-    c.origin,
-    c.runId ?? null,
-    t,
-    t
-  )
+  ).run(id, c.entryId, c.anchor, storyId, sceneId, c.kind, JSON.stringify(c.payload ?? {}), position, c.origin, c.runId ?? null, t, t)
   const change = getChange(db, id)
   recordVersion(db, { factKind: 'change', factId: id, entryId: change.entryId, data: change, origin: c.origin, runId: c.runId })
   return change
@@ -221,7 +209,7 @@ const liveEntry = (db: DB, id: ID): boolean => !!db.prepare('SELECT 1 FROM entri
  */
 export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
   if (!input || typeof input !== 'object') throw new UserError('That change is empty.')
-  if (!liveEntry(db, input.entryId)) throw new UserError('That entry no longer exists.')
+  if (!liveEntry(db, input.entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   const other = (otherId: ID | undefined): ID => {
     if (!otherId) throw new UserError('Pick who or what this relationship is with.')
     if (otherId === input.entryId) throw new UserError('A relationship needs two different entries.')
@@ -366,6 +354,107 @@ export function addExistsPoint(db: DB, p: Omit<ExistsPoint, 'id'>): ExistsPoint 
   return toExists(db.prepare('SELECT * FROM exists_points WHERE id = ?').get(id) as Row)
 }
 
+/**
+ * For first-exists points at scenes that are deleted (the scene or its chapter; not its story):
+ * the place just before each such scene that is still there, as loadShape moves a start point.
+ * The scene before it in its chapter, else the end of the chapter before, else the story's start
+ * after its start-of-story changes. One query when none are deleted, which is nearly always.
+ */
+export function placesBeforeDeletedScenes(
+  db: DB,
+  sceneIds: ID[]
+): Map<ID, { storyId: ID; at: 'post' | 'chapter' | 'scene'; refId: ID | null }> {
+  const out = new Map<ID, { storyId: ID; at: 'post' | 'chapter' | 'scene'; refId: ID | null }>()
+  if (!sceneIds.length) return out
+  const gone = db
+    .prepare(
+      `SELECT s.id, s.chapter_id, s.position, c.story_id, c.position AS chapter_position, c.deleted_at AS chapter_deleted
+       FROM scenes s JOIN chapters c ON c.id = s.chapter_id JOIN stories st ON st.id = c.story_id AND st.deleted_at IS NULL
+       WHERE s.id IN (SELECT value FROM json_each(?)) AND (s.deleted_at IS NOT NULL OR c.deleted_at IS NOT NULL)`
+    )
+    .all(JSON.stringify(sceneIds)) as Row[]
+  if (!gone.length) return out
+  const sceneBefore = db.prepare(
+    'SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL AND position < ? ORDER BY position DESC, created_at DESC LIMIT 1'
+  )
+  const chapterBefore = db.prepare(
+    'SELECT id FROM chapters WHERE story_id = ? AND deleted_at IS NULL AND position < ? ORDER BY position DESC, created_at DESC LIMIT 1'
+  )
+  for (const r of gone) {
+    const storyId = r.story_id as string
+    const scene = r.chapter_deleted ? undefined : (sceneBefore.get(r.chapter_id, r.position) as Row | undefined)
+    const chapter = scene ? undefined : (chapterBefore.get(storyId, r.chapter_position) as Row | undefined)
+    out.set(
+      r.id as string,
+      scene
+        ? { storyId, at: 'scene', refId: scene.id as string }
+        : chapter
+          ? { storyId, at: 'chapter', refId: chapter.id as string }
+          : { storyId, at: 'post', refId: null }
+    )
+  }
+  return out
+}
+
+/** A live story that takes over a deleted story's start, and where in the deleted story it (or the deleted story it is in) started. */
+export interface TakeOver {
+  storyId: ID
+  at: StartAt
+  refId: ID | null
+}
+
+/**
+ * For each deleted story, the live stories that take over its start (they started in it, or in a
+ * deleted story that did), as loadShape has them. A first-exists point in a deleted story counts at
+ * the start of each of these that started after it, so deleting Kell's Road doesn't make Kell vanish
+ * from Kell's Return.
+ */
+export function storiesTakingOver(db: DB): Map<ID, TakeOver[]> {
+  const rows = db.prepare('SELECT id, start_story_id, start_at, start_ref_id, deleted_at FROM stories').all() as Row[]
+  const byId = new Map(rows.map((r) => [r.id as string, r]))
+  const out = new Map<ID, TakeOver[]>()
+  for (const r of rows) {
+    if (r.deleted_at) continue
+    const seen = new Set<ID>([r.id as string])
+    let from = r
+    let start = (r.start_story_id as string) ?? null
+    while (start && !seen.has(start)) {
+      const gone = byId.get(start)
+      if (!gone?.deleted_at) break
+      seen.add(start)
+      pushTo(out, start, {
+        storyId: r.id as string,
+        at: ((from.start_at as string) ?? 'end') as StartAt,
+        refId: (from.start_ref_id as string) ?? null
+      })
+      from = gone
+      start = (gone.start_story_id as string) ?? null
+    }
+  }
+  return out
+}
+
+/**
+ * Whether each start point (in a story) comes at or after a scene in that story, by chapter and
+ * scene order, deleted ones included: so a story that took over a deleted story's start only gets
+ * what first existed in that story before it started there.
+ */
+export function startsAfterScene(db: DB, sceneId: ID, starts: Pick<TakeOver, 'at' | 'refId'>[]): boolean[] {
+  const place = (sql: string, id: ID | null): [number, number] | null => {
+    const r = id ? (db.prepare(sql).get(id) as Row | undefined) : undefined
+    return r ? [r.chapter as number, r.scene as number] : null
+  }
+  const sceneSql = 'SELECT c.position AS chapter, s.position AS scene FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?'
+  const scene = place(sceneSql, sceneId)
+  return starts.map(({ at, refId }) => {
+    if (at === 'end') return true
+    if (at === 'pre' || at === 'post' || !scene) return false
+    const p =
+      at === 'chapter' ? place('SELECT position AS chapter, 1e9 AS scene FROM chapters WHERE id = ?', refId) : place(sceneSql, refId)
+    return !!p && (scene[0] < p[0] || (scene[0] === p[0] && scene[1] <= p[1]))
+  })
+}
+
 /** Replaces an entry's default points (Adam's own are kept). */
 export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>[]): void {
   db.transaction(() => {
@@ -379,15 +468,28 @@ export function setDefaultExistsPoints(db: DB, entryId: ID, points: Omit<ExistsP
  * earliest-made story that starts at the beginning of the world and isn't its own version of events
  * (an own version shares nothing with the rest, and a story placed during another can't be first).
  * So it can change when a story's kind or start changes, and defaults are then worked out again.
+ * A story whose start story is deleted takes over its start (as in loadShape), so deleting Book 1
+ * makes the book after it first.
  */
 export function firstStoryId(db: DB): ID | null {
-  const r = db
-    .prepare(
-      `SELECT id FROM stories WHERE deleted_at IS NULL AND start_story_id IS NULL AND kind <> 'own'
-       ORDER BY created_order, created_at LIMIT 1`
-    )
-    .get() as Row | undefined
-  return r ? (r.id as string) : null
+  const rows = db
+    .prepare('SELECT id, kind, start_story_id, deleted_at FROM stories ORDER BY created_order, created_at, rowid')
+    .all() as Row[]
+  const byId = new Map(rows.map((r) => [r.id as string, r]))
+  const startsAtBeginning = (r: Row): boolean => {
+    const seen = new Set<ID>([r.id as string])
+    let start = (r.start_story_id as string) ?? null
+    while (start) {
+      const s = byId.get(start)
+      if (!s || seen.has(start)) return true
+      if (!s.deleted_at) return false
+      seen.add(start)
+      start = (s.start_story_id as string) ?? null
+    }
+    return true
+  }
+  const first = rows.find((r) => !r.deleted_at && r.kind !== 'own' && startsAtBeginning(r))
+  return first ? (first.id as string) : null
 }
 
 /** Kinds of entry found in a scene's text that first exist at that scene (the rest exist from that story's start). */
@@ -424,38 +526,53 @@ export function defaultExistsPoint(
 
 /**
  * Works out every entry's default first-exists point again (after a story's kind or start changed).
- * Points Adam set by hand are kept, and an entry with only his points is left alone. Returns the
- * entries whose points changed.
+ * The default is the first point the app gave the entry; it is changed in place, so it stays first.
+ * Points Adam set by hand are kept, and so are points the memory keeper added later ("first seen
+ * elsewhere": a scene other than the one the entry was found in), which are not defaults. An entry
+ * with no default left is left alone. Returns the entries whose points changed.
  */
 export function refreshDefaultExistsPoints(db: DB): ID[] {
   const first = firstStoryId(db)
   const points = new Map<ID, ExistsPoint[]>()
   for (const p of listExistsPoints(db)) pushTo(points, p.entryId, p)
+  // An entry whose story or scene of origin was removed for good has no default to work out (its
+  // points were moved when that happened: settlePlacements), so it is left alone.
   const rows = db
-    .prepare('SELECT id, kind, origin, origin_story_id, origin_scene_id, origin_start FROM entries WHERE deleted_at IS NULL')
+    .prepare(
+      `SELECT e.id, e.kind, e.origin, e.origin_story_id, e.origin_scene_id, e.origin_start FROM entries e
+       WHERE e.deleted_at IS NULL
+         AND (e.origin_story_id IS NULL OR EXISTS (SELECT 1 FROM stories st WHERE st.id = e.origin_story_id))
+         AND (e.origin_scene_id IS NULL OR EXISTS (SELECT 1 FROM scenes s WHERE s.id = e.origin_scene_id))`
+    )
     .all() as Row[]
   const same = (a: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>, b: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>): boolean =>
     a.kind === b.kind && (a.storyId ?? null) === (b.storyId ?? null) && (a.sceneId ?? null) === (b.sceneId ?? null)
+  const move = db.prepare('UPDATE exists_points SET kind = ?, story_id = ?, scene_id = ? WHERE id = ?')
+  const remove = db.prepare('DELETE FROM exists_points WHERE id = ?')
   const changed: ID[] = []
   db.transaction(() => {
     for (const r of rows) {
       const id = r.id as string
+      const foundIn = (r.origin_scene_id as string) ?? null
       const mine = points.get(id) ?? []
-      const defaults = mine.filter((p) => !p.byHand)
-      if (mine.length && !defaults.length) continue
+      // Oldest first: the default, unless Adam set it by hand or the keeper added it at another scene.
+      const current = mine.find((p) => !p.byHand && (p.kind !== 'scene' || p.sceneId === foundIn))
+      if (mine.length && !current) continue
       const want = defaultExistsPoint(
         db,
         {
           kind: r.kind as Entry['kind'],
           origin: ((r.origin as string) ?? 'adam') as Origin,
           originStoryId: (r.origin_story_id as string) ?? null,
-          originSceneId: (r.origin_scene_id as string) ?? null,
+          originSceneId: foundIn,
           originStart: !!r.origin_start
         },
         first
       )
-      if (defaults.length === 1 && same(defaults[0], want)) continue
-      setDefaultExistsPoints(db, id, [want])
+      if (current && same(current, want)) continue
+      if (!current) addExistsPoint(db, { ...want, entryId: id, byHand: false })
+      else if (mine.some((p) => p !== current && same(p, want))) remove.run(current.id)
+      else move.run(want.kind, want.storyId, want.sceneId, current.id)
       changed.push(id)
     }
   })()
@@ -467,14 +584,17 @@ export function refreshDefaultExistsPoints(db: DB): ID[] {
 /**
  * Sets what a story is and where it starts (and ends, for a side story), after checking the rules
  * (placementProblem: never a story following on from itself, an end before its start, and so on).
- * A prequel with no book named leads into the book it comes before. Then works out the default
- * first-exists points again. Returns the entries whose points changed.
+ * A prequel starts at its book's start, before that book's start-of-story changes; it is the only
+ * kind that does (spec: "A prequel is the exception"), so any other story asked to start there
+ * starts after them. A prequel with no book named leads into the book it comes before. Then works
+ * out the default first-exists points again. Returns the entries whose points changed.
  */
-export function setStoryPlacement(db: DB, id: ID, placement: StoryPlacement): ID[] {
+export function setStoryPlacement(db: DB, id: ID, asked: StoryPlacement): ID[] {
+  const start = asked.startStoryId ?? null
+  const startAt: StartAt = !start ? 'end' : asked.kind === 'prequel' ? 'pre' : asked.startAt === 'pre' ? 'post' : asked.startAt
+  const placement: StoryPlacement = { ...asked, startAt }
   const problem = placementProblem(loadShape(db), id, placement)
   if (problem) throw new UserError(problem)
-  const start = placement.startStoryId ?? null
-  const startAt = start ? placement.startAt : 'end'
   const startRefId = start && (startAt === 'chapter' || startAt === 'scene') ? placement.startRefId : null
   const endAt = placement.kind === 'side' ? (placement.endAt ?? 'end') : null
   const endRefId = endAt === 'chapter' ? placement.endRefId : null
@@ -486,6 +606,219 @@ export function setStoryPlacement(db: DB, id: ID, placement: StoryPlacement): ID
     ).run(placement.kind, start, startAt, startRefId, endAt, endRefId, leadsIntoId, now(), id)
     return refreshDefaultExistsPoints(db)
   })()
+}
+
+/** Stories, chapters and scenes about to be removed for good (a purged story's chapters and scenes included). */
+export interface Purging {
+  stories: ReadonlySet<ID>
+  chapters: ReadonlySet<ID>
+  scenes: ReadonlySet<ID>
+}
+
+/**
+ * Call just before stories, chapters or scenes in Recently deleted are removed for good. While they
+ * are only deleted, loadShape keeps every story that starts or ends in them where it was (a story
+ * whose start story is deleted takes over its start point; a deleted chapter or scene moves to the
+ * one before it), and restoring them puts things back. Once they are gone that can no longer be
+ * worked out, so the same safe points are written down here: otherwise a story that followed a
+ * removed story would start at the beginning of the world and forget every story before it.
+ * Covers stories that are only deleted too, as they can still be restored. Points at things that
+ * stay (even deleted ones) are kept, so loadShape still follows them. First-exists points in what is
+ * going are written down the same way (settleExistsPoints), or the entries would vanish from every
+ * briefing. Returns the stories moved and the entries whose first-exists points moved.
+ */
+export function settlePlacements(db: DB, gone: Purging): { stories: ID[]; entries: ID[] } {
+  const stories = db
+    .prepare('SELECT id, kind, start_story_id, start_at, start_ref_id, end_at, end_ref_id, leads_into_id FROM stories')
+    .all() as Row[]
+  const chapters = db.prepare('SELECT id, story_id, position FROM chapters ORDER BY story_id, position, created_at').all() as Row[]
+  const scenes = db.prepare('SELECT id, chapter_id, position FROM scenes ORDER BY chapter_id, position, created_at').all() as Row[]
+  const storyRow = new Map(stories.map((r) => [r.id as string, r]))
+  const chapterRow = new Map(chapters.map((r) => [r.id as string, r]))
+  const sceneRow = new Map(scenes.map((r) => [r.id as string, r]))
+  const str = (v: unknown): ID | null => (v as string) ?? null
+
+  type Point = { at: StartAt; refId: ID | null }
+  const atStart: Point = { at: 'post', refId: null }
+  /** The last chapter of a story before a position that stays. */
+  const chapterBefore = (storyId: ID, position: number): ID | null => {
+    let found: ID | null = null
+    for (const c of chapters) {
+      if (c.story_id === storyId && (c.position as number) < position && !gone.chapters.has(c.id as string)) found = c.id as string
+    }
+    return found
+  }
+  /** A point in a story, with a chapter or scene that is going moved to the one before it that stays. */
+  const keep = (storyId: ID, at: StartAt, refId: ID | null): Point => {
+    if (at !== 'chapter' && at !== 'scene') return { at, refId: null }
+    if (at === 'chapter') {
+      const row = refId ? chapterRow.get(refId) : undefined
+      if (!row || row.story_id !== storyId) return atStart
+      if (!gone.chapters.has(refId!)) return { at, refId }
+      const prev = chapterBefore(storyId, row.position as number)
+      return prev ? { at: 'chapter', refId: prev } : atStart
+    }
+    const row = refId ? sceneRow.get(refId) : undefined
+    const chapter = row ? chapterRow.get(row.chapter_id as string) : undefined
+    if (!row || !chapter || chapter.story_id !== storyId) return atStart
+    if (!gone.scenes.has(refId!)) return { at, refId }
+    if (!gone.chapters.has(chapter.id as string)) {
+      let earlier: ID | null = null
+      for (const s of scenes) {
+        if (s.chapter_id === chapter.id && (s.position as number) < (row.position as number) && !gone.scenes.has(s.id as string)) {
+          earlier = s.id as string
+        }
+      }
+      if (earlier) return { at: 'scene', refId: earlier }
+    }
+    const prev = chapterBefore(storyId, chapter.position as number)
+    return prev ? { at: 'chapter', refId: prev } : atStart
+  }
+
+  const update = db.prepare(
+    'UPDATE stories SET start_story_id = ?, start_at = ?, start_ref_id = ?, end_at = ?, end_ref_id = ?, leads_into_id = ? WHERE id = ?'
+  )
+  const moved: ID[] = []
+  const entries: ID[] = []
+  db.transaction(() => {
+    for (const r of stories) {
+      const id = r.id as string
+      if (gone.stories.has(id)) continue
+      const was = { start: str(r.start_story_id), at: (str(r.start_at) ?? 'end') as StartAt, ref: str(r.start_ref_id) }
+      // A start story that is going: take over its start point (and its start story's, if that is going too).
+      let start = was.start
+      let point: Point = { at: was.at, refId: was.ref }
+      let tookOver = false
+      const seen = new Set<ID>([id])
+      while (start && gone.stories.has(start) && !seen.has(start)) {
+        seen.add(start)
+        const g = storyRow.get(start)
+        if (!g) break
+        tookOver = true
+        start = str(g.start_story_id)
+        point = { at: (str(g.start_at) ?? 'end') as StartAt, refId: str(g.start_ref_id) }
+      }
+      if (start && (gone.stories.has(start) || !storyRow.has(start))) start = null
+      const safe: Point = start ? keep(start, point.at, point.refId) : { at: 'end', refId: null }
+
+      let endAt = str(r.end_at) as 'end' | 'chapter' | null
+      let endRef = str(r.end_ref_id)
+      if (r.kind === 'side' && tookOver) {
+        // A side story whose host is going ends where it now starts, as loadShape has it.
+        const chapterOf = (sceneId: ID | null): ID | null => (sceneId ? str(sceneRow.get(sceneId)?.chapter_id) : null)
+        endAt = safe.at === 'end' || !start ? 'end' : 'chapter'
+        endRef = !start ? null : safe.at === 'chapter' ? safe.refId : safe.at === 'scene' ? chapterOf(safe.refId) : null
+      } else if (r.kind === 'side' && start && endAt === 'chapter' && endRef && gone.chapters.has(endRef)) {
+        const end = keep(start, 'chapter', endRef)
+        endRef = end.at === 'chapter' ? end.refId : null
+      }
+      const leadsInto = str(r.leads_into_id) && gone.stories.has(r.leads_into_id as string) ? null : str(r.leads_into_id)
+
+      const same =
+        start === was.start &&
+        safe.at === was.at &&
+        safe.refId === was.ref &&
+        endAt === str(r.end_at) &&
+        endRef === str(r.end_ref_id) &&
+        leadsInto === str(r.leads_into_id)
+      if (same) continue
+      update.run(start, safe.at, safe.refId, endAt, endRef, leadsInto, id)
+      moved.push(id)
+    }
+    entries.push(...settleExistsPoints(db, gone, { stories, chapters, scenes }))
+  })()
+  return { stories: moved, entries: [...new Set(entries)] }
+}
+
+/**
+ * settlePlacements' part for first-exists points, written down as loadMemoryData counts them while
+ * what they are in is only deleted. A point in a story that is going moves to the start of each
+ * story that takes over its start and started after it. A point at a scene that is going (in a story
+ * that stays) moves to the next scene that stays, or with none to the last one before it, or the
+ * story's start after its start-of-story changes. Returns the entries whose points moved.
+ */
+function settleExistsPoints(db: DB, gone: Purging, rows: { stories: Row[]; chapters: Row[]; scenes: Row[] }): ID[] {
+  const str = (v: unknown): ID | null => (v as string) ?? null
+  const storyRow = new Map(rows.stories.map((r) => [r.id as string, r]))
+  const chapterRow = new Map(rows.chapters.map((r) => [r.id as string, r]))
+  const sceneRow = new Map(rows.scenes.map((r) => [r.id as string, r]))
+  /** A scene's place in its story: [chapter position, scene position]. */
+  const order = (sceneId: ID | null): [number, number] | null => {
+    const s = sceneId ? sceneRow.get(sceneId) : undefined
+    const c = s ? chapterRow.get(s.chapter_id as string) : undefined
+    return s && c ? [c.position as number, s.position as number] : null
+  }
+  const before = (a: [number, number], b: [number, number]): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])
+  const storyOf = (p: ExistsPoint): ID | null =>
+    p.kind === 'scene' && p.sceneId
+      ? (str(chapterRow.get(str(sceneRow.get(p.sceneId)?.chapter_id) ?? '')?.story_id) ?? p.storyId)
+      : p.storyId
+
+  // The stories that stay and take over each story that is going, with where they (or the story they are in) started in it.
+  const takers = new Map<ID, TakeOver[]>()
+  for (const r of rows.stories) {
+    if (gone.stories.has(r.id as string)) continue
+    const seen = new Set<ID>([r.id as string])
+    let from = r
+    let start = str(r.start_story_id)
+    while (start && gone.stories.has(start) && !seen.has(start)) {
+      seen.add(start)
+      const g = storyRow.get(start)
+      if (!g) break
+      pushTo(takers, start, { storyId: r.id as string, at: (str(from.start_at) ?? 'end') as StartAt, refId: str(from.start_ref_id) })
+      from = g
+      start = str(g.start_story_id)
+    }
+  }
+  /** Whether a story that took over started after the point. */
+  const sees = (p: ExistsPoint, t: TakeOver): boolean => {
+    if (p.kind === 'story-pre' || t.at === 'end') return true
+    if (p.kind === 'story-post') return t.at !== 'pre'
+    if (t.at !== 'chapter' && t.at !== 'scene') return false
+    const x = order(p.sceneId)
+    const chapter = t.refId ? chapterRow.get(t.refId) : undefined
+    const s: [number, number] | null = t.at === 'scene' ? order(t.refId) : chapter ? [chapter.position as number, Infinity] : null
+    return !!x && !!s && !before(s, x)
+  }
+  /** Where a point at a scene that is going moves to, in its story. */
+  const instead = (storyId: ID, sceneId: ID): Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'> => {
+    const x = order(sceneId)
+    const staying = rows.scenes
+      .filter((s) => !gone.scenes.has(s.id as string) && str(chapterRow.get(s.chapter_id as string)?.story_id) === storyId)
+      .map((s) => ({ id: s.id as string, at: order(s.id as string)! }))
+      .sort((a, b) => (before(a.at, b.at) ? -1 : before(b.at, a.at) ? 1 : 0))
+    const next = x ? staying.find((s) => before(x, s.at)) : undefined
+    const prev = x ? staying.filter((s) => before(s.at, x)).pop() : undefined
+    const to = next ?? prev
+    return to ? { kind: 'scene', storyId, sceneId: to.id } : { kind: 'story-post', storyId, sceneId: null }
+  }
+
+  const points = listExistsPoints(db)
+  const key = (p: { entryId: ID; kind: ExistsKind; storyId: ID | null; sceneId: ID | null }): string =>
+    [p.entryId, p.kind, p.storyId ?? '', p.sceneId ?? ''].join('|')
+  const have = new Set(points.map(key))
+  const remove = db.prepare('DELETE FROM exists_points WHERE id = ?')
+  const moved: ID[] = []
+  for (const p of points) {
+    const storyId = storyOf(p)
+    let to: Omit<ExistsPoint, 'id' | 'entryId' | 'byHand'>[]
+    if (p.kind !== 'world' && storyId && gone.stories.has(storyId)) {
+      to = (takers.get(storyId) ?? []).filter((t) => sees(p, t)).map((t) => ({ kind: 'story-pre', storyId: t.storyId, sceneId: null }))
+      // Nothing took it over: the point stays, on no story's way, rather than leave the entry with none (which counts everywhere).
+      if (!to.length) continue
+    } else if (p.kind === 'scene' && p.sceneId && storyId && gone.scenes.has(p.sceneId)) {
+      to = [instead(storyId, p.sceneId)]
+    } else continue
+    for (const q of to) {
+      const k = key({ ...q, entryId: p.entryId })
+      if (have.has(k)) continue
+      have.add(k)
+      addExistsPoint(db, { ...q, entryId: p.entryId, byHand: p.byHand })
+    }
+    remove.run(p.id)
+    moved.push(p.entryId)
+  }
+  return moved
 }
 
 /**
@@ -672,7 +1005,14 @@ export function putSummary(
        source_hash = excluded.source_hash, generation_id = excluded.generation_id, updated_at = excluded.updated_at`
   ).run(s.level, s.targetId, s.text, s.origin, s.sourceHash ?? '', s.generationId ?? null, now())
   const summary = getSummary(db, s.level, s.targetId)!
-  recordVersion(db, { factKind: 'summary', factId: `${s.level}:${s.targetId}`, entryId: null, data: summary, origin: s.origin, runId: s.runId })
+  recordVersion(db, {
+    factKind: 'summary',
+    factId: `${s.level}:${s.targetId}`,
+    entryId: null,
+    data: summary,
+    origin: s.origin,
+    runId: s.runId
+  })
   return summary
 }
 
@@ -720,7 +1060,7 @@ export function setPin(db: DB, entryId: ID, scope: PinScope, scopeId: ID | null,
   if (action !== null && action !== 'pin' && action !== 'hide') throw new UserError("That briefing choice isn't known.")
   const sid = scope === 'world' ? '' : (scopeId ?? '')
   if (scope !== 'world' && !sid) throw new UserError('Pick the scene or story to pin this to.')
-  if (action !== null && !liveEntry(db, entryId)) throw new UserError('That entry no longer exists.')
+  if (action !== null && !liveEntry(db, entryId)) throw new UserError('That page no longer exists. It may have been deleted.')
   if (action === null) {
     db.prepare('DELETE FROM pins WHERE scope = ? AND scope_id = ? AND entry_id = ?').run(scope, sid, entryId)
     return

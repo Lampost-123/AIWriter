@@ -18,6 +18,8 @@
 //   any summary and fields it gives), what the entry knows and its relationships, as the rules say.
 // - An entry with no first-exists points at all counts as part of the starting setup, so a damaged
 //   or half-made entry is never silently dropped from every briefing.
+// - A first-exists point at a deleted scene counts just after the place before it (ExistsAt.after),
+//   as the rules say for a start point after a deleted scene, so the entry doesn't vanish.
 // - When a clash is settled for the host, the value the thing had just before the side story was
 //   added comes back (the host's, or a side story's that ended later in the host).
 // - A plot thread is set up where it was first opened on the walk; with no opening change before it
@@ -310,7 +312,9 @@ export function stateAt(
   const prePos = new Map<ID, number>()
   const postPos = new Map<ID, number>()
   const scenePos = new Map<ID, number>()
+  const chapterEndPos = new Map<ID, number>()
   line.steps.forEach((step, i) => {
+    if (step.type === 'chapter-end') chapterEndPos.set(step.chapterId, i)
     const inside = sideAncestry(step.storyId)
     while (frames.length && !inside.includes(frames[frames.length - 1].storyId)) closeFrame()
     for (const id of inside) if (!frames.some((f) => f.storyId === id)) openFrame(id)
@@ -350,7 +354,18 @@ export function stateAt(
       if (p.kind === 'world') pos = -1
       else if (p.kind === 'story-pre' && p.storyId) pos = prePos.get(p.storyId)
       else if (p.kind === 'story-post' && p.storyId) pos = postPos.get(p.storyId)
-      else if (p.kind === 'scene' && p.sceneId) pos = p.sceneId === target ? here : scenePos.get(p.sceneId)
+      else if (p.kind === 'scene' && p.after) {
+        // A deleted scene: just after the place before it, so never "first here".
+        const { at, refId } = p.after
+        pos =
+          at === 'post'
+            ? p.storyId
+              ? postPos.get(p.storyId)
+              : undefined
+            : refId
+              ? (at === 'chapter' ? chapterEndPos : scenePos).get(refId)
+              : undefined
+      } else if (p.kind === 'scene' && p.sceneId) pos = p.sceneId === target ? here : scenePos.get(p.sceneId)
       if (pos === undefined || (best && best.pos <= pos)) continue
       if (p.kind === 'scene') where = label({ storyId: p.storyId, sceneId: p.sceneId })
       else if (p.kind !== 'world') where = `the start of ${titles.get(p.storyId!) ?? ''}`

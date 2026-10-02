@@ -2,7 +2,7 @@
 // src/main/memory/* and src/main/db/memory.ts; this file connects it to the open world.
 // Everything here is Adam's own doing (origin 'adam'), so the memory keeper never overwrites it.
 import type { Handlers } from './index'
-import type { Change, ChangeView, Entry, ID, SummaryLevel } from '@shared/types'
+import type { Change, ChangeView, ID, SummaryLevel } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as history from '../db/history'
@@ -129,30 +129,8 @@ export const memoryHandlers: Handlers<MemoryMethods> = {
 
   listEntryHistory: (entryId) => history.entryHistory(world.db(), entryId),
   restoreEntryVersion: (entryId, versionId) => {
-    const db = world.db()
-    const v = history.getVersion(db, versionId)
-    if (!v || v.factKind !== 'entry' || v.factId !== entryId) throw new UserError('That earlier version could not be found.')
-    if (!v.data) throw new UserError('That version is from when the entry was removed. Pick an earlier one.')
-    const old = v.data as Entry
-    // Its own fields come back as they were; this writes a new version, so it can be undone too.
-    const entry = write(() =>
-      repo.updateEntry(
-        db,
-        entryId,
-        {
-          name: old.name,
-          aliases: old.aliases ?? [],
-          summary: old.summary ?? '',
-          description: old.description ?? '',
-          tags: old.tags ?? [],
-          notes: old.notes ?? '',
-          fields: old.fields ?? {},
-          parentId: old.parentId ?? null,
-          hardRule: !!old.hardRule
-        },
-        { origin: 'adam' }
-      )
-    )
+    // Its own fields come back as they were (from Recently deleted too); this writes a new version, so it can be undone too.
+    const entry = write(() => repo.restoreEntryVersion(world.db(), entryId, versionId))
     changed(null, [entryId])
     return entry
   },

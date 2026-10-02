@@ -70,12 +70,15 @@ const style = (s: Partial<StyleGuide> = {}): StyleGuide => ({
 
 const noStory = (): StorySoFar => ({ scenes: [], chapters: [], stories: [], series: [], leadsInto: null })
 
+/** A previous scene in this scene's own story. */
+const inBook2 = { storyId: 'book-2', storyTitle: 'Book 2', otherStory: null }
+
 function memoryOf(entries: EntryState[], over: Partial<SceneMemory> = {}): SceneMemory {
   return {
     storyId: 'book-2',
     sceneId: 'scene-9',
     knows: 'This story knows what happened in: Book 1.',
-    previous: { sceneId: 'scene-8', title: 'The docks', text: 'She left the docks at dusk.' },
+    previous: { sceneId: 'scene-8', title: 'The docks', text: 'She left the docks at dusk.', ...inBook2 },
     entries,
     firstHere: [],
     elsewhere: [],
@@ -195,7 +198,12 @@ function richInput(over: Partial<ContextInput> = {}): ContextInput {
   const ana = entry('character', 'Ana Venn', { summary: "Mara's sister." })
   const m = inp.memory
   m.entries.push(guild, crown, ana)
-  m.previous = { sceneId: 'scene-8', title: 'The docks', text: Array.from({ length: 12 }, (_, i) => `P${i} ${words(99)}.`).join('\n\n') }
+  m.previous = {
+    sceneId: 'scene-8',
+    title: 'The docks',
+    text: Array.from({ length: 12 }, (_, i) => `P${i} ${words(99)}.`).join('\n\n'),
+    ...inBook2
+  }
   m.relationships = [
     {
       aId: mara.id,
@@ -659,6 +667,39 @@ describe('blocks', () => {
     inp.memory.previous = null
     expect(blockOf(inp, 'previous-scene')).toBeUndefined()
     expect(assembleContext(inp, countRaw).messages[1].content).not.toContain('Continue seamlessly')
+  })
+
+  it('block 3 from another story (this story’s first scene): how that story ended, with the time gap, never "continue seamlessly"', () => {
+    const inp = input()
+    inp.memory.previous = {
+      sceneId: 'b1-last',
+      title: 'The fire',
+      text: 'The mill burned all night.',
+      storyId: 'book-1',
+      storyTitle: 'Book 1',
+      otherStory: { ended: true, timeGap: '200 years' }
+    }
+    const block = blockOf(inp, 'previous-scene')!
+    expect(block.title).toBe('How Book 1 ended')
+    expect(block.text).toBe(
+      'This is how Book 1 ended. This story comes after it. Time since then: 200 years.\n\nThe mill burned all night.'
+    )
+    const user = assembleContext(inp, countRaw).messages[1].content
+    expect(user).toContain('## How Book 1 ended\n\n')
+    expect(user).not.toContain('Continue seamlessly')
+    expect(user).toContain(
+      "- The previous scene is how Book 1 ended, not part of this story. Don't continue it seamlessly or recap it: open this story in its own right. Time since then: 200 years."
+    )
+
+    // A side story starting partway through Book 1, with no time gap.
+    inp.memory.previous = { ...inp.memory.previous, otherStory: { ended: false, timeGap: '' } }
+    expect(blockOf(inp, 'previous-scene')).toMatchObject({
+      title: 'Where Book 1 had got to',
+      text: 'This is where Book 1 had got to when this story starts.\n\nThe mill burned all night.'
+    })
+    expect(assembleContext(inp, countRaw).messages[1].content).toContain(
+      "- The previous scene is where Book 1 had got to, not part of this story. Don't continue it seamlessly or recap it: open this story in its own right.\n"
+    )
   })
 
   it('block 4: the point-of-view character as of this scene; short: without backstory', () => {
@@ -1129,6 +1170,7 @@ describe('fitting the briefing to the model', () => {
         motivation: 'The Duke has learnt who she is.'
       })
       inp.memory.previous = {
+        ...inBook2,
         sceneId: 'scene-8',
         title: 'The docks',
         text: Array.from(
@@ -1324,7 +1366,7 @@ describe('a small-context model and a large-context model both get a sensible br
       },
       memory: memoryOf([mara, tobin, duke, varn, lowtown, eel, guild, binding, salt, crown, songs], {
         knows: 'This story knows what happened in: Book 1; Book 2.',
-        previous: { sceneId: 'p', title: 'The docks', text: paragraphs(2600, 110) },
+        previous: { sceneId: 'p', title: 'The docks', text: paragraphs(2600, 110), ...inBook2 },
         relationships: [
           { aId: mara.id, bId: tobin.id, type: 'old friends, now uneasy', aFeels: prose(15), bFeels: prose(15), where: '' },
           { aId: mara.id, bId: guild.id, type: 'lieutenant', aFeels: '', bFeels: '', where: '' },
@@ -1571,7 +1613,7 @@ describe('assembleContext', () => {
     const b = assembleContext(
       input(
         { options: { direction: '', targetWords: 900, creativity: 'steady' } },
-        { previous: { sceneId: 'x', title: '', text: 'Something else entirely.' } }
+        { previous: { sceneId: 'x', title: '', text: 'Something else entirely.', ...inBook2 } }
       ),
       countRaw
     )

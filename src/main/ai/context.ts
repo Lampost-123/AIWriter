@@ -432,6 +432,13 @@ export function sceneTail(text: string, o: { min: number; target: number; max: n
 /** Block 3's short form: about the last 200 words. */
 export const SHORT_TAIL = { min: 150, target: 200, max: 250 }
 
+/** The story the previous scene is in, when it isn't this one (this story's first scene); null otherwise. */
+function previousStory(input: ContextInput): { title: string; ended: boolean; timeGap: string } | null {
+  const p = input.memory.previous
+  if (!p?.otherStory || !p.storyId || p.storyId === input.memory.storyId) return null
+  return { title: p.storyTitle.trim() || 'the story before', ended: p.otherStory.ended, timeGap: p.otherStory.timeGap.trim() }
+}
+
 // ---------- Selection ----------
 
 /** Why an entry is in the briefing, in plain words, as the Context tab shows it. */
@@ -963,9 +970,19 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   // 2 Scene card and direction (no short form).
   add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
 
-  // 3 The end of the previous scene (short: the last 200 words).
+  // 3 The end of the previous scene (short: the last 200 words). From another story (this story's
+  // first scene): titled and introduced as how that story ended, with this story's time gap.
   const prev = clean(input.memory.previous?.text)
-  if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
+  const other = previousStory(input)
+  if (prev && other) {
+    const what = other.ended
+      ? `how ${other.title} ended. This story comes after it`
+      : `where ${other.title} had got to when this story starts`
+    const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
+    const lead = `This is ${what}.${gap}`
+    const title = other.ended ? `How ${other.title} ended` : `Where ${other.title} had got to`
+    add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
+  } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
   const pov = sel.pov
@@ -1194,7 +1211,8 @@ export function prepareContext(input: ContextInput): PreparedContext {
     hasOutcome: !!clean(card.outcome),
     hasNotes: !!clean(card.notes),
     hasDirection: !!clean(input.options.direction),
-    hasBringAbout: bringAboutLines(input, sel).length > 0
+    hasBringAbout: bringAboutLines(input, sel).length > 0,
+    previousStory: previousStory(input)
   }
   const finals = {
     withPrevious: finalInstruction({ ...base, hasPrevious: true }),

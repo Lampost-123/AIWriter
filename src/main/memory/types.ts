@@ -113,12 +113,21 @@ export interface Line {
 
 // ---------- What is true at a point ----------
 
+/**
+ * A first-exists point as the memory reads it. A point at a scene that is deleted (its story isn't)
+ * has `after`: it counts just after the place before that scene (the scene before it, the end of the
+ * chapter before, or the story's start after its start-of-story changes), as a story that started
+ * after that scene would. So deleting the scene where a character first appeared doesn't make them
+ * vanish from every later scene.
+ */
+export type ExistsAt = ExistsPoint & { after?: { at: 'post' | 'chapter' | 'scene'; refId: ID | null } }
+
 export interface MemoryData {
   /** Every live entry (baselines). */
   entries: Entry[]
   /** Every live change. */
   changes: Change[]
-  exists: ExistsPoint[]
+  exists: ExistsAt[]
   answers: Answer[]
 }
 
@@ -157,7 +166,19 @@ export interface SceneMemory {
   /** "This story knows what happened in: Book 1; Kell's Road; Book 2 up to the end of Ch 5." */
   knows: string
   /** Block 3: the last scene on the line before this one (never a side story added whole). */
-  previous: { sceneId: ID; title: string; text: string } | null
+  previous: {
+    sceneId: ID
+    title: string
+    text: string
+    /** The story that scene is in. */
+    storyId: ID
+    storyTitle: string
+    /**
+     * Set when that is another story (this story's first scene, after another book or a time gap):
+     * whether it was that story's last scene, and this story's time gap ("200 years", '' for none).
+     */
+    otherStory: { ended: boolean; timeGap: string } | null
+  } | null
   /** Every entry that exists here, as of this scene. */
   entries: EntryState[]
   /** Ids of entries whose first appearance is this scene. */
