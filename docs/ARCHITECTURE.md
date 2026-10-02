@@ -176,6 +176,11 @@ approval step and no Review inbox.
   limit, so limits leave room for it (`THINKING_SHARE`), and a call that comes back empty because the
   model spent it all thinking is asked once more with more room (`thinkingRoom`). Any new AI job
   (the character Quick start, chat) gets its own level here.
+- **The character builder model** (milestone 3: Quick start, Flesh out, Give me options, Interview)
+  is its own job, `builder`: "Character builder model" in Settings › Models (`settings.models.builder`,
+  the writer model until Adam picks one) with its own Thinking (`settings.thinking.builder`, Off). The
+  automatic story flows (time gap, a prequel's starting cast, "When did these happen?") are memory
+  work, so they use the memory model and its Thinking, as the spec says.
 - **Mark scene done** (Ctrl+Enter; stored as `scenes.accepted_at`, named after the spec's earlier
   "Accept") sets the scene's status and refreshes its summary (checks arrive in milestone 5).
   Memory doesn't wait for it.

@@ -12,7 +12,7 @@ import { describeFailure, isKeyFailure, looksLikeTokenParamRejected, providerWho
 import { normalizeBaseUrl, parseModelList } from './models'
 
 const keyName = (id: string): string => `provider:${id}`
-const JOBS: Job[] = ['writer', 'memory', 'chat']
+const JOBS: Job[] = ['writer', 'memory', 'chat', 'builder']
 
 /** Model lists, fetched once per provider per session. */
 const modelCache = new Map<string, ModelInfo[]>()

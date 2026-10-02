@@ -296,7 +296,8 @@ export interface ModelChoice {
   sampling?: boolean | null
 }
 
-export type Job = 'writer' | 'memory' | 'chat'
+/** The AI jobs, each with its own model and Thinking level in Settings › Models. 'builder' is the character builder (milestone 3). */
+export type Job = 'writer' | 'memory' | 'chat' | 'builder'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 

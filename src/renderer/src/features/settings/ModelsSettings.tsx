@@ -1,6 +1,6 @@
 // Settings › Models: connect OpenRouter or another provider, test it, and pick the writer model
-// and, if Adam wants another, the memory model. Keys are sent to the main process once and never come back.
-import { Check, KeyRound, NotebookText, PenLine, Plus, Search, Server } from 'lucide-react'
+// and, if Adam wants others, the memory and character builder models. Keys are sent to the main process once and never come back.
+import { Check, KeyRound, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -88,12 +88,21 @@ export function ModelsSettings(): React.JSX.Element {
         onTest={(pid, mid) => void test('writer', pid, mid)}
         onClearResult={() => clearResult('writer')}
       />
-      <MemoryModel
+      <HelperModel
+        job="memory"
         providers={providers}
         result={results.memory}
         providerResults={results}
         onTest={(pid, mid) => void test('memory', pid, mid)}
         onClearResult={() => clearResult('memory')}
+      />
+      <HelperModel
+        job="builder"
+        providers={providers}
+        result={results.builder}
+        providerResults={results}
+        onTest={(pid, mid) => void test('builder', pid, mid)}
+        onClearResult={() => clearResult('builder')}
       />
       <DefaultCreativity />
     </div>
@@ -553,12 +562,12 @@ function ProviderForm({
   )
 }
 
-// ---------- Writer and memory models ----------
+// ---------- Writer, memory and character builder models ----------
 
-/** The jobs chosen on this page: the model that drafts scenes, and the one that keeps the memory up to date. */
-type ModelJob = 'writer' | 'memory'
+/** The jobs chosen on this page: the model that drafts scenes, the one that keeps the memory up to date, and the character builder's. */
+type ModelJob = 'writer' | 'memory' | 'builder'
 
-const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: job === 'writer' ? { writer: choice } : { memory: choice } })
+const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
 
 function WriterModel({
   providers,
@@ -618,31 +627,57 @@ function WriterModel({
   )
 }
 
-/** The memory model: the writer model unless Adam chooses another (a faster, cheaper one is fine for this job). */
-function MemoryModel({
+/** What the memory and character builder sections say: each uses the writer model unless Adam chooses another. */
+const HELPERS: Record<
+  'memory' | 'builder',
+  { title: string; description: string; icon: ReactNode; waiting: string; noWriter: string; thinking: string }
+> = {
+  memory: {
+    title: 'Memory model',
+    description: 'Reads your scenes to keep the memory up to date. A fast, cheaper model is fine.',
+    icon: <NotebookText size={16} />,
+    waiting: 'Once a provider is connected above, the memory uses the writer model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the memory here.',
+    thinking: "The memory doesn't need to think: Off is quickest, and leaves the model room to answer. It applies even when the memory uses the writer model."
+  },
+  builder: {
+    title: 'Character builder model',
+    description: 'Builds characters, places, groups and items from your notes, and answers in character in the interview.',
+    icon: <UserRoundPen size={16} />,
+    waiting: 'Once a provider is connected above, the character builder uses the writer model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the character builder here.',
+    thinking: 'Off is quickest, and the profile starts filling in straight away. It applies even when the builder uses the writer model.'
+  }
+}
+
+/** The memory or character builder model: the writer model unless Adam chooses another. */
+function HelperModel({
+  job,
   providers,
   result,
   providerResults,
   onTest,
   onClearResult
 }: {
+  job: 'memory' | 'builder'
   providers: ProviderConfig[]
   result: TestResult | undefined
   providerResults: Record<string, TestResult>
   onTest: (providerId: ID, modelId: string) => void
   onClearResult: () => void
 }): React.JSX.Element {
-  const memory = useApp((s) => s.settings?.models.memory ?? null)
+  const words = HELPERS[job]
+  const chosen = useApp((s) => s.settings?.models[job] ?? null)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
   const update = useApp((s) => s.updateSettings)
   const [picking, setPicking] = useState(false)
-  // A model whose provider has gone isn't used: the memory goes back to the writer model.
-  const memoryProvider = memory ? providers.find((p) => p.id === memory.providerId) ?? null : null
-  const own = memory && memoryProvider ? memory : null
+  // A model whose provider has gone isn't used: the job goes back to the writer model.
+  const chosenProvider = chosen ? providers.find((p) => p.id === chosen.providerId) ?? null : null
+  const own = chosen && chosenProvider ? chosen : null
 
   const save = async (choice: ModelChoice | null): Promise<void> => {
     try {
-      await update(setModel('memory', choice))
+      await update(setModel(job, choice))
       setPicking(false)
       onClearResult()
     } catch (e) {
@@ -651,17 +686,17 @@ function MemoryModel({
   }
 
   return (
-    <SettingsSection title="Memory model" description="Reads your scenes to keep the memory up to date. A fast, cheaper model is fine.">
+    <SettingsSection title={words.title} description={words.description}>
       {!providers.length ? (
-        <Notice>Once a provider is connected above, the memory uses the writer model, or one you choose here.</Notice>
+        <Notice>{words.waiting}</Notice>
       ) : picking ? (
         <ModelPicker providers={providers} providerResults={providerResults} current={own} autoFocus onChoose={(c) => void save(c)} onCancel={() => setPicking(false)} />
-      ) : own && memoryProvider ? (
+      ) : own && chosenProvider ? (
         <ChosenModel
-          job="memory"
+          job={job}
           choice={own}
-          provider={memoryProvider}
-          icon={<NotebookText size={16} />}
+          provider={chosenProvider}
+          icon={words.icon}
           result={result}
           onTest={() => onTest(own.providerId, own.modelId)}
           onChange={() => setPicking(true)}
@@ -674,13 +709,11 @@ function MemoryModel({
       ) : (
         <Card className="p-4">
           <div className="flex items-start gap-3">
-            <IconTile tone="neutral">
-              <NotebookText size={16} />
-            </IconTile>
+            <IconTile tone="neutral">{words.icon}</IconTile>
             <div className="min-w-0 flex-1">
               <div className="text-[14px] font-medium text-fg">Same as the writer model</div>
               <div className="mt-0.5 truncate text-[12.5px] text-muted" title={writer?.modelId}>
-                {writer ? writer.label || writer.modelId : 'Choose a writer model above, or a model just for the memory here.'}
+                {writer ? writer.label || writer.modelId : words.noWriter}
               </div>
             </div>
             <Button size="sm" className="shrink-0" onClick={() => setPicking(true)}>
@@ -689,12 +722,7 @@ function MemoryModel({
           </div>
         </Card>
       )}
-      {providers.length ? (
-        <ThinkingChoice
-          job="memory"
-          about="The memory doesn't need to think: Off is quickest, and leaves the model room to answer. It applies even when the memory uses the writer model."
-        />
-      ) : null}
+      {providers.length ? <ThinkingChoice job={job} about={words.thinking} /> : null}
     </SettingsSection>
   )
 }
@@ -790,7 +818,9 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
             ? "This provider doesn't say. Check the model's page; if you're not sure, leave it and AI Write will assume 16,000 tokens."
             : job === 'writer'
               ? "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
-              : "AI Write fits how much of a scene it reads at once to this. Change it if the model's page says it can read more or less."
+              : job === 'memory'
+                ? "AI Write fits how much of a scene it reads at once to this. Change it if the model's page says it can read more or less."
+                : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
         {(id) => (
@@ -1020,19 +1050,24 @@ const THINKING_HINTS: Record<ThinkingLevel, string> = {
   high: 'Thinks the most before it answers: slowest, and costs the most.'
 }
 
+const THINKING_NAMES: Record<ModelJob, string> = {
+  writer: 'Writer model thinking',
+  memory: 'Memory model thinking',
+  builder: 'Character builder model thinking'
+}
+
 /** How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model does the job. */
 function ThinkingChoice({ job, about }: { job: ModelJob; about: string }): React.JSX.Element {
   const level = useApp((s) => s.settings?.thinking?.[job] ?? 'off')
   const update = useApp((s) => s.updateSettings)
-  const choose = (l: ThinkingLevel): void =>
-    void update({ thinking: job === 'writer' ? { writer: l } : { memory: l } }).catch((e: Error) => toast(e.message, { tone: 'danger' }))
+  const choose = (l: ThinkingLevel): void => void update({ thinking: { [job]: l } }).catch((e: Error) => toast(e.message, { tone: 'danger' }))
   return (
     <div className="mt-5">
       <h3 className="text-[13.5px] font-medium text-fg">Thinking</h3>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{about}</p>
       {/* The four levels share one width and "Model decides" takes the room its name needs, so the row fits the narrowest window. */}
       <Segmented
-        label={job === 'writer' ? 'Writer model thinking' : 'Memory model thinking'}
+        label={THINKING_NAMES[job]}
         value={level}
         onChange={choose}
         options={THINKING_OPTIONS}
