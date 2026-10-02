@@ -462,10 +462,12 @@ describe('undo', () => {
     save(w.db, w.sceneId, [['p1', 'Kell lost his hat. The ferry was late.']])
     await read(w.db, w.sceneId)
     expect(entryNamed(w.db, 'Kell')).toBeNull()
-    // Another scene names him anew: that is new words.
-    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
-    save(w.db, s2, [['q1', 'Kell lost his boots.']])
-    await read(w.db, s2)
+    // New words about him make him again.
+    save(w.db, w.sceneId, [
+      ['p1', 'Kell lost his hat. The ferry was late.'],
+      ['p2', 'Kell lost his boots.']
+    ])
+    await read(w.db, w.sceneId)
     expect(entryNamed(w.db, 'Kell')).not.toBeNull()
   })
 

@@ -244,19 +244,22 @@ class Run {
   }
 
   /**
-   * True when Adam himself deleted an entry of this kind and name that was read from this scene, and
-   * the words it was read from are still here: it isn't made again from them (as if he had undone it).
+   * True when Adam himself deleted an entry of this kind and name that was read from the paragraph
+   * at `s`, and the words it was read from are still there: it isn't made again from them (as after
+   * an undo). New words, in another paragraph or scene, can make it again.
    */
-  deletedByAdam(kind: EntryKind, name: string): boolean {
+  deletedByAdam(kind: EntryKind, name: string, s: Spot): boolean {
     const n = plain(name)
+    // Without paragraph ids, the words are looked for anywhere in the scene.
+    const texts = s.paragraphId
+      ? this.plan.paras.filter((p) => p.pid === s.paragraphId).map((p) => p.text)
+      : this.plan.paras.map((p) => p.text)
+    if (!texts.length) return false
     if (!this.adamDeleted.has(kind)) this.adamDeleted.set(kind, kdb.entriesAdamDeleted(this.db, kind))
     for (const d of this.adamDeleted.get(kind)!) {
       if (plain(d.name) !== n && !d.aliases.some((a) => plain(a) === n)) continue
-      const quotes = hist
-        .linksForEntry(this.db, d.id)
-        .filter((l) => l.sceneId === this.scene.sceneId)
-        .map((l) => l.quote)
-      if (quotes.some((q) => this.plan.paras.some((p) => findQuote(p.text, q)))) return true
+      const links = hist.linksForEntry(this.db, d.id).filter((l) => l.sceneId === this.scene.sceneId && l.paragraphId === s.paragraphId)
+      if (links.some((l) => texts.some((t) => findQuote(t, l.quote)))) return true
     }
     return false
   }
@@ -763,7 +766,7 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     return
   }
   const fp = fingerprint({ type: 'entry', kind, name })
-  if (run.suppressed(fp, s.quote) || run.deletedByAdam(kind, name)) return
+  if (run.suppressed(fp, s.quote) || run.deletedByAdam(kind, name, s)) return
   const fields: Record<string, string> = {}
   const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
   for (const [k, v] of Object.entries(given)) {
@@ -924,7 +927,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       return
     }
     const fp = fingerprint({ type: 'event', name })
-    if (run.suppressed(fp, s.quote) || run.deletedByAdam('event', name)) return
+    if (run.suppressed(fp, s.quote) || run.deletedByAdam('event', name, s)) return
     const e = repo.createEntry(
       db,
       'event',
@@ -971,7 +974,7 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
     if (!thread) {
       if (!name) return
       const fp = fingerprint({ type: 'entry', kind: 'thread', name })
-      if (run.suppressed(fp, s.quote) || run.deletedByAdam('thread', name)) return
+      if (run.suppressed(fp, s.quote) || run.deletedByAdam('thread', name, s)) return
       thread = repo.createEntry(
         db,
         'thread',
