@@ -32,6 +32,9 @@ const MADE = [
   'drowner'
 ]
 
+/** The voice the fake describes when asked for a character's (SUGGESTED_VOICE in tests/fake-provider/m4/readAloud.mjs). */
+const VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
+
 const main = (win: Page) => win.locator('main')
 const worldNav = (win: Page) => win.getByRole('navigation', { name: 'World' })
 const summaryBox = (win: Page) => main(win).getByRole('textbox', { name: 'Your summary' })
@@ -165,6 +168,11 @@ test('one paragraph builds the world in one click, saving as it goes: his words 
     // The timeline starts: the story's opening scene is on Day 1.
     const opening = (await invoke(win, 'getOutline', storyId)).scenes[0]
     expect((await invoke(win, 'getScene', opening.id)).card.when).toBe('Day 1')
+    // The characters it made have their read-aloud voices, described as Suggest would (the read-aloud model is
+    // the writer model until one is picked; tests/fake-provider/m4/readAloud.mjs answers with SUGGESTED_VOICE).
+    for (const name of ['Mara Venn', 'Tobin']) {
+      expect((await invoke(win, 'getEntryReadAloud', named(list, name).id)).voice.design).toBe(VOICE)
+    }
 
     // Open goes to the entry's page, where the AI's fields say so; the page keeps the results meanwhile.
     await results(win).getByRole('button', { name: 'Open Mara Venn', exact: true }).click()

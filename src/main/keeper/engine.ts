@@ -35,6 +35,11 @@ export interface KeeperDeps {
   recheckMs?: number
   /** Summaries and roll-ups (on unless switched off, for tests). */
   summaries?: boolean
+  /**
+   * A read found someone or something new in the text (`entryIds`): told after the run has finished, so the
+   * caller can fill in their empty fields as a follow-on (builder/fill.ts) that never holds up the memory.
+   */
+  onNewEntries?: (entryIds: ID[], model: MemoryModel) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -387,6 +392,13 @@ export class Keeper {
         if (outcome.status === 'done') {
           this.noModel = null
           if (outcome.lines || outcome.entryIds.length) this.deps.emitChanged({ sceneId: id, entryIds: outcome.entryIds })
+          if (model && outcome.newEntryIds?.length) {
+            try {
+              this.deps.onNewEntries?.(outcome.newEntryIds, model)
+            } catch (e) {
+              console.warn('Could not start filling in what the memory found', e)
+            }
+          }
           if (outcome.runId && outcome.readParagraphs > 0 && askSummaryRefresh(this.db, outcome.runId, id))
             this.deps.emitChanged({ sceneId: id, entryIds: [] })
         }

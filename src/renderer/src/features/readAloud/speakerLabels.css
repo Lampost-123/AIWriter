@@ -1,0 +1,31 @@
+/* "Show speakers and tone": who says a paragraph and how, small and faint in the space just above it. Drawn by CSS
+   from the paragraph's data-speaker-label (speakerLabels.ts), so it takes no room, can't be selected or copied, and
+   is never part of the text. Colours come from the theme tokens in styles.css. */
+
+.scene-prose p.aw-speaker {
+  position: relative;
+}
+
+.scene-prose p.aw-speaker::after {
+  /* The words after the slash are what a screen reader says for it: nothing, so the paragraph reads as written. */
+  content: attr(data-speaker-label) / '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  padding-bottom: 1px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 450;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-indent: 0;
+  color: var(--faint);
+  pointer-events: none;
+  user-select: none;
+  animation: var(--animate-fade-in);
+}

@@ -67,6 +67,8 @@ export interface ApplyResult {
   lines: number
   /** Entries whose memory changed. */
   entryIds: ID[]
+  /** Entries this read made (found in the text for the first time). */
+  newEntryIds?: ID[]
 }
 
 // ---------- What undoing a line needs (stored with the line) ----------
@@ -198,7 +200,8 @@ class Run {
   private entries: Entry[]
   private readonly here: Set<ID> | null
   private readonly firstSeenDone = new Set<ID>()
-  private readonly madeHere = new Set<ID>()
+  /** Entries this read made. */
+  readonly madeHere = new Set<ID>()
   private readonly removedChangeEntries = new Set<ID>()
   private readonly adamDeleted = new Map<EntryKind, { id: ID; name: string; aliases: string[] }[]>()
   private earlier: ((entryId: ID) => boolean) | null | undefined
@@ -1338,5 +1341,5 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     )
   }
   for (const l of run.lines) if (l.entryId) run.touched.add(l.entryId)
-  return { lines: run.lines.length, entryIds: [...run.touched] }
+  return { lines: run.lines.length, entryIds: [...run.touched], newEntryIds: [...run.madeHere] }
 }

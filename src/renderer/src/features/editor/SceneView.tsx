@@ -23,6 +23,7 @@ import { SceneHeader } from './SceneHeader'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
+import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
 import './editor.css'
 
@@ -235,6 +236,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
+        <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">

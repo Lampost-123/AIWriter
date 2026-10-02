@@ -12,6 +12,7 @@ import { resolveFlush } from '../flush'
 import { refreshDefaultExistsPoints } from '../db/memory'
 import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
 import { sceneTextSaved } from '../history'
+import { sceneSavedForMarks } from '../readAloud'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -136,6 +137,7 @@ export const coreHandlers: Handlers<CoreMethods> = {
   saveSceneText: (id, doc, text) => {
     const saved = write(() => sceneSaved(id, repo.saveSceneText(world.db(), id, doc, text)))
     sceneTextSaved(id)
+    sceneSavedForMarks(id, doc)
     return saved
   },
   updateSceneCard: (id, card) => write(() => repo.updateSceneCard(world.db(), id, card)),

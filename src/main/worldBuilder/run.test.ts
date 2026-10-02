@@ -17,10 +17,21 @@ import { stopTasksFor } from '../ai/tasks'
 import { jobModel, type JobModel, type ModelSources } from '../ai/jobModel'
 import { undoItem } from '../keeper/undo'
 import { madeItems, redoBuild, undoBuild } from './lines'
-import { buildRunning, buildState, cancelBuild, closeBuildsFor, resetBuildsForTests, startBuild, UNUSABLE, type BuildContext } from './run'
+import {
+  buildRunning,
+  buildState,
+  cancelBuild,
+  closeBuildsFor,
+  pagesToFill,
+  resetBuildsForTests,
+  startBuild,
+  UNUSABLE,
+  type BuildContext
+} from './run'
 import { estimateCost, guessBuild, guessNames } from './estimate'
 import { startTimeline, timelineStory } from './timeline'
 import { timelineOf } from '../worldViews/index'
+import { getEntryReadAloud, setEntryReadAloud } from '../readAloud/voiceStore'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -577,5 +588,120 @@ describe('the cost before starting', () => {
     expect(estimateCost(long, c)!).toBeGreaterThan(estimateCost(short, c)!)
     expect(guessBuild(SUMMARY, c, 0, 'high').output).toBeGreaterThan(short.output)
     expect(estimateCost(short, { promptPrice: null, completionPrice: null })).toBeNull()
+  })
+})
+
+describe('the last steps: filling in what is missing, and the characters’ voices', () => {
+  /** What tests/fake-provider/m4/readAloud.mjs answers when asked for a voice (SUGGESTED_VOICE). */
+  const VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
+
+  const voiceModel = (): JobModel => ({ ...modelFor('fake/writer'), job: 'speech' })
+  const voiceOf = (db: Database.Database, id: ID): string => getEntryReadAloud(db, id).voice.design
+  const isVoiceAsk = (init?: RequestInit): string | null => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: { role: string; content: string }[] }
+    if (!body.messages?.some((m) => m.role === 'system' && /\] voice\n/.test(m.content))) return null
+    return body.messages.find((m) => m.role === 'user')?.content.match(/^CHARACTER: ([^(\n]+?)(?: \(|$)/m)?.[1] ?? null
+  }
+
+  /** A world where the memory found Erin in the opening scene: a name, a line and her pronouns. */
+  function withErin(): { db: Database.Database; erin: Entry } {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const sceneId = repo.getOutline(db, story.id).scenes[0].id
+    const words = ['The storm threw them onto the sand.', 'Erin pushed her red hair out of her eyes and stood.']
+    const doc = {
+      type: 'doc',
+      content: words.map((text, i) => ({ type: 'paragraph', attrs: { pid: `p${i}` }, content: [{ type: 'text', text }] }))
+    }
+    repo.saveSceneText(db, sceneId, doc, words.join('\n\n'))
+    const erin = repo.createEntry(
+      db,
+      'character',
+      { name: 'Erin', summary: 'A castaway.', fields: { pronouns: 'she/her' } },
+      { origin: 'text', originStoryId: story.id, originSceneId: sceneId }
+    )
+    return { db, erin }
+  }
+
+  it('fills in a thin page the memory made from the text, as the AI’s, and leaves what the text said', async () => {
+    const { db, erin } = withErin()
+    const t = setup({ db })
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(t.steps()).toContain('Filling in missing details: 1 of 1')
+    expect(t.progress().find((p) => p.step.startsWith('Filling'))?.stage).toBe('filling')
+
+    const after = t.named('Erin')
+    expect(after.description).toBe('Description of Erin, filled in from the story.')
+    expect(after.fields.traits).toBe('Core traits of Erin, filled in from the story.')
+    expect(originOf(after, 'description')).toBe('ai')
+    expect(after.summary).toBe('A castaway.')
+    expect(after.fields.pronouns).toBe('she/her')
+    expect(originOf(after, 'summary')).toBe('text')
+    expect(t.saved).toContain(erin.id)
+    // Recorded as the World builder's, and part of the build's cost and records.
+    expect(records(t.db)).toHaveLength(13)
+    expect(kdb.getRun(t.db, done.runId!)?.generationIds).toHaveLength(13)
+    // The pages the build made were full already: nothing else was asked.
+    expect(pagesToFill(t.db, [])).toEqual([])
+  })
+
+  it('never fills a page Adam made himself, unless the build made it', () => {
+    const db = memoryWorld()
+    const his = repo.createEntry(db, 'character', { name: 'Brann' })
+    const text = repo.createEntry(db, 'character', { name: 'Kell' }, { origin: 'text' })
+    const lore = repo.createEntry(db, 'lore', { name: 'Magic' }, { origin: 'text' })
+    expect(pagesToFill(db, [])).toEqual([text.id])
+    expect(pagesToFill(db, [his.id])).toEqual([his.id, text.id])
+    expect(pagesToFill(db, [lore.id])).toEqual([text.id])
+  })
+
+  it('a plain build fills nothing and asks for no voices without a read-aloud model', async () => {
+    const t = setup()
+    await t.build(SUMMARY)
+    expect(t.steps().some((s) => s.startsWith('Filling') || s.startsWith('Giving'))).toBe(false)
+    expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe('')
+  })
+
+  it('gives each character it made a voice, as Suggest would, and never replaces one set meanwhile', async () => {
+    const t = setup()
+    const brann = repo.createEntry(t.db, 'character', { name: 'Brann', summary: 'A ferryman.' })
+    setEntryReadAloud(t.db, brann.id, { voice: { design: 'Gravel and smoke.', voice: '' }, say: [] })
+    const asked: string[] = []
+    t.ctx.voiceModel = voiceModel()
+    t.ctx.fetchImpl = (input, init) => {
+      const who = isVoiceAsk(init)
+      if (who) {
+        asked.push(who)
+        // Adam sets Tobin's voice while the AI is still thinking of one.
+        if (who === 'Tobin') setEntryReadAloud(t.db, t.named('Tobin').id, { voice: { design: 'Adam’s own.', voice: '' }, say: [] })
+      }
+      return fetch(input, init)
+    }
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(asked).toEqual(['Mara Venn', 'Tobin'])
+    expect(t.steps()).toEqual(
+      expect.arrayContaining(['Giving the characters their voices: 1 of 2', 'Giving the characters their voices: 2 of 2'])
+    )
+    expect(t.progress().find((p) => p.step.startsWith('Giving'))?.stage).toBe('voices')
+    expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe(VOICE)
+    expect(voiceOf(t.db, t.named('Tobin').id)).toBe('Adam’s own.')
+    // A character it didn't make keeps its voice, and isn't asked about.
+    expect(voiceOf(t.db, brann.id)).toBe('Gravel and smoke.')
+    // Recorded as read aloud's requests, not the World builder's.
+    expect(records(t.db)).toHaveLength(12)
+    const speech = t.db.prepare("SELECT status FROM generations WHERE job = 'speech'").all()
+    expect(speech).toHaveLength(2)
+  })
+
+  it('a voice that can’t be had leaves the character without one, and the build ends well', async () => {
+    const t = setup()
+    t.ctx.voiceModel = voiceModel()
+    t.ctx.fetchImpl = async (input, init) =>
+      isVoiceAsk(init) ? new Response('{"error":{"message":"Down for the night"}}', { status: 503 }) : fetch(input, init)
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe('')
   })
 })

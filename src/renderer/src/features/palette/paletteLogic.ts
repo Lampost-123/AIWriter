@@ -69,6 +69,8 @@ export type FixedActionId =
   | 'scene-ideas'
   | 'listen'
   | 'stop-reading'
+  | 'show-speakers'
+  | 'hide-speakers'
   | 'settings-speech'
   | 'world-builder'
   // Milestone 5
@@ -94,6 +96,8 @@ export interface ActionContext {
   readAloud?: boolean
   /** Something is being read aloud now. */
   reading?: boolean
+  /** "Show speakers and tone" is on. */
+  speakers?: boolean
 }
 
 export interface ActionDef {
@@ -247,6 +251,18 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'listen speak voice halt',
     shortcut: 'stopReading',
     when: (c) => !!c.reading
+  },
+  {
+    id: 'show-speakers',
+    label: 'Show speakers and tone',
+    keywords: 'who says speaking voice emotion tone mood dialogue labels read aloud',
+    when: (c) => !c.speakers
+  },
+  {
+    id: 'hide-speakers',
+    label: 'Hide speakers and tone',
+    keywords: 'who says speaking voice emotion tone mood dialogue labels read aloud',
+    when: (c) => !!c.speakers
   },
   {
     id: 'settings-speech',

@@ -469,6 +469,12 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the
   world's `meta` key `read_aloud`, by entry id; speaker marks and spoken audio are a cache in the user data
   folder (audio up to the limit Adam picks, oldest removed first). Dictated audio is never saved.
+  AI-written text (Generate, Beat by beat, a picked variant, an accepted AI edit or Continue) has its new or changed
+  paragraphs marked in the background as it lands (`readAloud/draftMarks.ts`, from History's snapshot before the change,
+  draft starts and ends, and the scene's saves; `Marker.noteAll`, failures only logged), when read aloud is on or set up
+  or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
+  tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
+  speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
@@ -496,6 +502,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`fallbackWhen`). A finished build puts the story's opening scene on "Day 1" while none of its scenes
   has a When (`worldBuilder/timeline.ts`), and asks for events during the story on that count. A When
   already on a card is never replaced.
+- **Filling in the gaps.** `builder/fill.ts` fills the empty fields of thin characters, places, groups and
+  items (summary or description empty, or a third of the fields empty) with the AI, from the world and
+  what the story says about them, as `'ai'` ("Drafted by AI"). A field with words in it, a name and other
+  names are never changed. Two callers: a World build's last steps ("Filling in missing details": what it
+  made, and pages Adam didn't make himself, such as a character the memory found), and the memory keeper,
+  which hands the entries a run made from scene text (`newEntryIds`) to `fillFound` on the memory model
+  after the run, so it never slows or breaks the memory. Then the build gives each character it made a
+  read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
+  is set; it is saved even when read aloud isn't set up.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.

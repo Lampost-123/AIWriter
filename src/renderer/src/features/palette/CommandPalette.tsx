@@ -291,9 +291,10 @@ function useActionContext(): ActionContext {
   const sceneDone = useOutlineStore((s) => !!sceneId && s.outline?.scenes.find((x) => x.id === sceneId)?.status === 'done')
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const reading = useReading((s) => s.reading)
+  const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers]
   )
 }
 

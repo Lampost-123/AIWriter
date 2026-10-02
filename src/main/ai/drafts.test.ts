@@ -8,7 +8,7 @@ import * as gens from '../db/generations'
 import { insertChange, putSummary, setBlockMode, setDefaultExistsPoints, setPin } from '../db/memory'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { assembleContext, replyTokenLimit, sentEntryVersions } from './context'
-import { draftCost, isDrafting, startDraftJob, stopDraft, stopDraftsFor, type Emit } from './drafts'
+import { draftCost, isDrafting, onDraftActivity, startDraftJob, stopDraft, stopDraftsFor, type DraftActivity, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
 
@@ -301,6 +301,29 @@ describe('drafting', () => {
   beforeEach(() => {
     w = setup()
     fake.reset()
+  })
+
+  it('tells its watchers (reading aloud marks a draft as it lands) when it starts and ends; a watcher that fails never fails the draft', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const heard: DraftActivity[] = []
+    const offHeard = onDraftActivity((e) => heard.push(e))
+    const offBroken = onDraftActivity(() => {
+      throw new Error('The marks could not be made.')
+    })
+    try {
+      const { emit, done } = recorder()
+      const { generationId } = start(w, emit)
+      expect(heard).toEqual([{ sceneId: w.second.id, phase: 'start', variant: false }])
+      const end = await done(generationId)
+      expect(end.status).toBe('complete')
+      expect(gens.getGeneration(w.db, generationId).status).toBe('complete')
+      expect(heard.map((e) => e.phase)).toEqual(['start', 'end'])
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      offHeard()
+      offBroken()
+      warn.mockRestore()
+    }
   })
 
   it('records the draft, streams batched text, and finishes the record', async () => {

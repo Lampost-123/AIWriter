@@ -495,6 +495,12 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
               }
             />
             <SwitchRow
+              label="Show speakers and tone"
+              checked={speech.showSpeakers}
+              onChange={(showSpeakers) => void save({ showSpeakers })}
+              description="Shows who says each paragraph, and how, in small grey words just above it. They are never part of your text. New drafts are marked as they are written; your own writing is marked when it is read aloud."
+            />
+            <SwitchRow
               label="Perform written sounds"
               checked={speech.sounds}
               onChange={(sounds) => void save({ sounds })}

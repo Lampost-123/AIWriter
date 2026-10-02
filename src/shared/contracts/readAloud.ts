@@ -118,6 +118,18 @@ export interface ReadingPlan {
   markAhead?: { pid: string; at: number }
 }
 
+/** "Show speakers and tone": the paragraphs of a scene as the page shows them now. */
+export interface SpeakerLabelsRequest {
+  sceneId: ID
+  paragraphs: ReadParagraph[]
+}
+
+/** The few words shown faintly above a paragraph: "Mara · sharp, quickly", "Narrator". Never part of the text. */
+export interface SpeakerLabel {
+  pid: string
+  label: string
+}
+
 /** What a Sample, Hear or Listen button plays, exactly as reading will sound. */
 export type SampleRequest =
   /** Settings › Sample: the sample sentence (as typed now, else the saved one) in the narrator's voice. */
@@ -170,6 +182,11 @@ export interface ReadAloudApi {
     entryId: ID,
     taskId: ID
   ): Promise<{ design: string; status: 'complete' | 'stopped' | 'error'; error: string | null }>
+  /**
+   * "Show speakers and tone": who says each paragraph and how, for the paragraphs whose marks are in (marked as a
+   * draft landed, or by reading aloud). Paragraphs not marked yet, or being marked now, are left out.
+   */
+  speakerLabels(req: SpeakerLabelsRequest): Promise<SpeakerLabel[]>
   /** How much spoken audio is kept. */
   getReadAloudCache(): Promise<AudioCacheStats>
   /** Deletes the spoken audio kept on disk. */

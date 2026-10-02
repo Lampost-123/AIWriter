@@ -38,6 +38,31 @@ const active = new Map<ID, Job>()
 export const isDrafting = (sceneId: ID): boolean => [...active.values()].some((j) => j.sceneId === sceneId)
 export const activeDraftIds = (): ID[] => [...active.keys()]
 
+/** A draft of a scene started or finished (milestone 4: reading aloud marks a draft's text as it lands). */
+export interface DraftActivity {
+  sceneId: ID
+  phase: 'start' | 'end'
+  /** One of a set of Variants: nothing goes into the scene until Adam picks one. */
+  variant: boolean
+}
+const watchers = new Set<(e: DraftActivity) => void>()
+
+/** Hears every draft start and finish. A watcher's failure never touches the draft. */
+export function onDraftActivity(fn: (e: DraftActivity) => void): () => void {
+  watchers.add(fn)
+  return () => watchers.delete(fn)
+}
+
+function tellWatchers(e: DraftActivity): void {
+  for (const fn of watchers) {
+    try {
+      fn(e)
+    } catch (err) {
+      console.warn('A draft watcher failed', err)
+    }
+  }
+}
+
 export interface DraftRequest {
   db: DB
   sceneId: ID
@@ -136,6 +161,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 
   const job: Job = { id, sceneId: req.sceneId, db: req.db, controller: new AbortController(), text: '', closed: false, done: Promise.resolve() }
   active.set(id, job)
+  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant })
   job.done = run(job, req, params, reply.fallback)
   return { generationId: id }
 }
@@ -246,6 +272,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     }
   }
   active.delete(job.id)
+  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant })
   try {
     if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()
     else if (outcome.status === 'complete') req.onWorked?.()

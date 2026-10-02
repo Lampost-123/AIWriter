@@ -262,6 +262,33 @@ export function interviewMessages(system: string, turns: InterviewTurn[], questi
   return messages
 }
 
+// ---------- Filling in what is missing ----------
+
+/**
+ * Fill in the gaps: a profile that was made with little in it (a character the memory found in a scene, a
+ * place the World builder made from one line) gets its empty fields filled from what the story and the
+ * world say about it. Nothing on the profile is changed; the reply holds only the empty fields.
+ */
+export function fillGapsSystem(kind: BuilderKind): string {
+  const noun = NOUN[kind]
+  return `${BUILDER_MARKER} fill-gaps
+You help an author keep the ${noun}s of a novel's world complete. A ${noun} is in the story, but its profile has empty fields. From what the story and the world say about it, fill in each empty field, and reply with one JSON object and nothing else.
+
+Rules
+- Build on the profile and on what the story says about the ${noun}, and never contradict them: they are right.
+- Where the story says nothing about a field, choose what fits the ${noun} and the story best, so the author could keep it as it is.
+- Fit the world: keep to its rules, its tone and its style guide.
+- Write plain prose, specific and concrete, in the style guide's spelling. No headings, bullet points or markdown inside fields.
+
+Reply with {"key": "what goes in it", ...}, one for each empty field you are asked about and no others.`
+}
+
+/** `said`: what the story (or the author's summary) says about it, word for word; '' for nothing. */
+export function fillGapsUser(kind: BuilderKind, values: BuilderValues, targets: string[], world: string, said: string): string {
+  const story = said.trim() ? `\n\nWhat the story says about the ${NOUN[kind]}:\n"""\n${said.trim()}\n"""` : ''
+  return `${world}${story}\n\nThe ${NOUN[kind]}'s profile so far:\n${profileText(kind, values)}\n\nEmpty fields to fill in (key: what it holds):\n${fieldList(kind, targets)}\n\nReply now, as one JSON object.`
+}
+
 // ---------- Asking again ----------
 
 /** Asked once more when a reply couldn't be used, saying why. */

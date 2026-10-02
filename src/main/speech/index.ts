@@ -565,6 +565,15 @@ export function stopSpeech(): void {
   server.stop()
 }
 
+/** The voices are downloaded on this computer (read aloud is set up), whether or not the server runs now. Never throws. */
+export function voicesInstalled(): boolean {
+  try {
+    return installedNow(paths(), readManifest(manifestFile())).voices !== null
+  } catch {
+    return false
+  }
+}
+
 export async function getSpeechStatus(): Promise<SpeechStatus> {
   lookForCard()
   // Once the server has been asked, Settings gets what is known at once; a change since arrives as speech:status.

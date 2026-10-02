@@ -84,6 +84,7 @@ export const defaultSpeechSettings = (): SpeechSettings => ({
   style: 'A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.',
   steadyNarrator: true,
   markSpeakers: false,
+  showSpeakers: false,
   sounds: false,
   keepReading: true,
   followAlong: true,
