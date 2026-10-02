@@ -84,16 +84,26 @@ export interface SearchHit {
 export type CardPart = 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'beats' | 'notes' | 'summary'
 
 /**
+ * A part of an entry's page, where a result was found further down than its name and summary:
+ * - 'field': one of its fields, by key: 'description', 'tags' or one of its kind's own (shared/fields.ts), like 'fears'
+ * - 'relationships' (how it stands with others at the start), 'knows' (what a character knows at the start) or
+ *   'changes' (how it changes over the story): that section of the page
+ * - 'notes': its private notes
+ */
+export type EntryPart = { kind: 'field'; key: string } | { kind: 'relationships' | 'knows' | 'changes' | 'notes' }
+
+/**
  * What opening a result does:
  * - 'scene': opens the scene; with `words`, selects and scrolls to them; with `card`, shows the scene card in the
  *   scene panel, scrolled to that part of it
- * - 'entry': opens the entry's page
+ * - 'entry': opens the entry's page; with `part`, scrolled to that part of it (its section opened if it is closed),
+ *   with `words` selected there when they are in a box Adam types in
  * - 'story': opens the story at `sceneId` (or where Adam last was in it)
  * - 'style': the world's style guide, or (with `storyId`) that story's settings
  */
 export type SearchOpen =
   | { kind: 'scene'; sceneId: ID; storyId: ID; words: string | null; card: CardPart | null }
-  | { kind: 'entry'; entryId: ID; entryKind: EntryKind }
+  | { kind: 'entry'; entryId: ID; entryKind: EntryKind; part: EntryPart | null; words: string | null }
   | { kind: 'story'; storyId: ID; sceneId: ID | null }
   | { kind: 'style'; storyId: ID | null }
 

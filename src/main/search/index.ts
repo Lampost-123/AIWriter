@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3'
 import type { EntryKind, ID, StyleGuide, SummaryLevel } from '@shared/types'
 import type {
   CardPart,
+  EntryPart,
   SearchGroup,
   SearchGroupId,
   SearchHit,
@@ -22,7 +23,19 @@ import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import * as rows from '../db/search'
 import { loadShape } from '../db/memory'
 import { labeler } from '../memory/line'
-import { fold, hasPhrase, hasTerm, marked, matchesAll, parseQuery, snippet, wordsToReveal, type Term } from './text'
+import {
+  fold,
+  hasPhrase,
+  hasTerm,
+  marked,
+  matchesAll,
+  parseQuery,
+  plainWords,
+  snippet,
+  wordsToReveal,
+  type Snippet,
+  type Term
+} from './text'
 
 type DB = Database.Database
 
@@ -49,6 +62,11 @@ interface CardField extends Field {
   part: CardPart
 }
 
+/** A field of an entry, with the part of its page it is on (to open the page there). */
+interface EntryField extends Field {
+  part: EntryPart
+}
+
 interface SceneDoc {
   id: ID
   title: string
@@ -69,7 +87,7 @@ interface EntryDoc {
   aliases: Field[]
   summary: Field
   /** Description, tags, the kind's fields and what the memory has about it over the story, each labelled. */
-  more: Field[]
+  more: EntryField[]
   notes: Field
   /** Name and aliases; with the summary; with everything else. */
   names: string[]
@@ -155,6 +173,13 @@ function styleFields(style: Partial<StyleGuide>): Field[] {
 const ALL_FIELDS = Object.values(FIELD_GROUPS).flatMap((groups) => (groups ?? []).flatMap((g) => g.fields))
 const fieldLabel = (kind: EntryKind, key: string): string =>
   FIELD_GROUPS[kind]?.flatMap((g) => g.fields).find((f) => f.key === key)?.label ?? ALL_FIELDS.find((f) => f.key === key)?.label ?? key
+
+/** The sections of an entry's page that list what the memory has about it, by their titles there (features/world/memory/). */
+function sectionLabel(kind: EntryKind, section: rows.ChangeSection): string {
+  if (section === 'knows') return 'Knows at the start'
+  if (section === 'changes') return 'Changes over time'
+  return kind === 'character' || kind === 'group' ? 'Relationships' : 'Connections'
+}
 
 const SUMMARY_WORDS: Record<SummaryLevel, string> = {
   scene: 'Scene summary',
@@ -318,9 +343,19 @@ export class SearchIndex {
       const first = story.chapters.find((c) => c.scenes.length)?.scenes[0]?.id ?? null
       out.stories.set(story.id, { order: order++, firstSceneId: first })
       for (const c of story.chapters) {
-        out.chapters.set(c.id, { storyId: story.id, order: order++, label: label({ storyId: story.id, chapterId: c.id }), firstSceneId: c.scenes[0]?.id ?? null })
+        out.chapters.set(c.id, {
+          storyId: story.id,
+          order: order++,
+          label: label({ storyId: story.id, chapterId: c.id }),
+          firstSceneId: c.scenes[0]?.id ?? null
+        })
         for (const s of c.scenes) {
-          out.scenes.set(s.id, { storyId: story.id, chapterId: c.id, order: order++, label: label({ storyId: story.id, chapterId: c.id, sceneId: s.id }) })
+          out.scenes.set(s.id, {
+            storyId: story.id,
+            chapterId: c.id,
+            order: order++,
+            label: label({ storyId: story.id, chapterId: c.id, sceneId: s.id })
+          })
         }
       }
     }
@@ -331,18 +366,28 @@ export class SearchIndex {
     const titleF = fold(s.title)
     const textF = fold(s.text)
     const card = s.card.map((c): CardField => ({ ...field(c.label, c.text), part: c.part }))
-    return { id: s.id, title: s.title, titleF, text: s.text, textF, card, notes: field('Notes for the AI', s.notes), all: [titleF, textF, ...card.map((c) => c.f)] }
+    return {
+      id: s.id,
+      title: s.title,
+      titleF,
+      text: s.text,
+      textF,
+      card,
+      notes: field('Notes for the AI', s.notes),
+      all: [titleF, textF, ...card.map((c) => c.f)]
+    }
   }
 
   private entryDoc(e: rows.EntryWords): EntryDoc {
     const nameF = fold(e.name)
     const aliases = e.aliases.map((a) => field('Also called', a))
     const summary = field('Summary', e.summary)
+    const at = (f: Field, part: EntryPart): EntryField => ({ ...f, part })
     const more = [
-      field('', e.description),
-      ...(e.tags.length ? [field('Tags', e.tags.join(', '))] : []),
-      ...Object.entries(e.fields).map(([k, v]) => field(fieldLabel(e.kind, k), v)),
-      ...e.changes.map((c) => field(c.label, c.text))
+      at(field('', e.description), { kind: 'field', key: 'description' }),
+      ...(e.tags.length ? [at(field('Tags', e.tags.join(', ')), { kind: 'field', key: 'tags' })] : []),
+      ...Object.entries(e.fields).map(([key, v]) => at(field(fieldLabel(e.kind, key), v), { kind: 'field', key })),
+      ...e.changes.map((c) => at(field(sectionLabel(e.kind, c.section), c.text), { kind: c.section }))
     ].filter((f) => f.text.trim() !== '')
     const names = [nameF, ...aliases.map((a) => a.f)]
     const short = [...names, summary.f]
@@ -370,7 +415,13 @@ export class SearchIndex {
   }
 
   private storyDoc(s: rows.StoryWords): StoryDoc {
-    return { id: s.id, title: field('Title', s.title), premise: field('Premise', s.premise), seriesId: s.seriesId, style: styleFields(s.style) }
+    return {
+      id: s.id,
+      title: field('Title', s.title),
+      premise: field('Premise', s.premise),
+      seriesId: s.seriesId,
+      style: styleFields(s.style)
+    }
   }
 
   // ---------- Searching ----------
@@ -411,10 +462,11 @@ export class SearchIndex {
     const words = terms.map((t) => t.word).join(' ')
     const found = new Map<EntryKind, Ranked<EntryDoc>[]>()
     for (const e of this.entries.values()) {
-      const tier = matchesAll([e.nameF], terms) ? 0 : matchesAll(e.names, terms) ? 1 : matchesAll(e.short, terms) ? 2 : matchesAll(e.all, terms) ? 3 : -1
+      // By the name itself, by any of its names, with the summary too, or with everything else.
+      const tier = [[e.nameF], e.names, e.short, e.all].findIndex((texts) => matchesAll(texts, terms))
       if (tier < 0) continue
       // Among names: the name itself, then names starting with the first word, then the rest; shorter names first.
-      const name = e.nameF.split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(' ')
+      const name = plainWords(e.nameF)
       const exact = tier > 0 ? 0 : name === words ? 0 : name.startsWith(terms[0].word) ? 1 : 2
       const list = found.get(e.kind) ?? []
       list.push({ doc: e, rank: [tier, exact, tier === 0 ? e.name.length : 0] })
@@ -424,7 +476,8 @@ export class SearchIndex {
       const list = found.get(kind)
       if (!list?.length) return []
       list.sort((a, b) => byRank(a, b) || a.doc.name.localeCompare(b.doc.name))
-      return [{ group: { id: kind, label: KIND_LABELS[kind].many, total: list.length, hits: list.slice(0, take(kind)).map((r) => this.entryHit(r.doc, terms, r.rank[0])) }, best: list[0].rank }]
+      const hits = list.slice(0, take(kind)).map((r) => this.entryHit(r.doc, terms, r.rank[0]))
+      return [{ group: { id: kind, label: KIND_LABELS[kind].many, total: list.length, hits }, best: list[0].rank }]
     })
       .sort((a, b) => a.best[0] - b.best[0] || a.best[1] - b.best[1])
       .map((g) => ({ group: g.group, named: g.best[0] < 3 }))
@@ -432,14 +485,20 @@ export class SearchIndex {
 
   private entryHit(e: EntryDoc, terms: Term[], tier: number): SearchHit {
     let rest: TextPart[]
+    // Found further down its page than its name and summary: the page opens there.
+    let part: EntryPart | null = null
+    let words: string | null = null
     if (tier === 1) {
       const alias = e.aliases.find((a) => matchesAll([a.f], terms)) ?? e.aliases.find((a) => terms.some((t) => hasTerm(a.f, t)))
       rest = alias ? labelled('Also called', marked(alias.text, terms)) : []
     } else if (tier === 3) {
       // The field with the most of the words in it.
-      const best = [...e.more].sort((a, b) => terms.filter((t) => hasTerm(b.f, t)).length - terms.filter((t) => hasTerm(a.f, t)).length)[0]
-      const s = snippet(best.text, terms, 140).parts
-      rest = best.label ? labelled(best.label, s) : s
+      const count = (f: Field): number => terms.filter((t) => hasTerm(f.f, t)).length
+      const best = [...e.more].sort((a, b) => count(b) - count(a))[0]
+      const s = snippet(best.text, terms, 140)
+      rest = best.label ? labelled(best.label, s.parts) : s.parts
+      part = best.part
+      words = entryWords(best, s)
     } else rest = e.summary.text.trim() ? snippet(e.summary.text, terms, 140).parts : []
     return {
       key: `entry:${e.id}`,
@@ -447,11 +506,14 @@ export class SearchIndex {
       detail: '',
       snippet: rest,
       prose: false,
-      open: { kind: 'entry', entryId: e.id, entryKind: e.kind }
+      open: { kind: 'entry', entryId: e.id, entryKind: e.kind, part, words }
     }
   }
 
-  /** The manuscript: titles first, then scenes with the words together as typed, then the rest; the open story first, then in reading order. */
+  /**
+   * The manuscript: titles first, then scenes with the words together as typed, then the rest; the
+   * open story first, then in reading order.
+   */
   private sceneGroup(terms: Term[], take: number, storyId: ID | null): SearchGroup {
     const found: Ranked<SceneDoc>[] = []
     for (const [id, place] of this.outline.scenes) {
@@ -461,7 +523,8 @@ export class SearchIndex {
       found.push({ doc: s, rank: [tier, place.storyId === storyId ? 0 : 1, place.order] })
     }
     found.sort(byRank)
-    return { id: 'scenes', label: GROUP_LABELS.scenes, total: found.length, hits: found.slice(0, take).map((r) => this.sceneHit(r.doc, terms)) }
+    const hits = found.slice(0, take).map((r) => this.sceneHit(r.doc, terms))
+    return { id: 'scenes', label: GROUP_LABELS.scenes, total: found.length, hits }
   }
 
   private sceneHit(s: SceneDoc, terms: Term[]): SearchHit {
@@ -495,7 +558,8 @@ export class SearchIndex {
       found.push({ doc: s, rank: [order] })
     }
     found.sort(byRank)
-    return { id: 'summaries', label: GROUP_LABELS.summaries, total: found.length, hits: found.slice(0, take).map((r) => this.summaryHit(r.doc, terms)) }
+    const hits = found.slice(0, take).map((r) => this.summaryHit(r.doc, terms))
+    return { id: 'summaries', label: GROUP_LABELS.summaries, total: found.length, hits }
   }
 
   /** Where a summary's scene, chapter, story or series is in reading order; null when it is gone. */
@@ -547,7 +611,14 @@ export class SearchIndex {
       title = this.series.get(s.targetId) || 'Untitled series'
       open = { kind: 'story', storyId: this.seriesFirstStory(s.targetId)!, sceneId: null }
     }
-    return { key: `summary:${s.level}:${s.targetId}`, title: plain(title), detail, snippet: snippet(s.text.text, terms, 180).parts, prose: false, open }
+    return {
+      key: `summary:${s.level}:${s.targetId}`,
+      title: plain(title),
+      detail,
+      snippet: snippet(s.text.text, terms, 180).parts,
+      prose: false,
+      open
+    }
   }
 
   private chapterOpen(chapterId: ID): SearchOpen {
@@ -570,16 +641,17 @@ export class SearchIndex {
     scenes.sort(byRank)
     const total = entries.length + scenes.length
     const hits: SearchHit[] = [
-      ...entries.slice(0, take).map(
-        (e): SearchHit => ({
+      ...entries.slice(0, take).map((e): SearchHit => {
+        const s = snippet(e.notes.text, terms, 180)
+        return {
           key: `note:entry:${e.id}`,
           title: plain(e.name || 'Untitled'),
           detail: `Private notes · ${KIND_LABELS[e.kind].one}`,
-          snippet: snippet(e.notes.text, terms, 180).parts,
+          snippet: s.parts,
           prose: false,
-          open: { kind: 'entry', entryId: e.id, entryKind: e.kind }
-        })
-      ),
+          open: { kind: 'entry', entryId: e.id, entryKind: e.kind, part: { kind: 'notes' }, words: entryWords(e.notes, s) }
+        }
+      }),
       ...scenes.slice(0, Math.max(0, take - entries.length)).map(({ doc: s }): SearchHit => {
         const place = this.outline.scenes.get(s.id)!
         return {
@@ -604,11 +676,13 @@ export class SearchIndex {
     const found: Ranked<Doc>[] = []
     for (const [id, place] of this.outline.stories) {
       const st = this.stories.get(id)
-      if (st && matchesAll([st.title.f, st.premise.f], terms)) found.push({ doc: { story: st }, rank: [matchesAll([st.title.f], terms) ? 0 : 1, place.order] })
+      if (!st || !matchesAll([st.title.f, st.premise.f], terms)) continue
+      found.push({ doc: { story: st }, rank: [matchesAll([st.title.f], terms) ? 0 : 1, place.order] })
     }
     for (const [id, place] of this.outline.chapters) {
       const c = this.chapters.get(id)
-      if (c && matchesAll([c.title.f, c.goal.f], terms)) found.push({ doc: { chapter: c }, rank: [matchesAll([c.title.f], terms) ? 0 : 1, place.order] })
+      if (!c || !matchesAll([c.title.f, c.goal.f], terms)) continue
+      found.push({ doc: { chapter: c }, rank: [matchesAll([c.title.f], terms) ? 0 : 1, place.order] })
     }
     found.sort(byRank)
     const hits = found.slice(0, take).map(({ doc }): SearchHit => {
@@ -685,6 +759,16 @@ export class SearchIndex {
     }
     return out
   }
+}
+
+/**
+ * The words to select where an entry's page opens: in a box Adam types in, the matched words with
+ * enough around them to be the first place they appear there; in a section listing what the memory
+ * has (shown in other words there), only the matched words, to find the change they belong to.
+ */
+function entryWords(f: Field | EntryField, s: Snippet): string | null {
+  if (!s.words) return null
+  return 'part' in f && f.part.kind !== 'field' ? s.words : wordsToReveal(f.text, s.at, s.words)
 }
 
 const indexes = new WeakMap<DB, SearchIndex>()

@@ -59,7 +59,14 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'shortcuts', name: 'This list of shortcuts', group: 'Moving around', keys: ['?'] },
   { id: 'settings', name: 'Settings', group: 'Moving around', keys: ['Mod', ','] },
   { id: 'close', name: 'Close a menu, list or dialog', group: 'Moving around', keys: ['Esc'] },
-  { id: 'binderMove', name: 'Move between chapters and scenes', where: 'in the binder', group: 'Moving around', keys: ['↑', '↓'], either: true },
+  {
+    id: 'binderMove',
+    name: 'Move between chapters and scenes',
+    where: 'in the binder',
+    group: 'Moving around',
+    keys: ['↑', '↓'],
+    either: true
+  },
   { id: 'binderFold', name: 'Close or open a chapter', where: 'in the binder', group: 'Moving around', keys: ['←', '→'], either: true },
   { id: 'binderOpen', name: 'Open the scene', where: 'in the binder', group: 'Moving around', keys: ['Enter'] },
   { id: 'binderRename', name: 'Rename a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
@@ -134,6 +141,13 @@ export function pressShortcut(id: ShortcutId, mac = isMac()): void {
   const key = main === 'Esc' ? 'Escape' : main.length === 1 ? main.toLowerCase() : main
   const mod = keys.includes('Mod')
   window.dispatchEvent(
-    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ctrlKey: mod && !mac, metaKey: mod && mac, shiftKey: keys.includes('Shift') })
+    new KeyboardEvent('keydown', {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: mod && !mac,
+      metaKey: mod && mac,
+      shiftKey: keys.includes('Shift')
+    })
   )
 }

@@ -132,7 +132,9 @@ function toSceneWords(r: Row): SceneWords {
 /** Live scenes' words: every one, or only these (a scene not returned is gone or deleted). */
 export function sceneWords(db: DB, ids?: ID[]): SceneWords[] {
   const rows = ids
-    ? db.prepare('SELECT id, title, text, card_json FROM scenes WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL').all(JSON.stringify(ids))
+    ? db
+        .prepare('SELECT id, title, text, card_json FROM scenes WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL')
+        .all(JSON.stringify(ids))
     : db.prepare('SELECT id, title, text, card_json FROM scenes WHERE deleted_at IS NULL').all()
   return (rows as Row[]).map(toSceneWords)
 }
@@ -148,9 +150,15 @@ export interface EntryWords {
   tags: string[]
   fields: Record<string, string>
   notes: string
-  /** What the memory has about it over the story, labelled as its page labels them. */
-  changes: { label: string; text: string }[]
+  /** What the memory has about it over the story, with the section of its page that lists each. */
+  changes: { section: ChangeSection; text: string }[]
 }
+
+/**
+ * The section of an entry's page that lists a change: how it stands with others at the start, what a
+ * character knows at the start, or how it changes over the story (features/world/memoryLogic.ts splitChanges).
+ */
+export type ChangeSection = 'relationships' | 'knows' | 'changes'
 
 const ENTRY_WORDS = 'id, kind, name, aliases_json, summary, description, tags_json, notes, fields_json'
 
@@ -170,36 +178,41 @@ function toEntryWords(r: Row): EntryWords {
   }
 }
 
-const CHANGES = 'Changes over time'
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
-const strings = (v: unknown): string[] => (v && typeof v === 'object' ? Object.values(v).filter((x): x is string => typeof x === 'string') : [])
+const strings = (v: unknown): string[] =>
+  v && typeof v === 'object' ? Object.values(v).filter((x): x is string => typeof x === 'string') : []
 
-/** The words of one change (shared/types.ts ChangeData), labelled. */
-function changeWords(kind: string, p: Record<string, unknown>): { label: string; text: string }[] {
-  const out: { label: string; text: string }[] = []
-  const add = (label: string, text: string): void => {
-    if (text.trim()) out.push({ label, text })
+/** The words of one change (shared/types.ts ChangeData), each with the section of the entry's page that lists it. */
+function changeWords(kind: string, anchor: unknown, p: Record<string, unknown>): { section: ChangeSection; text: string }[] {
+  const out: { section: ChangeSection; text: string }[] = []
+  const add = (section: ChangeSection, text: string): void => {
+    if (text.trim()) out.push({ section, text })
   }
   const state = (): void => {
-    add(CHANGES, str(p.summary))
-    add(CHANGES, str(p.description))
-    for (const v of strings(p.fields)) add(CHANGES, v)
+    add('changes', str(p.summary))
+    add('changes', str(p.description))
+    for (const v of strings(p.fields)) add('changes', v)
   }
+  // Relationships and what a character knows from the start have sections of their own; anything
+  // else (a fresh description too, with what it says they know) is listed as a change over time.
+  const start = anchor === 'baseline'
   switch (kind) {
     case 'update':
-      add(CHANGES, str(p.note))
+      add('changes', str(p.note))
       state()
       break
     case 'full':
       state()
-      for (const k of Array.isArray(p.knows) ? p.knows : []) add('Knows at the start', str((k as Record<string, unknown> | null)?.fact))
+      for (const k of Array.isArray(p.knows) ? p.knows : []) add('changes', str((k as Record<string, unknown> | null)?.fact))
       break
     case 'relationship':
-      add(CHANGES, [p.type, p.feels, p.otherFeels].map(str).filter(Boolean).join(' · '))
+      add(start ? 'relationships' : 'changes', [p.type, p.feels, p.otherFeels].map(str).filter(Boolean).join(' · '))
       break
     case 'knowledge':
+      add(start ? 'knows' : 'changes', str(p.fact))
+      break
     case 'thread':
-      add(CHANGES, str(kind === 'knowledge' ? p.fact : p.note))
+      add('changes', str(p.note))
       break
   }
   return out
@@ -213,12 +226,15 @@ export function entryWords(db: DB, ids?: ID[]): EntryWords[] {
     : db.prepare(`SELECT ${ENTRY_WORDS} FROM entries WHERE deleted_at IS NULL`).all()
   const entries = new Map((rows as Row[]).map((r) => [r.id as string, toEntryWords(r)]))
   if (!entries.size) return []
+  const columns = 'entry_id, kind, anchor, payload_json'
+  const live = 'deleted_at IS NULL ORDER BY position'
   const changes = only
-    ? db
-        .prepare('SELECT entry_id, kind, payload_json FROM changes WHERE entry_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL ORDER BY position')
-        .all(only)
-    : db.prepare('SELECT entry_id, kind, payload_json FROM changes WHERE deleted_at IS NULL ORDER BY position').all()
-  for (const c of changes as Row[]) entries.get(c.entry_id as string)?.changes.push(...changeWords(c.kind as string, json<Record<string, unknown>>(c.payload_json, {})))
+    ? db.prepare(`SELECT ${columns} FROM changes WHERE entry_id IN (SELECT value FROM json_each(?)) AND ${live}`).all(only)
+    : db.prepare(`SELECT ${columns} FROM changes WHERE ${live}`).all()
+  for (const c of changes as Row[]) {
+    const words = changeWords(c.kind as string, c.anchor, json<Record<string, unknown>>(c.payload_json, {}))
+    entries.get(c.entry_id as string)?.changes.push(...words)
+  }
   return [...entries.values()]
 }
 
@@ -230,9 +246,10 @@ export interface SummaryWords {
 
 /** Summaries with words in them: every one, or only these ('level:target' keys). */
 export function summaryWords(db: DB, keys?: string[]): SummaryWords[] {
+  const key = "level || ':' || target_id"
   const rows = keys
     ? db
-        .prepare("SELECT level, target_id, text FROM summaries WHERE level || ':' || target_id IN (SELECT value FROM json_each(?)) AND text <> ''")
+        .prepare(`SELECT level, target_id, text FROM summaries WHERE ${key} IN (SELECT value FROM json_each(?)) AND text <> ''`)
         .all(JSON.stringify(keys))
     : db.prepare("SELECT level, target_id, text FROM summaries WHERE text <> ''").all()
   return (rows as Row[]).map((r) => ({ level: r.level as SummaryLevel, targetId: r.target_id as string, text: r.text as string }))

@@ -4,7 +4,9 @@
 //
 // Matching rules (spec, Search): every word of the query must match, in any order; a word matches
 // the start of a word in the text and, once Adam has typed past it, the whole word. Only the last
-// word is matched by its start, since he may still be typing it ("drag" finds "dragon").
+// word is matched by its start, since he may still be typing it ("drag" finds "dragon"). An
+// apostrophe between letters belongs to the word ("don't", "O'Brien"), and a possessive looks for
+// its name: "Mara's" finds Mara, wherever she is.
 
 import type { TextPart } from '@shared/contracts/search'
 
@@ -22,12 +24,17 @@ export interface Query {
 
 const MARKS = /\p{M}/gu
 const NON_ASCII = /[^\u0000-\u007f]/
+/** Curly and other apostrophes, all read as the plain one. */
+const APOSTROPHES = /[‘’ʼ]/g
 
-/** Lower case without accents: "Élodie" → "elodie". Lengths can change (ligatures), so offsets need foldMap. */
+/**
+ * Lower case without accents, with one kind of apostrophe: "Élodie" → "elodie", "Mara’s" → "mara's".
+ * Lengths can change (ligatures), so offsets need foldMap.
+ */
 export function fold(s: string): string {
   if (!NON_ASCII.test(s)) return s.toLowerCase()
   // ς only ends a word; folding it to σ keeps a whole-string fold the same as a character-by-character one.
-  return s.normalize('NFKD').replace(MARKS, '').toLowerCase().replace(/ς/g, 'σ')
+  return s.normalize('NFKD').replace(MARKS, '').toLowerCase().replace(/ς/g, 'σ').replace(APOSTROPHES, "'")
 }
 
 const foldedChars = new Map<string, string>()
@@ -81,23 +88,37 @@ export function isWordChar(ch: string | undefined): boolean {
   return WORD.test(ch)
 }
 
-const SPLIT = /[^\p{L}\p{N}]+/u
+/** Words in folded text: letters and digits, with an apostrophe between them kept ("don't", "o'brien"). */
+const WORDS = /[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu
+
+/** The words of some folded text, as search reads them. */
+export const wordsIn = (folded: string): string[] => folded.match(WORDS) ?? []
+
+/** A possessive's name ("mara's" → "mara"); any other word as it is. */
+const named = (word: string): string => (word.endsWith("'s") ? word.slice(0, -2) : word)
+
+/** The words of some folded text as one string, possessives as their names: "mara's rest" → "mara rest". */
+export const plainWords = (folded: string): string => wordsIn(folded).map(named).join(' ')
 
 /**
  * The words of a query, folded, each once, in the order typed. The last is matched by its start
- * unless Adam has typed a space (or other mark) after it. Null when there are no words at all.
+ * unless Adam has typed a space (or other mark) after it. A possessive is its name ("mara's" looks
+ * for "mara", which finds "Mara’s" too), never a word "s" of its own. Null when there are no words.
  */
 export function parseQuery(q: string): Query | null {
-  const words = fold(q).split(SPLIT).filter(Boolean)
+  const words = wordsIn(fold(q))
   if (!words.length) return null
   const open = isWordChar(q.slice(-1))
   const seen = new Set<string>()
   const terms: Term[] = []
-  words.forEach((word, i) => {
+  words.forEach((typed, i) => {
+    const word = named(typed)
+    const possessive = word !== typed
     // A word typed twice counts once (a finished word also matches as its own start).
     if (seen.has(word)) return
     seen.add(word)
-    terms.push({ word, prefix: open && i === words.length - 1 })
+    // The name before a possessive is finished, even while the 's is the last thing typed.
+    terms.push({ word, prefix: open && !possessive && i === words.length - 1 })
   })
   return { terms }
 }
@@ -122,7 +143,8 @@ export function matchesAll(texts: string[], terms: Term[]): boolean {
 
 /**
  * True when the words appear together, in the order typed, with only spaces or marks between them
- * ("iron gate" in "the iron gate creaked"). One word always does when it matches.
+ * ("iron gate" in "the iron gate creaked"), or a possessive ("Mara's ship" in "Mara’s ship"). One word
+ * always does when it matches.
  */
 export function hasPhrase(text: string, terms: Term[]): boolean {
   if (terms.length < 2) return terms.length === 1 && hasTerm(text, terms[0])
@@ -131,6 +153,7 @@ export function hasPhrase(text: string, terms: Term[]): boolean {
     let at = i + first.word.length
     const ok = rest.every((t) => {
       let j = at
+      if (text.startsWith("'s", j) && !isWordChar(text[j + 2])) j += 2
       while (j < text.length && !isWordChar(text[j]) && text[j] !== '\n') j++
       if (j === at || text.slice(j, j + t.word.length) !== t.word) return false
       if (!t.prefix && isWordChar(text[j + t.word.length])) return false
@@ -289,7 +312,8 @@ export function snippet(text: string, terms: Term[], size = 180): Snippet {
     const from = map.start[m.from]
     const to = map.end[m.to - 1]
     if (to <= start || from >= end) continue
-    pieces.push({ text: oneLine(text.slice(at, Math.max(at, from))) }, { text: oneLine(text.slice(Math.max(at, from), Math.min(end, to))), hit: true })
+    const hit = text.slice(Math.max(at, from), Math.min(end, to))
+    pieces.push({ text: oneLine(text.slice(at, Math.max(at, from))) }, { text: oneLine(hit), hit: true })
     at = Math.min(end, to)
   }
   pieces.push({ text: oneLine(text.slice(at, end)) }, { text: end < paraEnd ? '…' : '' })

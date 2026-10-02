@@ -8,6 +8,7 @@ import {
   availableActions,
   entryAction,
   fold,
+  goesAway,
   matchActions,
   paletteRows,
   remember,
@@ -26,11 +27,26 @@ const hit = (key: string, title = key): SearchHit => ({
   detail: '',
   snippet: [],
   prose: false,
-  open: { kind: 'entry', entryId: key, entryKind: 'character' }
+  open: { kind: 'entry', entryId: key, entryKind: 'character', part: null, words: null }
 })
 
-const show = (rows: Row[]): string[] =>
-  rows.map((r) => (r.type === 'heading' ? `# ${r.label}` : r.type === 'action' ? r.action.label : r.type === 'hit' ? r.hit.title[0].text : r.type === 'more' ? `+ ${r.label}` : `~ ${r.text}`))
+/** A row as text: "# " before a heading, "+ " before "Show more", "~ " before a note. */
+function rowText(r: Row): string {
+  switch (r.type) {
+    case 'heading':
+      return `# ${r.label}`
+    case 'action':
+      return r.action.label
+    case 'hit':
+      return r.hit.title[0].text
+    case 'more':
+      return `+ ${r.label}`
+    case 'note':
+      return `~ ${r.text}`
+  }
+}
+
+const show = (rows: Row[]): string[] => rows.map(rowText)
 
 describe('the actions', () => {
   it('reach every screen and action the spec names', () => {
@@ -110,6 +126,20 @@ describe('the actions', () => {
     expect(ids({ ...writing, theme: 'dark' })).not.toContain('theme-dark')
     expect(ids({ ...writing, storyId: null, sceneId: null })).not.toContain('new-scene')
   })
+
+  it('know when they take Adam to another page, so focus goes there rather than back where it was', () => {
+    const away = (id: string, c: ActionContext): boolean => goesAway(ACTIONS.find((a) => a.id === id)!, c)
+    const codex: ActionContext = { ...writing, view: 'codex' }
+    expect(away('go-codex', writing)).toBe(true)
+    expect(away('toggle-binder', codex)).toBe(false)
+    // Done on the writing page: from another page they go back to it, with the caret in the page.
+    for (const id of ['generate', 'mark-done', 'reopen-scene', 'new-scene', 'new-chapter']) {
+      expect(away(id, writing)).toBe(false)
+      expect(away(id, codex)).toBe(true)
+    }
+    // Stopping a draft leaves Adam where he is.
+    expect(away('stop', codex)).toBe(false)
+  })
 })
 
 describe('finding actions by typing', () => {
@@ -141,7 +171,14 @@ describe('finding actions by typing', () => {
   })
 
   it('suggests the most useful actions when nothing is typed', () => {
-    expect(suggestedActions(writing).map((a) => a.id)).toEqual(['generate', 'mark-done', 'new-scene', 'go-codex', 'new-character', 'quick-character'])
+    expect(suggestedActions(writing).map((a) => a.id)).toEqual([
+      'generate',
+      'mark-done',
+      'new-scene',
+      'go-codex',
+      'new-character',
+      'quick-character'
+    ])
     expect(suggestedActions({ ...writing, drafting: true })[0].id).toBe('stop')
     expect(suggestedActions({ ...writing, storyId: null, sceneId: null }).map((a) => a.id)).toEqual([
       'go-codex',
@@ -179,13 +216,27 @@ describe('the list', () => {
   }
 
   it('lists recent places and suggestions with nothing typed', () => {
-    const rows = paletteRows({ query: ' ', actions: [], results: null, recent: [hit('Mara')], suggested: suggestedActions(writing).slice(0, 2), expanded: new Set() })
+    const rows = paletteRows({
+      query: ' ',
+      actions: [],
+      results: null,
+      recent: [hit('Mara')],
+      suggested: suggestedActions(writing).slice(0, 2),
+      expanded: new Set()
+    })
     expect(show(rows)).toEqual(['# Recent', 'Mara', '# Suggested', 'Generate a draft', 'Mark scene done'])
     expect(show(paletteRows({ query: '', actions: [], results: null, recent: [], suggested: [], expanded: new Set() }))).toEqual([])
   })
 
   it('lists matching actions first, then each group, with a way to show more', () => {
-    const rows = paletteRows({ query: 'ma', actions: matchActions('new', writing), results, recent: [], suggested: [], expanded: new Set() })
+    const rows = paletteRows({
+      query: 'ma',
+      actions: matchActions('new', writing),
+      results,
+      recent: [],
+      suggested: [],
+      expanded: new Set()
+    })
     expect(show(rows)).toEqual([
       '# Actions',
       ...matchActions('new', writing)
@@ -208,7 +259,14 @@ describe('the list', () => {
   })
 
   it('shows every action, or says how many more there are, once a group is opened up', () => {
-    const rows = paletteRows({ query: 'ma', actions: matchActions('new', writing), results, recent: [], suggested: [], expanded: new Set(['actions', 'notes']) })
+    const rows = paletteRows({
+      query: 'ma',
+      actions: matchActions('new', writing),
+      results,
+      recent: [],
+      suggested: [],
+      expanded: new Set(['actions', 'notes'])
+    })
     expect(show(rows)).toContain('~ Showing 1 of 60. Add a word to narrow it down.')
     expect(show(rows)).not.toContain('+ Show more actions')
     expect(rows.filter((r) => r.type === 'action')).toHaveLength(matchActions('new', writing).length)

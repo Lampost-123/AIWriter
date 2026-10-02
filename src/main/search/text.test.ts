@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { TextPart } from '@shared/contracts/search'
-import { findTerm, fold, foldMap, hasPhrase, marked, matchesAll, parseQuery, snippet, wordsToReveal, type Term } from './text'
+import {
+  findTerm,
+  fold,
+  foldMap,
+  hasPhrase,
+  marked,
+  matchesAll,
+  parseQuery,
+  plainWords,
+  snippet,
+  wordsToReveal,
+  type Term
+} from './text'
 
 const terms = (q: string): Term[] => parseQuery(q)!.terms
 /** Marked text as a string: matches in [brackets]. */
@@ -37,9 +49,27 @@ describe('reading a query', () => {
   })
 
   it('splits on marks and keeps each word once', () => {
-    expect(parseQuery("Mara's mara")!.terms.map((t) => t.word)).toEqual(['mara', 's'])
+    expect(parseQuery('iron-gate, iron')!.terms.map((t) => t.word)).toEqual(['iron', 'gate'])
     expect(parseQuery('  ,.!  ')).toBeNull()
     expect(parseQuery('')).toBeNull()
+  })
+
+  it('reads a possessive as its name, and keeps an apostrophe inside a word', () => {
+    // Never a word "s" of its own, which would match every word starting with s.
+    expect(parseQuery("Mara's")!.terms).toEqual([{ word: 'mara', prefix: false }])
+    expect(parseQuery('Mara’s ship')!.terms).toEqual([
+      { word: 'mara', prefix: false },
+      { word: 'ship', prefix: true }
+    ])
+    expect(parseQuery("Mara's mara")!.terms.map((t) => t.word)).toEqual(['mara'])
+    // Halfway through typing the possessive: still just the name.
+    expect(parseQuery("Mara'")!.terms).toEqual([{ word: 'mara', prefix: false }])
+    expect(parseQuery('don’t O’Brie')!.terms).toEqual([
+      { word: "don't", prefix: false },
+      { word: "o'brie", prefix: true }
+    ])
+    expect(plainWords(fold('Mara’s Rest'))).toBe('mara rest')
+    expect(plainWords(fold('The Iron-Gate'))).toBe('the iron gate')
   })
 })
 
@@ -69,6 +99,15 @@ describe('matching', () => {
     expect(hasPhrase(text, terms('gate iron'))).toBe(false)
     expect(hasPhrase(text, terms('creaked mara'))).toBe(true)
     expect(hasPhrase(fold('iron\n\ngate'), terms('iron gate'))).toBe(false)
+    // A possessive in the text or the query keeps the words together.
+    expect(hasPhrase(text, terms('mara gatekeeper'))).toBe(true)
+    expect(hasPhrase(text, terms("Mara's gatek"))).toBe(true)
+  })
+
+  it('reads a curly apostrophe as a plain one', () => {
+    expect(findTerm(fold('He said don’t.'), terms("don't")[0])).toBe(8)
+    expect(matchesAll([fold('Old O’Brien')], terms("o'bri"))).toBe(true)
+    expect(matchesAll([fold('Mara’s ship')], terms("mara's"))).toBe(true)
   })
 })
 
@@ -79,8 +118,18 @@ describe('marked text and snippets', () => {
     expect(show(marked('Nothing here', terms('mara')))).toBe('Nothing here')
   })
 
+  it('marks only the name for a possessive, not every word starting with s', () => {
+    const text = 'She said nothing. Mara’s sister stood at the stern, and the sea spray stung her eyes as Mara’s ship slid south.'
+    expect(show(snippet(text, terms("Mara's")).parts)).toBe(
+      'She said nothing. [Mara]’s sister stood at the stern, and the sea spray stung her eyes as [Mara]’s ship slid south.'
+    )
+    expect(show(marked('Mara’s Rest', terms("mara's rest")))).toBe('[Mara]’s [Rest]')
+  })
+
   it('shows the words around the best match, cut at word breaks, with the matches marked', () => {
-    const para = `${'Long before any of this, the valley was quiet and nobody came. '.repeat(4)}Then the iron gate creaked open and Mara walked through it alone. ${'After that the rain fell for days on end. '.repeat(4)}`
+    const before = 'Long before any of this, the valley was quiet and nobody came. '.repeat(4)
+    const after = 'After that the rain fell for days on end. '.repeat(4)
+    const para = `${before}Then the iron gate creaked open and Mara walked through it alone. ${after}`
     const s = snippet(para, terms('mara gate'))
     const text = show(s.parts)
     expect(text.startsWith('…')).toBe(true)

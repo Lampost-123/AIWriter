@@ -1,7 +1,7 @@
 // Search and the command palette (Ctrl+K), and the keyboard shortcuts list (?): finding words in a
 // scene, an entry by another name, a summary and a private note; running actions; and keyboard
-// focus going back where it was.
-import type { Page } from '@playwright/test'
+// focus going back where it was. Also the top bar's search box at the smallest window.
+import type { ElectronApplication, Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
@@ -12,7 +12,19 @@ const scenes = (win: Page) => binder(win).locator('[data-row="scene"]')
 const shortcutsList = (win: Page) => win.getByRole('dialog', { name: 'Keyboard shortcuts' })
 
 /** The words selected in the window. */
-const selectedText = (win: Page): Promise<string> => win.evaluate(() => String((globalThis as unknown as { getSelection(): unknown }).getSelection()))
+const selectedText = (win: Page): Promise<string> =>
+  win.evaluate(() => String((globalThis as unknown as { getSelection(): unknown }).getSelection()))
+
+/** The words selected in the box that has the keyboard. */
+const selectedInBox = (win: Page): Promise<string> =>
+  win.evaluate<string>(`(() => {
+    const el = document.activeElement
+    return el && 'selectionStart' in el ? el.value.slice(el.selectionStart, el.selectionEnd) : ''
+  })()`)
+
+/** The window's size, as Adam might make it. */
+const resize = (app: ElectronApplication, width: number, height: number): Promise<void> =>
+  app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height] as const)
 
 /** Opens the palette with Ctrl+K and types into it. */
 async function search(win: Page, words: string): Promise<void> {
@@ -192,7 +204,9 @@ test('Generate a draft and Stop the draft run from the palette, from any page', 
   }
 })
 
-test('Keys pressed before the list catches up act on what was typed; a note opens the card at it; the world menu and name box keep their places', async ({ launch }) => {
+test('Keys pressed before the list catches up act on what was typed; a note opens the card at it; the world menu and name box keep their places', async ({
+  launch
+}) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
   await prose(win).click()
@@ -268,3 +282,117 @@ test('Keys pressed before the list catches up act on what was typed; a note open
   await expect(win.getByRole('menu')).toHaveCount(0)
   await expect(prose(win)).toBeFocused()
 })
+
+test('An entry opens where the words were found; a scene action from another page puts the caret back in the page', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  await prose(win).click()
+  await win.keyboard.type('Rain on the roof.')
+  // Long private notes with the words at the end, a field in a section that starts closed, and a change over the story.
+  const lines = Array.from({ length: 40 }, (_, i) => `Note ${i + 1}: nothing much to say here.`)
+  const notes = [...lines, 'She keeps the lighthouse keys under a loose board.'].join('\n')
+  const mara = await invoke(win, 'createEntry', 'character', {
+    name: 'Mara Quell',
+    fields: { fears: 'Deep water at night, and the bell tower ringing.' },
+    notes
+  })
+  const [story] = await invoke(win, 'listStories')
+  const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+  await invoke(win, 'createChange', {
+    entryId: mara.id,
+    anchor: 'scene',
+    sceneId,
+    kind: 'update',
+    payload: { note: 'Lost her left hand in the mill fire' }
+  })
+
+  // A field in a closed section: the section opens, and the words are selected in the field.
+  await search(win, 'bell tower')
+  const fears = group(win, 'Characters').getByRole('option').first()
+  await expect(fears).toContainText('Fears: Deep water at night, and the bell tower ringing.')
+  await expect(fears).toHaveAttribute('aria-selected', 'true')
+  await win.keyboard.press('Enter')
+  await expect(win.getByRole('button', { name: 'Personality' })).toHaveAttribute('aria-expanded', 'true')
+  const fearsBox = win.getByRole('textbox', { name: 'Fears', exact: true })
+  await expect(fearsBox).toBeFocused()
+  await expect.poll(() => selectedInBox(win)).toBe('bell tower')
+  await expect(fearsBox).toBeInViewport()
+
+  // Private notes longer than their box: the page goes down to them and the box's own text to the words.
+  await search(win, 'lighthouse keys')
+  await expect(group(win, 'Notes').getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+  await win.keyboard.press('Enter')
+  const notesBox = win.getByRole('textbox', { name: 'Private notes (never sent to the AI)' })
+  await expect(notesBox).toBeFocused()
+  await expect.poll(() => selectedInBox(win)).toBe('lighthouse keys')
+  await expect(notesBox).toBeInViewport()
+  expect(await notesBox.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+
+  // What the memory has about her over the story: that section opens, at the change.
+  await search(win, 'mill fire')
+  await expect(group(win, 'Characters').getByRole('option').first()).toContainText('Changes over time: Lost her left hand in the mill fire')
+  await win.keyboard.press('Enter')
+  await expect(win.getByRole('button', { name: /^Changes over time/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(win.getByText('Lost her left hand in the mill fire', { exact: true })).toBeInViewport()
+
+  // Mark scene done from another page, from the top bar's search box: back at the scene, the caret
+  // is in the page (not on the search box), as when the binder opens a scene. Reopening it likewise.
+  const searchBox = win.getByRole('banner').getByRole('button', { name: 'Search (Ctrl+K)' })
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await searchBox.click()
+  await win.keyboard.type('mark scene done')
+  await expect(palette(win).getByRole('option', { name: 'Mark scene done' })).toHaveAttribute('aria-selected', 'true')
+  await win.keyboard.press('Enter')
+  await expect(prose(win)).toBeFocused()
+  await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).scenes[0].status).toBe('done')
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await searchBox.click()
+  await win.keyboard.type('reopen')
+  await expect(palette(win).getByRole('option', { name: 'Reopen this scene' })).toHaveAttribute('aria-selected', 'true')
+  await win.keyboard.press('Enter')
+  await expect(prose(win)).toBeFocused()
+  await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).scenes[0].status).not.toBe('done')
+})
+
+test('The top bar fits the smallest window with a long world name, on every page and with an update offered', async ({ launch }) => {
+  const { app, win } = await launch()
+  await createWorldFromWelcome(win, 'Alpha')
+  await resize(app, 960, 600)
+  await invoke(win, 'updateWorld', { name: 'The Saltmarsh Chronicles of the Long Coast' })
+  await win.reload()
+  await prose(win).click()
+  await win.keyboard.type('Rain on the roof all night long.')
+  const bar = win.getByRole('banner')
+  const count = bar.getByText('7 words', { exact: true })
+  const searchBox = bar.getByRole('button', { name: 'Search (Ctrl+K)' })
+  /** Everything fits: nothing pushed out of the bar, and the word count on one line. */
+  const fits = async (): Promise<void> => {
+    expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    if (await count.isVisible()) expect((await count.boundingBox())!.height).toBeLessThan(20)
+  }
+  await expect(count).toBeVisible()
+  await expect(searchBox).toContainText('Search')
+  await fits()
+
+  // The search box is the same on another page (where the word count isn't shown).
+  const writing = (await searchBox.boundingBox())!
+  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await expect(count).toHaveCount(0)
+  expect((await searchBox.boundingBox())!.width).toBe(writing.width)
+  await fits()
+  await scenes(win).first().click()
+
+  // An update offered in the middle of the bar: its buttons fit beside the word count.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0].webContents.send('event:update:status', { state: 'ready', version: '9.9.9', notes: 'Faster saving' })
+  })
+  const restart = bar.getByRole('button', { name: 'Restart to update' })
+  await expect(restart).toBeVisible()
+  await expect(count).toBeVisible()
+  await fits()
+  expect((await restart.boundingBox())!.x + (await restart.boundingBox())!.width).toBeLessThanOrEqual((await count.boundingBox())!.x)
+  expect((await searchBox.boundingBox())!.x + (await searchBox.boundingBox())!.width).toBeLessThanOrEqual(
+    (await bar.getByRole('button', { name: 'Later' }).boundingBox())!.x
+  )
+})
+

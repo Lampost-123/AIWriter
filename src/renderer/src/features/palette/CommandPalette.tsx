@@ -32,6 +32,7 @@ import {
   PanelRight,
   PenLine,
   Plus,
+  RotateCcw,
   Search as SearchIcon,
   Settings,
   Sparkles,
@@ -57,6 +58,7 @@ import { KIND_ICONS } from '@/features/world/kindIcons'
 import { openResult, runAction } from './actions'
 import {
   entryAction,
+  goesAway,
   hasWords,
   isOption,
   matchActions,
@@ -111,6 +113,7 @@ const ACTION_ICONS: Partial<Record<ActionId, LucideIcon>> = {
   generate: Sparkles,
   stop: Square,
   'mark-done': Check,
+  'reopen-scene': RotateCcw,
   'new-scene': FilePlus2,
   'new-chapter': FolderPlus,
   'new-story': BookOpen,
@@ -248,7 +251,12 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
           {hit.detail ? <span className="ml-auto max-w-[55%] shrink-0 truncate pl-2 text-[12px] text-faint">{hit.detail}</span> : null}
         </div>
         {hit.snippet.length ? (
-          <p className={cn('mt-0.5 line-clamp-2 text-muted', hit.prose ? 'font-serif text-[13px] leading-[1.5]' : 'text-[12.5px] leading-[1.45]')}>
+          <p
+            className={cn(
+              'mt-0.5 line-clamp-2 text-muted',
+              hit.prose ? 'font-serif text-[13px] leading-[1.5]' : 'text-[12.5px] leading-[1.45]'
+            )}
+          >
             <Marked parts={hit.snippet} />
           </p>
         ) : null}
@@ -296,7 +304,8 @@ function useOpenShortcut(input: React.RefObject<HTMLInputElement | null>): void 
         return
       }
       // Not over another dialog or an open menu (Esc closes that first), nor while a backup is being restored.
-      if (useApp.getState().restoring || document.querySelector(`[role="dialog"][data-state="open"]:not([${PALETTE_LAYER}]), [role="menu"]`)) return
+      const covered = document.querySelector(`[role="dialog"][data-state="open"]:not([${PALETTE_LAYER}]), [role="menu"]`)
+      if (useApp.getState().restoring || covered) return
       openPalette()
     }
     window.addEventListener('keydown', onKey, true)
@@ -441,7 +450,10 @@ export function CommandPalette(): React.JSX.Element {
       if (o.group === 'actions') setShown((s) => ({ ...s, expanded: new Set(s.expanded).add('actions') }))
       return
     }
-    pending.current = o.type === 'action' ? { run: () => runAction(o.action.id), away: !!o.action.away } : { run: () => openResult(o.hit.open), away: true }
+    pending.current =
+      o.type === 'action'
+        ? { run: () => runAction(o.action.id), away: goesAway(o.action, ctx) }
+        : { run: () => openResult(o.hit.open), away: true }
     usePalette.setState({ open: false })
     // Runs even if the closing focus step never comes (it always should).
     setTimeout(runPending, 100)
@@ -553,12 +565,21 @@ export function CommandPalette(): React.JSX.Element {
           </div>
 
           {/* A fixed height, so the palette doesn't grow and shrink as the results change. */}
-          <div ref={listRef} id="palette-list" role="listbox" aria-label="Results" className="h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5">
+          <div
+            ref={listRef}
+            id="palette-list"
+            role="listbox"
+            aria-label="Results"
+            className="h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5"
+          >
             {ready
               ? sections(rows).map((s, i) =>
                   s.heading ? (
                     <div key={s.heading.key} role="group" aria-labelledby={domId('palette', s.heading.key)} className="pb-1">
-                      <div id={domId('palette', s.heading.key)} className="px-3 pb-1 pt-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+                      <div
+                        id={domId('palette', s.heading.key)}
+                        className="px-3 pb-1 pt-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint"
+                      >
                         {s.heading.label}
                       </div>
                       {s.rows.map(renderRow)}

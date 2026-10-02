@@ -1,5 +1,15 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown, Globe2, PanelLeft, PanelRight, PenLine, Plus, Search as SearchIcon, Settings as SettingsIcon } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  Globe2,
+  PanelLeft,
+  PanelRight,
+  PenLine,
+  Plus,
+  Search as SearchIcon,
+  Settings as SettingsIcon
+} from 'lucide-react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { WorldSummary } from '@shared/types'
 import { IconButton, Kbd, toast } from '@/components/ui'
@@ -23,7 +33,11 @@ function SaveIndicator(): React.JSX.Element {
   return (
     <span
       aria-live="polite"
-      className={cn('min-w-[110px] text-right text-[12px] transition-opacity duration-300', state === 'error' ? 'text-danger' : 'text-faint', !label && 'opacity-0')}
+      className={cn(
+        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-300',
+        state === 'error' ? 'text-danger' : 'text-faint',
+        !label && 'opacity-0'
+      )}
     >
       {/* With nothing to say, a hidden "Saved" fades out, unread by screen readers. */}
       {label || <span aria-hidden>Saved</span>}
@@ -100,11 +114,14 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
   return (
     <>
       <M.Root open={!!menuOpen} onOpenChange={(o) => usePalette.setState({ worldMenu: o ? 'bar' : false })}>
-        {/* While the world is renamed, its name box covers this; the button keeps its room, so nothing moves. */}
+        {/* While the world is renamed, its name box covers this; the button keeps its room, so nothing moves.
+            A long name is cut shorter in a small window, so the bar fits at its narrowest, and shorter still
+            while an update is offered there (the offer needs the room; see TopBar). */}
         <M.Trigger
           ref={trigger}
           className={cn(
-            'flex h-7 max-w-[260px] items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
+            'flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
+            'min-[1100px]:max-w-[260px] max-xl:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:max-w-[120px]',
             renaming && 'invisible'
           )}
         >
@@ -209,7 +226,9 @@ function RenameWorld({ trigger }: { trigger: RefObject<HTMLButtonElement | null>
 /**
  * The way into search and the command palette: looks like a search field, opens the palette (as
  * Ctrl+K does). Pressing it leaves the caret where it was, so closing the palette goes back there.
- * A fixed width, so nothing else in the bar moves.
+ * A fixed width (narrower in a small window), so nothing else in the bar moves. Only when the bar is
+ * short of room (the update offer in a small window) does it give up width: first its keys go, then
+ * its word, down to the magnifier.
  */
 function SearchBox(): React.JSX.Element {
   const label = withShortcut('Search', 'search')
@@ -222,13 +241,14 @@ function SearchBox(): React.JSX.Element {
       onMouseDown={(e) => e.preventDefault()}
       onClick={openPalette}
       className={cn(
-        'ml-1 flex h-7 w-[220px] min-w-[120px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
-        'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40'
+        '@container ml-1 flex h-7 w-[180px] min-w-[36px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
+        'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        'min-[1100px]:w-[220px]'
       )}
     >
       <SearchIcon size={14} className="shrink-0" aria-hidden />
-      <span className="flex-1 truncate text-left">Search</span>
-      <span className="flex shrink-0 items-center gap-0.5" aria-hidden>
+      <span className="flex-1 truncate text-left @max-[64px]:hidden">Search</span>
+      <span className="flex shrink-0 items-center gap-0.5 @max-[122px]:hidden" aria-hidden>
         {shortcutKeys('search').map((k) => (
           <Kbd key={k}>{k}</Kbd>
         ))}
@@ -264,8 +284,12 @@ export function TopBar(): React.JSX.Element {
   }, [navigate])
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
-      <IconButton label="Show or hide the binder" active={layout?.binderOpen} onClick={() => layout && void update({ layout: { binderOpen: !layout.binderOpen } })}>
+    <header className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
+      <IconButton
+        label="Show or hide the binder"
+        active={layout?.binderOpen}
+        onClick={() => layout && void update({ layout: { binderOpen: !layout.binderOpen } })}
+      >
         <PanelLeft size={16} />
       </IconButton>
       {/* The world's name and the search box: renaming the world happens over both, so nothing in the bar moves. */}
@@ -275,21 +299,30 @@ export function TopBar(): React.JSX.Element {
         {hasWorld ? <SearchBox /> : null}
         <RenameWorld trigger={worldButton} />
       </div>
-      {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it. */}
-      <div className="flex min-w-0 flex-1 justify-center px-3">
+      {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it.
+          While the offer shows, it keeps room for the offer's buttons (UpdateBanner's own, at its widths),
+          which a small window finds by narrowing the search box and the world's name. */}
+      <div
+        data-update-slot
+        className={cn(
+          'flex min-w-0 flex-1 justify-center px-3',
+          'has-[>[role=status]:not([aria-hidden=true])]:min-w-[250px] lg:has-[>[role=status]:not([aria-hidden=true])]:min-w-[345px]'
+        )}
+      >
         <UpdateBanner />
       </div>
       {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
       {hasWorld ? <KeeperStatus /> : null}
+      {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (
-        <span className="mr-3 text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
+        <span className="mr-3 shrink-0 whitespace-nowrap text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
       ) : drafting ? (
         // A draft keeps writing into the scene while another page is open; this goes back to it.
         <button
           type="button"
           onClick={() => navigate({ kind: 'write' })}
           title="A draft is being written into the scene. Click to go back to it."
-          className="mr-2 flex h-7 items-center gap-2 rounded-md px-2 text-[12.5px] font-medium text-ai transition-colors duration-150 hover:bg-surface-2 animate-fade-in"
+          className="mr-2 flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-[12.5px] font-medium text-ai transition-colors duration-150 hover:bg-surface-2 animate-fade-in"
         >
           <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
           Writing…

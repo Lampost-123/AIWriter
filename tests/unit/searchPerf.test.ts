@@ -46,14 +46,16 @@ function bigWorld(): { db: Database.Database; scenes: ID[]; words: number } {
     for (let b = 0; b < 10; b++) {
       const story = b === 0 ? first.id : repo.createStory(db, { title: `Book ${b + 1}`, startStoryId: prev }).id
       for (let c = 0; c < 20; c++) {
-        const chapter = b === 0 && c === 0 ? repo.getOutline(db, story).chapters[0].id : repo.createChapter(db, story, { title: `Chapter ${c + 1}` }).id
+        const chapter =
+          b === 0 && c === 0 ? repo.getOutline(db, story).chapters[0].id : repo.createChapter(db, story, { title: `Chapter ${c + 1}` }).id
         for (let s = 0; s < 10; s++) {
           const id = b === 0 && c === 0 && s === 0 ? repo.getOutline(db, story).scenes[0].id : repo.createScene(db, chapter).id
           // About 150 words in three paragraphs, and the editor's document of them.
           const paragraphs = [0, 1, 2].map(() => [sentence(), sentence(), sentence(), sentence()].join(' '))
           const text = paragraphs.join('\n\n')
           words += text.split(/\s+/).length
-          const doc = { type: 'doc', content: paragraphs.map((p, i) => ({ type: 'paragraph', attrs: { id: `p${i}` }, content: [{ type: 'text', text: p }] })) }
+          const content = paragraphs.map((p, i) => ({ type: 'paragraph', attrs: { id: `p${i}` }, content: [{ type: 'text', text: p }] }))
+          const doc = { type: 'doc', content }
           repo.saveSceneText(db, id, doc, text)
           mem.putSummary(db, { level: 'scene', targetId: id, text: `${sentence()} ${sentence()} ${sentence()}`, origin: 'text' })
           scenes.push(id)

@@ -84,29 +84,54 @@ export interface ActionDef {
   /** Other words it is found by. */
   keywords: string
   shortcut?: ShortcutId
-  /** It goes to another page, so keyboard focus isn't put back where it was. */
-  away?: boolean
+  /** It goes to another page (always, or from where Adam is now), so keyboard focus isn't put back where it was. */
+  away?: boolean | ((c: ActionContext) => boolean)
   /** Shown only when it can be done now. */
   when?: (c: ActionContext) => boolean
 }
+
+/** True when running the action now takes Adam to another page. */
+export const goesAway = (a: ActionDef, c: ActionContext): boolean => (typeof a.away === 'function' ? a.away(c) : !!a.away)
 
 const hasStory = (c: ActionContext): boolean => !!c.storyId
 const hasScene = (c: ActionContext): boolean => !!c.sceneId
 /** The scene is on screen (not only open behind another page). */
 const seesScene = (c: ActionContext): boolean => hasScene(c) && c.view === 'write'
 const notTheme = (t: ThemeName) => (c: ActionContext) => c.theme !== t
+/** Done on the writing page: from another page, it goes back there (with the caret in the page). */
+const toWriting = (c: ActionContext): boolean => c.view !== 'write'
 
 /** "New character", "New plot thread", "New term". */
 const newLabel = (kind: EntryKind): string => `New ${KIND_LABELS[kind].one.toLowerCase()}`
 
 export const ACTIONS: ActionDef[] = [
-  { id: 'generate', label: 'Generate a draft', keywords: 'write ai scene draft', shortcut: 'generate', when: (c) => hasScene(c) && !c.drafting },
+  {
+    id: 'generate',
+    label: 'Generate a draft',
+    keywords: 'write ai scene draft',
+    shortcut: 'generate',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.drafting
+  },
   { id: 'stop', label: 'Stop the draft', keywords: 'cancel halt writing', shortcut: 'stop', when: (c) => c.drafting },
   // From another page these two go back to the scene first, as Generate does, so Adam sees which scene it was.
-  { id: 'mark-done', label: 'Mark scene done', keywords: 'finish finished complete accept', shortcut: 'markDone', when: (c) => hasScene(c) && !c.sceneDone },
-  { id: 'reopen-scene', label: 'Reopen this scene', keywords: 'done undo mark more work revise', when: (c) => hasScene(c) && c.sceneDone },
-  { id: 'new-scene', label: 'New scene', keywords: 'add write', when: hasStory },
-  { id: 'new-chapter', label: 'New chapter', keywords: 'add', when: hasStory },
+  {
+    id: 'mark-done',
+    label: 'Mark scene done',
+    keywords: 'finish finished complete accept',
+    shortcut: 'markDone',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.sceneDone
+  },
+  {
+    id: 'reopen-scene',
+    label: 'Reopen this scene',
+    keywords: 'done undo mark more work revise',
+    away: toWriting,
+    when: (c) => hasScene(c) && c.sceneDone
+  },
+  { id: 'new-scene', label: 'New scene', keywords: 'add write', away: toWriting, when: hasStory },
+  { id: 'new-chapter', label: 'New chapter', keywords: 'add', away: toWriting, when: hasStory },
   { id: 'new-story', label: 'New story', keywords: 'add book sequel prequel side novella series' },
   // Only with the scene on screen: never a scene Adam isn't looking at.
   { id: 'delete-scene', label: 'Delete this scene', keywords: 'remove trash bin', when: seesScene },
@@ -125,11 +150,32 @@ export const ACTIONS: ActionDef[] = [
   { id: 'theme-light', label: 'Light theme', keywords: 'appearance colours colors mode', when: notTheme('light') },
   { id: 'theme-dark', label: 'Dark theme', keywords: 'appearance colours colors mode night', when: notTheme('dark') },
   { id: 'theme-sepia', label: 'Sepia theme', keywords: 'appearance colours colors mode paper', when: notTheme('sepia') },
-  { id: 'theme-system', label: 'Match the system theme', keywords: 'appearance colours colors mode automatic light dark', when: notTheme('system') },
+  {
+    id: 'theme-system',
+    label: 'Match the system theme',
+    keywords: 'appearance colours colors mode automatic light dark',
+    when: notTheme('system')
+  },
   { id: 'toggle-binder', label: 'Show or hide the binder', keywords: 'panel left side chapters scenes' },
-  { id: 'toggle-panel', label: 'Show or hide the scene panel', keywords: 'panel right side card context drafts', when: (c) => hasScene(c) && c.view === 'write' },
-  { id: 'settings-models', label: 'Settings › Models', keywords: 'provider openrouter key writer memory model', shortcut: 'settings', away: true },
-  { id: 'settings-preferences', label: 'Settings › My writing preferences', keywords: 'spelling point view tense voice words', away: true },
+  {
+    id: 'toggle-panel',
+    label: 'Show or hide the scene panel',
+    keywords: 'panel right side card context drafts',
+    when: (c) => hasScene(c) && c.view === 'write'
+  },
+  {
+    id: 'settings-models',
+    label: 'Settings › Models',
+    keywords: 'provider openrouter key writer memory model',
+    shortcut: 'settings',
+    away: true
+  },
+  {
+    id: 'settings-preferences',
+    label: 'Settings › My writing preferences',
+    keywords: 'spelling point view tense voice words',
+    away: true
+  },
   { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme text size page width', away: true },
   { id: 'settings-backups', label: 'Settings › Backups', keywords: 'restore copy folder', away: true },
   { id: 'settings-trash', label: 'Settings › Recently deleted', keywords: 'trash bin restore bring back', away: true },
@@ -173,7 +219,17 @@ export function matchActions(query: string, c: ActionContext): ActionDef[] {
 }
 
 /** With nothing typed: the most useful actions for the moment. */
-const SUGGESTED: ActionId[] = ['generate', 'stop', 'mark-done', 'new-scene', 'go-codex', 'new-character', 'quick-character', 'go-memory', 'shortcuts']
+const SUGGESTED: ActionId[] = [
+  'generate',
+  'stop',
+  'mark-done',
+  'new-scene',
+  'go-codex',
+  'new-character',
+  'quick-character',
+  'go-memory',
+  'shortcuts'
+]
 
 export function suggestedActions(c: ActionContext, max = 6): ActionDef[] {
   const ok = new Set(availableActions(c).map((a) => a.id))
@@ -243,7 +299,8 @@ export function paletteRows(input: ListInput): Row[] {
   if (input.actions.length) {
     const all = input.expanded.has('actions')
     rows.push({ type: 'heading', key: 'h:actions', label: 'Actions' })
-    for (const action of all ? input.actions : input.actions.slice(0, ACTION_LIMIT)) rows.push({ type: 'action', key: `action:${action.id}`, action })
+    const shown = all ? input.actions : input.actions.slice(0, ACTION_LIMIT)
+    for (const action of shown) rows.push({ type: 'action', key: `action:${action.id}`, action })
     if (!all && input.actions.length > ACTION_LIMIT) {
       rows.push({ type: 'more', key: 'more:actions', group: 'actions', label: 'Show more actions', total: input.actions.length })
     }
@@ -253,7 +310,8 @@ export function paletteRows(input: ListInput): Row[] {
     for (const hit of g.hits) rows.push({ type: 'hit', key: `${g.id}:${hit.key}`, hit })
     if (g.total > g.hits.length) {
       if (input.expanded.has(g.id)) {
-        rows.push({ type: 'note', key: `note:${g.id}`, text: `Showing ${g.hits.length} of ${g.total.toLocaleString('en-GB')}. Add a word to narrow it down.` })
+        const text = `Showing ${g.hits.length} of ${g.total.toLocaleString('en-GB')}. Add a word to narrow it down.`
+        rows.push({ type: 'note', key: `note:${g.id}`, text })
       } else rows.push({ type: 'more', key: `more:${g.id}`, group: g.id, label: `Show more ${g.label.toLowerCase()}`, total: g.total })
     }
   }

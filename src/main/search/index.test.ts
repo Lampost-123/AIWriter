@@ -40,7 +40,11 @@ function world() {
   repo.saveSceneText(db, s1.id, null, 'The ferry was late.\n\nMara watched the iron gate from the dock, counting the gulls.')
   const s2 = repo.createScene(db, ch1.id, { title: 'Night watch' })
   repo.saveSceneText(db, s2.id, null, 'Tobin kept watch by the gatehouse. Nobody came; the dragons slept.')
-  repo.updateSceneCard(db, s2.id, { ...emptySceneCard(), goal: 'Tobin learns about the smugglers', notes: 'Keep the lantern imagery quiet here' })
+  repo.updateSceneCard(db, s2.id, {
+    ...emptySceneCard(),
+    goal: 'Tobin learns about the smugglers',
+    notes: 'Keep the lantern imagery quiet here'
+  })
   const ch2 = repo.createChapter(db, book1.id, { title: 'The Crossing' })
   repo.updateChapter(db, ch2.id, { goal: 'Reach the far shore before the storm' })
   const s3 = repo.createScene(db, ch2.id, { title: 'Storm' })
@@ -58,7 +62,11 @@ function world() {
     fields: { fears: 'Deep water at night' },
     notes: 'Maybe she lost her hand in Book 2?'
   })
-  const tobin = repo.createEntry(db, 'character', { name: 'Tobin', summary: 'Mara’s cousin', description: 'Quiet, watchful, loyal to Mara' })
+  const tobin = repo.createEntry(db, 'character', {
+    name: 'Tobin',
+    summary: 'Mara’s cousin',
+    description: 'Quiet, watchful, loyal to Mara'
+  })
   const hall = repo.createEntry(db, 'place', { name: 'Ashford Hall', summary: 'The family house above the harbour' })
   const gone = repo.createEntry(db, 'lore', { name: 'Old Tides', description: 'The harbour floods at the turn of the year' })
   repo.deleteEntry(db, gone.id)
@@ -107,10 +115,37 @@ describe('search', () => {
     const kestrel = group(ix.search('kestr'), 'character')!.hits[0]
     expect(show(kestrel.title)).toBe('Mara Ashford')
     expect(show(kestrel.snippet)).toBe('Also called: [Kestr]el')
-    expect(kestrel.open).toEqual({ kind: 'entry', entryId: w.mara.id, entryKind: 'character' })
-    expect(show(group(ix.search('deep water'), 'character')!.hits[0].snippet)).toBe('Fears: [Deep] [water] at night')
+    // Found by a name (or the summary), the page opens at its top.
+    expect(kestrel.open).toEqual({ kind: 'entry', entryId: w.mara.id, entryKind: 'character', part: null, words: null })
+    const fears = group(ix.search('deep water'), 'character')!.hits[0]
+    expect(show(fears.snippet)).toBe('Fears: [Deep] [water] at night')
+    // Found further down, it opens at the field, with the words to select there.
+    expect(fears.open).toEqual({
+      kind: 'entry',
+      entryId: w.mara.id,
+      entryKind: 'character',
+      part: { kind: 'field', key: 'fears' },
+      words: 'Deep water'
+    })
+    expect(group(ix.search('watchful'), 'character')!.hits[0].open).toMatchObject({
+      part: { kind: 'field', key: 'description' },
+      words: 'watchful'
+    })
     // A deleted entry isn't found.
     expect(ix.search('tides').groups).toEqual([])
+  })
+
+  it('reads a possessive as its name', () => {
+    const w = world()
+    const ix = searchIndex(w.db)
+    const r = ix.search("Mara's")
+    expect(titles(group(r, 'character'))).toEqual(['[Mara] Ashford', 'Tobin'])
+    expect(show(group(r, 'character')!.hits[1].snippet)).toBe('[Mara]’s cousin')
+    expect(titles(group(r, 'scenes'))).toEqual(['The ferry', 'Homecoming'])
+    // A name with a possessive is the name typed, before one that only starts the same.
+    repo.createEntry(w.db, 'place', { name: 'Mara Rests' })
+    repo.createEntry(w.db, 'place', { name: 'Mara’s Rest' })
+    expect(titles(group(ix.search("mara's rest"), 'place'))).toEqual(['[Mara]’s [Rest]', '[Mara] [Rest]s'])
   })
 
   it('lists what is found by its name first, then the scenes, then entries found only in what else is known about them', () => {
@@ -165,14 +200,18 @@ describe('search', () => {
     expect(lantern.detail).toBe('Notes for the AI · Book 1, Ch 1, Sc 2')
     expect(lantern.open).toEqual({ kind: 'scene', sceneId: w.s2.id, storyId: w.book1.id, words: null, card: 'notes' })
     const note = group(ix.search('lost hand'), 'notes')!.hits[0]
-    expect(note).toMatchObject({ detail: 'Private notes · Character', open: { kind: 'entry', entryId: w.mara.id } })
+    expect(note).toMatchObject({ detail: 'Private notes · Character' })
+    expect(note.open).toEqual({ kind: 'entry', entryId: w.mara.id, entryKind: 'character', part: { kind: 'notes' }, words: 'lost' })
     expect(show(note.snippet)).toBe('Maybe she [lost] her [hand] in Book 2?')
 
     // The card's goal finds the scene, opening its card.
     const smugglers = ix.search('smugglers')
     expect(show(group(smugglers, 'scenes')!.hits[0].snippet)).toBe('Goal: Tobin learns about the [smugglers]')
     expect(group(smugglers, 'scenes')!.hits[0].open).toMatchObject({ card: 'goal', words: null })
-    expect(group(ix.search('smuggling'), 'stories')!.hits[0]).toMatchObject({ detail: 'Story', open: { kind: 'story', storyId: w.book1.id } })
+    expect(group(ix.search('smuggling'), 'stories')!.hits[0]).toMatchObject({
+      detail: 'Story',
+      open: { kind: 'story', storyId: w.book1.id }
+    })
 
     const style = group(ix.search('semicolons'), 'style')!.hits[0]
     expect(style).toMatchObject({ detail: 'Prose style', open: { kind: 'style', storyId: null } })
@@ -229,18 +268,77 @@ describe('keeping up with changes', () => {
     const w = world()
     const ix = searchIndex(w.db)
     expect(group(ix.search('left hand'), 'character')).toBeUndefined()
-    const c = mem.insertChange(w.db, { entryId: w.mara.id, anchor: 'scene', sceneId: w.s3.id, kind: 'update', payload: { note: 'Lost her left hand' }, origin: 'text' })
-    mem.insertChange(w.db, { entryId: w.mara.id, anchor: 'baseline', kind: 'knowledge', payload: { factId: 'f1', fact: 'The harbourmaster is her uncle' }, origin: 'adam' })
+    const c = mem.insertChange(w.db, {
+      entryId: w.mara.id,
+      anchor: 'scene',
+      sceneId: w.s3.id,
+      kind: 'update',
+      payload: { note: 'Lost her left hand' },
+      origin: 'text'
+    })
+    mem.insertChange(w.db, {
+      entryId: w.mara.id,
+      anchor: 'baseline',
+      kind: 'knowledge',
+      payload: { factId: 'f1', fact: 'The harbourmaster is her uncle' },
+      origin: 'adam'
+    })
     const mara = group(ix.search('left hand'), 'character')!.hits[0]
     expect(show(mara.title)).toBe('Mara Ashford')
     expect(show(mara.snippet)).toBe('Changes over time: Lost her [left] [hand]')
-    expect(show(group(ix.search('harbourmaster uncle'), 'character')!.hits[0].snippet)).toBe('Changes over time: The [harbourmaster] is her [uncle]')
+    expect(mara.open).toMatchObject({ part: { kind: 'changes' }, words: 'left hand' })
+    // Labelled as the section of the page that lists it, where the page opens.
+    const uncle = group(ix.search('harbourmaster uncle'), 'character')!.hits[0]
+    expect(show(uncle.snippet)).toBe('Knows at the start: The [harbourmaster] is her [uncle]')
+    expect(uncle.open).toMatchObject({ part: { kind: 'knows' } })
 
-    mem.replaceChange(w.db, c.id, { entryId: w.mara.id, anchor: 'scene', sceneId: w.s3.id, kind: 'update', payload: { note: 'Lost her right hand' }, origin: 'adam' })
+    mem.replaceChange(w.db, c.id, {
+      entryId: w.mara.id,
+      anchor: 'scene',
+      sceneId: w.s3.id,
+      kind: 'update',
+      payload: { note: 'Lost her right hand' },
+      origin: 'adam'
+    })
     expect(group(ix.search('left hand'), 'character')).toBeUndefined()
-    expect(group(ix.search('right hand'), 'character')!.hits[0].open).toEqual({ kind: 'entry', entryId: w.mara.id, entryKind: 'character' })
+    expect(group(ix.search('right hand'), 'character')!.hits[0].open).toEqual({
+      kind: 'entry',
+      entryId: w.mara.id,
+      entryKind: 'character',
+      part: { kind: 'changes' },
+      words: 'right hand'
+    })
     mem.deleteChange(w.db, c.id)
     expect(group(ix.search('right hand'), 'character')).toBeUndefined()
+  })
+
+  it('finds how an entry stands with others at the start under its relationships, or its connections', () => {
+    const w = world()
+    const ix = searchIndex(w.db)
+    const rel = (entryId: string, otherId: string, type: string, feels: string): void =>
+      void mem.insertChange(w.db, {
+        entryId,
+        anchor: 'baseline',
+        kind: 'relationship',
+        payload: { otherId, type, feels, otherFeels: '' },
+        origin: 'adam'
+      })
+    rel(w.mara.id, w.tobin.id, 'cousin', 'fiercely protective')
+    rel(w.hall.id, w.mara.id, 'home of', 'long neglected')
+    const mara = group(ix.search('fiercely'), 'character')!.hits[0]
+    expect(show(mara.snippet)).toBe('Relationships: cousin · [fiercely] protective')
+    expect(mara.open).toMatchObject({ entryId: w.mara.id, part: { kind: 'relationships' }, words: 'fiercely' })
+    expect(show(group(ix.search('neglected'), 'place')!.hits[0].snippet)).toBe('Connections: home of · long [neglected]')
+    // Later on in the story, it is a change over time.
+    void mem.insertChange(w.db, {
+      entryId: w.tobin.id,
+      anchor: 'scene',
+      sceneId: w.s4.id,
+      kind: 'relationship',
+      payload: { otherId: w.mara.id, type: 'rival', feels: 'bitter', otherFeels: '' },
+      origin: 'text'
+    })
+    expect(group(ix.search('bitter'), 'character')!.hits[0].open).toMatchObject({ entryId: w.tobin.id, part: { kind: 'changes' } })
   })
 
   it('follows scenes moved, deleted and brought back, and entries deleted and brought back', () => {

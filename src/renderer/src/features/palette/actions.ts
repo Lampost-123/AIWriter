@@ -18,6 +18,7 @@ import { markSceneDone, reopenScene } from '@/features/editor/markDone'
 import { requestReveal } from '@/features/editor/reveal'
 import { createEntry } from '@/features/world/entryActions'
 import { revealCardPart } from './cardReveal'
+import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
 import { openShortcuts, openWorldMenu, startRenamingWorld, usePalette } from './paletteStore'
 
@@ -61,6 +62,17 @@ async function newEntry(kind: EntryKind): Promise<void> {
   app().navigate({ kind: 'entries', entryKind: kind, entryId: entry.id })
 }
 
+/**
+ * Back to the writing page from another one, for an action on its scene, with the caret in the page
+ * (as when the binder opens a scene), not on whatever had the focus before.
+ */
+function backToWriting(): void {
+  const a = app()
+  if (a.view.kind === 'write') return
+  if (a.sceneId) requestEditorFocus(a.sceneId)
+  a.navigate({ kind: 'write' })
+}
+
 type SettingsAction = Extract<FixedActionId, `settings-${string}`>
 
 const SETTINGS: Record<SettingsAction, SettingsTab> = {
@@ -87,7 +99,7 @@ export async function runAction(id: ActionId): Promise<void> {
     switch (fixed) {
       case 'generate':
         // The Generate button acts on its shortcut, on the writing page.
-        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        backToWriting()
         pressShortcut('generate')
         return
       case 'stop':
@@ -97,17 +109,17 @@ export async function runAction(id: ActionId): Promise<void> {
         }
         // A draft still getting ready (the memory catching up first) has nothing to stop yet: Esc on
         // the writing page calls it off, as the Stop button does.
-        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        backToWriting()
         pressShortcut('stop')
         return
       case 'mark-done':
         if (!a.sceneId) return
-        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        backToWriting()
         await markSceneDone(a.sceneId)
         return
       case 'reopen-scene':
         if (!a.sceneId) return
-        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        backToWriting()
         await reopenScene(a.sceneId)
         return
       case 'new-scene':
@@ -214,6 +226,8 @@ export async function openResult(open: SearchOpen): Promise<void> {
         return
       case 'entry':
         a.navigate({ kind: 'entries', entryKind: open.entryKind, entryId: open.entryId })
+        // Found further down its page (a field, its private notes, what the memory has): the page opens there.
+        if (open.part) revealEntryPart(open.entryId, open.entryKind, open.part, open.words)
         return
       case 'story': {
         // Where Adam last was in that story, else its first scene (as the story switcher does).
