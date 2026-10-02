@@ -20,8 +20,9 @@
 //   or half-made entry is never silently dropped from every briefing.
 // - When a clash is settled for the host, the value the thing had just before the side story was
 //   added comes back (the host's, or a side story's that ended later in the host).
-// - A plot thread is set up where it was first opened on the walk; with no opening change, where it
-//   first exists ('' for the starting setup). It is paid off where it was last resolved.
+// - A plot thread is set up where it was first opened on the walk; with no opening change before it
+//   was first resolved, where it first exists ('' for the starting setup). It is paid off where it was
+//   last resolved, and a later opening change reopens it.
 
 import type { Change, EntryState, FactState, ID, RelationshipPayload, RelationshipState, ThreadState } from '@shared/types'
 import type { Line, MemoryData, MemoryState, WorldShape } from './types'
@@ -108,9 +109,11 @@ interface Frame {
 
 interface ThreadWork {
   status: 'open' | 'resolved'
+  /** Where it was first opened; null before that; FROM_EXISTS when it was resolved before ever being opened. */
   setUp: string | null
   paidOff: string
 }
+const FROM_EXISTS = '\u0000exists'
 
 /** Applies every change that counts on the line, in line order, to the baselines. */
 export function stateAt(
@@ -292,7 +295,7 @@ export function stateAt(
         threads.set(
           e.id,
           p.status === 'resolved'
-            ? { ...was, status: 'resolved', paidOff: where }
+            ? { status: 'resolved', setUp: was.setUp ?? FROM_EXISTS, paidOff: where }
             : { status: 'open', setUp: was.setUp ?? where, paidOff: '' }
         )
         if (p.note) e.happened.push({ note: p.note, where, changeId: c.id })
@@ -389,7 +392,7 @@ export function stateAt(
     threadStates.push({
       entryId: id,
       status: t?.status ?? 'open',
-      setUp: t?.setUp ?? existsAt.get(id) ?? '',
+      setUp: t && t.setUp !== null && t.setUp !== FROM_EXISTS ? t.setUp : (existsAt.get(id) ?? ''),
       paidOff: t?.status === 'resolved' ? t.paidOff : ''
     })
   }
