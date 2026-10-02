@@ -45,6 +45,8 @@ describe('stories', () => {
     const updated = repo.updateStory(db, s.id, { premise: 'A long winter', style: { pov: 'First person' } })
     expect(updated.premise).toBe('A long winter')
     expect(updated.style).toEqual({ pov: 'First person' })
+    expect(repo.updateStory(db, s.id, { timeGap: ' 200 years ' }).timeGap).toBe('200 years')
+    expect(repo.updateStory(db, s.id, { premise: 'A short winter' }).timeGap).toBe('200 years')
     repo.deleteStory(db, s.id)
     expect(repo.listStories(db)).toHaveLength(0)
     expect(() => repo.getStory(db, s.id)).toThrow(UserError)

@@ -596,12 +596,23 @@ describe('story placement', () => {
       chapters: new Set(chapters),
       scenes: new Set([w.sc[1][1], ...chapters.flatMap((c) => ids('SELECT id FROM scenes WHERE chapter_id = ?', c))])
     }
-    const settled = mem.settlePlacements(w.db, gone)
+    // Settling writes down the safe points for exactly the stories and entries that need them.
+    const probe = w.db.transaction(() => {
+      const settled = mem.settlePlacements(w.db, gone)
+      throw Object.assign(new Error('roll back'), { settled })
+    })
+    let settled = { stories: [] as ID[], entries: [] as ID[] }
+    try {
+      probe()
+    } catch (e) {
+      settled = (e as { settled: typeof settled }).settled
+    }
     expect(settled.stories.sort()).toEqual([b3, side, own, short].sort())
     expect(settled.entries.sort()).toEqual([wren, ash, reed].sort())
+    // Recently deleted settles them itself before removing things for good.
+    purgeTrash(w.db, 30)
     expect(mem.settlePlacements(w.db, gone)).toEqual({ stories: [], entries: [] })
     expect(repo.getStory(w.db, recent)).toMatchObject({ startAt: 'chapter', startRefId: w.ch[1] })
-    purgeTrash(w.db, 30)
 
     expect(repo.listStories(w.db).map((s) => s.id)).not.toContain(w.b2)
     expect(placements()).toEqual(before.placements)

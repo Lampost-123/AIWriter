@@ -140,13 +140,13 @@ export function createStory(db: DB, input: { title: string; seriesId?: ID | null
 export function updateStory(
   db: DB,
   id: ID,
-  patch: Partial<Pick<Story, 'title' | 'premise' | 'themes' | 'tone' | 'style' | 'seriesId'>>
+  patch: Partial<Pick<Story, 'title' | 'premise' | 'themes' | 'tone' | 'style' | 'seriesId' | 'timeGap'>>
 ): Story {
   const s = getStory(db, id)
   const next = { ...s, ...patch }
   db.prepare(
-    `UPDATE stories SET title = ?, premise = ?, themes = ?, tone = ?, style_json = ?, series_id = ?, updated_at = ? WHERE id = ?`
-  ).run(next.title, next.premise, next.themes, next.tone, JSON.stringify(next.style ?? {}), next.seriesId, now(), id)
+    `UPDATE stories SET title = ?, premise = ?, themes = ?, tone = ?, style_json = ?, series_id = ?, time_gap = ?, updated_at = ? WHERE id = ?`
+  ).run(next.title, next.premise, next.themes, next.tone, JSON.stringify(next.style ?? {}), next.seriesId, (next.timeGap ?? '').trim(), now(), id)
   return getStory(db, id)
 }
 

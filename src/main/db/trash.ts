@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { settlePlacements } from './memory'
 
 // The Trash: deleting a story, chapter, scene or entry only sets deleted_at, so it can be
 // restored for 30 days. After that, purgeTrash() removes it for good (run when a world opens).
@@ -35,6 +36,9 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     for (const id of chapterSet) sceneIds.push(...ids(db, 'SELECT id FROM scenes WHERE chapter_id = ?', id))
     const sceneSet = new Set(sceneIds)
     const entryIds = ids(db, `SELECT id FROM entries WHERE ${expired}`, cutoff)
+    // Stories that start or end in what goes, and entries first seen there, keep their place: the
+    // safe points worked out while it was only deleted are written down before it goes for good.
+    settlePlacements(db, { stories: storySet, chapters: chapterSet, scenes: sceneSet })
 
     let generations = 0
     const delGenEntries = db.prepare('DELETE FROM generation_entries WHERE generation_id IN (SELECT id FROM generations WHERE scene_id = ?)')
