@@ -169,6 +169,13 @@ describe('a set of variants', () => {
         .map((g) => g.id)
         .sort()
     ).toEqual([...started.generationIds].sort())
+    // The Drafts tab says which variant each was.
+    expect(
+      gens
+        .listGenerations(w.db, w.second.id)
+        .map((g) => g.partOf)
+        .sort()
+    ).toEqual(started.generationIds.map((_, i) => `Variant ${i + 1} of ${started.generationIds.length}`))
   })
 
   it('never touches the scene or the memory: the scene keeps its text, and later briefings and the memory keeper read only that', async () => {

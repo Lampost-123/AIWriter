@@ -230,6 +230,7 @@ function AiDrafts({
                 <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={g.modelId}>
                   {model}
                 </span>
+                {g.partOf ? <span className="shrink-0 whitespace-nowrap text-[11.5px] text-muted">{g.partOf}</span> : null}
                 <StatusBadge status={g.status} live={streaming} />
                 {g.replaced ? (
                   <span className="shrink-0" title="This draft took the place of the scene's text. Its record keeps that text, to copy or put back.">

@@ -29,7 +29,14 @@ const CHAT_ROLES: Record<GenerationRecord['messages'][number]['role'], string> =
 /** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
 const openParts = new Map<ID, Set<string>>()
 
-export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.Element {
+export function WhatTheAISaw({
+  generationId,
+  fromHistory
+}: {
+  generationId: ID
+  /** Opened from this version in a scene's History (milestone 4): Back returns there. */
+  fromHistory?: { sceneId: ID; snapshotId: ID }
+}): React.JSX.Element {
   const [rec, setRec] = useState<GenerationRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sceneTitle, setSceneTitle] = useState<string | null>(null)
@@ -90,7 +97,9 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   // A variant's record (milestone 4) opened from the Variants page goes back there.
   const toVariants = variantsBackTo(generationId)
   const back = (): void => {
-    if (toVariants) {
+    if (fromHistory) {
+      useApp.getState().navigate({ kind: 'history', ...fromHistory })
+    } else if (toVariants) {
       selectScene(toVariants)
       useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
     } else if (rec?.job === 'chat') {
@@ -105,13 +114,15 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {toVariants
-            ? 'Back to the variants'
-            : rec?.job === 'chat'
-              ? 'Back to Ask the world'
-              : rec && sceneTitle
-                ? `Back to “${sceneTitle}”`
-                : 'Back to the scene'}
+          {fromHistory
+            ? 'Back to History'
+            : toVariants
+              ? 'Back to the variants'
+              : rec?.job === 'chat'
+                ? 'Back to Ask the world'
+                : rec && sceneTitle
+                  ? `Back to “${sceneTitle}”`
+                  : 'Back to the scene'}
         </Button>
 
         {error ? (
@@ -188,7 +199,7 @@ function DraftRecord({
           <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
         ) : (
           <>
-            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`}, written{' '}
+            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
             {fullDate(rec.createdAt)}.
           </>
         )}
@@ -601,4 +612,10 @@ function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void;
       {entry.changedSince ? <span className="text-[11px] font-medium text-ai">edited since</span> : null}
     </button>
   )
+}
+
+/** " (variant 2 of 3)" or " (beat 1 of 4)" for a draft that was one of those (milestone 4), else nothing. */
+function partWords(params: GenerationRecord['params']): string {
+  const part = params.variant ? { name: 'variant', ...params.variant } : params.beat ? { name: 'beat', ...params.beat } : null
+  return part ? ` (${part.name} ${part.index} of ${part.of})` : ''
 }

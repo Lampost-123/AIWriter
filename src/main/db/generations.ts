@@ -160,17 +160,29 @@ const toSummary = (r: Row): GenerationSummary => ({
   cost: (r.cost as number | null) ?? null,
   costEstimated: r.cost != null && r.prompt_tokens == null,
   createdAt: r.created_at as string,
-  replaced: r.replaced === 1
+  replaced: r.replaced === 1,
+  ...partOf(r)
 })
+
+/** "Variant 2 of 3" or "Beat 1 of 4" (milestone 4), when the list's query read them from params_json. */
+function partOf(r: Row): Pick<GenerationSummary, 'partOf'> {
+  const [index, of] = [r.part_index, r.part_of].map((v) => (typeof v === 'number' ? v : null))
+  if (index == null || of == null) return {}
+  return { partOf: `${r.job === 'beat' ? 'Beat' : 'Variant'} ${index} of ${of}` }
+}
 
 /** 1 when the record keeps the text its draft replaced (read without parsing the whole of params_json). */
 const REPLACED_SQL = "CASE WHEN json_valid(params_json) THEN json_type(params_json, '$.replaced.text') = 'text' ELSE 0 END"
+/** Which variant or beat a record was, and of how many (null for a plain draft). */
+const PART_SQL = (key: 'index' | 'of'): string =>
+  `CASE WHEN json_valid(params_json) THEN coalesce(json_extract(params_json, '$.variant.${key}'), json_extract(params_json, '$.beat.${key}')) END`
 
 /** This scene's drafts and Beat by beat's beats, newest first (the memory keeper's calls are left out). */
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(
-      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at, ${REPLACED_SQL} AS replaced
+      `SELECT id, scene_id, job, status, model_id, provider_name, response, cost, prompt_tokens, created_at, ${REPLACED_SQL} AS replaced,
+              ${PART_SQL('index')} AS part_index, ${PART_SQL('of')} AS part_of
        FROM generations WHERE scene_id = ? AND job IN ('draft', 'beat') ORDER BY created_at DESC, rowid DESC`
     )
     .all(sceneId) as Row[]

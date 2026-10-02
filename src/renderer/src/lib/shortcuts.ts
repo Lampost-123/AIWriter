@@ -90,7 +90,13 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'binderOpen', name: 'Open the scene', where: 'in the binder', group: 'Moving around', keys: ['Enter'] },
   { id: 'binderRename', name: 'Rename a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
   { id: 'binderDelete', name: 'Delete a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['Delete'] },
-  { id: 'binderUndo', name: 'Bring back what you just deleted', where: 'in the binder', group: 'Moving around', keys: ['Mod', 'Z'] }
+  {
+    id: 'binderUndo',
+    name: 'Bring back what you just deleted',
+    where: 'in the binder or the Drafts tab',
+    group: 'Moving around',
+    keys: ['Mod', 'Z']
+  }
 ]
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = ['Writing', 'Moving around']

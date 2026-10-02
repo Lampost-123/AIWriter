@@ -176,7 +176,7 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
               {view.kind === 'style' && <StyleView />}
               {view.kind === 'settings' && <SettingsView tab={view.tab} />}
-              {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} />}
+              {view.kind === 'generation' && <WhatTheAISaw generationId={view.generationId} fromHistory={view.from?.history} />}
               {view.kind === 'memory' && <WhatChanged sceneId={view.sceneId} />}
               {view.kind === 'codex' && <CodexView />}
               {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}

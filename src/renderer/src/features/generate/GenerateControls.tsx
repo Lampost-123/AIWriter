@@ -21,6 +21,7 @@ import { snapshotBefore } from '@/features/history/snapshot'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
+import { costLabel } from '@/features/variants/cost'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
 
 interface Session {
@@ -761,7 +762,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     {modelName ?? 'none chosen'}
                   </button>
                 </span>
-                {estimate != null ? <span className="shrink-0 tabular-nums">About {formatCost(estimate)} a draft</span> : null}
+                {estimate != null ? (
+                  <span className="shrink-0 tabular-nums">{estimate === 0 ? 'Free' : `${costLabel(estimate, true)} a draft`}</span>
+                ) : null}
               </div>
               <Button variant="primary" className="w-full" icon={<Sparkles size={14} />} onClick={() => void generate()}>
                 Generate draft

@@ -495,6 +495,8 @@ export interface GenerationSummary {
   createdAt: string
   /** The draft took the place of the scene's text (Adam chose "Replace it"), and its record keeps that text. */
   replaced?: boolean
+  /** Milestone 4: "Variant 2 of 3" or "Beat 1 of 4" when the draft was one of those. */
+  partOf?: string
 }
 
 /**

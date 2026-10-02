@@ -460,7 +460,9 @@ function Comparison({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate({ kind: 'generation', generationId: info.generationId! })}
+              onClick={() =>
+                navigate({ kind: 'generation', generationId: info.generationId!, from: { history: { sceneId, snapshotId: info.id } } })
+              }
               title="See exactly what the AI was given for the change that came after this version"
               // Under the name (a narrow comparison), its words line up with the name's.
               className="-ml-2.5 @min-[760px]/compare:ml-0"

@@ -15,7 +15,8 @@ export type View =
   | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
-  | { kind: 'generation'; generationId: ID }
+  /** `from`: opened from a scene's History (milestone 4), so Back returns to that version there. */
+  | { kind: 'generation'; generationId: ID; from?: { history: { sceneId: ID; snapshotId: ID } } }
   /** The "What changed" list: what the memory keeper did, for the whole world or (sceneId) one scene. */
   | { kind: 'memory'; sceneId: ID | null }
   // ----- Milestone 3 -----
