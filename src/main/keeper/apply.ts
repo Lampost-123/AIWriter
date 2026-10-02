@@ -957,8 +957,8 @@ function raiseClash(run: Run, e: Entry, field: string | null, memory: string, te
     severity: 'warning',
     quote: s.quote,
     message: memory
-      ? `${e.name}: this scene says ${about} is “${text}”, but the memory says “${memory}”.`
-      : `${e.name}: this scene says ${about} is “${text}”, which doesn't match the memory.`,
+      ? `${field ? `${e.name}’s ${about}` : e.name}: this scene says “${text}”, but the memory says “${memory}”.`
+      : `${field ? `${e.name}’s ${about}` : e.name}: this scene says “${text}”, which doesn't match the memory.`,
     key: `clash:${e.id}:${field ?? 'other'}:${plain(text)}`,
     payload: { entryId: e.id, field, memory, text }
   })

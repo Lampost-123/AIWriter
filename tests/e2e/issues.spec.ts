@@ -18,7 +18,7 @@ const row = (win: Page, title: string) => binder(win).locator('[data-row]', { ha
 
 const TEXT = 'Mara pushed the door open. Mara\'s eyes were green in the firelight. "You took your time," said Tobin.'
 const DEAD = 'Tobin is dead by this point in the story, but speaks here.'
-const EYES = /Mara: this scene says eyes is “green”, but the memory says “blue”\./
+const EYES = /Mara’s eyes: this scene says “green”, but the memory says “blue”\./
 
 /**
  * A world with Mara (blue eyes, in Adam's own words) and Tobin, who dies in Scene 1; Scene 2, "The tavern",

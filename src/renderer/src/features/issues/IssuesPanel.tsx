@@ -238,7 +238,7 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
       <p className="mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
       {issue.sources.length ? (
         <p className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[12px]">
-          <span className="text-faint">Conflicts with</span>
+          <span className="text-faint">Disagrees with</span>
           {issue.sources.map((s, n) => (
             <span key={n} className="flex min-w-0 items-baseline">
               <SourceLink source={s} />

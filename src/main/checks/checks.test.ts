@@ -327,7 +327,7 @@ describe('keys and ignored issues', () => {
       kind: 'fact',
       severity: 'warning',
       quote: 'Mara’s eyes were green',
-      message: 'Mara: this scene says eyes is “green”, but the memory says “blue”.',
+      message: 'Mara’s eyes: this scene says “green”, but the memory says “blue”.',
       key: `clash:${maraId}:eyes:green`,
       payload: { entryId: maraId, field: 'eyes', memory: 'blue', text: 'green' }
     }
