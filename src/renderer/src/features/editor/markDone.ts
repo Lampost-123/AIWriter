@@ -6,6 +6,7 @@ import type { ID, SceneMeta, SceneStatus } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
+import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -24,7 +25,6 @@ function show(meta: SceneMeta): void {
   useApp.getState().bumpOutline()
 }
 
-const sentence = (message: string): string => (/[.!?]$/.test(message.trim()) ? message.trim() : `${message.trim()}.`)
 
 /** Marks a scene done, saving every unsaved word first. Returns true when it worked. */
 export async function markSceneDone(sceneId: ID): Promise<boolean> {
@@ -40,7 +40,7 @@ export async function markSceneDone(sceneId: ID): Promise<boolean> {
     toast('Scene marked done.', { tone: 'success' })
     return true
   } catch (e) {
-    toast(`This scene couldn't be marked done. ${sentence((e as Error).message)} Your writing is safe.`, { tone: 'danger' })
+    toast(`This scene couldn't be marked done. ${plainReason(e)} Your writing is safe.`, { tone: 'danger' })
     return false
   } finally {
     busy.delete(sceneId)
@@ -56,7 +56,7 @@ export async function reopenScene(sceneId: ID): Promise<SceneMeta | null> {
     show(meta)
     return meta
   } catch (e) {
-    toast(`This scene couldn't be reopened. ${sentence((e as Error).message)}`, { tone: 'danger' })
+    toast(`This scene couldn't be reopened. ${plainReason(e)}`, { tone: 'danger' })
     return null
   } finally {
     busy.delete(sceneId)

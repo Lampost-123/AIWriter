@@ -9,6 +9,7 @@ import type { Entry, ID, MemoryLogItem } from '@shared/types'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { requestReveal } from '@/features/editor/reveal'
 import { fullDate, relativeTime } from '@/features/generate/format'
@@ -49,7 +50,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
         setItems(list)
         setError(null)
       })
-      .catch((e: Error) => t === ticket.current && setError(e.message))
+      .catch((e: unknown) => t === ticket.current && setError(plainReason(e)))
   }, [sceneId, limit])
 
   // Reloads quietly when the memory changes (the list stays on screen meanwhile).
@@ -91,7 +92,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
       toast("Undone. The memory won't add that again from the same words.")
     } catch (e) {
       setItems((list) => (list ? markUndone(list, item.id, false) : list))
-      toast(`That couldn't be undone. ${(e as Error).message}`)
+      toast(`That couldn't be undone. ${plainReason(e)}`)
     }
   }
 
@@ -102,7 +103,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
       await api.answerMemoryQuestion(item.id, optionId)
     } catch (e) {
       setItems((list) => (list ? markAnswered(list, item.id, before) : list))
-      toast(`That answer couldn't be saved. ${(e as Error).message}`)
+      toast(`That answer couldn't be saved. ${plainReason(e)}`)
     }
   }
 
@@ -111,7 +112,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
       await api.updateMemoryNow(item.sceneId ?? undefined)
       toast('Trying again. The memory is reading the scene.')
     } catch (e) {
-      toast((e as Error).message)
+      toast(plainReason(e))
     }
   }
 

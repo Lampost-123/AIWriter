@@ -7,6 +7,7 @@ import { useState } from 'react'
 import type { ID } from '@shared/types'
 import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
+import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { PopoverPanel } from '@/features/generate/parts'
 import { pointsToSettings } from '@/features/memory/logic'
@@ -38,7 +39,7 @@ export function MemoryNote({ sceneId }: { sceneId: ID }): React.JSX.Element {
       setOpen(false)
       toast('Trying again. The memory is reading this scene.')
     } catch (e) {
-      toast((e as Error).message)
+      toast(plainReason(e))
     } finally {
       setBusy(false)
     }

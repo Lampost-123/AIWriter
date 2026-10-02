@@ -2,6 +2,7 @@
 // pins, and finding which summaries the "Story so far" part was built from. No React, no window,
 // so they are unit-tested.
 
+import { NOT_READY, plainReason } from '../../lib/reason'
 import type { BlockMode, ContextBlock, ContextBudget, ContextEntry, ContextPreview, EntryKind, ID, PinScope, Summary } from '@shared/types'
 
 // ---------- The token bar ----------
@@ -153,15 +154,10 @@ export function entryDetail(entry: Pick<ContextEntry, 'why' | 'label'>, kindWord
   return parts.filter(Boolean).join(' · ')
 }
 
-/** Said for a part of AI Write that this version doesn't have yet. */
-export const NOT_READY = "This isn't ready yet in this version of AI Write."
+export { NOT_READY }
 
 /** A failed change, in plain words, for a quiet note. */
-export function quietReason(err: unknown): string {
-  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
-  if (/not built yet/i.test(msg)) return NOT_READY
-  return msg || 'Something went wrong.'
-}
+export const quietReason = plainReason
 
 // ---------- Story so far ----------
 

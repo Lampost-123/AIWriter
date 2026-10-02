@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { PopoverPanel } from '@/features/generate/parts'
 import { changesNote, freshUpdate, keeperState, pointsToSettings, readingNote } from './logic'
@@ -74,7 +75,7 @@ export function KeeperStatus(): React.JSX.Element {
       await api.updateMemoryNow()
       setOpen(false)
     } catch (e) {
-      toast((e as Error).message)
+      toast(plainReason(e))
     } finally {
       setRetrying(false)
     }
