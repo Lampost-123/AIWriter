@@ -165,6 +165,21 @@ describe('Adam working while a scene is read', () => {
 })
 
 describe('links follow their words', () => {
+  it('two different changes worded alike are both kept', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand. Later Mara lost her right hand.']])
+    await read(w.db, w.sceneId)
+    const notes = mem.listAllChanges(w.db).map((c) => (c.kind === 'update' ? c.payload.note : ''))
+    expect(notes.sort()).toEqual(['lost her left hand', 'lost her right hand'])
+    // Said again in other words, it is the same change (not a third).
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her left hand. Later Mara lost her right hand.'],
+      ['p2', 'By then, Mara lost her left hand.']
+    ])
+    await read(w.db, w.sceneId)
+    expect(mem.listAllChanges(w.db)).toHaveLength(2)
+  })
+
   it('a one-word edit that changes the meaning is read again, not taken for a typo', async () => {
     const w = world()
     save(w.db, w.sceneId, [['p1', 'Mara lost her west gate key.']])

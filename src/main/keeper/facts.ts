@@ -174,18 +174,27 @@ export function factFingerprint(f: SceneFact): string {
   }
 }
 
+/** The words a change stands for, to compare two guesses about the same thing (see sameFact). */
+export function changeContent(c: ChangeData): string {
+  switch (c.kind) {
+    case 'update':
+      return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')} ${c.payload.description ?? ''} ${c.payload.summary ?? ''}`
+    case 'relationship':
+      return `${c.payload.type} ${c.payload.ended ? 'ended' : 'ongoing'}`
+    case 'knowledge':
+      return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : 'knows'}`
+    case 'thread':
+      return `${c.payload.status} ${c.payload.note}`
+    case 'full':
+      return c.payload.description
+  }
+}
+
 /** The words a fact stands for, to compare two guesses about the same thing. */
 export function factContent(f: SceneFact): string {
   switch (f.kind) {
-    case 'change': {
-      const c = f.change
-      if (c.kind === 'update')
-        return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')} ${c.payload.description ?? ''} ${c.payload.summary ?? ''}`
-      if (c.kind === 'relationship') return `${c.payload.type} ${c.payload.ended ? 'ended' : ''}`
-      if (c.kind === 'knowledge') return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : ''}`
-      if (c.kind === 'thread') return `${c.payload.status} ${c.payload.note}`
-      return ''
-    }
+    case 'change':
+      return changeContent(f.change)
     case 'field':
       return fieldValue(f.entry, f.field)
     case 'voice':

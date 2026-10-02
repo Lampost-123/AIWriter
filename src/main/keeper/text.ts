@@ -268,6 +268,27 @@ export function likeness(a: string, b: string): number {
   return (2 * common) / (wa.length + wb.length)
 }
 
+/** Small words that don't change what a fact says. */
+const FILLER = new Set(
+  'a an the her his their its him them she he they it was were is are be been being has had have now then to of in on at by for with and from by'.split(
+    ' '
+  )
+)
+
+/**
+ * True when two descriptions of a fact say the same thing: the same words, or the words of one all in
+ * the other ("lost her left hand" and "her left hand was lost", or "... in the river"). Facts that
+ * differ in a word that matters ("left hand" and "right hand", "rode east" and "rode west") are not.
+ */
+export function sameFact(a: string, b: string): boolean {
+  if (plain(a) === plain(b)) return true
+  const x = new Set(words(a).filter((w) => !FILLER.has(w)))
+  const y = new Set(words(b).filter((w) => !FILLER.has(w)))
+  if (!x.size || !y.size) return false
+  const within = (p: Set<string>, q: Set<string>): boolean => [...p].every((w) => q.has(w))
+  return within(x, y) || within(y, x)
+}
+
 /** The sentences of a text, exactly as written (closing quotes and brackets stay with their sentence). */
 export function sentences(text: string): string[] {
   const out: string[] = []

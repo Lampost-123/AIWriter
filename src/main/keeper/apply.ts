@@ -25,6 +25,7 @@ import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, spotIn, type ReadPlan, type Spot } from './track'
 import {
+  changeContent,
   changeWords,
   factContent,
   factFingerprint,
@@ -36,7 +37,7 @@ import {
   removedWords,
   type SceneFact
 } from './facts'
-import { findQuote, likeness, locateQuote, plain, sceneParagraphs, type Para } from './text'
+import { findQuote, likeness, locateQuote, plain, sameFact, sceneParagraphs, type Para } from './text'
 
 type DB = Database.Database
 
@@ -243,11 +244,12 @@ class Run {
 
   /** The fact already in the scene (or added by this run) that this one repeats, or null. */
   duplicate(fp: string, content: string): { changeId?: ID } | null {
-    const c = plain(content)
-    return this.created.find((x) => x.fp === fp && (plain(x.content) === c || likeness(x.content, content) >= 0.5)) ?? null
+    return this.created.find((x) => x.fp === fp && sameFact(x.content, content)) ?? null
   }
 
+  /** A fact now in the scene (a change this run added, or one it updated: its old words no longer count). */
   remember(fp: string, content: string, changeId?: ID): void {
+    if (changeId) for (let i = this.created.length - 1; i >= 0; i--) if (this.created[i].changeId === changeId) this.created.splice(i, 1)
     this.created.push({ fp, content, changeId })
   }
 
@@ -423,21 +425,6 @@ class Run {
   }
   get removedChanges(): Set<ID> {
     return this.removedChangeEntries
-  }
-}
-
-const changeContent = (c: ChangeData): string => {
-  switch (c.kind) {
-    case 'update':
-      return `${c.payload.note} ${Object.values(c.payload.fields ?? {}).join(' ')} ${c.payload.description ?? ''} ${c.payload.summary ?? ''}`
-    case 'relationship':
-      return `${c.payload.type} ${c.payload.ended ? 'ended' : ''}`
-    case 'knowledge':
-      return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : ''}`
-    case 'thread':
-      return `${c.payload.status} ${c.payload.note}`
-    case 'full':
-      return c.payload.description
   }
 }
 
@@ -713,6 +700,7 @@ function applyVerdict(run: Run, planned: SceneFact, v: Record<string, unknown>, 
   if (same) return
   const version = kdb.latestVersion(db, 'change', c.id)
   mem.replaceChange(db, c.id, { ...changeInput(c, data), origin: 'text', runId: run.ctx.runId })
+  run.remember(fp, changeContent(data), c.id)
   run.log({
     action: 'updated',
     what: 'change',
