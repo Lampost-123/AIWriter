@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Toaster } from '@/components/ui'
 import { api } from '@/lib/api'
 import { installFlushOnClose } from '@/lib/flush'
@@ -107,6 +107,13 @@ function Workspace(): React.JSX.Element {
   // In a small window the open panels give up some width, so the page keeps room to write in.
   // Adam's chosen widths are kept and come back when the window is wider.
   const win = useWindowWidth()
+  // The scene panel comes and goes with the writing page (it isn't there on other pages). When it
+  // does, the binder takes its new width at once too, rather than easing while the page swaps.
+  const hadScenePanel = useRef(scenePanel)
+  const pageSwap = hadScenePanel.current !== scenePanel
+  useEffect(() => {
+    hadScenePanel.current = scenePanel
+  }, [scenePanel])
   const fit = fitPanels(
     win.width,
     { open: layout.binderOpen, width: layout.binderWidth, floor: BINDER.floor },
@@ -124,7 +131,7 @@ function Workspace(): React.JSX.Element {
           open={layout.binderOpen}
           min={BINDER.min}
           max={dragMax(win.width, fit.right, BINDER.min, BINDER.max)}
-          instant={win.resizing}
+          instant={win.resizing || pageSwap}
           onResize={(w) => void update({ layout: { binderWidth: w } })}
         >
           <Binder />
