@@ -4,7 +4,7 @@
 
 import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Change, ID } from '@shared/types'
+import type { Change, ChangeData, ID } from '@shared/types'
 import type { StoryFlowStatus } from '@shared/contracts/storyFlows'
 import { defaultWritingPrefs } from '@shared/defaults'
 import { dbWorld } from '../../../tests/unit/testWorld'
@@ -15,10 +15,11 @@ import * as kdb from '../db/keeper'
 import * as fdb from '../db/storyFlows'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import { answerItem, undoItem } from '../keeper/undo'
-import { BROKEN_REPLY, EMPTY_REPLY, NO_FLOW_MODEL, type FlowModel } from './call'
+import { BROKEN_REPLY, EMPTY_REPLY, flowFailure, NO_FLOW_MODEL, REFUSED, REPLY_TOO_LONG, TOO_MUCH, type FlowModel } from './call'
 import { ShortIds, stateAtStart } from './context'
 import { gapPhrase, NO_GAP, NOT_PREQUEL, runStartingCast, runTimeGap, runWhen, STOPPED, type JobOptions } from './jobs'
-import { flowPlace, flowRuns, STILL_OPEN, WHEN } from './lines'
+import { applyGap, OPEN_AGAIN, TAKEN_OUT } from './apply'
+import { flowPlace, flowRuns, GONE, STILL_OPEN, WHEN } from './lines'
 import { readWhen } from './parse'
 import { FlowRunner } from './runner'
 
@@ -84,6 +85,7 @@ describe('What changed before this story starts?', () => {
   it('adds changes at the start, drafted by AI and listed under What changed, and closes open threads with a question', async () => {
     const w = gapWorld()
     const before = kdb.memoryCounts(w.db)
+    const readBefore = kdb.scenesToRead(w.db)
     const r = await runTimeGap(opts(w.db), w.storyId)
     expect(r).toMatchObject({ status: 'done', message: 'Added 2 changes and closed 1 plot thread, listed under What changed' })
 
@@ -98,10 +100,11 @@ describe('What changed before this story starts?', () => {
     expect(state.threads.find((t) => t.entryId === w.crownId)?.status).toBe('resolved')
 
     const lines = fdb.flowLines(w.db)
-    expect(lines.map((l) => [l.entryName, l.text])).toEqual([
-      ['Mara', 'Died long ago'],
-      ['Harrow Mill', 'Fell into ruin'],
-      ['The lost crown', 'Plot thread left unanswered']
+    expect(lines.map((l) => [l.entryName, l.text, l.after])).toEqual([
+      ['Mara', 'Died long ago', ''],
+      // New field values are named as the entry page names them.
+      ['Harrow Mill', 'Fell into ruin', 'Who rules or lives there: Nobody now but crows'],
+      ['The lost crown', 'Plot thread left unanswered', '']
     ])
     expect(lines[2].question).toEqual({ ...STILL_OPEN, answer: 'unanswered' })
     expect(lines.every((l) => l.sceneId === null)).toBe(true)
@@ -111,11 +114,16 @@ describe('What changed before this story starts?', () => {
     expect(runs[0].heading).toBe('Before The Far Shore starts')
     expect(Object.values(runs[0].places)).toEqual(['Start of The Far Shore', 'Start of The Far Shore', 'Start of The Far Shore'])
 
-    // A record of what the AI saw, for no scene; and the run never counts as a scene to read.
+    // A record of what the AI saw, for no scene. The run is finished (nothing for the keeper to stop
+    // when the world opens), belongs to no scene coming back from the Trash, and adds no scene to read.
     const gens = w.db.prepare('SELECT scene_id, job, status FROM generations').all()
     expect(gens).toEqual([{ scene_id: '', job: 'story', status: 'complete' }])
-    expect(kdb.scenesToRead(w.db)).not.toContain('')
+    expect(kdb.getRun(w.db, runs[0].runId)).toMatchObject({ status: 'done' })
+    expect(kdb.stopUnfinishedRuns(w.db)).toBe(0)
+    expect(kdb.scenesBackFromTrash(w.db)).toEqual([])
+    expect(kdb.scenesToRead(w.db)).toEqual(readBefore)
     expect(kdb.memoryCounts(w.db)).toEqual(before)
+    expect(kdb.lastUpdate(w.db)).toMatchObject({ runId: runs[0].runId, changes: 3 })
     expect(kdb.listLog(w.db, { limit: 10 }).map((l) => l.id).sort()).toEqual(lines.map((l) => l.id).sort())
   })
 
@@ -175,15 +183,47 @@ describe('What changed before this story starts?', () => {
     expect(live(w.db, thread.id)).toBeNull()
     expect(live(w.db, mill.id)?.origin).toBe('adam')
     expect(live(w.db, tobin.id)?.origin).toBe('adam')
+    // What each was shows struck through under what happened to it.
     const removed = fdb.flowLines(w.db).filter((l) => l.action === 'removed')
-    expect(removed.map((l) => l.text)).toEqual([
-      'Died long ago: left out when the time gap was worked out again',
-      'Plot thread left unanswered: left out when the time gap was worked out again'
+    expect(removed.map((l) => [l.text, l.before])).toEqual([
+      ['Taken out when the time gap was worked out again', 'Died long ago'],
+      ['Plot thread open again after the time gap was worked out again', 'Plot thread left unanswered']
+    ])
+    expect([TAKEN_OUT, OPEN_AGAIN]).toEqual(removed.map((l) => l.text))
+
+    // The thread's "Still open?" can still be answered, but never brings back what the new run took out.
+    const closedLine = lineFor(w.db, thread.id)
+    expect(closedLine.action).toBe('removed')
+    const asked = fdb.flowLines(w.db).find((l) => l.factId === thread.id && l.question)!
+    answerItem(w.db, asked.id, 'open')
+    answerItem(w.db, asked.id, 'unanswered')
+    expect(live(w.db, thread.id)).toBeNull()
+    // In the first run's lines, both say they are no longer in the memory, with nothing to answer or undo.
+    const first = flowRuns(w.db, loadShape(w.db)).find((run) => asked.id in run.places)!
+    const maraAdded = fdb.flowLines(w.db).find((l) => l.factId === mara.id && l.action === 'added')!
+    expect(first.gone).toEqual([maraAdded.id, asked.id])
+    expect([first.places[maraAdded.id], first.places[asked.id], first.places[lineFor(w.db, mill.id).id]]).toEqual([
+      GONE,
+      GONE,
+      'Start of The Far Shore'
     ])
 
     // Undo brings an earlier one back as it was.
     undoItem(w.db, removed[0].id)
     expect(live(w.db, mara.id)).toMatchObject({ origin: 'ai', storyId: w.storyId, payload: { note: 'died long ago' } })
+    expect(flowRuns(w.db, loadShape(w.db)).find((run) => asked.id in run.places)!.gone).toEqual([asked.id])
+  })
+
+  it('names fields as the entry page does, and says a change with only fields once', () => {
+    const w = gapWorld()
+    const story = repo.getStory(w.db, w.storyId)
+    const totals = { providerId: null, modelId: null, promptTokens: null, completionTokens: null, cost: null, generationIds: [] }
+    const fields = { age: 'would be 240', pastEvents: 'Fell at the siege of Harrow' }
+    const plan = { changes: [{ entryId: w.id('mara'), data: { kind: 'update' as const, payload: { note: '', fields } } }], closed: [] }
+    applyGap(w.db, story, plan, totals)
+    expect(fdb.flowLines(w.db).map((l) => [l.text, l.after])).toEqual([
+      ['Age or birth date: would be 240; Key past events: Fell at the siege of Harrow', '']
+    ])
   })
 
   it("doesn't bring back what Adam undid or kept open", async () => {
@@ -289,6 +329,78 @@ describe('Starting cast for a prequel', () => {
     expect(mem.listExistsPoints(w.db, w.id('mill')).some((p) => p.storyId === ym)).toBe(false)
   })
 
+  it("goes before the changes at the prequel's start it would otherwise wipe, so Adam's still count", async () => {
+    const w = dbWorld()
+    const ym = w.id('ym')
+    const tobin = w.id('tobin')
+    const adams = (data: ChangeData & { entryId: ID }): Change =>
+      mem.insertChange(w.db, { ...data, anchor: 'story-start', storyId: ym, origin: 'adam' } as Parameters<typeof mem.insertChange>[1])
+    const sworn = adams({
+      kind: 'relationship',
+      payload: { otherId: w.id('mara'), type: 'sworn brother', feels: '', otherFeels: '' },
+      entryId: tobin
+    })
+    adams({ kind: 'knowledge', payload: { factId: 'f-rope', fact: 'The ferry rope is frayed.' }, entryId: tobin })
+    adams({ kind: 'update', payload: { note: 'is twelve', fields: { age: '12' } }, entryId: tobin })
+    const pair = (a: ID, b: ID): string | undefined =>
+      startState(w.db, ym).relationships.find((r) => [r.aId, r.bId].sort().join() === [a, b].sort().join())?.type
+    expect(pair(tobin, w.id('mara'))).toBe('sworn brother')
+
+    await runStartingCast(opts(w.db), ym, [tobin])
+    const draft = fdb.startChanges(w.db, ym).find((c) => c.entryId === tobin && c.kind === 'full')!
+    expect(draft.origin).toBe('ai')
+    // Before Mara's starting description (which names Tobin) and each of Adam's.
+    expect(fdb.startChanges(w.db, ym)[0].id).toBe(draft.id)
+    expect(draft.position).toBeLessThan(sworn.position)
+    const state = startState(w.db, ym)
+    expect(pair(tobin, w.id('mara'))).toBe('sworn brother')
+    expect(state.entries.get(tobin)!.fields.age).toBe('12')
+    expect(state.facts.filter((f) => f.knownBy.includes(tobin)).map((f) => f.fact)).toEqual(['The ferry rope is frayed.'])
+  })
+
+  it('keeps every relationship a draft names, on both sides, and those already at the start', async () => {
+    const w = dbWorld()
+    const ym = w.id('ym')
+    repo.updateStory(w.db, ym, { premise: 'Mara as a girl. [[fake: related]]' })
+    await runStartingCast(opts(w.db), ym, [w.id('tobin'), w.id('mill')])
+    // Tobin's draft names the mill, one way only: the mill's draft gets it the other way round.
+    const mill = fdb.startChanges(w.db, ym).find((c) => c.entryId === w.id('mill'))!
+    expect(mill.kind === 'full' && mill.payload.relationships).toEqual([
+      { otherId: w.id('tobin'), type: 'works at', feels: '', otherFeels: 'proud of it' }
+    ])
+    const of = (id: ID) =>
+      startState(w.db, ym)
+        .relationships.filter((r) => r.aId === id || r.bId === id)
+        .map((r) => r.type)
+        .sort()
+    // Mara's starting description, already there, still names Tobin as her neighbour.
+    expect(of(w.id('tobin'))).toEqual(['neighbour', 'works at'])
+    expect(of(w.id('mill'))).toEqual(['works at'])
+  })
+
+  it('drafted again, moves before what it would wipe, and Undo puts it back where it was', async () => {
+    const w = dbWorld()
+    const ym = w.id('ym')
+    const original = fdb.startChanges(w.db, ym).find((c) => c.entryId === w.id('mara'))!
+    // A relationship of Adam's that Mara's earlier draft, coming after it, wipes.
+    mem.insertChange(w.db, {
+      kind: 'relationship',
+      payload: { otherId: w.id('tobin'), type: 'rival', feels: '', otherFeels: '' },
+      entryId: w.id('mara'),
+      anchor: 'story-start',
+      storyId: ym,
+      origin: 'adam',
+      position: original.position - 5
+    })
+    await runStartingCast(opts(w.db), ym, [w.id('mara')])
+    const redrafted = live(w.db, original.id)!
+    expect(redrafted.position).toBe(original.position - 6)
+    const rel = () => startState(w.db, ym).relationships.find((r) => r.aId === w.id('mara') || r.bId === w.id('mara'))?.type
+    expect(rel()).toBe('rival')
+    undoItem(w.db, lineFor(w.db, original.id).id)
+    expect(live(w.db, original.id)).toMatchObject({ position: original.position, payload: original.payload, origin: 'ai' })
+  })
+
   it('is only for a prequel', async () => {
     const w = dbWorld()
     expect(await runStartingCast(opts(w.db), w.id('b2'), [w.id('mara')])).toEqual({ status: 'failed', message: NOT_PREQUEL })
@@ -367,6 +479,30 @@ describe('When did these happen?', () => {
     expect(fdb.startChanges(w.db, w.id('b2')).map((c) => c.id)).toEqual([w.tobin.id, w.mara.id, w.mill.id])
   })
 
+  it("leaves out a change something else took out: answers and Undo don't bring it back", async () => {
+    const w = whenWorld()
+    await runWhen(opts(w.db), w.id('qy'), w.id('b2'))
+    // Adam deletes Mara's change (left on Book 2) on her page.
+    mem.deleteChange(w.db, w.mara.id)
+    const line = (): kdb.LogRow => lineFor(w.db, w.mara.id)
+    const run = () => flowRuns(w.db, loadShape(w.db))[0]
+    expect(run().gone).toEqual([line().id])
+    expect(run().places[line().id]).toBe(GONE)
+    answerItem(w.db, line().id, 'before')
+    expect(live(w.db, w.mara.id)).toBeNull()
+    answerItem(w.db, line().id, 'in')
+    answerItem(w.db, line().id, 'after')
+    expect(live(w.db, w.mara.id)).toBeNull()
+    undoItem(w.db, line().id)
+    expect(live(w.db, w.mara.id)).toBeNull()
+    expect(line().undone).toBe(true)
+    expect(run().gone).toEqual([])
+
+    // The mill's change, taken out by its own line ("It happens in the new story"), still comes back.
+    answerItem(w.db, lineFor(w.db, w.mill.id).id, 'before')
+    expect(live(w.db, w.mill.id)).toMatchObject({ storyId: w.id('qy'), origin: 'ai' })
+  })
+
   it('never removes anything when the new story has no scenes', () => {
     const changes = new ShortIds('C')
     changes.of('c1')
@@ -408,6 +544,26 @@ describe('When the model fails', () => {
     expect(count(w.db, 'generations')).toBe(2)
     expect(fdb.startChanges(w.db, w.id('ym')).map((c) => c.id)).toEqual(before)
     expect(count(w.db, 'memory_runs')).toBe(0)
+  })
+})
+
+describe('flowFailure', () => {
+  const target = { id: 'p1', name: 'Fake', kind: 'custom' as const, baseUrl: 'http://localhost:1/v1', apiKey: 'k' }
+  const http = (status: number, message: string) => flowFailure({ type: 'http', status, message }, target, 'fake/memory')
+
+  it("never talks about the draft's options or a refused scene", () => {
+    expect(http(400, "This model's maximum context length is 8192 tokens")).toBe(TOO_MUCH)
+    expect(http(413, 'Request too large')).toBe(TOO_MUCH)
+    expect(http(400, 'max_tokens: must be at most 4096 (output tokens)')).toBe(REPLY_TOO_LONG)
+    expect(http(403, 'Flagged by moderation')).toBe(REFUSED)
+    expect(flowFailure({ type: 'refused' }, target, 'fake/memory')).toBe(REFUSED)
+    expect(TOO_MUCH).toBe(
+      'That was too much for the memory model to read at once. Pick a memory model that can read more in Settings › Models.'
+    )
+    // Everything else as the writer is told it, about the memory model.
+    expect(http(500, 'oops')).toBe(
+      'Fake is having trouble right now. Try again in a few minutes, or switch the memory model in Settings › Models.'
+    )
   })
 })
 
@@ -482,7 +638,9 @@ describe('Running in the background', () => {
     await r.idle()
     expect(g.calls()).toBe(2)
     expect(statuses.map((s) => s.state)).toEqual(['running', 'running', 'done'])
-    expect(statuses.at(-1)!.message).toBe('Nothing needed changing')
+    // The second run changed nothing, so the first one's result stays on show.
+    expect(statuses.at(-1)!.message).toBe('Added 2 changes and closed 1 plot thread, listed under What changed')
+    expect(r.list(w.storyId)).toEqual([statuses.at(-1)])
     expect(fdb.flowRunIds(w.db)).toHaveLength(1)
   })
 
@@ -538,6 +696,7 @@ describe('flowPlace', () => {
       position: 0,
       origin: 'ai',
       pick,
+      removedByLine: pick === 'in',
       sceneId
     }) as const
 
@@ -551,7 +710,12 @@ describe('flowPlace', () => {
     // A time gap's change moved to another story since.
     const gap = { op: 'story-flow', flow: 'time-gap', storyId: 'b2', changeId: 'c2', did: 'added' } as const
     expect(flowPlace(gap, false, { storyId: 'qy', deleted: false }, title, scene)).toBe('Start of The Quiet Year')
-    expect(flowPlace(gap, false, null, title, scene)).toBe('Start of Book 2')
+    // Taken out since by something else (Adam, or the time gap worked out again).
+    expect(flowPlace(gap, false, null, title, scene)).toBe(GONE)
+    expect(flowPlace(gap, false, { storyId: 'b2', deleted: true }, title, scene)).toBe(GONE)
+    expect(flowPlace(gap, true, { storyId: 'b2', deleted: true }, title, scene)).toBe('Start of Book 2')
+    expect(flowPlace(sorted('after'), false, { storyId: 'b2', deleted: true }, title, scene)).toBe(GONE)
+    expect(flowPlace({ ...sorted('in', 's1'), removedByLine: false }, false, { storyId: 'b2', deleted: true }, title, scene)).toBe(GONE)
   })
 })
 
@@ -561,6 +725,11 @@ describe('gapPhrase', () => {
     expect(gapPhrase('200 years later', 'Book 4')).toBe('Working out what changed in the 200 years…')
     expect(gapPhrase('three weeks', 'Book 4')).toBe('Working out what changed in the three weeks…')
     expect(gapPhrase('a few months', 'Book 4')).toBe('Working out what changed over a few months…')
+    expect(gapPhrase('Two centuries', 'Book 4')).toBe('Working out what changed in the two centuries…')
+    expect(gapPhrase('A few months later', 'Book 4')).toBe('Working out what changed over a few months…')
+    expect(gapPhrase('1 year', 'Book 4')).toBe('Working out what changed over the year…')
+    expect(gapPhrase('One winter later', 'Book 4')).toBe('Working out what changed over the winter…')
+    expect(gapPhrase('one hundred years', 'Book 4')).toBe('Working out what changed in the one hundred years…')
     expect(gapPhrase('long after the war', 'Book 4')).toBe('Working out what changed before Book 4 starts…')
     expect(gapPhrase('', 'Book 4')).toBe('Working out what changed before Book 4 starts…')
   })

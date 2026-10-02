@@ -25,16 +25,43 @@ export function startChanges(db: DB, storyId: ID): Change[] {
   return ids.map((r) => getChange(db, r.id as string))
 }
 
+/** Where a change is, whether or not it is deleted. */
+export interface ChangeAt {
+  deleted: boolean
+  storyId: ID | null
+  position: number
+  origin: Origin
+}
+
+const toAt = (r: Row): ChangeAt => ({
+  deleted: r.deleted_at != null,
+  storyId: (r.story_id as string) ?? null,
+  position: r.position as number,
+  origin: r.origin as Origin
+})
+
 /** A change whether or not it is deleted (null once it is gone for good), with when it was deleted. */
-export function anyChange(db: DB, id: ID): { deleted: boolean; storyId: ID | null; position: number; origin: Origin } | null {
+export function anyChange(db: DB, id: ID): ChangeAt | null {
   const r = db.prepare('SELECT deleted_at, story_id, position, origin FROM changes WHERE id = ?').get(id) as Row | undefined
-  if (!r) return null
-  return {
-    deleted: r.deleted_at != null,
-    storyId: (r.story_id as string) ?? null,
-    position: r.position as number,
-    origin: r.origin as Origin
-  }
+  return r ? toAt(r) : null
+}
+
+/** Where the change of every flow line is now, by change id, in one query (a change gone for good is left out). */
+export function flowLineChanges(db: DB): Map<ID, ChangeAt> {
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.deleted_at, c.story_id, c.position, c.origin FROM changes c WHERE c.id IN (
+         SELECT l.fact_id FROM memory_log l JOIN memory_runs r ON r.id = l.run_id
+         WHERE r.scene_id = ? AND l.undo_json LIKE '{"op":"story-flow"%')`
+    )
+    .all(FLOW_RUN_SCENE) as Row[]
+  return new Map(rows.map((r) => [r.id as string, toAt(r)]))
+}
+
+/** A story's title, live or deleted (null when there is no such story). */
+export function storyTitle(db: DB, id: ID): string | null {
+  const r = db.prepare('SELECT title FROM stories WHERE id = ?').get(id) as Row | undefined
+  return r ? ((r.title as string) ?? '') : null
 }
 
 /** Puts a change back at its old place among the changes beside it (an undo moves it back exactly). */

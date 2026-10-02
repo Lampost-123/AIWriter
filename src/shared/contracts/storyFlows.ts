@@ -63,8 +63,13 @@ export interface StoryFlowRun {
   storyId: ID
   /** The heading of its group in What changed: "Before Book 4 starts". */
   heading: string
-  /** Where each of its lines is now, by line id: "Start of Book 4". */
+  /** Where each of its lines is now, by line id: "Start of Book 4", or "No longer in the memory". */
   places: Record<ID, string>
+  /**
+   * Lines whose change something else has taken out of the memory since (Adam, or the time gap
+   * worked out again): nothing is left to answer or undo, so they show neither.
+   */
+  gone: ID[]
 }
 
 export interface StoryFlowsEvents {

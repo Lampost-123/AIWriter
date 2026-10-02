@@ -4,7 +4,8 @@
 // a question-marked line shows the choice the memory made and lets Adam pick another, any time.
 // Adam never has to look at it, so nothing here asks to be confirmed. The story flows' runs (a time
 // gap, a prequel's starting cast, "When did these happen?") belong to no scene: they get their own
-// heading and say where each change is, such as "Start of Book 4".
+// heading and say where each change is, such as "Start of Book 4"; a line whose change something else
+// has taken out since says so, with nothing left to answer or undo.
 import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
@@ -156,7 +157,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
         </h1>
         <div className="mt-1 flex min-h-[20px] flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
           <span>
-            {sceneId ? 'What the memory took from this scene, newest first.' : 'What the memory took from your writing, newest first.'}
+            {sceneId ? 'What the memory took from this scene, newest first.' : 'Everything the memory added or changed, newest first.'}
           </span>
           {sceneId ? (
             <button
@@ -224,6 +225,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
                         key={item.id}
                         item={item}
                         place={flowRuns.get(item.runId)?.places[item.id] ?? null}
+                        gone={flowRuns.get(item.runId)?.gone.includes(item.id) ?? false}
                         canOpen={!!item.entryId && entries.has(item.entryId)}
                         onOpen={() => item.entryId && openEntry(item.entryId)}
                         onShowWords={() => showWords(item)}
@@ -259,6 +261,7 @@ const linkClass = 'rounded outline-none hover:underline focus-visible:ring-2 foc
 function LogRow({
   item,
   place,
+  gone: changeGone,
   canOpen,
   onOpen,
   onShowWords,
@@ -270,6 +273,8 @@ function LogRow({
   item: MemoryLogItem
   /** Where a story flow's change is now ("Start of Book 4"); null for the memory keeper's lines. */
   place: string | null
+  /** A story flow's change taken out since by something else: no question or Undo. */
+  gone: boolean
   canOpen: boolean
   onOpen: () => void
   onShowWords: () => void
@@ -374,7 +379,7 @@ function LogRow({
           )
         ) : null}
 
-        {item.question && !item.undone ? (
+        {item.question && !item.undone && !changeGone ? (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span
               className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-line-strong text-[11px] font-semibold text-muted"
@@ -417,7 +422,7 @@ function LogRow({
           <span ref={undoneRef} tabIndex={-1} className="flex h-7 items-center rounded-md px-2 text-[12px] text-faint outline-none">
             Undone
           </span>
-        ) : canUndo(item) ? (
+        ) : canUndo(item) && !changeGone ? (
           <Button
             variant="ghost"
             size="sm"

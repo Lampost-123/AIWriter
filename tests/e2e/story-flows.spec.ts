@@ -110,7 +110,10 @@ test('a time gap fills in what changed, listed under What changed with Undo and 
     await expect(group).toBeVisible()
     await expect(group.getByRole('button', { name: 'Undo: Mara, Died long ago' })).toBeVisible()
     await expect(group.getByRole('button', { name: 'Undo: Harrow Mill, Fell into ruin' })).toBeVisible()
+    // A new field value is named as the entry page names it.
+    await expect(group.getByText('Who rules or lives there: Nobody now but crows', { exact: true })).toBeVisible()
     await expect(group.getByText('Start of The Long Dark')).toHaveCount(3)
+    await expect(list.getByText('Everything the memory added or changed, newest first.')).toBeVisible()
 
     // The thread was left unanswered, by default; Adam says it is still open, then changes his mind.
     const thread = group.getByRole('listitem').filter({ hasText: 'Plot thread left unanswered' })
@@ -237,6 +240,14 @@ test('"When did these happen?" sorts a book\'s changes when a story is set befor
     // Undo puts the mill's change back on Book 2.
     await line('Fell into ruin').getByRole('button', { name: /^Undo: Harrow Mill/ }).click()
     await expect.poll(() => startOf(mill.id)).toEqual([book2.id])
+
+    // Adam deletes Mara's change on her page: the line says so, with nothing left to answer or undo.
+    const maraChange = (await invoke(win, 'listChanges', mara.id))[0]
+    await invoke(win, 'deleteChange', maraChange.id)
+    await expect(line('Died long ago').getByText('No longer in the memory')).toBeVisible()
+    await expect(line('Died long ago').getByRole('group', { name: 'When did this happen?' })).toHaveCount(0)
+    await expect(line('Died long ago').getByRole('button', { name: /^Undo/ })).toHaveCount(0)
+    expect(await startOf(mara.id)).toEqual([])
   } finally {
     await fake.close()
   }

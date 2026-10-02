@@ -1,8 +1,10 @@
 // Runs the story flows of the open world in the background, one at a time per story and flow: a call
 // while the same flow runs for that story waits and runs once the first has finished (a starting cast
 // asked for meanwhile is drafted together). Keeps how each flow last went for this session, so story
-// settings can show it as soon as they open. Closing the world stops everything; nothing is written to
-// a closed database. No Electron imports (index.ts connects it to the window).
+// settings can show it as soon as they open; a run that follows one which changed something, and
+// changes nothing itself, keeps the earlier result on show rather than "Nothing needed changing".
+// Closing the world stops everything; nothing is written to a closed database. No Electron imports
+// (index.ts connects it to the window).
 
 import type Database from 'better-sqlite3'
 import type { ID, WritingPrefs } from '@shared/types'
@@ -21,11 +23,15 @@ export interface RunnerDeps {
   retryDelays?: number[]
 }
 
+type Done = Extract<JobResult, { status: 'done' }>
+
 interface Slot {
   args: FlowArgs
   controller: AbortController
   /** Asked for while this one runs: runs next. */
   next: FlowArgs | null
+  /** The latest result in this chain of runs that changed something, to report if the later ones change nothing. */
+  earlier: Done | null
   done: Promise<void>
 }
 
@@ -57,12 +63,12 @@ export class FlowRunner {
       slot.next = merge(slot.next, args)
       return
     }
-    this.run(key, args)
+    this.run(key, args, null)
   }
 
-  private run(key: string, args: FlowArgs): void {
+  private run(key: string, args: FlowArgs, earlier: Done | null): void {
     const controller = new AbortController()
-    const slot: Slot = { args, controller, next: null, done: Promise.resolve() }
+    const slot: Slot = { args, controller, next: null, earlier, done: Promise.resolve() }
     this.slots.set(key, slot)
     this.status(args, 'running', this.safe(() => runningMessage(this.deps.db, args), 'Working…'))
     slot.done = runFlow(
@@ -85,12 +91,14 @@ export class FlowRunner {
     if (this.slots.get(key) === slot) this.slots.delete(key)
     if (this.closed) return
     if (r.status === 'done' && r.runId) this.deps.emitChanged({ sceneId: null, entryIds: r.entryIds })
+    const changed = r.status === 'done' && r.runId ? r : slot.earlier
     if (slot.next && !slot.controller.signal.aborted) {
-      this.run(key, slot.next)
+      this.run(key, slot.next, changed)
       return
     }
-    if (r.status === 'stopped') this.status(slot.args, 'done', STOPPED)
-    else this.status(slot.args, r.status, r.message)
+    if (r.status === 'failed') this.status(slot.args, 'failed', r.message)
+    else if (r.status === 'done' && (r.runId || !changed)) this.status(slot.args, 'done', r.message)
+    else this.status(slot.args, 'done', changed ? changed.message : STOPPED)
   }
 
   /** Stops the flow running for this story (and drops one waiting after it). Nothing it worked out is kept. */

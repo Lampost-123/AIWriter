@@ -393,9 +393,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
  * named after the marker. "[[fake: empty]]" in the request gives an empty reply, "[[fake: broken]]" one
  * that can't be read.
  * - time-gap: after 50 years or more (or centuries, generations, ages) the first character "died long
- *   ago", the first place "fell into ruin" and the first open plot thread is left unanswered; after
- *   less, nothing changed.
- * - starting-cast: a younger or earlier description for each entry under "Cast to draft".
+ *   ago", the first place "fell into ruin" (now home to nobody but crows) and the first open plot
+ *   thread is left unanswered; after less, nothing changed.
+ * - starting-cast: a younger or earlier description for each entry under "Cast to draft". With
+ *   "[[fake: related]]" in the request, the first character's names the first place ("works at"), one
+ *   way only.
  * - when: a change whose entry a scene of the new story names happens in that scene; the first other
  *   change happened before the new story; the rest after it.
  */
@@ -426,7 +428,7 @@ export function fakeStoryFlowReply(system, user) {
     const person = cast.find((e) => e.kind === 'character')
     if (person) changes.push({ type: 'change', entry: person.id, note: 'died long ago' })
     const place = cast.find((e) => e.kind === 'place')
-    if (place) changes.push({ type: 'change', entry: place.id, note: 'fell into ruin' })
+    if (place) changes.push({ type: 'change', entry: place.id, note: 'fell into ruin', fields: { people: 'Nobody now but crows' } })
     const thread = section('Open plot threads')
       .map((l) => (l.match(/^- (E\d+) /) ?? [])[1])
       .find(Boolean)
@@ -440,12 +442,15 @@ export function fakeStoryFlowReply(system, user) {
       group: (n) => `${n} years earlier: smaller, with other leaders, and not yet what it becomes.`,
       item: (n) => `${n} years earlier, before it came to the hands the book finds it in.`
     }
-    const cast = entries(section('Cast to draft')).map((e) => ({
+    const drafting = entries(section('Cast to draft'))
+    const workplace = text.includes('[[fake: related]]') ? drafting.find((e) => e.kind === 'place') : null
+    const worker = workplace ? drafting.find((e) => e.kind === 'character') : null
+    const cast = drafting.map((e) => ({
       entry: e.id,
       summary: `${e.name}, years before the book`,
       description: (younger[e.kind] ?? younger.item)(e.name),
       fields: {},
-      relationships: [],
+      relationships: e === worker ? [{ other: workplace.id, rel: 'works at', feels: 'proud of it', otherFeels: '' }] : [],
       knows: []
     }))
     return JSON.stringify({ cast }, null, 1)

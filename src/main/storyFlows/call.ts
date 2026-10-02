@@ -34,10 +34,15 @@ const FALLBACK_REPLY_TOKENS = 2000
 /** When no memory model (or writer model) is chosen. */
 export const NO_FLOW_MODEL = 'Choose a memory model in Settings › Models, then try again.'
 const OTHER_MODEL = 'pick another memory model in Settings › Models'
+const PICK_ANOTHER = `${OTHER_MODEL[0].toUpperCase()}${OTHER_MODEL.slice(1)}.`
 export const EMPTY_REPLY = `The model didn't answer. Try again, or ${OTHER_MODEL}.`
 export const BROKEN_REPLY = `The model's answer couldn't be read. Try again, or ${OTHER_MODEL}.`
 export const CUT_REPLY = `The model's answer was cut short. Try again, or ${OTHER_MODEL}.`
 export const TOO_SMALL = 'The memory model can take too little text at once. Pick another memory model in Settings › Models.'
+export const REFUSED = `The memory model turned this down. ${PICK_ANOTHER}`
+export const TOO_MUCH =
+  'That was too much for the memory model to read at once. Pick a memory model that can read more in Settings › Models.'
+export const REPLY_TOO_LONG = `The memory model can't write that much in one reply. ${PICK_ANOTHER}`
 
 /** How much of the model's window a flow may use. */
 export interface FlowBudget {
@@ -58,23 +63,35 @@ export function flowBudget(choice: Pick<ModelChoice, 'contextLength' | 'maxOutpu
   return { contextLength, reply, available }
 }
 
+/**
+ * What the writer is told that doesn't fit a story flow (the draft's length options, the scene card, a
+ * refused scene), by how describeFailure starts it, and what a flow says instead. Matching its words
+ * keeps the same reading of the provider's error; flows.test.ts pins each one.
+ */
+const DRAFT_ONLY: [string, string][] = [
+  ['This model refused the scene.', REFUSED],
+  ['The briefing and the length you asked for are too much', TOO_MUCH],
+  ["This model can't write that much in one reply.", REPLY_TOO_LONG]
+]
+
 /** The provider's words for a failure, reworded for a story flow. */
 export function flowFailure(f: Failure, target: ChatTarget, modelId: string): string {
   switch (f.type) {
     case 'refused':
-      return `The model turned this down. ${OTHER_MODEL[0].toUpperCase()}${OTHER_MODEL.slice(1)}.`
+      return REFUSED
     case 'empty':
       return EMPTY_REPLY
     case 'dropped':
       return `The connection to ${providerWho(target)} dropped before the model had finished. Try again in a moment.`
-    default:
-      return describeFailure(
+    default: {
+      const said = describeFailure(
         f,
         { name: target.name, kind: target.kind, baseUrl: target.baseUrl, hasKey: !!target.apiKey },
         { during: 'draft', modelId }
       )
-        .replace(/writer model/g, 'memory model')
-        .replace(/ The text that arrived is kept\.$/, '')
+      const instead = DRAFT_ONLY.find(([start]) => said.startsWith(start))?.[1]
+      return instead ?? said.replace(/writer model/g, 'memory model').replace(/ The text that arrived is kept\.$/, '')
+    }
   }
 }
 

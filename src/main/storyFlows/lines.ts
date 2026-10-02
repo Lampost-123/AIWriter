@@ -31,9 +31,10 @@ export type FlowUndo = {
       pointId?: ID | null
     }
   | {
-      /** An earlier AI-drafted change written over: the version to go back to. */
+      /** An earlier AI-drafted change written over: the version to go back to, and where it was among the others. */
       did: 'replaced'
       version: number
+      position?: number
       pointId?: ID | null
     }
   | { did: 'removed' }
@@ -41,6 +42,8 @@ export type FlowUndo = {
       /** A plot thread closed as left unanswered; `open` while "Still open" is the answer. */
       did: 'closed'
       open: boolean
+      /** True while the closing change is taken out because of that answer (see the same on 'sorted'). */
+      removedByLine?: boolean
     }
   | {
       /** One of a book's start-of-story changes, sorted: where it was, and the answer in effect. */
@@ -49,6 +52,12 @@ export type FlowUndo = {
       position: number
       origin: Origin
       pick: WhenPick
+      /**
+       * True while the change is taken out because of this line's answer ("It happens in the new
+       * story"). Only then does another answer, or Undo, bring it back: a change Adam or a later run
+       * took out stays out.
+       */
+      removedByLine: boolean
       /** The new story's scene that carries it, when the model said so. */
       sceneId: ID | null
     }
@@ -108,21 +117,28 @@ function moveTo(db: DB, c: Change, storyId: ID, position?: number): void {
   if (position !== undefined) fdb.setChangePosition(db, c.id, position)
 }
 
-/** A sorted change back where it was on its book, as before the run: brought back and moved back. */
+/**
+ * A sorted change back where it was on its book, as before the run: brought back (only when this
+ * line's answer took it out) and moved back.
+ */
 function backOnBook(db: DB, u: Extract<FlowUndo, { did: 'sorted' }>): void {
   const row = fdb.anyChange(db, u.changeId)
   if (!row) return
-  if (row.deleted) mem.restoreChange(db, u.changeId, { origin: u.origin })
+  if (row.deleted && u.removedByLine) mem.restoreChange(db, u.changeId, { origin: u.origin })
   const c = liveChange(db, u.changeId)
   if (c) moveTo(db, c, u.bookId, u.position)
 }
 
-/** Applies an answer to "When did this happen?" to a change that is back on its book. */
-function applyPick(db: DB, u: Extract<FlowUndo, { did: 'sorted' }>, pick: WhenPick, by: { origin: Origin; runId?: ID | null }): void {
+/** Applies an answer to "When did this happen?" to a change that is back on its book; true when it took the change out. */
+function applyPick(db: DB, u: Extract<FlowUndo, { did: 'sorted' }>, pick: WhenPick, by: { origin: Origin; runId?: ID | null }): boolean {
   const c = liveChange(db, u.changeId)
-  if (!c) return
+  if (!c) return false
   if (pick === 'before') moveTo(db, c, u.storyId)
-  else if (pick === 'in') mem.deleteChange(db, c.id, by)
+  else if (pick === 'in') {
+    mem.deleteChange(db, c.id, by)
+    return true
+  }
+  return false
 }
 
 /** Undoes one of a flow's lines: puts back exactly what it changed. */
@@ -139,7 +155,10 @@ export function undoFlowLine(db: DB, row: LogRow): FlowOutcome {
     case 'replaced': {
       const old = kdb.versionData(db, 'change', u.changeId, u.version)
       const data = old?.data as Change | null
-      if (data && liveChange(db, u.changeId)) mem.replaceChange(db, u.changeId, { ...inputOf(data), origin: old!.origin })
+      if (data && liveChange(db, u.changeId)) {
+        mem.replaceChange(db, u.changeId, { ...inputOf(data), origin: old!.origin })
+        if (u.position !== undefined) fdb.setChangePosition(db, u.changeId, u.position)
+      }
       if (u.pointId) fdb.deletePoint(db, u.pointId)
       break
     }
@@ -167,16 +186,24 @@ export function answerFlowLine(db: DB, row: LogRow, optionId: string): FlowOutco
   if (row.undone) throw new UserError('That change was undone, so there is nothing to answer.')
   let next: FlowUndo = u
   if (u.did === 'closed') {
+    // "Still open" takes the closing change out; "Left unanswered" brings it back only if that answer
+    // took it out (one Adam deleted, or a time gap worked out again took out, stays out).
     const open = optionId === 'open'
     const c = fdb.anyChange(db, u.changeId)
-    if (open && c && !c.deleted) mem.deleteChange(db, u.changeId, ADAM)
-    else if (!open && c?.deleted) mem.restoreChange(db, u.changeId, { origin: c.origin })
-    next = { ...u, open }
+    let removedByLine = !!u.removedByLine
+    if (open && c && !c.deleted) {
+      mem.deleteChange(db, u.changeId, ADAM)
+      removedByLine = true
+    } else if (!open && removedByLine) {
+      if (c?.deleted) mem.restoreChange(db, u.changeId, { origin: c.origin })
+      removedByLine = false
+    }
+    next = { ...u, open, removedByLine }
   } else if (u.did === 'sorted') {
     const pick = optionId as WhenPick
     backOnBook(db, u)
-    applyPick(db, u, pick, ADAM)
-    next = { ...u, pick }
+    const removedByLine = applyPick(db, u, pick, ADAM)
+    next = { ...u, pick, removedByLine }
   }
   kdb.setLogQuestion(db, row.id, { ...row.question, answer: optionId }, next as unknown as Record<string, unknown>)
   return out
@@ -190,8 +217,7 @@ function titleFinder(db: DB, shape: WorldShape | null): (storyId: ID) => string 
   return (id) => {
     const known = titles.get(id)
     if (known !== undefined) return known.trim() || 'Untitled story'
-    const r = db.prepare('SELECT title FROM stories WHERE id = ?').get(id) as { title?: string } | undefined
-    const title = r?.title?.trim() || 'Untitled story'
+    const title = fdb.storyTitle(db, id)?.trim() || 'Untitled story'
     titles.set(id, title)
     return title
   }
@@ -212,10 +238,23 @@ export function flowHeading(u: FlowUndo, title: (storyId: ID) => string): string
 /** Where a change is now: its story (the one it was at, once deleted), or null once it is gone for good. */
 type At = { storyId: ID | null; deleted: boolean } | null
 
+/** What a line's place says once something else has taken its change out of the memory. */
+export const GONE = 'No longer in the memory'
+
+/**
+ * True when the line's change has been taken out of the memory by something other than the line
+ * itself (Adam on the entry page, or the time gap worked out again): there is nothing left to answer
+ * or undo.
+ */
+export function changeGone(u: FlowUndo, undone: boolean, at: At): boolean {
+  if (undone || (at && !at.deleted)) return false
+  return !(u.did === 'removed' || (u.did === 'closed' && u.removedByLine) || (u.did === 'sorted' && u.pick === 'in' && u.removedByLine))
+}
+
 /**
  * Where a flow line's change is now, in plain words: "Start of Book 4", or for one that happens in a
  * new story's scene, "The Quiet Year, Ch 1, Sc 2". A change moved since (by "When did these happen?")
- * shows where it went.
+ * shows where it went; one taken out since by something else says so.
  */
 export function flowPlace(
   u: FlowUndo,
@@ -224,38 +263,32 @@ export function flowPlace(
   title: (storyId: ID) => string,
   scene: (storyId: ID, sceneId: ID) => string | null
 ): string {
+  if (changeGone(u, undone, at)) return GONE
   if (u.did === 'sorted' && u.pick === 'in' && !undone && (!at || at.deleted)) {
     return (u.sceneId && scene(u.storyId, u.sceneId)) || `In ${title(u.storyId)}`
   }
   return `Start of ${title(at?.storyId ?? u.storyId)}`
 }
 
-/**
- * Places in plain words for flow lines, read from the open world: null for a line that isn't one of
- * the flows'. Made once per list (ipc/keeper.ts withWhere can use it for each line's `where`).
- */
-export function flowPlacer(db: DB, shape: WorldShape | null): (row: Pick<LogRow, 'undo' | 'undone'>) => string | null {
+/** Every flow run listed in What changed, with its heading, each line's place, and the lines whose change is gone. */
+export function flowRuns(db: DB, shape: WorldShape | null): StoryFlowRun[] {
   const title = titleFinder(db, shape)
   const label = shape ? labeler(shape) : null
   const live = new Set(shape?.stories.flatMap((s) => s.chapters.flatMap((c) => c.scenes.map((sc) => sc.id))) ?? [])
   const scene = (storyId: ID, sceneId: ID): string | null => (label && live.has(sceneId) ? label({ storyId, sceneId }) : null)
-  return (row) => (isFlowUndo(row.undo) ? flowPlace(row.undo, row.undone, fdb.anyChange(db, row.undo.changeId), title, scene) : null)
-}
-
-/** Every flow run listed in What changed, with its heading and each line's place. */
-export function flowRuns(db: DB, shape: WorldShape | null): StoryFlowRun[] {
-  const title = titleFinder(db, shape)
-  const place = flowPlacer(db, shape)
+  const changes = fdb.flowLineChanges(db)
   const runs = new Map<ID, StoryFlowRun>()
   for (const row of fdb.flowLines(db)) {
     if (!isFlowUndo(row.undo)) continue
     const u = row.undo
     let run = runs.get(row.runId)
     if (!run) {
-      run = { runId: row.runId, flow: u.flow, storyId: u.storyId, heading: flowHeading(u, title), places: {} }
+      run = { runId: row.runId, flow: u.flow, storyId: u.storyId, heading: flowHeading(u, title), places: {}, gone: [] }
       runs.set(row.runId, run)
     }
-    run.places[row.id] = place(row) ?? ''
+    const at = changes.get(u.changeId) ?? null
+    run.places[row.id] = flowPlace(u, row.undone, at, title, scene)
+    if (changeGone(u, row.undone, at)) run.gone.push(row.id)
   }
   return [...runs.values()]
 }

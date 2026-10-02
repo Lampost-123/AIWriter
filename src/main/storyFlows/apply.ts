@@ -9,14 +9,14 @@
 // Runs inside a transaction (the caller's). No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeData, Entry, FullPayload, ID, Story } from '@shared/types'
+import type { Change, ChangeData, Entry, EntryKind, FullPayload, ID, Story } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as kdb from '../db/keeper'
-import type { NewLog } from '../db/keeper'
+import type { LogRow, NewLog } from '../db/keeper'
 import * as fdb from '../db/storyFlows'
-import { changeContent, changeWords, removedWords } from '../keeper/facts'
-import { clip, plain } from '../keeper/text'
+import { changeContent, changeWords, fieldLabel } from '../keeper/facts'
+import { clip, plain, upperFirst } from '../keeper/text'
 import { isFlowUndo, STILL_OPEN, WHEN, type FlowUndo } from './lines'
 import type { GapPlan, WhenPick } from './parse'
 
@@ -55,6 +55,36 @@ function inRun(db: DB, totals: RunTotals, write: (runId: ID) => Line[]): { runId
 
 const liveEntries = (db: DB, ids: ID[]): Map<ID, Entry> => new Map(repo.getEntries(db, [...new Set(ids)]).map((e) => [e.id, e]))
 
+/** New field values with their names as the entry page shows them: "Key past events: fell at the siege; Age or birth date: 240". */
+function fieldWords(kind: EntryKind | undefined, fields: Record<string, string> | undefined): string {
+  return Object.entries(fields ?? {})
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${kind ? fieldLabel({ kind }, k) : upperFirst(k)}: ${v}`)
+    .join('; ')
+}
+
+/** A change in plain words for a flow's line, as the keeper says it but with field names as the entry page shows them. */
+function words(c: ChangeData, kind: EntryKind | undefined, nameOf: (id: ID) => string): string {
+  if (c.kind === 'update' && !c.payload.note.trim()) return upperFirst(fieldWords(kind, c.payload.fields)) || 'Changed'
+  return changeWords(c, nameOf)
+}
+
+/** The new field values of a change that also has a note (one with only fields says them in its words already). */
+const afterWords = (c: ChangeData, kind: EntryKind | undefined): string =>
+  c.kind === 'update' && c.payload.note.trim() ? fieldWords(kind, c.payload.fields) : ''
+
+/** Every flow line, by the change it is about (one read for a whole run). */
+function linesByChange(db: DB): Map<ID, LogRow[]> {
+  const out = new Map<ID, LogRow[]>()
+  for (const l of fdb.flowLines(db)) {
+    if (!l.factId) continue
+    const list = out.get(l.factId)
+    if (list) list.push(l)
+    else out.set(l.factId, [l])
+  }
+  return out
+}
+
 const fieldsOf = (c: ChangeData): string => JSON.stringify(c.kind === 'update' ? (c.payload.fields ?? {}) : null)
 
 const sameContent = (a: ChangeData, b: ChangeData): boolean =>
@@ -72,14 +102,14 @@ function sameThing(c: Change, entryId: ID, data: ChangeData): boolean {
 }
 
 /** Changes at this story's start that an earlier time gap run drafted (and nobody has edited since). */
-function earlierGapChanges(db: DB, storyId: ID, changes: Change[]): Change[] {
+function earlierGapChanges(log: Map<ID, LogRow[]>, storyId: ID, changes: Change[]): Change[] {
   return changes.filter(
     (c) =>
       c.origin === 'ai' &&
       c.kind !== 'full' &&
-      fdb
-        .linesAboutChange(db, c.id)
-        .some((l) => isFlowUndo(l.undo) && l.undo.flow === 'time-gap' && l.undo.storyId === storyId && l.undo.did !== 'removed')
+      (log.get(c.id) ?? []).some(
+        (l) => isFlowUndo(l.undo) && l.undo.flow === 'time-gap' && l.undo.storyId === storyId && l.undo.did !== 'removed'
+      )
   )
 }
 
@@ -87,9 +117,9 @@ function earlierGapChanges(db: DB, storyId: ID, changes: Change[]): Change[] {
  * What Adam turned down in this story's earlier time gap runs, so working the gap out again doesn't
  * bring it back: changes he undid (by entry and words) and plot threads he kept open.
  */
-function turnedDown(db: DB, storyId: ID): { words: Set<string>; open: Set<ID> } {
+function turnedDown(log: Map<ID, LogRow[]>, storyId: ID): { words: Set<string>; open: Set<ID> } {
   const out = { words: new Set<string>(), open: new Set<ID>() }
-  for (const l of fdb.flowLines(db)) {
+  for (const l of [...log.values()].flat()) {
     const u = l.undo
     if (!isFlowUndo(u) || u.flow !== 'time-gap' || u.storyId !== storyId || !l.entryId) continue
     if (u.did === 'added' && l.undone) out.words.add(`${l.entryId}:${l.text}`)
@@ -102,6 +132,9 @@ function turnedDown(db: DB, storyId: ID): { words: Set<string>; open: Set<ID> } 
 
 /** A plot thread a time gap closed, in What changed. */
 const LEFT_UNANSWERED = 'Plot thread left unanswered'
+/** A time gap's earlier change taken out when it is worked out again, in What changed. */
+export const TAKEN_OUT = 'Taken out when the time gap was worked out again'
+export const OPEN_AGAIN = 'Plot thread open again after the time gap was worked out again'
 
 /**
  * Writes a time gap's changes at the story's start. Running it again replaces what an earlier run
@@ -109,19 +142,21 @@ const LEFT_UNANSWERED = 'Plot thread left unanswered'
  */
 export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals): Applied {
   const here = fdb.startChanges(db, story.id)
-  const earlier = earlierGapChanges(db, story.id, here)
+  const log = linesByChange(db)
+  const earlier = earlierGapChanges(log, story.id, here)
   const others = here.filter((c) => !earlier.includes(c))
   const touched = plan.changes.flatMap((c) => [c.entryId, ...mem.entriesTouched({ ...c.data, entryId: c.entryId })])
-  const entries = liveEntries(db, [...touched, ...plan.closed])
+  const entries = liveEntries(db, [...touched, ...plan.closed, ...earlier.map((c) => c.entryId)])
   const nameOf = (id: ID): string => entries.get(id)?.name ?? repo.getEntries(db, [id])[0]?.name ?? 'someone'
+  const kindOf = (id: ID): EntryKind | undefined => entries.get(id)?.kind
   const kept = new Set<ID>()
-  const refused = turnedDown(db, story.id)
+  const refused = turnedDown(log, story.id)
 
   const toAdd: GapPlan['changes'] = []
   for (const item of plan.changes) {
     if (!mem.entriesTouched({ ...item.data, entryId: item.entryId }).every((id) => entries.has(id))) continue
     if (others.some((c) => sameThing(c, item.entryId, item.data))) continue
-    if (refused.words.has(`${item.entryId}:${changeWords(item.data, nameOf)}`)) continue
+    if (refused.words.has(`${item.entryId}:${words(item.data, kindOf(item.entryId), nameOf)}`)) continue
     const same = earlier.find((c) => !kept.has(c.id) && c.entryId === item.entryId && sameContent(c, item.data))
     if (same) kept.add(same.id)
     else toAdd.push(item)
@@ -145,14 +180,15 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
       mem.deleteChange(db, c.id, by)
       out.removed++
       out.entryIds.push(...mem.entriesTouched(c))
+      // What it was shows struck through under what happened to it.
       lines.push({
         action: 'removed',
         what: 'change',
         entryId: c.entryId,
         factId: c.id,
         entryName: nameOf(c.entryId),
-        text: `${c.kind === 'thread' ? LEFT_UNANSWERED : removedWords(c, nameOf)}: left out when the time gap was worked out again`,
-        before: changeWords(c, nameOf),
+        text: c.kind === 'thread' ? OPEN_AGAIN : TAKEN_OUT,
+        before: c.kind === 'thread' ? LEFT_UNANSWERED : words(c, kindOf(c.entryId), nameOf),
         after: '',
         quote: '',
         question: null,
@@ -169,9 +205,9 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
         entryId: c.entryId,
         factId: c.id,
         entryName: nameOf(c.entryId),
-        text: changeWords(c, nameOf),
+        text: words(c, kindOf(c.entryId), nameOf),
         before: '',
-        after: item.data.kind === 'update' ? fieldWords(item.data.payload.fields) : '',
+        after: afterWords(c, kindOf(c.entryId)),
         quote: '',
         question: null,
         undo: { ...base, changeId: c.id, did: 'added' }
@@ -199,20 +235,12 @@ export function applyGap(db: DB, story: Story, plan: GapPlan, totals: RunTotals)
         after: '',
         quote: '',
         question: { ...STILL_OPEN, answer: 'unanswered' },
-        undo: { ...base, changeId: c.id, did: 'closed', open: false }
+        undo: { ...base, changeId: c.id, did: 'closed', open: false, removedByLine: false }
       })
     }
     return lines
   })
   return { ...out, runId: written.runId, lines: written.lines }
-}
-
-/** New field values in a line: "Hair: grey; Marks: a burn scar". */
-function fieldWords(fields: Record<string, string> | undefined): string {
-  return Object.entries(fields ?? {})
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('; ')
 }
 
 // ---------- A prequel's starting cast ----------
@@ -245,23 +273,58 @@ const sameStart = (a: FullPayload, b: FullPayload): boolean => {
   return key(a) === key(b)
 }
 
+type Draft = { entryId: ID; payload: FullPayload }
+
+/**
+ * Gives each relationship a draft names to the other draft too (the other way round), unless that one
+ * names its own. A starting description sets its entry's relationships afresh, on both sides, so
+ * without this the description written later would wipe it.
+ */
+export function bothSides(drafts: Draft[]): Draft[] {
+  const out = drafts.map((d) => ({ entryId: d.entryId, payload: { ...d.payload, relationships: [...d.payload.relationships] } }))
+  const byId = new Map(out.map((d) => [d.entryId, d]))
+  for (const d of out) {
+    for (const r of [...d.payload.relationships]) {
+      const other = byId.get(r.otherId)
+      if (!other || other.payload.relationships.some((x) => x.otherId === d.entryId)) continue
+      const back = { otherId: d.entryId, type: r.type, feels: r.otherFeels, otherFeels: r.feels }
+      other.payload.relationships.push(r.ended ? { ...back, ended: true } : back)
+    }
+  }
+  return out
+}
+
+/**
+ * Where an entry's drafted starting description goes among the changes at the start: just before the
+ * first one it would otherwise wipe (the entry's own changes, relationships with it, other starting
+ * descriptions naming it), so those still count on top of it, Adam's included. Null when there is
+ * none: after the others, or where it was when drafted again.
+ */
+export function draftPosition(here: Change[], entryId: ID, replaced: ReadonlySet<ID>): number | null {
+  const later = here.filter((c) => !replaced.has(c.id) && mem.entriesTouched(c).includes(entryId))
+  return later.length ? Math.min(...later.map((c) => c.position)) - 1 : null
+}
+
 /**
  * Writes each drafted starting description at the prequel's start, replacing an earlier AI-drafted
  * one, and makes each entry exist from the prequel's start. An entry with a starting description of
- * Adam's (or the text's) is left alone.
+ * Adam's (or the text's) is left alone, and each draft goes before the changes at the start it would
+ * otherwise wipe (see draftPosition).
  */
-export function applyCast(db: DB, story: Story, drafts: { entryId: ID; payload: FullPayload }[], totals: RunTotals): Applied {
+export function applyCast(db: DB, story: Story, drafts: Draft[], totals: RunTotals): Applied {
   const here = fdb.startChanges(db, story.id)
   const entries = liveEntries(db, drafts.flatMap((d) => [d.entryId, ...d.payload.relationships.map((r) => r.otherId)]))
-  const plan: { entryId: ID; payload: FullPayload; old: Change | null }[] = []
-  for (const d of drafts) {
-    if (!entries.has(d.entryId) || hasOwnStart(here, d.entryId)) continue
-    const payload = { ...d.payload, relationships: d.payload.relationships.filter((r) => entries.has(r.otherId)) }
+  const usable = drafts
+    .filter((d) => entries.has(d.entryId) && !hasOwnStart(here, d.entryId))
+    .map((d) => ({ ...d, payload: { ...d.payload, relationships: d.payload.relationships.filter((r) => entries.has(r.otherId)) } }))
+  const plan: (Draft & { old: Change | null })[] = []
+  for (const d of bothSides(usable)) {
     const old = here.find((c) => c.entryId === d.entryId && c.kind === 'full') ?? null
-    if (old && old.kind === 'full' && sameStart(old.payload, payload)) continue
-    plan.push({ entryId: d.entryId, payload, old })
+    if (old && old.kind === 'full' && sameStart(old.payload, d.payload)) continue
+    plan.push({ ...d, old })
   }
   if (!plan.length) return nothing()
+  const replaced = new Set(plan.flatMap((p) => (p.old ? [p.old.id] : [])))
 
   const out = nothing()
   const base = { op: 'story-flow' as const, flow: 'starting-cast' as const, storyId: story.id }
@@ -272,10 +335,12 @@ export function applyCast(db: DB, story: Story, drafts: { entryId: ID; payload: 
       const name = entries.get(p.entryId)!.name
       const data = { kind: 'full' as const, payload: p.payload, entryId: p.entryId, anchor: 'story-start' as const, storyId: story.id }
       const pointId = startPoint(db, entries.get(p.entryId)!, story.id)
+      const at = draftPosition(here, p.entryId, replaced)
       let c: Change
       if (p.old) {
         const version = kdb.latestVersion(db, 'change', p.old.id)
         c = mem.replaceChange(db, p.old.id, { ...data, ...by })
+        if (at !== null && at < p.old.position) fdb.setChangePosition(db, c.id, at)
         lines.push({
           action: 'updated',
           what: 'change',
@@ -287,10 +352,10 @@ export function applyCast(db: DB, story: Story, drafts: { entryId: ID; payload: 
           after: startWords(p.payload),
           quote: '',
           question: null,
-          undo: { ...base, changeId: c.id, did: 'replaced', version, pointId }
+          undo: { ...base, changeId: c.id, did: 'replaced', version, position: p.old.position, pointId }
         })
       } else {
-        c = mem.insertChange(db, { ...data, ...by })
+        c = mem.insertChange(db, { ...data, ...by, ...(at !== null ? { position: at } : {}) })
         out.added++
         lines.push({
           action: 'added',
@@ -317,11 +382,12 @@ export function applyCast(db: DB, story: Story, drafts: { entryId: ID; payload: 
 
 /** Changes at the book's start already sorted against this new story (by a line that wasn't undone). */
 export function alreadySorted(db: DB, storyId: ID, bookId: ID, changes: Change[]): Set<ID> {
+  const log = linesByChange(db)
   const out = new Set<ID>()
   for (const c of changes) {
-    const sorted = fdb
-      .linesAboutChange(db, c.id)
-      .some((l) => !l.undone && isFlowUndo(l.undo) && l.undo.did === 'sorted' && l.undo.storyId === storyId && l.undo.bookId === bookId)
+    const sorted = (log.get(c.id) ?? []).some(
+      (l) => !l.undone && isFlowUndo(l.undo) && l.undo.did === 'sorted' && l.undo.storyId === storyId && l.undo.bookId === bookId
+    )
     if (sorted) out.add(c.id)
   }
   return out
@@ -356,7 +422,7 @@ export function applyWhen(
   }
   if (!plan.length) return nothing()
 
-  const entries = liveEntries(db, plan.map((p) => p.c.entryId))
+  const entries = liveEntries(db, plan.flatMap((p) => mem.entriesTouched(p.c)))
   const nameOf = (id: ID): string => entries.get(id)?.name ?? repo.getEntries(db, [id])[0]?.name ?? 'someone'
   const out = nothing()
   const written = inRun(db, totals, (runId) => {
@@ -383,9 +449,9 @@ export function applyWhen(
         entryId: c.entryId,
         factId: c.id,
         entryName: nameOf(c.entryId),
-        text: c.kind === 'full' ? 'Starting description' : changeWords(c, nameOf),
+        text: c.kind === 'full' ? 'Starting description' : words(c, entries.get(c.entryId)?.kind, nameOf),
         before: '',
-        after: '',
+        after: afterWords(c, entries.get(c.entryId)?.kind),
         quote: '',
         question: { ...WHEN, answer: pick },
         undo: {
@@ -398,6 +464,7 @@ export function applyWhen(
           position: c.position,
           origin: c.origin,
           pick,
+          removedByLine: pick === 'in',
           sceneId
         }
       })

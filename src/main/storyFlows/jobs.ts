@@ -66,19 +66,26 @@ const NUMBER_WORDS =
 const SPAN_WORDS = /^(a|an|some|several|many|a few|a couple of|about|almost|nearly|over|more than)\b/i
 const UNITS = /\b(second|minute|hour|day|night|week|fortnight|month|season|year|decade|century|centuries|generation|age|winter|summer|spring|autumn|lifetime)s?$/i
 
+/** "1 year", "One winter": a single unit, said as "the year". */
+const ONE_UNIT = /^(1|one)\s+([a-z]+)$/i
+
 /**
  * The running note for a time gap, with the gap in Adam's words when they read as a span of time:
- * "Working out what changed in the 200 years…", "…over a few weeks…".
+ * "Working out what changed in the 200 years…", "…over a few weeks…", "…over the year…".
  */
 export function gapPhrase(timeGap: string, title: string): string {
-  const gap = timeGap
+  const said = timeGap
     .trim()
     .replace(/[.!]+$/, '')
     .replace(/\s+(later|after|on|afterwards|have passed|has passed|passed)$/i, '')
     .trim()
-  if (gap.length <= 40 && UNITS.test(gap)) {
+  if (said.length <= 40 && UNITS.test(said) && (NUMBER_WORDS.test(said) || SPAN_WORDS.test(said))) {
+    // It goes mid-sentence, and starts with a number or a word like "a few", never a name.
+    const gap = said[0].toLowerCase() + said.slice(1)
+    const one = gap.match(ONE_UNIT)
+    if (one) return `Working out what changed over the ${one[2].toLowerCase()}…`
     if (NUMBER_WORDS.test(gap)) return `Working out what changed in the ${gap}…`
-    if (SPAN_WORDS.test(gap)) return `Working out what changed over ${gap}…`
+    return `Working out what changed over ${gap}…`
   }
   return `Working out what changed before ${title} starts…`
 }
