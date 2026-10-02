@@ -7,11 +7,171 @@
 // entry id (no data model change). Speaker and tone marks are a cache per scene in the app's cache folder,
 // keyed by paragraph id and a hash of its text; spoken audio too, up to the limit Adam picks. The AI calls
 // are 'speech' generation records with the "Read aloud" model (jobModel('speech')).
+//
+// How a reading works: the window sends the scene's paragraphs (planReading) and gets back its clips, each
+// with who says it, how, and what to ask the speech server for; it plays them (speakClip gives each one's
+// audio, from the disk cache when heard before), three ahead, and asks again after an edit or when the AI's
+// marks come in ('readAloud:marked'). Speed is the player's (pitch kept); the server speaks at its own pace.
+import type { ID } from '../types'
+
+/** One voice the speech server offers: one of Breeze's own, or one of Adam's clips. */
+export interface ReadAloudVoice {
+  id: string
+  name: string
+  /** A few words about it from the server ("female · warm, measured"); '' when it says nothing. */
+  about: string
+  /** One of Adam's own clips (the server lists them; they never leave his computer). */
+  clip: boolean
+  /** One of the best to try first. */
+  recommended: boolean
+}
+
+/** How a character sounds when read aloud: described in plain words (made once and kept), or a voice from the list. */
+export interface CharacterVoice {
+  /** "A woman in her sixties with a low, smoky voice and a slow, amused delivery." */
+  design: string
+  /** A voice from the list; '' when the voice is made from the description. */
+  voice: string
+}
+
+/** What the world keeps about one entry for reading aloud (meta `read_aloud`, by entry id). */
+export interface EntryReadAloud {
+  /** A character's own voice (empty for other kinds). */
+  voice: CharacterVoice
+  /** How its name is said: a respelling ("shiv-AWN"), or pairs for the words that need one ("Siobhan = shiv-AWN; Nguyen = win"). */
+  say: string
+}
+
+/** One paragraph of the page, as reading aloud gets it. */
+export interface ReadParagraph {
+  /** The paragraph's id on the page (`data-pid`). */
+  pid: string
+  /** Its words as the page shows them; a line break is "\n". */
+  text: string
+  /** The stretches in italics, [from, to) in `text`. */
+  italics?: [number, number][]
+}
+
+export interface ReadingRequest {
+  sceneId: ID
+  /** The paragraphs to read, from the one reading starts in to the end of the scene. */
+  paragraphs: ReadParagraph[]
+  /** The scene's paragraphs before them: not read, but they say who is talking. */
+  before?: ReadParagraph[]
+  /** Where reading starts in the first paragraph, in characters. */
+  offset?: number
+  /** A new reading: its first clip is a single sentence, so the sound starts quickly. */
+  quick?: boolean
+}
+
+/** What is asked of the speech server for one clip: everything that changes how it sounds. */
+export interface ClipRequest {
+  /** The words as the voice says them ("Say it as" applied, quote marks and written punctuation taken out). */
+  input: string
+  /** A voice from the list. */
+  voice: string
+  /** A voice described in plain words, made once and kept; '' for none. */
+  voiceDesign: string
+  /** The standing note for the narrator (How to read); '' for none. */
+  instruct: string
+  /** How this line is said ("sharp and irritated"); '' for none. */
+  delivery: string
+  pace: '' | 'slow' | 'fast'
+  /** Narration read with its note but held close to the narrator's voice (Keep the narrator's voice steady). */
+  gentle: boolean
+  /** Written sounds are performed (sighs, laughs), not read out. */
+  sounds: boolean
+}
+
+/** One clip of a reading: where it is on the page, who says it and how, and what to ask the speech server for. */
+export interface PlannedClip {
+  /** The same words, voice and delivery always give the same key (the window keeps clips by it). */
+  key: string
+  /** The paragraph it is in, and [from, to) in that paragraph's text: what is highlighted. */
+  pid: string
+  from: number
+  to: number
+  /** The sentences inside it, [from, to) each, so the highlight moves sentence by sentence. */
+  sentences: [number, number][]
+  /** Who the bar says is speaking: "Narrator", a character's name, or "Someone". */
+  who: string
+  /** How, in a few words ("quiet and wary"); '' when nothing says. */
+  how: string
+  /** Silence after it, in ms at normal speed (a breath between paragraphs and between voices). */
+  restMs: number
+  /** The AI is marking who says this or how, and will be done soon: wait a little for 'readAloud:marked' before speaking it. */
+  waits: boolean
+  clip: ClipRequest
+}
+
+export interface ReadingPlan {
+  clips: PlannedClip[]
+  /** The paragraphs the AI is marking now ('readAloud:marked' says when it is done). */
+  marking: string[]
+}
+
+/** What a Sample, Hear or Listen button plays, exactly as reading will sound. */
+export type SampleRequest =
+  /** Settings › Sample: the sample sentence (as typed now, else the saved one) in the narrator's voice. */
+  | { kind: 'narrator'; text?: string }
+  /** "Hear this voice": the sample sentence in one voice from the list, on its own. */
+  | { kind: 'voice'; voice: string }
+  /** A character's Hear: one of their own lines from the story, or the sample sentence, in their voice. */
+  | { kind: 'character'; entryId: ID }
+  /** "Say it as" › Listen: the entry's name as the voice will say it. */
+  | { kind: 'say'; entryId: ID }
+  /** The warm-up's "Ready when you are." */
+  | { kind: 'ready' }
+
+/** The spoken audio kept on disk. */
+export interface AudioCacheStats {
+  files: number
+  bytes: number
+  limitBytes: number
+}
 
 export interface ReadAloudApi {
-  // The Read aloud part adds its calls here.
+  /** The voices the speech server offers. Plain-words error (code 'speech-not-running') when it isn't running. */
+  listReadAloudVoices(): Promise<ReadAloudVoice[]>
+  /**
+   * The clips for a stretch of a scene: who says each line and how, worked out by the rules and the AI's marks
+   * saved so far. Starts the AI marking what the rules can't tell (or, with Mark who says what, the tone and
+   * pace a little ahead of the reading) in the background.
+   */
+  planReading(req: ReadingRequest): Promise<ReadingPlan>
+  /** Stops the AI marking a scene for reading (reading stopped). */
+  stopReadingMarks(sceneId: ID): Promise<void>
+  /**
+   * One clip's audio (WAV), from the disk cache when it was heard before. Plain-words errors with codes:
+   * 'speech-not-running', 'voices-not-ready' (the voices aren't downloaded or can't load), 'speech-failed'.
+   */
+  speakClip(clip: ClipRequest): Promise<Uint8Array>
+  /** The clips for a Sample, Hear or Listen button. */
+  sampleReading(req: SampleRequest): Promise<PlannedClip[]>
+  /** Loads the voices so the first Listen is quick (the server says "Ready when you are." to itself). */
+  warmUpVoices(): Promise<void>
+  /** An entry's read-aloud voice and "Say it as". */
+  getEntryReadAloud(entryId: ID): Promise<EntryReadAloud>
+  /** Saves an entry's read-aloud voice and "Say it as" (empty ones are removed). Returns what was saved. */
+  setEntryReadAloud(entryId: ID, value: EntryReadAloud): Promise<EntryReadAloud>
+  /**
+   * Suggest: the AI describes a character's voice from their age, looks, background and lines. Streams as
+   * 'task:progress' for `taskId` (Stop is stopTask); resolves with the description, which isn't saved.
+   */
+  suggestCharacterVoice(
+    entryId: ID,
+    taskId: ID
+  ): Promise<{ design: string; status: 'complete' | 'stopped' | 'error'; error: string | null }>
+  /** How much spoken audio is kept. */
+  getReadAloudCache(): Promise<AudioCacheStats>
+  /** Deletes the spoken audio kept on disk. */
+  clearReadAloudCache(): Promise<AudioCacheStats>
 }
 
 export interface ReadAloudEvents {
-  // The Read aloud part adds its events here.
+  /**
+   * The AI finished marking some paragraphs of a scene (or gave up: `error`, in plain words): a reading of it
+   * asks for its clips again.
+   */
+  'readAloud:marked': { sceneId: ID; pids: string[]; error: string | null }
 }
