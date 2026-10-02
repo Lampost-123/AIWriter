@@ -345,12 +345,15 @@ export const EntryForm = memo(function EntryForm({
   return (
     // Leaving any field writes straight away, so nothing waits on the timer.
     <div className="@container mx-auto w-full max-w-[700px] px-8 pb-24 pt-5" onBlur={() => void autosave.flush()}>
-      <div className="flex h-8 items-center gap-2">
-        <span className="shrink-0 text-[11.5px] font-semibold uppercase tracking-wide text-faint">{KIND_LABELS[kind].one}</span>
-        <ExistsLine entryId={initial.id} />
-        <div className="flex-1" />
-        <SaveNote status={autosave.status} error={autosave.error} />
-        <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={() => void remove()}>
+      {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a line of its own (kept free while it loads). */}
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">
+        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{KIND_LABELS[kind].one}</span>
+        <ExistsLine
+          entryId={initial.id}
+          className="col-start-2 row-start-1 @max-[34rem]:col-span-4 @max-[34rem]:col-start-1 @max-[34rem]:row-start-2"
+        />
+        <SaveNote status={autosave.status} error={autosave.error} className="col-start-3 row-start-1" />
+        <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} className="col-start-4 row-start-1" onClick={() => void remove()}>
           Delete
         </Button>
       </div>

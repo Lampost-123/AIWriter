@@ -153,7 +153,10 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
   }
 
   const onLiveChange = useCallback((e: Entry) => setAll((prev) => prev?.map((x) => (x.id === e.id ? e : x)) ?? prev), [])
-  const onOpen = useCallback((e: Pick<Entry, 'id' | 'kind'>) => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id, from }), [navigate, from])
+  const onOpen = useCallback(
+    (e: Pick<Entry, 'id' | 'kind'>) => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.id, from }),
+    [navigate, from]
+  )
   const onDeleted = useCallback(
     (e: Entry) => {
       const i = shown.findIndex((x) => x.id === e.id)
@@ -318,10 +321,18 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
           </div>
         ) : null}
         {selected ? (
-          <EntryForm key={selected.id} initial={selected} others={others} places={places} onLiveChange={onLiveChange} onDeleted={onDeleted} onOpen={onOpen} />
+          <EntryForm
+            key={selected.id}
+            initial={selected}
+            others={others}
+            places={places}
+            onLiveChange={onLiveChange}
+            onDeleted={onDeleted}
+            onOpen={onOpen}
+          />
         ) : all === null || (entryId && loadedRev !== entriesRev) ? null : entryId ? (
           <EmptyState icon={<Icon size={20} />} title={`This ${noun} can't be found`} className="mt-[10vh]">
-            It may have been deleted. Deleted entries can be brought back from Settings › Recently deleted for 30 days.
+            It may have been deleted. Anything deleted can be brought back from Settings › Recently deleted for 30 days.
           </EmptyState>
         ) : (
           <EmptyState icon={<Icon size={20} />} title={`Choose ${withArticle(noun)}`} className="mt-[10vh]">

@@ -311,7 +311,8 @@ const RelationshipRow = memo(function RelationshipRow({
           )}
         </Field>
         {self.kind === 'character' ? (
-          <Field label={`How ${selfName} feels about ${otherName}`}>
+          // Full width when it's the only one (a character and a group, say), rather than half a row with a gap beside it.
+          <Field label={`How ${selfName} feels about ${otherName}`} className={other.kind === 'character' ? undefined : '@lg:col-span-2'}>
             {(id) => (
               <AutoTextarea
                 id={id}
@@ -324,7 +325,7 @@ const RelationshipRow = memo(function RelationshipRow({
           </Field>
         ) : null}
         {other.kind === 'character' ? (
-          <Field label={`How ${otherName} feels about ${selfName}`}>
+          <Field label={`How ${otherName} feels about ${selfName}`} className={self.kind === 'character' ? undefined : '@lg:col-span-2'}>
             {(id) => (
               <AutoTextarea
                 id={id}
