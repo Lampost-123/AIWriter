@@ -20,6 +20,7 @@ import { newSplitState, splitChunk, type SplitState } from './streamText'
 import { takeFocusRequest } from './focusRequest'
 import { withParagraphIds } from './paragraphIds'
 import { findTextRange } from './findText'
+import { REVEALED } from './reveal'
 
 /** Where Adam was in each scene this session, so coming back restores the view. */
 const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>()
@@ -336,7 +337,7 @@ export class SceneController {
     const view = this.editor.view
     const range = findTextRange(view.state.doc, quote)
     if (!range) return false
-    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)))
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, range.from, range.to)).setMeta(REVEALED, true))
     view.focus()
     const el = this.scroller()
     if (el) {

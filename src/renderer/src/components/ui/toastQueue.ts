@@ -5,6 +5,8 @@ export interface ToastItem {
   message: string
   tone: 'neutral' | 'danger' | 'success'
   action?: { label: string; run: () => void }
+  /** A second button before the action ("Open" beside "Undo"). It leaves the toast showing, so Undo stays at hand. */
+  secondary?: { label: string; run: () => void }
   /** Bumped when the toast is changed in place, which gives it its full time again. */
   rev: number
 }

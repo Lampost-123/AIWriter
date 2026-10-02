@@ -116,23 +116,6 @@ export async function renameStory(id: ID, title: string): Promise<void> {
   }
 }
 
-/** Creates a story that continues after the last one, with a first chapter and scene, and opens it. */
-export async function newStory(): Promise<ID | null> {
-  try {
-    const n = app().stories.length + 1
-    const story = await api.createStory({ title: `Book ${n}` })
-    const chapter = await api.createChapter(story.id, {})
-    const scene = await api.createScene(chapter.id, {})
-    await editorBridge()?.flush()
-    await app().refreshStories()
-    app().selectScene(scene.id, story.id)
-    return story.id
-  } catch (e) {
-    toast((e as Error).message, { tone: 'danger' })
-    return null
-  }
-}
-
 /**
  * What a move or delete does to other stories that start or end there ("This moved “The ferry” before
  * where Mara's Hand starts, so that story now includes it."). Asked before the change; a failure to ask

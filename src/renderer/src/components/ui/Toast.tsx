@@ -33,8 +33,10 @@ export const useToasts = create<ToastState>((set, get) => ({
 }))
 
 /** Shows a short message in the corner and returns its id. Use for undoable actions ("Scene deleted · Undo") and errors. */
-export const toast = (message: string, opts: { tone?: ToastItem['tone']; action?: ToastItem['action'] } = {}): number =>
-  useToasts.getState().push({ message, tone: opts.tone ?? 'neutral', action: opts.action })
+export const toast = (
+  message: string,
+  opts: { tone?: ToastItem['tone']; action?: ToastItem['action']; secondary?: ToastItem['secondary'] } = {}
+): number => useToasts.getState().push({ message, tone: opts.tone ?? 'neutral', action: opts.action, secondary: opts.secondary })
 
 export function Toaster(): React.JSX.Element {
   const items = useToasts((s) => s.items)
@@ -86,6 +88,11 @@ function Toast({ t }: { t: ToastItem }): React.JSX.Element {
       )}
     >
       <p className="flex-1 leading-relaxed text-fg">{t.message}</p>
+      {t.secondary ? (
+        <button className="font-medium text-muted hover:text-fg hover:underline" onClick={() => t.secondary!.run()}>
+          {t.secondary.label}
+        </button>
+      ) : null}
       {t.action ? (
         <button
           className="font-medium text-accent hover:underline"

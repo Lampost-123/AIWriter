@@ -5,8 +5,8 @@ import { installFlushOnClose } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { useTheme } from '@/lib/theme'
-import { ResizablePane } from '@/layout/ResizablePane'
-import { dragMax, fitPanels } from '@/layout/fitPanels'
+import { ResizablePane, useFloatingPane } from '@/layout/ResizablePane'
+import { binderFloats, chosenWidthFor, dragMax, fitPanels, pageMinFor } from '@/layout/fitPanels'
 import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
 import { Welcome } from '@/features/welcome/Welcome'
@@ -104,6 +104,8 @@ function useWindowWidth(): { width: number; resizing: boolean } {
 
 const BINDER = { min: 220, max: 440, floor: 200 }
 const SCENE_PANEL = { min: 280, max: 520, floor: 260 }
+/** The top bar's binder button (in a small window it shows the binder over the page instead). */
+const BINDER_BUTTON = 'Show or hide the binder'
 
 function Workspace(): React.JSX.Element {
   const settings = useApp((s) => s.settings)!
@@ -123,11 +125,19 @@ function Workspace(): React.JSX.Element {
   useEffect(() => {
     hadScenePanel.current = scenePanel
   }, [scenePanel])
-  const fit = fitPanels(
-    win.width,
-    { open: layout.binderOpen, width: layout.binderWidth, floor: BINDER.floor },
-    { open: scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
-  )
+  // The page keeps room for about 55 characters a line at Adam's text size. When even both panels at
+  // their narrowest can't leave that, the binder floats over the page, shown from the binder button;
+  // the saved layout is untouched, so the binder is back beside the page in a wider window.
+  const pageMin = pageMinFor(settings.editor.fontSize, settings.editor.pageWidth)
+  const right = { open: scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
+  const floats = binderFloats(win.width, BINDER.floor, right, pageMin)
+  const floating = useFloatingPane(floats, BINDER_BUTTON)
+  const left = { open: layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
+  const fit = fitPanels(win.width, left, right, pageMin)
+  // A panel squeezed narrower than its own minimum is dragged from where it shows, and the width
+  // saved is the one that shows where Adam lets go, so nothing jumps on release.
+  const binderMin = left.open ? Math.min(BINDER.min, fit.left) : BINDER.min
+  const sceneMin = right.open ? Math.min(SCENE_PANEL.min, fit.right) : SCENE_PANEL.min
 
   return (
     <>
@@ -136,12 +146,13 @@ function Workspace(): React.JSX.Element {
         <ResizablePane
           side="left"
           label="Binder"
-          width={layout.binderOpen ? fit.left : layout.binderWidth}
-          open={layout.binderOpen}
-          min={BINDER.min}
-          max={dragMax(win.width, fit.right, BINDER.min, BINDER.max)}
+          width={left.open ? fit.left : layout.binderWidth}
+          open={floats ? floating.open : layout.binderOpen}
+          floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON } : null}
+          min={binderMin}
+          max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
           instant={win.resizing || pageSwap}
-          onResize={(w) => void update({ layout: { binderWidth: w } })}
+          onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
         >
           <Binder />
         </ResizablePane>
@@ -174,10 +185,12 @@ function Workspace(): React.JSX.Element {
             label="Scene panel"
             width={layout.inspectorOpen ? fit.right : layout.inspectorWidth}
             open={layout.inspectorOpen}
-            min={SCENE_PANEL.min}
-            max={dragMax(win.width, fit.left, SCENE_PANEL.min, SCENE_PANEL.max)}
+            min={sceneMin}
+            max={dragMax(win.width, fit.left, sceneMin, SCENE_PANEL.max, pageMin)}
             instant={win.resizing}
-            onResize={(w) => void update({ layout: { inspectorWidth: w } })}
+            onResize={(w) =>
+              void update({ layout: { inspectorWidth: chosenWidthFor(w, win.width, 'right', right, left, SCENE_PANEL.max, pageMin) } })
+            }
           >
             <Inspector sceneId={sceneId} />
           </ResizablePane>
