@@ -2,17 +2,21 @@
 // this file connects it to the open world and the window.
 import type { Handlers } from './index'
 
-type KeeperMethods = 'acceptScene' | 'reopenScene' | 'getMemoryStatus' | 'listMemoryLog' | 'undoMemoryItem' | 'updateMemoryNow'
+type KeeperMethods =
+  | 'markSceneDone' | 'reopenScene' | 'sceneLeft'
+  | 'getMemoryStatus' | 'listMemoryLog' | 'undoMemoryItem' | 'answerMemoryQuestion' | 'updateMemoryNow'
 
 const notYet = (): never => {
   throw new Error('Not built yet')
 }
 
 export const keeperHandlers: Handlers<KeeperMethods> = {
-  acceptScene: notYet,
+  markSceneDone: notYet,
   reopenScene: notYet,
+  sceneLeft: notYet,
   getMemoryStatus: notYet,
   listMemoryLog: notYet,
   undoMemoryItem: notYet,
+  answerMemoryQuestion: notYet,
   updateMemoryNow: notYet
 }
