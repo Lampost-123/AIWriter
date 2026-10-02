@@ -12,17 +12,20 @@ export interface BudgetView {
   share: number
   /** The bar's fill, 0 to 100 (at least 1 when anything is used, so a small briefing still shows). */
   fill: number
-  /** "12%", or "over" when there's no room at all. */
+  /** "12%", or "No room" when the reply takes all the room the model has. */
   percentText: string
   /** Above 90% of the room: the bar turns amber. */
   tight: boolean
+  /** The reply takes all the room the model has, so nothing is left for the briefing. */
+  noRoom: boolean
 }
 
 export function budgetView(budget: Pick<ContextBudget, 'used' | 'available'>): BudgetView {
   const { used, available } = budget
-  const share = available > 0 ? used / available : used > 0 ? Infinity : 0
-  const fill = Number.isFinite(share) ? Math.min(100, Math.max(used > 0 ? 1 : 0, Math.round(share * 100))) : 100
-  return { share, fill, percentText: Number.isFinite(share) ? `${Math.round(share * 100)}%` : 'over', tight: share > 0.9 }
+  if (available <= 0) return { share: used > 0 ? Infinity : 0, fill: 100, percentText: 'No room', tight: true, noRoom: true }
+  const share = used / available
+  const fill = Math.min(100, Math.max(used > 0 ? 1 : 0, Math.round(share * 100)))
+  return { share, fill, percentText: `${Math.round(share * 100)}%`, tight: share > 0.9, noRoom: false }
 }
 
 // ---------- Parts of the briefing ----------

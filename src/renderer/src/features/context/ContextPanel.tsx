@@ -354,7 +354,9 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
         aria-valuemin={0}
         aria-valuemax={available}
         aria-valuenow={Math.min(used, available)}
-        aria-valuetext={`${formatNumber(used)} of ${formatNumber(available)} tokens, ${view.percentText}`}
+        aria-valuetext={
+          view.noRoom ? 'No room left for the briefing' : `${formatNumber(used)} of ${formatNumber(available)} tokens, ${view.percentText}`
+        }
       >
         <div
           className={cn('h-full rounded-full transition-[width,background-color] duration-200', view.tight ? 'bg-ai' : 'bg-accent')}
@@ -362,25 +364,36 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
         />
       </div>
       <p className="mt-1.5 text-[12px] leading-relaxed text-faint">
-        <span className="tabular-nums text-muted">
-          {formatNumber(used)} of {formatNumber(available)} tokens.
-        </span>{' '}
-        {!writer ? (
+        {view.noRoom ? (
+          // "901 of 0 tokens" would read as broken: say what takes the room, and what to change.
           <>
-            No writer model chosen yet, so this assumes one that reads {formatContext(contextLength)} tokens.{' '}
-            <button
-              type="button"
-              onClick={() => navigate({ kind: 'settings', tab: 'models' })}
-              className="rounded font-medium text-accent hover:underline"
-            >
-              Choose one
-            </button>
+            <span className="text-muted">No room is left for the briefing.</span>{' '}
+            {`${writer?.label || 'The writer model'} reads ${formatContext(contextLength)} tokens, and a reply this long needs ` +
+              `${formatNumber(reserved)} of them. Choose a shorter length in the draft options, or a writer model that reads more.`}
           </>
-        ) : !known ? (
-          `How much ${writer.label || 'the writer model'} can read isn't known, so this assumes ${formatContext(contextLength)} tokens.`
         ) : (
-          `${writer.label || 'The writer model'} reads ${formatContext(contextLength)} tokens; ` +
-          `${formatNumber(reserved)} of them are kept for its reply.`
+          <>
+            <span className="tabular-nums text-muted">
+              {formatNumber(used)} of {formatNumber(available)} tokens.
+            </span>{' '}
+            {!writer ? (
+              <>
+                No writer model chosen yet, so this assumes one that reads {formatContext(contextLength)} tokens.{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate({ kind: 'settings', tab: 'models' })}
+                  className="rounded font-medium text-accent hover:underline"
+                >
+                  Choose one
+                </button>
+              </>
+            ) : !known ? (
+              `How much ${writer.label || 'the writer model'} can read isn't known, so this assumes ${formatContext(contextLength)} tokens.`
+            ) : (
+              `${writer.label || 'The writer model'} reads ${formatContext(contextLength)} tokens; ` +
+              `${formatNumber(reserved)} of them are kept for its reply.`
+            )}
+          </>
         )}
       </p>
     </div>
@@ -631,9 +644,10 @@ function PinAnother({
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }): React.JSX.Element {
   return (
     <section className="flex flex-col gap-2.5 border-t border-line pt-4">
-      <div className="flex h-5 items-center justify-between gap-2">
-        <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{title}</h3>
-        {action}
+      {/* In a narrow panel the title wraps under itself; the action keeps its place on the first line. */}
+      <div className="flex min-h-5 items-start justify-between gap-3">
+        <h3 className="min-w-0 pt-[2px] text-[11.5px] font-semibold uppercase leading-4 tracking-wide text-faint">{title}</h3>
+        {action ? <div className="flex h-5 shrink-0 items-center whitespace-nowrap">{action}</div> : null}
       </div>
       {children}
     </section>

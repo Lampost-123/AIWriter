@@ -2,17 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
-
-interface ToastItem {
-  id: number
-  message: string
-  tone: 'neutral' | 'danger' | 'success'
-  action?: { label: string; run: () => void }
-  /** Bumped when the toast is changed in place, which gives it its full time again. */
-  rev: number
-}
-
-type ToastInput = Omit<ToastItem, 'id' | 'rev'>
+import { addToast, type ToastInput, type ToastItem } from './toastQueue'
 
 interface ToastState {
   items: ToastItem[]
@@ -25,9 +15,6 @@ interface ToastState {
   clearActions: () => void
 }
 
-/** At most this many show: the oldest plain messages make room. Toasts with a button (Undo) are never pushed out. */
-const MAX_SHOWN = 3
-
 /** How long a toast stays while the pointer and keyboard are elsewhere. */
 const toastDuration = (t: Pick<ToastItem, 'tone' | 'action'>): number => (t.action ? 15000 : t.tone === 'danger' ? 9000 : 5000)
 
@@ -36,17 +23,9 @@ let seq = 0
 export const useToasts = create<ToastState>((set, get) => ({
   items: [],
   push: (t) => {
-    const id = ++seq
-    const items = [...get().items, { ...t, id, rev: 0 }]
-    let extra = items.length - MAX_SHOWN
-    set({
-      items: items.filter((i) => {
-        if (extra <= 0 || i.action || i.id === id) return true
-        extra--
-        return false
-      })
-    })
-    return id
+    const next = addToast(get().items, t, ++seq)
+    set({ items: next.items })
+    return next.id
   },
   update: (id, patch) => set({ items: get().items.map((i) => (i.id === id ? { ...i, ...patch, rev: i.rev + 1 } : i)) }),
   dismiss: (id) => set({ items: get().items.filter((i) => i.id !== id) }),

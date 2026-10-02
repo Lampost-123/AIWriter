@@ -64,8 +64,9 @@ describe('budgetView', () => {
   it('always shows a little fill when anything is used, and copes with no room', () => {
     expect(budgetView({ used: 3, available: 100000 }).fill).toBe(1)
     expect(budgetView({ used: 0, available: 100000 }).fill).toBe(0)
-    expect(budgetView({ used: 10, available: 0 })).toMatchObject({ fill: 100, percentText: 'over', tight: true })
-    expect(budgetView({ used: 0, available: 0 })).toMatchObject({ fill: 0, percentText: '0%', tight: false })
+    expect(budgetView({ used: 10, available: 0 })).toMatchObject({ fill: 100, percentText: 'No room', tight: true, noRoom: true })
+    expect(budgetView({ used: 0, available: 0 })).toMatchObject({ percentText: 'No room', noRoom: true })
+    expect(budgetView({ used: 10, available: 100 }).noRoom).toBe(false)
   })
 })
 

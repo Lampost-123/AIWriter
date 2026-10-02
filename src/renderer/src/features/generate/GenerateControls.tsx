@@ -351,7 +351,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const status =
     phase === 'starting'
       ? memoryReading
-        ? 'Updating memory first…'
+        ? 'Updating memory…'
         : 'Getting ready…'
       : retrying
         ? 'Retrying…'
@@ -378,7 +378,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           ) : null}
         </span>
       ) : (
-        <div className="relative flex h-8 min-w-[104px] items-center justify-end">
+        // Wide enough for the longest words that show while drafting ("Updating memory…"), so they never
+        // spill over the buttons beside them whatever the writer model is called.
+        <div className="relative flex h-8 min-w-[150px] items-center justify-end">
           <button
             type="button"
             onClick={openSettings}
@@ -400,10 +402,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             <span
               role="status"
               title={statusTitle}
-              className="absolute inset-y-0 right-0 flex items-center gap-2 whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
+              className="absolute inset-0 flex items-center justify-end gap-2 overflow-hidden whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
             >
-              <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />
-              {status}
+              <span className="h-2 w-2 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
+              <span className="truncate">{status}</span>
             </span>
           ) : null}
         </div>

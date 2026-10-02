@@ -14,7 +14,7 @@ import { useApp } from '@/lib/store'
 import { requestReveal } from '@/features/editor/reveal'
 import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
-import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone } from './logic'
+import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings } from './logic'
 import { openScene } from './openScene'
 
 const PAGE = 100
@@ -220,6 +220,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
                         onUndo={() => void undo(item)}
                         onAnswer={(optionId) => void answer(item, optionId)}
                         onTryAgain={() => void tryAgain(item)}
+                        onOpenSettings={() => navigate({ kind: 'settings', tab: 'models' })}
                       />
                     ))}
                   </ul>
@@ -252,7 +253,8 @@ function LogRow({
   onShowWords,
   onUndo,
   onAnswer,
-  onTryAgain
+  onTryAgain,
+  onOpenSettings
 }: {
   item: MemoryLogItem
   canOpen: boolean
@@ -261,6 +263,7 @@ function LogRow({
   onUndo: () => void
   onAnswer: (optionId: string) => void
   onTryAgain: () => void
+  onOpenSettings: () => void
 }): React.JSX.Element {
   const Icon = ACTION_ICONS[item.action] ?? PenLine
   const failed = item.action === 'failed'
@@ -287,11 +290,17 @@ function LogRow({
         title={ACTION_WORDS[item.action]}
       >
         <Icon size={failed ? 15 : 11} aria-hidden />
-        <span className="sr-only">{ACTION_WORDS[item.action]}: </span>
+        {failed ? null : <span className="sr-only">{ACTION_WORDS[item.action]}: </span>}
       </span>
 
       <div className={cn('min-w-0 flex-1 transition-opacity duration-200', item.undone && 'opacity-55')}>
         <p className={cn('text-[13.5px] leading-snug text-fg', item.undone && 'line-through decoration-faint')}>
+          {failed ? (
+            <>
+              <span className="font-semibold">{ACTION_WORDS.failed}</span>
+              {item.text ? <span className="text-muted">: </span> : null}
+            </>
+          ) : null}
           {name && !failed ? (
             <>
               {canOpen && !item.undone ? (
@@ -306,6 +315,11 @@ function LogRow({
           ) : null}
           {item.text}
         </p>
+        {failed && pointsToSettings(item.text) ? (
+          <button type="button" onClick={onOpenSettings} className={cn(linkClass, 'mt-1 text-[12.5px] font-medium text-accent')}>
+            Open Settings › Models
+          </button>
+        ) : null}
 
         {before || after ? (
           <div className="mt-1 flex flex-col gap-0.5 text-[13px] leading-snug">

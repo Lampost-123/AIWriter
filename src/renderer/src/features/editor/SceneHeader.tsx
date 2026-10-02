@@ -75,13 +75,13 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
         {story ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[4] truncate text-faint @min-[680px]:inline">{story.title}</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[680px]:inline">{story.title}</span>
             <span className="hidden text-line-strong @min-[680px]:inline">/</span>
           </>
         ) : null}
         {chapter ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[4] truncate text-faint @min-[520px]:inline">{chapter.title}</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[520px]:inline">{chapter.title}</span>
             <span className="hidden text-line-strong @min-[520px]:inline">/</span>
           </>
         ) : null}

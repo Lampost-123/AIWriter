@@ -82,7 +82,9 @@ export function SceneSummary({ sceneId }: { sceneId: ID }): React.JSX.Element {
     return (
       <div className="flex flex-col gap-1.5">
         <p className="text-[13px] leading-relaxed text-muted">
-          {failed ? "This scene's summary can't be shown right now." : 'A summary appears once the memory has read this scene.'}
+          {failed
+            ? "This scene's summary can't be shown right now."
+            : 'AI Write writes a summary here once there is enough of the scene to sum up.'}
         </p>
         {!failed ? (
           <button

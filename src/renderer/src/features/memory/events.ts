@@ -5,6 +5,7 @@ import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { createLeaveTracker } from './leaving'
 
 /** Installed once, beside the window's flush-on-close. Returns the uninstaller. */
 export function installMemoryEvents(): () => void {
@@ -43,24 +44,17 @@ export function installMemoryEvents(): () => void {
       .catch(() => undefined)
   }
 
-  // The scene Adam is writing in. When he opens another scene or another page, the one he left is
-  // read once its last words are saved. Not on a world switch (that world reads its scenes when it
-  // next opens), and not while a draft is still being written into it (it is read once that ends).
-  let writingIn: { sceneId: ID; worldId: ID } | null = null
-  const leave = (left: { sceneId: ID; worldId: ID }): void => {
-    const app = useApp.getState()
-    if (app.world?.id !== left.worldId || app.activeGeneration?.sceneId === left.sceneId) return
-    void flushAll()
-      .then(() => (useApp.getState().world?.id === left.worldId ? api.sceneLeft(left.sceneId) : undefined))
-      .catch(() => undefined)
-  }
-
+  // The scene Adam left (for another scene or page) is read once its last words are saved.
+  const track = createLeaveTracker()
   const onState = (): void => {
     const s = useApp.getState()
     follow(s.world?.id ?? null)
     const here = s.view.kind === 'write' && s.sceneId && s.world ? { sceneId: s.sceneId, worldId: s.world.id } : null
-    if (writingIn && (here?.sceneId !== writingIn.sceneId || here?.worldId !== writingIn.worldId)) leave(writingIn)
-    writingIn = here
+    for (const left of track({ here, worldId: s.world?.id ?? null, drafting: s.activeGeneration?.sceneId ?? null })) {
+      void flushAll()
+        .then(() => (useApp.getState().world?.id === left.worldId ? api.sceneLeft(left.sceneId) : undefined))
+        .catch(() => undefined)
+    }
   }
   onState()
   const offState = useApp.subscribe(onState)
