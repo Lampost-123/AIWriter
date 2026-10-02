@@ -69,7 +69,11 @@ const keepInTree: Modifier = ({ transform, draggingNodeRect, scrollableAncestorR
 }
 
 const measuring = { droppable: { strategy: MeasuringStrategy.Always } }
-const dropAnimation = { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+/** The dragged row settles into place, unless the system asks for less motion. */
+const dropAnimation =
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? null
+    : { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
 
 /** The chapters and scenes of the open story, with drag and drop, inline rename and a context menu. */
 export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element {

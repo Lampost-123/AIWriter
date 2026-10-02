@@ -3,6 +3,14 @@
  * Adam was already at the bottom. Eases toward the target each frame, so the
  * text glides rather than jumps. Scrolling up (wheel, keys or scrollbar) stops it.
  */
+const reducedMotion = (): boolean => {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
 export class FollowScroll {
   private raf = 0
   private following = false
@@ -64,7 +72,8 @@ export class FollowScroll {
       if (this.settling) this.stop()
       return
     }
-    el.scrollTop += Math.max(1, gap * 0.18)
+    // Glide, unless the system asks for less motion: then keep up in one step.
+    el.scrollTop += reducedMotion() ? gap : Math.max(1, gap * 0.18)
     this.lastTop = el.scrollTop
     this.raf = requestAnimationFrame(this.tick)
   }

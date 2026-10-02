@@ -41,7 +41,7 @@ export function StorySwitcher(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line px-2">
+    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
       {renaming && story ? (
         <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <BookOpen size={14} className="shrink-0 text-muted" />

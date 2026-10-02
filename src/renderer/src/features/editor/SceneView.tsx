@@ -79,11 +79,12 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       if (takeFocusRequest(ctrl.sceneId)) ctrl.focus()
     })
     return () => {
-      offFlush()
       offFocus()
       if (editorBridge() === ctrl.bridge) setEditorBridge(null)
       ctrl.destroy()
       ctrlRef.current = null
+      // A save still on its way (or retrying) stays in the window-close flush until it lands.
+      ctrl.whenIdle(offFlush)
     }
   }, [editor])
 

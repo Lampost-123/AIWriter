@@ -154,6 +154,17 @@ export class Autosaver {
   }
 }
 
+/**
+ * One save state for the top bar when several scenes are saving at once (the open
+ * scene, plus any scene just left whose last save hasn't landed): a problem anywhere
+ * shows, then work in progress, else "saved". Null when there's nothing to report.
+ */
+export function combineSaveStates(states: (AutosaveState | null | undefined)[]): AutosaveState | null {
+  if (states.includes('error')) return 'error'
+  if (states.includes('saving')) return 'saving'
+  return states.includes('saved') ? 'saved' : null
+}
+
 /** Calls `fn` after `wait` ms of quiet, and at least every `maxWait` ms while calls keep coming. */
 export function debounce(fn: () => void, wait: number, maxWait: number, timers: Timers = realTimers): { call: () => void; cancel: () => void; flush: () => void } {
   let timer: unknown = null

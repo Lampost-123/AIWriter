@@ -12,7 +12,7 @@ import { api } from '@/lib/api'
 import type { EditorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
-import { Autosaver, debounce } from './autosave'
+import { Autosaver, combineSaveStates, debounce, type AutosaveState } from './autosave'
 import { FollowScroll } from './followScroll'
 import { itemsForWorld, shouldRestore } from './recovery'
 import * as streamDoc from './streamDoc'
@@ -22,8 +22,11 @@ import { takeFocusRequest } from './focusRequest'
 /** Where Adam was in each scene this session, so coming back restores the view. */
 const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>()
 
-/** Worlds whose leftover recovery files have been checked since they were opened. */
-let checkedWorld: ID | null = null
+/**
+ * The check for leftover recovery files in the open world. Every scene load waits
+ * for it, so no scene is ever read before writing from last time is put back into it.
+ */
+let recovery: { worldId: ID; done: Promise<void> } | null = null
 
 const app = useApp.getState
 
@@ -35,18 +38,27 @@ class SceneSession {
   private snapshot: PMNode | null = null
   private disposed = false
   private closing = false
+  /** This scene's own save state; the top bar shows all sessions combined. */
+  state: AutosaveState | null = null
 
   constructor(
     readonly id: ID,
     readonly worldId: ID,
     private wordCount: number,
     private readonly currentDoc: () => PMNode,
+    /** Called when this session's save state changes. */
+    private readonly onState: () => void,
     /** Called once a closed session has nothing left to save. */
     private readonly onGone: (s: SceneSession) => void
   ) {
     this.saver = new Autosaver({
       save: () => this.save(),
-      onState: (s) => app().setSaveState(s),
+      onState: (state) => {
+        // A save that failed: make sure the recovery file has the latest text right away.
+        if (state === 'error') this.recovery.flush()
+        this.state = state
+        this.onState()
+      },
       onSaved: (clean) => {
         if (!clean) return
         // The file only matters until the text is safely in the database.
@@ -78,11 +90,12 @@ class SceneSession {
     this.closing = true
     this.recovery.flush()
     await this.saver.flush()
-    if (!this.saver.dirty) this.finish()
+    // Already let go of (its world was closed): nothing more will be saved from here.
+    if (this.disposed || !this.saver.dirty) this.finish()
   }
 
+  /** Lets go of the session. Safe to call more than once. */
   private finish(): void {
-    if (this.disposed) return
     this.dispose()
     this.onGone(this)
   }
@@ -99,7 +112,9 @@ class SceneSession {
 
   private async save(): Promise<void> {
     // After a world switch the old world is closed; its last save ran before switching.
+    // If that save failed, the recovery file keeps the text until the world is opened again.
     if (!this.stillInOpenWorld()) {
+      this.recovery.flush()
       this.finish()
       return
     }
@@ -115,7 +130,7 @@ class SceneSession {
   }
 
   private writeRecovery(): void {
-    if (this.disposed || !this.stillInOpenWorld()) return
+    if (this.disposed) return
     const doc = this.doc
     void api
       .writeRecovery({ worldId: this.worldId, sceneId: this.id, doc: doc.toJSON(), text: streamDoc.sceneText(doc), savedAt: new Date().toISOString() })
@@ -138,6 +153,7 @@ export class SceneController {
   private stream: { generationId: ID; split: SplitState } | null = null
   private wordsTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
+  private idleWaiters: (() => void)[] = []
   readonly follow: FollowScroll
   readonly bridge: EditorBridge
 
@@ -172,9 +188,11 @@ export class SceneController {
   async open(id: ID): Promise<void> {
     if (this.destroyed) return
     if (this.session?.id === id) {
-      // Back to the scene already on screen: cancel any other load and keep it as it is.
+      // Back to the scene already on screen: cancel any other load and keep it as it is
+      // (clearing a failed load of another scene, so the page shows again).
       this.loadTicket++
       this.requested = id
+      this.events.onError(null)
       return
     }
     if (this.requested === id) return
@@ -186,10 +204,8 @@ export class SceneController {
       if (!worldId) return
       // Save the scene being left first, so reopening a scene never reads text older than what was on screen.
       await this.flush()
-      if (checkedWorld !== worldId) {
-        checkedWorld = worldId
-        await recoverUnsaved(worldId)
-      }
+      if (recovery?.worldId !== worldId) recovery = { worldId, done: recoverUnsaved(worldId).catch(() => undefined) }
+      await recovery.done
       if (ticket !== this.loadTicket || this.destroyed) return
       const scene = await api.getScene(id)
       if (ticket !== this.loadTicket || this.destroyed) return
@@ -198,6 +214,8 @@ export class SceneController {
       if (ticket !== this.loadTicket || this.destroyed) return
       this.requested = null
       this.events.onError((e as Error).message)
+      // The binder may be showing a scene that's gone; bring it up to date.
+      app().bumpOutline()
     }
   }
 
@@ -224,7 +242,7 @@ export class SceneController {
     const unsaved = [...this.leaving].find((s) => s.id === scene.id && s.saver.dirty)
     if (unsaved) {
       unsaved.dispose()
-      this.leaving.delete(unsaved)
+      this.dropLeaving(unsaved)
     }
     const doc = unsaved?.doc ?? streamDoc.docFromStored(this.editor.schema, scene.doc, scene.text)
     const mem = memory.get(scene.id)
@@ -244,7 +262,8 @@ export class SceneController {
       worldId,
       scene.wordCount,
       () => this.editor.state.doc,
-      (gone) => this.leaving.delete(gone)
+      () => this.reportSaveState(),
+      (gone) => this.dropLeaving(gone)
     )
     if (this.wordsTimer) clearTimeout(this.wordsTimer)
     app().setSceneWords(scene.wordCount)
@@ -280,9 +299,33 @@ export class SceneController {
     }, 300)
   }
 
-  /** Saves everything pending now (Ctrl+S, closing the window, switching worlds). */
+  /** Saves everything pending now (Ctrl+S, closing the window, switching worlds). Works after destroy too. */
   async flush(): Promise<void> {
     await Promise.allSettled([this.session?.saver.flush(), ...[...this.leaving].map((s) => s.saver.flush())])
+  }
+
+  /** The top bar shows one state for the open scene and any scene still finishing its save. */
+  private reportSaveState(): void {
+    const state = combineSaveStates([this.session?.state, ...[...this.leaving].map((s) => s.state)])
+    if (state) app().setSaveState(state)
+    // The scene that was failing or saving has gone (saved, or its world was closed): don't leave that showing.
+    else if (app().saveState !== 'saved') app().setSaveState('idle')
+  }
+
+  private dropLeaving(s: SceneSession): void {
+    if (!this.leaving.delete(s)) return
+    this.reportSaveState()
+    if (this.leaving.size === 0 && !this.session) {
+      const waiters = this.idleWaiters
+      this.idleWaiters = []
+      waiters.forEach((fn) => fn())
+    }
+  }
+
+  /** Runs `fn` once nothing is left to save (straight away if that's already so). Used after destroy. */
+  whenIdle(fn: () => void): void {
+    if (this.leaving.size === 0 && !this.session) fn()
+    else this.idleWaiters.push(fn)
   }
 
   // ---------- Streaming drafts ----------
@@ -341,11 +384,13 @@ export class SceneController {
     if (this.wordsTimer) clearTimeout(this.wordsTimer)
     this.follow.stop()
     const s = this.session
+    this.session = null
     if (s) {
+      // Its last save may still be on the way (or retrying); keep it with the others until it lands.
       s.leave(this.editor.state.doc)
+      this.leaving.add(s)
       void s.close()
     }
-    this.session = null
   }
 }
 

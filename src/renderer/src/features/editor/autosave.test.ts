@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Autosaver, debounce, type AutosaveState, type Timers } from './autosave'
+import { Autosaver, combineSaveStates, debounce, type AutosaveState, type Timers } from './autosave'
 
 /** Manual clock: advance() runs due timers in order. */
 class FakeTimers implements Timers {
@@ -157,5 +157,22 @@ describe('debounce', () => {
     d.cancel()
     await timers.advance(1000)
     expect(calls.length).toBe(3)
+  })
+})
+
+describe('combineSaveStates', () => {
+  it('shows a failing save even when the open scene saved fine', () => {
+    expect(combineSaveStates(['saved', 'error'])).toBe('error')
+    expect(combineSaveStates(['error', 'saving'])).toBe('error')
+  })
+
+  it('shows saving while any save is running, else saved', () => {
+    expect(combineSaveStates(['saved', 'saving'])).toBe('saving')
+    expect(combineSaveStates(['saved', null])).toBe('saved')
+  })
+
+  it('reports nothing when no scene has saved yet', () => {
+    expect(combineSaveStates([null, undefined])).toBeNull()
+    expect(combineSaveStates([])).toBeNull()
   })
 })

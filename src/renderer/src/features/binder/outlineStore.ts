@@ -30,7 +30,8 @@ export const useOutlineStore = create<OutlineState>((set, get) => ({
   async load(storyId, rev, force) {
     const key = `${storyId}:${rev}`
     if (!force && get().key === key) return
-    set({ key })
+    // An earlier failure (perhaps of another story) shouldn't show while this one loads.
+    set({ key, error: null })
     const ticket = ++latest
     try {
       const outline = await api.getOutline(storyId)

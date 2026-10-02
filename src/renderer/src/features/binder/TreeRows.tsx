@@ -5,7 +5,7 @@ import type { Chapter, ID, SceneMeta } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { InlineTitle } from './InlineTitle'
 import { formatWords } from './outlineModel'
-import { StatusDot } from './StatusDot'
+import { STATUS_LABELS, StatusDot } from './StatusDot'
 
 export const sceneDndId = (id: ID): string => `s:${id}`
 export const chapterDndId = (id: ID): string => `c:${id}`
@@ -103,6 +103,7 @@ export function SceneRowContent({
   return (
     <>
       <StatusDot status={scene.status} className="mr-2" />
+      <span className="sr-only">{STATUS_LABELS[scene.status]}: </span>
       {renaming && h ? (
         <InlineTitle
           label="Scene title"
