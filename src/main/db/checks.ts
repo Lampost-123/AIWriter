@@ -391,3 +391,9 @@ export function storyKindRows(db: DB, storyId: ID): Row[] {
 
 /** The payload of a row. */
 export const payloadOf = (r: Row): IssuePayload => json<IssuePayload>(r.payload_json, {})
+
+/** How many open issues a scene has that were raised at or after `since` (by a check, or by the memory keeper). */
+export function openSince(db: DB, sceneId: ID, since: string): number {
+  const r = db.prepare("SELECT COUNT(*) AS n FROM issues WHERE scene_id = ? AND status = 'open' AND created_at >= ?").get(sceneId, since) as Row
+  return Number(r.n) || 0
+}

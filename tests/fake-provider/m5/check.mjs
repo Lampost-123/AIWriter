@@ -3,7 +3,7 @@
 // "### E1 Mara (character; ...)", its fields as "- Eyes: blue" lines and "What has happened so far:" items)
 // and the scene's text (everything after the "## The scene" heading), with these rules, so tests know
 // exactly what a scene raises:
-//   facts   "<Name>'s eyes are|were|flashed|shone <colour>" or "<Name>'s <colour> eyes", when the memory gives
+//   facts   "<Name>'s eyes are|were|flashed|shone <colour>" or "<Name>'s <colour> eyes" (either apostrophe), when the memory gives
 //           <Name> other eyes: a warning about the eyes field, with a fix that puts the memory's colour back
 //           (and "memory" / "text", so a field of Adam's can be updated from it).
 //           A line of dialogue said by <Name> ("...," said Name / Name said / Name asked, replied, whispered,
@@ -75,7 +75,7 @@ function checkIssues(system, user) {
     if (eyes) {
       for (const s of sentences) {
         const m =
-          s.match(new RegExp(`\\b${name}'s eyes (?:are|were|flashed|shone|gleamed) ([a-z]+)`)) ?? s.match(new RegExp(`\\b${name}'s ([a-z]+) eyes`))
+          s.match(new RegExp(`\\b${name}['’]s eyes (?:are|were|flashed|shone|gleamed) ([a-z]+)`)) ?? s.match(new RegExp(`\\b${name}['’]s ([a-z]+) eyes`))
         if (!m || m[1].toLowerCase() === eyes) continue
         issues.push({
           check: 'facts',

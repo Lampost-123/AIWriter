@@ -19,7 +19,8 @@ import { stopTask, type Emit } from '../ai/tasks'
 import { labeler } from '../memory/line'
 import { loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
-import { newId, UserError } from '../util'
+import { newId, now, UserError } from '../util'
+import { openSince } from '../db/checks'
 import { checkScene, type CheckOptions } from './run'
 import { compareStories, storyComparisons } from './stories'
 
@@ -46,7 +47,8 @@ interface Run {
   background: boolean
   sceneIds: ID[]
   labels: Map<ID, string>
-  /** For a story: what it is compared with at the end. */
+  /** When it was asked for (a background check counts what was raised since, the memory keeper's clashes too). */
+  since: string
   stopped: boolean
   closed: boolean
   taskId: ID | null
@@ -122,6 +124,7 @@ function newRun(db: DB, input: CheckStart, background: boolean, ids: ID[], label
     background,
     sceneIds: ids,
     labels,
+    since: now(),
     stopped: false,
     closed: false,
     taskId: null,
@@ -245,6 +248,14 @@ function progress(r: Run, done: number, current: ID | null, words?: string): voi
 function finish(r: Run, status: CheckDone['status'], error: string | null, found: number): void {
   if (r.finished) return
   r.finished = true
+  // Marking a scene done: everything raised since, so the memory keeper's clash with one of Adam's notes counts too.
+  if (r.background && r.started && !r.closed && r.db.open) {
+    try {
+      found = Math.max(found, openSince(r.db, r.target.id, r.since))
+    } catch (e) {
+      console.warn('Could not count what the checks found', e)
+    }
+  }
   if (!r.closed) deps?.emit('checks:done', { runId: r.id, target: r.target, status, error, found, background: r.background })
   r.resolve()
 }
