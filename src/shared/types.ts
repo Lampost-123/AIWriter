@@ -178,6 +178,11 @@ export interface Outline {
   story: Story
   chapters: Chapter[]
   scenes: SceneMeta[]
+  /**
+   * The story's acts in order (milestone 4); empty when it has none. Each act's chapters follow one
+   * another in `chapters`, after any chapters with no act. A chapter whose act was deleted has no act here.
+   */
+  acts?: Act[]
 }
 
 // ---------- World bible ----------
