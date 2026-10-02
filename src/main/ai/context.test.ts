@@ -185,6 +185,16 @@ const pin = (entryId: string, scope: Pin['scope'], action: Pin['action'] = 'pin'
 const words = (n: number, word = 'word'): string => Array.from({ length: n }, () => word).join(' ')
 const blockOf = (inp: ContextInput, id: string) => buildBlocks(inp).find((b) => b.id === id)
 
+/** The same scene with no one tied to the people present who isn't there, so it has no block 11. */
+function withoutTies(inp: ContextInput): ContextInput {
+  const here = new Set([inp.scene.card.povId, ...inp.scene.card.presentIds])
+  const people = new Set(inp.memory.entries.filter((e) => e.kind === 'character').map((e) => e.id))
+  inp.memory.relationships = inp.memory.relationships.filter(
+    (r) => !((here.has(r.aId) && people.has(r.bId) && !here.has(r.bId)) || (here.has(r.bId) && people.has(r.aId) && !here.has(r.aId)))
+  )
+  return inp
+}
+
 /**
  * A scene with every kind of block: a long sample passage and previous scene (so both have short
  * forms), a group, a plot thread, relationships and knowledge, story so far, a pin and themes.
@@ -548,6 +558,7 @@ describe('blocks', () => {
       ['pov', 4],
       ['present', 5],
       ['relationships', 6],
+      ['ties', 11],
       ['mentioned', 9],
       ['threads', 7],
       ['story-so-far', 8],
@@ -732,9 +743,8 @@ describe('blocks', () => {
     expect(pov.text).toContain('- Sample lines of dialogue:\n    "Don\'t."\n    "I\'ve had worse."')
     expect(pov.text).toContain('What has happened so far:\n- Change 1 (Book 2, Ch 1, Sc 1)')
     expect(pov.text).toContain('What Mara Venn knows:\n- Mara is the heir.\n- The ferry leaks.')
-    expect(pov.text).toContain(
-      'Ties to people and groups not in the scene:\n- Mara Venn and The Tide Guild: member (lieutenant).\n- Mara Venn and Ana Venn: sister. Mara Venn feels: Fierce love. Ana Venn feels: Worry.'
-    )
+    // Her ties to people not in the scene are block 11's, and the groups she belongs to block 7's.
+    expect(pov.text).not.toContain('Ana Venn')
     // Tobin is in the scene, so their relationship is in block 6 instead.
     expect(pov.text).not.toContain('now enemies')
 
@@ -1048,7 +1058,8 @@ describe('fitting the briefing to the model', () => {
     p.blocks.filter(test).map((b) => b.id)
 
   // 12 blocks of 1,100 tokens each (1,000 plus the 10% allowance), short forms of 110; 10 have a short form.
-  const prepared = prepareContext(richInput())
+  // Block 11 (ties to people not in the scene) is left out here, so the numbers stay simple; see its own tests.
+  const prepared = prepareContext(withoutTies(richInput()))
   const c = counts(prepared, () => 1000)
   const total = 12 * 1100 + 8
 
@@ -1209,7 +1220,8 @@ describe('fitting the briefing to the model', () => {
 
     const large = assembleContext(scene(128_000), countRaw)
     expect(large.blocks.filter((b) => b.dropped || b.short)).toEqual([])
-    expect(large.blocks).toHaveLength(12)
+    expect(large.blocks).toHaveLength(13)
+    expect(large.messages[1].content).toContain('## Ties to people not in this scene')
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
     expect(large.messages[1].content).toContain('Ch 1, Sc 3: Scene summary 3.')
@@ -1421,7 +1433,7 @@ describe('a small-context model and a large-context model both get a sensible br
   function sensible(b: ReturnType<typeof briefing>): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
-    expect(b.p.blocks).toHaveLength(12)
+    expect(b.p.blocks).toHaveLength(13)
     for (const id of ['instructions', 'scene-card', 'pov', 'previous-scene']) expect(b.sent(id), id).toBe(true)
     expect(b.p.messages[0].content).toContain('Style guide\n- Point of view: Close third person')
     expect(b.p.messages[0].content).toContain('Sample passage')
@@ -1615,7 +1627,8 @@ describe('assembleContext', () => {
       ['The Tide Guild', 'setting'],
       ['The stolen crown', 'threads'],
       ["Tobin's Ferry", 'mentioned'],
-      ['River songs', 'mentioned']
+      ['River songs', 'mentioned'],
+      ['Ana Venn', 'ties']
     ])
   })
 
@@ -1718,5 +1731,101 @@ describe('the writer instructions', () => {
     const directed = user({}, 'Make it tense')
     expect(directed).not.toContain('no plan beyond its title')
     expect(directed).toContain("Follow the author's direction for this draft.")
+  })
+})
+
+// ---------- Block 11: ties to people not in this scene (milestone 5) ----------
+
+describe('ties to people not in this scene', () => {
+  it('lists, for each character present, who they are tied to that is not there, with where it stands', () => {
+    const inp = richInput()
+    const ties = blockOf(inp, 'ties')!
+    expect(ties.priority).toBe(11)
+    expect(ties.title).toBe('Ties to people not in this scene')
+    expect(ties.text).toBe("### Mara Venn\n- Ana Venn: Mara's sister. Sister. Mara Venn feels: Fierce love. Ana Venn feels: Worry.")
+    // Short: names and relationship only. Groups belong to block 7, and Tobin is in the scene (block 6).
+    expect(ties.short).toBe('Mara Venn: Ana Venn (sister)')
+    expect(ties.text).not.toContain('Tide Guild')
+    expect(ties.text).not.toContain('Tobin')
+    expect(ties.entryIds).toEqual([named(inp, 'Ana Venn').id])
+  })
+
+  it('tells what has happened between them, newest first: events naming both, and changes that name the other', () => {
+    const inp = richInput()
+    const mara = named(inp, 'Mara Venn')
+    const ana = named(inp, 'Ana Venn')
+    const flood = entry('event', 'The flood', { summary: 'The river took the lower town.', fields: { when: 'Year 3' } })
+    inp.memory.entries.push(flood)
+    inp.memory.relationships.find((r) => r.bId === ana.id)!.at = 2
+    inp.memory.relationships.push(
+      { aId: mara.id, bId: flood.id, type: 'involved in', aFeels: '', bFeels: '', where: 'Book 1, Ch 1, Sc 1', at: 1 },
+      { aId: ana.id, bId: flood.id, type: 'involved in', aFeels: '', bFeels: '', where: 'Book 1, Ch 1, Sc 1', at: 1 }
+    )
+    mara.happened = [
+      { note: 'Pulled Ana out of the water', where: 'Book 1, Ch 1, Sc 2', changeId: 'h1', at: 2 },
+      { note: 'Lost her left hand in the siege', where: 'Book 1, Ch 4, Sc 1', changeId: 'h2', at: 5 }
+    ]
+    ana.happened = [{ note: 'Stopped writing to Mara.', where: 'Book 1, Ch 9, Sc 1', changeId: 'h3', at: 9 }]
+    expect(blockOf(inp, 'ties')!.text).toContain(
+      [
+        '  Between them, newest first:',
+        '  - Ana Venn: Stopped writing to Mara (Book 1, Ch 9, Sc 1).',
+        '  - Mara Venn: Pulled Ana out of the water (Book 1, Ch 1, Sc 2).',
+        '  - The flood (Year 3): The river took the lower town.'
+      ].join('\n')
+    )
+    expect(blockOf(inp, 'ties')!.text).not.toContain('left hand')
+  })
+
+  it('puts the closest and most recent ties first, and the smallest form keeps only the closest few', () => {
+    const inp = richInput()
+    const mara = named(inp, 'Mara Venn')
+    const others = ['Bram', 'Cato', 'Dell', 'Esk', 'Finn'].map((n) => entry('character', n))
+    inp.memory.entries.push(...others)
+    others.forEach((o, i) =>
+      inp.memory.relationships.push({ aId: mara.id, bId: o.id, type: 'friend', aFeels: '', bFeels: '', where: '', at: 10 + i })
+    )
+    // Bram is the oldest of these ties but shares the most with her.
+    mara.happened = [1, 2, 3].map((n) => ({ note: `Sailed with Bram, trip ${n}`, where: '', changeId: `t${n}`, at: n }))
+    const ties = blockOf(inp, 'ties')!
+    expect(ties.short).toBe(
+      'Mara Venn: Bram (friend); Finn (friend); Esk (friend); Dell (friend); Cato (friend); Ana Venn (sister)'
+    )
+    expect(ties.smaller).toEqual(['Mara Venn: Bram (friend); Finn (friend); Esk (friend)'])
+  })
+
+  it('leaves out people Adam kept out, and people who do not exist here yet', () => {
+    const inp = richInput()
+    inp.pins.push(pin(named(inp, 'Ana Venn').id, 'scene', 'hide'))
+    expect(blockOf(inp, 'ties')).toBeUndefined()
+    const later = richInput()
+    const ana = named(later, 'Ana Venn')
+    later.memory.entries = later.memory.entries.filter((e) => e.id !== ana.id)
+    later.memory.elsewhere.push({ entry: ana, label: 'not in the story yet at this point' })
+    expect(blockOf(later, 'ties')).toBeUndefined()
+  })
+
+  it('goes short first, and is left out before any block is made smaller than its short form', () => {
+    const prepared = prepareContext(richInput())
+    const fit = (available: number, c: number[]) =>
+      finishContext({ ...prepared, contextLength: lengthFor(available, prepared.targetWords) }, c)
+    const total = 13 * 1100 + 8
+    expect(
+      fit(total - 990, counts(prepared, () => 1000))
+        .blocks.filter((b) => b.short)
+        .map((b) => b.id)
+    ).toEqual(['ties'])
+    // Everything short is 11 x 110 plus the scene card and relationships in full; 50 less than that.
+    const small = counts(
+      prepared,
+      () => 1000,
+      () => 100,
+      (_, level) => (level === 2 ? 50 : 20)
+    )
+    const short = (id: string): string | null => prepared.blocks.find((b) => b.id === id)!.short
+    const p = fit(11 * 110 + 2 * 1100 + 8 - 50, small)
+    expect(p.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['ties'])
+    expect(p.blocks.find((b) => b.id === 'story-so-far')!.text).toBe(short('story-so-far'))
+    expect(p.blocks.find((b) => b.id === 'pov')!.text).toBe(short('pov'))
   })
 })

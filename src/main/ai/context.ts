@@ -9,7 +9,8 @@
 // - the places around the location and the groups the people present belong to, one line each;
 // - relationships and knowledge among the people present, as of this scene;
 // - lore flagged as a hard rule, always;
-// - anything Adam pinned for this scene, story or world.
+// - anything Adam pinned for this scene, story or world;
+// - the people tied to the characters present who aren't in the scene, as of this scene (milestone 5).
 // Only entries that exist at this scene count. One that doesn't is sent only if Adam pins it or
 // lists it on the scene card, with its label ("not in the story yet at this point"); one that
 // first appears in this scene says so. Entries Adam kept out ('hide' pins) are left out.
@@ -27,11 +28,14 @@
 //    smaller: only the most recent parts)
 //  9 other entries named in the beats, notes or direction, and pins (one line each)
 // 10 themes, tone and premise (one line)
+// 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
+//    there, with where things stand and what has happened between them, newest first (names and relationship
+//    only; smaller: the closest few)
 //
 // Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
-// their short form from the bottom up (10 to 3, then block 1). Blocks 4 and 8 can shrink further,
+// their short form from the bottom up (11 to 3, then block 1). Blocks 4 and 8 can shrink further,
 // a step at a time, so a small model still gets a usable point-of-view character and what happened
-// just before; only then are whole blocks dropped (10 up to 3). Anything that fits again afterwards
+// just before; only then are whole blocks dropped (11 up to 3). Anything that fits again afterwards
 // is put back, then given its longest form that fits, most important first. Adam's choice in the
 // Context tab wins: 'full' is never shortened (it is dropped only as a last resort), 'short' is
 // always short. The briefing never goes past the budget unless blocks 1 and 2 alone do.
@@ -462,6 +466,7 @@ export const WHY = {
   notes: 'Named in the scene notes',
   direction: 'Named in your direction',
   rule: 'A world rule',
+  tie: 'Tied to someone in the scene',
   pin: { scene: 'Pinned for this scene', story: 'Pinned for this story', world: 'Pinned for every scene' },
   hide: { scene: 'Kept out of this scene', story: 'Kept out of this story', world: 'Kept out of every scene' }
 } as const
@@ -510,6 +515,8 @@ export interface Selection {
   threads: { entry: EntryState; role: 'sets up' | 'pays off'; state: ThreadState | null }[]
   /** Other entries named in the beats, notes or direction, and pins. */
   others: EntryState[]
+  /** For each character present, the people they're tied to who aren't in the scene, closest and most recent first. */
+  ties: { person: EntryState; ties: Tie[] }[]
   label: (id: ID) => string | null
 }
 
@@ -610,13 +617,110 @@ export function selectEntries(input: ContextInput): Selection {
     if (got) others.push(got)
   }
 
+  const tiesAway = absentTies(input, [pov, ...present].filter(some), here, (id) => take(id, WHY.tie, false) ?? chosen.get(id)?.entry ?? null)
+
   const hidden: Selection['hidden'] = []
   for (const p of pins.values()) {
     const e = known.get(p.entryId)
     if (p.action === 'hide' && e) hidden.push({ entry: e, why: WHY.hide[p.scope] })
   }
 
-  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, label }
+  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, ties: tiesAway, label }
+}
+
+/** One tie between a character in the scene and someone who isn't there, as of this scene. */
+export interface Tie {
+  other: EntryState
+  rel: RelationshipState
+  /** What has happened between them (events naming both, and changes to either that name the other), newest first. */
+  history: { text: string; at: number }[]
+}
+
+/** Block 11's priority: the lowest, shortened and dropped first. */
+export const TIES_PRIORITY = 11
+/** How many ties per character, and how much history per tie, the full form of block 11 holds at most. */
+export const TIES_FULL = { ties: 10, history: 5 }
+/** Block 11's smallest form: the closest few ties per character, names and relationship only. */
+export const TIES_FEWEST = 3
+
+/**
+ * The people each character present is tied to who aren't in the scene (spec, "What gets selected"). Only
+ * characters that exist here and that Adam hasn't kept out (`take` returns null for those). Closest (most
+ * shared history) and most recent (the latest change to the tie or its history) come first: each tie is
+ * ranked on both, and the two ranks are added.
+ */
+function absentTies(
+  input: ContextInput,
+  people: EntryState[],
+  here: Map<ID, EntryState>,
+  take: (id: ID) => EntryState | null
+): Selection['ties'] {
+  const m = input.memory
+  const inScene = new Set(people.map((p) => p.id))
+  const isCharacter = (id: ID): boolean => here.get(id)?.kind === 'character'
+  const out: Selection['ties'] = []
+  for (const person of people) {
+    if (person.kind !== 'character') continue
+    const found: Tie[] = []
+    for (const r of m.relationships) {
+      if (r.aId !== person.id && r.bId !== person.id) continue
+      const otherId = r.aId === person.id ? r.bId : r.aId
+      if (inScene.has(otherId) || !isCharacter(otherId)) continue
+      const other = here.get(otherId)!
+      found.push({ other, rel: r, history: sharedHistory(m.relationships, here, person, other) })
+    }
+    if (!found.length) continue
+    const latest = (t: Tie): number => Math.max(t.rel.at ?? -1, ...t.history.map((h) => h.at))
+    const byRecent = [...found].sort((a, b) => latest(b) - latest(a))
+    const byClose = [...found].sort((a, b) => b.history.length - a.history.length)
+    const score = (t: Tie): number => byRecent.indexOf(t) + byClose.indexOf(t)
+    const ranked = found
+      .sort((a, b) => score(a) - score(b) || b.history.length - a.history.length || latest(b) - latest(a))
+      .filter((t) => take(t.other.id))
+    if (ranked.length) out.push({ person, ties: ranked })
+  }
+  return out
+}
+
+/**
+ * What has happened between two characters, newest first: the events both were involved in (the memory keeper
+ * ties each to an event with an "involved in" relationship) and the things that happened to either one whose
+ * note names the other.
+ */
+function sharedHistory(rels: RelationshipState[], here: Map<ID, EntryState>, a: EntryState, b: EntryState): Tie['history'] {
+  const out: Tie['history'] = []
+  const involved = new Map<ID, number[]>()
+  for (const r of rels) {
+    for (const [who, what] of [
+      [r.aId, r.bId],
+      [r.bId, r.aId]
+    ]) {
+      if ((who === a.id || who === b.id) && here.get(what)?.kind === 'event') {
+        involved.set(what, [...(involved.get(what) ?? []), r.at ?? -1])
+      }
+    }
+  }
+  for (const [eventId, ats] of involved) {
+    // Both must be involved: a link to the event from each of them (one relationship per pair).
+    const e = here.get(eventId)!
+    if (ats.length < 2) continue
+    const when = clean(e.fields.when)
+    out.push({ text: [`${e.name}${when ? ` (${when})` : ''}`, clean(e.summary)].filter(Boolean).join(': '), at: Math.min(...ats) })
+  }
+  for (const [who, other] of [
+    [a, b],
+    [b, a]
+  ]) {
+    // Notes name people as the text does, often by first name alone ("Pulled Ana out of the water").
+    const first = other.name.trim().split(/\s+/)[0]
+    const names = [other.name, ...(other.aliases ?? []), ...(first.length > 2 && first !== other.name.trim() ? [first] : [])]
+    for (const h of who.happened ?? []) {
+      if (!clean(h.note) || !namedIn(haystack(h.note), names)) continue
+      const note = clean(h.note).replace(/\.$/, '')
+      out.push({ text: `${who.name}: ${note}${clean(h.where) ? ` (${clean(h.where)})` : ''}`, at: h.at ?? -1 })
+    }
+  }
+  return out.sort((x, y) => y.at - x.at)
 }
 
 // ---------- Blocks ----------
@@ -710,8 +814,8 @@ function bringAboutLines(input: ContextInput, sel: Selection): string[] {
 }
 
 /**
- * The point-of-view character: 0 the full profile, everything that has happened to them and their
- * ties to anyone not in the scene; 1 (short) the profile without backstory and the last 5 things that
+ * The point-of-view character: 0 the full profile and everything that has happened to them (their ties to
+ * people not in the scene are block 11); 1 (short) the profile without backstory and the last 5 things that
  * happened; 2 the core of the profile and the last 3; 3 the least of it and the last 2. Every form
  * says what they know.
  */
@@ -725,19 +829,6 @@ function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 
   // An empty profile still says who it is, so the block (and the Context tab's entry) is there.
   const parts = [profile || `${e.name}.`, happenedText(e, [undefined, 5, 3, 2][level])]
   if (knows.length) parts.push(`What ${e.name} knows:\n${knows.join('\n')}`)
-  if (level === 0) {
-    const inScene = new Set([sel.pov, ...sel.present].filter((x): x is EntryState => !!x).map((x) => x.id))
-    const exists = new Set(input.memory.entries.map((x) => x.id))
-    const hidden = new Set(sel.hidden.map((h) => h.entry.id))
-    const ties = input.memory.relationships
-      .filter((r) => {
-        if (r.aId !== e.id && r.bId !== e.id) return false
-        const other = r.aId === e.id ? r.bId : r.aId
-        return !inScene.has(other) && exists.has(other) && !hidden.has(other)
-      })
-      .map((r) => `- ${relationshipLine(r, (id) => sel.known.get(id)?.name ?? 'Someone')}`)
-    if (ties.length) parts.push(`Ties to people and groups not in the scene:\n${ties.join('\n')}`)
-  }
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -804,6 +895,36 @@ function relationshipsText(input: ContextInput, sel: Selection): { text: string;
 
 /** Facts some of those present don't know, kept in block 6's short form. */
 const RELATIONSHIP_FACTS_SHORT = 10
+
+/** How a tie stands: the relationship, and in full how each of them feels ("Brother, estranged. Mara feels: Guilt."). */
+function tieStanding(t: Tie, person: EntryState, short: boolean): string {
+  const type = clean(t.rel.type) || 'linked'
+  if (short) return type
+  const feels = (id: ID): string => clean(id === t.rel.aId ? t.rel.aFeels : t.rel.bFeels)
+  const parts = [sentence(type.charAt(0).toLocaleUpperCase() + type.slice(1))]
+  for (const who of [person, t.other]) if (feels(who.id)) parts.push(`${who.name} feels: ${sentence(feels(who.id))}`)
+  return parts.join(' ')
+}
+
+/**
+ * Block 11: for each character present, the people they're tied to who aren't in the scene. 0 (full) each
+ * tie's one line, where it stands and what has happened between them, newest first; 1 (short) names and
+ * relationship only; 2 the closest few, names and relationship only.
+ */
+function tiesText(sel: Selection, level: 0 | 1 | 2): string {
+  return sel.ties
+    .map(({ person, ties }) => {
+      const list = ties.slice(0, level === 2 ? TIES_FEWEST : level === 0 ? TIES_FULL.ties : undefined)
+      if (level > 0) return `${person.name}: ${list.map((t) => `${t.other.name} (${tieStanding(t, person, true)})`).join('; ')}`
+      const lines = list.map((t) => {
+        const head = `- ${indentMore(`${sentence(oneLine(t.other))} ${tieStanding(t, person, false)}`)}`
+        const history = t.history.slice(0, TIES_FULL.history).map((h) => `  - ${indentMore(sentence(h.text), '    ')}`)
+        return history.length ? `${head}\n  Between them, newest first:\n${history.join('\n')}` : head
+      })
+      return `### ${person.name}\n${lines.join('\n')}`
+    })
+    .join(level > 0 ? '\n' : '\n\n')
+}
 
 /**
  * The order of this story's chapters, from the scene summaries and the finished chapters' summaries
@@ -1148,6 +1269,19 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   const themes = themesText(input)
   if (themes) add('themes', 10, 'Themes and tone', themes, themesLine(input), [])
 
+  // 11 Ties to people not in this scene (short: names and relationship only; smaller: the closest few).
+  if (sel.ties.length) {
+    add(
+      'ties',
+      TIES_PRIORITY,
+      'Ties to people not in this scene',
+      tiesText(sel, 0),
+      tiesText(sel, 1),
+      [...new Set(sel.ties.flatMap((p) => p.ties.slice(0, TIES_FULL.ties).map((t) => t.other.id)))],
+      [tiesText(sel, 2)]
+    )
+  }
+
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
 
@@ -1165,6 +1299,7 @@ export const SEND_ORDER = [
   'pov',
   'present',
   'relationships',
+  'ties',
   'mentioned',
   'threads',
   'story-so-far',
@@ -1302,6 +1437,13 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (fits()) break
     if (s.level === 0 && s.max >= 1) s.level = 1
   }
+  // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
+  //     than its short form, so a small model keeps what happened just before rather than a list of names.
+  const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
+  for (const s of droppable) {
+    if (fits()) break
+    if (lowest(s)) s.dropped = true
+  }
   // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
   //    down to its most recent parts, the point-of-view character down to the core of the profile),
   //    a step at a time, from the bottom up.
@@ -1323,7 +1465,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // 4. Dropping one big block (often the previous scene) can free room for smaller, less
   //    important ones dropped before it. Put those back, most important first, while it fits.
   for (const s of [...droppable].reverse()) {
-    if (!s.dropped) continue
+    if (!s.dropped || lowest(s)) continue
     s.dropped = false
     if (!fits()) s.dropped = true
   }
@@ -1335,6 +1477,19 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       s.level = l
       if (fits()) break
       s.level = was
+    }
+  }
+
+  // 6. Block 11 back, if it fits once everything more important has its room.
+  for (const s of droppable) {
+    if (!s.dropped || !lowest(s)) continue
+    s.dropped = false
+    if (fits()) continue
+    const was = s.level
+    for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
+    if (s.level > s.max || !fits()) {
+      s.level = was
+      s.dropped = true
     }
   }
 

@@ -400,7 +400,7 @@ export type DeepPartial<T> = {
 export interface ContextBlock {
   /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'world-rules', 'story-so-far', 'mentioned', 'themes'. */
   id: string
-  /** 1 (most important) to 10. */
+  /** 1 (most important) to 11. */
   priority: number
   title: string
   /** The text as sent (its short form when `short` is true). */
@@ -757,7 +757,7 @@ export interface ExistsPoint {
 /** An entry as it is at a point in the story: baseline plus every change that counts there. */
 export interface EntryState extends Entry {
   /** What has happened to it so far, oldest first ("lost her left hand", with where). */
-  happened: { note: string; where: string; changeId: ID }[]
+  happened: { note: string; where: string; changeId: ID; at?: number }[]
   /** Field keys (and 'description' / 'summary') a change has set, so views can mark them. */
   changed: string[]
 }
@@ -771,6 +771,8 @@ export interface RelationshipState {
   bFeels: string
   /** Where it last changed, in plain words; '' for the baseline. */
   where: string
+  /** Where on the line it last changed (a step index of the walk; -1 for the baseline), for ordering. Milestone 5. */
+  at?: number
 }
 
 export interface FactState {

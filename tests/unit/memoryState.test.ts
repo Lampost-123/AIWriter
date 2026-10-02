@@ -69,11 +69,13 @@ describe('state', () => {
       )
     )
     expect(w.state('b1', 'b1.c1.s1').relationships).toEqual([
-      { aId: 'm', bId: 't', type: 'friend', aFeels: 'friend feels', bFeels: 'friend other', where: '' }
+      { aId: 'm', bId: 't', type: 'friend', aFeels: 'friend feels', bFeels: 'friend other', where: '', at: -1 }
     ])
     expect(w.state('b1', 'b1.c2.s1').relationships).toEqual([
-      { aId: 't', bId: 'm', type: 'rival', aFeels: 'rival feels', bFeels: 'rival other', where: 'Book 1, Ch 1, Sc 1' }
+      expect.objectContaining({ aId: 't', bId: 'm', type: 'rival', aFeels: 'rival feels', bFeels: 'rival other', where: 'Book 1, Ch 1, Sc 1' })
     ])
+    // Where on the line it last changed, for ordering what happened between two people (milestone 5).
+    expect(w.state('b1', 'b1.c2.s1').relationships[0].at).toBeGreaterThan(-1)
     expect(w.state('b2').relationships).toEqual([])
   })
 

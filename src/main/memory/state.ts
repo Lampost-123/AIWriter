@@ -212,6 +212,8 @@ export function stateAt(
   }
 
   // ----- Applying changes -----
+  /** Where on the walk the change being applied sits (a step index; -1 for the baseline), so views can order history. */
+  let at = -1
   const addChanged = (e: EntryState, k: string): void => {
     if (!e.changed.includes(k)) e.changed.push(k)
   }
@@ -229,7 +231,7 @@ export function stateAt(
     touchRel(a, b)
     const pk = pairKey(a, b)
     if (p.ended) rels.delete(pk)
-    else rels.set(pk, { aId: a, bId: b, type: p.type ?? '', aFeels: p.feels ?? '', bFeels: p.otherFeels ?? '', where })
+    else rels.set(pk, { aId: a, bId: b, type: p.type ?? '', aFeels: p.feels ?? '', bFeels: p.otherFeels ?? '', where, at })
   }
   const apply = (c: Change, where: string): void => {
     const e = states.get(c.entryId)
@@ -237,7 +239,7 @@ export function stateAt(
     switch (c.kind) {
       case 'update': {
         const p = c.payload
-        if (p.note) e.happened.push({ note: p.note, where, changeId: c.id })
+        if (p.note) e.happened.push({ note: p.note, where, changeId: c.id, at })
         for (const [k, v] of Object.entries(p.fields ?? {})) {
           touchField(e, k)
           e.fields[k] = v
@@ -300,7 +302,7 @@ export function stateAt(
             ? { status: 'resolved', setUp: was.setUp ?? FROM_EXISTS, paidOff: where }
             : { status: 'open', setUp: was.setUp ?? where, paidOff: '' }
         )
-        if (p.note) e.happened.push({ note: p.note, where, changeId: c.id })
+        if (p.note) e.happened.push({ note: p.note, where, changeId: c.id, at })
         break
       }
     }
@@ -321,10 +323,12 @@ export function stateAt(
     if (step.type === 'start') prePos.set(step.storyId, i)
     else if (step.type === 'start-changes') {
       postPos.set(step.storyId, i)
+      at = i
       const where = `the start of ${titles.get(step.storyId) ?? ''}`
       for (const c of changes.byStory.get(step.storyId) ?? []) apply(c, where)
     } else if (step.type === 'scene') {
       scenePos.set(step.sceneId, i)
+      at = i
       const list = changes.byScene.get(step.sceneId)
       if (list) {
         const where = label({ storyId: step.storyId, sceneId: step.sceneId })
