@@ -1,4 +1,4 @@
-import { History, Palette } from 'lucide-react'
+import { CalendarRange, History, LayoutGrid, Network, Palette, Spool } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
@@ -66,6 +66,7 @@ export function WorldSection(): React.JSX.Element {
     // In a short window the list scrolls rather than squeezing out the chapters above it.
     <nav aria-label="World" className="max-h-[50%] shrink-0 overflow-y-auto border-t border-line px-1.5 pb-2 pt-2">
       <h3 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint">World</h3>
+      <Link icon={<LayoutGrid size={15} />} label="Codex" active={view.kind === 'codex'} onClick={() => navigate({ kind: 'codex' })} />
       {ENTRY_LINKS.map((l) => (
         <Link
           key={l.kind}
@@ -76,6 +77,9 @@ export function WorldSection(): React.JSX.Element {
           onClick={() => navigate({ kind: 'entries', entryKind: l.kind, entryId: null })}
         />
       ))}
+      <Link icon={<CalendarRange size={15} />} label="Timeline" active={view.kind === 'timeline'} onClick={() => navigate({ kind: 'timeline' })} />
+      <Link icon={<Network size={15} />} label="Relationship map" active={view.kind === 'map'} onClick={() => navigate({ kind: 'map' })} />
+      <Link icon={<Spool size={15} />} label="Plot threads board" active={view.kind === 'threads'} onClick={() => navigate({ kind: 'threads' })} />
       <Link icon={<Palette size={15} />} label="Style guide" active={view.kind === 'style'} onClick={() => navigate({ kind: 'style' })} />
       <Link icon={<History size={15} />} label="What changed" active={view.kind === 'memory'} onClick={() => navigate({ kind: 'memory', sceneId: null })} />
     </nav>
