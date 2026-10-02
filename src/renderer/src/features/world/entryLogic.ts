@@ -203,6 +203,13 @@ export function kindNoun(kind: EntryKind): string {
 /** "a character", "an item", "an event": the noun with its article. */
 export const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`
 
+/** The letter on an entry's round badge in the list: "L" for "The Lantern Guild", not "T". */
+export function entryInitial(name: string): string {
+  const words = name.trim().split(/\s+/)
+  const word = words.length > 1 && /^(the|a|an)$/i.test(words[0]) ? words[1] : words[0]
+  return (Array.from(word ?? '')[0] ?? '?').toLocaleUpperCase()
+}
+
 /** "characters", "lore", "plot threads", "terms": the plural for sentences such as "No terms yet". */
 export function kindNounMany(kind: EntryKind): string {
   if (kind === 'lore') return 'lore'

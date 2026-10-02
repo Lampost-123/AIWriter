@@ -79,8 +79,10 @@ export function Combobox({
     }
     onQuery('')
     setHighlight(0)
+    // Ready for another, but the list waits until Adam types (or presses the down arrow), so it
+    // doesn't cover what was just added.
     if (refocus) input.current?.focus()
-    else setDismissed(true)
+    setDismissed(true)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {

@@ -9,7 +9,7 @@ import { useApp } from '@/lib/store'
 import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
-import { filterEntries, keepRowOrder, kindNoun, kindNounMany, placePath, withArticle } from './entryLogic'
+import { entryInitial, filterEntries, keepRowOrder, kindNoun, kindNounMany, placePath, withArticle } from './entryLogic'
 import { KIND_ICONS } from './kindIcons'
 import { useSlow } from './parts/useSlow'
 
@@ -130,6 +130,12 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
     if (!entryId || selectedIndex < 0) return
     listRef.current?.querySelector(`[data-entry="${CSS.escape(entryId)}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [entryId, selectedIndex])
+
+  // Another entry's page opens at its top, not partway down where the last one was left.
+  const pageRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (pageRef.current) pageRef.current.scrollTop = 0
+  }, [entryId])
 
   const create = async (name?: string): Promise<void> => {
     if (creating) return
@@ -297,7 +303,7 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-y-auto">
+      <div ref={pageRef} className="min-w-0 flex-1 overflow-y-auto">
         {from ? (
           <div className="mx-auto w-full max-w-[700px] px-8 pt-4">
             <Button
@@ -339,7 +345,7 @@ const EntryRow = memo(function EntryRow({
   onSelect: (id: ID) => void
 }): React.JSX.Element {
   const name = entry.name.trim() || 'Unnamed'
-  const initial = (Array.from(name)[0] ?? '?').toUpperCase()
+  const initial = entryInitial(name)
   const inside = places && entry.parentId ? placePath(places, entry.parentId).join(' › ') : ''
   const sub = entry.summary.trim() || (inside ? `In ${inside}` : '')
   return (

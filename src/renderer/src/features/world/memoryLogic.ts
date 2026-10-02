@@ -203,11 +203,22 @@ const TO_WORDS = new Set(
 const FROM_WORDS = new Set('estranged separated divorced banished exiled outcast apart free hidden'.split(' '))
 const WITH_WORDS = new Set('obsessed infatuated besotted friendly angry furious familiar allied connected partnered'.split(' '))
 
+// Words that already say which one ("the leader", "her sister", "Tobin's rival"), so no "a" goes before them.
+const DETERMINERS = new Set('a an the his her their its my our your one some no this that'.split(' '))
+
+/** "a rival", "an enemy", "an heir", "a one-time ally". */
+function withArticle(phrase: string): string {
+  const w = phrase.toLocaleLowerCase()
+  const an = /^(heir|hono|hour|hones)/.test(w) || (/^[aeiou]/.test(w) && !/^(one|onc|uni|use|usu|eu|ur[ai])/.test(w))
+  return `${an ? 'an' : 'a'} ${phrase}`
+}
+
 /**
  * A relationship type joined to the other entry in plain words: "enemies with Tobin", "holds the Sword",
- * "member of The Guild (lieutenant)", "married to Tobin", "involved in the Fall".
+ * "member of The Guild (lieutenant)", "married to Tobin", "involved in the Fall". With `article`, a role
+ * gets "a" or "an", for after "Now" or "No longer": "an enemy of Mara", "a member of The Guild".
  */
-export function relationPhrase(type: string, other: string): string {
+export function relationPhrase(type: string, other: string, opts: { article?: boolean } = {}): string {
   const raw = type.trim().replace(/\s+/g, ' ')
   const aside = raw.match(/\s*\(([^)]*)\)\s*/)
   const core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
@@ -227,7 +238,9 @@ export function relationPhrase(type: string, other: string): string {
   else if (WITH_WORDS.has(last)) link = 'with'
   else if (/[^s]s$/.test(last)) link = 'with'
   else link = 'of'
-  return `${core}${link ? ` ${link}` : ''} ${other}${tail}`
+  // A role ("enemy", "old friend") reads best with an article; a name or a "the ..." already has one.
+  const role = link === 'of' && opts.article && !DETERMINERS.has(first) && !/'s$|’s$/.test(first) && !/^\p{Lu}/u.test(core)
+  return `${role ? withArticle(core) : core}${link ? ` ${link}` : ''} ${other}${tail}`
 }
 
 /** Suggestions for a relationship's type, by what the two entries are ("How Mara is linked to The Guild"). */
@@ -371,10 +384,10 @@ export function describeChange(
       const detail = ended ? null : feelings(self, v.selfFeels, other, v.otherFeels)
       if (v.mine) {
         if (!v.type.trim()) return { text: ended ? `No longer linked to ${other}` : `Things change with ${other}`, detail }
-        return { text: `${ended ? 'No longer' : 'Now'} ${relationPhrase(v.type, other)}`, detail }
+        return { text: `${ended ? 'No longer' : 'Now'} ${relationPhrase(v.type, other, { article: true })}`, detail }
       }
       if (!v.type.trim()) return { text: ended ? `${other}: no longer linked to ${self}` : `${other}: things change with ${self}`, detail }
-      return { text: `${other}: ${ended ? 'no longer' : 'now'} ${relationPhrase(v.type, self)}`, detail }
+      return { text: `${other}: ${ended ? 'no longer' : 'now'} ${relationPhrase(v.type, self, { article: true })}`, detail }
     }
     case 'knowledge':
       return { text: `${c.payload.forgets ? 'Forgets' : 'Learns'}: ${c.payload.fact.trim()}`, detail: null }

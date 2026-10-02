@@ -233,6 +233,20 @@ describe('relationPhrase', () => {
     expect(relationPhrase('', 'Tobin')).toBe('linked to Tobin')
   })
 
+  it('puts "a" or "an" before a role when asked, but not before a name or "the ..."', () => {
+    const a = (type: string, other = 'Tobin'): string => relationPhrase(type, other, { article: true })
+    expect(a('enemy')).toBe('an enemy of Tobin')
+    expect(a('old friend')).toBe('an old friend of Tobin')
+    expect(a('member (lieutenant)', 'The Guild')).toBe('a member of The Guild (lieutenant)')
+    expect(a('one-time ally')).toBe('a one-time ally of Tobin')
+    expect(a('honoured guest')).toBe('an honoured guest of Tobin')
+    expect(a('the leader', 'The Guild')).toBe('the leader of The Guild')
+    expect(a('Dark Lord', 'the North')).toBe('Dark Lord of the North')
+    expect(a('enemies')).toBe('enemies with Tobin')
+    expect(a('mentor')).toBe('mentor to Tobin')
+    expect(a('part of', 'The Guild')).toBe('part of The Guild')
+  })
+
   it('offers sensible kinds to create from a typed name', () => {
     expect(createKindsFor('character')[0]).toBe('character')
     expect(createKindsFor('event')).toContain('place')
@@ -282,6 +296,8 @@ describe('describeChange', () => {
     expect(say(rel('r', 'mara', 'sword', { type: 'holds' }, 'scene'))).toBe('Now holds the Sword')
     expect(say(rel('r', 'mara', 'sword', { type: 'holds' }, 'scene'), 'sword')).toBe('Mara: now holds the Sword')
     expect(say(rel('r', 'tobin', 'mara', { type: 'enemies' }, 'scene'))).toBe('Tobin: now enemies with Mara')
+    expect(say(rel('r', 'tobin', 'mara', { type: 'enemy' }, 'scene'))).toBe('Tobin: now an enemy of Mara')
+    expect(say(rel('r', 'mara', 'tobin', { type: 'rival', ended: true }, 'scene'))).toBe('No longer a rival of Tobin')
   })
 
   it('adds how each feels, this entry first', () => {

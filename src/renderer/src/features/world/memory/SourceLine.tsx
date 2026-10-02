@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { Check, Sparkles } from 'lucide-react'
 import type { ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -41,8 +41,11 @@ export function PlaceLink({
   )
 }
 
-/** A source note, or: its words are still loading (the line is kept free), or it was read from the story but has no words to show. */
-export type LineNote = SourceNote | { kind: 'loading' } | { kind: 'story' }
+/**
+ * A source note, or: its words are still loading (the line is kept free), it was read from the story
+ * but has no words to show, or Adam has changed it since the page opened (the line stays, saying so).
+ */
+export type LineNote = SourceNote | { kind: 'loading' } | { kind: 'story' } | { kind: 'edited' }
 
 /**
  * Where a fact came from, quietly, inline (it sits inside a field's hint): the words it was read from
@@ -65,6 +68,14 @@ export function SourceLine({
   if (note.kind === 'loading') return <span className={base} aria-hidden />
   if (note.kind === 'story') return <span className={base}>Read from your story</span>
   if (note.kind === 'adam') return <span className={base}>Added by you</span>
+  if (note.kind === 'edited') {
+    return (
+      <span className={base}>
+        <Check size={11} className="shrink-0 self-center" aria-hidden />
+        Changed by you
+      </span>
+    )
+  }
   if (note.kind === 'ai') {
     return (
       <span className={base}>

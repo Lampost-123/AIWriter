@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryKind } from '@shared/types'
 import {
+  entryInitial,
   filledCount,
   filterEntries,
   keepRowOrder,
@@ -227,6 +228,14 @@ describe('nouns for every kind', () => {
     expect(kindNounMany('glossary')).toBe('terms')
     expect(kindNounMany('lore')).toBe('lore')
     expect(kindNounMany('group')).toBe('groups')
+  })
+
+  it('gives a list badge the first letter that matters', () => {
+    expect(entryInitial('The Lantern Guild')).toBe('L')
+    expect(entryInitial('an Old Debt')).toBe('O')
+    expect(entryInitial('mara')).toBe('M')
+    expect(entryInitial('The')).toBe('T')
+    expect(entryInitial('Élodie')).toBe('É')
   })
 })
 

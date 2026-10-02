@@ -296,12 +296,14 @@ export const EntryForm = memo(function EntryForm({ initial, others, places, onLi
   const fieldNotes = useMemo(() => {
     const m = new Map<string, LineNote>()
     for (const [key, origin] of fromAI) {
-      if (origin === 'ai') m.set(key, { kind: 'ai' })
+      // Adam has changed it since the page opened: it's his now, and the line says so rather than vanish.
+      if (fieldOrigin(owner, key) === 'adam') m.set(key, { kind: 'edited' })
+      else if (origin === 'ai') m.set(key, { kind: 'ai' })
       else if (!links.data && !links.error) m.set(key, { kind: 'loading' })
       else m.set(key, sourceNote('text', linksFor(links.data ?? [], key)) ?? { kind: 'story' })
     }
     return m
-  }, [fromAI, links.data, links.error])
+  }, [fromAI, owner, links.data, links.error])
   const scenePlaces = useSceneLabels(!!links.data?.length)
   const hint = (key: string, text?: ReactNode): ReactNode => {
     const note = fieldNotes.get(key)
