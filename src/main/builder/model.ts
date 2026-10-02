@@ -24,7 +24,9 @@ export function builderTarget(src: ModelSources): BuilderModel {
   const choice = src.settings.models.writer
   if (!choice) throw new UserError('Choose a writer model first, in Settings › Models.', 'no-writer-model')
   const provider = src.getProvider(choice.providerId)
-  if (!provider) throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings › Models.", 'no-writer-model')
+  if (!provider) {
+    throw new UserError("The writer model's provider has been removed. Choose a writer model in Settings › Models.", 'no-writer-model')
+  }
   const target = src.providerTarget(provider)
   if (!target.apiKey && !(provider.kind === 'custom' && isLocalUrl(provider.baseUrl))) {
     throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings › Models.`, 'no-key')
