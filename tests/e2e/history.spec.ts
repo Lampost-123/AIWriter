@@ -41,7 +41,7 @@ test('writing, Mark done and a draft each keep a version; History shows the newe
   const fake = await startFake()
   try {
     // Writing keeps a version every 10 minutes; here every 1.5 seconds.
-    const { win } = await launch({ env: { AIWRITE_HISTORY_WRITING_MS: '1500' } })
+    const { app, win } = await launch({ env: { AIWRITE_HISTORY_WRITING_MS: '1500' } })
     await createWorldFromWelcome(win, 'Alpha')
     await useFakeModel(win, fake)
     const sceneId = await firstScene(win)
@@ -93,12 +93,28 @@ test('writing, Mark done and a draft each keep a version; History shows the newe
     await expect(comparison(win).locator('[data-side="then"]').first()).toContainText(SECOND)
     await expect(comparison(win).locator('[data-side="now"]').first()).toContainText(aiText.split('\n\n')[0])
 
-    // The version from the scene's first save, compared with the AI's draft now in the scene.
+    // The version from the scene's first save, compared with the AI's draft now in the scene. It has no What the AI
+    // saw, and picking it leaves the text where it was, in a laptop's window or the smallest.
     const firstSave = versions(win)
       .getByRole('button', { name: /While writing/ })
       .last()
-    await firstSave.click()
-    await expect(comparison(win).getByRole('heading', { name: 'While writing' })).toBeVisible()
+    const columns = comparison(win).getByText('This version', { exact: true })
+    for (const [width, height] of [
+      [1280, 800],
+      [960, 600]
+    ]) {
+      await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
+      await expect.poll(() => win.evaluate('window.innerWidth')).toBe(width)
+      await versions(win)
+        .getByRole('button', { name: /Marked done/ })
+        .click()
+      await expect(comparison(win).getByRole('button', { name: /What the AI saw/ })).toBeVisible()
+      const top = (await columns.boundingBox())!.y
+      await firstSave.click()
+      await expect(comparison(win).getByRole('heading', { name: 'While writing' })).toBeVisible()
+      await expect(comparison(win).getByRole('button', { name: /What the AI saw/ })).toHaveCount(0)
+      expect((await columns.boundingBox())!.y).toBe(top)
+    }
     // The scene now has none of that version's paragraph, so all of it is marked.
     await expect(comparison(win).locator('mark', { hasText: FIRST })).toBeVisible()
     // The arrow keys move through the list.
@@ -249,6 +265,14 @@ test('drafts: New draft keeps the text as Draft 1 and its Undo never loses what 
   await expect(draftRow(win, 'The darker one')).toHaveCount(0)
   await toast(win, '“The darker one” deleted.').getByRole('button', { name: 'Undo' }).click()
   await expect(draftRow(win, 'The darker one')).toContainText(SECOND)
+  // Ctrl+Z straight after a delete brings the draft back too, as in the binder, and leaves the page as it is.
+  await draftsTab(win).getByRole('button', { name: 'Delete The darker one' }).click()
+  await expect(draftRow(win, 'The darker one')).toHaveCount(0)
+  await win.keyboard.press('Control+z')
+  await expect(draftRow(win, 'The darker one')).toContainText(SECOND)
+  await expect(toasts(win).getByText('“The darker one” deleted.')).toHaveCount(0)
+  await expect(prose(win).locator('p')).toHaveText([FIRST])
+  await expect.poll(() => savedText(win, sceneId)).toBe(FIRST)
   // The draft in the page can't be deleted: it has no Delete.
   await expect(draftsTab(win).getByRole('button', { name: 'Delete Draft 1' })).toHaveCount(0)
 

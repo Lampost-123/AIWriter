@@ -11,6 +11,7 @@ import { api, modKey, onEvent } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { useOutline } from '@/features/binder/outlineStore'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
 import { fullDate } from '@/features/generate/format'
 import {
@@ -86,7 +87,7 @@ const TRYING_MS = 400
 export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?: ID | null }): React.JSX.Element {
   const [history, setHistory] = useState<SceneHistory | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [title, setTitle] = useState<string | null>(null)
+  const [fetchedTitle, setFetchedTitle] = useState<string | null>(null)
   const [selected, setSelected] = useState<ID | null>(snapshotId ?? null)
   const [trying, setTrying] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
@@ -136,16 +137,21 @@ export function HistoryView({ sceneId, snapshotId }: { sceneId: ID; snapshotId?:
     void Promise.all([load({ tryAgain: true }), new Promise((r) => setTimeout(r, TRYING_MS))]).finally(() => setTrying(false))
   }
 
+  // The scene's title as the binder has it, so the page opens with it rather than changing a moment later;
+  // read from the scene only when the outline doesn't list it.
+  const listed = useOutline().outline?.scenes.find((s) => s.id === sceneId)
   useEffect(() => {
+    if (listed) return
     let live = true
     api
       .getScene(sceneId)
-      .then((s) => live && setTitle(s.title || 'Untitled scene'))
-      .catch(() => live && setTitle(null))
+      .then((s) => live && setFetchedTitle(s.title || 'Untitled scene'))
+      .catch(() => live && setFetchedTitle(null))
     return () => {
       live = false
     }
-  }, [sceneId])
+  }, [sceneId, listed])
+  const title = listed ? listed.title || 'Untitled scene' : fetchedTitle
 
   const back = (): void => selectScene(sceneId)
   const slow = useDelayed(!history && !error)
@@ -421,25 +427,32 @@ function Comparison({
 
   // The last version shown stays until the next one is ready, so nothing flashes; a slow one dims it.
   const view = snap
+  const meta = info
+    ? [whenTaken(info.createdAt, nowMs), wordsLabel(info.words), ...(now ? [lengthAgainstNow(info.words, nowWords)] : [])]
+    : []
   return (
-    <section aria-label="Comparison" className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-4 py-3 @min-[900px]:px-5">
+    <section
+      aria-label="Comparison"
+      className="@container/compare flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-surface"
+    >
+      {/* Laid out by the comparison's width alone, never by what a version says (its date, a button only some
+          have), so moving through the list never moves the text below: buttons beside the name when wide,
+          under it when narrow, and the name and its details each on one line. */}
+      <div className="flex shrink-0 flex-col gap-2.5 border-b border-line px-4 py-3 @min-[900px]:px-5 @min-[760px]/compare:flex-row @min-[760px]/compare:items-center @min-[760px]/compare:justify-between @min-[760px]/compare:gap-4">
         <div className="min-w-0">
-          <h2 className="truncate text-[15px] font-semibold text-fg">{info?.label ?? ''}</h2>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-muted">
-            {info ? (
-              <>
-                <span title={fullDate(info.createdAt)}>{whenTaken(info.createdAt, nowMs)}</span>
-                <span className="text-line-strong">·</span>
-                <span className="tabular-nums">{wordsLabel(info.words)}</span>
-                {now ? (
-                  <>
-                    <span className="text-line-strong">·</span>
-                    <span>{lengthAgainstNow(info.words, nowWords)}</span>
-                  </>
-                ) : null}
-              </>
-            ) : null}
+          <h2 className="truncate text-[15px] font-semibold leading-[22px] text-fg">{info?.label ?? '\u00a0'}</h2>
+          <p
+            className="mt-0.5 truncate text-[12.5px] leading-[18px] text-muted"
+            title={info ? [fullDate(info.createdAt), ...meta.slice(1)].join(' · ') : undefined}
+          >
+            {meta.length
+              ? meta.map((part, i) => (
+                  <span key={i} className={i === 1 ? 'tabular-nums' : undefined}>
+                    {i > 0 ? <span className="mx-1.5 text-line-strong">·</span> : null}
+                    {part}
+                  </span>
+                ))
+              : '\u00a0'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -449,6 +462,8 @@ function Comparison({
               size="sm"
               onClick={() => navigate({ kind: 'generation', generationId: info.generationId! })}
               title="See exactly what the AI was given for the change that came after this version"
+              // Under the name (a narrow comparison), its words line up with the name's.
+              className="-ml-2.5 @min-[760px]/compare:ml-0"
             >
               What the AI saw
               <ChevronRight size={13} className="-ml-1" />

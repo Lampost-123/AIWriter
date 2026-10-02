@@ -82,7 +82,8 @@ export function DraftsSection({
   drafts,
   onChange,
   reload,
-  tryAgain
+  tryAgain,
+  onDeleted
 }: {
   sceneId: ID
   drafts: SceneDrafts
@@ -90,6 +91,8 @@ export function DraftsSection({
   reload: () => void
   /** Loads the drafts again, trying history.db at once. */
   tryAgain: () => Promise<unknown>
+  /** A draft was deleted: its row has gone, so the keyboard is kept in the tab. */
+  onDeleted?: () => void
 }): React.JSX.Element {
   const now = useNow()
   // The current draft is the text in the page, so its words are the page's (as the top bar counts them).
@@ -146,7 +149,9 @@ export function DraftsSection({
                 }}
                 onDelete={() =>
                   void run(d.id, async () => {
-                    if (await deleteDraft(d, reload)) onChange({ ...drafts, drafts: list.filter((x) => x.id !== d.id) })
+                    if (!(await deleteDraft(d, reload))) return
+                    onChange({ ...drafts, drafts: list.filter((x) => x.id !== d.id) })
+                    onDeleted?.()
                   })
                 }
               />

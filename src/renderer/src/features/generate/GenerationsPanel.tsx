@@ -2,12 +2,14 @@
 // milestone 4), then every draft the AI wrote for it, newest first, each with a link to exactly what the
 // AI was given.
 import { ChevronRight, History, Undo2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { GenerationSummary, ID } from '@shared/types'
 import type { SceneDrafts } from '@shared/contracts/history'
 import { Badge, Button, EmptyState, Notice } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
+import { isTyping } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { undoLastDelete } from '@/lib/undoDelete'
 import { DraftsSection, EarlierVersionsButton, NewDraftButton } from '@/features/history/DraftsSection'
 import { formatCost, fullDate, relativeTime, shortModelName } from './format'
 import { Skeleton, useDelayed, useNow } from './parts'
@@ -89,8 +91,29 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // Both lists come in together, so the tab doesn't fill in in two steps.
   const slow = useDelayed((items === null || drafts === null) && !error)
 
+  // Ctrl+Z here brings back the draft just deleted while its message still offers Undo, as in the binder (a name
+  // being typed keeps Ctrl+Z for itself). A deleted draft's row goes, so the keyboard stays in the tab rather than
+  // nowhere, where Ctrl+Z would undo in the page instead.
+  const root = useRef<HTMLDivElement>(null)
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && !isTyping(e.target) && undoLastDelete()) {
+      e.preventDefault()
+    }
+  }
+  const keepKeyboard = useCallback(() => {
+    const el = root.current
+    const at = document.activeElement
+    // Only from the row's Delete (or nowhere): never away from the page, if Adam has gone back to writing meanwhile.
+    if (el && (!at || at === document.body || el.contains(at))) el.focus({ preventScroll: true })
+  }, [])
+  const tab = (content: ReactNode): React.JSX.Element => (
+    <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} className="outline-none">
+      {content}
+    </div>
+  )
+
   if (error && !items) {
-    return (
+    return tab(
       <div className="p-3">
         <Notice
           tone="danger"
@@ -107,7 +130,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   }
 
   if (!items || !drafts) {
-    return (
+    return tab(
       <div className="flex flex-col gap-2 p-3" aria-busy>
         {slow ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-[62px] w-full rounded-lg" />) : null}
       </div>
@@ -116,7 +139,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   // Only the draft in the page, and nothing from the AI yet.
   if (!items.length && drafts.available && drafts.drafts.length <= 1) {
-    return (
+    return tab(
       <EmptyState
         icon={<History size={18} />}
         title="No drafts yet"
@@ -135,9 +158,16 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     )
   }
 
-  return (
+  return tab(
     <div className="flex flex-col gap-4 p-2 animate-fade-in">
-      <DraftsSection sceneId={sceneId} drafts={drafts} onChange={setDrafts} reload={() => void loadDrafts()} tryAgain={tryDraftsAgain} />
+      <DraftsSection
+        sceneId={sceneId}
+        drafts={drafts}
+        onChange={setDrafts}
+        reload={() => void loadDrafts()}
+        tryAgain={tryDraftsAgain}
+        onDeleted={keepKeyboard}
+      />
       <section aria-label="Drafts the AI wrote">
         <h3 className="flex h-8 items-center pl-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Written by the AI</h3>
         {items.length ? (
