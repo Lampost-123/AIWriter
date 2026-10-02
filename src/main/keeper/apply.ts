@@ -58,6 +58,8 @@ export interface ApplyContext {
   memory: SceneMemory | null
   shape: WorldShape | null
   sideClashes: SideClashes | null
+  /** The scene was deleted: every fact read from it loses those words, and the scene isn't marked read. */
+  removed?: boolean
 }
 
 export interface ApplyResult {
@@ -1309,7 +1311,7 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
     }
   }
   // Facts whose words were deleted go (Adam's are asked about); an edited fact with no verdict stays, marked changed.
-  for (const f of plan.gone) removeFact(run, f, 'those words were deleted')
+  for (const f of plan.gone) removeFact(run, f, ctx.removed ? 'those words were deleted with the scene' : 'those words were deleted')
 
   linkMentions(run)
   for (const chunk of replies) {
@@ -1327,12 +1329,14 @@ export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: Ch
   askWhichLast(run)
 
   for (const l of run.lines) kdb.insertLog(db, l)
-  kdb.markProcessed(
-    db,
-    plan.scene.sceneId,
-    plan.version,
-    plan.paras.map((p) => ({ id: p.id, hash: p.hash, text: p.text }))
-  )
+  if (!ctx.removed) {
+    kdb.markProcessed(
+      db,
+      plan.scene.sceneId,
+      plan.version,
+      plan.paras.map((p) => ({ id: p.id, hash: p.hash, text: p.text }))
+    )
+  }
   for (const l of run.lines) if (l.entryId) run.touched.add(l.entryId)
   return { lines: run.lines.length, entryIds: [...run.touched] }
 }

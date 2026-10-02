@@ -8,7 +8,8 @@
 //   undo.ts       Undo and answers on the "What changed" list
 // This file connects it to the open world, the settings and the window.
 
-import type { ID, MemoryStatus, SceneMeta } from '@shared/types'
+import type Database from 'better-sqlite3'
+import type { Entry, ID, MemoryStatus, SceneMeta } from '@shared/types'
 import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
 import { getSettings } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
@@ -17,6 +18,7 @@ import { setBeforeDraft } from '../ai/gather'
 import { emit } from '../events'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
+import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
 
 let keeper: Keeper | null = null
 
@@ -48,6 +50,8 @@ const quietMs = (): number | undefined => {
 export function initKeeper(): void {
   onWorldOpened((w) => {
     keeper?.stop()
+    // Scenes deleted while the keeper wasn't told (or emptied from the Trash) stop counting first.
+    scenesDeleted(w.db)
     keeper = new Keeper({
       db: w.db,
       model: memoryModel,
@@ -85,6 +89,45 @@ export function sceneSaved<T>(sceneId: ID, result: T): T {
 /** After a version of a scene is restored (its text replaced): the memory reads it now. */
 export function sceneRestored(sceneId: ID): void {
   currentKeeper()?.sceneRestored(sceneId)
+}
+
+function told(out: ScenesOutcome): void {
+  if (!out.sceneIds.length) return
+  emit('memory:changed', { sceneId: out.sceneIds.length === 1 ? out.sceneIds[0] : null, entryIds: [...new Set(out.entryIds)] })
+  emit('memory:status', memoryStatus())
+}
+
+/**
+ * After a scene, chapter or story is deleted: facts read only from its words go, and text entries
+ * nothing mentions any more move to the Trash (listed in What changed). Never stops the delete.
+ */
+export function scenesDeleted(db: Database.Database): void {
+  try {
+    told(db.transaction(() => removeScenes(db))())
+  } catch (e) {
+    console.warn('The memory keeper could not take a deleted scene out of the memory', e)
+  }
+}
+
+/** After something is brought back from the Trash: its scenes' facts come back, and anything unread in them is read. */
+export function scenesRestored(db: Database.Database): void {
+  try {
+    const out = db.transaction(() => restoreScenes(db))()
+    for (const id of out.sceneIds) currentKeeper()?.sceneRestored(id)
+    told(out)
+  } catch (e) {
+    console.warn('The memory keeper could not bring back a restored scene', e)
+  }
+}
+
+/** Adam edited an entry by hand: a field he emptied isn't filled again from the same words. Passes the result through. */
+export function entryEditedByHand(db: Database.Database, before: Entry, after: Entry): Entry {
+  try {
+    fieldsClearedByHand(db, before, after)
+  } catch (e) {
+    console.warn('The memory keeper could not note a cleared field', e)
+  }
+  return after
 }
 
 /** Settings changed (a memory model was chosen, a key added): try again now. */

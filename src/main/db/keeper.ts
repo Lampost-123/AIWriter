@@ -6,9 +6,9 @@
 import type Database from 'better-sqlite3'
 import type { ID, MemoryLogItem, Origin, SceneMeta, SceneMemoryState, SummaryLevel } from '@shared/types'
 import { newId, now } from '../util'
-import { getSceneMeta } from './repo'
+import { getEntry, getSceneMeta } from './repo'
 import { getChange } from './memory'
-import { linksForEntry, linksForFact } from './history'
+import { linksForEntry, linksForFact, recordVersion } from './history'
 import { fingerprint } from '../keeper/facts'
 import { plain } from '../keeper/text'
 
@@ -96,6 +96,47 @@ const READING_ORDER = 'ORDER BY st.created_order, c.position, s.position'
 export function keeperScene(db: DB, sceneId: ID): KeeperScene | null {
   const r = db.prepare(`${LIVE_SCENES} AND s.id = ?`).get(sceneId) as Row | undefined
   return r ? toKeeperScene(r) : null
+}
+
+/** A scene whether or not it is deleted; null once it is gone for good (emptied from the Trash). */
+export function anyKeeperScene(db: DB, sceneId: ID): KeeperScene | null {
+  const r = db.prepare('SELECT s.*, c.story_id FROM scenes s LEFT JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?').get(sceneId) as
+    | Row
+    | undefined
+  return r ? toKeeperScene(r) : null
+}
+
+/** Scenes that are deleted (or gone for good, or in a deleted chapter or story) but whose words still count as a fact's source. */
+export function removedScenesWithLinks(db: DB): ID[] {
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT l.scene_id AS id FROM source_links l
+         LEFT JOIN scenes s ON s.id = l.scene_id LEFT JOIN chapters c ON c.id = s.chapter_id LEFT JOIN stories st ON st.id = c.story_id
+         WHERE l.state = 'ok' AND (s.id IS NULL OR s.deleted_at IS NOT NULL OR c.deleted_at IS NOT NULL OR st.deleted_at IS NOT NULL)`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as string)
+}
+
+/** Live scenes whose facts went when they were deleted (a run marked 'removed'): they have just come back. */
+export function scenesBackFromTrash(db: DB): ID[] {
+  return (
+    db.prepare(`${LIVE_IDS} AND s.id IN (SELECT scene_id FROM memory_runs WHERE status = 'removed') ${READING_ORDER}`).all() as Row[]
+  ).map((r) => r.id as string)
+}
+
+/** The runs that took these scenes' facts away when they were deleted, newest first. */
+export function removalRuns(db: DB, sceneIds: ID[]): ID[] {
+  if (!sceneIds.length) return []
+  return (
+    db
+      .prepare(
+        `SELECT id FROM memory_runs WHERE status = 'removed' AND scene_id IN (${sceneIds.map(() => '?').join(', ')})
+         ORDER BY created_at DESC, rowid DESC`
+      )
+      .all(...sceneIds) as Row[]
+  ).map((r) => r.id as string)
 }
 
 /** Live scenes the memory hasn't caught up with (waiting, or "Memory not updated"), in reading order. */
@@ -202,11 +243,25 @@ export function startRun(db: DB, sceneId: ID, sceneVersion: number): ID {
   return id
 }
 
-export function finishRun(db: DB, id: ID, status: 'done' | 'failed' | 'stopped', error: string | null, t: RunTotals): void {
+/**
+ * 'removed': the run that took a deleted scene's facts away; 'restored' once the scene came back and
+ * that was undone.
+ */
+export function finishRun(
+  db: DB,
+  id: ID,
+  status: 'done' | 'failed' | 'stopped' | 'removed' | 'restored',
+  error: string | null,
+  t: RunTotals
+): void {
   db.prepare(
     `UPDATE memory_runs SET status = ?, error = ?, provider_id = ?, model_id = ?, prompt_tokens = ?, completion_tokens = ?, cost = ?,
        generation_ids_json = ?, finished_at = ? WHERE id = ?`
   ).run(status, error, t.providerId, t.modelId, t.promptTokens, t.completionTokens, t.cost, JSON.stringify(t.generationIds), now(), id)
+}
+
+export function setRunStatus(db: DB, id: ID, status: 'restored'): void {
+  db.prepare('UPDATE memory_runs SET status = ? WHERE id = ?').run(status, id)
 }
 
 /** After a crash or a forced quit: runs left 'running' count as stopped (their scenes are read again). */
@@ -445,8 +500,11 @@ export function summaryRow(
 }
 
 /** Removes a summary the keeper wrote (Adam's own are never removed). */
-export function deleteTextSummary(db: DB, level: SummaryLevel, targetId: ID): boolean {
-  return db.prepare("DELETE FROM summaries WHERE level = ? AND target_id = ? AND origin <> 'adam'").run(level, targetId).changes > 0
+/** Deletes a summary the keeper wrote (never Adam's), writing a version that says who removed it. */
+export function deleteTextSummary(db: DB, level: SummaryLevel, targetId: ID, origin: Origin = 'text'): boolean {
+  const gone = db.prepare("DELETE FROM summaries WHERE level = ? AND target_id = ? AND origin <> 'adam'").run(level, targetId).changes > 0
+  if (gone) recordVersion(db, { factKind: 'summary', factId: `${level}:${targetId}`, entryId: null, data: null, origin })
+  return gone
 }
 
 /** Marks a summary the keeper wrote as out of date (Adam's own are left alone). */
@@ -532,8 +590,10 @@ export function setFieldOrigins(db: DB, entryId: ID, origins: Record<string, Ori
 }
 
 /** Brings back an entry from Trash (an undo of the keeper moving it there). */
-export function untrashEntry(db: DB, id: ID): void {
-  db.prepare('UPDATE entries SET deleted_at = NULL WHERE id = ?').run(id)
+/** Takes an entry out of the Trash, writing a version (with the origin of the one before it went). */
+export function untrashEntry(db: DB, id: ID, origin: Origin): void {
+  if (!db.prepare('UPDATE entries SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL').run(id).changes) return
+  recordVersion(db, { factKind: 'entry', factId: id, entryId: id, data: getEntry(db, id), origin })
 }
 
 /** Removes a first-exists point the keeper added (never one Adam set). */

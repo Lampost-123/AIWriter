@@ -20,6 +20,8 @@ import { Ids } from './request'
 import { memoryAt } from './places'
 import * as scene from '../memory/scene'
 import { READING_MARKER } from './prompts'
+import { fieldsClearedByHand, removeScenes, restoreScenes } from './removed'
+import { sceneSummaryDue } from './summaries'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -698,6 +700,151 @@ describe('details read in a later scene', () => {
     expect(at(scenes[4], mara.id)?.fields.hair).toBe('black')
     const issues = w.db.prepare('SELECT message FROM issues').all() as { message: string }[]
     expect(issues.map((i) => i.message)).toContain('Mara: this scene says hair is “red”, but the memory says “black”.')
+  })
+})
+
+describe('deleting a scene, and bringing it back', () => {
+  const removed = (db: Database.Database) => db.transaction(() => removeScenes(db))()
+  const restored = (db: Database.Database) => db.transaction(() => restoreScenes(db))()
+  const note = (x: { payload: unknown }): string => (x.payload as { note?: string }).note ?? ''
+  const linkStates = (db: Database.Database, sceneId: ID) => [...new Set(hist.linksInScene(db, sceneId).map((l) => l.state))]
+
+  it('takes away what was read only there, keeps what other words support, and brings it all back', async () => {
+    const w = world()
+    const a = w.sceneId
+    const b = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    const c = repo.createScene(w.db, w.chapterId, { title: 'Scene 3' }).id
+    save(w.db, a, [['p1', 'Mara lost her left hand. Kell lost his hat. Tobin lost his boots.']])
+    await read(w.db, a)
+    save(w.db, b, [['q1', 'Kell lost his map.']])
+    await read(w.db, b)
+    // Tobin's change is Adam's own now.
+    const tobinChange = mem.listAllChanges(w.db).find((x) => note(x) === 'lost his boots')!
+    mem.replaceChange(w.db, tobinChange.id, {
+      kind: 'update',
+      payload: { note: 'lost his boots in the mud' },
+      entryId: tobinChange.entryId,
+      anchor: 'scene',
+      sceneId: a,
+      origin: 'adam'
+    })
+    const before = mem.listAllChanges(w.db).length
+    const mara = entryNamed(w.db, 'Mara')!
+
+    repo.deleteScene(w.db, a)
+    const out = removed(w.db)
+    expect(out.sceneIds).toEqual([a])
+    expect(entryNamed(w.db, 'Mara')).toBeNull()
+    expect(entryNamed(w.db, 'Kell')).not.toBeNull() // scene 2 still names him
+    expect(mem.listAllChanges(w.db).map(note).sort()).toEqual(['lost his boots in the mud', 'lost his map'])
+    expect(scene.sceneMemory(w.db, c).entries.map((e) => e.name)).not.toContain('Mara')
+    const lines = kdb.logForRun(w.db, kdb.removalRuns(w.db, [a])[0])
+    expect(lines.map((l) => l.text)).toEqual(
+      expect.arrayContaining([
+        'Lost her left hand: those words were deleted with the scene',
+        'Lost his hat: those words were deleted with the scene',
+        'Moved to Trash: no scene mentions it any more'
+      ])
+    )
+    expect(lines.find((l) => l.question)?.question?.text).toBe('Keep your words?')
+    expect(linkStates(w.db, a)).toEqual(['gone'])
+    // Nothing more happens the second time.
+    expect(removed(w.db).sceneIds).toEqual([])
+
+    repo.restoreDeleted(w.db, 'scene', a)
+    expect(restored(w.db).sceneIds).toEqual([a])
+    expect(entryNamed(w.db, 'Mara')?.id).toBe(mara.id)
+    expect(mem.listAllChanges(w.db)).toHaveLength(before)
+    expect(note(mem.getChange(w.db, tobinChange.id))).toBe('lost his boots in the mud')
+    expect(linkStates(w.db, a)).toEqual(['ok'])
+    expect(scene.sceneMemory(w.db, c).entries.map((e) => e.name)).toContain('Mara')
+    // Reading it again (as the keeper does after a restore) changes nothing.
+    kdb.noteSceneSaved(w.db, a)
+    const again = await read(w.db, a)
+    expect(again.status).toBe('nothing')
+    expect(mem.listAllChanges(w.db)).toHaveLength(before)
+    expect(restored(w.db).sceneIds).toEqual([])
+  })
+
+  it('works for a whole chapter or story, and for scenes gone for good', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    await read(w.db, w.sceneId)
+    const ch2 = repo.createChapter(w.db, w.storyId, { title: 'Two' }).id
+    const s2 = repo.createScene(w.db, ch2, { title: 'One' }).id
+    const s3 = repo.createScene(w.db, ch2, { title: 'Two' }).id
+    save(w.db, s2, [['a', 'Kell lost his hat.']])
+    await read(w.db, s2)
+    save(w.db, s3, [['b', 'Kell lost his map.']])
+    await read(w.db, s3)
+    repo.deleteChapter(w.db, ch2)
+    expect(removed(w.db).sceneIds.sort()).toEqual([s2, s3].sort())
+    expect(entryNamed(w.db, 'Kell')).toBeNull()
+    repo.restoreDeleted(w.db, 'chapter', ch2)
+    expect(restored(w.db).sceneIds.sort()).toEqual([s2, s3].sort())
+    expect(entryNamed(w.db, 'Kell')).not.toBeNull()
+    expect(mem.listAllChanges(w.db)).toHaveLength(3)
+    // The story goes: so does everything.
+    repo.deleteStory(w.db, w.storyId)
+    expect(removed(w.db).sceneIds).toHaveLength(3)
+    expect(repo.listEntries(w.db)).toEqual([])
+    repo.restoreDeleted(w.db, 'story', w.storyId)
+    restored(w.db)
+    expect(
+      repo
+        .listEntries(w.db)
+        .map((e) => e.name)
+        .sort()
+    ).toEqual(['Kell', 'Mara'])
+    // A scene emptied from the Trash (its row gone) without the keeper being told.
+    w.db.prepare('DELETE FROM scenes WHERE id = ?').run(s3)
+    removed(w.db)
+    expect(
+      mem
+        .listAllChanges(w.db)
+        .map((x) => note(x))
+        .sort()
+    ).toEqual(['lost her left hand', 'lost his hat'])
+  })
+
+  it('a field Adam empties isn’t filled again from the same words, and raises no issue', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', "Kell's eyes were grey."]])
+    await read(w.db, w.sceneId)
+    const kell = entryNamed(w.db, 'Kell')!
+    expect(kell.fields.eyes).toBe('grey')
+    const after = repo.updateEntry(w.db, kell.id, { fields: { ...kell.fields, eyes: '' } })
+    fieldsClearedByHand(w.db, kell, after)
+    save(w.db, w.sceneId, [['p1', "Kell's eyes were grey. The ferry was late."]])
+    await read(w.db, w.sceneId)
+    expect(repo.getEntry(w.db, kell.id).fields.eyes).toBe('')
+    expect(w.db.prepare('SELECT COUNT(*) AS n FROM issues').get()).toEqual({ n: 0 })
+  })
+})
+
+describe('memory history', () => {
+  const latest = (db: Database.Database, kind: 'entry' | 'summary', id: ID) =>
+    kdb.versionData(db, kind, id, kdb.latestVersion(db, kind, id))
+
+  it('has a version when an entry comes back from the Trash, and when a summary is taken away', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Mara lost her left hand.']])
+    await read(w.db, w.sceneId)
+    const mara = entryNamed(w.db, 'Mara')!
+    repo.deleteEntry(w.db, mara.id, { origin: 'text' })
+    expect(latest(w.db, 'entry', mara.id)?.data).toBeNull()
+    kdb.untrashEntry(w.db, mara.id, 'text')
+    expect(latest(w.db, 'entry', mara.id)).toMatchObject({ data: { name: 'Mara' }, origin: 'text' })
+    // Taking an entry that isn't in the Trash out of it writes nothing.
+    const v = kdb.latestVersion(w.db, 'entry', mara.id)
+    kdb.untrashEntry(w.db, mara.id, 'text')
+    expect(kdb.latestVersion(w.db, 'entry', mara.id)).toBe(v)
+
+    mem.putSummary(w.db, { level: 'scene', targetId: w.sceneId, text: 'Mara lost her hand.', origin: 'text' })
+    save(w.db, w.sceneId, [['p1', '']])
+    sceneSummaryDue(w.db, w.sceneId, false)
+    expect(kdb.summaryRow(w.db, 'scene', w.sceneId)).toBeNull()
+    expect(latest(w.db, 'summary', `scene:${w.sceneId}`)).toMatchObject({ data: null, origin: 'text' })
   })
 })
 

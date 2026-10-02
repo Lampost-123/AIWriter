@@ -313,6 +313,8 @@ function apartFromBooks(stories: { id: ID; kind: string; startStoryId: ID | null
 export interface RollUp {
   level: 'chapter' | 'story' | 'series'
   targetId: ID
+  /** The latest scene it is made from: its model calls are recorded against that scene, never against a chapter, story or series id. */
+  sceneId: ID
   ask: SummaryAsk
   sourceHash: string
   place: { storyId: ID | null; chapterId: ID | null }
@@ -348,6 +350,11 @@ export function nextRollUp(
   const stories = repo.listStories(db)
   const apart = apartFromBooks(stories)
   const seriesToCheck = new Set<ID>()
+  /** A story's last scene with a summary (or its last scene). */
+  const lastScene = (storyId: ID): ID | null => {
+    const scenes = repo.getOutline(db, storyId).scenes
+    return [...scenes].reverse().find((s) => kdb.summaryRow(db, 'scene', s.id))?.id ?? scenes.at(-1)?.id ?? null
+  }
   for (const storyId of storyIds) {
     const story = stories.find((s) => s.id === storyId)
     if (!story) continue
@@ -368,6 +375,7 @@ export function nextRollUp(
           return {
             level: 'chapter',
             targetId: ch.id,
+            sceneId: [...scenes].reverse().find((s) => kdb.summaryRow(db, 'scene', s.id))!.id,
             ask: { level: 'chapter', where: label({ storyId, chapterId: ch.id }), title: ch.title, summaries: fit(items, room) },
             sourceHash: hash,
             place: { storyId, chapterId: ch.id }
@@ -379,10 +387,12 @@ export function nextRollUp(
     }
     if (chapterTexts.length) {
       const hash = hashText(chapterTexts.map((x) => x.text).join('\n'))
-      if (changedSince(db, 'story', storyId, hash, skip)) {
+      const sceneId = lastScene(storyId)
+      if (sceneId && changedSince(db, 'story', storyId, hash, skip)) {
         return {
           level: 'story',
           targetId: storyId,
+          sceneId,
           ask: { level: 'story', title: story.title, summaries: fit(chapterTexts, room) },
           sourceHash: hash,
           place: { storyId, chapterId: null }
@@ -396,15 +406,28 @@ export function nextRollUp(
     const items = stories
       .filter((s) => s.seriesId === seriesId && !apart(s.id))
       .sort((a, b) => a.createdOrder - b.createdOrder)
-      .map((s) => ({ label: s.title.trim() || 'Untitled story', text: kdb.summaryRow(db, 'story', s.id)?.text.trim() ?? '' }))
+      .map((s) => ({
+        storyId: s.id,
+        label: s.title.trim() || 'Untitled story',
+        text: kdb.summaryRow(db, 'story', s.id)?.text.trim() ?? ''
+      }))
       .filter((x) => x.text)
     if (!items.length) continue
     const hash = hashText(items.map((x) => `${x.label}\n${x.text}`).join('\n'))
-    if (changedSince(db, 'series', seriesId, hash, skip)) {
+    const sceneId = lastScene(items[items.length - 1].storyId)
+    if (sceneId && changedSince(db, 'series', seriesId, hash, skip)) {
       return {
         level: 'series',
         targetId: seriesId,
-        ask: { level: 'series', name: series.name, summaries: fit(items, room) },
+        sceneId,
+        ask: {
+          level: 'series',
+          name: series.name,
+          summaries: fit(
+            items.map(({ label, text }) => ({ label, text })),
+            room
+          )
+        },
         sourceHash: hash,
         place: { storyId: null, chapterId: null }
       }
@@ -416,7 +439,7 @@ export function nextRollUp(
 /** Writes one roll-up. False when the call failed, was stopped, or Adam wrote his own meanwhile. */
 export async function writeRollUp(o: SummaryOptions, r: RollUp): Promise<boolean> {
   const calls: CallResult[] = []
-  const written = await ask(o, r.targetId, r.ask, ROLLUP_REPLY, calls)
+  const written = await ask(o, r.sceneId, r.ask, ROLLUP_REPLY, calls)
   if (!written) {
     if (!o.closed() && o.db.open && calls.length) recordRun(o.db, r.targetId, 0, o.model, calls, false)
     return false

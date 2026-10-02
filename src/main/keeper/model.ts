@@ -27,7 +27,7 @@ export const DEFAULT_MEMORY_CONTEXT = 16_000
 export interface CallOptions {
   db: DB
   model: MemoryModel
-  /** The scene (or, for a roll-up, the chapter, story or series) the record belongs to. */
+  /** The scene the record belongs to (for a roll-up, the latest scene it is made from). */
   targetId: ID
   job: 'memory' | 'summary'
   messages: ChatMessage[]

@@ -187,7 +187,7 @@ function restoreSummary(db: DB, level: Summary['level'], targetId: ID, version: 
   const old = version > 0 ? kdb.versionData(db, 'summary', `${level}:${targetId}`, version) : null
   const data = old?.data as Summary | null
   if (data && data.text) mem.putSummary(db, { level, targetId, text: data.text, origin: old?.origin ?? fallbackOrigin })
-  else kdb.deleteTextSummary(db, level, targetId)
+  else kdb.deleteTextSummary(db, level, targetId, 'adam')
 }
 
 // ---------- Undo ----------
@@ -224,9 +224,7 @@ export function undoItem(db: DB, id: ID): Outcome {
       break
     }
     case 'entry-trashed': {
-      kdb.untrashEntry(db, u.entryId)
-      const e = live(db, u.entryId)
-      if (e) hist.recordVersion(db, { factKind: 'entry', factId: e.id, entryId: e.id, data: e, origin: earlierOrigin(db, 'entry', e.id) })
+      kdb.untrashEntry(db, u.entryId, earlierOrigin(db, 'entry', u.entryId))
       for (const cid of u.changeIds) {
         const c = db.prepare('SELECT 1 FROM changes WHERE id = ?').get(cid)
         if (c) mem.restoreChange(db, cid, { origin: earlierOrigin(db, 'change', cid) })
