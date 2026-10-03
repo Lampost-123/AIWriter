@@ -8,8 +8,10 @@
 //    (a restored version, switching drafts, find and replace)
 // Opening a scene swaps the editor's state without a change, so it never counts.
 //
-// "AI words kept": undoing an AI change (Ctrl+Z, or a message's Undo putting the page back as it was) takes its
-// words back off the day it was counted on, and redoing it puts them back.
+// Undo and redo give back what they take back: undoing an AI change (Ctrl+Z, or a message's Undo putting the page
+// back as it was) takes its words off the AI words kept, on the day they were counted, and redoing it puts them
+// back; undoing a change that wasn't counted (a restored version, find and replace) counts nothing; any other undo
+// or redo is of Adam's own typing, and its net change goes to the typed words.
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
@@ -86,8 +88,10 @@ export interface WordDelta {
 }
 
 interface Landing {
-  /** The page just before the AI's words went in. */
+  /** The page just before the change. */
   before: PMNode
+  /** An AI change (its words are AI words), or one that wasn't counted at all. */
+  ai: boolean
   words: number
   day: string
   undone: boolean
@@ -96,8 +100,8 @@ interface Landing {
 /** The same words on the page (paragraph ids and the like aside). */
 const sameText = (a: PMNode, b: PMNode): boolean => a === b || (a.content.size === b.content.size && a.textContent === b.textContent)
 
-/** How many AI changes are remembered for undo. */
-const LANDINGS = 8
+/** How many AI (or uncounted) changes are remembered for undo. */
+const LANDINGS = 20
 
 /**
  * The running count for one editor: what each change adds to the day, and the AI changes made lately, so undoing
@@ -108,7 +112,13 @@ export class Tally {
   private open: Landing | null = null
   private newStream = false
 
-  take(kind: ChangeKind, before: PMNode, after: PMNode, today: string, opts: { streamStart?: boolean; stream?: boolean } = {}): WordDelta {
+  take(
+    kind: ChangeKind,
+    before: PMNode,
+    after: PMNode,
+    today: string,
+    opts: { streamStart?: boolean; stream?: boolean; recorded?: boolean } = {}
+  ): WordDelta {
     if (opts.streamStart) this.newStream = true
     if (before === after) return { typed: 0, ai: 0 }
     if (kind === 'typed') {
@@ -120,27 +130,38 @@ export class Tally {
       const n = kind === 'ai' ? added - removed : added
       if (opts.stream) {
         if (this.newStream || !this.open) {
-          this.open = this.remember({ before, words: 0, day: today, undone: false })
+          this.open = this.remember({ before, ai: true, words: 0, day: today, undone: false })
           this.newStream = false
         }
         this.open.words += n
       } else {
         this.open = null
-        this.remember({ before, words: n, day: today, undone: false })
+        this.remember({ before, ai: true, words: n, day: today, undone: false })
       }
       return { typed: 0, ai: n }
     }
-    // Undo, redo, or a page put back as it was: an AI change undone (or redone) changes the AI words kept.
+    // Undo, redo, or a page put back as it was: an AI change undone (or redone) changes the AI words kept, and an
+    // uncounted change undone (or redone) counts nothing.
     for (const l of this.landings) {
       if (!l.undone && sameText(after, l.before)) {
         l.undone = true
         if (this.open === l) this.open = null
-        return { typed: 0, ai: -l.words, ...(l.day !== today ? { day: l.day } : {}) }
+        return { typed: 0, ai: l.ai ? -l.words : 0, ...(l.ai && l.day !== today ? { day: l.day } : {}) }
       }
       if (kind === 'history' && l.undone && sameText(before, l.before)) {
         l.undone = false
-        return { typed: 0, ai: l.words, ...(l.day !== today ? { day: l.day } : {}) }
+        return { typed: 0, ai: l.ai ? l.words : 0, ...(l.ai && l.day !== today ? { day: l.day } : {}) }
       }
+    }
+    if (kind === 'history') {
+      // Undoing (or redoing) Adam's own typing: it gives back what the typing counted.
+      const { removed, added } = changedWords(before, after)
+      return { typed: added - removed, ai: 0 }
+    }
+    // A change that isn't new writing (a restored version, find and replace): remembered, so undoing it counts nothing.
+    if (opts.recorded) {
+      this.open = null
+      this.remember({ before, ai: false, words: 0, day: today, undone: false })
     }
     return { typed: 0, ai: 0 }
   }
@@ -184,7 +205,8 @@ export const WordTally = Extension.create<Record<string, never>, { tally: Tally;
     if (before === after && !streamStart) return
     const kind = changeKind(transaction)
     // A change another plugin made on top of this one (appended to it) is counted with it: `after` has both.
-    const d = store.tally.take(kind, before, after, today(), { streamStart, stream: !!stream })
+    const recorded = transaction.getMeta('addToHistory') !== false
+    const d = store.tally.take(kind, before, after, today(), { streamStart, stream: !!stream, recorded })
     if (d.typed || d.ai) sink(d)
   }
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getSchema } from '@tiptap/core'
 import { EditorState, TextSelection, type Transaction } from '@tiptap/pm/state'
-import { history, undo, redo } from '@tiptap/pm/history'
+import { closeHistory, history, undo, redo } from '@tiptap/pm/history'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { appendStream, commitStream, docFromText, startStream, streamPlugin } from '@/features/editor/streamDoc'
 import { acceptSuggestion, showSuggestion, suggestionsPluginForTests, updateSuggestion } from '@/features/edits/suggestions'
@@ -17,11 +17,25 @@ const stateFrom = (text: string): EditorState => EditorState.create({ schema, do
 function run(t: Tally, s: EditorState, tr: Transaction): { state: EditorState; typed: number; ai: number } {
   const next = s.apply(tr)
   const stream = tr.getMeta(streamPlugin.spec.key!) as { type?: string } | undefined
-  const d = t.take(changeKind(tr), s.doc, next.doc, TODAY, { streamStart: stream?.type === 'start', stream: !!stream })
+  const d = t.take(changeKind(tr), s.doc, next.doc, TODAY, { streamStart: stream?.type === 'start', stream: !!stream, recorded: tr.getMeta('addToHistory') !== false })
   return { state: next, typed: d.typed, ai: d.ai }
 }
 
 const typeAt = (s: EditorState, text: string, at: number): Transaction => s.tr.setSelection(TextSelection.create(s.doc, at)).insertText(text)
+
+/** Ctrl+Z and Ctrl+Y as the history plugin makes them. */
+function undoTr(s: EditorState): Transaction {
+  let out: Transaction | null = null
+  undo(s, (tr) => (out = tr))
+  if (!out) throw new Error('nothing to undo')
+  return out
+}
+function redoTr(s: EditorState): Transaction {
+  let out: Transaction | null = null
+  redo(s, (tr) => (out = tr))
+  if (!out) throw new Error('nothing to redo')
+  return out
+}
 
 describe('words a change adds', () => {
   it('counts whole words once, before and after', () => {
@@ -56,27 +70,58 @@ describe('where words come from', () => {
     expect(r).toMatchObject({ typed: 0, ai: 0 })
   })
 
-  it('never counts undo, redo, a restored version or find and replace as typed', () => {
+  it('never counts a restored version or find and replace as typed, nor undoing them', () => {
     const t = new Tally()
     let s = stateFrom('One two.')
-    s = run(t, s, typeAt(s, ' three four', 8)).state
-    let r = run(t, s, (() => {
-      let out: Transaction | null = null
-      undo(s, (tr) => (out = tr))
-      return out!
-    })())
-    expect(r).toMatchObject({ typed: 0, ai: 0 })
-    s = r.state
-    r = run(t, s, (() => {
-      let out: Transaction | null = null
-      redo(s, (tr) => (out = tr))
-      return out!
-    })())
-    expect(r).toMatchObject({ typed: 0, ai: 0 })
-    s = r.state
     const restored = docFromText(schema, 'An older version of the scene with more words.')
-    r = run(t, s, s.tr.replaceWith(0, s.doc.content.size, restored.content).setMeta(WORDS_META, 'none'))
+    let r = run(t, s, closeHistory(s.tr.replaceWith(0, s.doc.content.size, restored.content).setMeta(WORDS_META, 'none')))
     expect(r).toMatchObject({ typed: 0, ai: 0 })
+    s = r.state
+    r = run(t, s, undoTr(s))
+    expect(r).toMatchObject({ typed: 0, ai: 0 })
+    expect(r.state.doc.textContent).toBe('One two.')
+    s = r.state
+    r = run(t, s, redoTr(s))
+    expect(r).toMatchObject({ typed: 0, ai: 0 })
+  })
+
+  it('gives typed words back on undo, and counts them again on redo', () => {
+    const t = new Tally()
+    let s = stateFrom('One two.')
+    let total = 0
+    const step = (tr: Transaction): void => {
+      const r = run(t, s, tr)
+      total += r.typed
+      s = r.state
+    }
+    // Type a sentence, Ctrl+Z, type it again: counted once.
+    step(closeHistory(typeAt(s, ' The ferry left at dawn.', 9)))
+    expect(total).toBe(5)
+    step(undoTr(s))
+    expect(total).toBe(0)
+    step(closeHistory(typeAt(s, ' The ferry left at dawn.', 9)))
+    expect(total).toBe(5)
+    // Redo after undo counts it again, once.
+    step(undoTr(s))
+    step(redoTr(s))
+    expect(total).toBe(5)
+  })
+
+  it('a big delete undone straight away gives back exactly what it took', () => {
+    const t = new Tally()
+    const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} has five words.`).join('\n\n')
+    let s = stateFrom(long)
+    let total = 0
+    const step = (tr: Transaction): void => {
+      const r = run(t, s, tr)
+      total += r.typed
+      s = r.state
+    }
+    // Ctrl+A, Backspace.
+    step(closeHistory(s.tr.delete(0, s.doc.content.size)))
+    expect(total).toBe(-200)
+    step(undoTr(s))
+    expect(total).toBe(0)
   })
 
   it('counts a draft streaming in as AI words, and takes them back when it is undone', () => {

@@ -1,7 +1,7 @@
 // Writing by hand: word counts and today's writing, the daily target and streak, the spell check switch, synonyms
 // on right-click and Add to this world's glossary. Nothing here depends on Chromium's spelling dictionaries (which
 // may need downloading): the underlines themselves aren't checked, only what the app does around them.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
@@ -9,8 +9,6 @@ import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } fr
 const prose = (win: Page) => win.locator('.scene-prose')
 const countButton = (win: Page) => win.getByRole('button', { name: /^[\d,]+ words?$/ })
 const panel = (win: Page) => win.getByRole('dialog')
-/** The file noting the world words put in the dictionary (src/main/spelling). */
-const tracked = (dataDir: string): string => join(dataDir, 'app', 'spelling-world-words.json')
 
 /** Back to the page from Settings (the top bar's Settings button goes back where Adam was). */
 async function backToPage(win: Page): Promise<void> {
@@ -169,6 +167,25 @@ test('a synonym picked on right-click replaces the word, keeping its capitals, a
   await win.keyboard.press('Control+z')
   await expect(prose(win)).toHaveText('Happy, she said. She was happy.')
 
+  // Two quick right-clicks: the menu is for the second word, never the first.
+  await app.evaluate(() => {
+    ;(globalThis as unknown as { lastMenu: unknown }).lastMenu = null
+  })
+  const said = await wordBox(win, 'said')
+  const happy = await wordBox(win, 'Happy')
+  await win.mouse.click(said.x, said.y, { button: 'right' })
+  await win.mouse.click(happy.x, happy.y, { button: 'right' })
+  await win.waitForTimeout(500)
+  const second = (await lastMenu(app))!.find((i) => i.label === 'Synonyms')!.submenu!.find((i) => i.enabled && i.type === 'normal')!
+  expect(second.label).toBe(pick.label)
+  await app.evaluate((_e, label) => {
+    const m = (globalThis as unknown as { lastMenu: Electron.Menu }).lastMenu
+    m.items.find((i) => i.label === 'Synonyms')!.submenu!.items.find((i) => i.label === label)!.click()
+  }, second.label)
+  await expect(prose(win)).toHaveText(`${pick.label}, she said. She was happy.`)
+  await win.keyboard.press('Control+z')
+  await expect(prose(win)).toHaveText('Happy, she said. She was happy.')
+
   // The same list the menu shows, in the spelling that applies.
   const senses = await invoke(win, 'synonymsOf', 'colour')
   expect(senses.flatMap((s) => s.words).some((w) => w.includes('color'))).toBe(false)
@@ -185,43 +202,72 @@ test('Add to this world’s glossary makes a glossary entry for the word, with U
   await expect.poll(async () => (await invoke(win, 'listEntries', 'glossary')).length).toBe(0)
 })
 
-test('the world’s names count as correct while it is open, and are taken out after it closes or after a crash', async ({ launch }) => {
-  const env = { AIWRITE_SPELL_WORLD_WORDS: '1' }
-  const first = await launch({ env })
-  const { app, win } = first
-  const words = (): Promise<string[]> => app.evaluate(({ session }) => session.defaultSession.listWordsInSpellCheckerDictionary())
-  try {
-    await createWorldFromWelcome(win, 'Names')
-    await invoke(win, 'createEntry', 'character', { name: 'Zorvathine Quellmoor', aliases: ['Vathi'] })
-    const state = await invoke(win, 'syncSpelling', null)
-    expect(state.worldWords).toBeGreaterThan(0)
-    await expect.poll(words).toEqual(expect.arrayContaining(['Zorvathine', 'Quellmoor', 'Vathi']))
+test('a name in the world and a word Adam added show no spelling underline or suggestions; other misspelt words do', async ({ launch }) => {
+  const { app, win, dataDir } = await launch()
+  await createWorldFromWelcome(win, 'Names')
+  await invoke(win, 'createEntry', 'character', { name: 'Zentharo Quellmoor', aliases: [] })
+  // The window reads the world's names as it starts (and when entries change as Adam works).
+  await win.reload()
+  await expect(prose(win)).toBeVisible()
+  await catchMenus(app)
 
-    // Another world: the first one's names go.
-    await invoke(win, 'createWorld', 'Other')
-    await expect.poll(words).not.toContain('Zorvathine')
-
-    // As after a crash: a word in the dictionary, noted as put there for a world, that nothing took out again.
-    await app.evaluate(({ session }) => session.defaultSession.addWordToSpellCheckerDictionary('Plimvexory'))
-  } finally {
-    await first.close()
+  // A word's look, against the same with every spelling underline hidden (by a style put in for the test, which
+  // leaves Chromium's markings alone): a difference is the underline.
+  const shot = async (word: string): Promise<Buffer> => {
+    const { x, y } = await wordBox(win, word)
+    return win.screenshot({ clip: { x: x - 60, y: y - 18, width: 120, height: 40 } })
   }
-  // Closing took the open world's words out, and noted that none are left.
-  expect(JSON.parse(readFileSync(tracked(first.dataDir), 'utf8'))).toEqual([])
-  writeFileSync(tracked(first.dataDir), JSON.stringify(['Plimvexory']))
-  // The next start takes it out.
-  const second = await launch({ dataDir: first.dataDir, env })
-  try {
-    await expect.poll(() => JSON.parse(readFileSync(tracked(first.dataDir), 'utf8'))).toEqual([])
-    const after: string[] = await second.app.evaluate(({ session }) => session.defaultSession.listWordsInSpellCheckerDictionary())
-    expect(after).not.toContain('Plimvexory')
-    expect(after).not.toContain('Zorvathine')
-  } finally {
-    // Never leave these made-up words in this computer's dictionary, whatever happened above.
-    await second.app.evaluate(({ session }) => {
-      for (const w of ['Plimvexory', 'Zorvathine', 'Quellmoor', 'Vathi', "Zorvathine's", "Quellmoor's", "Vathi's"]) session.defaultSession.removeWordFromSpellCheckerDictionary(w)
+  const underlined = async (word: string): Promise<boolean> => {
+    const on = await shot(word)
+    await win.addStyleTag({ content: 'html body .scene-prose *::spelling-error, html body .scene-prose .aiwrite-known-word::spelling-error { text-decoration: none !important; }' })
+    const off = await shot(word)
+    await win.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = (globalThis as any).document
+      d.querySelectorAll('style').forEach((el: { textContent: string; remove(): void }) => el.textContent.includes('spelling-error { text-decoration: none !important') && el.remove())
     })
+    return !on.equals(off)
   }
+  // Words typed before Chromium's spelling dictionary has loaded aren't checked, so the line is typed again until
+  // they are (offline, or with no dictionary, the test can't see underlines and is skipped).
+  const text = 'Qwxzzle met Zentharo by the Plimvexory gate. '
+  let ready = false
+  for (let i = 0; i < 8 && !ready; i++) {
+    await prose(win).click()
+    await win.keyboard.press('Control+a')
+    await win.keyboard.type(text)
+    await prose(win).evaluate((el) => (el as unknown as { blur(): void }).blur())
+    await win.waitForTimeout(1500)
+    ready = await underlined('Qwxzzle')
+  }
+  test.skip(!ready, 'No spelling underlines in this window: the spelling dictionary isn’t available.')
+  await expect(prose(win).locator('.aiwrite-known-word')).toHaveText(['Zentharo'])
+  // Chromium marks the made-up name too, but the page hides it: undo the page's rule and the underline is back.
+  expect(await underlined('Zentharo')).toBe(false)
+  const back = await win.addStyleTag({ content: '.scene-prose .aiwrite-known-word::spelling-error { text-decoration: spelling-error !important; }' })
+  expect(await underlined('Zentharo')).toBe(true)
+  await back.evaluate((el) => (el as unknown as { remove(): void }).remove())
+
+  // Right-click: no suggestions or Add to dictionary for the world's name...
+  let at = await wordBox(win, 'Zentharo')
+  await win.mouse.click(at.x, at.y, { button: 'right' })
+  await expect.poll(async () => (await lastMenu(app))?.map((i) => i.label)).toContain('Cut')
+  expect((await lastMenu(app))!.map((i) => i.label)).not.toContain('Add to dictionary')
+
+  // ...but there are for a misspelt word, and Add to dictionary keeps it in AI Write's own list.
+  at = await wordBox(win, 'Plimvexory')
+  await win.mouse.click(at.x, at.y, { button: 'right' })
+  await expect.poll(async () => (await lastMenu(app))?.map((i) => i.label)).toContain('Add to dictionary')
+  expect((await lastMenu(app))!.map((i) => i.label)).toContain('Add to this world’s glossary')
+  await app.evaluate(() => {
+    const m = (globalThis as unknown as { lastMenu: Electron.Menu }).lastMenu
+    m.items.find((i) => i.label === 'Add to dictionary')!.click()
+  })
+  await expect.poll(() => JSON.parse(readFileSync(join(dataDir, 'app', 'spelling-words.json'), 'utf8'))).toEqual(['Plimvexory'])
+  await expect(prose(win).locator('.aiwrite-known-word')).toHaveText(['Zentharo', 'Plimvexory'])
+  await prose(win).evaluate((el) => (el as unknown as { blur(): void }).blur())
+  expect(await underlined('Plimvexory')).toBe(false)
+  expect(await underlined('Qwxzzle')).toBe(true)
 })
 
 test('a draft’s words count as AI words kept, not typed, and come off again when it is undone', async ({ launch }) => {

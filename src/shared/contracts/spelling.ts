@@ -2,7 +2,9 @@
 //
 // Spell check uses Chromium's own checker in the main process (Electron's session): its language follows the
 // spelling that applies to the open story (Adam's writing preferences, then the world's style guide, then the
-// story's), and the open world's names, aliases and glossary terms count as correct while the world is open.
+// story's). The open world's names, aliases and glossary terms, and Adam's own "Add to dictionary" words, count as
+// correct: the page hides Chromium's underline on them, and the menu offers no spelling suggestions for them. They
+// are never put into Chromium's dictionary (on Windows and macOS that is the system's, shared with other programs).
 // The right-click menu is built in the main process (src/main/spelling/menu.ts); the word under the pointer is
 // worked out in the window, which tells main just before the menu opens (noteContextWord), and a synonym picked
 // there comes back to the window as an event to be put into the page by the editor.
@@ -26,6 +28,13 @@ export interface ContextWord {
   sceneId: ID
 }
 
+/** What the window says about a right-click as it starts: where it was (in the page), and the word there, if any. */
+export interface ContextNote {
+  x: number
+  y: number
+  word: ContextWord | null
+}
+
 /** How spell check stands after a sync. */
 export interface SpellingState {
   enabled: boolean
@@ -34,6 +43,8 @@ export interface SpellingState {
   language: string
   /** How many of the open world's words count as correct. */
   worldWords: number
+  /** Every word that counts as correct now: the open world's and Adam's own (as written). */
+  knownWords: string[]
 }
 
 export interface SpellingApi {
@@ -42,8 +53,11 @@ export interface SpellingApi {
    * language, and the world's names counting as correct. The window calls it when any of those change.
    */
   syncSpelling(storyId: ID | null): Promise<SpellingState>
-  /** The word under the pointer at a right-click in the page, or null for a right-click elsewhere. */
-  noteContextWord(note: ContextWord | null): Promise<void>
+  /**
+   * A right-click is starting at (x, y): the word under the pointer in the page, or null for a right-click elsewhere.
+   * The menu for that right-click uses this note and no other (it is matched by where the click was).
+   */
+  noteContextWord(note: ContextNote): Promise<void>
   /** Synonyms for a word, in the spelling that applies (as the right-click menu shows them). */
   synonymsOf(word: string): Promise<SynonymSense[]>
 }
@@ -53,4 +67,6 @@ export interface SpellingEvents {
   'spelling:replaceWord': { token: number; replacement: string }
   /** "Add to this world's glossary" was picked for a word in the right-click menu. */
   'spelling:addToGlossary': { word: string }
+  /** Adam added a word to his own list (Add to dictionary): the words that count as correct now. */
+  'spelling:wordsChanged': { knownWords: string[] }
 }

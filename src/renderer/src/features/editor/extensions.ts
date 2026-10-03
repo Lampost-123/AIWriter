@@ -13,6 +13,7 @@ import { LiveChecks } from '@/features/liveChecks/liveDecorations'
 import { HandTyping } from '@/features/typing/extension'
 import { FindHighlights } from '@/features/find/highlights'
 import { PageSpelling } from '@/features/spelling/editorSpelling'
+import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
@@ -82,6 +83,7 @@ export function sceneExtensions(): AnyExtension[] {
     FindHighlights,
     // Writing by hand: spell check follows the switch; words typed and AI words kept are tallied.
     PageSpelling,
+    KnownWords,
     WordTally
   ]
 }

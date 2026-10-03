@@ -5,7 +5,7 @@ import { create } from 'zustand'
 import type { WritingDay } from '@shared/types'
 import { registerFlusher } from '@/lib/flush'
 import { useApp } from '@/lib/store'
-import { addToDay, localDate } from './goalLogic'
+import { addWords as addToDays, localDate, type DayTally } from './goalLogic'
 import { setWordSink, type WordDelta } from './wordTally'
 
 /** How long after a change the days are saved (at most this often while Adam writes). */
@@ -21,6 +21,8 @@ interface GoalState {
 export const useGoals = create<GoalState>(() => ({ days: null, today: localDate() }))
 
 let timer: ReturnType<typeof setTimeout> | null = null
+/** Each day's running totals this session (see addWords in goalLogic.ts). */
+let running: DayTally['running'] = {}
 let dirty = false
 
 async function save(): Promise<void> {
@@ -48,7 +50,9 @@ export function addWords(d: WordDelta): void {
   const today = localDate()
   const days = useGoals.getState().days ?? daysFromSettings()
   if (!days) return
-  useGoals.setState({ days: addToDay(days, d.day ?? today, d.typed, d.ai, today), today })
+  const next = addToDays({ days, running }, d.day ?? today, d.typed, d.ai, today)
+  running = next.running
+  useGoals.setState({ days: next.days, today })
   dirty = true
   if (!timer) timer = setTimeout(() => void save(), SAVE_AFTER_MS)
 }

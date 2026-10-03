@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addToDay, dayOf, daysBefore, localDate, parseTarget, sizeNote, streakNote, streakOf, wordsLabel } from './goalLogic'
+import { addWords, dayOf, type DayTally, daysBefore, localDate, parseTarget, sizeNote, streakNote, streakOf, wordsLabel } from './goalLogic'
 
 describe('word counts in words', () => {
   it('gives pages and reading time at 250 words each', () => {
@@ -22,15 +22,30 @@ describe('days', () => {
   })
 
   it('adds words to a day, and drops empty days and those over a year old', () => {
-    let days = addToDay([], '2026-10-03', 12, 0, '2026-10-03')
-    days = addToDay(days, '2026-10-03', 5, 300, '2026-10-03')
-    expect(days).toEqual([{ date: '2026-10-03', typed: 17, ai: 300 }])
+    const add = (t: DayTally, date: string, typed: number, ai: number): DayTally => addWords(t, date, typed, ai, '2026-10-03')
+    let t: DayTally = { days: [], running: {} }
+    t = add(t, '2026-10-03', 12, 0)
+    t = add(t, '2026-10-03', 5, 300)
+    expect(t.days).toEqual([{ date: '2026-10-03', typed: 17, ai: 300 }])
     // AI words undone never go below none.
-    days = addToDay(days, '2026-10-03', 0, -400, '2026-10-03')
-    expect(dayOf(days, '2026-10-03')).toEqual({ date: '2026-10-03', typed: 17, ai: 0 })
-    const old = [{ date: '2025-09-01', typed: 900, ai: 0 }, { date: '2026-10-02', typed: 3, ai: 0 }]
-    expect(addToDay(old, '2026-10-03', 1, 0, '2026-10-03').map((d) => d.date)).toEqual(['2026-10-02', '2026-10-03'])
-    expect(addToDay([{ date: '2026-10-03', typed: 4, ai: 0 }], '2026-10-03', -4, 0, '2026-10-03')).toEqual([])
+    t = add(t, '2026-10-03', 0, -400)
+    expect(dayOf(t.days, '2026-10-03')).toEqual({ date: '2026-10-03', typed: 17, ai: 0 })
+    const old = { days: [{ date: '2025-09-01', typed: 900, ai: 0 }, { date: '2026-10-02', typed: 3, ai: 0 }], running: {} }
+    expect(add(old, '2026-10-03', 1, 0).days.map((d) => d.date)).toEqual(['2026-10-02', '2026-10-03'])
+    expect(add({ days: [{ date: '2026-10-03', typed: 4, ai: 0 }], running: {} }, '2026-10-03', -4, 0).days).toEqual([])
+  })
+
+  it('never keeps or shows a day below none, and a big delete undone comes back exactly', () => {
+    const add = (t: DayTally, typed: number): DayTally => addWords(t, '2026-10-03', typed, 0, '2026-10-03')
+    let t: DayTally = { days: [{ date: '2026-10-03', typed: 600, ai: 0 }], running: {} }
+    // Ctrl+A, Backspace on a long scene: the day shows none, never less.
+    t = add(t, -5000)
+    expect(t.days).toEqual([])
+    expect(dayOf(t.days, '2026-10-03').typed).toBe(0)
+    // Ctrl+Z: the 600 are back, and so is the target met.
+    t = add(t, 5000)
+    expect(t.days).toEqual([{ date: '2026-10-03', typed: 600, ai: 0 }])
+    expect(streakOf(t.days, 500, '2026-10-03')).toEqual({ days: 1, todayMet: true })
   })
 })
 

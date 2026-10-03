@@ -30,20 +30,28 @@ export function daysBefore(date: string, n: number): string {
 /** How long days are kept: about a year. */
 export const KEEP_DAYS = 366
 
+/** The days, and each day's running totals as counted this session (which may dip below none for a moment). */
+export interface DayTally {
+  days: WritingDay[]
+  running: Record<string, { typed: number; ai: number }>
+}
+
 /**
- * The days with words added to one (made if need be), oldest first, without days of no words or older than
- * about a year before `today`.
+ * Adds counted words to a day (made if need be). The day keeps a running total, so a big delete undone straight
+ * away comes back exactly; what is kept (and shown) never goes below none. Days of no words, or older than about a
+ * year before `today`, go.
  */
-export function addToDay(days: WritingDay[], date: string, typed: number, ai: number, today: string): WritingDay[] {
+export function addWords(t: DayTally, date: string, typed: number, ai: number, today: string): DayTally {
   const oldest = daysBefore(today, KEEP_DAYS)
-  let found = false
-  const next = days.map((d) => {
-    if (d.date !== date) return d
-    found = true
-    return { ...d, typed: d.typed + typed, ai: Math.max(0, d.ai + ai) }
-  })
-  if (!found && date >= oldest) next.push({ date, typed, ai: Math.max(0, ai) })
-  return next.filter((d) => d.date >= oldest && (d.typed !== 0 || d.ai !== 0)).sort((a, b) => a.date.localeCompare(b.date))
+  const stored = t.days.find((d) => d.date === date)
+  const was = t.running[date] ?? { typed: stored?.typed ?? 0, ai: stored?.ai ?? 0 }
+  const now = { typed: was.typed + typed, ai: was.ai + ai }
+  const day = { date, typed: Math.max(0, now.typed), ai: Math.max(0, now.ai) }
+  const days = [...t.days.filter((d) => d.date !== date), ...(date >= oldest ? [day] : [])]
+    .filter((d) => d.date >= oldest && (d.typed > 0 || d.ai > 0))
+    .map((d) => ({ ...d, typed: Math.max(0, d.typed), ai: Math.max(0, d.ai) }))
+    .sort((x, y) => x.date.localeCompare(y.date))
+  return { days, running: { ...t.running, [date]: now } }
 }
 
 /** A day's words (none when it isn't there). */
