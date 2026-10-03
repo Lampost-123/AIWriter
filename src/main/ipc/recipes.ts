@@ -92,9 +92,12 @@ export const recipesHandlers: Handlers<keyof RecipesApi> = {
       parts: emptyParts(),
       edited: []
     }
-    files.write(r)
+    // The story's text and the notes come first, then the recipe that says it is being made: a crash or a failed
+    // write never leaves a recipe "being made" with nothing to make it from (a folder with no recipe.json is ignored).
     files.writeSource(id, src)
-    maker.start(id)
+    files.writeMaking(id, { version: 1, queuedAt: at, notes: src.chapters.map(() => null), held: null, wasReady: false })
+    files.write(r)
+    maker.resume()
     libraryChanged()
     return files.summary(files.read(id) ?? r)
   },
@@ -107,9 +110,12 @@ export const recipesHandlers: Handlers<keyof RecipesApi> = {
   cancelRecipe: async (id) => {
     stored(id)
     await maker.stop(id)
-    recipeFiles().remove(id)
+    // A finished recipe being read again goes back to how it was; only a new one goes out of the library.
+    const removed = !maker.backToReady(id)
+    if (removed) recipeFiles().remove(id)
     maker.resume()
     libraryChanged()
+    return { removed }
   },
   readRecipeAgain: (id) => {
     const r = stored(id)

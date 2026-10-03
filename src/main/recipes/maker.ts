@@ -147,8 +147,39 @@ export class RecipeMaker {
 
   /** At start, and whenever the library might have work: carries on with recipes waiting their turn. */
   resume(): void {
+    this.repair()
     this.run()
     this.tell()
+  }
+
+  /**
+   * A recipe left "being made" with no notes (the app stopped between writing its files) is paused with Try again,
+   * or put back as it was when it was already finished; one with nothing to read again is finished with what it has.
+   */
+  private repair(): void {
+    const files = this.d.files()
+    if (!files) return
+    for (const r of files.list()) {
+      if (r.status === 'ready' || files.making(r.id)) continue
+      if (files.hasSource(r.id) && !r.byHand) {
+        const src = files.source(r.id)
+        files.writeMaking(r.id, { version: 1, queuedAt: r.createdAt, notes: (src?.chapters ?? []).map(() => null), held: 'adam' })
+        files.write({ ...r, status: 'paused', problem: STOPPED })
+      } else files.write({ ...r, status: 'ready', problem: null })
+    }
+  }
+
+  /** Cancel on a finished recipe being read again: it goes back to how it was (its parts were never changed). */
+  backToReady(id: string): boolean {
+    const files = this.d.files()
+    const r = files?.read(id)
+    const m = files?.making(id)
+    if (!files || !r || !m?.wasReady) return false
+    files.writeMaking(id, null)
+    files.write({ ...r, status: 'ready', problem: null })
+    this.d.changed()
+    this.tell()
+    return true
   }
 
   /** Starts making a recipe whose folder (recipe.json and source.json) is ready. */
@@ -158,7 +189,10 @@ export class RecipeMaker {
     const r = files.read(id)
     const src = files.source(id)
     if (!r || !src) return
-    files.writeMaking(id, { version: 1, queuedAt: clock(), notes: src.chapters.map(() => null), held: null })
+    // The notes first: a recipe marked as being made always has them, so it can never be stuck "Being made".
+    // A finished recipe read again remembers it was finished, so Cancel puts it back as it was.
+    const wasReady = r.status === 'ready' || !!files.making(id)?.wasReady
+    files.writeMaking(id, { version: 1, queuedAt: clock(), notes: src.chapters.map(() => null), held: null, wasReady })
     files.write({ ...r, status: 'making', problem: null, updatedAt: clock() })
     this.run()
     this.tell()
@@ -219,7 +253,19 @@ export class RecipeMaker {
   private run(): void {
     if (this.loop || this.closed) return
     this.loop = this.work()
-      .catch((e) => console.error('Making a recipe stopped unexpectedly', e))
+      .catch((e) => {
+        console.error('Making a recipe stopped unexpectedly', e)
+        // The recipe it was making waits for Try again, saying so, rather than looking busy for ever.
+        const id = this.current?.id
+        const files = this.d.files()
+        if (id && files && !this.closed) {
+          try {
+            this.pause(files, id, 'Something went wrong while making this recipe. Try again.', 'adam')
+          } catch (err) {
+            console.error('Could not pause the recipe', err)
+          }
+        }
+      })
       .finally(() => {
         this.loop = null
         this.current = null
@@ -336,11 +382,18 @@ export class RecipeMaker {
    */
   private async ask(id: string, req: Omit<CallRequest, 'recipeId'>, signal: AbortSignal, usable: (text: string) => boolean): Promise<string> {
     let last: string | null = null
+    // A call stopped by something other than this maker (it shouldn't be: a window reload leaves it going) is
+    // asked again once without counting as a failure.
+    let spareStop = 1
     for (let attempt = 0; attempt < FAILS_TO_PAUSE; attempt++) {
       this.model()
       if (signal.aborted || this.closed) throw new Halt(null)
       const out = await this.d.call({ recipeId: id, ...req }, signal)
       if (signal.aborted || this.closed) throw new Halt(null)
+      if (out.status === 'stopped' && !out.cutOff && spareStop-- > 0) {
+        attempt--
+        continue
+      }
       if (out.status === 'complete' && usable(out.text)) return out.text
       // Cut off at the reply limit is still worth keeping when it says something.
       if (out.status !== 'error' && out.cutOff && usable(out.text)) return out.text

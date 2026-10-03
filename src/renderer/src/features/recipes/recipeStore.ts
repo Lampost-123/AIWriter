@@ -197,13 +197,19 @@ export async function carryOn(id: ID): Promise<void> {
 
 /** Cancel: stops making it and takes it out of the library, with Undo. */
 export async function cancelMaking(id: ID, name: string): Promise<void> {
+  let removed: boolean
   try {
-    await api.cancelRecipe(id)
+    removed = (await api.cancelRecipe(id)).removed
   } catch (e) {
     toast(plainReason(e), { tone: 'danger' })
     return
   }
   await refreshRecipes()
+  // A finished recipe being read again is simply as it was before.
+  if (!removed) {
+    toast(`Stopped reading the story again. “${name}” is as it was.`)
+    return
+  }
   leaveIfShowing(id)
   toast(`Stopped making “${name}”.`, { action: { label: 'Undo', run: () => void restore(id) } })
 }

@@ -74,8 +74,10 @@ async function call(req: CallRequest, signal: AbortSignal): Promise<CallOutcome>
       ],
       reply: req.reply,
       temperature: req.temperature,
-      // Nothing in the window listens for a recipe's words: only how it is going ('recipes:maker').
+      // Nothing in the window listens for a recipe's words: only how it is going ('recipes:maker'). So a window
+      // reload doesn't stop the call (it would be paid for twice when asked again).
       emit: () => undefined,
+      outlivesWindow: true,
       onKeyRejected: () => providers.markCheck(model.target.id, false)
     })
     try {

@@ -126,7 +126,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
         </div>
         <p className="mt-3 text-[13.5px] leading-relaxed text-muted">{INTRO}</p>
 
-        <MakingCard recipeId={recipe.id} />
+        <MakingCard recipe={recipe} />
 
         {ready ? (
           <>

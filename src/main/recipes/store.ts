@@ -42,6 +42,8 @@ export interface MakingFile {
    * 'adam' (stopped, failed twice, cancelled and brought back) waits for Try again.
    */
   held: 'auto' | 'adam' | null
+  /** It was finished before (read again): Cancel puts it back as it was rather than removing it. */
+  wasReady?: boolean
 }
 
 /** Removed recipes are kept this long for their Undo, then deleted for good. */
@@ -154,7 +156,7 @@ export class RecipeFiles {
 
   making(id: string): MakingFile | null {
     const m = readJson<MakingFile | null>(join(this.folder(id), 'making.json'), null)
-    return m && Array.isArray(m.notes) ? { version: 1, queuedAt: m.queuedAt ?? '', notes: m.notes, held: m.held ?? null } : null
+    return m && Array.isArray(m.notes) ? { version: 1, queuedAt: m.queuedAt ?? '', notes: m.notes, held: m.held ?? null, wasReady: !!m.wasReady } : null
   }
 
   writeMaking(id: string, m: MakingFile | null): void {

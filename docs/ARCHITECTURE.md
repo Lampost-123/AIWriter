@@ -916,12 +916,16 @@ deleted, and a new story can be planned from one. The data model stays frozen: w
   one recipe at a time in the order asked, chapter by chapter ("Reading chapter 3 of 24", Cancel), each chapter's notes
   saved as they come so it carries on after a restart. It pauses with the reason when there is no model or the monthly
   limit holds AI calls (and carries on by itself when the models or the limit change), or after two failed calls in a
-  row (Try again). Then it writes the recipe from the notes and the pacing figures code counted (`recipes/source.ts`:
+  row (Try again). Its calls aren't stopped by a window reload (`outlivesWindow` in the task runner), so they are
+  never paid for twice. The notes file is written before a recipe says it is being made, and a recipe left "being
+  made" without one is paused at start; something unexpected breaking pauses the recipe with Try again. Cancel on a
+  finished recipe being read again puts it back as it was (`wasReady`); only a new recipe leaves the library. Then it writes the recipe from the notes and the pacing figures code counted (`recipes/source.ts`:
   words, scenes, share of dialogue, where each chapter falls), and checks it.
 - **No names, places or sentences** (`recipes/leaks.ts`). The prompts forbid them; then the recipe is checked against
-  the story: names (words capitalised mid-sentence more often than in lower case, or only ever at sentence starts and
-  not ordinary English words, and the title's words) and any run of 8 or more words copied from the story (unless it
-  is nearly all little words). Parts that leak are asked for once more (`fix`); whatever still leaks is taken out a
+  the story: names (words capitalised mid-sentence twice, or once and never in lower case, even ordinary words such as
+  "Will" or "Rose"; words only ever at sentence starts that aren't ordinary English words; the title's words) and any
+  run of 8 or more words copied from the story, judged as the whole matching run (only a run under 12 words made
+  entirely of little words passes). Parts that leak are asked for once more (`fix`); whatever still leaks is taken out a
   sentence at a time. A suggested name that gives the story away becomes "A story in N chapters".
 - **A recipe holds** (`contracts/recipes.ts`): themes (with each act's tone and mood), tone, point of view, tense,
   writing style in plain words, a sample passage written fresh, shape and turning points, beats as general moves, cast

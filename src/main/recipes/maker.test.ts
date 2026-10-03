@@ -250,6 +250,64 @@ describe('making a recipe', () => {
   })
 })
 
+describe('reading a finished recipe again', () => {
+  it('goes back to how it was when stopped, and only a new recipe can’t', async () => {
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    const made = files.read(id)!
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    fake.reply = async (req) => {
+      await gate
+      return defaultReply(req)
+    }
+    maker.start(id)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(files.read(id)!.status).toBe('making')
+    const stopping = maker.stop(id)
+    release()
+    await stopping
+    expect(maker.backToReady(id)).toBe(true)
+    expect(files.making(id)).toBeNull()
+    expect(files.read(id)).toMatchObject({ status: 'ready', problem: null, parts: made.parts, name: made.name })
+    // A new recipe has nothing to go back to.
+    const fresh = newRecipe('00000000-0000-4000-8000-0000000000ff')
+    files.writeMaking(fresh, { version: 1, queuedAt: 'x', notes: [null, null, null], held: 'adam' })
+    expect(maker.backToReady(fresh)).toBe(false)
+  })
+})
+
+describe('when something goes wrong', () => {
+  it('pauses a recipe left “being made” with no notes, rather than leaving it busy for ever', async () => {
+    const id = newRecipe()
+    expect(files.making(id)).toBeNull()
+    maker.resume()
+    await maker.whenIdle()
+    expect(files.read(id)).toMatchObject({ status: 'paused' })
+    expect(files.making(id)?.notes).toEqual([null, null, null])
+    expect(fake.calls).toHaveLength(0)
+  })
+
+  it('pauses the recipe it was making when something unexpected breaks, saying so', async () => {
+    fake.reply = () => {
+      throw new Error('disk gone')
+    }
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(files.read(id)).toMatchObject({ status: 'paused', problem: 'Something went wrong while making this recipe. Try again.' })
+  })
+
+  it('asks again, without counting a failure, when a call is stopped by something else', async () => {
+    fake.reply = (req, n) => (n === 1 ? { status: 'stopped', text: 'Moves:', error: null, cutOff: false } : n === 2 ? { status: 'error', text: '', error: 'Busy.', cutOff: false } : defaultReply(req))
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(files.read(id)!.status).toBe('ready')
+  })
+})
+
 describe('the recipe library’s files', () => {
   it('removes a recipe with its Undo, and deletes it for good once that has gone', () => {
     const id = newRecipe()

@@ -9,7 +9,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { Button, EmptyState, Notice, Select } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { ProblemNotice, WritingStatus } from '@/features/builder/parts'
+import { ProblemNotice, SuggestionButton, WritingStatus } from '@/features/builder/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { checkKept, dismissProblem, helperKey, openHelper, stopOutline, treeOf, useOutlineHelper } from '@/features/outline/helperStore'
 import { Suggestions } from '@/features/outline/Suggestions'
@@ -216,10 +216,10 @@ function PremiseCard({ storyId, text, ended }: { storyId: string; text: string; 
         <p className="mt-1 font-serif text-[15px] leading-[1.6] text-fg">{words}</p>
       )}
       {!kept ? (
-        <div className="mt-3 flex gap-2">
-          <Button
-            size="sm"
-            variant="ai"
+        // The same buttons as the suggestions below, so the premise reads as one of them.
+        <div className="mt-2.5 flex gap-0.5">
+          <SuggestionButton
+            primary
             disabled={!arrived.complete}
             onClick={() => {
               setEditing(false)
@@ -227,13 +227,13 @@ function PremiseCard({ storyId, text, ended }: { storyId: string; text: string; 
             }}
           >
             Keep
-          </Button>
-          <Button size="sm" disabled={!arrived.complete} onClick={() => setEditing((e) => !e)}>
+          </SuggestionButton>
+          <SuggestionButton disabled={!arrived.complete} onClick={() => setEditing((e) => !e)}>
             {editing ? 'Done' : 'Edit'}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={!arrived.complete} onClick={() => discardPremise(storyId)}>
+          </SuggestionButton>
+          <SuggestionButton disabled={!arrived.complete} onClick={() => discardPremise(storyId)}>
             Discard
-          </Button>
+          </SuggestionButton>
         </div>
       ) : null}
     </section>

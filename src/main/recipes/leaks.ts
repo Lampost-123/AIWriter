@@ -4,7 +4,7 @@
 //     sentence more often than they appear in lower case, or capitalised at sentence starts only and never an
 //     ordinary English word. Looked for in the recipe as whole words, capitalised as the story has them.
 //   - Copied words: any run of COPY_RUN or more words in a row that is also in the story (case, punctuation and
-//     spacing aside), unless nearly all of it is little words ("and then he said that it was").
+//     spacing aside), unless it is short and made only of little words ("and then he said that it was").
 // What is found is taken out a sentence at a time (`scrubText`); the maker first asks the model once to rewrite
 // the parts that leak. Pure; no Electron.
 
@@ -32,7 +32,7 @@ const NOT_NAMES = new Set(
   `i mr mrs ms miss dr sir madam lord lady captain king queen prince princess duke duchess sister brother mother father mum mom dad
   grandma grandpa granny gran aunt uncle chapter part book act scene god ok tv monday tuesday wednesday thursday friday saturday
   sunday january february march april may june july august september october november december english french german spanish
-  christmas easter`
+  christmas easter i'm i'll i've i'd i’m i’ll i’ve i’d o'clock o’clock`
     .split(/\s+/)
     .filter(Boolean)
 )
@@ -71,10 +71,12 @@ export function sourceNames(paragraphs: string[], title = ''): Set<string> {
     }
   }
   const names = new Set<string>()
+  // Capitalised in the middle of a sentence twice, or once and never in lower case: a name, even one that is also
+  // an ordinary word ("Will", "Hope", "Grace", "Rose" in a story that has roses in it).
   for (const [w, n] of mid) {
     const low = w.toLowerCase()
     if (NOT_NAMES.has(low)) continue
-    if (n > (lower.get(low) ?? 0)) names.add(w)
+    if (n >= 2 || !lower.has(low)) names.add(w)
   }
   // A name only ever at the start of sentences ("Mara ran. Mara stopped.").
   for (const [w, n] of start) {
@@ -110,8 +112,9 @@ function tokens(text: string): Tok[] {
   return out
 }
 
-/** Too ordinary to count as copied: at most one word of the run isn't a little word. */
-const ordinary = (words: string[]): boolean => words.filter((w) => !isStopWord(w) && !isCommonWord(w)).length <= 1
+/** A run passes as too ordinary to be copying only when it is short and every word of it is a little word. */
+export const ORDINARY_MOST = 12
+const ordinary = (words: string[]): boolean => words.length < ORDINARY_MOST && words.every((w) => isStopWord(w))
 
 /** Every run of COPY_RUN words in the story's text. */
 export function sourceRuns(paragraphs: string[]): Set<string> {
@@ -137,14 +140,17 @@ export function leakSpans(text: string, check: SourceCheck): { start: number; en
   const toks = tokens(text)
   let i = 0
   while (i + COPY_RUN <= toks.length) {
-    const words = toks.slice(i, i + COPY_RUN).map((t) => t.word)
-    if (!check.runs.has(words.join(' ')) || ordinary(words)) {
+    if (!check.runs.has(toks.slice(i, i + COPY_RUN).map((t) => t.word).join(' '))) {
       i++
       continue
     }
-    // As long a run as matches.
+    // The whole run that matches first, then whether all of it is too ordinary to count.
     let j = i + COPY_RUN
     while (j < toks.length && check.runs.has(toks.slice(j - COPY_RUN + 1, j + 1).map((t) => t.word).join(' '))) j++
+    if (ordinary(toks.slice(i, j).map((t) => t.word))) {
+      i = j
+      continue
+    }
     const start = toks[i].start
     const end = toks[j - 1].end
     spans.push({ start, end, leak: { kind: 'copied', words: text.slice(start, end) } })

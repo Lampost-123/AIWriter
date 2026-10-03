@@ -141,8 +141,11 @@ export interface RecipesApi {
   getRecipeMaker(): Promise<RecipeMakerState>
   /** Try again: a paused recipe carries on. */
   carryOnRecipe(id: ID): Promise<void>
-  /** Cancel: stops making it and moves it out of the library (restoreRecipe brings it back, paused). */
-  cancelRecipe(id: ID): Promise<void>
+  /**
+   * Cancel: stops making it. A new recipe moves out of the library (restoreRecipe brings it back, paused); a finished
+   * one being read again goes back to how it was (`removed` false).
+   */
+  cancelRecipe(id: ID): Promise<{ removed: boolean }>
   /** Reads the story kept with the recipe again and writes the recipe afresh; parts Adam changed stay as they are. */
   readRecipeAgain(id: ID): Promise<void>
   /** A blank recipe to write by hand. */

@@ -29,10 +29,22 @@ describe('the names a story uses', () => {
   it('leaves out ordinary words capitalised at the start of sentences, and titles', () => {
     for (const w of ['Rain', 'The', 'They', 'He', 'She', 'You']) expect(names).not.toContain(w)
     expect(sourceNames(['She met Mr Ash and Lady Wren at noon.'])).not.toContain('Mr')
+    expect(sourceNames(['“Well, I’m here,” he said, and I’ll stay, and I’d go.'])).toEqual(new Set())
   })
 
   it('takes the title’s words, but not its little ones, as names (looked for only when capitalised)', () => {
     expect(sourceNames([], 'The Ferry at Varn')).toEqual(new Set(['Ferry', 'Varn']))
+  })
+
+  it('takes a name that is also an ordinary word when it is capitalised mid-sentence twice, or once and never in lower case', () => {
+    const n = sourceNames([
+      'They sent for Will at dawn. Nobody expected Will to come.',
+      'The roses were red, and a rose grew by the gate. She gave the letter to Rose, and Rose read it twice.',
+      'In the end it was Grace who opened the door.',
+      'He met Hope once, by the canal.'
+    ])
+    for (const w of ['Will', 'Rose', 'Grace', 'Hope']) expect(n).toContain(w)
+    expect(n).not.toContain('Nobody')
   })
 
   it('does not take a word used mostly in lower case for a name', () => {
@@ -54,10 +66,24 @@ describe('checking a recipe against the story', () => {
     expect(leaks).toEqual([{ kind: 'copied', words: 'rain moved across the bay like a grey curtain' }])
   })
 
+  it('finds plain prose copied word for word, even when every word is a common one', () => {
+    const plain = buildCheck(['She walked to the door and looked back at him one last time before the night came.'])
+    expect(findLeaks('In the end she walked to the door and looked back at him one last time before the night came.', plain)).toEqual([
+      { kind: 'copied', words: 'she walked to the door and looked back at him one last time before the night came' }
+    ])
+    const short = buildCheck(['He took the cup and put it down on the table by the bed.'])
+    expect(findLeaks('The lead took the cup and put it down on the table.', short)).toHaveLength(1)
+  })
+
+  it('judges a long copied run as a whole, not by its first words', () => {
+    const plain = buildCheck(['and then he said that it was the night the river rose over the mill.'])
+    expect(findLeaks('And then he said that it was the night the river rose over the mill.', plain)).toHaveLength(1)
+  })
+
   it('lets shorter echoes and runs of little words pass', () => {
     expect(findLeaks('The rain moved across the bay.', check)).toEqual([])
-    const plain = buildCheck(['and then he said that it was all the same to him'])
-    expect(findLeaks('And then he said that it was all the same to him.', plain)).toEqual([])
+    const plain = buildCheck(['and then he said that it was all to him'])
+    expect(findLeaks('And then he said that it was all to him.', plain)).toEqual([])
   })
 
   it('takes out only the sentences that leak, keeping the rest of the line and the list shape', () => {
