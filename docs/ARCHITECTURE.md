@@ -909,7 +909,11 @@ of its own (`SpeechDownloadKind` `'sounds'`). The contract is `src/shared/contra
   and its sounds (`sounds`); edges fire when the voice's audio element reaches the anchor's time, at any speed and across
   pause. Ambience loops, crossfades and ducks under the voice; volume is `settings.speech.soundVolume`.
 - **The Sounds tab** in the scene panel (while sound effects are on) lists the scene's sounds and lets Adam add, move,
-  re-describe and remove them, each with Undo; the page marks their words faintly while it shows.
+  re-describe and remove them, each with Undo; the page marks their words faintly while it shows. Each sound has its
+  own volume (25% to 200%) and mute (`SoundCue.volume`, `muted`: edits, so the paragraph becomes Adam's); a muted sound
+  is left out of plans. "New take" makes a library sound afresh with a new seed; the earlier take is kept aside
+  (`clips/<id>.prev.wav`) until Adam keeps the new one or goes back (`keepTake`). The reading bar's "Mute sounds in this
+  scene" is `SoundEdits.muted`: a muted scene's plan has no sounds and no ambience.
 
 ## Milestone 1 scope
 
