@@ -1,9 +1,9 @@
-<!-- version: 0.5.0 -->
-The consistency checker.
+<!-- version: 0.6.0 -->
+Polish, import and export.
 
-- Phrases to avoid, words repeated close together and misspelt names are underlined as you write.
-- Marking a scene done checks it against the memory: facts, who knows what, timeline and place.
-- Check a scene, chapter or story on request, voice and style included.
-- The Issues tab: fix the text, update the memory, or ignore. Badges in the binder show what's left.
-- A Consistency page per story, with overused phrases and plot threads left hanging.
-- Drafts remember people tied to the cast who aren't in the scene.
+- Import a manuscript from Word, Markdown or text, adjust the chapters and scenes, then build the memory from it.
+- Export a story to Word, EPUB, PDF, Markdown or text, and the series bible to PDF or Markdown.
+- Move a whole world, history included, as one .aiwrite file, or make a copy of it.
+- Usage and cost in Settings, with an optional monthly limit.
+- Choose an accent colour. F11 is focus mode.
+- A sample world to explore, and a guided setup on a new computer.
