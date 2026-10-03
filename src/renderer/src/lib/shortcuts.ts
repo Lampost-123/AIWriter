@@ -37,6 +37,8 @@ export type ShortcutId =
   // Milestone 6
   | 'focusMode'
   | 'leaveFocusMode'
+  // Writing by hand
+  | 'pastePlain'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -72,6 +74,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },
   { id: 'italic', name: 'Italic', group: 'Writing', keys: ['Mod', 'I'] },
   { id: 'quote', name: 'Quoted passage', group: 'Writing', keys: ['Mod', 'Shift', 'B'] },
+  { id: 'pastePlain', name: 'Paste as plain text, without its formatting', group: 'Writing', keys: ['Mod', 'Shift', 'V'] },
   { id: 'lineBreak', name: 'New line in the same paragraph', group: 'Writing', keys: ['Shift', 'Enter'] },
   { id: 'showName', name: 'Show who or what an underlined name is, beside the page', group: 'Writing', keys: ['Mod', 'Click'] },
   { id: 'listen', name: 'Listen from the cursor, or pause and carry on', group: 'Writing', keys: ['Mod', 'L'] },
