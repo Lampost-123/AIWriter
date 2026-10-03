@@ -22,6 +22,7 @@ import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { AskButton } from '@/features/ask/AskButton'
+import { WorldFileItems } from '@/features/transfer/WorldFileItems'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
@@ -185,6 +186,9 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
             >
               <Plus size={14} className="text-muted" /> New world…
             </M.Item>
+            {/* Milestone 6: Export world…, Make a copy, Import a world file… */}
+            <M.Separator className="my-1 h-px bg-line" />
+            <WorldFileItems itemClass={menuItem} hasWorld={!!world} />
           </M.Content>
         </M.Portal>
       </M.Root>

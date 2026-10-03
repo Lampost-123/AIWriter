@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Check, ChevronsUpDown, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
+import { BookOpen, Check, ChevronsUpDown, FileDown, LibraryBig, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -8,6 +8,7 @@ import { installFlowEvents } from '@/features/stories/flows'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { openStory, openStorySettings } from '@/features/stories/storyActions'
 import { openOutlineHelper } from '@/features/outline/open'
+import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import * as actions from './actions'
 import { InlineTitle } from './InlineTitle'
@@ -118,6 +119,18 @@ export function StorySwitcher(): React.JSX.Element {
                       <ListTree size={14} />
                     </span>
                     Outline helper
+                  </M.Item>
+                  <M.Item onSelect={() => openExportStory(story.id, currentChapterId())} className={cn(item, 'shrink-0')}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <FileDown size={14} />
+                    </span>
+                    Export story…
+                  </M.Item>
+                  <M.Item onSelect={() => openExportBible(story.id)} className={cn(item, 'shrink-0')}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <LibraryBig size={14} />
+                    </span>
+                    Export series bible…
                   </M.Item>
                 </>
               ) : null}

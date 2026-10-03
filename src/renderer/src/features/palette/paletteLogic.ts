@@ -78,6 +78,12 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'export-story'
+  | 'export-bible'
+  | 'export-world'
+  | 'copy-world'
+  | 'import-world'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -288,7 +294,13 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
-  }
+  },
+  // ----- Milestone 6 -----
+  { id: 'export-story', label: 'Export story', keywords: 'word docx epub ebook pdf markdown text manuscript chapter save print', when: hasStory },
+  { id: 'export-bible', label: 'Export series bible', keywords: 'entries characters places lore timeline plot threads pdf markdown bible save print', when: hasStory },
+  { id: 'export-world', label: 'Export world', keywords: 'aiwrite file move computer save share whole' },
+  { id: 'copy-world', label: 'Make a copy of this world', keywords: 'duplicate world copy' },
+  { id: 'import-world', label: 'Import a world file', keywords: 'aiwrite open file move computer bring in' }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */
