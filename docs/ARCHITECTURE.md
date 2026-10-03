@@ -871,6 +871,47 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
 are each wired in with one line.
 
+## Genres and writing styles
+
+What it adds (spec, "Genres and writing styles"): genre presets, the rules against common AI phrasing with underlines
+for any that slip through, content intensity levels, "Write a sample for me", an optional polish pass after a draft,
+`min_p` for Balanced and Adventurous, and the genre in the style check and Change tone. No migration: everything is new
+keys in JSON that already reads with defaults (world meta `style`, `stories.style_json`, the preferences file).
+
+- **Story feel** (`StyleGuide.genres`, `genreNotes`, `intensity`; `src/shared/genres.ts`, `intensity.ts`). Up to two genre
+  ids (the first leads, the second blends); a story's non-empty list replaces the world's, each intensity scale it sets
+  replaces the world's, `genreNotes` layers like the other text fields (`effectiveStyle`). Preset ids are stored, so never
+  rename one. Every preset, rule and phrase is AI Write's own wording (the repository is public).
+- **Block 1** (`ai/prompts.ts` `instructionsText`) adds "Genre and feel" (`genreText`: the lead's guidance, a blend's first
+  sentence and feel, Adam's own take, a few of the genre's worn-out moves), "Content" (`contentText`: one sentence per scale
+  set; the content limits still win) and "Write like a person, not like an AI" (`aiPhrasesText`: `SLOP_RULES` and the
+  `PROMPT_SLOP` short list), on while `WritingPrefs.avoidAiPhrases` isn't false. Its short form keeps the lead genre and the
+  rules without the phrase list. It grows by about 400 tokens for one genre and about 540 for a blend with all three levels
+  (`ai/feel.test.ts`). Ask the world passes `proseRules: false`. `finalInstruction` ends with `feelLine` (the genre's feel and
+  the story's, series' or world's tone), since models follow what comes last most closely.
+- **Common AI phrases** (`src/shared/slop.ts`): about 40 patterns in groups, `findSlop` for the underlines. The prompt names
+  only the worst offenders: naming a phrase can prime it. They are a live check of kind `'ai'` (`shared/liveChecks.ts`,
+  `features/liveChecks/`): a dotted amber underline while `avoidAiPhrases` is on, a card with **Fix** (Rewrite on the
+  sentence) and **Ignore** (stored as a per-paragraph `phrase` ignore with the key `phrase:<pid>:ai-phrase:<id>`, so no new
+  issue kind; `Issue.aiPhrase` labels it). The Issues tab counts them, and a draft that lands with some says so in a toast
+  whose Show goes to the draft's first one (the editor's draft-end step carries where the draft landed).
+- **The Story feel area** (`features/style/StoryFeel.tsx` and its parts) comes first on both tabs of the Style guide screen:
+  genre tiles (colours from each preset's hue through the `--genre-*` theme tokens), the three intensity controls (clicking
+  the picked step clears it), the AI phrases switch (also in My writing preferences), and "Write a sample for me" under the
+  sample passage (`sampleStore.ts`; Undo after "Use this" goes to whichever form is open).
+- **Write a sample for me** (`contracts/style.ts`, `src/main/style/`): a task-runner call, job `'sample'`, marker
+  `[AIWRITE-STYLE v1] sample`, the writer model with `settings.thinking.sample` (Off). It is written from the description
+  (any existing sample passage is left out of the prompt).
+- **The polish pass** (`contracts/polish.ts`, `ipc/polish.ts`, `features/generate/polish*.ts`): "Polish after drafting" in
+  the draft options (off; remembered on this computer). When a Generate draft finishes in full, `startPolish` (job
+  `'polish'`, `settings.thinking.polish`, Steady) critiques it and returns the whole scene, shown as one change to accept or
+  reject; a failure keeps the draft. The cost estimate doubles while it is on.
+- **Refusals at strong levels** (`ai/errors.ts` `strongContentRefusal`): with any scale above its second step, a refusal,
+  a moderation error, a content filter or a short reply that is plainly a refusal says some models won't write that level
+  and to pick another writer model.
+- **min_p** 0.05 with Balanced and Adventurous, sent only to OpenRouter; a provider that rejects it is asked again without.
+- **Not yet:** the Recipe maker suggesting genres and levels waits for Story recipes to reach `main`.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
