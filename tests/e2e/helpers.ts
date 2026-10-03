@@ -60,9 +60,12 @@ export async function closeWindow(app: ElectronApplication): Promise<void> {
 
 /** Calls the app's API from the window, like the interface does. Throws the plain-words error on failure. */
 export async function invoke<M extends ApiMethod>(win: Page, method: M, ...args: Parameters<AppApi[M]>): Promise<Awaited<ReturnType<AppApi[M]>>> {
+  // Plain types for what crosses into the window: Playwright's types for evaluate's argument are worked out
+  // over every API method otherwise, which made type checking slow and hungry as the API grew.
+  const sent: [string, unknown[]] = [method, args as unknown[]]
   const res = (await win.evaluate(
-    ([m, a]) => (globalThis as unknown as { aiwrite: Bridge }).aiwrite.invoke(m as ApiMethod, ...(a as unknown[])),
-    [method, args] as const
+    ([m, a]) => (globalThis as unknown as { aiwrite: Bridge }).aiwrite.invoke(m as ApiMethod, ...a),
+    sent
   )) as IpcResult<unknown>
   if (!res.ok) throw new Error(res.error.message)
   return res.value as Awaited<ReturnType<AppApi[M]>>
