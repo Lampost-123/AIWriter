@@ -4,7 +4,7 @@
 
 import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
@@ -12,6 +12,7 @@ import { migrate } from '../db/migrations'
 import { getSettings } from '../settings'
 import { newId, slugify, UserError } from '../util'
 import { fillSampleWorld, isSampleWorld, SAMPLE_META_KEY } from './sampleWorld'
+import { isReservedName } from '../library/names'
 import { SAMPLE_NAME } from './sampleContent'
 
 /** Whether a world folder holds the sample world (read without opening it for writing). */
@@ -38,7 +39,7 @@ function newFolder(name: string): string {
   const lib = getSettings().libraryPath
   const base = slugify(name)
   let folder = join(lib, base)
-  for (let i = 2; existsSync(folder); i++) folder = join(lib, `${base} ${i}`)
+  for (let i = 2; existsSync(folder) || isReservedName(basename(folder)); i++) folder = join(lib, `${base} ${i}`)
   return folder
 }
 

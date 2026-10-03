@@ -1,6 +1,8 @@
-<!-- version: 0.6.6 -->
-Story recipes.
+<!-- version: 0.6.7 -->
+A start screen.
 
-- Import a whole story (Word, Markdown or text) or paste it in, and the AI makes a recipe of it: its themes, writing style and structure, without its words, names or places. You see the cost first.
-- Recipes stay in your Recipes folder on this computer, never in a world, a backup or the app.
-- In New story, pick a recipe and add your own ideas. The AI lays out a premise, chapters and scene cards to keep, change or discard, in the recipe's style. Your ideas win.
+- AI Write now opens on a start screen. Continue goes straight back to where you left off.
+- Every world, with its stories, words and when you last opened it. Rename or open anything from here.
+- Delete a whole world: it waits in Recently deleted for 30 days, with Undo and Restore.
+- Home, at the left of the top bar, comes back here. A draft keeps writing meanwhile.
+- Settings › Appearance › When AI Write opens: or go straight to where you left off.

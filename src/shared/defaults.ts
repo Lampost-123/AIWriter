@@ -88,7 +88,9 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   backup: { extraFolder: null },
   speech: defaultSpeechSettings(),
   accent: null,
-  usage: { monthlyLimit: null, notice: null }
+  usage: { monthlyLimit: null, notice: null },
+  startWith: 'start',
+  worldsSeenAt: {}
 })
 
 /** The speech server's own address: port 8766, so it never clashes with MCreader or Poor Man's Holodeck (8765). */

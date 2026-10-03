@@ -92,6 +92,8 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  // The start screen
+  | 'start-screen'
   | 'go-recipes'
   | 'make-recipe'
   // Writing by hand
@@ -368,6 +370,8 @@ export const ACTIONS: ActionDef[] = [
     when: (c) => !!c.focus
   },
   { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
+  // The start screen: every world and story, where Adam left off, and starting something new.
+  { id: 'start-screen', label: 'Go to the start screen', also: 'Home', keywords: 'home welcome all worlds stories library list continue left off recently deleted', away: true },
   // Story recipes
   { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },
   { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book style structure distil', away: true },

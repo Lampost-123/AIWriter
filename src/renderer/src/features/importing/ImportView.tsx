@@ -69,6 +69,12 @@ function Heading({ children, sub }: { children: React.ReactNode; sub?: React.Rea
 }
 
 const backToWriting = (): void => useApp.getState().navigate({ kind: 'write' })
+/** Back to the start screen it was started from, with the writing page under it again (so Continue goes there). */
+const backToStart = (): void => {
+  const app = useApp.getState()
+  app.navigate({ kind: 'write' })
+  app.goHome()
+}
 
 // ---------- Picking the file, and the split ----------
 
@@ -76,13 +82,15 @@ function FilePage(): React.JSX.Element {
   const manuscript = useImport((s) => s.manuscript)
   const reading = useImport((s) => s.reading)
   const problem = useImport((s) => s.problem)
-  const hasWorld = useApp((s) => !!s.world)
+  // Started from the start screen, Back goes back there (the book will get a world of its own).
+  const fromStart = useImport((s) => s.forNewWorld)
+  const hasWorld = useApp((s) => !!s.world) && !fromStart
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto w-full max-w-[780px] px-8 pb-10 pt-10">
           <div className="mb-4 h-7">
-            <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={backToWriting} className="-ml-2.5">
+            <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={fromStart ? backToStart : backToWriting} className="-ml-2.5">
               {hasWorld ? 'Back to writing' : 'Back'}
             </Button>
           </div>
@@ -169,7 +177,10 @@ function ImportBar({ manuscript }: { manuscript: Manuscript }): React.JSX.Elemen
   const proposed = useImport((s) => s.proposed)
   const edits = useImport((s) => s.edits)
   const importing = useImport((s) => s.importing)
+  // From the start screen the book gets a world of its own, even with another world open behind it.
   const world = useApp((s) => s.world)
+  const forNewWorld = useImport((s) => s.forNewWorld)
+  const shownWorld = forNewWorld ? null : world
   const outline = useMemo(() => buildOutline(manuscript, proposed, edits), [manuscript, proposed, edits])
   const bar = useRef<HTMLDivElement>(null)
   useToastsAbove(bar)
@@ -177,9 +188,9 @@ function ImportBar({ manuscript }: { manuscript: Manuscript }): React.JSX.Elemen
     <div ref={bar} className="shrink-0 border-t border-line bg-surface">
       <div className="mx-auto flex h-14 w-full max-w-[780px] items-center gap-3 px-8">
         <p className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
-          {world ? (
+          {shownWorld ? (
             <>
-              A new story in <span className="font-medium text-fg">{world.name}</span>: {outlineCounts(outline)}
+              A new story in <span className="font-medium text-fg">{shownWorld.name}</span>: {outlineCounts(outline)}
             </>
           ) : (
             <>A new world named after the book, with it as the first story: {outlineCounts(outline)}</>
