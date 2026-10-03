@@ -90,6 +90,15 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  // Writing by hand
+  | 'bold'
+  | 'italic'
+  | 'block-quote'
+  | 'scene-break'
+  | 'paste-plain'
+  | 'find-scene'
+  | 'find-story'
+  | 'settings-editor'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -347,7 +356,28 @@ export const ACTIONS: ActionDef[] = [
     shortcut: 'leaveFocusMode',
     when: (c) => !!c.focus
   },
-  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
+  // Writing by hand
+  { id: 'bold', label: 'Bold', keywords: 'format strong heavy text style', shortcut: 'bold', when: seesScene },
+  { id: 'italic', label: 'Italic', keywords: 'format emphasis slanted text style', shortcut: 'italic', when: seesScene },
+  { id: 'block-quote', label: 'Block quote', keywords: 'format quotation indent letter inset', shortcut: 'quote', when: seesScene },
+  { id: 'scene-break', label: 'Scene break', keywords: 'format divider separator rule section line', when: seesScene },
+  { id: 'paste-plain', label: 'Paste as plain text', keywords: 'format clipboard unformatted without formatting', shortcut: 'pastePlain', when: seesScene },
+  {
+    id: 'find-scene',
+    label: 'Find and replace in this scene',
+    keywords: 'search change words swap',
+    shortcut: 'findInScene',
+    away: toWriting,
+    when: hasScene
+  },
+  { id: 'find-story', label: 'Find and replace in the whole story', keywords: 'search change words swap rename everywhere all scenes', shortcut: 'findInStory', when: hasStory },
+  {
+    id: 'settings-editor',
+    label: 'Settings › Editor',
+    keywords: 'spelling spell check dictionary smart quotes punctuation typewriter scrolling daily word target goal streak',
+    away: true
+  }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */
