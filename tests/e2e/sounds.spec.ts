@@ -7,12 +7,17 @@
 //    the page and "Add a sound" place an effect on them (Undo takes it out again); an ambience is added the same way.
 //    The page marks each sound's words. Remove, then Undo, brings it back. The palette's "Sounds in this scene" opens
 //    the tab.
+//  - A sound's own volume (the row's slider) and mute, each with Undo or back from the same menu; a new take, kept
+//    and gone back from.
+//  - The reading bar's "Mute sounds in this scene", kept with the scene and back on.
 //  - Reading the scene aloud fires the door's effect as its word is read (seen through the window's test log of the
 //    sounds reading reached, which localStorage `aiwrite.soundsLog` turns on).
 //
 // Needs the whole feature: the sounds core (src/main/sounds, ipc/sounds.ts, the read-aloud plan's sounds) and the
 // speech engine's sound model and fake (tests/fake-speech), besides this window's part.
 import type { Page } from '@playwright/test'
+import type { SceneSounds } from '@shared/contracts/sounds'
+import type { Outline, Story } from '@shared/types'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -84,6 +89,20 @@ async function selectWords(win: Page, words: string): Promise<void> {
   for (let i = 0; i < found; i++) await win.keyboard.press('ArrowRight')
   for (let i = 0; i < words.length; i++) await win.keyboard.press('Shift+ArrowRight')
   await expect(win.getByRole('toolbar', { name: 'Selected words' })).toBeVisible()
+}
+
+/** Opens a sound's "…" menu in the Sounds view and picks one of its items. */
+async function soundMenu(win: Page, name: string, description: string, item: string): Promise<void> {
+  const row = sound(win, name)
+  await row.hover()
+  await row.getByRole('button', { name: `More for: ${description}` }).click()
+  await win.getByRole('menuitem', { name: item }).click()
+}
+
+/** How many sounds the fake speech server has been asked to make so far. */
+async function made(speech: FakeSpeech): Promise<number> {
+  const res = await fetch(`${speech.url.replace(/\/v1$/, '')}/__sounds`)
+  return ((await res.json()) as unknown[]).length
 }
 
 /** The sounds reading has reached so far (the window's test log). */
@@ -184,6 +203,29 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await toast(win, 'Sound removed.').getByRole('button', { name: 'Undo' }).click()
     await expect(rain).toBeVisible()
 
+    // Its own volume, from the row's menu: the slider shows in the row, Enter saves it; Undo puts it back.
+    await soundMenu(win, `Ambience: ${RAIN}`, RAIN, 'Volume…')
+    const slider = rain.getByRole('slider', { name: `Volume of ${RAIN}` })
+    await expect(slider).toHaveValue('1')
+    await slider.fill('1.5')
+    await expect(rain).toContainText('150%')
+    await slider.press('Enter')
+    await expect(slider).toHaveCount(0)
+    await expect(toasts(win).getByText('Volume changed.')).toBeVisible()
+    await expect(rain).toContainText('150% volume')
+    await toast(win, 'Volume changed.').getByRole('button', { name: 'Undo' }).click()
+    await expect(rain).not.toContainText('% volume')
+
+    // Muted, it stays in the list, quieter, and its words are marked more faintly; unmuted again from the same menu.
+    const door = sound(win, `Sound effect: ${DOOR}`)
+    await soundMenu(win, `Sound effect: ${DOOR}`, DOOR, 'Mute this sound')
+    await expect(toasts(win).getByText('Sound muted.')).toBeVisible()
+    await expect(door).toContainText('Muted')
+    await expect(prose(win).locator('.aw-sound-muted')).toHaveText(['slammed'])
+    await soundMenu(win, `Sound effect: ${DOOR}`, DOOR, 'Unmute this sound')
+    await expect(door).not.toContainText('Muted')
+    await expect(prose(win).locator('.aw-sound-muted')).toHaveCount(0)
+
     // The palette opens the tab from another one.
     await scenePanel(win).getByRole('tab', { name: /Scene card|Card/ }).click()
     await win.keyboard.press('Control+K')
@@ -194,12 +236,49 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     // Both sounds are made (the fake speech server makes them at once).
     await expect(soundsPanel(win).getByText('Being made…')).toHaveCount(0, { timeout: 30_000 })
 
+    // A new take: made afresh, then kept; another, then gone back from.
+    const takes = await made(speech)
+    const take = door.getByRole('group', { name: `New take of ${DOOR}` })
+    await soundMenu(win, `Sound effect: ${DOOR}`, DOOR, 'New take')
+    await expect(take).toBeVisible({ timeout: 30_000 })
+    expect(await made(speech)).toBeGreaterThan(takes)
+    await expect(take.getByRole('button', { name: 'Listen to the new take' })).toBeVisible()
+    await take.getByRole('button', { name: 'Keep it' }).click()
+    await expect(take).toHaveCount(0)
+    await soundMenu(win, `Sound effect: ${DOOR}`, DOOR, 'New take')
+    await expect(take).toBeVisible({ timeout: 30_000 })
+    await take.getByRole('button', { name: 'Go back' }).click()
+    await expect(take).toHaveCount(0)
+    await expect(door).not.toContainText('new take')
+
     // Reading the scene: the door's effect fires as its word is read.
     await win.evaluate(() => localStorage.setItem('aiwrite.soundsLog', '1'))
     await prose(win).click()
     await win.keyboard.press('Control+Home')
     await win.keyboard.press('Control+l')
     await expect(readingBar(win)).toContainText('Narrator', { timeout: 30_000 })
+
+    // The bar's "Mute sounds in this scene" (paused, so the short reading doesn't end first): kept with the scene,
+    // and back on.
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Paused')
+    const mute = readingBar(win).getByRole('button', { name: 'Mute sounds in this scene' })
+    await expect(mute).toHaveAttribute('aria-pressed', 'false')
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    const stories: Story[] = await invoke(win, 'listStories')
+    const outline: Outline = await invoke(win, 'getOutline', stories[0].id)
+    const sceneId: string = outline.scenes[0].id
+    const sceneMuted = async (): Promise<boolean> => {
+      const sounds: SceneSounds = await invoke(win, 'getSceneSounds', sceneId, [])
+      return sounds.muted
+    }
+    await expect.poll(sceneMuted).toBe(true)
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', 'false')
+    await expect.poll(sceneMuted).toBe(false)
+    await win.keyboard.press('Control+l')
+
     await expect
       .poll(async () => (await heard(win)).some((e) => e.edge === 'fire' && e.played), { timeout: 30_000 })
       .toBe(true)
