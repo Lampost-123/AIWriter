@@ -187,6 +187,24 @@ export const GENRES: readonly GenrePreset[] = [
     ]
   },
   {
+    id: 'erotica',
+    label: 'Erotica',
+    icon: 'Flame',
+    hue: 5,
+    blurb: 'Adult fiction where desire and sex drive the story.',
+    guidance:
+      'Desire is the engine: sex scenes between consenting adults are central and written openly on the page, unless the content levels say otherwise. Build heat through anticipation, power and negotiation, so each encounter changes the characters or their relationship. Stay inside the point-of-view character\'s sensations, wants and nerves, with specific, physical detail rather than vague euphemism. Keep consent and adulthood clear. Vary pace: linger in the charged moments, move briskly between them. Dialogue can be frank, playful or tender. End scenes on a shift in power or intimacy.',
+    feel: 'frank, charged sensuality',
+    cliches: [
+      'scenes that are only a list of acts with no feeling or change',
+      'coy euphemisms for body parts',
+      'partners who never speak, hesitate or laugh',
+      'instant, effortless perfection every time',
+      'a plot that exists only to get from one scene to the next',
+      'the same moves and words in every encounter'
+    ]
+  },
+  {
     id: 'literary',
     label: 'Literary',
     icon: 'Feather',
