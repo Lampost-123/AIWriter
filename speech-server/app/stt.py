@@ -221,9 +221,41 @@ def unload() -> bool:
     return was
 
 
+# Whisper hears 16 kHz mono.
+WHISPER_RATE = 16000
+
+
+def resample(samples, rate: int, target: int):
+    """Mono float32 at `target` Hz, band-limited (through the spectrum), so nothing above the new rate folds back in."""
+    import numpy as np
+
+    x = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if rate == target or x.size == 0:
+        return x
+    n = max(1, int(round(x.size * target / rate)))
+    spectrum = np.fft.rfft(x)
+    keep = n // 2 + 1
+    if spectrum.size >= keep:
+        spectrum = spectrum[:keep]
+    else:
+        spectrum = np.concatenate([spectrum, np.zeros(keep - spectrum.size, dtype=spectrum.dtype)])
+    return (np.fft.irfft(spectrum, n) * (n / x.size)).astype(np.float32)
+
+
+def whisper_audio(path: Path):
+    """The clip as Whisper hears it: mono at 16 kHz. Read here, not by faster-whisper: its own reader (PyAV) changes
+    from one version to the next (19 no longer opens files the way faster-whisper 1.2 asks)."""
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=1)
+    return resample(audio, int(sample_rate), WHISPER_RATE)
+
+
 def _hear_whisper(path: Path) -> str:
     # These clips are already one push of the key. The silence trimmer was eating the first word.
-    segments, _info = _whisper.transcribe(str(path), vad_filter=False, language="en", condition_on_previous_text=False)
+    segments, _info = _whisper.transcribe(whisper_audio(path), vad_filter=False, language="en", condition_on_previous_text=False)
     return " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
 
 
