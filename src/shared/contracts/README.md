@@ -30,3 +30,15 @@ Milestone 4:
 | readAloud.ts | Reading aloud: Listen, voices, who says each line, calibration |
 | dictation.ts | Dictation: hold to talk, the microphone button, the microphone test |
 | worldBuilder.ts | Build the world from a summary (the World builder) |
+
+Milestone 5: checks.ts (the consistency checker, three parts).
+
+Milestone 6:
+
+| File | Part |
+|---|---|
+| transfer.ts | World files and export: the .aiwrite file, Make a copy, manuscript and series bible export |
+| importing.ts | Manuscript import and the import catch-up |
+| usage.ts | The usage and cost page, the monthly limit |
+| setup.ts | First-run setup and the sample world |
+| look.ts | Themes finished (accent colour, reduced motion) and focus mode |

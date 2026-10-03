@@ -337,6 +337,10 @@ export interface Settings {
   backup: { extraFolder: string | null }
   /** Read aloud and dictation (milestone 4): Settings › Read aloud and dictation. */
   speech: SpeechSettings
+  /** Milestone 6: the accent colour Adam picked in Settings › Appearance (null: the theme's own). */
+  accent: string | null
+  /** Milestone 6: the optional monthly AI spending limit in US dollars (null: no limit, no warnings). */
+  usage: { monthlyLimit: number | null }
 }
 
 /**

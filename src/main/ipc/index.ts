@@ -26,6 +26,11 @@ import { readAloudHandlers } from './readAloud'
 import { dictationHandlers } from './dictation'
 import { worldBuilderHandlers } from './worldBuilder'
 import { checksHandlers } from './checks'
+import { transferHandlers } from './transfer'
+import { importingHandlers } from './importing'
+import { usageHandlers } from './usage'
+import { setupHandlers } from './setup'
+import { lookHandlers } from './look'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -57,7 +62,13 @@ const all: Handlers<ApiMethod> = {
   ...dictationHandlers,
   ...worldBuilderHandlers,
   // Milestone 5
-  ...checksHandlers
+  ...checksHandlers,
+  // Milestone 6
+  ...transferHandlers,
+  ...importingHandlers,
+  ...usageHandlers,
+  ...setupHandlers,
+  ...lookHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

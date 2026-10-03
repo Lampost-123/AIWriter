@@ -642,6 +642,40 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 | Reports | `src/main/checks/reports.ts`, `ipc/checksReports.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
 | Briefing | `ai/context.ts` block 11 |
 
+## Milestone 6: polish
+
+What it adds (spec, Build plan 6, "Import and export", "Easy to work with", "Cost and usage", "Look and
+feel", "Reliability"): a whole world as one `.aiwrite` file (export, import, make a copy); exporting a story,
+chapter or selection to Word, EPUB, PDF, Markdown and plain text, and the series bible to PDF and Markdown;
+importing a manuscript (Word, Markdown, plain text) split into chapters and scenes with a preview, then the
+import catch-up that builds the memory from it; the first-run setup and the sample world; the usage and cost
+page with an optional monthly limit; themes finished (accent colour, reduced motion) and focus mode (F11); a
+full pass against the no-jank checks and the speed budgets. The data model stays frozen (migrations 1 and 2).
+
+- **A world travels with its history.** Export, import and Make a copy carry the world folder's `history.db`
+  with `world.db`, plus `images/`; never `backups/`, the speech server, its downloads or the audio cache, and
+  never API keys (`secrets.ts`). Character voices and "Say it as" are in world.db's `meta`, so they travel. A
+  missing or damaged `history.db` never stops a world opening: History starts afresh. An imported or copied
+  world gets a new id, so it never collides with the one it came from.
+- **Zip files** (`.aiwrite`, `.docx`, `.epub`) are written and read with `fflate` (bundled; a dev dependency
+  like the other bundled libraries).
+- **New AI jobs** get their own Thinking entry in Settings › Models, default Off. The import catch-up is memory
+  work, so it uses the memory model and its Thinking.
+- **Settings** stay few: `accent` (Appearance) and `usage.monthlyLimit` (Usage and cost) are the only new ones.
+
+### Who builds what (parallel build, milestone 6)
+
+| Part | Owns |
+|---|---|
+| World files and export | `contracts/transfer.ts`, `ipc/transfer.ts`, `src/main/transfer/`, `features/transfer/` |
+| Manuscript import | `contracts/importing.ts`, `ipc/importing.ts`, `src/main/importing/`, `features/importing/`, the `import` view |
+| Usage and cost | `contracts/usage.ts`, `ipc/usage.ts`, `src/main/usage/`, `features/usage/`, Settings › Usage and cost |
+| First run | `contracts/setup.ts`, `ipc/setup.ts`, `src/main/setup/` (the sample world), `features/welcome/`, `features/setup/` |
+| Look and focus | `contracts/look.ts`, `ipc/look.ts`, `features/look/`, the theme tokens in `styles.css`, Settings › Appearance, focus mode |
+
+Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `defaults.ts`, `lib/store.ts`,
+`App.tsx`, menus and the palette, this file) change only additively.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
