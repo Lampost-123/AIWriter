@@ -187,6 +187,8 @@ export async function importNow(): Promise<void> {
     if (!app().world) {
       await app().createWorld(title)
       newWorld = true
+      // Making the world opens its writing page: this page stays in view instead.
+      app().navigate({ kind: 'import' })
     }
     await editorBridge()?.flush()
     result = await api.importManuscript(toPlan(s.manuscript, outline, title, newWorld))
