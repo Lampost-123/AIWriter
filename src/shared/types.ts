@@ -517,6 +517,11 @@ export interface ContextEntry {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /**
+   * Where the part of `content` that stays the same from one request to the next ends (a character
+   * index), so a model that caches only where asked (Claude) can reuse it. Never sent as it is.
+   */
+  cacheUpTo?: number
 }
 
 export interface DraftOptions {

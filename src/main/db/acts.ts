@@ -400,7 +400,16 @@ const storyPoint = (db: DB, id: ID): boolean =>
 
 /** Whether a scene has anything in it beyond what the outline helper made: words, a draft, or something the memory or Adam tied to it. */
 function sceneUsed(db: DB, id: ID, r: Row): boolean {
-  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || changedSince(r) || storyPoint(db, id)) return true
+  if ((r.word_count as number) > 0 || String(r.text ?? '').trim() || changedSince(r)) return true
+  return sceneReferenced(db, id)
+}
+
+/**
+ * Something points at the scene: an AI call made for it, a change, a summary, an issue, a pin, an entry
+ * found there, or a story that starts there. Such a scene is never treated as untouched.
+ */
+export function sceneReferenced(db: DB, id: ID): boolean {
+  if (storyPoint(db, id)) return true
   const any = (sql: string): boolean => !!db.prepare(sql).get(id)
   return (
     any('SELECT 1 FROM generations WHERE scene_id = ? LIMIT 1') ||

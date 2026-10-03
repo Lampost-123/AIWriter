@@ -196,6 +196,7 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
     error: `Something went wrong: ${(e as Error)?.message ?? e}`,
     failure: null,
     promptTokens: null,
+    cachedTokens: null,
     completionTokens: null,
     cost: null
   }))
@@ -215,6 +216,7 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
         error,
         response: outcome.text,
         promptTokens: outcome.promptTokens,
+        cachedTokens: outcome.cachedTokens,
         completionTokens: outcome.completionTokens,
         cost,
         finishedAt: now(),

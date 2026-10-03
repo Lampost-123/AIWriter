@@ -13,7 +13,7 @@
 //
 // The AI's replies are plain text in a fixed form (see src/main/outline/prompts.ts), read by the interface
 // as they arrive (features/outline/parse.ts); what Adam keeps comes back here as KeepItems.
-import type { Act, Chapter, ID } from '../types'
+import type { Act, Chapter, ID, SceneCard } from '../types'
 
 /**
  * Where a chapter goes: into an act, or among the chapters with no act (`actId` null). Just after
@@ -97,6 +97,69 @@ export interface KeptItem {
   whenKept?: boolean
 }
 
+// ----- Interview me, on a scene or a chapter -----
+
+/** What an interview is about: a scene's card, or a chapter's goal and scenes. */
+export type PlanTarget = { kind: 'scene'; sceneId: ID } | { kind: 'chapter'; chapterId: ID }
+
+/** One question of an interview and what Adam said (his words, as typed or dictated), or that he skipped it. */
+export interface PlanAnswer {
+  topic: string
+  question: string
+  answer: string
+  skipped: boolean
+}
+
+export interface PlanQuestionRequest {
+  taskId: ID
+  target: PlanTarget
+  /** A scene's card as it is on screen (it may not be saved yet). Left out: the saved one. */
+  card?: SceneCard | null
+  /** The questions asked so far, oldest first. */
+  asked: PlanAnswer[]
+}
+
+/**
+ * The next question, or `done` when the AI has what it needs (the card, the outline and the answers say
+ * enough). `status` is how the request ended; `error` is in plain words.
+ */
+export interface PlanQuestion {
+  status: 'complete' | 'stopped' | 'error'
+  generationId: ID | null
+  topic: string
+  question: string
+  done: boolean
+  error: string | null
+}
+
+export interface SceneFillRequest {
+  taskId: ID
+  sceneId: ID
+  /** The card as it is on screen: only its empty parts are filled. */
+  card: SceneCard
+  answers: PlanAnswer[]
+}
+
+/**
+ * What the AI would put in the card's empty parts, names already matched to the world's characters and
+ * places (a name it doesn't know is left out). Only parts the AI filled are given; the window puts in only
+ * those still empty, so nothing Adam wrote changes.
+ */
+export type SceneFillParts = Partial<Pick<SceneCard, 'povId' | 'presentIds' | 'locationId' | 'goal' | 'conflict' | 'beats' | 'outcome' | 'mood'>>
+
+export interface SceneFill {
+  status: 'complete' | 'stopped' | 'error'
+  generationId: ID | null
+  fill: SceneFillParts
+  error: string | null
+}
+
+export interface ChapterPlanRequest {
+  taskId: ID
+  chapterId: ID
+  answers: PlanAnswer[]
+}
+
 export interface OutlineApi {
   // ----- Acts in the binder -----
   /** A new act with no chapters (titled "Act N" unless given a title): just after the act `afterId`, else after every act. */
@@ -140,6 +203,17 @@ export interface OutlineApi {
   // ----- Next scene ideas -----
   /** Asks for three directions for a scene; they stream as task events with job 'ideas'. Throws (plain words) only before it starts. */
   startSceneIdeas(input: SceneIdeasRequest): Promise<{ generationId: ID }>
+
+  // ----- Interview me, on a scene or a chapter -----
+  /** Asks the chat and brainstorm model for the interview's next question ('outline' record). Throws (plain words) only before it starts. */
+  askPlanQuestion(input: PlanQuestionRequest): Promise<PlanQuestion>
+  /** Asks what goes in the scene card's empty parts, from the interview's answers ('outline' record). */
+  fillSceneCard(input: SceneFillRequest): Promise<SceneFill>
+  /**
+   * Asks for the chapter's goal and scene cards from the interview's answers. It streams as task events with
+   * job 'outline', in the outline helper's form with no chapter heading ("Goal:", then "### Scene:" cards).
+   */
+  startChapterPlan(input: ChapterPlanRequest): Promise<{ generationId: ID }>
 }
 
 export interface OutlineEvents {

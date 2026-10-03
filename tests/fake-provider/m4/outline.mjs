@@ -22,6 +22,14 @@
 //          closing note.
 // ideas    Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
 //          wrong messenger", each with one sentence on what happens and four beats.
+// interview  "Interview me" on a scene or chapter: the next question as JSON, from a fixed list for each
+//          ({"topic": "Who's there", "question": "Who walks in first?"}, then "The ending", then "The mood";
+//          a chapter's "What happens", then "The ending"), counting the questions in the briefing's "## The
+//          interview so far"; when the list is used up, {"done": true}.
+// fill     A scene card from the interview: the goal is the first answer, the outcome the last, with fixed
+//          conflict, mood and four beats, the first character listed as point of view and present, and the
+//          first place listed as the location (every part, even filled ones: the window keeps Adam's).
+// plan     A chapter's plan: "Goal:" naming the first answer, then three "### Scene:" cards.
 
 const MARKER = '[AIWRITE-OUTLINE v1]'
 
@@ -216,6 +224,88 @@ function firstThread(text) {
   return m ? m[1].trim() : null
 }
 
+const SCENE_QUESTIONS = [
+  ["Who's there", 'Who walks in first?'],
+  ['The ending', 'How should it end?'],
+  ['The mood', 'How should it feel?']
+]
+const CHAPTER_QUESTIONS = [
+  ['What happens', 'What happens in this chapter?'],
+  ['The ending', 'How does the chapter end?']
+]
+
+/** The interview so far, from the briefing: each question with its answer ('' when skipped). */
+function interviewOf(text) {
+  const block = text.match(/## The interview so far\n([\s\S]*?)(?:\n## |$)/)
+  if (!block) return []
+  const out = []
+  for (const line of block[1].split('\n')) {
+    if (line.startsWith('- ')) out.push({ question: line.slice(2), answer: '' })
+    else if (out.length && line.trim().startsWith('Answer:')) out[out.length - 1].answer = line.trim().slice(7).trim()
+  }
+  return out
+}
+
+/** The first name listed under "## Characters and places" with this kind ("- Mara Venn (character): ..."). */
+function firstOfKind(text, kind) {
+  const block = text.match(/## Characters and places\n([\s\S]*?)(?:\n## |$)/)
+  const m = block?.[1].match(new RegExp(`^- (.+?) \\(${kind}\\)`, 'm'))
+  return m ? m[1] : null
+}
+
+function interviewReply(kind, user) {
+  const list = kind === 'chapter' ? CHAPTER_QUESTIONS : SCENE_QUESTIONS
+  const asked = interviewOf(user).length
+  if (asked >= list.length) return JSON.stringify({ done: true })
+  return JSON.stringify({ topic: list[asked][0], question: list[asked][1] })
+}
+
+function fillReply(user) {
+  const answers = interviewOf(user)
+    .map((a) => a.answer)
+    .filter(Boolean)
+  const who = firstOfKind(user, 'character')
+  const where = firstOfKind(user, 'place')
+  return JSON.stringify({
+    ...(who ? { pov: who, present: [who] } : {}),
+    ...(where ? { location: where } : {}),
+    goal: answers[0] ?? 'Get across the river before dark.',
+    conflict: 'The ferryman wants more than she can pay.',
+    beats: ['She reaches the ferry.', 'The ferryman names his price.', 'She offers the ring instead.', 'They cast off in the rain.'],
+    outcome: answers[answers.length - 1] ?? 'She crosses, but owes him now.',
+    mood: 'Tense and quiet'
+  })
+}
+
+function chapterPlanReply(user) {
+  const first = interviewOf(user).find((a) => a.answer)?.answer
+  const goal = first ? `${first.replace(/[.!?]+$/, '')}.` : 'Mara finds out who sent the letter.'
+  return [
+    `Goal: ${goal}`,
+    '',
+    '### Scene: A letter at dawn',
+    'When: Day 2, morning',
+    'Summary: A letter arrives that Mara was never meant to read.',
+    '- The letter comes under the door.',
+    '- Mara reads it twice.',
+    '- She hides it from Tobin.',
+    '',
+    '### Scene: Questions at the market',
+    'When: Day 2, midday',
+    'Summary: Mara asks around the market about the seal.',
+    '- A trader knows the seal.',
+    '- He wants paying first.',
+    '- She learns a name.',
+    '',
+    '### Scene: The name on the door',
+    'When: Day 2, dusk',
+    'Summary: The name leads her to a door she knows.',
+    '- She follows the name to the old mill.',
+    '- The door is open.',
+    '- Someone is waiting inside.'
+  ].join('\n')
+}
+
 export function outlineReply(system, messages, _model) {
   if (!system.startsWith(MARKER)) return null
   const job = system.slice(MARKER.length).trim().split(/\s/)[0]
@@ -224,6 +314,9 @@ export function outlineReply(system, messages, _model) {
     .map((m) => String(m.content ?? ''))
     .join('\n')
   if (job === 'ideas') return IDEAS
+  if (job === 'interview') return interviewReply(system.slice(MARKER.length).trim().split(/\s/)[1], user)
+  if (job === 'fill') return fillReply(user)
+  if (job === 'plan') return chapterPlanReply(user)
   if (job === 'outline') {
     const items = plan(sizeOf(user), firstThread(user), user)
     return user.includes('[[fake: messy]]') ? messy(items) : tidy(items)
