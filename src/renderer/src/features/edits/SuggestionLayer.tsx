@@ -5,7 +5,7 @@
 // take the caret from the page. Owned by the AI edits part.
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import { Check, Layers, ListRestart, Square, X } from 'lucide-react'
+import { Check, Layers, ListRestart, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'

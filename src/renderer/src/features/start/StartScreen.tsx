@@ -5,7 +5,7 @@
 // draft keeps writing and Continue is instant. App.tsx decides when it shows (useApp.home).
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type LucideIcon } from 'lucide-react'
+import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type IconType } from '@/components/ui/icons'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { LastPlace, LibraryWorld } from '@shared/contracts/library'
 import { Button, Card, Field, IconButton, Input, Kbd, Notice, toast } from '@/components/ui'
@@ -13,6 +13,8 @@ import { flushBeforeWorldChange } from '@/lib/flush'
 import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { LitWindow } from '@/components/ui/LitWindow'
+import { useNewLook } from '@/features/look/look'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
 import { openSampleWorld } from '@/features/setup/setupStore'
@@ -98,6 +100,7 @@ export function StartScreen(): React.JSX.Element {
   const [deleting, setDeleting] = useState<LibraryWorld | null>(null)
   const [newWorldOpen, setNewWorldOpen] = useState(false)
   const busy = useLibrary((s) => s.busy)
+  const isNew = useNewLook()
   useKeysStayHere(root)
 
   // Read afresh each time it shows; the last list stays meanwhile. The keyboard starts on Continue (see
@@ -135,6 +138,12 @@ export function StartScreen(): React.JSX.Element {
       <DriftingTexture />
       <div className="absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
         <div className="relative mx-auto w-full max-w-[800px] px-8 pb-20 pt-[9vh]">
+          {/* The New look: a lit window over the water above it all (still: nothing moves at launch but the opening). */}
+          {isNew ? (
+            <div className="start-rise -mx-2 mb-6 h-[140px] overflow-hidden rounded-card" style={rise(0)}>
+              <LitWindow />
+            </div>
+          ) : null}
           <header className="mb-8 flex items-center gap-3.5">
             <InkMark />
             <div className="min-w-0 flex-1">
@@ -267,7 +276,7 @@ function Tile({
   disabled,
   ...rest
 }: {
-  icon: LucideIcon
+  icon: IconType
   label: string
   hint: string
   onClick?: () => void

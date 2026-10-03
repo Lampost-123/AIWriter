@@ -20,6 +20,15 @@ const variants: Record<Variant, string> = {
   ai: 'bg-ai text-ai-fg hover:brightness-110 shadow-sm'
 }
 
+const newLook: Record<Variant, string> = {
+  primary:
+    'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_88%,white),var(--accent))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)] look-new:hover:brightness-[1.06]',
+  secondary: 'look-new:bg-raise look-new:shadow-e1 look-new:hover:bg-raise look-new:hover:border-line-strong',
+  ghost: '',
+  danger: 'look-new:bg-raise look-new:shadow-e1',
+  ai: 'look-new:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--ai)_88%,white),var(--ai))] look-new:shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--elev-2)]'
+}
+
 const sizes: Record<Size, string> = {
   sm: 'h-7 px-2.5 text-[13px] gap-1.5 rounded-md',
   md: 'h-8 px-3 text-[13.5px] gap-2 rounded-md',
@@ -37,7 +46,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium transition-[background-color,border-color,color,filter] duration-150',
         'disabled:pointer-events-none disabled:opacity-50',
+        // The New look: buttons press in, a little rounder, the filled ones raised.
+        'look-new:rounded-[9px] look-new:transition-[background-color,border-color,color,filter,transform,box-shadow] look-new:duration-(--dur-quick) look-new:active:scale-[0.97]',
         variants[variant],
+        newLook[variant],
         sizes[size],
         className
       )}
@@ -68,7 +80,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       className={cn(
         'inline-flex shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
         'disabled:pointer-events-none disabled:opacity-40',
-        active && 'bg-surface-2 text-fg',
+        'look-new:rounded-[9px] look-new:transition-[background-color,color,transform] look-new:duration-(--dur-quick) look-new:active:scale-[0.92]',
+        active && 'bg-surface-2 text-fg look-new:bg-raise look-new:text-accent look-new:shadow-e1',
         size === 'sm' ? 'h-6 w-6' : 'h-8 w-8',
         className
       )}

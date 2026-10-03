@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 
 export function EmptyState({
   icon,
@@ -14,18 +15,57 @@ export function EmptyState({
   actions?: ReactNode
   className?: string
 }): React.JSX.Element {
+  const isNew = useNewLook()
   return (
     <div className={cn('mx-auto flex max-w-sm flex-col items-center px-6 py-12 text-center animate-fade-in', className)}>
-      {icon ? <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">{icon}</div> : null}
-      <h3 className="text-[15px] font-semibold text-fg">{title}</h3>
+      {icon && isNew ? (
+        <SpotArt>{icon}</SpotArt>
+      ) : icon ? (
+        <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">{icon}</div>
+      ) : null}
+      <h3 className="text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[19px] look-new:tracking-[-0.01em]">{title}</h3>
       {children ? <div className="mt-1.5 text-[13px] leading-relaxed text-muted">{children}</div> : null}
       {actions ? <div className="mt-4 flex flex-wrap justify-center gap-2">{actions}</div> : null}
     </div>
   )
 }
 
+/**
+ * The New look's spot picture for an empty page: the page's own icon on a raised tile, with two sheets of paper
+ * fanned behind it and a little of the accent's light, all in the theme's colours.
+ */
+function SpotArt({ children }: { children: ReactNode }): React.JSX.Element {
+  return (
+    <div aria-hidden data-spot className="relative mb-5 h-[92px] w-[132px]">
+      <span className="absolute inset-x-2 bottom-1 h-10 rounded-full bg-accent-soft opacity-70 blur-xl" />
+      <span className="absolute left-[22px] top-[10px] h-[72px] w-[58px] -rotate-[9deg] rounded-[10px] bg-surface-2 shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]" />
+      <span className="absolute right-[22px] top-[8px] h-[72px] w-[58px] rotate-[8deg] rounded-[10px] bg-page shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]">
+        <i className="absolute left-2.5 right-3 top-4 h-[3px] rounded-full bg-line-strong" />
+        <i className="absolute left-2.5 right-5 top-[26px] h-[3px] rounded-full bg-line" />
+        <i className="absolute left-2.5 right-4 top-9 h-[3px] rounded-full bg-line" />
+      </span>
+      <span className="absolute left-1/2 top-[22px] grid h-[52px] w-[52px] -translate-x-1/2 place-items-center rounded-2xl bg-raise text-accent shadow-e2 [&_svg]:h-6 [&_svg]:w-6">
+        {children}
+      </span>
+      <span className="absolute right-3 top-0 h-1.5 w-1.5 rounded-full bg-ai opacity-70" />
+      <span className="absolute left-4 top-3 h-1 w-1 rounded-full bg-accent opacity-60" />
+    </div>
+  )
+}
+
 export function Card({ className, children }: { className?: string; children: ReactNode }): React.JSX.Element {
-  return <div className={cn('rounded-xl border border-line bg-surface shadow-soft', className)}>{children}</div>
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-line bg-surface shadow-soft',
+        // The New look: a raised card with a hairline ring.
+        'look-new:rounded-card look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]',
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutral' | 'accent' | 'ai' | 'danger' | 'success'; children: ReactNode; className?: string }): React.JSX.Element {
@@ -59,11 +99,14 @@ export function SettingsSection({
   className?: string
 }): React.JSX.Element {
   return (
-    <section className={className}>
+    // The New look: each section is a card of its own.
+    <section
+      className={cn('look-new:rounded-card look-new:bg-raise look-new:p-5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]', className)}
+    >
       <div className="mb-3 flex items-end justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg">{title}</h2>
+            <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[17px]">{title}</h2>
             {badge}
           </div>
           {description ? <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p> : null}

@@ -2,7 +2,7 @@
 // time, pausing after each so Adam can steer the next (see flow.ts). Pressed in while the scene has a
 // session on, when it puts the keyboard in the bar. What it asks before starting shows under it.
 import * as P from '@radix-ui/react-popover'
-import { ListOrdered } from 'lucide-react'
+import { ListOrdered } from '@/components/ui/icons'
 import { useRef } from 'react'
 import type { ID } from '@shared/types'
 import { ToolButton } from '@/features/editor/ToolButton'

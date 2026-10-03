@@ -6,7 +6,7 @@
 // gap, a prequel's starting cast, "When did these happen?") belong to no scene: they get their own
 // heading and say where each change is, such as "Start of Book 4"; a line whose change something else
 // has taken out since says so, with nothing left to answer or undo.
-import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
 import type { StoryFlowRun } from '@shared/contracts/storyFlows'

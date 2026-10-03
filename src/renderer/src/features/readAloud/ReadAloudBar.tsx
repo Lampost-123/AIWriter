@@ -12,7 +12,7 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
-import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, SkipBack, SkipForward, Square, X } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Spinner } from '@/components/ui'
@@ -45,6 +45,7 @@ import {
   type ReadingBar
 } from './control'
 import { setBarRoom } from './highlight'
+import { useNewLook } from '@/features/look/look'
 import { playingPlace } from './playing'
 import { onOff, SOUNDS_OFF, SOUNDS_ON, TONE_OFF, TONE_ON, toneTooltip } from './tone'
 import { stopSample } from './useSample'
@@ -107,15 +108,18 @@ export function ReadAloudBar({
 
   // While it shows, the room it takes over the top of the page: the cursor is scrolled clear of it, and so is
   // anything brought into view (the page's own scroll padding).
+  // The New look: the bar floats at the foot of the page instead (16px clear of its edge), so the room is kept there.
   const box = useRef<HTMLDivElement>(null)
   const open = !!shown
+  const atFoot = useNewLook()
   useLayoutEffect(() => {
     const el = box.current
     const page = scrollerRef.current
     if (!open || !el) return
     const room = (): void => {
-      setBarRoom(el.offsetHeight)
-      if (page) page.style.scrollPaddingTop = `${el.offsetHeight}px`
+      const px = el.offsetHeight + (atFoot ? 16 : 0)
+      setBarRoom(px, atFoot ? 'bottom' : 'top')
+      if (page) page.style[atFoot ? 'scrollPaddingBottom' : 'scrollPaddingTop'] = `${px}px`
     }
     room()
     const ro = new ResizeObserver(room)
@@ -123,20 +127,24 @@ export function ReadAloudBar({
     return () => {
       ro.disconnect()
       setBarRoom(0)
-      if (page) page.style.scrollPaddingTop = ''
+      if (page) {
+        page.style.scrollPaddingTop = ''
+        page.style.scrollPaddingBottom = ''
+      }
     }
-  }, [open, scrollerRef])
+  }, [open, scrollerRef, atFoot])
 
   if (!shown) return null
   const player = isPlayer(shown)
   return (
-    <div className="relative z-20 h-0 shrink-0">
+    <div className="relative z-20 h-0 shrink-0 look-new:static">
       <div
         ref={box}
         role="region"
         aria-label="Reading aloud"
         className={cn(
           'aw-bar @container absolute inset-x-0 top-0 font-sans',
+          'look-new:inset-x-4 look-new:top-auto look-new:bottom-4 look-new:z-20',
           'transition-opacity duration-150',
           leaving ? 'pointer-events-none opacity-0' : 'animate-fade-in'
         )}

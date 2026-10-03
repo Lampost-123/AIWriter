@@ -1,11 +1,11 @@
-import { Droplet, Heart, MessageSquareWarning, type LucideIcon } from 'lucide-react'
+import { Droplet, Heart, MessageSquareWarning, type IconType } from '@/components/ui/icons'
 import { useId } from 'react'
 import { INTENSITY, type IntensityScale } from '@shared/intensity'
 import type { ContentIntensity } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { scaleShown, toggleLevel, type FeelMode } from './feelLogic'
 
-const ICONS: Record<IntensityScale, LucideIcon> = { romance: Heart, violence: Droplet, language: MessageSquareWarning }
+const ICONS: Record<IntensityScale, IconType> = { romance: Heart, violence: Droplet, language: MessageSquareWarning }
 
 /**
  * Romance, violence and language, four steps each. A scale with no step picked is left to the genre; clicking

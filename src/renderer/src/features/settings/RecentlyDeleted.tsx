@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Folder, Layers, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
+import { BookOpen, FileText, Folder, Layers, RotateCcw, ScrollText, Trash2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { DeletedItem } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'

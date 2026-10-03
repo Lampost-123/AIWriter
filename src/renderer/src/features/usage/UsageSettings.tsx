@@ -7,7 +7,7 @@
 //   calls with no price.
 // The page waits for its numbers before showing (a slow load gets its placeholder after 200 ms), and keeps
 // showing the last numbers while new ones load, so nothing flashes or jumps.
-import { ChartColumn, Coins } from 'lucide-react'
+import { ChartColumn, Coins } from '@/components/ui/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   dollars,

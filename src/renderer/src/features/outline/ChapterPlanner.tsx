@@ -3,7 +3,7 @@
 // outline around it don't say yet; then it gives the chapter a goal (if it has none) and suggests scene
 // cards that Adam keeps, edits or discards one by one, as on the outline helper's page (the same
 // suggestions, in a session of their own: helperStore.suggestChapter). Nothing is added without a click.
-import { Check, ListTree, MessageCircleQuestion, Sparkles, Square } from 'lucide-react'
+import { Check, ListTree, MessageCircleQuestion, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { Chapter } from '@shared/types'
 import { Button, EmptyState, Notice } from '@/components/ui'

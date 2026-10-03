@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { cn } from '@/lib/cn'
@@ -20,12 +20,18 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
       <M.Trigger
         aria-label={`Scene status: ${STATUS_LABELS[status]}`}
         title="Scene status"
-        className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg @min-[660px]:px-2.5"
+        className={cn(
+          'flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg @min-[660px]:px-2.5 look-new:h-[30px] look-new:border-transparent look-new:px-2.5',
+          // The New look: a soft pill, green for a done scene.
+          status === 'done'
+            ? 'look-new:bg-success-soft look-new:text-success look-new:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--success)_30%,transparent)]'
+            : 'look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)]'
+        )}
       >
         <StatusDot status={status} />
         {/* In a narrow header (a small window) the status shows as its dot alone, leaving the room to the scene's title. */}
-        <span className="hidden w-[52px] text-left @min-[660px]:inline-block">{STATUS_LABELS[status]}</span>
-        <ChevronDown size={12} className="hidden text-faint @min-[660px]:block" />
+        <span className="hidden w-[52px] text-left @min-[660px]:inline-block look-new:inline-block! look-new:w-auto">{STATUS_LABELS[status]}</span>
+        <ChevronDown size={12} className="hidden text-faint @min-[660px]:block look-new:hidden!" />
       </M.Trigger>
       <M.Portal>
         <M.Content
@@ -75,18 +81,21 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
     // chapter's, then Mark done's words, then the status word, so a scene's title of a few words stays whole (with both
     // side panels open in a 1366-wide window the header is about 740 px: Mark done is then its tick alone).
     // Focus mode (milestone 6) fades it away, keeping its room so the page doesn't move (data-focus-chrome, styles.css).
-    <header data-focus-chrome className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+    // The New look: the scene's title is at the head of the page (PageTitle) and where it sits is in the top bar's trail,
+    // so the bar is the scene's tools alone.
+    <header data-focus-chrome className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3 look-new:h-[54px] look-new:gap-2.5 look-new:pl-4">
+      {/* The New look: the status, Done and the tools on the left; this room between them and Generate. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] look-new:order-1">
         {story ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[1040px]:inline">{story.title}</span>
-            <span className="hidden text-line-strong @min-[1040px]:inline">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[1040px]:inline look-new:hidden!">{story.title}</span>
+            <span className="hidden text-line-strong @min-[1040px]:inline look-new:hidden!">/</span>
           </>
         ) : null}
         {chapter ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[940px]:inline">{chapter.title}</span>
-            <span className="hidden text-line-strong @min-[940px]:inline">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[940px]:inline look-new:hidden!">{chapter.title}</span>
+            <span className="hidden text-line-strong @min-[940px]:inline look-new:hidden!">/</span>
           </>
         ) : null}
         {editing ? (
@@ -104,7 +113,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
             type="button"
             title="Rename this scene"
             onClick={() => setEditing(true)}
-            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 @min-[940px]:max-w-[65%]"
+            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 @min-[940px]:max-w-[65%] look-new:hidden"
           >
             {title || 'Untitled scene'}
           </button>
@@ -114,7 +123,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
       <StatusMenu sceneId={sceneId} status={status} />
       <DoneButton sceneId={sceneId} status={status} />
       <SceneTools sceneId={sceneId} />
-      <div className={cn('flex shrink-0 items-center')}>
+      <div className={cn('flex shrink-0 items-center look-new:order-2')}>
         <GenerateControls sceneId={sceneId} />
       </div>
     </header>

@@ -2,7 +2,7 @@
 // selected words already have it, and pressing it again takes it off. The words stay selected.
 import type { Editor } from '@tiptap/core'
 import { useEditorState } from '@tiptap/react'
-import { Bold, Italic } from 'lucide-react'
+import { Bold, Italic } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { withShortcut } from '@/lib/shortcuts'
 

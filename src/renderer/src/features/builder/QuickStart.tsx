@@ -4,7 +4,7 @@
 // as his; the rest is drafted by AI. The notes and a build still running are kept in quickStartStore,
 // so leaving the screen loses neither. Once a build has saved a character, its notes are done with:
 // they can't be typed in, and Start another clears them for the next one.
-import { Check, Sparkles, Square } from 'lucide-react'
+import { Check, Sparkles, Square } from '@/components/ui/icons'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'

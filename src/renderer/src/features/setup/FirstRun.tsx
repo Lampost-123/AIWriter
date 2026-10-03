@@ -4,12 +4,14 @@
 // opens with a small guide (FirstSceneGuide.tsx). Back goes to the step before; quitting midway resumes at the
 // same step next time (setupStore.ts).
 
-import { BookOpen, Feather, WandSparkles } from 'lucide-react'
+import { BookOpen, Feather, WandSparkles } from '@/components/ui/icons'
 import { useRef, useState, type ReactNode } from 'react'
 import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { Lighthouse } from '@/components/ui/Lighthouse'
+import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
@@ -23,9 +25,10 @@ import { StyleStep, type StyleSaver } from './StyleStep'
 
 export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
+  const isNew = useNewLook()
   if (!step) return null
-  return (
-    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges]">
+  const steps = (
+    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges] look-new:bg-transparent">
       <div className="w-full max-w-[600px]">
         <div className="mb-7 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
@@ -48,16 +51,42 @@ export function FirstRun(): React.JSX.Element | null {
       </div>
     </div>
   )
+  if (!isNew) return steps
+  // The New look: the steps on the left, and a lighthouse over the sea beside them (in a wide enough window).
+  return (
+    <div className="flex h-full">
+      <div className="min-w-0 flex-1">{steps}</div>
+      <div aria-hidden className="hidden w-[42%] max-w-[760px] shrink-0 overflow-hidden min-[1000px]:block">
+        <Lighthouse />
+      </div>
+    </div>
+  )
 }
 
 /** Where Adam is: a calm line of five segments, and the step in words. */
 function Progress({ step }: { step: SetupStep }): React.JSX.Element {
   const n = stepNumber(step)
+  const isNew = useNewLook()
   return (
     <div className="mb-6">
       <div className="flex gap-1.5" aria-hidden>
         {SETUP_STEPS.map((s, i) => (
-          <span key={s} className={cn('h-1 flex-1 rounded-full transition-colors duration-200', i < n ? 'bg-accent' : 'bg-line')} />
+          <span
+            key={s}
+            className={cn(
+              'h-1 flex-1 rounded-full transition-colors duration-200',
+              i < n ? 'bg-accent' : 'bg-line',
+              // The New look: a fuller line, the step reached filling in from the left.
+              'look-new:relative look-new:h-[5px] look-new:overflow-hidden look-new:bg-line-strong'
+            )}
+          >
+            {isNew && i < n ? (
+              <span
+                aria-hidden
+                className={cn('absolute inset-0 origin-left bg-accent', i === n - 1 && 'animate-[fill-x_700ms_var(--motion-glide)_150ms_both]')}
+              />
+            ) : null}
+          </span>
         ))}
       </div>
       <p className="mt-2 text-[12px] text-faint">

@@ -1,7 +1,7 @@
 // "Show speakers and tone" beside Listen in the scene toolbar: a small toggle, off by default (also in Settings ›
 // Read aloud and dictation, and in the palette). Shown while read aloud is on, or while the labels are showing so
 // they can be hidden where they are seen. Owned by the Read aloud part.
-import { MessageSquareQuote } from 'lucide-react'
+import { MessageSquareQuote } from '@/components/ui/icons'
 import { toast } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { ToolButton } from '@/features/editor/ToolButton'

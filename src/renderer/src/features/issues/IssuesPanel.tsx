@@ -3,7 +3,7 @@
 // in quiet tones, never amber, which is for AI suggestions), the words in the scene (a click shows them in
 // the page), what disagrees with what, and links to what it conflicts with. Fix the text, Update the memory
 // and Ignore each act at once and can be undone. "Check this scene" runs every check, with progress and Stop.
-import { CircleCheck, ListChecks } from 'lucide-react'
+import { CircleCheck, ListChecks } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'

@@ -27,6 +27,14 @@
   background-color: color-mix(in srgb, var(--accent-soft) 70%, var(--page));
 }
 
+/* The New look: a raised card floating at the foot of the page. */
+[data-look='new'] .aw-bar {
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--raise);
+  box-shadow: var(--elev-3), 0 0 0 1px var(--line);
+}
+
 /* The little bars in the reading bar that move while a voice speaks. */
 .aw-speaking > span {
   transform-origin: bottom;

@@ -3,7 +3,7 @@
 // Add to summary, Skip and Stop, and a small note of how many answers are in. Not a transcript: each
 // answer goes straight into the summary above, in Adam's own words. Owned by the World builder part.
 
-import { MessageCircleQuestion, Plus, Square } from 'lucide-react'
+import { MessageCircleQuestion, Plus, Square } from '@/components/ui/icons'
 import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui'
 import { ProblemNotice, WritingStatus } from '@/features/builder/parts'

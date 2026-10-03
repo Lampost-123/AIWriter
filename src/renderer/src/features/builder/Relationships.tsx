@@ -2,7 +2,7 @@
 // what they are to each other. Each one is a starting-point relationship (how things stand when the
 // story begins), saved as Adam types, the same as on the entry page; the rules for saving over newer
 // words the memory may have written meanwhile are memoryLogic's.
-import { Trash2, UserRound } from 'lucide-react'
+import { Trash2, UserRound } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { ChangeView, Entry, ID } from '@shared/types'

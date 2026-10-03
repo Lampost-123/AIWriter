@@ -3,7 +3,7 @@
 // to "What is it?" with the live sentence; warnings sit inline before Create, never in a second dialog.
 // Nothing in the world changes until Create, including ending a still-running side story first.
 // Opened with useApp().setNewStoryOpen(true) (the story menu, the command palette).
-import { ChevronDown, Plus, X } from 'lucide-react'
+import { ChevronDown, Plus, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { StoryPlacement } from '@shared/api'
 import type { StillRunning, StorySuggestion } from '@shared/contracts/stories'

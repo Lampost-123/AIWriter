@@ -16,7 +16,7 @@ import {
   PenLine,
   UnfoldVertical,
   WandSparkles
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { hasDialogue } from '@shared/contracts/edits'
 import type { EditTool } from '@shared/types'

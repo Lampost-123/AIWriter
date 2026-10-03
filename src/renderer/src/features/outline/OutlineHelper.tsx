@@ -3,7 +3,7 @@
 // streams: suggestions appear in order as they arrive, and Stop keeps what has come. What Adam kept
 // goes after what the story has, with each scene's card filled, and shows in the binder at once.
 // The suggestions and a request still running are kept in helperStore, so leaving the page loses neither.
-import { Check, ListTree, Sparkles, Square } from 'lucide-react'
+import { Check, ListTree, Sparkles, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'

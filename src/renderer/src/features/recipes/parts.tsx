@@ -1,7 +1,7 @@
 // Pieces the recipe pages share: the page's kicker, the way back, and the line saying how a recipe being made is
 // going (with Cancel, or Try again when it paused). Owned by the Story recipes part.
 
-import { ArrowLeft, CookingPot, Square } from 'lucide-react'
+import { ArrowLeft, CookingPot, Square } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { Recipe } from '@shared/contracts/recipes'
 import { Button, Card } from '@/components/ui'

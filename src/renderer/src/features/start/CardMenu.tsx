@@ -1,13 +1,13 @@
 // The menu on each world card and story row of the start screen (as the Welcome screen's world menu was).
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { MoreHorizontal, type LucideIcon } from 'lucide-react'
+import { MoreHorizontal, type IconType } from '@/components/ui/icons'
 import { Fragment, useRef } from 'react'
 import { cn } from '@/lib/cn'
 
 export interface CardMenuItem {
   label: string
-  icon: LucideIcon
+  icon: IconType
   run: () => void
   /** Red: deleting. */
   danger?: boolean

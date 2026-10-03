@@ -5,7 +5,7 @@
 // "Back to editing" returns to the profile in one click. The last answer stays on screen while the
 // next one loads, so sliding never flickers.
 
-import { Pencil } from 'lucide-react'
+import { Pencil } from '@/components/ui/icons'
 import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import type { FirstExists } from '@shared/contracts/entryViews'
 import type { ChangeView, Entry, EntryAsOf, ID } from '@shared/types'

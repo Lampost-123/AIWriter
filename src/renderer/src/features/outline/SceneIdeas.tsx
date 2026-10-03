@@ -5,7 +5,7 @@
 // A quiet "Ideas for this scene" while the card is empty; asked (or from the palette), the three ideas
 // stream in, each a short title, a line on what happens and its beats, with Use this. Stop keeps what
 // has arrived; the list stays until one is used or it is closed, even if Adam starts filling the card.
-import { Lightbulb, Square, X } from 'lucide-react'
+import { Lightbulb, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ID, SceneCard } from '@shared/types'
 import { Button, IconButton, Notice } from '@/components/ui'

@@ -4,7 +4,7 @@
 // and act it needs. While the answer arrives, suggestions appear in order and the buttons keep their
 // room; the one being written has the caret. A chapter's plan (`chapterId`) shows only that chapter's
 // scene cards: the chapter itself is already in the story.
-import { Check } from 'lucide-react'
+import { Check } from '@/components/ui/icons'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Chapter, ID } from '@shared/types'
 import { Button, Field, Input } from '@/components/ui'

@@ -2,7 +2,7 @@
 // text. It says why in plain words and offers a quiet Try again; the memory also tries again by
 // itself (on the next change, on leaving the scene, and when the app starts).
 import * as P from '@radix-ui/react-popover'
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import { Button, toast } from '@/components/ui'

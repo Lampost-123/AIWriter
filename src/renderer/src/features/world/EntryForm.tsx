@@ -1,4 +1,4 @@
-import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from 'lucide-react'
+import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from '@/components/ui/icons'
 import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
@@ -9,6 +9,8 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { PortraitDrop } from '@/features/views/PortraitDrop'
+import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
+import { useNewLook } from '@/features/look/look'
 import { setAsOfMode, useAsOfMode } from './asOfMode'
 import { EntryAsOfView } from './AsOfView'
 import { confirmSaved, entryReplaced, getDraft, onEntryReplaced, setDraft, takeFresh } from './entryDrafts'
@@ -443,6 +445,7 @@ export const EntryForm = memo(function EntryForm({
     }
   }
 
+  const isNew = useNewLook()
   const asOfButton = useRef<HTMLButtonElement>(null)
   // Only a click on "View as of a scene" moves focus into the slider; opening another entry while
   // looking as of a scene leaves focus where Adam has it (in the list, say).
@@ -468,7 +471,7 @@ export const EntryForm = memo(function EntryForm({
       {/* Where it first exists sits beside its kind; on a narrow page, where it would be cut short, on a
           line of its own (kept free while it loads). */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] grid-rows-[2rem] items-center gap-x-2 @max-[34rem]:grid-rows-[2rem_1.25rem]">
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{KIND_LABELS[kind].one}</span>
+        <KindLabel kind={kind} />
         <FirstAppears
           name={draft.name}
           kind={kind}
@@ -481,7 +484,11 @@ export const EntryForm = memo(function EntryForm({
         </Button>
       </div>
 
-      <div className="flex items-start gap-4">
+      {/* The New look: the name and portrait sit on a band in the kind's tint. */}
+      <div
+        className="flex items-start gap-4 look-new:-mx-4 look-new:mt-2 look-new:rounded-card look-new:px-4 look-new:py-3"
+        style={isNew ? { background: `linear-gradient(120deg, var(--k-${KIND_VAR[kind]}-soft), transparent 80%)` } : undefined}
+      >
         {isPictured(kind) ? (
           <PortraitDrop entry={draft} size={72} onChange={(saved) => takeNewer(saved, base.current)} className="mt-2" />
         ) : null}
@@ -853,3 +860,31 @@ const FieldInput = memo(function FieldInput({
     </Field>
   )
 })
+
+/** The kind's own CSS name (styles.css, --k-*). */
+const KIND_VAR: Record<EntryKind, string> = {
+  character: 'char',
+  place: 'place',
+  group: 'group',
+  item: 'item',
+  lore: 'lore',
+  event: 'event',
+  thread: 'thread',
+  glossary: 'gloss'
+}
+
+/** The kind, above the name: small caps (in the New look, with its icon on a tile in its ink). */
+function KindLabel({ kind }: { kind: EntryKind }): React.JSX.Element {
+  const isNew = useNewLook()
+  const Icon = KIND_ICONS[kind]
+  return (
+    <span className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+      {isNew ? (
+        <span aria-hidden className={cn('grid h-[22px] w-[22px] place-items-center rounded-[6px]', KIND_INK[kind].tile)}>
+          <Icon size={14} />
+        </span>
+      ) : null}
+      {KIND_LABELS[kind].one}
+    </span>
+  )
+}

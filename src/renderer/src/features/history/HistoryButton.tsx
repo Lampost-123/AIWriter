@@ -1,6 +1,6 @@
 // The History button in the scene toolbar: opens the scene's history (its earlier versions, compared side
 // by side with the scene now, restored in one click). Owned by the History part.
-import { History } from 'lucide-react'
+import { History } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { ToolButton } from '@/features/editor/ToolButton'
 import { openHistory } from './open'

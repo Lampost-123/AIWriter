@@ -2,7 +2,7 @@
 // text straight away; a scene with text first asks, in Generate's own words, whether the new text
 // replaces it or goes below it.
 import * as P from '@radix-ui/react-popover'
-import { ArrowDownToLine, RefreshCw } from 'lucide-react'
+import { ArrowDownToLine, RefreshCw } from '@/components/ui/icons'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, toast, type ButtonProps } from '@/components/ui'

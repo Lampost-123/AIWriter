@@ -1,6 +1,8 @@
-import { Plus, RotateCcw } from 'lucide-react'
+import { Plus, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
+import { GlidePill } from '@/components/ui/GlidePill'
+import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { CheckLine } from '@/features/consistency/CheckLine'
 import { ImportLine } from '@/features/importing/ImportLine'
@@ -36,8 +38,13 @@ function TreeSkeleton(): React.JSX.Element {
   )
 }
 
-/** The left panel: story switcher, the story's chapters and scenes, and the world section. */
-export function Binder(): React.JSX.Element {
+/**
+ * The left panel: story switcher, the story's chapters and scenes, and the world section. In the New look it is the
+ * Write area's list (layout/AreaList.tsx), without the world section (the World area has it), and the open scene's
+ * row is a raised pill that glides as another scene opens.
+ */
+export function Binder({ world = true }: { world?: boolean }): React.JSX.Element {
+  const isNew = useNewLook()
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
   const { outline, error, retry } = useOutline()
@@ -50,7 +57,8 @@ export function Binder(): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <StorySwitcher />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden look-new:relative">
+        {isNew && outline ? <GlidePill /> : null}
         {outline ? (
           <StoryTree outline={outline} />
         ) : error ? (
@@ -77,7 +85,7 @@ export function Binder(): React.JSX.Element {
       <CheckLine />
       {/* Milestone 6: the import catch-up building the memory, quietly, with Stop. */}
       <ImportLine />
-      <WorldSection />
+      {world ? <WorldSection /> : null}
     </div>
   )
 }

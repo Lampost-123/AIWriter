@@ -2,7 +2,7 @@
 // already has text (as Generate asks, with the same answers and keys), and what is missing first: beats
 // on the scene card, or a writer model. Shown under the toolbar button, or over the bar's Write button.
 import * as P from '@radix-ui/react-popover'
-import { ArrowDownToLine, ListOrdered, RefreshCw } from 'lucide-react'
+import { ArrowDownToLine, ListOrdered, RefreshCw } from '@/components/ui/icons'
 import { useId, useRef, type ReactNode } from 'react'
 import { Button } from '@/components/ui'
 import { modKey } from '@/lib/api'

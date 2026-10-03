@@ -3,7 +3,7 @@
 // note when it can't run at all, with the reason and what to do. It sits in a slot of fixed width
 // that is always there, so nothing in the bar moves when it comes and goes. Nothing in it nags.
 import * as P from '@radix-ui/react-popover'
-import { Check, CircleAlert } from 'lucide-react'
+import { Check, CircleAlert } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -91,7 +91,7 @@ export function KeeperStatus(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[176px] shrink-0 justify-end" role="status" aria-live="polite">
+    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px]" role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger

@@ -2,6 +2,7 @@ import type { EditorSettings, Settings, ThemeName } from '@shared/types'
 import { Field, Select } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { AccentPicker } from '@/features/look/AccentPicker'
+import { LookPicker } from '@/features/look/LookPicker'
 
 /** What shows when AI Write opens: the start screen (the default), or straight back to where Adam left off. */
 const START_WITH: { value: Settings['startWith']; label: string }[] = [
@@ -44,6 +45,8 @@ export function AppearanceSettings(): React.JSX.Element | null {
   )
   return (
     <div className="flex max-w-md flex-col gap-5">
+      {/* The New look: the look itself first (the New look or Classic). */}
+      <LookPicker />
       <Field label="Theme">{(id) => <Select id={id} value={settings.theme} onChange={(v) => void update({ theme: (v ?? 'system') as ThemeName })} options={THEMES} />}</Field>
       <AccentPicker />
       {range('Text size', 'fontSize', 15, 24, 1, (n) => `${n}px`)}

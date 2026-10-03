@@ -389,4 +389,6 @@ export interface Bridge {
   initialTheme: PaintedTheme
   /** Milestone 6: the accent colour the window opened in (an AccentId), or null for the theme's own; applied as the theme is. */
   initialAccent?: string | null
+  /** The New look: the look the window opened in ('new' or 'classic'); applied as the theme is. */
+  initialLook?: 'new' | 'classic'
 }

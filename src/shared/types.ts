@@ -421,6 +421,10 @@ export interface Settings {
   startWith: 'start' | 'last'
   /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
   worldsSeenAt: Record<ID, string>
+  /** The New look: Settings › Appearance › Style, the New look ('new', the default) or Classic (see contracts/look.ts). */
+  look: 'new' | 'classic'
+  /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
+  lookNote?: boolean
 }
 
 /**

@@ -1,4 +1,4 @@
-import { RotateCcw, Sparkles, Square, X } from 'lucide-react'
+import { RotateCcw, Sparkles, Square, X } from '@/components/ui/icons'
 import { useEffect, useRef } from 'react'
 import type { ID, StyleGuide } from '@shared/types'
 import { Button, IconButton, Spinner, toast } from '@/components/ui'

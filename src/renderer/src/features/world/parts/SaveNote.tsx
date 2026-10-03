@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check } from '@/components/ui/icons'
 import { useRef } from 'react'
 import { cn } from '@/lib/cn'
 import type { SaveStatus } from './saver'

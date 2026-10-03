@@ -3,7 +3,7 @@
 // library lives on this computer only (the Recipes folder of the library folder), outside every world. Works with
 // or without a world open. Owned by the Story recipes part.
 
-import { BookOpenText, ClipboardPaste, CookingPot, Copy, FileText, FileUp, Merge, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { BookOpenText, ClipboardPaste, CookingPot, Copy, FileText, FileUp, Merge, Plus, RotateCcw, Trash2 } from '@/components/ui/icons'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Manuscript } from '@shared/contracts/importing'
 import type { RecipeEstimate } from '@shared/contracts/recipes'

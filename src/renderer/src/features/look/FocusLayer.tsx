@@ -2,7 +2,7 @@
 // for a moment as focus mode starts, so Adam knows how to leave), and the word count at the foot of the screen.
 // The workspace renders FocusLayer once; it also installs focus mode's keys (F11, Esc). FocusButton is the top
 // bar's way in.
-import { Focus } from 'lucide-react'
+import { Focus } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { IconButton, Kbd } from '@/components/ui'
 import { cn } from '@/lib/cn'

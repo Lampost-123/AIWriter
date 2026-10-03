@@ -176,7 +176,239 @@
   --accent-fg: #fff8ec;
 }
 
+/*
+  The two looks (Settings › Appearance › Style, <html data-look>): the New look ("Lamplight", the default) and
+  Classic (the app as it was before it). Both read the same tokens. These are the tokens the New look added, set
+  here to Classic's values (exactly what each place used before), so Classic never changes; the New look's own
+  values follow, per theme. Where a component's shape differs between the looks, it uses the look-new: variant.
+  docs/ARCHITECTURE.md, "The two looks", says how they fit together.
+*/
+:root {
+  /* A raised surface: a selected row's pill, a card lifted off a pane. */
+  --raise: var(--surface);
+  /* Elevation, from a hint (1) to a popover or dialog (3), and the page as a sheet of paper. */
+  --elev-1: var(--shadow);
+  --elev-2: var(--shadow);
+  --elev-3: var(--shadow-lg);
+  --elev-page: none;
+  /* Inks for each kind of thing in the world (characters, places ...): none in Classic. */
+  --k-char: var(--muted);
+  --k-char-soft: var(--surface-2);
+  --k-place: var(--muted);
+  --k-place-soft: var(--surface-2);
+  --k-group: var(--muted);
+  --k-group-soft: var(--surface-2);
+  --k-item: var(--muted);
+  --k-item-soft: var(--surface-2);
+  --k-lore: var(--muted);
+  --k-lore-soft: var(--surface-2);
+  --k-event: var(--muted);
+  --k-event-soft: var(--surface-2);
+  --k-thread: var(--muted);
+  --k-thread-soft: var(--surface-2);
+  --k-gloss: var(--muted);
+  --k-gloss-soft: var(--surface-2);
+  /* Page titles, the scene title and section heads. */
+  --heading-font: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  /* The prose: Literata as it always was (Classic keeps the very same font file, so its text never moves). */
+  --serif-font: 'Literata', Georgia, 'Times New Roman', serif;
+  --r-card: 12px;
+  /* Motion: a press, a hover or a menu, a panel or dialog, a change of view. Never on the words of a story. */
+  --dur-press: 150ms;
+  --dur-quick: 150ms;
+  --dur-base: 200ms;
+  --dur-view: 0ms;
+  --motion-glide: ease-out;
+  --motion-spring: ease-out;
+  /* The light falling on the window's frame behind the page. */
+  --glow: none;
+}
+
+/* The New look: motion, headings and shape, the same in every theme. */
+[data-look='new'] {
+  /* Literata's variable font, with its optical sizes: a display cut for headings, a text cut for the prose. */
+  --heading-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
+  --serif-font: 'Literata Variable', Georgia, 'Times New Roman', serif;
+  --r-card: 14px;
+  --dur-press: 100ms;
+  --dur-quick: 160ms;
+  --dur-base: 220ms;
+  --dur-view: 260ms;
+  --motion-glide: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A spring with a small overshoot (the selection pill, toasts, the Done tick). */
+  --motion-spring: linear(0, 0.157 4.8%, 0.523 10.9%, 0.896 17.9%, 1.05 23.4%, 1.085 27.6%, 1.074 32.4%, 1.015 42.5%, 0.994 52.5%, 1.001 72%, 1);
+}
+
+/*
+  The New look's colours: a warm frame (bg, deepest), the panes one step up (surface), the page a sheet of paper
+  floating on the frame, and an ink for each kind of thing in the world. Shadows take the theme's own hue. The
+  text colours keep at least 4.5:1 on every background (tests/unit/contrast.test.ts checks them, kind inks too).
+*/
+[data-look='new'][data-theme='light'] {
+  --bg: #ebe5da;
+  --surface: #f4efe7;
+  --surface-2: #ece6dc;
+  --surface-3: #e2dbcf;
+  --page: #fffdf9;
+  --raise: #ffffff;
+  --line: #e2dacd;
+  --line-strong: #cdc3b3;
+  --fg: #221d17;
+  --muted: #574f45;
+  --faint: #655d53;
+  --ai: #8a5a14;
+  --success: #276c44;
+  --k-char: #7445b0;
+  --k-char-soft: #efe7f8;
+  --k-place: #1a6e69;
+  --k-place-soft: #ddf0ee;
+  --k-group: #2d5fa6;
+  --k-group-soft: #e1eaf7;
+  --k-item: #7f5a2b;
+  --k-item-soft: #f3e9db;
+  --k-lore: #4a4ea6;
+  --k-lore-soft: #e6e7f6;
+  --k-event: #a63c65;
+  --k-event-soft: #f8e4ec;
+  --k-thread: #456c25;
+  --k-thread-soft: #e6f0dc;
+  --k-gloss: #535c68;
+  --k-gloss-soft: #e8eaed;
+  --elev-1: 0 1px 1px rgb(80 55 25 / 0.05), 0 2px 4px rgb(80 55 25 / 0.05);
+  --elev-2: 0 1px 1px rgb(80 55 25 / 0.05), 0 3px 6px rgb(80 55 25 / 0.06), 0 10px 24px rgb(80 55 25 / 0.08);
+  --elev-3: 0 2px 4px rgb(80 55 25 / 0.06), 0 12px 28px rgb(80 55 25 / 0.12), 0 30px 60px rgb(80 55 25 / 0.1);
+  --elev-page: 0 0 0 1px rgb(80 55 25 / 0.06), 0 2px 3px rgb(80 55 25 / 0.05), 0 14px 34px rgb(80 55 25 / 0.1), 0 40px 80px -20px rgb(80 55 25 / 0.14);
+  --shadow: var(--elev-2);
+  --shadow-lg: var(--elev-3);
+  --overlay: rgb(40 28 14 / 0.28);
+  --glow: radial-gradient(1200px 600px at 50% -10%, rgb(255 236 200 / 0.55), transparent 60%);
+}
+[data-look='new'][data-theme='dark'] {
+  --bg: #12110f;
+  --surface: #1a1816;
+  --surface-2: #24211e;
+  --surface-3: #2e2a27;
+  --page: #221f1c;
+  --raise: #2b2825;
+  --line: #2f2b27;
+  --line-strong: #433d37;
+  --fg: #eee8de;
+  --muted: #aaa295;
+  --faint: #979084;
+  --ai: #e3ab4e;
+  --success: #6fc795;
+  --k-char: #c3a2ee;
+  --k-char-soft: #2f2440;
+  --k-place: #6fcbc2;
+  --k-place-soft: #17302e;
+  --k-group: #8db4ec;
+  --k-group-soft: #1d2a3e;
+  --k-item: #d6ac77;
+  --k-item-soft: #34281a;
+  --k-lore: #a7aaf0;
+  --k-lore-soft: #262848;
+  --k-event: #ee98b9;
+  --k-event-soft: #3c1f2b;
+  --k-thread: #a3cf7c;
+  --k-thread-soft: #223019;
+  --k-gloss: #b3bcc7;
+  --k-gloss-soft: #262a2f;
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --elev-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 20px rgb(0 0 0 / 0.35);
+  --elev-3: 0 2px 6px rgb(0 0 0 / 0.4), 0 18px 40px rgb(0 0 0 / 0.5);
+  --elev-page: 0 0 0 1px rgb(255 240 220 / 0.05), 0 18px 40px rgb(0 0 0 / 0.45), 0 50px 90px -20px rgb(0 0 0 / 0.5);
+  --shadow: var(--elev-2);
+  --shadow-lg: var(--elev-3);
+  --overlay: rgb(0 0 0 / 0.55);
+  --glow: radial-gradient(1200px 600px at 50% -10%, rgb(255 200 120 / 0.07), transparent 60%);
+}
+[data-look='new'][data-theme='sepia'] {
+  --bg: #e5d9c0;
+  --surface: #efe6d1;
+  --surface-2: #e8ddc6;
+  --surface-3: #ddcfb1;
+  --page: #faf4e5;
+  --raise: #fffaf0;
+  --line: #d9caab;
+  --line-strong: #c4b18c;
+  --fg: #3b2f22;
+  --muted: #56493a;
+  --faint: #615444;
+  --ai: #7f4f0b;
+  --danger: #9a2519;
+  --success: #3a6535;
+  --k-char: #673d9c;
+  --k-char-soft: #eadff0;
+  --k-place: #17605b;
+  --k-place-soft: #d8e8df;
+  --k-group: #2a5592;
+  --k-group-soft: #dce3ec;
+  --k-item: #714f24;
+  --k-item-soft: #efe0c8;
+  --k-lore: #434797;
+  --k-lore-soft: #e1def0;
+  --k-event: #953659;
+  --k-event-soft: #f3dcdd;
+  --k-thread: #3e6221;
+  --k-thread-soft: #e0e7cc;
+  --k-gloss: #4c5460;
+  --k-gloss-soft: #e3e0d8;
+  --elev-1: 0 1px 1px rgb(90 60 20 / 0.06), 0 2px 4px rgb(90 60 20 / 0.06);
+  --elev-2: 0 1px 1px rgb(90 60 20 / 0.06), 0 3px 6px rgb(90 60 20 / 0.07), 0 10px 24px rgb(90 60 20 / 0.1);
+  --elev-3: 0 2px 4px rgb(90 60 20 / 0.08), 0 12px 28px rgb(90 60 20 / 0.14), 0 30px 60px rgb(90 60 20 / 0.12);
+  --elev-page: 0 0 0 1px rgb(90 60 20 / 0.08), 0 2px 3px rgb(90 60 20 / 0.06), 0 14px 34px rgb(90 60 20 / 0.12), 0 40px 80px -20px rgb(90 60 20 / 0.16);
+  --shadow: var(--elev-2);
+  --shadow-lg: var(--elev-3);
+  --overlay: rgb(60 40 20 / 0.3);
+  --glow: radial-gradient(1200px 600px at 50% -10%, rgb(255 230 180 / 0.45), transparent 60%);
+}
+
+/*
+  The New look's raised surfaces, wherever they open: menus, lists that drop down and popovers sit on the --raise
+  colour above everything, with a soft ring and the deepest shadow, and spring open from where they were opened.
+  (Plain rules, outside Tailwind's layers, so they win over each one's own classes in the New look only.)
+*/
+[data-look='new'] :is([role='menu'], [role='listbox'][data-state], [data-radix-popper-content-wrapper] > [role='dialog']) {
+  background-color: var(--raise);
+  border-color: transparent;
+  border-radius: 12px;
+  box-shadow: var(--elev-3), 0 0 0 1px var(--line);
+}
+[data-look='new'] [data-radix-popper-content-wrapper] > [data-state='open'] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: pop-in var(--dur-base) var(--motion-spring);
+}
+
+/* look-new:… applies a class in the New look only; look-classic:… in Classic only. */
+@custom-variant look-new (&:where([data-look='new'], [data-look='new'] *));
+@custom-variant look-classic (&:where([data-look='classic'], [data-look='classic'] *));
+
 @theme inline {
+  --color-raise: var(--raise);
+  --color-k-char: var(--k-char);
+  --color-k-char-soft: var(--k-char-soft);
+  --color-k-place: var(--k-place);
+  --color-k-place-soft: var(--k-place-soft);
+  --color-k-group: var(--k-group);
+  --color-k-group-soft: var(--k-group-soft);
+  --color-k-item: var(--k-item);
+  --color-k-item-soft: var(--k-item-soft);
+  --color-k-lore: var(--k-lore);
+  --color-k-lore-soft: var(--k-lore-soft);
+  --color-k-event: var(--k-event);
+  --color-k-event-soft: var(--k-event-soft);
+  --color-k-thread: var(--k-thread);
+  --color-k-thread-soft: var(--k-thread-soft);
+  --color-k-gloss: var(--k-gloss);
+  --color-k-gloss-soft: var(--k-gloss-soft);
+  --font-heading: var(--heading-font);
+  --shadow-e1: var(--elev-1);
+  --shadow-e2: var(--elev-2);
+  --shadow-e3: var(--elev-3);
+  --shadow-sheet: var(--elev-page);
+  --ease-glide: var(--motion-glide);
+  --ease-spring: var(--motion-spring);
+  --radius-card: var(--r-card);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -200,7 +432,7 @@
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --font-sans: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-serif: 'Literata', Georgia, 'Times New Roman', serif;
+  --font-serif: var(--serif-font);
   --shadow-soft: var(--shadow);
   --shadow-pop: var(--shadow-lg);
   --animate-fade-in: fade-in 160ms ease-out;
@@ -224,6 +456,137 @@
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+/*
+  The New look: switching views, the page that opens fades in with a 6px rise (the main pane only; nothing else
+  moves). Two copies of the same keyframes, so returning to the writing page (which stays mounted) can start it
+  again by switching between them.
+*/
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes view-in-again {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[data-look='new'] .view-in {
+  animation: view-in var(--dur-view) var(--motion-glide) both;
+}
+[data-look='new'] .view-in-again {
+  animation: view-in-again var(--dur-view) var(--motion-glide) both;
+}
+/* The New look's tick that draws itself (components/ui/DrawnTick.tsx), and a ring that pulses once round a scene's
+   dot as it is marked done (features/binder/StatusDot.tsx). */
+.drawn-tick path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.drawn-tick-draw path {
+  animation: tick-draw 320ms var(--motion-glide) 40ms both;
+}
+@keyframes tick-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+[data-look='new'] .status-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 2px solid var(--success);
+  animation: ring-pulse 600ms var(--motion-glide) both;
+  pointer-events: none;
+}
+@keyframes ring-pulse {
+  from {
+    opacity: 0.9;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+/* The New look's Stop button while a draft is written: amber, with a slow shimmer crossing it (a transform only). */
+[data-look='new'] .gen-running {
+  position: relative;
+  overflow: hidden;
+  border-color: transparent;
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--ai) 88%, white), var(--ai));
+  color: var(--ai-fg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), var(--elev-2);
+}
+[data-look='new'] .gen-running::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.32) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: gen-shimmer 1.6s linear infinite;
+  pointer-events: none;
+}
+@keyframes gen-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+/* The New look: page titles everywhere in Literata's display cut (each keeps its own size). */
+[data-look='new'] main h1:not(.scene-prose *) {
+  font-family: var(--heading-font);
+  letter-spacing: -0.015em;
+}
+/* The New look: a relationship on the map draws in as it appears (moving the "as of" slider). */
+[data-look='new'] .tie-line {
+  stroke-dasharray: 1;
+  animation: tick-draw 420ms var(--motion-glide) both;
+}
+/* The New look: a line filling from the left (the setup's steps). */
+@keyframes fill-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* The New look's toasts spring up into place. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* The New look's one-time note springs up from the corner. */
+@keyframes look-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 @keyframes slide-up {
@@ -316,6 +679,12 @@
 body {
   transition: background-color 200ms ease-out;
 }
+/* The New look in focus mode: the sheet becomes the whole window (no margin, corners or shadow). */
+:root[data-focus][data-look='new'] .scene-sheet {
+  margin-inline: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
 :root[data-focus] body,
 :root[data-focus] main {
   background-color: var(--page);
@@ -397,6 +766,14 @@ body {
   would have ended), and nothing scrolls smoothly. Motion driven from code checks features/look/motion.ts.
 */
 @media (prefers-reduced-motion: reduce) {
+  /* The New look's motion tokens too: every change is instant. */
+  :root,
+  [data-look='new'] {
+    --dur-press: 0ms;
+    --dur-quick: 0ms;
+    --dur-base: 0ms;
+    --dur-view: 0ms;
+  }
   *,
   *::before,
   *::after {
@@ -475,6 +852,13 @@ body {
     background-color 150ms ease-out,
     border-color 150ms ease-out,
     box-shadow 150ms ease-out;
+}
+[data-look='new'] .genre-tile {
+  transition:
+    background-color var(--dur-quick) ease-out,
+    border-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    transform var(--dur-quick) var(--motion-glide);
 }
 .genre-tile:hover {
   background-color: oklch(var(--genre-hover-l) var(--genre-hover-c) var(--hue));

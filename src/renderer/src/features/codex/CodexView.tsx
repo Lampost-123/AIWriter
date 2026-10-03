@@ -3,13 +3,15 @@
 // last appearance; a card opens the entry's page, and the codex keeps its filters and scroll while
 // Adam goes back and forth. Plot threads live on their own board, so they aren't here.
 
-import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react'
+import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import { Badge, Button, EmptyState, IconButton, Input, Notice, Select, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
+import { KIND_INK, KIND_ICONS } from '@/features/world/kindIcons'
 import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
@@ -97,6 +99,8 @@ export function CodexView(): React.JSX.Element {
   const [creating, setCreating] = useState(false)
 
   const all = useMemo(() => (cards ?? []).filter((c) => CODEX_KINDS.includes(c.kind)), [cards])
+  // The New look's kind pills: the kinds the world has.
+  const kindsHere = useMemo(() => CODEX_KINDS.filter((k) => all.some((c) => c.kind === k)), [all])
   const tags = useMemo(() => tagChoices(all), [all])
   const roles = useMemo(() => roleChoices(all), [all])
   const storyChoices = useMemo(
@@ -225,9 +229,9 @@ export function CodexView(): React.JSX.Element {
   } else {
     body = (
       <>
-        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} />
+        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} kinds={kindsHere} />
         {shown ? (
-          groups.map((g) => <Group key={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
+          groups.map((g) => <Group key={g.kind} kind={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
         ) : (
           <EmptyState
             icon={<Search size={20} />}
@@ -266,7 +270,7 @@ export function CodexView(): React.JSX.Element {
         <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
           <div className="min-w-[220px] flex-1">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">Codex</h1>
+              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg look-new:text-[30px]">Codex</h1>
               {all.length ? <span className="text-[13px] tabular-nums text-faint">{all.length}</span> : null}
             </div>
             <p className="mt-0.5 text-[13px] text-muted">Everything the AI remembers about your world.</p>
@@ -338,8 +342,11 @@ function Toolbar({
   roles,
   stories,
   search,
-  onClear
+  onClear,
+  kinds
 }: {
+  /** The kinds this world has, for the New look's pills. */
+  kinds: (typeof CODEX_KINDS)[number][]
   tags: Choice[]
   roles: Choice[]
   stories: Choice[]
@@ -349,6 +356,7 @@ function Toolbar({
 }): React.JSX.Element {
   const filters = useCodex((s) => s.filters)
   const setFilters = useCodex((s) => s.setFilters)
+  const isNew = useNewLook()
   return (
     <div data-codex-toolbar className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 bg-bg px-2 pb-3 pt-4">
       <div className="relative w-[220px]">
@@ -378,14 +386,40 @@ function Toolbar({
           </IconButton>
         ) : null}
       </div>
-      <FilterSelect
-        label="Kind"
-        value={filters.kind}
-        onChange={(kind) => setFilters({ kind: kind as typeof filters.kind })}
-        options={KIND_CHOICES}
-        none="All kinds"
-        width={140}
-      />
+      {isNew ? (
+        // The New look: the kinds as a row of pills, the chosen one filled.
+        <div role="group" aria-label="Kind" className="order-first flex w-full flex-wrap gap-1.5">
+          {[null, ...kinds].map((k) => {
+            const on = filters.kind === k
+            const Icon = k ? KIND_ICONS[k] : null
+            return (
+              <button
+                key={k ?? 'all'}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFilters({ kind: k as typeof filters.kind })}
+                className={cn(
+                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform] duration-(--dur-quick) active:scale-[0.96]',
+                  Icon && 'pl-2.5',
+                  on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+                )}
+              >
+                {Icon ? <Icon size={15} selected={on} /> : null}
+                {k ? KIND_LABELS[k].many : 'All'}
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <FilterSelect
+          label="Kind"
+          value={filters.kind}
+          onChange={(kind) => setFilters({ kind: kind as typeof filters.kind })}
+          options={KIND_CHOICES}
+          none="All kinds"
+          width={140}
+        />
+      )}
       {tags.length ? (
         <FilterSelect label="Tag" value={filters.tag} onChange={(tag) => setFilters({ tag })} options={tags} none="Any tag" />
       ) : null}
@@ -420,25 +454,44 @@ function Toolbar({
 }
 
 const Group = memo(function Group({
+  kind,
   label,
   cards,
   onOpen
 }: {
+  kind: CodexCard['kind']
   label: string
   cards: CodexCard[]
   onOpen: (c: CodexCard) => void
 }): React.JSX.Element {
   const id = useId()
+  const isNew = useNewLook()
+  const Icon = KIND_ICONS[kind]
   return (
     <section aria-labelledby={id} className="mt-4">
-      <h2 id={id} className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+      <h2
+        id={id}
+        className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint look-new:mb-3 look-new:mt-6 look-new:items-center look-new:font-heading look-new:text-[17px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg"
+      >
+        {isNew ? (
+          <span aria-hidden className={cn('grid h-7 w-7 place-items-center rounded-lg', KIND_INK[kind].tile)}>
+            <Icon size={16} />
+          </span>
+        ) : null}
         {label}
-        <span className="font-normal tabular-nums">{cards.length}</span>
+        <span className="font-normal tabular-nums look-new:font-sans look-new:text-[12.5px] look-new:text-faint">{cards.length}</span>
+        {/* The New look: a quiet rule runs on from the heading. */}
+        <span aria-hidden className="hidden h-px flex-1 bg-line look-new:block" />
       </h2>
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
         {cards.map((c) => (
           // Cards out of view skip layout and paint, so a codex of hundreds of entries opens quickly.
-          <li key={c.id} data-codex-item={c.id} className="[contain-intrinsic-size:auto_104px] [content-visibility:auto]">
+          // (The New look: a margin of room inside each, so a card lifted on hover keeps its shadow.)
+          <li
+            key={c.id}
+            data-codex-item={c.id}
+            className="[contain-intrinsic-size:auto_104px] [content-visibility:auto] look-new:-m-1.5 look-new:p-1.5 look-new:[contain-intrinsic-size:auto_116px]"
+          >
             <Card card={c} onOpen={onOpen} />
           </li>
         ))}
@@ -451,6 +504,8 @@ const MAX_TAGS = 3
 
 const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c: CodexCard) => void }): React.JSX.Element {
   const ids = { rule: useId(), role: useId(), about: useId() }
+  const isNew = useNewLook()
+  const ink = KIND_INK[card.kind]
   const name = displayName(card)
   const role = card.kind === 'character' && card.role ? card.role[0].toLocaleUpperCase() + card.role.slice(1) : ''
   const hardRule = card.kind === 'lore' && card.hardRule
@@ -464,12 +519,20 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
       aria-describedby={[hardRule && ids.rule, role && ids.role, ids.about].filter(Boolean).join(' ')}
       onClick={() => onOpen(card)}
       // The focus ring is drawn inside the card: the list item around it clips anything outside.
-      className="flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+      className={cn(
+        'flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+        // The New look: a card of paper with its kind's ink along the top; it lifts on hover and presses in.
+        'look-new:relative look-new:overflow-hidden look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:p-3.5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]',
+        'look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
+      )}
     >
+      {isNew ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} /> : null}
       <Portrait entry={card} size={48} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={cn('truncate text-[14px] font-semibold', card.name.trim() ? 'text-fg' : 'italic text-muted')}>{name}</span>
+          <span className={cn('truncate text-[14px] font-semibold look-new:font-heading look-new:text-[15px]', card.name.trim() ? 'text-fg' : 'italic text-muted')}>
+            {name}
+          </span>
           {hardRule ? (
             <span id={ids.rule} className="flex shrink-0 text-accent" title="Hard rule">
               <ShieldCheck size={13} aria-hidden />
@@ -477,7 +540,10 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
             </span>
           ) : null}
           {role ? (
-            <span id={ids.role} className="ml-auto shrink-0 pl-1 text-[11.5px] text-faint">
+            <span
+              id={ids.role}
+              className={cn('ml-auto shrink-0 pl-1 text-[11.5px] text-faint', isNew && cn('rounded-full px-2 py-px text-[11px] font-medium', ink.soft, ink.text))}
+            >
               {role}
             </span>
           ) : null}
@@ -496,7 +562,17 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
               {more > 0 ? <span className="self-center text-[11.5px] text-faint">+{more}</span> : null}
             </span>
           ) : null}
-          <span className="mt-1.5 line-clamp-2 text-[11.5px] text-faint">{appearsLine(card)}</span>
+          {isNew && card.scenes && card.last ? (
+            // The New look: where it appears, as small chips.
+            <span className="mt-2 flex flex-wrap gap-1.5">
+              <span className="rounded-md bg-surface px-1.5 py-px text-[11px] tabular-nums text-faint">
+                {card.scenes} {card.scenes === 1 ? 'scene' : 'scenes'}
+              </span>
+              <span className="max-w-full truncate rounded-md bg-surface px-1.5 py-px text-[11px] tabular-nums text-faint">last {card.last.label.replace(/^.*?(?=Ch \d)/, '')}</span>
+            </span>
+          ) : (
+            <span className="mt-1.5 line-clamp-2 text-[11.5px] text-faint">{appearsLine(card)}</span>
+          )}
         </span>
       </span>
     </button>

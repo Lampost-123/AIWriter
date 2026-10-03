@@ -3,7 +3,7 @@
 // done (Ctrl+Enter). It follows what Adam does rather than asking him to click Next, and goes away for good once
 // the scene is marked done or the guide is closed (Settings.firstRun is cleared).
 
-import { Check, X } from 'lucide-react'
+import { Check, X } from '@/components/ui/icons'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, IconButton, Kbd, toast } from '@/components/ui'
