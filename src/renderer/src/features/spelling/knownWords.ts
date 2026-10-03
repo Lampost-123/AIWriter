@@ -31,7 +31,15 @@ function marksIn(block: PMNode, pos: number): Decoration[] {
   if (!block.isTextblock || !known.size) return []
   // Inline nodes other than text are one character, as a space, so offsets match positions.
   const text = block.textBetween(0, block.content.size, undefined, ' ')
-  return knownWordRanges(text, known).map((r) => Decoration.inline(pos + 1 + r.from, pos + 1 + r.to, { class: KNOWN_WORD_CLASS }))
+  // Known words with only spaces between them are one mark, so a name of several words ("Old Harrow Gate") stays one
+  // piece of the page under its name underline rather than being split into a piece per word.
+  const runs: { from: number; to: number }[] = []
+  for (const r of knownWordRanges(text, known)) {
+    const last = runs[runs.length - 1]
+    if (last && /^[  ]+$/.test(text.slice(last.to, r.from))) last.to = r.to
+    else runs.push({ ...r })
+  }
+  return runs.map((r) => Decoration.inline(pos + 1 + r.from, pos + 1 + r.to, { class: KNOWN_WORD_CLASS }))
 }
 
 /** The marks for a whole page. */

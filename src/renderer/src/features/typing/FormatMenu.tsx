@@ -6,6 +6,7 @@ import { Bold, Check, ClipboardType, Italic, SeparatorHorizontal, TextQuote, Typ
 import { useRef, useState } from 'react'
 import { shortcutText, type ShortcutId } from '@/lib/shortcuts'
 import { ToolButton } from '@/features/editor/ToolButton'
+import { editorBridge } from '@/lib/editorBridge'
 import { insertSceneBreak, isFormatActive, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic, type FormatMark } from './format'
 
 const ITEM =
@@ -19,6 +20,9 @@ export function FormatMenu(): React.JSX.Element {
   const pick = (run: () => unknown) => () => {
     picked.current = true
     void run()
+    // TipTap's focus() waits a frame; take the keyboard back now so the next keys typed land in the page.
+    const view = editorBridge()?.editor?.view
+    if (view && !view.isDestroyed) view.focus()
   }
 
   const check = (mark: FormatMark, label: string, icon: React.ReactNode, shortcut: ShortcutId, run: () => unknown): React.JSX.Element => (
