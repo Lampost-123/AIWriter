@@ -1,0 +1,5 @@
+/* Writing by hand: a word that counts as correct (a name in the world, or one of Adam's own words) shows no
+   spelling underline. The page marks such words (knownWords.ts); Chromium draws its underline as ::spelling-error. */
+.scene-prose .aiwrite-known-word::spelling-error {
+  text-decoration: none;
+}

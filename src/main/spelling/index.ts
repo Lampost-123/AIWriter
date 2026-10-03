@@ -1,76 +1,44 @@
 // Writing by hand: spell check (main process side). Chromium's own checker does the checking, in the window
-// and in every box: this keeps it on or off (Settings › Editor), in the spelling that applies to the story
-// Adam is in (en-GB or en-US), and makes the open world's names count as correct.
+// and in every box: this keeps it on or off (Settings › Editor) and in the spelling that applies to the story
+// Adam is in (en-GB or en-US).
 //
-// The world's words go into the personal dictionary while the world is open and come out again when it closes
-// or its names change. Which words were put there for a world is kept in a small file (spelling-world-words.json
-// in the app's data folder), written before they are added, so after a crash the next start takes them out
-// again. A word already in the dictionary is Adam's own and is never added or taken out for a world. On Windows
-// and macOS Chromium also writes these words to the system's own dictionary, and takes them out again with them.
-import { app, session } from 'electron'
+// Nothing here ever adds words to (or takes words out of) Chromium's spelling dictionary: on Windows and macOS
+// that also writes them into the system's own dictionary, which every other program shares. Instead the
+// words that count as correct are AI Write's own: the open world's names, aliases and glossary terms, and Adam's
+// "Add to dictionary" words (spelling-words.json in the app's data folder, on this computer only). The page marks
+// them so Chromium's underline doesn't show on them (features/spelling/knownWords.ts), and the right-click menu
+// offers no spelling suggestions for them.
+import { session } from 'electron'
 import { join } from 'node:path'
 import type { ID, Spelling } from '@shared/types'
 import type { ContextWord, SpellingState, SynonymSense } from '@shared/contracts/spelling'
 import { effectiveStyle } from '@shared/style'
-import { languageFor, synonymsFor, worldWordChanges, worldWordsOf } from '@shared/spelling'
+import { isKnownWord, languageFor, synonymsFor, worldWordsOf } from '@shared/spelling'
 import * as repo from '../db/repo'
 import { liveEntryNames } from '../db/checksLive'
+import { emit } from '../events'
 import { userDataDir } from '../paths'
 import { getSettings, getWritingPrefs } from '../settings'
 import { readJson, writeFileAtomic } from '../util'
 import { maybeCurrentWorld, onWorldClosing, onWorldOpened } from '../world'
 import { thesaurus } from './thesaurus'
 
-const trackFile = (): string => join(userDataDir(), 'spelling-world-words.json')
+/** Adam's own words (Add to dictionary), kept for every world on this computer. */
+const wordsFile = (): string => join(userDataDir(), 'spelling-words.json')
 
 /** The story Adam is in, as the window last said. */
 let storyId: ID | null = null
-/** The world words in the personal dictionary now (added for the open world). */
-let tracked = new Set<string>()
 let language: string | null = null
-let current: SpellingState = { enabled: true, spelling: 'UK', language: 'en-GB', worldWords: 0 }
-/**
- * The personal dictionary is only read from disk once the window has loaded: a word added or taken out before then
- * is lost when it is read. So world words wait for this, and words left from a crash come out first.
- */
-let dictionaryReady: Promise<void> = Promise.resolve()
-
-/**
- * App tests run with their own data folder, but on Windows and macOS the system's dictionary is shared with
- * every other program: their worlds' names stay out of it unless a test asks (AIWRITE_SPELL_WORLD_WORDS=1).
- */
-const worldWordsAllowed = (): boolean => !process.env.AIWRITE_DATA_DIR || process.env.AIWRITE_SPELL_WORLD_WORDS === '1'
+let current: SpellingState = { enabled: true, spelling: 'UK', language: 'en-GB', worldWords: 0, knownWords: [] }
+/** The words that count as correct now (lower case): the open world's and Adam's own. */
+let known = new Set<string>()
 
 const ses = (): Electron.Session => session.defaultSession
 
-function saveTracked(words: Iterable<string>): void {
-  try {
-    writeFileAtomic(trackFile(), JSON.stringify([...words].sort(), null, 2))
-  } catch (e) {
-    console.warn('Could not note the world words added to the dictionary', e)
-  }
-}
-
-/** Takes every world word out of the personal dictionary (the world closed, or spell check went off). */
-function removeTracked(): void {
-  for (const w of tracked) {
-    try {
-      ses().removeWordFromSpellCheckerDictionary(w)
-    } catch {
-      /* already gone */
-    }
-  }
-  tracked = new Set()
-  saveTracked(tracked)
-}
-
-/** Every word in the personal dictionary, or null when it can't be read in time. */
-async function personalWords(): Promise<string[] | null> {
-  try {
-    return await Promise.race([ses().listWordsInSpellCheckerDictionary(), new Promise<null>((r) => setTimeout(() => r(null), 3000))])
-  } catch {
-    return null
-  }
+/** Adam's own words (Add to dictionary). */
+export function ownWords(): string[] {
+  const list = readJson<unknown>(wordsFile(), [])
+  return Array.isArray(list) ? list.filter((w): w is string => typeof w === 'string' && !!w.trim()) : []
 }
 
 /** The spelling for the story Adam is in: his preferences, then the world's style guide, then the story's. */
@@ -90,10 +58,10 @@ function spellingNow(): Spelling {
   return s === 'US' ? 'US' : 'UK'
 }
 
-/** The open world's words that count as correct (none with no world open or spell check off). */
-function desiredWords(enabled: boolean): string[] {
+/** The open world's names, aliases and glossary words (none with no world open). */
+function worldWords(): string[] {
   const w = maybeCurrentWorld()
-  if (!w || !enabled || !worldWordsAllowed()) return []
+  if (!w) return []
   try {
     return worldWordsOf(liveEntryNames(w.db))
   } catch (e) {
@@ -108,43 +76,18 @@ async function applyNow(): Promise<SpellingState> {
   const lang = languageFor(spelling)
   try {
     ses().setSpellCheckerEnabled(enabled)
-    if (lang !== language) {
-      ses().setSpellCheckerLanguages([lang])
-      language = lang
-    }
+    // Only when it changes: setting it again makes Chromium load its dictionary again, and words typed meanwhile
+    // go unchecked.
+    const now = ses().getSpellCheckerLanguages()
+    if (lang !== language && !(now.length === 1 && now[0] === lang)) ses().setSpellCheckerLanguages([lang])
+    language = lang
   } catch (e) {
     console.warn('Could not set the spell checker’s language', e)
   }
-  await dictionaryReady
-  const desired = desiredWords(enabled)
-  if (!desired.length) {
-    if (tracked.size) removeTracked()
-  } else {
-    const personal = await personalWords()
-    // Without knowing which words are Adam's own, nothing is added (it could be taken out later).
-    const changes = worldWordChanges(tracked, desired, personal ?? desired)
-    if (changes.add.length || changes.remove.length) {
-      // Noted first, so a crash part-way still lets the next start take them out.
-      saveTracked(new Set([...tracked, ...changes.add]))
-      for (const w of changes.add) {
-        try {
-          if (ses().addWordToSpellCheckerDictionary(w)) tracked.add(w)
-        } catch {
-          /* a word the dictionary won't take */
-        }
-      }
-      for (const w of changes.remove) {
-        try {
-          ses().removeWordFromSpellCheckerDictionary(w)
-        } catch {
-          /* already gone */
-        }
-        tracked.delete(w)
-      }
-      saveTracked(tracked)
-    }
-  }
-  current = { enabled, spelling, language: lang, worldWords: desired.length }
+  const world = worldWords()
+  const words = [...new Set([...world, ...ownWords()])].sort()
+  known = new Set(words.map((w) => w.toLocaleLowerCase()))
+  current = { enabled, spelling, language: lang, worldWords: world.length, knownWords: words }
   return current
 }
 
@@ -176,19 +119,25 @@ export function syncSpelling(story?: ID | null): Promise<SpellingState> {
 
 export const spellingState = (): SpellingState => current
 
+/** True when a word counts as correct here: one of the world's or one of Adam's own. */
+export const knownWord = (word: string): boolean => isKnownWord(known, word)
+
 /** Synonyms for a word in the spelling that applies now. */
 export function synonymsOf(word: string): SynonymSense[] {
   const t = thesaurus()
   return t ? synonymsFor(t, String(word ?? ''), current.spelling) : []
 }
 
-/**
- * Adam's own "Add to dictionary". A word that was only there for the world becomes his: it stays when the
- * world closes.
- */
-export function addToPersonalDictionary(word: string): void {
-  if (tracked.delete(word)) saveTracked(tracked)
-  else ses().addWordToSpellCheckerDictionary(word)
+/** Adam's own "Add to dictionary": into his own list (this computer only), and the page stops underlining it. */
+export async function addToPersonalDictionary(word: string): Promise<void> {
+  const clean = String(word ?? '').trim()
+  if (!clean) return
+  const list = ownWords()
+  if (!list.some((w) => w.toLocaleLowerCase() === clean.toLocaleLowerCase())) {
+    writeFileAtomic(wordsFile(), JSON.stringify([...list, clean].sort((a, b) => a.localeCompare(b)), null, 2))
+  }
+  const state = await syncSpelling()
+  emit('spelling:wordsChanged', { knownWords: state.knownWords })
 }
 
 // ---------- The word right-clicked in the page ----------
@@ -222,31 +171,14 @@ export async function contextWord(): Promise<ContextWord | null> {
 
 // ---------- Start-up ----------
 
-/** At start: world words left from a crash come out of the dictionary, and spell check follows the settings. */
+/** At start: spell check follows the settings, and the world's words follow the world that is open. */
 export function initSpelling(): void {
-  const windowLoaded = new Promise<void>((resolve) => {
-    app.once('browser-window-created', (_e, win) => win.webContents.once('did-finish-load', () => resolve()))
-    // Never wait for ever.
-    setTimeout(resolve, 30_000)
-  })
-  dictionaryReady = windowLoaded.then(async () => {
-    // Read from disk by now (listing waits until it is).
-    await personalWords()
-    const left = readJson<unknown>(trackFile(), [])
-    if (!Array.isArray(left) || !left.length) return
-    for (const w of left) {
-      if (typeof w !== 'string') continue
-      try {
-        ses().removeWordFromSpellCheckerDictionary(w)
-      } catch {
-        /* already gone */
-      }
-    }
-    saveTracked([])
-  })
+  // Offline, the spelling dictionary Chromium needs may not download: nothing is underlined until it can be
+  // (it tries again later). Nothing to tell Adam; typing is unaffected.
+  ses().on('spellcheck-dictionary-download-failure', (_e, lang) => console.warn(`The ${lang} spelling dictionary couldn't be downloaded.`))
   onWorldClosing(() => {
     storyId = null
-    removeTracked()
+    known = new Set()
   })
   onWorldOpened(() => void syncSpelling(null))
   void syncSpelling()

@@ -2,7 +2,9 @@
 //
 // Spell check uses Chromium's own checker in the main process (Electron's session): its language follows the
 // spelling that applies to the open story (Adam's writing preferences, then the world's style guide, then the
-// story's), and the open world's names, aliases and glossary terms count as correct while the world is open.
+// story's). The open world's names, aliases and glossary terms, and Adam's own "Add to dictionary" words, count as
+// correct: the page hides Chromium's underline on them, and the menu offers no spelling suggestions for them. They
+// are never put into Chromium's dictionary (on Windows and macOS that is the system's, shared with other programs).
 // The right-click menu is built in the main process (src/main/spelling/menu.ts); the word under the pointer is
 // worked out in the window, which tells main just before the menu opens (noteContextWord), and a synonym picked
 // there comes back to the window as an event to be put into the page by the editor.
@@ -34,6 +36,8 @@ export interface SpellingState {
   language: string
   /** How many of the open world's words count as correct. */
   worldWords: number
+  /** Every word that counts as correct now: the open world's and Adam's own (as written). */
+  knownWords: string[]
 }
 
 export interface SpellingApi {
@@ -53,4 +57,6 @@ export interface SpellingEvents {
   'spelling:replaceWord': { token: number; replacement: string }
   /** "Add to this world's glossary" was picked for a word in the right-click menu. */
   'spelling:addToGlossary': { word: string }
+  /** Adam added a word to his own list (Add to dictionary): the words that count as correct now. */
+  'spelling:wordsChanged': { knownWords: string[] }
 }

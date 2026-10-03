@@ -11,6 +11,7 @@ import { ReadAloudHighlight } from '@/features/readAloud/highlight'
 import { SpeakerLabels } from '@/features/readAloud/speakerLabels'
 import { LiveChecks } from '@/features/liveChecks/liveDecorations'
 import { PageSpelling } from '@/features/spelling/editorSpelling'
+import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
@@ -75,6 +76,7 @@ export function sceneExtensions(): AnyExtension[] {
     SpeakerLabels,
     LiveChecks,
     PageSpelling,
+    KnownWords,
     WordTally
   ]
 }

@@ -5,7 +5,7 @@ import type { SynonymSense } from '@shared/contracts/spelling'
 import { matchCase } from '@shared/spelling'
 import { emit } from '../events'
 import { maybeCurrentWorld } from '../world'
-import { addToPersonalDictionary, contextWord, spellingState, synonymsOf } from './index'
+import { addToPersonalDictionary, contextWord, knownWord, spellingState, synonymsOf } from './index'
 
 /** The Synonyms submenu: each sense under its part of speech (a label that can't be picked), between lines. */
 export function synonymItems(word: string, senses: SynonymSense[], pick: (replacement: string) => void): MenuItemConstructorOptions[] {
@@ -28,10 +28,11 @@ export async function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): 
   const spelling = spellingState()
   const noted = p.isEditable ? await contextWord() : null
 
-  if (p.misspelledWord && spelling.enabled) {
+  // A world's name or one of Adam's own words counts as correct: no suggestions for it.
+  if (p.misspelledWord && spelling.enabled && !knownWord(p.misspelledWord)) {
     for (const s of p.dictionarySuggestions.slice(0, 5)) items.push({ label: s, click: () => wc.replaceMisspelling(s) })
     if (p.dictionarySuggestions.length === 0) items.push({ label: 'No suggestions', enabled: false })
-    items.push({ label: 'Add to dictionary', click: () => addToPersonalDictionary(p.misspelledWord) })
+    items.push({ label: 'Add to dictionary', click: () => void addToPersonalDictionary(p.misspelledWord) })
     if (maybeCurrentWorld()) {
       const word = p.misspelledWord
       items.push({ label: 'Add to this world’s glossary', click: () => emit('spelling:addToGlossary', { word }) })

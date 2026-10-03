@@ -1,6 +1,6 @@
 // Writing by hand: the pure parts of spelling and synonyms (tested in spelling.test.ts). The main process
-// loads the thesaurus and talks to Chromium's spell checker (src/main/spelling/); the window puts a picked
-// synonym into the page (features/spelling/).
+// loads the thesaurus and sets Chromium's spell checker's language (src/main/spelling/); the window marks the words
+// that count as correct and puts a picked synonym into the page (features/spelling/).
 import type { Spelling } from './types'
 import type { PartOfSpeech, SynonymSense } from './contracts/spelling'
 
@@ -11,20 +11,16 @@ export const languageFor = (spelling: Spelling): 'en-GB' | 'en-US' => (spelling 
 
 // ---------- The world's words ----------
 
-/** The longest word Chromium's custom dictionary takes (in bytes); longer ones are refused. */
-const MAX_WORD_BYTES = 99
-
 /**
- * The words of the world's names and aliases that should count as correct while the world is open: every word
- * of every name ("Mara Vell" gives Mara and Vell), a hyphenated name whole and in parts (Ash-Kel, Ash, Kel),
- * and a capitalised word's possessive (Mara's). Words without a letter, or of one letter, are left out.
+ * The words of the world's names and aliases that count as correct while the world is open: every word of every
+ * name ("Mara Vell" gives Mara and Vell), and a hyphenated name whole and in parts (Ash-Kel, Ash, Kel). Words
+ * without a letter, or of one letter, are left out. (A possessive, "Mara's", counts too: see isKnownWord.)
  */
 export function worldWordsOf(entries: { name: string; aliases: string[] }[]): string[] {
   const out = new Set<string>()
   const add = (w: string): void => {
     const word = w.replace(/^['’-]+|['’-]+$/g, '')
-    if (word.length < 2 || !/\p{L}/u.test(word) || new TextEncoder().encode(word).length > MAX_WORD_BYTES) return
-    out.add(word)
+    if (word.length >= 2 && /\p{L}/u.test(word)) out.add(word)
   }
   for (const e of entries) {
     for (const name of [e.name, ...(e.aliases ?? [])]) {
@@ -33,8 +29,6 @@ export function worldWordsOf(entries: { name: string; aliases: string[] }[]): st
         if (!word) continue
         add(word)
         if (word.includes('-')) word.split('-').forEach(add)
-        const bare = word.replace(/^['-]+|['-]+$/g, '')
-        if (/^\p{Lu}/u.test(bare) && !/'s$/i.test(bare)) add(`${bare}'s`)
       }
     }
   }
@@ -42,19 +36,34 @@ export function worldWordsOf(entries: { name: string; aliases: string[] }[]): st
 }
 
 /**
- * What to change in the personal dictionary for the open world. `tracked`: the world words added earlier (and
- * not yet taken away); `desired`: the open world's words now (none when no world is open); `personal`: every
- * word in the dictionary now. A word already in the dictionary that wasn't added for a world is Adam's own: it
- * is never added (so never taken away) for a world.
+ * True when a word counts as correct: it is one of `known` (lower case), whatever its capitals, or its possessive
+ * ("Mara’s" when Mara is known).
  */
-export function worldWordChanges(tracked: Iterable<string>, desired: Iterable<string>, personal: Iterable<string>): { add: string[]; remove: string[] } {
-  const t = new Set(tracked)
-  const d = new Set(desired)
-  const p = new Set(personal)
-  return {
-    add: [...d].filter((w) => !t.has(w) && !p.has(w)),
-    remove: [...t].filter((w) => !d.has(w))
+export function isKnownWord(known: ReadonlySet<string>, word: string): boolean {
+  const w = String(word ?? '').trim().replace(/’/g, "'").toLocaleLowerCase()
+  if (!w) return false
+  return known.has(w) || (/'s$/.test(w) && known.has(w.slice(0, -2)))
+}
+
+/** Where known words are in a paragraph's text, as [from, to) offsets: whole words only. */
+export function knownWordRanges(text: string, known: ReadonlySet<string>): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  if (!known.size) return out
+  const re = /[\p{L}\p{M}][\p{L}\p{M}'’-]*/gu
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let word = m[0]
+    while (/['’-]$/.test(word)) word = word.slice(0, -1)
+    if (isKnownWord(known, word)) out.push({ from: m.index, to: m.index + word.length })
+    else if (word.includes('-')) {
+      // A hyphenated word: its known parts (Chromium checks each part of one).
+      let at = m.index
+      for (const part of word.split('-')) {
+        if (part && isKnownWord(known, part)) out.push({ from: at, to: at + part.length })
+        at += part.length + 1
+      }
+    }
   }
+  return out
 }
 
 // ---------- The thesaurus ----------
