@@ -58,11 +58,32 @@ const shownName = (label: string | undefined): string =>
 const paced = (h: LineDelivery): string =>
   [h.tone, h.pace === 'slow' ? 'slowly' : h.pace === 'fast' ? 'quickly' : ''].filter(Boolean).join(', ')
 
+/** Words in a note that slow the voice right down. */
+const SLOWING = /^(?:(?:very |quite )?slow(?:ly|er)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing)$/i
+
+/**
+ * The narrator never slows down (Adam, 2026-10-03: slowed narration is hard to listen to): a narration mark keeps its
+ * feeling and tone, but not "slow" or the words in its note that would slow the voice. A quickening is kept, and the
+ * characters' own lines keep their pace (a slow, halting line of dialogue says something about the speaker).
+ */
+export function narratorPace(how: LineDelivery | undefined): LineDelivery | undefined {
+  if (!how) return how
+  const tone = how.tone
+    ?.split(/\s*,\s*/)
+    .filter((w) => w && !SLOWING.test(w.replace(/[.]+$/, '').trim()))
+    .join(', ')
+  const out: LineDelivery = { ...how }
+  if (tone) out.tone = tone
+  else delete out.tone
+  if (out.pace === 'slow') delete out.pace
+  return out
+}
+
 /** The marks on each sentence of a paragraph's narration, in order. */
 function narrationNotes(para: string, marks: ParagraphMarks | undefined): NarrationNote[] {
   return spansIn(para)
     .filter((x) => !x.quote)
-    .map((x) => ({ at: x.at, end: x.end, how: savedFor(marks?.delivery, para.slice(x.at, x.end), true) }))
+    .map((x) => ({ at: x.at, end: x.end, how: narratorPace(savedFor(marks?.delivery, para.slice(x.at, x.end), true)) }))
 }
 
 /**

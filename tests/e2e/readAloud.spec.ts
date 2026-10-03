@@ -507,7 +507,9 @@ test('Mark who says what: the AI notes who says each line and how, and the bar s
     await expect
       .poll(async () => (await seen(win)).bar.some((b) => /^Mara · (quiet and wary|bright and quick)$/.test(b)), { timeout: 30_000 })
       .toBe(true)
-    expect((await seen(win)).bar).toContain('Narrator · hushed and steady, slowly')
+    // The narration keeps its feeling but never slows down (the fake marks it slow).
+    expect((await seen(win)).bar).toContain('Narrator · hushed and steady')
+    expect((await seen(win)).bar.some((b) => /^Narrator .*slow/.test(b))).toBe(false)
     // The note went to the voice with her line.
     const line = (await spoken(speech)).find((s) => s.input.startsWith('Get out of the rain'))
     expect(line?.delivery).toMatch(/^(quiet and wary|bright and quick)$/)
