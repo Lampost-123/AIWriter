@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { castOf, everyone } from './cast'
-import { planClips, type PlanInput, type PlanSettings } from './plan'
+import { EVEN_PACE, planClips, type PlanInput, type PlanSettings } from './plan'
 import { lexiconOf } from './say'
 import type { ParagraphMarks } from './types'
 
@@ -59,7 +59,7 @@ describe('how each clip is said', () => {
     const text = 'She had never been so sure.'
     const at = text.indexOf('never')
     const [clip] = plan(text, { paragraphs: [{ pid: 'p1', text, italics: [[at, at + 5]] }] }).clips
-    expect(clip.clip.delivery).toBe("Put clear emphasis on 'never'.")
+    expect(clip.clip.delivery).toBe(`Put clear emphasis on 'never'. ${EVEN_PACE}`)
     expect(clip.clip.input).toBe('She had never been so sure.')
   })
 
@@ -90,12 +90,12 @@ describe('how each clip is said', () => {
     const marks = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the door opened': { tone: 'hushed' } } }]])
     expect(plan('The door opened.', { settings: steady, marks }).clips[0].clip).toMatchObject({
       instruct: '',
-      delivery: 'hushed',
+      delivery: `hushed. ${EVEN_PACE}`,
       gentle: true
     })
   })
 
-  it('never slows the narrator, keeping the feeling; a character’s line keeps its pace', () => {
+  it('keeps the narrator at one pace, keeping the feeling; a character’s line keeps its pace', () => {
     const marks = new Map<string, ParagraphMarks>([
       [
         'p1',
@@ -109,11 +109,13 @@ describe('how each clip is said', () => {
     ])
     const [narration, line] = plan('The stairs went on. “Wait,” said Tomas.', { marks }).clips
     expect(narration).toMatchObject({ how: 'hushed, dread building' })
-    expect(narration.clip).toMatchObject({ delivery: 'hushed, dread building', pace: '' })
+    expect(narration.clip).toMatchObject({ delivery: `hushed, dread building. ${EVEN_PACE}`, pace: '' })
     expect(line.clip).toMatchObject({ delivery: 'wary', pace: 'slow' })
-    // A quickening is kept, and a note that was only about slowing leaves the narration plain.
-    const quick = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'urgent', pace: 'fast' } } }]])
-    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: 'urgent', pace: 'fast' })
+    // Nor speeds it up: the feeling is kept, the hurry isn't. A note that was only about pace leaves the narration plain.
+    const quick = new Map<string, ParagraphMarks>([
+      ['p1', { delivery: { '~the stairs went on': { tone: 'urgent, breathless, picking up speed', pace: 'fast' } } }]
+    ])
+    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: `urgent. ${EVEN_PACE}`, pace: '' })
     const slowOnly = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'slowly, measured', pace: 'slow' } } }]])
     expect(plan('The stairs went on.', { marks: slowOnly }).clips[0].clip).toMatchObject({ delivery: '', pace: '' })
   })
