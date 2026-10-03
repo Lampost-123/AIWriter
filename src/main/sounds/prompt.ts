@@ -109,8 +109,12 @@ const TYPES: Record<string, SoundKind | 'stop'> = {
   end: 'stop'
 }
 
-/** The AI's reply, read forgivingly: a JSON object with "sounds", or a bare list. Anything unreadable is left out. */
-export function parseSounds(reply: string): SaidSound[] {
+/**
+ * The AI's reply, read forgivingly: a JSON object with "sounds", or a bare list; a sound that can't be used is left
+ * out. Null when the reply isn't one at all (cut off, empty, prose): the part is asked about again later, not kept as
+ * having no sounds.
+ */
+export function parseSounds(reply: string): SaidSound[] | null {
   const text = reply.replace(/```(?:json)?/gi, '')
   const tryParse = (s: string): unknown => {
     try {
@@ -124,7 +128,8 @@ export function parseSounds(reply: string): SaidSound[] {
     const list = tryParse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1))
     if (Array.isArray(list)) parsed = list
   }
-  const items = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { sounds?: unknown })?.sounds) ? (parsed as { sounds: unknown[] }).sounds : []
+  const items = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { sounds?: unknown })?.sounds) ? (parsed as { sounds: unknown[] }).sounds : null
+  if (!items) return null
   const out: SaidSound[] = []
   for (const item of items.slice(0, 200)) {
     if (!item || typeof item !== 'object') continue

@@ -65,7 +65,11 @@ describe('reading the AI’s reply', () => {
         })
       )
     ).toEqual([])
-    expect(parseSounds('I could not find any sounds.')).toEqual([])
+    // Not a reply at all (prose, cut off, empty): null, so the part is asked about again rather than kept as silent.
+    expect(parseSounds('I could not find any sounds.')).toBeNull()
+    expect(parseSounds('{"sounds":[{"type":"effect","sound":"a door')).toBeNull()
+    expect(parseSounds('')).toBeNull()
+    expect(parseSounds('{"result": "none"}')).toBeNull()
     expect(parseSounds('{"sounds": []}')).toEqual([])
   })
 })
@@ -104,7 +108,7 @@ describe('the fake provider’s sounds', () => {
       { pid: 'd', text: 'They went indoors at last.', owned: false }
     ]
     const user = soundsUser({ before: '', playing: null, library: [], paragraphs })
-    const said = parseSounds(readAloudReply(SOUNDS_PROMPT, [{ role: 'user', content: user }])!)
+    const said = parseSounds(readAloudReply(SOUNDS_PROMPT, [{ role: 'user', content: user }])!)!
     expect(said.map((s) => [s.type, s.sound, s.p, s.word])).toEqual([
       ['ambience', SOUND_RAIN, 1, 'rain'],
       ['effect', SOUND_DOOR, 2, 'slammed'],
@@ -112,6 +116,6 @@ describe('the fake provider’s sounds', () => {
     ])
     // Rain already playing isn't started again.
     const playing = soundsUser({ before: '', playing: SOUND_RAIN, library: [], paragraphs })
-    expect(parseSounds(readAloudReply(SOUNDS_PROMPT, [{ role: 'user', content: playing }])!).map((s) => s.type)).toEqual(['effect', 'stop'])
+    expect(parseSounds(readAloudReply(SOUNDS_PROMPT, [{ role: 'user', content: playing }])!)!.map((s) => s.type)).toEqual(['effect', 'stop'])
   })
 })

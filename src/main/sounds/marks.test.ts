@@ -234,16 +234,84 @@ describe('marking sounds as reading goes', () => {
     expect(h.asked).toHaveLength(2)
   })
 
-  it('drops the reply when the reading stops', async () => {
+  it('drops the reply when the reading stops, and says the paragraphs are free', async () => {
     let reply: (v: { text: string | null; error: string | null }) => void = () => undefined
     const h = harness(() => new Promise((r) => (reply = r)))
     h.marker.note(scene())
     h.marker.stop('w1', 's1')
     expect(h.stops()).toBe(1)
+    expect(h.marker.busyIn('w1', 's1').size).toBe(0)
+    expect(h.done).toEqual([['p1', 'p2', 'p3', 'p4']])
     reply({ text: '{"sounds":[]}', error: null })
     await new Promise((r) => setTimeout(r, 0))
-    expect(h.done).toEqual([])
+    expect(h.done).toHaveLength(1)
     expect(h.store.load('w1', 's1')).toEqual({})
+  })
+
+  it('goes on marking in the background (Find sounds, a new draft) when a reading stops', async () => {
+    let reply: (v: { text: string | null; error: string | null }) => void = () => undefined
+    const h = harness(() => new Promise((r) => (reply = r)))
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    h.marker.stop('w1', 's1')
+    expect(h.stops()).toBe(0)
+    expect(h.marker.busyIn('w1', 's1')).toEqual(new Set(['p3']))
+    reply({ text: '{"sounds":[]}', error: null })
+    await vi.waitFor(() => expect(h.done).toEqual([['p3']]))
+    expect(h.store.current('w1', 's1', story).get('p3')).toEqual([])
+  })
+
+  it('doesn’t keep a reply it can’t read as "no sounds", and asks again later', async () => {
+    const h = harness(async () => ({ text: '{"sounds":[{"type":"effect","sound":"a do', error: null }))
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    await vi.waitFor(() => expect(h.marker.busyIn('w1', 's1').size).toBe(0))
+    expect(h.store.load('w1', 's1')).toEqual({})
+    expect(h.done).toEqual([])
+    // Not asked again at once...
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    expect(h.asked).toHaveLength(1)
+    // ...but Find sounds asks again.
+    h.marker.forgive('w1', 's1')
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    expect(h.asked).toHaveLength(2)
+  })
+
+  it('takes over a paragraph being marked for words it no longer has, and keeps only the newer marks', async () => {
+    const replies: ((v: { text: string | null; error: string | null }) => void)[] = []
+    const h = harness(() => new Promise((r) => replies.push(r)))
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    const edited = story.map((p) => (p.pid === 'p3' ? { ...p, text: 'At last the gate slammed shut outside.' } : p))
+    // Same words: left to the call already marking it.
+    h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
+    expect(h.asked).toHaveLength(1)
+    // New words: taken over, and the old call (with nothing left of its own) stopped.
+    h.marker.noteAll(scene({ run: [], paragraphs: edited }), new Set(['p3']))
+    expect(h.asked).toHaveLength(2)
+    expect(h.stops()).toBe(1)
+    replies[1]!(fakeAnswer(h.asked[1]!))
+    await vi.waitFor(() => expect(h.done).toHaveLength(1))
+    // The old call's reply, for the old words, comes in late: dropped, and the newer marks stay.
+    replies[0]!(fakeAnswer(h.asked[0]!))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.done).toHaveLength(1)
+    expect(h.store.current('w1', 's1', edited).get('p3')![0]!.at.words).toBe('slammed')
+  })
+
+  it('never lets a reply about older words drop marks kept meanwhile for newer ones', async () => {
+    const replies: ((v: { text: string | null; error: string | null }) => void)[] = []
+    const h = harness(() => new Promise((r) => replies.push(r)))
+    // A reading asks about p1 to p4 with the old words of p4...
+    h.marker.note(scene())
+    // ...p4 is rewritten and marked in the background meanwhile (taken over from the reading's call).
+    const edited = story.map((p) => (p.pid === 'p4' ? { ...p, text: 'She ran down, and the door slammed again.' } : p))
+    h.marker.noteAll(scene({ run: [], paragraphs: edited }), new Set(['p4']))
+    replies[1]!(fakeAnswer(h.asked[1]!))
+    await vi.waitFor(() => expect(h.done).toEqual([['p4']]))
+    // The reading's reply comes in last: its marks for p1 to p3 are kept, and p4's newer ones stay.
+    replies[0]!(fakeAnswer(h.asked[0]!))
+    await vi.waitFor(() => expect(h.done).toHaveLength(2))
+    const kept = h.store.current('w1', 's1', edited)
+    expect(kept.get('p4')![0]).toMatchObject({ description: SOUND_DOOR, at: { words: 'slammed' } })
+    expect([...kept.keys()].sort()).toEqual(['p1', 'p2', 'p3', 'p4'])
   })
 
   it('says why when the AI can’t be asked', () => {
@@ -263,6 +331,11 @@ describe('marking sounds as reading goes', () => {
     h.marker.noteAll(scene({ run: [] }), new Set(['p3']))
     await vi.waitFor(() => expect(h.done).toHaveLength(1))
     expect(h.done[0]).toEqual(['p3'])
-    expect(parseSounds(readAloudReply(h.asked[0]!.system, [{ role: 'user', content: h.asked[0]!.user }])!)[0]).toMatchObject({ sound: SOUND_DOOR, p: 1 })
+    expect(parseSounds(readAloudReply(h.asked[0]!.system, [{ role: 'user', content: h.asked[0]!.user }])!)![0]).toMatchObject({ sound: SOUND_DOOR, p: 1 })
   })
 })
+
+/** The fake provider's answer to a call the SoundMarker made. */
+function fakeAnswer(call: Parameters<Ask>[0]): { text: string; error: null } {
+  return { text: readAloudReply(call.system, [{ role: 'user', content: call.user }])!, error: null }
+}

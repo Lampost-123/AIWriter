@@ -24,7 +24,17 @@ export interface MakeRequest {
 /** A sound made; or why not, and whether to wait and ask again (`hold`: the server can't now) rather than count a failure. */
 export type MakeResult =
   | { ok: true; wav: Buffer; seconds: number; score: number | null }
-  | { ok: false; hold: boolean; error: string; waitMs?: number }
+  | {
+      ok: false
+      hold: boolean
+      error: string
+      /** How long to wait first, for a hold. */
+      waitMs?: number
+      /** It will never be made (the server turned the description down): given up on at once. */
+      final?: boolean
+      /** The server can't make any sound (not downloaded there, won't load): the whole queue rests a while. */
+      serverWide?: boolean
+    }
 
 export interface MakerDeps {
   library: Pick<SoundLibrary, 'get' | 'setState' | 'failed' | 'saveClip'>
@@ -48,8 +58,13 @@ export const TAKES = 3
 export const RETRY_MS = 10 * 60_000
 /** ...and given up on after this many failures. */
 export const GIVE_UP_AFTER = 3
-/** While it waits (off, not ready, a reading playing), it looks again this often. */
-export const HOLD_CHECK_MS = 20_000
+/** While it waits (not ready, a reading playing), it looks again this often (the server is asked every 10 s). */
+export const HOLD_CHECK_MS = 10_000
+/** A sound the server can't make now waits this long, doubling each time, up to MAX_HOLD_MS. */
+export const HOLD_MS = 15_000
+export const MAX_HOLD_MS = 5 * 60_000
+/** After the server failed to make any sound, the queue rests this long, doubling each time, up to RETRY_MS. */
+export const PAUSE_MS = 60_000
 /** A reading counts as playing this long after it last planned, unless it stopped (the window says when it stops). */
 export const PLAYING_MS = 120_000
 
@@ -61,8 +76,10 @@ interface Wanted {
   rank: number
   /** The reading it was ranked for ('<world>:<scene>'); null in the background. */
   scope: string | null
-  /** Not before this time (after a failure). */
+  /** Not before this time (after a failure, or while the server couldn't make it). */
   notBefore: number
+  /** Times the server said it couldn't make it now, in a row. */
+  holds: number
   seq: number
 }
 
@@ -75,6 +92,9 @@ export class SoundMaker {
   private dirty = false
   private timer: ReturnType<typeof setTimeout> | null = null
   private playingUntil = 0
+  /** The server failed to make any sound this many times in a row; the queue rests until this time. */
+  private serverFailures = 0
+  private pausedUntil = 0
 
   constructor(private readonly deps: MakerDeps) {}
 
@@ -95,7 +115,7 @@ export class SoundMaker {
       const w = this.queue.get(id)
       if (w && w.rank <= i) return
       if (w) Object.assign(w, { rank: i, scope })
-      else this.queue.set(id, { rank: i, scope, notBefore: 0, seq: ++this.seq })
+      else this.queue.set(id, { rank: i, scope, notBefore: 0, holds: 0, seq: ++this.seq })
     })
     this.kick()
   }
@@ -105,7 +125,7 @@ export class SoundMaker {
     for (const id of ids) {
       if (this.queue.has(id)) continue
       const seq = ++this.seq
-      this.queue.set(id, { rank: BACKGROUND_RANK + seq, scope: null, notBefore: 0, seq })
+      this.queue.set(id, { rank: BACKGROUND_RANK + seq, scope: null, notBefore: 0, holds: 0, seq })
     }
     this.kick()
   }
@@ -113,8 +133,8 @@ export class SoundMaker {
   /** Listen now: before everything, and at once even after it failed. */
   first(id: string): void {
     const w = this.queue.get(id)
-    if (w) Object.assign(w, { rank: NOW_RANK, notBefore: 0 })
-    else this.queue.set(id, { rank: NOW_RANK, scope: null, notBefore: 0, seq: ++this.seq })
+    if (w) Object.assign(w, { rank: NOW_RANK, notBefore: 0, holds: 0 })
+    else this.queue.set(id, { rank: NOW_RANK, scope: null, notBefore: 0, holds: 0, seq: ++this.seq })
     this.kick()
   }
 
@@ -199,6 +219,10 @@ export class SoundMaker {
 
   private async loop(): Promise<void> {
     for (;;) {
+      // Off: nothing is made, and nothing is looked at again until something asks (a reading, the Sounds view).
+      if (!this.deps.enabled()) return
+      // The server failed to make sounds at all lately (not downloaded there, can't load): it gets a rest first.
+      if (this.pausedUntil > this.now()) return this.later(this.pausedUntil - this.now())
       const id = this.next()
       if (!id) {
         // Only sounds waiting after a failure: looked at again when the first may be tried.
@@ -217,10 +241,10 @@ export class SoundMaker {
         this.queue.delete(id)
         continue
       }
-      if (!this.deps.enabled() || !(await this.deps.ready())) return this.later(HOLD_CHECK_MS)
+      if (!(await this.deps.ready())) return this.later(HOLD_CHECK_MS)
       if (this.playingUntil > this.now() && !(await this.deps.beside())) return this.later(HOLD_CHECK_MS)
-      // Asked for again meanwhile, something nearer wanted, or the library cleared: looked at afresh.
-      if (this.deps.library.get(id) !== e || this.next() !== id) continue
+      // Turned off, asked for again meanwhile, something nearer wanted, or the library cleared: looked at afresh.
+      if (!this.deps.enabled() || this.deps.library.get(id) !== e || this.next() !== id) continue
       this.making = id
       this.deps.library.setState(id, 'making')
       this.deps.changed()
@@ -231,7 +255,9 @@ export class SoundMaker {
         res = { ok: false, hold: false, error: err instanceof Error ? err.message : String(err) }
       }
       this.making = null
+      const w = this.queue.get(id)
       if (res.ok) {
+        this.serverFailures = 0
         const kept = await this.deps.library.saveClip(id, res.wav, res.seconds, res.score).catch((err: unknown) => {
           console.warn('[sounds] could not keep a sound', err)
           return false
@@ -242,16 +268,26 @@ export class SoundMaker {
         continue
       }
       if (res.hold) {
-        // The server can't make sounds now: nothing is held against this one.
+        // The server can't make it now (not answering, or the voices need the graphics card): nothing is held against
+        // it, but it waits a while, longer each time, so the others get a turn.
         this.deps.library.setState(id, 'waiting')
+        if (w) {
+          w.holds++
+          w.notBefore = this.now() + Math.min(MAX_HOLD_MS, (res.waitMs ?? HOLD_MS) * 2 ** (w.holds - 1))
+        }
         this.deps.changed()
-        return this.later(res.waitMs ?? HOLD_CHECK_MS)
+        continue
       }
       console.warn(`[sounds] a sound couldn't be made: ${res.error.slice(0, 300)}`)
+      if (res.serverWide) {
+        // Not this sound's fault (the sound effects aren't downloaded there, or won't load): the queue rests, longer
+        // each time, so a broken install doesn't load the model again and again.
+        this.serverFailures++
+        this.pausedUntil = this.now() + Math.min(RETRY_MS, PAUSE_MS * 2 ** (this.serverFailures - 1))
+      }
       const now = this.deps.library.get(id)
-      const giveUp = (now?.failures ?? 0) + 1 >= GIVE_UP_AFTER
+      const giveUp = !!res.final || (now?.failures ?? 0) + 1 >= GIVE_UP_AFTER
       this.deps.library.failed(id, giveUp)
-      const w = this.queue.get(id)
       if (giveUp || !w) {
         this.queue.delete(id)
         this.deps.made(id, false)
@@ -269,27 +305,43 @@ export class SoundMaker {
 /** Waits this long for a sound: the first one loads the model (a minute or two at worst), then three takes are made. */
 export const GENERATE_TIMEOUT_MS = 300_000
 
-/** Asks the speech server for a sound. Never throws. */
-export async function generateSound(fetcher: Fetcher, req: MakeRequest): Promise<MakeResult> {
+/**
+ * Asks the speech server for a sound. Never throws. `answering`: whether the server answered its last health check,
+ * so a request cut off while it was making the sound counts as a failure, and one it never answered only waits.
+ */
+export async function generateSound(
+  fetcher: Fetcher,
+  req: MakeRequest,
+  answering: () => boolean = () => false,
+  timeoutMs = GENERATE_TIMEOUT_MS
+): Promise<MakeResult> {
+  const timeout = AbortSignal.timeout(timeoutMs)
   let res: Response
   try {
     res = await fetcher('/sounds/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
-      timeoutMs: GENERATE_TIMEOUT_MS
+      signal: timeout,
+      // Its own timeout says when the time ran out; this one only backs it up.
+      timeoutMs: timeoutMs + 30_000
     })
   } catch (e) {
-    // Not answering (it is starting, or stopped), or the time ran out: tried again later, not counted.
-    return { ok: false, hold: true, error: e instanceof Error ? e.message : String(e) }
+    const error = e instanceof Error ? e.message : String(e)
+    // The time ran out while it was making the sound: a failure (asked again later, and given up on after a few).
+    if (timeout.aborted) return { ok: false, hold: false, error: `no sound after ${Math.round(timeoutMs / 1000)} s` }
+    // Not answering at all (stopped, starting): it waits. Cut off while the server was up: a failure.
+    return answering() ? { ok: false, hold: false, error: `cut off: ${error}` } : { ok: false, hold: true, error }
   }
   if (!res.ok) {
     const detail = (await res.text().catch(() => '')).slice(0, 300)
-    // No sound model (or an older server without sounds), or it is busy: wait, and don't count it against the sound.
-    if (res.status === 503 || res.status === 404 || res.status === 409 || res.status === 429) {
-      return { ok: false, hold: true, error: `${res.status} ${detail}`, waitMs: 60_000 }
-    }
-    return { ok: false, hold: false, error: `${res.status} ${detail}` }
+    const error = `${res.status} ${detail}`
+    // Try again later: the voices are reading, it was interrupted for them, or it ran out of memory.
+    if (res.status === 503 && res.headers.get('x-sound-retry') === '1') return { ok: false, hold: true, error, waitMs: HOLD_MS }
+    // A description it won't make: given up on at once.
+    if (res.status === 400 || res.status === 413 || res.status === 422) return { ok: false, hold: false, final: true, error }
+    // Not downloaded there, can't load, failed, or a server without sounds: counted, and the queue rests.
+    return { ok: false, hold: false, serverWide: res.status === 503 || res.status === 404, error }
   }
   let wav: Buffer
   try {
@@ -306,31 +358,5 @@ export async function generateSound(fetcher: Fetcher, req: MakeRequest): Promise
     wav,
     seconds: Number.isFinite(said) && said > 0 ? said : length,
     score: res.headers.has('x-sound-score') && Number.isFinite(score) ? score : null
-  }
-}
-
-/** How long the server's answer on sounds beside the voices is trusted. */
-export const BESIDE_MS = 5000
-
-/**
- * Whether the server can make sounds while it speaks, from `/v1/health` (`sounds.beside`), asked at most every few
- * seconds. Missing or unreadable: it can.
- */
-export function besideVoices(fetcher: Fetcher, now: () => number = Date.now): () => Promise<boolean> {
-  let known: { at: number; beside: boolean } | null = null
-  return async () => {
-    if (known && now() - known.at < BESIDE_MS) return known.beside
-    let beside = true
-    try {
-      const res = await fetcher('/health', { timeoutMs: 3000 })
-      if (res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { sounds?: { beside?: unknown } }
-        beside = body.sounds?.beside !== false
-      }
-    } catch {
-      /* not answering: making waits for it anyway */
-    }
-    known = { at: now(), beside }
-    return beside
   }
 }

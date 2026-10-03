@@ -160,6 +160,32 @@ describe('the sound library', () => {
     expect(await lib.audio('../x')).toBeNull()
   })
 
+  it('brings the cleared sounds back even when a sound was wanted (and its folder made again) since', async () => {
+    const lib = new SoundLibrary(dir)
+    const s = lib.want('effect', 'door slam')!
+    await lib.saveClip(s.id, silentWav(1), 1)
+    await lib.clear()
+    // Something is wanted meanwhile: the library's folder is made again.
+    const since = lib.want('effect', 'a bell tolling')!
+    await lib.saveClip(since.id, silentWav(1), 1)
+    expect(existsSync(dir)).toBe(true)
+    expect(await lib.undoClear()).toBe(true)
+    expect(lib.get(s.id)?.state).toBe('ready')
+    expect((await lib.audio(s.id))?.length).toBeGreaterThan(44)
+    // What was made since is let go, and nothing else is left beside the library.
+    expect(lib.get(since.id)).toBeNull()
+    expect(new SoundLibrary(dir).get(s.id)?.state).toBe('ready')
+    await vi.waitFor(() => expect(readdirSync(root)).toEqual(['sounds']))
+    // A sound wanted while Undo runs lands in the library brought back.
+    await lib.clear()
+    const undo = lib.undoClear()
+    const during = lib.want('effect', 'a dog barking')!
+    expect(await undo).toBe(true)
+    const after = new SoundLibrary(dir)
+    expect(after.get(s.id)?.state).toBe('ready')
+    expect(after.get(during.id)?.state).toBe('waiting')
+  })
+
   it('is cleared aside for Undo, then deleted', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const lib = new SoundLibrary(dir)

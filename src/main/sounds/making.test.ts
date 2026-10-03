@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SoundLibrary } from './library'
 import {
-  besideVoices,
-  BESIDE_MS,
   generateSound,
   GIVE_UP_AFTER,
+  HOLD_MS,
+  PAUSE_MS,
   PLAYING_MS,
   RETRY_MS,
   SoundMaker,
@@ -150,16 +150,72 @@ describe('making the library’s sounds', () => {
     expect(h.asked).toHaveLength(GIVE_UP_AFTER + 1)
   })
 
-  it('doesn’t count it against a sound when the server can’t make sounds now', async () => {
+  it('doesn’t count it against a sound when the server can’t make it now, and gives the others a turn', async () => {
     let busy = true
-    const h = harness(() => (busy ? { ok: false, hold: true, error: '503' } : { ok: true, wav: silentWav(1), seconds: 1, score: null }))
+    const h = harness((req) =>
+      busy && req.prompt === 'a bell' ? { ok: false, hold: true, error: '503 retry' } : { ok: true, wav: silentWav(1), seconds: 1, score: null }
+    )
+    const [a, b] = [h.want('a bell'), h.want('a gong')]
+    h.maker.forReading('w:s', [a, b])
+    await h.maker.run()
+    // The bell waits (not counted), and the gong is made meanwhile rather than the bell being asked for again and again.
+    expect(h.lib.get(a)).toMatchObject({ state: 'waiting', failures: 0 })
+    expect(h.lib.get(b)?.state).toBe('ready')
+    expect(h.asked.map((r) => r.prompt)).toEqual(['a bell', 'a gong'])
+    await h.maker.run()
+    expect(h.asked).toHaveLength(2)
+    // It waits longer each time.
+    h.later(HOLD_MS + 1)
+    await h.maker.run()
+    expect(h.asked).toHaveLength(3)
+    h.later(HOLD_MS + 1)
+    await h.maker.run()
+    expect(h.asked).toHaveLength(3)
+    busy = false
+    h.later(HOLD_MS + 1)
+    await h.maker.run()
+    expect(h.lib.get(a)?.state).toBe('ready')
+  })
+
+  it('gives up at once on a description the server turns down', async () => {
+    const h = harness(() => ({ ok: false, hold: false, final: true, error: '400 too long' }))
     const a = h.want('a bell')
     h.maker.background([a])
     await h.maker.run()
-    expect(h.lib.get(a)).toMatchObject({ state: 'waiting', failures: 0 })
-    busy = false
+    expect(h.lib.get(a)).toMatchObject({ state: 'failed', failures: 1 })
+    expect(h.made).toEqual([[a, false]])
+  })
+
+  it('rests the whole queue, longer each time, when the server can’t make any sound', async () => {
+    const h = harness(() => ({ ok: false, hold: false, serverWide: true, error: '503 not downloaded' }))
+    const ids = [h.want('a bell'), h.want('a gong'), h.want('a horn')]
+    h.maker.background(ids)
     await h.maker.run()
-    expect(h.lib.get(a)?.state).toBe('ready')
+    // One try, not one per sound: the model isn't loaded again and again.
+    expect(h.asked).toHaveLength(1)
+    h.later(PAUSE_MS + 1)
+    await h.maker.run()
+    expect(h.asked).toHaveLength(2)
+    // Twice as long now.
+    h.later(PAUSE_MS + 1)
+    await h.maker.run()
+    expect(h.asked).toHaveLength(2)
+    h.later(PAUSE_MS)
+    await h.maker.run()
+    expect(h.asked).toHaveLength(3)
+  })
+
+  it('isn’t started, and doesn’t look again, while sound effects are off', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness()
+      h.state.enabled = false
+      h.maker.background([h.want('a bell')])
+      await h.maker.run()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('skips sounds already made or no longer in the library', async () => {
@@ -201,32 +257,34 @@ describe('asking the speech server for a sound', () => {
     expect(plain).toMatchObject({ ok: true, seconds: 2, score: null })
   })
 
-  it('waits when the server can’t now, and fails for a bad answer', async () => {
+  it('waits when the server says to try later, and counts every other failure', async () => {
     const req: MakeRequest = { prompt: 'x', kind: 'effect', seconds: 2, takes: 3 }
-    expect(await generateSound(async () => reply(503, 'no sound model'), req)).toMatchObject({ ok: false, hold: true })
-    expect(
-      await generateSound(async () => {
-        throw new Error('not running')
-      }, req)
-    ).toMatchObject({ ok: false, hold: true })
+    // The voices are reading, it was interrupted for them, or it ran out of memory: try later.
+    expect(await generateSound(async () => reply(503, '{"detail":"Breeze is reading"}', { 'x-sound-retry': '1' }), req)).toMatchObject({
+      ok: false,
+      hold: true
+    })
+    // Not downloaded there, or it can't load: counted, and the queue rests.
+    expect(await generateSound(async () => reply(503, 'Not downloaded yet.'), req)).toMatchObject({ ok: false, hold: false, serverWide: true })
+    // A description it won't make: given up on at once.
+    expect(await generateSound(async () => reply(400, 'Say what the sound is.'), req)).toMatchObject({ ok: false, hold: false, final: true })
     expect(await generateSound(async () => reply(500, 'boom'), req)).toMatchObject({ ok: false, hold: false })
     expect(await generateSound(async () => reply(200, 'not a wav'), req)).toMatchObject({ ok: false, hold: false })
   })
 
-  it('reads whether sounds can be made beside the voices from /health, a few seconds at a time', async () => {
-    let now = 0
-    let beside: unknown = false
-    const fetcher = vi.fn(async (_path: string, _init: RequestInit) => reply(200, JSON.stringify({ ok: true, sounds: { beside } })))
-    const ask = besideVoices(fetcher, () => now)
-    expect(await ask()).toBe(false)
-    beside = true
-    expect(await ask()).toBe(false)
-    now += BESIDE_MS + 1
-    expect(await ask()).toBe(true)
-    expect(fetcher).toHaveBeenCalledTimes(2)
-    expect(fetcher.mock.calls[0]![0]).toBe('/health')
-    // Not said: it can.
-    const older = besideVoices(async () => reply(200, JSON.stringify({ ok: true })))
-    expect(await older()).toBe(true)
+  it('waits for a server that isn’t answering, but counts one cut off while it was making the sound', async () => {
+    const req: MakeRequest = { prompt: 'x', kind: 'effect', seconds: 2, takes: 3 }
+    const refused = async (): Promise<Response> => {
+      throw new Error('not running')
+    }
+    expect(await generateSound(refused, req, () => false)).toMatchObject({ ok: false, hold: true })
+    expect(await generateSound(refused, req, () => true)).toMatchObject({ ok: false, hold: false })
+  })
+
+  it('counts running out of time as a failure, not a wait', async () => {
+    const req: MakeRequest = { prompt: 'x', kind: 'effect', seconds: 2, takes: 3 }
+    const hangs = (_path: string, init: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
+    expect(await generateSound(hangs, req, () => false, 20)).toMatchObject({ ok: false, hold: false, error: expect.stringContaining('no sound') })
   })
 })

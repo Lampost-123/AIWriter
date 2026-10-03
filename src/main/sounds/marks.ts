@@ -256,9 +256,18 @@ export function soundParts(paragraphs: readonly Paragraph[], wanted: ReadonlySet
  * playing), and nothing asked again soon after it failed.
  */
 export class SoundMarker {
+  /** The paragraphs of each scene being marked now, each with the call marking it. */
   private busy = new Map<string, Map<string, number>>()
-  private live = new Map<number, { key: string; stop: () => void }>()
+  /** The hash of the words each busy paragraph is being marked for, so a call for words since changed can be taken over. */
+  private busyHash = new Map<string, Map<string, string>>()
+  /** Each call in flight: its stop, and whether it is a reading's (stopped with it) or in the background (`quiet`). */
+  private live = new Map<number, { key: string; stop: () => void; quiet: boolean }>()
   private failed = new Map<string, Map<string, { hash: string; at: number }>>()
+  /**
+   * The newest words seen for each scene's paragraphs, and its newest list of paragraphs, so a reply about older words
+   * never overwrites or drops marks kept meanwhile for newer ones.
+   */
+  private latest = new Map<string, { texts: Map<string, string>; pids?: ReadonlySet<string> }>()
   private calls = 0
 
   constructor(private readonly deps: SoundMarkerDeps) {}
@@ -270,14 +279,31 @@ export class SoundMarker {
     return new Set(this.busy.get(this.key(worldId, sceneId))?.keys() ?? [])
   }
 
-  /** Paragraphs the AI could be asked about now: not Adam's, with words, not marked for these words, not busy or failing. */
-  private openIn(s: SoundScene): (p: Paragraph) => boolean {
+  /** Remembers the newest words of a scene's paragraphs. */
+  private seen(s: SoundScene): void {
+    const key = this.key(s.worldId, s.sceneId)
+    const l = this.latest.get(key) ?? this.latest.set(key, { texts: new Map() }).get(key)!
+    for (const p of s.paragraphs) l.texts.set(p.pid, p.text)
+    if (s.pids) l.pids = s.pids
+  }
+
+  /** True when this paragraph is being marked now for the words it has. */
+  private busyFor(key: string, p: Paragraph): boolean {
+    return !!this.busy.get(key)?.has(p.pid) && this.busyHash.get(key)?.get(p.pid) === textHash(p.text)
+  }
+
+  /**
+   * Paragraphs the AI could be asked about now: not Adam's, with words, not marked for these words, not failing, and
+   * not busy (`takeOver`: not busy for these words; one busy for words it no longer has is asked about afresh).
+   */
+  private openIn(s: SoundScene, takeOver = false): (p: Paragraph) => boolean {
     const key = this.key(s.worldId, s.sceneId)
     const kept = this.deps.store.current(s.worldId, s.sceneId, s.paragraphs)
     const busy = this.busy.get(key)
     const failed = this.failed.get(key)
     return (p) => {
-      if (s.owned.has(p.pid) || !/[\p{L}\p{N}]/u.test(p.text) || kept.has(p.pid) || busy?.has(p.pid)) return false
+      if (s.owned.has(p.pid) || !/[\p{L}\p{N}]/u.test(p.text) || kept.has(p.pid)) return false
+      if (takeOver ? this.busyFor(key, p) : busy?.has(p.pid)) return false
       const f = failed?.get(p.pid)
       return !(f && f.hash === textHash(p.text) && Date.now() - f.at < RETRY_MS)
     }
@@ -289,14 +315,17 @@ export class SoundMarker {
    * again, a little before the next paragraph that needs marks, so they keep ahead of it to the end of the scene.
    */
   note(s: SoundScene): { again?: Ahead } {
+    this.seen(s)
     const run = runOf(s)
     let open = this.openIn(s)
     const first = run.find((e) => open(e.p))
     if (first && first.start <= MARK_FIRST) {
       const starting = first.start < MARK_FIRST / 2
-      const ids = new Set(run.filter((e) => e.end > first.start && e.start < first.start + MARK_FIRST + MARK_PART && open(e.p)).map((e) => e.p.pid))
+      const ids = new Set(
+        run.filter((e) => e.end > first.start && e.start < first.start + MARK_FIRST + MARK_PART && open(e.p)).map((e) => e.p.pid)
+      )
       const parts = soundParts(s.paragraphs, ids, starting ? MARK_FIRST : MARK_PART).slice(0, starting ? 2 : 1)
-      this.askParts(s, parts)
+      this.askParts(s, parts, false)
       open = this.openIn(s)
     }
     const next = run.find((e) => open(e.p))
@@ -305,18 +334,20 @@ export class SoundMarker {
   }
 
   /**
-   * Marks these paragraphs in the background, all of them, a part at a time (a draft just landed, or Find sounds).
-   * Returns the paragraphs being marked now, or why the AI can't be asked.
+   * Marks these paragraphs in the background, all of them, a part at a time (a draft just landed, or Find sounds): a
+   * reading stopping doesn't stop it, and a paragraph being marked for words it no longer has is taken over. Returns
+   * the paragraphs being marked now, or why the AI can't be asked.
    */
   noteAll(s: SoundScene, pids: ReadonlySet<string>): { busy: Set<string>; error?: string } {
-    const open = this.openIn(s)
+    this.seen(s)
+    const open = this.openIn(s, true)
     const ids = new Set(s.paragraphs.filter((p) => pids.has(p.pid) && open(p)).map((p) => p.pid))
-    const error = this.askParts(s, soundParts(s.paragraphs, ids, MARK_PART, MARK_PART))
+    const error = this.askParts(s, soundParts(s.paragraphs, ids, MARK_PART, MARK_PART), true)
     return { busy: this.busyIn(s.worldId, s.sceneId), ...(error ? { error } : {}) }
   }
 
   /** Asks about the parts one after another. Returns why the AI can't be asked, if it can't. */
-  private askParts(s: SoundScene, parts: SoundPart[]): string | undefined {
+  private askParts(s: SoundScene, parts: SoundPart[], quiet: boolean): string | undefined {
     if (!parts.length) return undefined
     const key = this.key(s.worldId, s.sceneId)
     const got = this.deps.ask(s.sceneId)
@@ -328,10 +359,27 @@ export class SoundMarker {
       return got.error
     }
     const busy = this.busy.get(key) ?? this.busy.set(key, new Map()).get(key)!
+    const hashes = this.busyHash.get(key) ?? this.busyHash.set(key, new Map()).get(key)!
     const token = ++this.calls
-    this.live.set(token, { key, stop: got.stop })
+    this.live.set(token, { key, stop: got.stop, quiet })
     const asked = parts.map((part) => numberedPids(part.paragraphs))
-    for (const pid of asked.flat()) busy.set(pid, token)
+    const texts = new Map(s.paragraphs.map((p) => [p.pid, p.text]))
+    const before = new Set<number>()
+    for (const pid of asked.flat()) {
+      const was = busy.get(pid)
+      if (was !== undefined) before.add(was)
+      busy.set(pid, token)
+      hashes.set(pid, textHash(texts.get(pid) ?? ''))
+    }
+    // A call whose paragraphs were all taken over is stopped (its reply would be dropped anyway).
+    const owners = new Set(busy.values())
+    for (const t of before) {
+      const old = this.live.get(t)
+      if (old && !owners.has(t)) {
+        this.live.delete(t)
+        old.stop()
+      }
+    }
     void (async () => {
       for (const [i, part] of parts.entries()) {
         if (!this.live.has(token)) return
@@ -343,17 +391,32 @@ export class SoundMarker {
     })().finally(() => {
       this.live.delete(token)
       // Anything still marked busy by this run (it was stopped partway) is free again.
-      const b = this.busy.get(key)
-      if (b) for (const [pid, t] of [...b]) if (t === token) b.delete(pid)
+      this.freeToken(key, token)
     })
     return undefined
+  }
+
+  /** Frees every paragraph a call still holds; returns them. */
+  private freeToken(key: string, token: number): string[] {
+    const b = this.busy.get(key)
+    const freed: string[] = []
+    for (const [pid, t] of [...(b ?? [])]) {
+      if (t !== token) continue
+      b!.delete(pid)
+      this.busyHash.get(key)?.delete(pid)
+      freed.push(pid)
+    }
+    return freed
   }
 
   /** Frees paragraphs a call had; `failed`: not asked about again for a while. */
   private release(key: string, s: SoundScene, pids: string[], token: number, failed: boolean): string[] {
     const busy = this.busy.get(key)
     const mine = pids.filter((pid) => busy?.get(pid) === token)
-    for (const pid of mine) busy!.delete(pid)
+    for (const pid of mine) {
+      busy!.delete(pid)
+      this.busyHash.get(key)?.delete(pid)
+    }
     if (failed && mine.length) {
       const f = this.failed.get(key) ?? this.failed.set(key, new Map()).get(key)!
       const byId = new Map(s.paragraphs.map((p) => [p.pid, p]))
@@ -370,48 +433,60 @@ export class SoundMarker {
     const text = part.paragraphs.map((p) => p.text).join('\n\n')
     const user = soundsUser({ before: part.before, playing: playing?.description ?? null, library: this.deps.library(text), paragraphs: part.paragraphs })
     const { text: reply, error } = await call({ system: SOUNDS_PROMPT, user, reply: 300 + pids.length * 60, temperature: 0.3 })
-    // Stopped (the reading ended, the world closed): the reply is dropped.
+    // Stopped (the reading ended, the world closed, or taken over): the reply is dropped.
     if (!this.live.has(token)) return
-    if (reply == null) {
-      if (error) console.warn('[sounds] marking sounds failed:', error)
+    const said = reply == null ? null : parseSounds(reply)
+    if (!said) {
+      // Failed, or a reply that couldn't be read (cut off, not JSON): asked about again in a while, not kept as silence.
+      console.warn('[sounds] marking sounds failed:', error ?? (reply == null ? 'no reply' : 'the reply could not be read'))
       this.release(key, s, pids, token, true)
       return
     }
-    const got = cuesFromReply(parseSounds(reply), part.paragraphs, playing)
+    const got = cuesFromReply(said, part.paragraphs, playing)
     const mine = this.release(key, s, pids, token, false)
     if (!mine.length) return
+    // Kept against the newest words seen for the scene: marks for words changed since aren't kept (they are asked
+    // about again), and marks another call kept meanwhile for newer words stay.
+    const latest = this.latest.get(key)
+    const newest: Paragraph[] = latest ? [...latest.texts].map(([pid, t]) => ({ pid, text: t })) : s.paragraphs
     const textOf = new Map(s.paragraphs.map((p) => [p.pid, p.text]))
     const saved = mine.map((pid) => ({ pid, text: textOf.get(pid) ?? '', cues: got.cues.get(pid) ?? [] }))
-    if (got.ends) {
+    const ends = got.ends
+    if (ends) {
       // The ambience playing as the part started (the AI's, earlier in the scene) ends where the AI said.
-      const kept = this.deps.store.current(s.worldId, s.sceneId, s.paragraphs).get(got.ends.pid)
-      const ends = got.ends
+      const kept = this.deps.store.current(s.worldId, s.sceneId, newest).get(ends.pid)
       if (kept && !s.owned.has(ends.pid)) {
         const cues = kept.map((c) => (c.id === ends.cueId ? { ...c, until: ends.until, untilHash: ends.untilHash } : c))
-        saved.push({ pid: ends.pid, text: textOf.get(ends.pid) ?? '', cues })
+        saved.push({ pid: ends.pid, text: newest.find((p) => p.pid === ends.pid)?.text ?? '', cues })
       }
     }
     try {
-      this.deps.store.save(s.worldId, s.sceneId, saved, s.paragraphs, s.pids)
+      this.deps.store.save(s.worldId, s.sceneId, saved, newest, latest?.pids ?? s.pids)
     } catch (e) {
       console.warn('[sounds] could not keep the sound marks', e)
       return
     }
-    const cues = mine.flatMap((pid) => got.cues.get(pid) ?? [])
+    const now = this.deps.store.current(s.worldId, s.sceneId, newest)
+    const cues = mine.filter((pid) => now.has(pid)).flatMap((pid) => got.cues.get(pid) ?? [])
     if (cues.length) this.deps.found(s, cues)
     this.deps.done(s.sceneId, saved.map((x) => x.pid))
   }
 
-  /** Stops marking a scene (its reading stopped): calls in flight are stopped and their replies dropped. */
+  /**
+   * Stops a scene's reading's marking (its reading stopped): its calls in flight are stopped and their replies dropped.
+   * Marking in the background (a new draft, Find sounds) goes on. The paragraphs freed are told (no longer marking).
+   */
   stop(worldId: ID, sceneId: ID): void {
     const key = this.key(worldId, sceneId)
-    this.busy.delete(key)
     this.failed.delete(key)
+    const freed: string[] = []
     for (const [t, c] of [...this.live]) {
-      if (c.key !== key) continue
+      if (c.key !== key || c.quiet) continue
       this.live.delete(t)
       c.stop()
+      freed.push(...this.freeToken(key, t))
     }
+    if (freed.length) this.deps.done(sceneId, freed)
   }
 
   /** Find sounds: paragraphs that failed lately may be asked about again at once. */
@@ -422,7 +497,9 @@ export class SoundMarker {
   /** The world closed: forget everything (its calls are stopped by the task runner). */
   forgetAll(): void {
     this.busy.clear()
+    this.busyHash.clear()
     this.failed.clear()
     this.live.clear()
+    this.latest.clear()
   }
 }
