@@ -35,9 +35,10 @@ const json = <T>(s: unknown, fallback: T): T => {
 
 /**
  * What params_json holds: the settings the draft was made with, and, for a draft that took the place of
- * the scene's text, that text (kept there, so the record needs no column of its own).
+ * the scene's text, that text, and how many prompt tokens the provider read from its cache (kept there,
+ * so the record needs no column of its own).
  */
-type StoredParams = GenerationRecord['params'] & { replaced?: ReplacedText }
+type StoredParams = GenerationRecord['params'] & { replaced?: ReplacedText; cachedTokens?: number }
 
 const isReplacedText = (v: unknown): v is ReplacedText =>
   !!v && typeof v === 'object' && typeof (v as ReplacedText).text === 'string' && 'doc' in (v as object)
@@ -99,6 +100,8 @@ export interface Finish {
   error: string | null
   response: string
   promptTokens: number | null
+  /** Of the prompt tokens, how many the provider read from its cache, when it said. */
+  cachedTokens?: number | null
   completionTokens: number | null
   cost: number | null
   finishedAt: string
@@ -115,6 +118,11 @@ export function finishGeneration(db: DB, id: ID, f: Finish): void {
          params_json = COALESCE(?, params_json)
        WHERE id = ?`
     ).run(f.status, f.error, f.response, f.promptTokens, f.completionTokens, f.cost, f.finishedAt, params, id)
+    if (f.cachedTokens != null) {
+      db.prepare(
+        "UPDATE generations SET params_json = json_set(params_json, '$.cachedTokens', ?) WHERE id = ? AND json_valid(params_json)"
+      ).run(f.cachedTokens, id)
+    }
     // Backups watch the world's last-changed time, so a finished draft gets backed up.
     touchWorld(db)
   })()
@@ -221,8 +229,8 @@ export function getGeneration(db: DB, id: ID): GenerationRecord {
       changedSince: (e.updated_at != null && e.updated_at !== e.entry_version) || e.changed_later === 1
     }))
     .sort((a, b) => (order.get(a.entryId) ?? 1e9) - (order.get(b.entryId) ?? 1e9))
-  // The text the draft replaced is kept beside the settings, but isn't one of them.
-  const { replaced, ...params } = json<StoredParams>(r.params_json, { temperature: 0, top_p: 1, max_tokens: 0 })
+  // The text the draft replaced and the cached tokens are kept beside the settings, but aren't among them.
+  const { replaced, cachedTokens: _cached, ...params } = json<StoredParams>(r.params_json, { temperature: 0, top_p: 1, max_tokens: 0 })
   return {
     ...toSummary(r),
     replaced: isReplacedText(replaced),

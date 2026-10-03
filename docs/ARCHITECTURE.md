@@ -218,6 +218,19 @@ approval step and no Review inbox.
   deleting the scene stops any draft (a kept scene deleted elsewhere stops its draft when its save
   finds the scene gone).
 
+### The memory's clashes are contradictions only (0.6.2)
+
+- The memory raises a clash only when a scene's words can't be true alongside what it says
+  (`keeper/agree.ts`). In a field that holds one value (pronouns, age, build, hair, eyes, skin, an
+  event's date) a different value is a clash; the same value in other words, more fully or more
+  vaguely ("a redder beard" for "red beard", "about twelve" for "12") is not. In a field that
+  describes, another description adds to the memory and is never a clash on its own; only the memory
+  model's own report of a contradiction raises one (and not when it only rewords the memory).
+- Facts Adam typed are never changed either way.
+- Issues raised before 0.6.2 that don't meet the rule are set aside as Ignored once per world when it
+  opens (`keeper/wordingClashes.ts`, meta `clashRule`), so they can be reopened; one a consistency
+  check also found stays.
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |
@@ -749,6 +762,18 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
   done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
   (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
+- **Prompt caching** (`ai/client.ts`): the briefing goes out with what stays the same first (`SEND_ORDER` in
+  `context.ts`), so models that cache a repeated prompt on their own (OpenAI, DeepSeek, Grok, Gemini 2.5 and
+  later) reuse it. Claude through OpenRouter caches only where asked, so `sentMessages` marks the system
+  message and, in a draft's briefing, everything before the entries named in the card or direction
+  (`ChatMessage.cacheUpTo`, never sent as such; a cached part is reused only when sent again exactly): a
+  redraft of the scene within five minutes reads that part at a tenth of the price. Variants after the first
+  in a set are sent unmarked (`cache: false`), since they go side by side and couldn't read it yet. Gemini's own
+  marks aren't sent, since they add a storage charge and Gemini 2.5 caches anyway. The tokens a provider read
+  from its cache (`prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`) are kept in
+  the record's `params_json` as `cachedTokens` (no migration; the data model stays frozen) and shown on the
+  page ("41.2k tokens, 12k from the cache"). Cost is unchanged: OpenRouter's own figure already has the
+  discount; a cost worked out from the model's prices counts every prompt token at the full price.
 ### How manuscript import works
 
 **Reading** (`src/main/importing/`: `docx.ts`, `markdown.ts`, `text.ts`, `lines.ts`, `xml.ts`, `read.ts`)

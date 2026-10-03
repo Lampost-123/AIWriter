@@ -36,6 +36,10 @@
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
 //
+// Prompt caching, as Claude does it through OpenRouter: a message sent as content parts, some marked with
+// cache_control, keeps everything up to its last mark; sent again unchanged, that part is reported as
+// usage.prompt_tokens_details.cached_tokens (0 the first time). Requests without marks report no details.
+//
 // Memory keeper requests (any model) are recognised by the markers in their system prompt
 // (src/main/keeper/prompts.ts) and answered with deterministic JSON instead of prose:
 //   - "<Name> lost her|his|their <thing>."          a change for <Name>: "lost her <thing>" (marks: "<thing> lost")
@@ -211,11 +215,35 @@ export function fakeSummary(user) {
   return `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
 }
 
+/** A message's text, whether sent as a string or as content parts. */
+const textOf = (content) =>
+  typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : String(content ?? '')
+
 export async function startFakeProvider(options = {}) {
   const opts = { port: 0, delayMs: 10, words: 120, slowWords: 1500, slowDelayMs: 40, waitMs: 1500, crlf: false, ...options }
   let last = null
   const counts = {}
   const memoryCounts = {}
+  /** The marked prompt parts kept so far (see "Prompt caching" above). */
+  const cacheKept = new Set()
+
+  /** Characters read from the cache for these messages, or null when nothing in them is marked. */
+  function cachedChars(messages) {
+    let marked = false
+    let chars = 0
+    let prefix = ''
+    for (const m of messages) {
+      const parts = Array.isArray(m.content) ? m.content : [{ text: textOf(m.content) }]
+      for (const p of parts) {
+        prefix += `${m.role}:${typeof p?.text === 'string' ? p.text : ''}|`
+        if (!p?.cache_control) continue
+        marked = true
+        if (cacheKept.has(prefix)) chars = prefix.length
+        else cacheKept.add(prefix)
+      }
+    }
+    return marked ? chars : null
+  }
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
@@ -292,8 +320,8 @@ export async function startFakeProvider(options = {}) {
     const limit = body.max_tokens ?? body.max_completion_tokens ?? 400
     const words = model === 'fake/slow' ? opts.slowWords : Math.min(opts.words, Math.max(10, Math.floor(limit / 2)))
     const messages = body.messages ?? []
-    const system = String(messages.find((m) => m.role === 'system')?.content ?? '')
-    const firstUser = String(messages.find((m) => m.role === 'user')?.content ?? '')
+    const system = textOf(messages.find((m) => m.role === 'system')?.content)
+    const firstUser = textOf(messages.find((m) => m.role === 'user')?.content)
     let memory = null
     if (system.includes(READING_MARKER)) {
       memoryCounts[model] = (memoryCounts[model] ?? 0) + 1
@@ -312,6 +340,8 @@ export async function startFakeProvider(options = {}) {
     const promptChars = JSON.stringify(body.messages ?? []).length
     const usage = { prompt_tokens: Math.ceil(promptChars / 4), completion_tokens: Math.ceil(words * 1.3) }
     usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+    const cached = cachedChars(messages)
+    if (cached !== null) usage.prompt_tokens_details = { cached_tokens: Math.ceil(cached / 4) }
     if (body.usage?.include) usage.cost = Number((usage.prompt_tokens * 0.000003 + usage.completion_tokens * 0.000015).toFixed(6))
 
     if (!body.stream) {
@@ -401,6 +431,7 @@ export async function startFakeProvider(options = {}) {
       last = null
       for (const k of Object.keys(counts)) delete counts[k]
       for (const k of Object.keys(memoryCounts)) delete memoryCounts[k]
+      cacheKept.clear()
     },
     close: () =>
       new Promise((resolve) => {

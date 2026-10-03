@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { callsAndTokens, costNotes, labelledBars, shareOf, tokenWords } from './usageWords'
+import { callsAndTokens, costNotes, labelledBars, shareOf, tokensWithCache, tokenWords } from './usageWords'
 
 describe('the usage page’s words', () => {
   it('says tokens briefly', () => {
@@ -9,6 +9,17 @@ describe('the usage page’s words', () => {
     expect(tokenWords(250_000)).toBe('250k tokens')
     expect(tokenWords(2_400_000)).toBe('2.4M tokens')
     expect(callsAndTokens({ calls: 1, promptTokens: 600, completionTokens: 400 })).toBe('1 call · 1k tokens')
+  })
+
+  it('says how many tokens came from the cache, only when some did', () => {
+    expect(tokensWithCache({ promptTokens: 30_000, cachedTokens: 12_000, completionTokens: 11_200 })).toBe(
+      '41.2k tokens, 12k from the cache'
+    )
+    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 1, completionTokens: 100 })).toBe('1k tokens, 1 from the cache')
+    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 0, completionTokens: 100 })).toBe('1k tokens')
+    expect(callsAndTokens({ calls: 37, promptTokens: 30_000, cachedTokens: 640, completionTokens: 11_200 })).toBe(
+      '37 calls · 41.2k tokens, 640 from the cache'
+    )
   })
 
   it('says honestly which calls had no price, and which are estimates', () => {

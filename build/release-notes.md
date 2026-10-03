@@ -1,4 +1,4 @@
-<!-- version: 0.6.3 -->
+<!-- version: 0.6.5 -->
 Writing by hand.
 
 - Bold and Italic on the bar over selected words, and a Format menu (block quote, scene break, paste as plain text).
