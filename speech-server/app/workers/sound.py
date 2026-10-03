@@ -15,13 +15,17 @@ How a sound is made:
   or a steady background), as Stable Audio Open was trained on such descriptions. The negative prompt keeps
   music out, and for effects talking too, unless the sound is a voice (a scream, a laugh, a crowd).
 * The takes are made one after another: together they need nearly three times the graphics card memory. 100
-  steps each, in half precision, about 9.5 seconds a take on an RTX 5070 Ti (the first after loading takes longer).
+  steps each, in half precision, about 10 seconds a take on an RTX 5070 Ti (the first after loading takes longer).
+  Only the part of the model's 47 second window that is wanted is turned into sound, a piece at a time, and the
+  memory PyTorch keeps cached is given back after loading and after each sound: about 3 GB held between sounds,
+  about 4 GB at the most while one is made.
 * Each take is shaped as app/sound_audio.py says (trimmed or looped, one loudness), and CLAP, on the processor,
   scores how well it matches the plain description; the best is kept.
 """
 
 import base64
 import json
+import math
 import os
 import re
 import sys
@@ -80,13 +84,14 @@ def load() -> dict:
     t0 = time.perf_counter()
     # From the folder on this computer: the server runs offline, and the repository's own name would look for its
     # original checkpoint, which isn't downloaded.
-    pipe = StableAudioPipeline.from_pretrained(SOUND_MODEL, torch_dtype=torch.float16 if gpu else torch.float32, local_files_only=True)
+    pipe = StableAudioPipeline.from_pretrained(SOUND_MODEL, dtype=torch.float16 if gpu else torch.float32, local_files_only=True)
     pipe = pipe.to(device)
     pipe.set_progress_bar_config(disable=True)
     # CLAP stays on the processor: it scores a few seconds of audio quickly, and leaves the graphics card to the voices.
     clap = ClapModel.from_pretrained(CLAP_MODEL, local_files_only=True).eval()
     processor = ClapProcessor.from_pretrained(CLAP_MODEL, local_files_only=True)
     print(f"Sound effects: loaded in {time.perf_counter() - t0:.1f} s on {device}.", file=sys.stderr)
+    give_back(torch, "after loading")
     return {
         "torch": torch,
         "pipe": pipe,
@@ -98,23 +103,57 @@ def load() -> dict:
     }
 
 
+def give_back(torch, when: str) -> None:
+    """Hands the graphics card memory PyTorch keeps cached (but isn't using) back, so the voices can have it, and
+    says what is left: the model itself, and the most a take needed."""
+    if not torch.cuda.is_available():
+        return
+    peak = torch.cuda.max_memory_reserved() / 2**20
+    torch.cuda.empty_cache()
+    held = torch.cuda.memory_reserved() / 2**20
+    print(f"Sound effects: graphics card memory {when}: {held:.0f} MiB held, {peak:.0f} MiB at most.", file=sys.stderr)
+    torch.cuda.reset_peak_memory_stats()
+
+
 def take(state: dict, prompt: str, negative: str, seconds: float, seed: int) -> np.ndarray:
     """One take, (frames, channels) float32."""
     torch = state["torch"]
+    pipe = state["pipe"]
     generator = torch.Generator(device=state["device"]).manual_seed(seed)
     with torch.inference_mode():
-        out = state["pipe"](
+        # The pipeline always makes its whole 47 second window, and would turn all of it into sound before cutting it
+        # to length: that was the most the graphics card ever held (about 7.5 GB). Only what is needed is decoded here.
+        latents = pipe(
             prompt,
             negative_prompt=negative,
             num_inference_steps=STEPS,
             audio_end_in_s=seconds,
             num_waveforms_per_prompt=1,
             generator=generator,
-        )
-    audio = out.audios[0]
-    if hasattr(audio, "cpu"):
-        audio = audio.float().cpu().numpy()
-    return np.asarray(audio, dtype=np.float32).T
+            output_type="latent",
+        ).audios
+        audio = decode(pipe, latents, seconds, state["sr"], torch)
+    return np.asarray(audio.float().cpu().numpy(), dtype=np.float32).T
+
+
+# Decoded in pieces of this many frames of the model's (2048 samples each, about 6 seconds), each with this many more on
+# either side so its edges sound as they would decoded whole: about 3.8 GB at most rather than 7.5 for the whole window,
+# and the same sound to within half-precision rounding (tried against a whole decode: mean difference 0.00002).
+DECODE_FRAMES = 128
+DECODE_CONTEXT = 16
+
+
+def decode(pipe, latents, seconds: float, sr: int, torch):
+    """The first `seconds` of the take as sound, (channels, samples)."""
+    hop = int(pipe.vae.hop_length)
+    frames = min(latents.shape[-1], math.ceil(seconds * sr / hop) + 4)
+    parts = []
+    for start in range(0, frames, DECODE_FRAMES):
+        end = min(frames, start + DECODE_FRAMES)
+        lo, hi = max(0, start - DECODE_CONTEXT), min(latents.shape[-1], end + DECODE_CONTEXT)
+        wave = pipe.vae.decode(latents[..., lo:hi]).sample
+        parts.append(wave[..., (start - lo) * hop:(end - lo) * hop])
+    return torch.cat(parts, dim=-1)[0, :, : int(round(seconds * sr))]
 
 
 def scores(state: dict, description: str, clips: list[np.ndarray], sr: int) -> list[float]:
@@ -163,6 +202,7 @@ def make(state: dict, req: dict) -> dict:
             made.append(shaped)
     if not made:
         raise RuntimeError("every take came out silent. Try describing it differently")
+    give_back(state["torch"], "after the takes")
     ranked = scores(state, prompt, made, sr)
     best = int(np.argmax(ranked))
     print(f"Sound effects: CLAP scores {', '.join(f'{s:.2f}' for s in ranked)}; kept take {best + 1}.", file=sys.stderr)

@@ -4,7 +4,7 @@
 // 8 GB of the graphics card while loaded (speech-server/app/config.py), the processor when there is no card
 // (far too slow: speech-server/app/workers/breeze.py), and about 12 GB on disk once downloaded, plus PyTorch's
 // 3 GB download kept in the cache until the download finishes (src/main/speech/plan.ts). The sound effects need
-// much the same (about 5.5 GB of the graphics card at their peak: speech-server/app/engines/sound_engine.py).
+// much the same (about 4.5 GB of the graphics card at their most: speech-server/app/engines/sound_engine.py).
 import type { SpeechStatus } from '@shared/contracts/speech'
 
 /** The graphics card memory the voices hold while loaded, in GB. */
@@ -44,8 +44,8 @@ interface Needs {
 
 const VOICES: Needs = { name: 'the voices', slow: 'would be far too slow here', cardGb: CARD_GB, diskGb: DISK_GB }
 
-/** The graphics card memory the sound effects need, in GB: about 5.5 GB at their peak, beside the desktop's own share. */
-export const SOUNDS_CARD_GB = 8
+/** The graphics card memory the sound effects need, in GB: about 4.5 GB at their most, beside the desktop's own share. */
+export const SOUNDS_CARD_GB = 6
 /** Free disk space the sound effects' download needs while it runs, in GB (about 12 GB kept, plus the cache it clears after). */
 export const SOUNDS_DISK_GB = 15
 const SOUNDS: Needs = { name: 'the sound effects', slow: 'would take minutes each here', cardGb: SOUNDS_CARD_GB, diskGb: SOUNDS_DISK_GB }

@@ -36,6 +36,8 @@ export interface FakeSpeechOptions {
   beside?: boolean
   /** The dictation model that times words (/v1/align); by default the first downloaded, Whisper first. null: none. */
   aligner?: 'whisper' | 'parakeet' | null
+  /** /v1/align answers 503 "busy" with x-align-retry: 1 (dictation is using the model). */
+  alignBusy?: boolean
   /** The words of a clip this server didn't speak, for /v1/align (spread evenly over the clip). */
   alignWords?: string
   /** Refuse what the real server refuses (speech-server/app/guard.py): another Host than this computer, or a request that changes something without AI Write's header or a JSON or audio body. */

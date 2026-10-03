@@ -130,6 +130,14 @@ describe('what went wrong, in plain words', () => {
     })
   })
 
+  it('says when a check failed on missing files rather than its environment, so Try again keeps the environment', () => {
+    expect(parseLine('@@keep-environment')).toEqual({ kind: 'keep' })
+    const lines = ['Checking the sound effects…', '@@keep-environment', '@@error The sound effects didn’t finish downloading.']
+    const missing = explainFailure(lines, fallback)
+    expect(missing).toMatchObject({ error: 'The sound effects didn’t finish downloading.', keepEnvironment: true })
+    expect(explainFailure(['@@error Part of the sound effects didn’t install.'], fallback).keepEnvironment).toBeUndefined()
+  })
+
   it('asks for a new key when Hugging Face turned the saved one down, not for the licence again', () => {
     const f = explainFailure(
       [

@@ -356,7 +356,8 @@ async def make_sound(body: SoundBody) -> Response:
 @app.post("/v1/align")
 async def align(request: Request) -> dict:
     """A spoken clip (WAV) → when each word is heard: {"words": [{"word", "start", "end"}], "engine"}. The clip is
-    deleted as soon as it is heard. 503 "no-aligner" when no dictation model is downloaded."""
+    deleted as soon as it is heard. 503 "no-aligner" when no dictation model is downloaded; 503 "busy" (with
+    `x-align-retry: 1`) while dictation is using the model, which always goes first."""
     data = await request.body()
     if len(data) < 44:
         raise HTTPException(400, "No audio.")
@@ -376,6 +377,9 @@ async def align(request: Request) -> dict:
 
     try:
         words, engine = await asyncio.to_thread(run)
+    except stt.AlignBusy as exc:
+        # Dictation goes first; AI Write places the sounds by an estimate meanwhile.
+        raise HTTPException(503, "busy", headers={"x-align-retry": "1"}) from exc
     except stt.DictationError as exc:
         raise HTTPException(503, "no-aligner") from exc
     except Exception as exc:  # noqa: BLE001 — the details in the log

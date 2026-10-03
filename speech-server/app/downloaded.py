@@ -72,15 +72,21 @@ def _half_downloaded(weights: Path) -> bool:
         return False
 
 
-def snapshot_dir(weights: Path, needs: tuple[str, ...]) -> Path | None:
-    """The snapshot the server loads (the one refs/main names, else any) when it has every file in `needs`."""
+def snapshot_dir(weights: Path, needs: tuple[str, ...], any_complete: bool = False) -> Path | None:
+    """The snapshot the server loads (the one refs/main names, else any) when it has every file in `needs`.
+
+    `any_complete`: when the one refs/main names isn't complete (a newer download stopped part way), any other
+    complete one does. Only for models loaded from the folder found here (the sound effects): Breeze and Whisper
+    are loaded by their name, which follows refs/main."""
     snapshots = weights / "snapshots"
     try:
         ref = (weights / "refs" / "main").read_text(encoding="utf-8").strip()
     except OSError:
         ref = ""
     try:
-        names = [ref] if ref and (snapshots / ref).is_dir() else sorted(p.name for p in snapshots.iterdir() if p.is_dir())
+        others = sorted(p.name for p in snapshots.iterdir() if p.is_dir() and p.name != ref)
+        named = [ref] if ref and (snapshots / ref).is_dir() else []
+        names = named + others if (any_complete or not named) else named
     except OSError:
         return None
     for name in names:
@@ -134,7 +140,7 @@ def sound_dir(root: Path) -> Path | None:
     weights = sound_weights_dir(root)
     if _half_downloaded(weights):
         return None
-    return snapshot_dir(weights, SOUND_FILES)
+    return snapshot_dir(weights, SOUND_FILES, any_complete=True)
 
 
 def clap_dir(root: Path) -> Path | None:
@@ -143,7 +149,7 @@ def clap_dir(root: Path) -> Path | None:
     if _half_downloaded(weights):
         return None
     for name in CLAP_WEIGHTS:
-        found = snapshot_dir(weights, CLAP_FILES + (name,))
+        found = snapshot_dir(weights, CLAP_FILES + (name,), any_complete=True)
         if found is not None:
             return found
     return None

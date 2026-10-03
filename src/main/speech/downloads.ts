@@ -18,7 +18,7 @@ export interface DownloadDeps {
   /** After a download finished: record it, start or tell the server. */
   finished(kind: SpeechDownloadKind, result: { gpu: string | null }): Promise<void> | void
   /** A download stopped on a problem, at the step with this id ('' when it stopped before its first step). */
-  failed?(kind: SpeechDownloadKind, stepId: string): void
+  failed?(kind: SpeechDownloadKind, stepId: string, failure: Failure): void
   /** Something Settings shows changed. */
   changed(): void
 }
@@ -204,6 +204,6 @@ export class Downloads {
     this.queue = []
     const kind = this.current?.kind
     if (!this.set(token, { state: 'failed', percent: null, error: failure.error, need: failure.need, link: failure.link })) return
-    if (kind) this.deps.failed?.(kind, at)
+    if (kind) this.deps.failed?.(kind, at, failure)
   }
 }
