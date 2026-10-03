@@ -31,7 +31,9 @@ export function whenText(iso: string, nowMs: number = Date.now()): string {
   if (!iso) return ''
   const r = relativeTime(iso, nowMs)
   if (!r) return ''
-  return /^\d/.test(r) && !/ago$/.test(r) ? `on ${r}` : r
+  // A date alone ("3 Oct 2026", or "Oct 3, 2026" in a US-English Windows) reads "on …"; "just now", "5 minutes
+  // ago", "yesterday at …" and "Monday at …" read as they are.
+  return / ago$|^just now$| at /.test(r) ? r : `on ${r}`
 }
 
 /** A world card's line: "4 stories · 212,000 words · Opened yesterday at 14:05". */
