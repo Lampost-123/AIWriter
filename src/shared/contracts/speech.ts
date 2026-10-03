@@ -144,7 +144,7 @@ export interface SpeechApi {
   dismissSpeechDownload(): Promise<SpeechStatus>
   /** Installs Python with Windows' own installer (winget), then carries on with the speech engine's download. */
   installPython(): Promise<SpeechStatus>
-  /** Saves the Hugging Face key (kept like the AI keys), or removes it with null. Only the voices' download uses it. */
+  /** Saves the Hugging Face key (kept like the AI keys), or removes it with null. Only the voices' and the sound effects' downloads use it. */
   setHuggingFaceKey(key: string | null): Promise<SpeechStatus>
   /** Undo for removing the Hugging Face key: puts it back, for a couple of minutes after (it never leaves the main process). */
   undoRemoveHuggingFaceKey(): Promise<SpeechStatus>
