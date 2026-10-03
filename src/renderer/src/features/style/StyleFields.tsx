@@ -201,7 +201,9 @@ export const StyleFields = memo(function StyleFields({
 export function Group({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
   return (
     <section className="flex flex-col gap-4 border-t border-line pt-6">
-      <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{title}</h3>
+      <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint look-new:font-heading look-new:text-[18px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg">
+        {title}
+      </h3>
       {children}
     </section>
   )

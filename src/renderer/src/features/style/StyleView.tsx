@@ -81,7 +81,7 @@ export function StyleView(): React.JSX.Element | null {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-[680px] animate-fade-in px-8 pb-24 pt-8">
-        <h1 className="text-[20px] font-semibold text-fg">Style guide</h1>
+        <h1 className="text-[20px] font-semibold text-fg look-new:text-[30px]">Style guide</h1>
         <p className="mt-1 text-[13px] leading-relaxed text-muted">
           How every draft should read. Your own writing preferences sit underneath, the world's guide goes on top, and each story can change anything for itself.
         </p>
@@ -94,7 +94,7 @@ export function StyleView(): React.JSX.Element | null {
           className="mt-5"
         >
           <TabsList
-            className="mb-6 px-0!"
+            className="mb-6 px-0! look-new:mx-0 look-new:w-fit look-new:p-[3px]!"
             items={[
               { value: 'world', label: 'World' },
               { value: 'story', label: 'This story' }

@@ -10,6 +10,8 @@ import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { LitWindow } from '@/components/ui/LitWindow'
+import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
@@ -23,10 +25,17 @@ import { StyleStep, type StyleSaver } from './StyleStep'
 
 export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
+  const isNew = useNewLook()
   if (!step) return null
   return (
     <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges]">
       <div className="w-full max-w-[600px]">
+        {/* The New look: a lit window over the water, above the welcome. */}
+        {isNew ? (
+          <div className="-mx-2 mb-5 h-[130px] overflow-hidden rounded-card">
+            <LitWindow />
+          </div>
+        ) : null}
         <div className="mb-7 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
             <BookOpen size={20} />
@@ -53,11 +62,27 @@ export function FirstRun(): React.JSX.Element | null {
 /** Where Adam is: a calm line of five segments, and the step in words. */
 function Progress({ step }: { step: SetupStep }): React.JSX.Element {
   const n = stepNumber(step)
+  const isNew = useNewLook()
   return (
     <div className="mb-6">
       <div className="flex gap-1.5" aria-hidden>
         {SETUP_STEPS.map((s, i) => (
-          <span key={s} className={cn('h-1 flex-1 rounded-full transition-colors duration-200', i < n ? 'bg-accent' : 'bg-line')} />
+          <span
+            key={s}
+            className={cn(
+              'h-1 flex-1 rounded-full transition-colors duration-200',
+              i < n ? 'bg-accent' : 'bg-line',
+              // The New look: a fuller line, the step reached filling in from the left.
+              'look-new:relative look-new:h-[5px] look-new:overflow-hidden look-new:bg-line-strong'
+            )}
+          >
+            {isNew && i < n ? (
+              <span
+                aria-hidden
+                className={cn('absolute inset-0 origin-left bg-accent', i === n - 1 && 'animate-[fill-x_700ms_var(--motion-glide)_150ms_both]')}
+              />
+            ) : null}
+          </span>
         ))}
       </div>
       <p className="mt-2 text-[12px] text-faint">

@@ -155,3 +155,32 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     await fake.close()
   }
 })
+
+test('the New look elsewhere: style presets as cards, Settings with icons, and a picture on an empty page', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+
+  // An empty page (no events yet): a small picture, one sentence and its button.
+  await area(win, 'World').click()
+  await list(win).getByRole('button', { name: /^Events/ }).click()
+  await expect(main(win).locator('[data-spot]')).toBeVisible()
+
+  // The style guide: point of view and tense as cards, picked and unpicked with a click.
+  await area(win, 'Write').click()
+  await list(win).getByRole('button', { name: 'Style guide' }).click()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Style guide' })).toBeVisible()
+  const first = main(win).getByRole('button', { name: 'First person', exact: true })
+  await first.scrollIntoViewIfNeeded()
+  const before = await first.getAttribute('aria-pressed')
+  await first.click()
+  await expect(first).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true')
+  await first.click()
+  await expect(first).toHaveAttribute('aria-pressed', before ?? 'false')
+
+  // Settings: a list with an icon for each page, the open one marked.
+  await area(win, 'Settings').click()
+  const nav = main(win).getByRole('navigation')
+  await nav.getByRole('button', { name: 'Appearance' }).click()
+  await expect(nav.getByRole('button', { name: 'Appearance' })).toHaveAttribute('aria-current', 'page')
+  await expect(nav.getByRole('button', { name: 'Appearance' }).locator('svg')).toHaveCount(1)
+  await expect(main(win).getByRole('radiogroup', { name: 'Style' })).toBeVisible()
+})

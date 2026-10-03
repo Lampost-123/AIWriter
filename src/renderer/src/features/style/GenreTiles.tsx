@@ -64,7 +64,7 @@ export function GenreTiles({ shown, onPick, labelledBy }: { shown: GenresShown; 
             title={g.blurb}
             onClick={() => onPick(g.id)}
             style={hue(g.hue)}
-            className="genre-tile relative flex h-[72px] flex-col items-start justify-between rounded-xl px-3 pb-2.5 pt-3 text-left"
+            className="genre-tile relative flex h-[72px] flex-col items-start justify-between rounded-xl px-3 pb-2.5 pt-3 text-left look-new:rounded-card look-new:shadow-e1 look-new:hover:-translate-y-px look-new:active:scale-[0.97]"
           >
             <Icon size={19} strokeWidth={1.75} className="genre-ink" aria-hidden />
             <span className="max-w-full truncate text-[13px] font-medium leading-tight text-fg">{g.label}</span>

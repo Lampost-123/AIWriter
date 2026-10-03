@@ -13,6 +13,8 @@ import { flushBeforeWorldChange } from '@/lib/flush'
 import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { LitWindow } from '@/components/ui/LitWindow'
+import { useNewLook } from '@/features/look/look'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
 import { openSampleWorld } from '@/features/setup/setupStore'
@@ -98,6 +100,7 @@ export function StartScreen(): React.JSX.Element {
   const [deleting, setDeleting] = useState<LibraryWorld | null>(null)
   const [newWorldOpen, setNewWorldOpen] = useState(false)
   const busy = useLibrary((s) => s.busy)
+  const isNew = useNewLook()
   useKeysStayHere(root)
 
   // Read afresh each time it shows; the last list stays meanwhile. The keyboard starts on Continue (see
@@ -135,6 +138,12 @@ export function StartScreen(): React.JSX.Element {
       <DriftingTexture />
       <div className="absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
         <div className="relative mx-auto w-full max-w-[800px] px-8 pb-20 pt-[9vh]">
+          {/* The New look: a lit window over the water above it all (still: nothing moves at launch but the opening). */}
+          {isNew ? (
+            <div className="start-rise -mx-2 mb-6 h-[140px] overflow-hidden rounded-card" style={rise(0)}>
+              <LitWindow />
+            </div>
+          ) : null}
           <header className="mb-8 flex items-center gap-3.5">
             <InkMark />
             <div className="min-w-0 flex-1">

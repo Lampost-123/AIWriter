@@ -142,7 +142,7 @@ export function ConsistencyView({ storyId }: { storyId: ID }): React.JSX.Element
             </div>
           </div>
           <TabsList
-            className="-mx-6 mt-3 px-4"
+            className="-mx-6 mt-3 px-4 look-new:mx-0 look-new:w-fit look-new:p-[3px]"
             items={[
               { value: 'issues', label: 'Issues', badge: <Count n={groups?.open ?? null} danger={!!groups?.mustFix} /> },
               { value: 'repetition', label: 'Repetition', badge: <Count n={repeatCount} /> },

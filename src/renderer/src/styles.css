@@ -558,6 +558,15 @@
   stroke-dasharray: 1;
   animation: tick-draw 420ms var(--motion-glide) both;
 }
+/* The New look: a line filling from the left (the setup's steps). */
+@keyframes fill-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
 /* The New look's toasts spring up into place. */
 @keyframes toast-in {
   from {
@@ -843,6 +852,13 @@ body {
     background-color 150ms ease-out,
     border-color 150ms ease-out,
     box-shadow 150ms ease-out;
+}
+[data-look='new'] .genre-tile {
+  transition:
+    background-color var(--dur-quick) ease-out,
+    border-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    transform var(--dur-quick) var(--motion-glide);
 }
 .genre-tile:hover {
   background-color: oklch(var(--genre-hover-l) var(--genre-hover-c) var(--hue));

@@ -59,6 +59,7 @@ const ICONS = {
   Compass: [L.Compass, 'Compass'],
   CookingPot: [L.CookingPot, 'CookingPot'],
   Copy: [L.Copy, 'Copy'],
+  Cpu: [L.Cpu, 'Cpu'],
   DoorOpen: [L.DoorOpen, 'DoorOpen'],
   Download: [L.Download, 'DownloadSimple'],
   Drama: [L.Drama, 'MaskHappy'],
@@ -267,6 +268,7 @@ export const Columns3 = BY_NAME.Columns3
 export const Compass = BY_NAME.Compass
 export const CookingPot = BY_NAME.CookingPot
 export const Copy = BY_NAME.Copy
+export const Cpu = BY_NAME.Cpu
 export const DoorOpen = BY_NAME.DoorOpen
 export const Download = BY_NAME.Download
 export const Drama = BY_NAME.Drama
