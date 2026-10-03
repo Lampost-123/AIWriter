@@ -544,9 +544,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
   or "Say it as" Adam set is never replaced, even one set while the AI was writing. Callers: the World builder
-  (what it made and what it filled in), the memory keeper after `fillFound` (`voiceLater`), and the character
-  builder (Quick start when it completes; AI suggestions Adam keeps, after a 20 second pause). The background queue
-  runs one character at a time and asks about each once a session; a failure leaves the box empty. The entry
+  (what it made and what it filled in; when a build ends, any still without a voice, stopped part way or a request
+  failed, go to `voiceLater`), the memory keeper after `fillFound` (`voiceLater`), and the character builder (Quick
+  start when it ends, stopped part way too; AI suggestions Adam keeps, after a 20 second pause). The background
+  queue runs one character at a time and asks about each once a session; a request that fails is asked again a
+  minute later, up to `VOICE_TRIES` (3) in all, and then leaves the box empty. The entry
   page's voice box shows a voice that arrives while it is open (`memory:changed`), in any box Adam hasn't changed.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
@@ -616,6 +618,10 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
   characters they have a relationship with who aren't in the scene, as of the scene: the other person's one
   line, where the relationship stands, and the events and changes that name both, newest first. Closest
   and most recent ties first. It is the first block shortened (names and relationship only) and dropped.
+
+- **Phrases to avoid in drafts.** The writer model is told the list in block 1 and again at the end of the
+  briefing (`avoidLine` in `ai/prompts.ts`: a short list by name, with "or any close variation"). When a draft
+  lands, its note counts the phrases to avoid it used before the common AI phrases, and Show goes to the first.
 
 - **Reports** (`checks/reports.ts`, SQL in `db/checksReports.ts`): repetition skips common words and the names
   and aliases of characters, places, groups, items and glossary terms (names also end a phrase); its thresholds

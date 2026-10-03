@@ -134,6 +134,11 @@ export interface BuildContext {
    * a voice description; null or left out when there is none (the characters then have none until Adam asks).
    */
   voiceModel?: JobModel | null
+  /**
+   * When the build ends, its characters still without a voice (it was stopped or went wrong before the voices, or a
+   * voice request failed) are handed here, to be given theirs in the background (readAloud/autoVoice.ts voiceLater).
+   */
+  voiceLater?: (entryIds: ID[]) => void
   /** Something was saved: lists and pages showing these entries reload, and backups see the world changed. */
   onSaved?: (entryIds: ID[]) => void
   /** The build ended, so What changed's latest update is this build. */
@@ -365,6 +370,7 @@ function end(b: Build, status: WorldBuildDone['status']): void {
   if (b.finished) return
   b.finished = true
   if (current === b) current = null
+  if (!b.closed && b.ctx.db.open) b.ctx.voiceLater?.(charactersOf(b))
   const error = status === 'error' ? (b.failure ?? WENT_WRONG) : null
   if (!b.closed && b.ctx.db.open) finishRun(b, status)
   const done: WorldBuildDone = {
@@ -1080,10 +1086,14 @@ async function fillTheGaps(b: Build): Promise<void> {
  * it has a voice already. Saved even when reading aloud isn't set up: it is only words, ready for when it is. A
  * request that fails leaves that character without one.
  */
+/** The characters the build made or filled in (the voices step leaves anything else alone). */
+const charactersOf = (b: Build): ID[] => [
+  ...new Set([...b.writer.made.flatMap((m) => (m.what === 'entry' && m.kind === 'character' && m.entryId ? [m.entryId] : [])), ...b.filled])
+]
+
 async function giveVoices(b: Build): Promise<void> {
   const model = b.ctx.voiceModel
   if (!model) return
-  const made = b.writer.made.flatMap((m) => (m.what === 'entry' && m.kind === 'character' && m.entryId ? [m.entryId] : []))
   const result = await voicesFor(
     {
       db: b.ctx.db,
@@ -1098,7 +1108,7 @@ async function giveVoices(b: Build): Promise<void> {
       fetchImpl: b.ctx.fetchImpl,
       retryDelays: b.ctx.retryDelays
     },
-    [...made, ...b.filled]
+    charactersOf(b)
   )
   if (result.cost != null) b.cost = (b.cost ?? 0) + result.cost
 }

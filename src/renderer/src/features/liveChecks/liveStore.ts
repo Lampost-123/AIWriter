@@ -35,21 +35,28 @@ export function onLiveCardRequest(fn: (pos: number) => void): () => void {
   return () => cardListeners.delete(fn)
 }
 
-// A draft (Generate, Beat by beat, a picked version) has landed and been checked: how many common AI
-// phrases are underlined in it. The page's layer says so in a quiet toast.
-/** The first common AI phrase a draft brought: its key, and where it was when counted. */
+// A draft (Generate, Beat by beat, a picked version) has landed and been checked: how many of Adam's phrases to
+// avoid and common AI phrases are underlined in it. The page's layer says so in a quiet toast.
+/** How many of each a draft brought. */
+export interface DraftCounts {
+  phrase: number
+  ai: number
+}
+
+/** The first one a draft brought (a phrase to avoid before a common AI phrase): its kind, key, and where it was when counted. */
 export interface DraftFirst {
+  kind: 'phrase' | 'ai'
   key: string
   from: number
 }
 
-const draftListeners = new Set<(count: number, first: DraftFirst) => void>()
+const draftListeners = new Set<(counts: DraftCounts, first: DraftFirst) => void>()
 
-export function noteDraftPhrases(count: number, first: DraftFirst): void {
-  draftListeners.forEach((l) => l(count, first))
+export function noteDraftPhrases(counts: DraftCounts, first: DraftFirst): void {
+  draftListeners.forEach((l) => l(counts, first))
 }
 
-export function onDraftPhrases(fn: (count: number, first: DraftFirst) => void): () => void {
+export function onDraftPhrases(fn: (counts: DraftCounts, first: DraftFirst) => void): () => void {
   draftListeners.add(fn)
   return () => draftListeners.delete(fn)
 }

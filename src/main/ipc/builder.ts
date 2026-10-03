@@ -43,9 +43,10 @@ function jobContext(): JobContext {
       repo.touchWorld(db)
       emit('memory:changed', { sceneId: null, entryIds: [entryId] })
     },
-    // A character Quick start made (or finished) gets its read-aloud voice, as Suggest would write it.
+    // A character Quick start made (or finished) gets its read-aloud voice, as Suggest would write it: stopped part
+    // way too, from what it had written.
     onDone: (done) => {
-      if (done.job === 'quick-start' && done.status === 'complete' && done.entryId && db.open) voiceLater(db, [done.entryId])
+      if (done.job === 'quick-start' && done.entryId && db.open) voiceLater(db, [done.entryId])
     },
     onKeyRejected: () => providers.markCheck(model.target.id, false)
   }

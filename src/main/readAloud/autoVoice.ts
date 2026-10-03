@@ -9,7 +9,8 @@
 // - In the background, one character at a time, never holding up the job that made them. A request that fails
 //   leaves the box empty, as it was; nothing here throws.
 // - Saved even when reading aloud isn't set up: it is only words, ready for when it is.
-// - The background queue asks about each character once a session, so a voice Adam clears stays cleared.
+// - The background queue asks about each character once a session, so a voice Adam clears stays cleared; a request
+//   that failed is asked again a minute later, up to three tries in all.
 // No Electron imports: the caller passes the model, the lines and what to tell the window.
 
 import type Database from 'better-sqlite3'
@@ -198,6 +199,8 @@ export interface VoiceLaterOptions {
   lines?: (e: Entry) => string[]
   /** Told the characters given voices, so their pages show them. */
   onVoiced?: (entryIds: ID[]) => void
+  /** How long to wait before asking again for a voice whose request failed (by default, a minute). */
+  againAfterMs?: number
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -205,6 +208,11 @@ export interface VoiceLaterOptions {
 
 /** The characters the background queue has asked about this session, by world. */
 const asked = new WeakMap<DB, Set<ID>>()
+/** How many times each character's voice was asked for and didn't come, by world. */
+const failed = new WeakMap<DB, Map<ID, number>>()
+/** A voice that didn't come (the service busy, offline, a reply that couldn't be read) is asked for this often in all. */
+export const VOICE_TRIES = 3
+const AGAIN_AFTER_MS = 60_000
 const waiting = new Map<ID, ReturnType<typeof setTimeout>>()
 let queue: Promise<void> = Promise.resolve()
 
@@ -252,4 +260,23 @@ async function voiceNow(entryIds: ID[], o: VoiceLaterOptions): Promise<void> {
     todo.map((e) => e.id)
   )
   if (result.voiced.length && live()) o.onVoiced?.(result.voiced)
+  // One that still has no voice (Adam hasn't set one meanwhile) is asked for again a little later, a few times.
+  if (!live()) return
+  const tries = failed.get(o.db) ?? new Map<ID, number>()
+  failed.set(o.db, tries)
+  const again = repo
+    .getEntries(
+      o.db,
+      todo.filter((e) => !result.voiced.includes(e.id)).map((e) => e.id)
+    )
+    .filter((e) => needsVoice(o.db, e))
+    .map((e) => e.id)
+    .filter((id) => {
+      const n = (tries.get(id) ?? 0) + 1
+      tries.set(id, n)
+      return n < VOICE_TRIES
+    })
+  if (!again.length) return
+  for (const id of again) seen.delete(id)
+  voiceLater(again, { ...o, delayMs: o.againAfterMs ?? AGAIN_AFTER_MS })
 }

@@ -461,6 +461,8 @@ describe('the timeline a build starts', () => {
 describe('stopping a build', () => {
   it('keeps what was saved when it is cancelled, and one Undo still takes it away', { timeout: 30000 }, async () => {
     const t = setup({ modelId: 'fake/slow' })
+    const later: ID[][] = []
+    t.ctx.voiceLater = (ids) => later.push(ids)
     const finished = startBuild(t.ctx, { buildId: 'slow-1', summary: SUMMARY, storyId: null })
     await until(() => t.progress().some((p) => p.made.length > 0))
     expect(buildRunning()).toBe(true)
@@ -476,6 +478,9 @@ describe('stopping a build', () => {
     expect(t.names()).toHaveLength(kept.length)
     expect(kdb.getRun(t.db, done.runId!)?.status).toBe('stopped')
     expect(records(t.db).some((r) => r.status === 'stopped')).toBe(true)
+    // The characters it had made get their voices in the background, as it never reached that step.
+    const characters = kept.filter((m) => m.kind === 'character').map((m) => m.entryId)
+    expect(later).toEqual([characters])
     expect(buildRunning()).toBe(false)
     expect(buildState(t.db, 'world-1', SUMMARY)).toMatchObject({ running: null, last: { buildId: 'slow-1', status: 'cancelled' } })
 
@@ -700,9 +705,13 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     t.ctx.voiceModel = voiceModel()
     t.ctx.fetchImpl = async (input, init) =>
       isVoiceAsk(init) ? new Response('{"error":{"message":"Down for the night"}}', { status: 503 }) : fetch(input, init)
+    const later: ID[][] = []
+    t.ctx.voiceLater = (ids) => later.push(ids)
     const done = await t.build(SUMMARY)
     expect(done.status).toBe('complete')
     expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe('')
+    // Handed on, to be asked for again in the background.
+    expect(later).toEqual([[t.named('Mara Venn').id, t.named('Tobin').id]])
   })
 
   it('gives a voice to a character it filled in as well as those it made', async () => {

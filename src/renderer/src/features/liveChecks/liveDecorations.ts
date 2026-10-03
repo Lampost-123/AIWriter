@@ -14,7 +14,7 @@
 //    name being typed ("Mar…") is never flagged half-way.
 //  - Nothing is underlined while a draft streams into the page or text is held for replacing, nor
 //    inside a change an AI tool is suggesting.
-//  - When a draft has landed, the first check after it says how many common AI phrases it brought
+//  - When a draft has landed, the first check after it says how many phrases to avoid and common AI phrases it brought
 //    (noteDraftPhrases, a quiet toast). Where the draft began is kept in this plugin's state, mapped
 //    through every change, and from the first of several drafts in a row (Beat by beat) until checked.
 //  - The words to check against (names, phrases to avoid, ignored flags) are read from this module
@@ -307,9 +307,13 @@ class LiveRunner {
     this.edited = false
     this.dispatch(DecorationSet.create(state.doc, decos), sceneId, draftFrom !== null)
     if (draftFrom === null) return
-    // The common AI phrases a draft brought (none inside an AI tool's waiting change).
-    const brought = liveFlagsOf(view.state).filter((f) => f.kind === 'ai' && f.from >= draftFrom)
-    if (brought.length) noteDraftPhrases(brought.length, { key: brought[0].key, from: brought[0].from })
+    // The phrases to avoid and common AI phrases a draft brought (none inside an AI tool's waiting change).
+    const brought = liveFlagsOf(view.state).filter((f) => (f.kind === 'phrase' || f.kind === 'ai') && f.from >= draftFrom)
+    const first = brought.find((f) => f.kind === 'phrase') ?? brought[0]
+    if (first) {
+      const phrase = brought.filter((f) => f.kind === 'phrase').length
+      noteDraftPhrases({ phrase, ai: brought.length - phrase }, { kind: first.kind as 'phrase' | 'ai', key: first.key, from: first.from })
+    }
   }
 
   private dispatch(set: DecorationSet, sceneId: ID | null, draftSeen = false): void {

@@ -252,9 +252,16 @@ export function rewriteDirection(flag: { kind: LiveFlagKind; key: string; word: 
   return `Rewrite this without “${phrase}”, keeping its meaning and the scene’s voice.`
 }
 
-/** The quiet note after a draft lands: "3 common AI phrases underlined in the new draft." */
-export const draftNoteWords = (count: number): string =>
-  `${count === 1 ? '1 common AI phrase' : `${count} common AI phrases`} underlined in the new draft.`
+/**
+ * The quiet note after a draft lands: "1 phrase to avoid and 3 common AI phrases underlined in the new draft."
+ * (Adam's own phrases to avoid first: the model was told never to use them.)
+ */
+export function draftNoteWords(counts: { phrase: number; ai: number }): string {
+  const parts: string[] = []
+  if (counts.phrase > 0) parts.push(counts.phrase === 1 ? '1 phrase to avoid' : `${counts.phrase} phrases to avoid`)
+  if (counts.ai > 0) parts.push(counts.ai === 1 ? '1 common AI phrase' : `${counts.ai} common AI phrases`)
+  return `${parts.join(' and ')} underlined in the new draft.`
+}
 
 const times = (n: number): string => (n === 2 ? 'twice' : `${n} times`)
 

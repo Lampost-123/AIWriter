@@ -209,6 +209,8 @@ export function finalInstruction(o: {
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
+  const avoid = avoidLine(o.style)
+  if (avoid) lines.push(avoid)
   const other = o.previousStory
   if (o.hasPrevious && other) {
     const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
@@ -236,6 +238,19 @@ export function feelLine(style: Pick<StyleGuide, 'genres'>, tone?: string): stri
   const toneText = t ? `the story's tone: ${t.length > 160 ? `${t.slice(0, 159).trimEnd()}…` : t}` : ''
   if (!genre && !toneText) return null
   return `- Keep ${[genre, toneText].filter(Boolean).join(', and ')}.`
+}
+
+/**
+ * The closing reminder of the author's phrases to avoid, since models follow what comes last most closely (and
+ * skim a list given at the start): a short list is given again, a long one pointed to. Null when there are none.
+ */
+export function avoidLine(style: Pick<StyleGuide, 'avoidPhrases'>): string | null {
+  const phrases = style.avoidPhrases.map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean)
+  if (!phrases.length) return null
+  const listed = phrases.map((p) => `“${p}”`).join(', ')
+  return listed.length <= 300
+    ? `- Never use ${listed}, or any close variation of ${phrases.length === 1 ? 'it' : 'them'}.`
+    : "- Never use any of the author's words and phrases to avoid, given above, or any close variation of them."
 }
 
 /** What to aim the scene at, from whatever the scene card holds. */
