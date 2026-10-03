@@ -23,6 +23,8 @@ export interface MarkedCue {
 export interface SoundOf {
   id: string
   state: SceneCue['sound']
+  /** A new take of it: being made, or made with the take before kept aside. */
+  retake?: SceneCue['retake']
 }
 
 export interface Paragraph {
@@ -69,9 +71,9 @@ export function sceneCues(input: SceneInput): SceneCue[] {
   const byPid = new Map(input.paragraphs.map((p, i) => [p.pid, { p, i }]))
   const owned = input.edits?.owned ?? {}
   const out: { cue: SceneCue; i: number }[] = []
-  const withSound = (cue: Omit<SceneCue, 'soundId' | 'sound'>, seconds?: number): SceneCue => {
+  const withSound = (cue: Omit<SceneCue, 'soundId' | 'sound' | 'retake'>, seconds?: number): SceneCue => {
     const s = input.sound(cue.kind, cue.description, seconds)
-    return { ...cue, soundId: s?.id ?? '', sound: s?.state ?? 'waiting' }
+    return { ...cue, soundId: s?.id ?? '', sound: s?.state ?? 'waiting', retake: s?.retake ?? null }
   }
   const untilOf = (start: CueAnchor, u: CueAnchor | null | undefined, hash?: string): CueAnchor | null => {
     if (!u) return null
@@ -115,6 +117,7 @@ export function sceneCues(input: SceneInput): SceneCue[] {
           at: anchor,
           ...(c.kind === 'ambience' ? { until: u } : {}),
           origin: 'adam',
+          ...soundLevel(c),
           placed
         })
       })
@@ -132,8 +135,25 @@ export function keptCue(c: SoundCue): SoundCue {
     soundId: '',
     at: { pid: c.at.pid, from: c.at.from, to: c.at.to, words: c.at.words },
     ...(c.kind === 'ambience' ? { until: c.until ? { pid: c.until.pid, from: c.until.from, to: c.until.to, words: c.until.words } : null } : {}),
-    origin: c.origin
+    origin: c.origin,
+    ...soundLevel(c)
   }
+}
+
+/** The softest and loudest a sound can be set, beside the others. */
+export const MIN_VOLUME = 0.25
+export const MAX_VOLUME = 2
+
+/** A volume as kept: between the softest and loudest, rounded; 1 (as made) when it isn't a number. */
+export function cleanVolume(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : 1
+  return Math.round(Math.min(MAX_VOLUME, Math.max(MIN_VOLUME, n)) * 100) / 100
+}
+
+/** A cue's volume and mute, kept only when they differ from as made. */
+function soundLevel(c: Pick<SoundCue, 'volume' | 'muted'>): Pick<SoundCue, 'volume' | 'muted'> {
+  const volume = cleanVolume(c.volume)
+  return { ...(volume !== 1 ? { volume } : {}), ...(c.muted === true ? { muted: true } : {}) }
 }
 
 // ---------- When each sound is heard ----------
@@ -198,6 +218,9 @@ export function ambienceAt(cues: readonly SceneCue[], paragraphs: readonly Parag
   return inForce(edgesOf(cues, paragraphs), [i, at])
 }
 
+/** The sounds that play: muted ones are left out. */
+const audible = (cues: readonly SceneCue[]): SceneCue[] => cues.filter((c) => !c.muted)
+
 /** What plays: a sound that couldn't be made has none (''). */
 const playable = (cue: SceneCue): string => (cue.sound === 'failed' ? '' : cue.soundId)
 
@@ -207,10 +230,23 @@ const playable = (cue: SceneCue): string => (cue.sound === 'failed' ? '' : cue.s
  * clip is before the reading and only counts for what is playing), and each clip's `bed` is the ambience playing as
  * it starts, worked out from the start of the scene.
  */
-export function clipSounds(clips: readonly PlannedClip[], cues: readonly SceneCue[], paragraphs: readonly Paragraph[]): PlannedClip[] {
+export function clipSounds(
+  clips: readonly PlannedClip[],
+  cues: readonly SceneCue[],
+  paragraphs: readonly Paragraph[],
+  o: { muted?: boolean } = {}
+): PlannedClip[] {
   if (!clips.length) return [...clips]
+  // The scene's sounds are muted: none play, and no ambience either.
+  if (o.muted) {
+    return clips.map((c) => {
+      const { sounds: _sounds, bedVolume: _bedVolume, ...rest } = c
+      return { ...rest, bed: null }
+    })
+  }
   const index = new Map(paragraphs.map((p, i) => [p.pid, i]))
-  const edges = edgesOf(cues, paragraphs)
+  // A muted sound is left out altogether: a muted ambience neither starts nor ends anything.
+  const edges = edgesOf(audible(cues), paragraphs)
   const startOf = (c: PlannedClip): Pos | null => {
     const i = index.get(c.pid)
     return i === undefined ? null : [i, c.from]
@@ -230,13 +266,19 @@ export function clipSounds(clips: readonly PlannedClip[], cues: readonly SceneCu
       at = on.from
     }
     const list = sounds.get(on) ?? sounds.set(on, []).get(on)!
-    list.push({ cueId: e.cue.id, soundId: playable(e.cue), edge: e.edge, at })
+    list.push({ cueId: e.cue.id, soundId: playable(e.cue), edge: e.edge, volume: e.cue.volume ?? 1, at })
   }
   return clips.map((c) => {
     const s = startOf(c)
     const bed = s ? inForce(edges, s) : null
     const mine = sounds.get(c) ?? []
-    return { ...c, bed: bed ? playable(bed) || null : null, sounds: mine.sort((a, b) => a.at - b.at || EDGE_ORDER[a.edge] - EDGE_ORDER[b.edge]) }
+    const bedId = bed ? playable(bed) || null : null
+    return {
+      ...c,
+      bed: bedId,
+      ...(bedId ? { bedVolume: bed!.volume ?? 1 } : {}),
+      sounds: mine.sort((a, b) => a.at - b.at || EDGE_ORDER[a.edge] - EDGE_ORDER[b.edge])
+    }
   })
 }
 
@@ -247,7 +289,7 @@ export function clipSounds(clips: readonly PlannedClip[], cues: readonly SceneCu
 export function soundsAhead(cues: readonly SceneCue[], paragraphs: readonly Paragraph[], pid: string, at: number): SceneCue[] {
   const i = paragraphs.findIndex((p) => p.pid === pid)
   if (i < 0) return []
-  const edges = edgesOf(cues, paragraphs)
+  const edges = edgesOf(audible(cues), paragraphs)
   const here: Pos = [i, at]
   const out: SceneCue[] = []
   const playing = inForce(edges, here)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { PlannedClip } from '@shared/contracts/readAloud'
 import type { CueAnchor, SceneCue, SoundEdits } from '@shared/contracts/sounds'
 import { textHash } from '../readAloud/marks'
-import { ambienceAt, clipSounds, relocate, sceneCues, soundsAhead, type MarkedCue, type Paragraph } from './scene'
+import { ambienceAt, cleanVolume, clipSounds, relocate, sceneCues, soundsAhead, type MarkedCue, type Paragraph } from './scene'
 
 const paragraphs: Paragraph[] = [
   { pid: 'p1', text: 'Rain hammered the roof of the inn.' },
@@ -29,6 +29,7 @@ const cue = (id: string, kind: SceneCue['kind'], at: CueAnchor, o: Partial<Scene
   origin: 'ai',
   placed: true,
   sound: 'ready',
+  retake: null,
   ...o
 })
 
@@ -140,8 +141,8 @@ describe('the sounds on a reading’s clips', () => {
     const between = cue('crack', 'effect', { pid: 'p2', from: 30, to: 33, words: 'The' })
     const inGap = cue('step', 'effect', on('p3', 'stepped'))
     const out = clipSounds(gappy, [between, inGap], paragraphs)
-    expect(out[1]!.sounds).toEqual([{ cueId: 'crack', soundId: 's-crack', edge: 'fire', at: 40 }])
-    expect(out[2]!.sounds).toEqual([{ cueId: 'step', soundId: 's-step', edge: 'fire', at: 0 }])
+    expect(out[1]!.sounds).toEqual([{ cueId: 'crack', soundId: 's-crack', edge: 'fire', volume: 1, at: 40 }])
+    expect(out[2]!.sounds).toEqual([{ cueId: 'step', soundId: 's-step', edge: 'fire', volume: 1, at: 0 }])
   })
 
   it('lets a new ambience replace the last, and ignores the end of one already replaced', () => {
@@ -155,7 +156,7 @@ describe('the sounds on a reading’s clips', () => {
   it('plays nothing for a sound that couldn’t be made, but still marks where it would be', () => {
     const failed = cue('rain', 'ambience', on('p1', 'Rain'), { sound: 'failed' })
     const out = clipSounds(clips, [failed], paragraphs)
-    expect(out[0]!.sounds).toEqual([{ cueId: 'rain', soundId: '', edge: 'start', at: 0 }])
+    expect(out[0]!.sounds).toEqual([{ cueId: 'rain', soundId: '', edge: 'start', volume: 1, at: 0 }])
     expect(out[1]!.bed).toBeNull()
   })
 
@@ -170,5 +171,67 @@ describe('the sounds on a reading’s clips', () => {
     expect(ambienceAt(cues, paragraphs, 'p1', 0)).toBeNull()
     expect(soundsAhead(cues, paragraphs, 'p2', 10).map((c) => c.id)).toEqual(['rain', 'fire', 'door', 'thunder'])
     expect(soundsAhead(cues, paragraphs, 'p3', 0).map((c) => c.id)).toEqual(['fire', 'thunder'])
+  })
+})
+
+describe('each sound’s volume and mute, and a muted scene', () => {
+  const rain = cue('rain', 'ambience', on('p1', 'Rain'), { volume: 0.5 })
+  const fire = cue('fire', 'ambience', on('p2', 'fire'), { until: on('p3', 'out') })
+  const door = cue('door', 'effect', on('p2', 'slammed'), { volume: 1.5 })
+  const thunder = cue('thunder', 'effect', on('p4', 'Thunder'))
+  const clips = [clip('p1', 0), clip('p2', 0, 26), clip('p2', 27), clip('p3', 0), clip('p4', 0)]
+
+  it('carries each sound’s volume, and the ambience’s as the bed’s', () => {
+    const out = clipSounds(clips, [rain, door, thunder], paragraphs)
+    expect(out[0]!.sounds).toEqual([{ cueId: 'rain', soundId: 's-rain', edge: 'start', volume: 0.5, at: 0 }])
+    expect(out[2]!.sounds![0]).toMatchObject({ cueId: 'door', volume: 1.5 })
+    expect(out[4]!.sounds![0]).toMatchObject({ cueId: 'thunder', volume: 1 })
+    expect(out.map((c) => [c.bed, c.bedVolume])).toEqual([
+      [null, undefined],
+      ['s-rain', 0.5],
+      ['s-rain', 0.5],
+      ['s-rain', 0.5],
+      ['s-rain', 0.5]
+    ])
+  })
+
+  it('leaves a muted sound out altogether: a muted ambience neither starts, replaces nor ends anything', () => {
+    const out = clipSounds(clips, [rain, { ...fire, muted: true }, { ...door, muted: true }, thunder], paragraphs)
+    expect(out.flatMap((c) => c.sounds!.map((s) => s.cueId))).toEqual(['rain', 'thunder'])
+    // The rain plays on through where the muted fire would have replaced it, and past its end.
+    expect(out.map((c) => c.bed)).toEqual([null, 's-rain', 's-rain', 's-rain', 's-rain'])
+    // Nor is it made.
+    expect(soundsAhead([rain, { ...fire, muted: true }, door], paragraphs, 'p1', 0).map((c) => c.id)).toEqual(['rain', 'door'])
+  })
+
+  it('plays nothing in a muted scene', () => {
+    const out = clipSounds(clips, [rain, fire, door, thunder], paragraphs, { muted: true })
+    expect(out.every((c) => c.bed === null && c.sounds === undefined && c.bedVolume === undefined)).toBe(true)
+    expect(out.map((c) => c.key)).toEqual(clips.map((c) => c.key))
+  })
+
+  it('shows Adam’s volume and mute, and a sound’s new take', () => {
+    const edits: SoundEdits = {
+      owned: {
+        p2: [
+          { id: 'adam:1', kind: 'effect', description: 'door', soundId: '', at: on('p2', 'slammed'), origin: 'adam', volume: 1.7, muted: true },
+          { id: 'adam:2', kind: 'effect', description: 'crackle', soundId: '', at: on('p2', 'fire'), origin: 'adam', volume: 9 }
+        ]
+      }
+    }
+    const cues = sceneCues({
+      paragraphs,
+      ai: new Map(),
+      edits,
+      sound: (_kind, description) => ({ id: `id-${description}`, state: 'ready', retake: description === 'door' ? 'ready' : null })
+    })
+    expect(cues.map((c) => [c.id, c.volume, c.muted, c.retake])).toEqual([
+      ['adam:2', 2, undefined, null],
+      ['adam:1', 1.7, true, 'ready']
+    ])
+  })
+
+  it('keeps volumes between the softest and loudest', () => {
+    expect([0.1, 0.25, 1, 1.234, 2, 5, Number.NaN, 'x'].map(cleanVolume)).toEqual([0.25, 0.25, 1, 1.23, 2, 2, 1, 1])
   })
 })

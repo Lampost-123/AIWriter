@@ -7,7 +7,7 @@ import type { CueAnchor, CueInput, SceneCue, SoundCue, SoundEdits, SoundKind } f
 import type { ID } from '@shared/types'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
-import { keptCue, relocate, type Paragraph } from './scene'
+import { cleanVolume, keptCue, relocate, type Paragraph } from './scene'
 
 type DB = Database.Database
 
@@ -40,7 +40,17 @@ function cueOf(v: unknown): SoundCue | null {
   const id = str(c.id, 80)
   const description = str(c.description, MAX_DESCRIPTION).trim()
   if (!kind || !at || !SAFE.test(id) || !description) return null
-  return keptCue({ id, kind, description, soundId: '', at, until: kind === 'ambience' ? anchorOf(c.until) : undefined, origin: 'adam' })
+  return keptCue({
+    id,
+    kind,
+    description,
+    soundId: '',
+    at,
+    until: kind === 'ambience' ? anchorOf(c.until) : undefined,
+    origin: 'adam',
+    volume: cleanVolume(c.volume),
+    muted: c.muted === true
+  })
 }
 
 /** One scene's edits as they may be kept: anything unreadable is left out. */
@@ -56,7 +66,7 @@ export function cleanEdits(v: unknown): SoundEdits {
         .filter((c): c is SoundCue => !!c && c.at.pid === pid)
     }
   }
-  return { owned }
+  return { owned, ...((v as { muted?: unknown })?.muted === true ? { muted: true } : {}) }
 }
 
 function readAll(db: DB): Record<string, unknown> {
@@ -76,7 +86,7 @@ export function sceneEdits(db: DB, sceneId: ID): SoundEdits {
 /** Keeps a scene's edits (none owned: the scene's entry goes), and tells backups the world changed. */
 export function saveSceneEdits(db: DB, sceneId: ID, edits: SoundEdits): void {
   const all = readAll(db)
-  if (Object.keys(edits.owned).length) all[sceneId] = edits
+  if (Object.keys(edits.owned).length || edits.muted) all[sceneId] = edits.muted ? { ...edits, muted: true } : { owned: edits.owned }
   else delete all[sceneId]
   repo.setMeta(db, META_KEY, JSON.stringify(all))
   repo.touchWorld(db)
@@ -110,7 +120,15 @@ export function cueInputOf(v: unknown, paragraphs: readonly Paragraph[]): CueInp
     // An end before its start: it plays on until the next ambience.
     until = after ? u : null
   }
-  return { kind, description, at, ...(kind === 'ambience' ? { until } : {}) }
+  return {
+    kind,
+    description,
+    at,
+    ...(kind === 'ambience' ? { until } : {}),
+    // Left out: as it was (a new sound: as made, and playing).
+    ...(c.volume !== undefined && c.volume !== null ? { volume: cleanVolume(c.volume) } : {}),
+    ...(typeof c.muted === 'boolean' ? { muted: c.muted } : {})
+  }
 }
 
 /**
@@ -148,10 +166,12 @@ export function editCue(o: {
       soundId: '',
       at: o.cue.at,
       ...(o.cue.kind === 'ambience' ? { until: o.cue.until ?? null } : {}),
-      origin: 'adam'
+      origin: 'adam',
+      volume: o.cue.volume ?? old?.volume,
+      muted: o.cue.muted ?? old?.muted
     })
     list.push(cue)
     list.sort((a, b) => a.at.from - b.at.from)
   }
-  return { owned }
+  return { owned, ...(o.edits.muted ? { muted: true } : {}) }
 }

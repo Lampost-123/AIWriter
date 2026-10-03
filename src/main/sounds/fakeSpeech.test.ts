@@ -41,6 +41,14 @@ describe('making a sound on the fake speech server', () => {
     expect(wavInfo(got.wav)).toMatchObject({ sampleRate: 44_100, channels: 2, bitsPerSample: 16 })
   })
 
+  it('makes a different take with another seed', async () => {
+    reset()
+    const first = await generateSound(fetcher, door)
+    const again = await generateSound(fetcher, { ...door, seed: 12345 })
+    if (!first.ok || !again.ok) throw new Error('not made')
+    expect(again.wav.equals(first.wav)).toBe(false)
+  })
+
   it('waits while the voices have the graphics card', async () => {
     reset({ soundsBusy: true })
     expect(await generateSound(fetcher, door, () => true)).toMatchObject({ ok: false, hold: true })

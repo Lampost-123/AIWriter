@@ -27,10 +27,10 @@ import type { Ask } from '../readAloud/marks'
 import { paragraphsOfDoc } from '../readAloud/suggest'
 import { CueTimer, type ClipStore } from './align'
 import { cleanEdits, cueInputOf, editCue, saveSceneEdits, sceneEdits } from './edits'
-import { SOUND_ID, SoundLibrary } from './library'
+import { SOUND_ID, SoundLibrary, type LibraryEntry } from './library'
 import { generateSound, SoundMaker } from './making'
 import { SoundMarker, SoundStore, type SoundScene } from './marks'
-import { clipSounds, sceneCues, soundsAhead, type Paragraph } from './scene'
+import { clipSounds, sceneCues, soundsAhead, type Paragraph, type SoundOf } from './scene'
 
 type DB = Database.Database
 
@@ -78,13 +78,14 @@ function theMaker(): SoundMaker {
     beside: async () => !!server()?.beside,
     generate: (req) => generateSound(speechFetch, req, () => server() !== null),
     made: (soundId, ok) => emit('sounds:ready', { soundId, ok }),
+    retook: () => tellShown(),
     changed: () => statusSoon()
   })
   // Sounds wanted before the app last closed are still wanted.
   maker.background(
     l
       .list()
-      .filter((e) => e.state === 'waiting')
+      .filter((e) => e.state === 'waiting' || e.retake === 'making')
       .sort((a, b) => a.asked - b.asked)
       .map((e) => e.id)
   )
@@ -171,15 +172,42 @@ function askFor(sceneId: ID): { call: Ask; stop: () => void } | { error: string 
 /** A scene's sounds as they stand: the AI's for paragraphs whose words haven't changed, Adam's for his. */
 function cuesNow(worldId: ID, sceneId: ID, paragraphs: readonly Paragraph[], edits: SoundEdits, want: boolean): SceneCue[] {
   const l = library()
-  return sceneCues({
+  const asked = new Map<string, number | undefined>()
+  const cues = sceneCues({
     paragraphs,
     ai: store().current(worldId, sceneId, paragraphs),
     edits,
     sound: (kind, description, seconds) => {
-      const e = want ? l.want(kind, description, seconds) : l.find(kind, description)
-      return e ? { id: e.id, state: e.state } : null
+      asked.set(`${kind}\n${description}`, seconds)
+      const e = l.find(kind, description)
+      return e ? soundOf(e) : null
     }
   })
+  // Wanted in the library (so they are made): only sounds that play, in a scene that isn't muted.
+  if (!want || edits.muted) return cues
+  return cues.map((c) => {
+    if (c.soundId || c.muted) return c
+    const e = l.want(c.kind, c.description, asked.get(`${c.kind}\n${c.description}`))
+    return e ? { ...c, ...cueSound(e) } : c
+  })
+}
+
+/** A library sound as a cue sees it. */
+const soundOf = (e: LibraryEntry): SoundOf => ({ id: e.id, state: e.state, retake: e.retake ?? null })
+const cueSound = (e: LibraryEntry): Pick<SceneCue, 'soundId' | 'sound' | 'retake'> => ({ soundId: e.id, sound: e.state, retake: e.retake ?? null })
+
+/** Scenes whose sounds were looked at lately (the Sounds view, a reading): told when a sound's take changes. */
+const shown = new Map<ID, number>()
+const SHOWN_MS = 30 * 60_000
+function showing(sceneId: ID): void {
+  shown.set(sceneId, Date.now())
+}
+/** A library sound changed (a new take, or going back): the scenes on screen look again, and readings plan again. */
+function tellShown(): void {
+  for (const [sceneId, at] of [...shown]) {
+    if (Date.now() - at > SHOWN_MS) shown.delete(sceneId)
+    else emit('sounds:marked', { sceneId, pids: [] })
+  }
 }
 
 let marker: SoundMarker | null = null
@@ -193,7 +221,10 @@ const theMarker = (): SoundMarker =>
       return w && w.id === s.worldId ? cuesNow(s.worldId, s.sceneId, s.paragraphs, sceneEdits(w.db, s.sceneId), false) : []
     },
     done: (sceneId, pids) => emit('sounds:marked', { sceneId, pids }),
-    found: (_s, cues) => {
+    found: (s, cues) => {
+      // A muted scene's sounds are marked (so they are there when it is unmuted) but not made.
+      const w = world.maybeCurrentWorld()
+      if (!w || w.id !== s.worldId || sceneEdits(w.db, s.sceneId).muted) return
       const l = library()
       wantMade(cues.flatMap((c) => l.want(c.kind, c.description, c.seconds)?.id ?? []))
     }
@@ -258,18 +289,20 @@ export function soundsForReading(o: {
       owned: new Set(Object.keys(edits.owned)),
       ...(o.pids ? { pids: o.pids } : {})
     }
+    showing(o.sceneId)
+    // Marked even when the scene is muted, so its sounds are there when it is unmuted.
     const { again } = theMarker().note(s)
     const cues = cuesNow(o.worldId, o.sceneId, scene, edits, true)
     const m = theMaker()
     m.playing()
-    if (run.length) {
+    if (run.length && !edits.muted) {
       const ahead = soundsAhead(cues, scene, run[0]!, o.offset)
       m.forReading(`${o.worldId}:${o.sceneId}`, [...new Set(ahead.map((c) => c.soundId).filter(Boolean))])
     }
     return {
       finish: (plan) => {
         const markAhead = earlier(run, plan.markAhead, again)
-        return { ...plan, clips: clipSounds(plan.clips, cues, scene), ...(markAhead ? { markAhead } : {}) }
+        return { ...plan, clips: clipSounds(plan.clips, cues, scene, { muted: !!edits.muted }), ...(markAhead ? { markAhead } : {}) }
       }
     }
   } catch (e) {
@@ -302,6 +335,7 @@ export function stopSoundMarks(worldId: ID, sceneId: ID): void {
 export function soundsWorldClosing(): void {
   marker?.forgetAll()
   maker?.dropReadings()
+  shown.clear()
 }
 
 // ---------- The Sounds view and Settings ----------
@@ -335,14 +369,16 @@ export function getSceneSounds(sceneId: ID, given: unknown): SceneSounds {
   const paragraphs = paragraphsOf(given)
   const edits = sceneEdits(w.db, id)
   const cues = cuesNow(w.id, id, paragraphs, edits, true)
-  // Shown: their sounds are made in the background (while sound effects are on).
-  wantMade([...new Set(cues.map((c) => c.soundId).filter(Boolean))])
+  showing(id)
+  // Shown: the sounds that play are made in the background (while sound effects are on and the scene isn't muted).
+  if (!edits.muted) wantMade([...new Set(cues.filter((c) => !c.muted).map((c) => c.soundId).filter(Boolean))])
   const here = new Set(paragraphs.map((p) => p.pid))
   return {
     sceneId: id,
     cues,
     marking: [...(marker?.busyIn(w.id, id) ?? [])].filter((pid) => here.has(pid)),
-    owned: Object.keys(edits.owned).filter((pid) => here.has(pid))
+    owned: Object.keys(edits.owned).filter((pid) => here.has(pid)),
+    muted: !!edits.muted
   }
 }
 
@@ -373,10 +409,7 @@ export function editSoundCue(sceneId: ID, given: unknown, cueId: unknown, cue: u
   const input: CueInput | null = cue === null ? null : cueInputOf(cue, paragraphs)
   const next = editCue({ edits: before, cues: cuesNow(w.id, id, paragraphs, before, false), cueId, cue: input, newId })
   saveSceneEdits(w.db, id, next)
-  if (input) {
-    const e = library().want(input.kind, input.description)
-    if (e) wantMade([e.id])
-  }
+  // Its sound is wanted (and made, unless it or the scene is muted) as the scene's sounds are worked out below.
   emit('sounds:marked', { sceneId: id, pids: changedPids(before, next) })
   return { sounds: getSceneSounds(id, paragraphs), undo: before }
 }
@@ -429,6 +462,47 @@ export function listSoundLibrary(): LibrarySound[] {
     .map(SoundLibrary.shown)
 }
 
+/** "Mute sounds in this scene", and back on: kept with Adam's other sound edits in the world. */
+export function muteSceneSounds(sceneId: ID, muted: unknown): void {
+  const w = world.currentWorld()
+  const id = checkScene(sceneId)
+  const edits = sceneEdits(w.db, id)
+  if (!!edits.muted === (muted === true)) return
+  saveSceneEdits(w.db, id, { owned: edits.owned, ...(muted === true ? { muted: true } : {}) })
+  // A reading of it plans again (without its sounds, or with them).
+  emit('sounds:marked', { sceneId: id, pids: [] })
+}
+
+/**
+ * "New take": a made sound is made afresh, first in the queue; once made it plays everywhere it is used, with the
+ * take before kept aside (keepTake). One not made yet, or that couldn't be made, is simply made.
+ */
+export function retakeSound(soundId: unknown): void {
+  if (typeof soundId !== 'string' || !SOUND_ID.test(soundId)) return
+  const l = library()
+  const e = l.get(soundId)
+  if (!e || !speech().soundEffects) return
+  if (e.state !== 'ready') return makeSoundNow(soundId)
+  if (e.retake !== 'making' && !l.startRetake(soundId)) return
+  theMaker().first(soundId)
+  statusSoon()
+  tellShown()
+}
+
+/** After a new take: keep it (the take before is let go), or go back to the take before (`keep` false). */
+export async function keepTake(soundId: unknown, keep: unknown): Promise<void> {
+  if (typeof soundId !== 'string' || !SOUND_ID.test(soundId)) return
+  const l = library()
+  const making = l.get(soundId)?.retake === 'making'
+  const changed = await l.keepTake(soundId, keep === true)
+  // Gone back before the new take was made: it isn't made.
+  if (making && keep !== true) maker?.drop(soundId)
+  // Its audio changed: windows holding the new take drop it.
+  if (changed) emit('sounds:ready', { soundId, ok: true })
+  statusSoon()
+  tellShown()
+}
+
 export async function clearSoundLibrary(): Promise<SoundsStatus> {
   await library().clear()
   maker?.clear()
@@ -441,7 +515,7 @@ export async function undoClearSoundLibrary(): Promise<SoundsStatus> {
   wantMade(
     l
       .list()
-      .filter((e) => e.state === 'waiting')
+      .filter((e) => e.state === 'waiting' || e.retake === 'making')
       .map((e) => e.id)
   )
   statusSoon()

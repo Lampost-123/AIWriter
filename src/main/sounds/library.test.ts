@@ -14,7 +14,7 @@ import {
   UNDO_CLEAR_MS,
   wantSeconds
 } from './library'
-import { silentWav } from './wav'
+import { silentWav, wavSeconds } from './wav'
 
 let root = ''
 let dir = ''
@@ -211,5 +211,87 @@ describe('the sound library', () => {
     await lib.clear()
     new SoundLibrary(dir).sweep()
     expect(readdirSync(root)).toEqual([])
+  })
+})
+
+describe('a new take of a sound', () => {
+  const made = async (lib: SoundLibrary, description: string, seconds = 1): Promise<string> => {
+    const id = lib.want('effect', description)!.id
+    await lib.saveClip(id, silentWav(seconds), seconds, 0.2)
+    return id
+  }
+
+  it('is asked for only for a made sound, with a seed of its own', async () => {
+    const lib = new SoundLibrary(dir)
+    expect(lib.startRetake(lib.want('effect', 'a bell')!.id)).toBe(false)
+    const id = await made(lib, 'a door slamming')
+    expect(lib.startRetake(id)).toBe(true)
+    expect(lib.get(id)).toMatchObject({ state: 'ready', retake: 'making', retakeFailures: 0 })
+    expect(Number.isInteger(lib.get(id)!.seed)).toBe(true)
+  })
+
+  it('plays once made, with the take before kept aside; Keep lets the earlier one go', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    expect(await lib.saveClip(id, silentWav(2), 2, 0.4)).toBe(true)
+    expect(lib.get(id)).toMatchObject({ state: 'ready', retake: 'ready', seconds: 2, score: 0.4, prev: { seconds: 1, score: 0.2 } })
+    expect(wavSeconds((await lib.audio(id))!)).toBeCloseTo(2)
+    expect(readdirSync(join(dir, 'clips')).sort()).toEqual([`${id}.prev.wav`, `${id}.wav`])
+    expect(await lib.keepTake(id, true)).toBe(false)
+    expect(lib.get(id)!.retake).toBeUndefined()
+    expect(lib.get(id)!.prev).toBeUndefined()
+    expect(readdirSync(join(dir, 'clips'))).toEqual([`${id}.wav`])
+  })
+
+  it('goes back to the take before', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    await lib.saveClip(id, silentWav(2), 2, 0.4)
+    expect(await lib.keepTake(id, false)).toBe(true)
+    expect(lib.get(id)).toMatchObject({ state: 'ready', seconds: 1, score: 0.2 })
+    expect(lib.get(id)!.retake).toBeUndefined()
+    expect(wavSeconds((await lib.audio(id))!)).toBeCloseTo(1)
+    expect(readdirSync(join(dir, 'clips'))).toEqual([`${id}.wav`])
+    // Kept across a restart.
+    expect(new SoundLibrary(dir).get(id)).toMatchObject({ seconds: 1 })
+  })
+
+  it('keeps only one take aside', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    await lib.saveClip(id, silentWav(2), 2)
+    lib.startRetake(id)
+    expect(lib.get(id)!.retake).toBe('making')
+    await lib.saveClip(id, silentWav(3), 3)
+    expect(lib.get(id)).toMatchObject({ seconds: 3, retake: 'ready', prev: { seconds: 2 } })
+    expect(readdirSync(join(dir, 'clips')).sort()).toEqual([`${id}.prev.wav`, `${id}.wav`])
+  })
+
+  it('leaves the sound as it was when the new take is given up on or called off', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    expect(lib.retakeFailed(id, false)).toBe(1)
+    expect(lib.get(id)).toMatchObject({ state: 'ready', retake: 'making', failures: 0 })
+    lib.retakeFailed(id, true)
+    expect(lib.get(id)).toMatchObject({ state: 'ready' })
+    expect(lib.get(id)!.retake).toBeUndefined()
+    lib.startRetake(id)
+    expect(await lib.keepTake(id, false)).toBe(false)
+    expect(lib.get(id)!.retake).toBeUndefined()
+    expect(wavSeconds((await lib.audio(id))!)).toBeCloseTo(1)
+  })
+
+  it('goes with the library when it is cleared', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    await lib.saveClip(id, silentWav(2), 2)
+    await lib.clear()
+    expect(existsSync(dir)).toBe(false)
+    expect(lib.get(id)).toBeNull()
   })
 })
