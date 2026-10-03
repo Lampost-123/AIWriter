@@ -1,7 +1,6 @@
-<!-- version: 0.6.11 -->
-What's new in 0.6.11:
+<!-- version: 0.6.12 -->
+What's new in 0.6.12:
 
-- A new look: warm paper pages, a colour for each kind of thing in your world, book-style headings and two-tone icons.
-- Four areas down the left (Write, Plan, World, Check), each with its own list, and a trail at the top showing where you are.
-- Small, quick touches when you mark a scene done, save or generate. They stop when Windows animation effects are off.
-- Prefer how it was? Settings › Appearance › Style switches back to Classic at any time.
+- Read aloud: the narrator keeps the feeling of each passage but no longer slows down, so narration is easier to listen to. Characters' lines keep their own pace.
+
+Also in 0.6.11: a new look, with warm paper pages, a colour for each kind of thing in your world and four areas down the left. Prefer how it was? Settings › Appearance › Style switches back to Classic.

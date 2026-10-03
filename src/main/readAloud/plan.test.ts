@@ -95,6 +95,29 @@ describe('how each clip is said', () => {
     })
   })
 
+  it('never slows the narrator, keeping the feeling; a character’s line keeps its pace', () => {
+    const marks = new Map<string, ParagraphMarks>([
+      [
+        'p1',
+        {
+          delivery: {
+            '~the stairs went on': { tone: 'hushed, unhurried, dread building', pace: 'slow' },
+            'wait': { tone: 'wary', pace: 'slow' }
+          }
+        }
+      ]
+    ])
+    const [narration, line] = plan('The stairs went on. “Wait,” said Tomas.', { marks }).clips
+    expect(narration).toMatchObject({ how: 'hushed, dread building' })
+    expect(narration.clip).toMatchObject({ delivery: 'hushed, dread building', pace: '' })
+    expect(line.clip).toMatchObject({ delivery: 'wary', pace: 'slow' })
+    // A quickening is kept, and a note that was only about slowing leaves the narration plain.
+    const quick = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'urgent', pace: 'fast' } } }]])
+    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: 'urgent', pace: 'fast' })
+    const slowOnly = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'slowly, measured', pace: 'slow' } } }]])
+    expect(plan('The stairs went on.', { marks: slowOnly }).clips[0].clip).toMatchObject({ delivery: '', pace: '' })
+  })
+
   it('performs a written sound only when Perform written sounds is on', () => {
     const text = 'She sighs. Then she goes.'
     const at = text.indexOf('sighs')

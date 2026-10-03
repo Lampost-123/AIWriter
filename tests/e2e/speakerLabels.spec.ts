@@ -75,7 +75,8 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     await expect(speakersButton(win)).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(async () => (await labels(win)).length, { timeout: 30_000 }).toBe(await prose(win).locator('p').count())
     const shown = await labels(win)
-    expect(shown[0]).toBe('Narrator · hushed and steady, slowly')
+    // The narration keeps its feeling but never slows down (the fake marks it slow).
+    expect(shown[0]).toBe('Narrator · hushed and steady')
     expect(shown.some((l) => /^(Mara|Tobin) · (quiet and wary|bright and quick)/.test(l))).toBe(true)
 
     // Never part of the text, and nothing on the page moved.
