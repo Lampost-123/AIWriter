@@ -48,7 +48,7 @@ export function ShortcutsList(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ shortcuts: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-fade-in" />
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           onOpenAutoFocus={(e) => {

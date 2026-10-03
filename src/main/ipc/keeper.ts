@@ -14,6 +14,7 @@ import { answerItem, undoItem, type Outcome } from '../keeper/undo'
 import type { Undo } from '../keeper/apply'
 import { isWorldLine } from '../worldBuilder/lines'
 import { checkWhenDone } from '../checks/runs'
+import { runOrWait } from '../usage'
 
 type KeeperMethods =
   | 'markSceneDone'
@@ -66,7 +67,9 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
     const meta = write(() => markSceneDone(id) ?? kdb.markSceneDone(world.db(), id))
     sceneMarkedDone(id)
     // Milestone 5: its facts, knowledge and timeline are checked in the background (nothing at all without a model).
-    checkWhenDone(world.db(), id)
+    // Milestone 6: while this month's AI spending has reached Adam's limit, the check waits until he carries on.
+    const db = world.db()
+    runOrWait(`done-check:${id}`, db, () => checkWhenDone(db, id))
     emit('memory:status', memoryStatus())
     return meta
   },

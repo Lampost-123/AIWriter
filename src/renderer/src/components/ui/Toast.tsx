@@ -129,7 +129,8 @@ function Toast({ t }: { t: ToastItem }): React.JSX.Element {
         t.tone === 'danger' ? 'border-danger/40' : t.tone === 'success' ? 'border-success/40' : 'border-line'
       )}
     >
-      <p className="flex-1 leading-relaxed text-fg">{t.message}</p>
+      {/* A long file path or web address wraps inside the toast rather than running off the window. */}
+      <p className="min-w-0 flex-1 leading-relaxed text-fg [overflow-wrap:anywhere]">{t.message}</p>
       {t.secondary ? (
         <button className="font-medium text-muted hover:text-fg hover:underline" onClick={() => t.secondary!.run()}>
           {t.secondary.label}

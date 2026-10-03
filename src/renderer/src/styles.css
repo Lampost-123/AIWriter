@@ -6,6 +6,8 @@
   (bg-surface, text-muted, border-line, bg-accent, text-ai ...) rather than raw colours.
   Text colours (fg, muted, faint, ai) keep at least 4.5:1 contrast on the backgrounds:
   tests/unit/contrast.test.ts checks it.
+  The accent colours Adam can pick (milestone 6) follow the themes below; features/look/accents.ts
+  has the same values, and accents.test.ts checks both.
 */
 
 :root,
@@ -24,13 +26,15 @@
   --accent-hover: #314a6b;
   --accent-soft: #e3eaf3;
   --accent-fg: #ffffff;
-  --ai: #946219;
+  --ai: #8f5e17;
   --ai-soft: #fbf0d9;
+  --ai-fg: #ffffff;
   --danger: #b42318;
   --danger-soft: #fdeceb;
-  --success: #2f7d4f;
+  --success: #2b764a;
   --success-soft: #e5f3ea;
-  --focus: #3d5a80;
+  --focus: var(--accent);
+  --overlay: rgb(30 25 20 / 0.3);
   --shadow: 0 1px 2px rgb(30 25 20 / 0.06), 0 4px 16px rgb(30 25 20 / 0.06);
   --shadow-lg: 0 8px 32px rgb(30 25 20 / 0.14), 0 2px 6px rgb(30 25 20 / 0.08);
   color-scheme: light;
@@ -53,11 +57,13 @@
   --accent-fg: #10161f;
   --ai: #e0a84a;
   --ai-soft: #3a2e19;
+  --ai-fg: #1a1206;
   --danger: #f07a70;
   --danger-soft: #3d1f1c;
   --success: #6cc493;
   --success-soft: #1b3326;
-  --focus: #8fb0dc;
+  --focus: var(--accent);
+  --overlay: rgb(0 0 0 / 0.55);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
   --shadow-lg: 0 8px 32px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.3);
   color-scheme: dark;
@@ -80,14 +86,94 @@
   --accent-fg: #fff8ec;
   --ai: #8d580d;
   --ai-soft: #f3e1bd;
+  --ai-fg: #fff8ec;
   --danger: #a3271b;
   --danger-soft: #f3d9cf;
   --success: #3f6e3a;
   --success-soft: #dfe7cc;
-  --focus: #8a4b2a;
+  --focus: var(--accent);
+  --overlay: rgb(60 40 20 / 0.3);
   --shadow: 0 1px 2px rgb(60 40 20 / 0.08), 0 4px 16px rgb(60 40 20 / 0.08);
   --shadow-lg: 0 8px 32px rgb(60 40 20 / 0.16), 0 2px 6px rgb(60 40 20 / 0.1);
   color-scheme: light;
+}
+
+
+/*
+  The accent colour Adam picked in Settings › Appearance (<html data-accent>; none: the theme's own above).
+  Tuned per theme for AA contrast; the same values as features/look/accents.ts (accents.test.ts checks).
+*/
+[data-theme='light'][data-accent='teal'] {
+  --accent: #1d6b78;
+  --accent-hover: #175863;
+  --accent-soft: #dcedf0;
+  --accent-fg: #ffffff;
+}
+[data-theme='dark'][data-accent='teal'] {
+  --accent: #6fbccb;
+  --accent-hover: #8ccbd7;
+  --accent-soft: #1c3a40;
+  --accent-fg: #0a1a1d;
+}
+[data-theme='sepia'][data-accent='teal'] {
+  --accent: #1c5f69;
+  --accent-hover: #164e57;
+  --accent-soft: #d5e0d8;
+  --accent-fg: #fff8ec;
+}
+[data-theme='light'][data-accent='indigo'] {
+  --accent: #4a4fa3;
+  --accent-hover: #3d418a;
+  --accent-soft: #e6e7f6;
+  --accent-fg: #ffffff;
+}
+[data-theme='dark'][data-accent='indigo'] {
+  --accent: #a3a8f0;
+  --accent-hover: #b9bdf5;
+  --accent-soft: #2a2d4d;
+  --accent-fg: #12132a;
+}
+[data-theme='sepia'][data-accent='indigo'] {
+  --accent: #444a94;
+  --accent-hover: #383d7c;
+  --accent-soft: #dedbe0;
+  --accent-fg: #fff8ec;
+}
+[data-theme='light'][data-accent='plum'] {
+  --accent: #7a3e6e;
+  --accent-hover: #66335c;
+  --accent-soft: #f2e4ef;
+  --accent-fg: #ffffff;
+}
+[data-theme='dark'][data-accent='plum'] {
+  --accent: #d49cc6;
+  --accent-hover: #e0b4d4;
+  --accent-soft: #3b2537;
+  --accent-fg: #1f0f1b;
+}
+[data-theme='sepia'][data-accent='plum'] {
+  --accent: #713a66;
+  --accent-hover: #5e3055;
+  --accent-soft: #ead6d6;
+  --accent-fg: #fff8ec;
+}
+[data-theme='light'][data-accent='graphite'] {
+  --accent: #4a4f57;
+  --accent-hover: #3b3f46;
+  --accent-soft: #e7e8ea;
+  --accent-fg: #ffffff;
+}
+[data-theme='dark'][data-accent='graphite'] {
+  --accent: #b4b8bf;
+  --accent-hover: #c9ccd2;
+  --accent-soft: #2e3034;
+  --accent-fg: #141518;
+}
+[data-theme='sepia'][data-accent='graphite'] {
+  --accent: #4a463f;
+  --accent-hover: #3b3832;
+  --accent-soft: #e2d8c4;
+  --accent-fg: #fff8ec;
 }
 
 @theme inline {
@@ -107,6 +193,8 @@
   --color-accent-fg: var(--accent-fg);
   --color-ai: var(--ai);
   --color-ai-soft: var(--ai-soft);
+  --color-ai-fg: var(--ai-fg);
+  --color-overlay: var(--overlay);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-success: var(--success);
@@ -206,11 +294,46 @@
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
 
+/*
+  Focus mode (F11, features/look/focusMode.ts): everything but the page fades away. What carries
+  data-focus-chrome (the top bar, the scene's toolbar, the binder) fades, keeping its room so the page
+  never moves, then is hidden (so the keyboard can't land on it) once the fade is over. The window
+  behind takes the page's colour, so the space they leave is part of the page.
+*/
+[data-focus-chrome] {
+  transition:
+    opacity 200ms ease-out,
+    visibility 0s linear 0s;
+}
+:root[data-focus] [data-focus-chrome] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 200ms ease-out,
+    visibility 0s linear 200ms;
+}
+body {
+  transition: background-color 200ms ease-out;
+}
+:root[data-focus] body,
+:root[data-focus] main {
+  background-color: var(--page);
+}
+
+/*
+  Less motion when the system asks for it: transitions and animations stop (they end at once, where they
+  would have ended), and nothing scrolls smoothly. Motion driven from code checks features/look/motion.ts.
+*/
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
 }

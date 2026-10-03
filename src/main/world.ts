@@ -73,6 +73,8 @@ export function listWorlds(): WorldSummary[] {
   const out: WorldSummary[] = []
   for (const name of readdirSync(lib, { withFileTypes: true })) {
     if (!name.isDirectory()) continue
+    // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/).
+    if (name.name.startsWith('.aiwrite-')) continue
     if (current && join(lib, name.name) === current.folder) {
       out.push(toSummary(getWorld()!))
       continue

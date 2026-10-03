@@ -68,7 +68,7 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         'group flex h-8 w-8 shrink-0 items-center justify-center gap-1.5 rounded-md border text-[13px] font-medium outline-none',
         'transition-[background-color,border-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
         // Room for the words only when the header is wide enough (see SceneHeader); the width then stays put in either state.
-        '@min-[700px]:w-[112px] @min-[700px]:px-2.5',
+        '@min-[860px]:w-[112px] @min-[860px]:px-2.5',
         done
           ? 'border-success/35 bg-success-soft text-success hover:border-success/70'
           : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2'
@@ -84,7 +84,7 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
       ) : (
         <Check size={14} aria-hidden />
       )}
-      <span className="hidden @min-[700px]:inline">
+      <span className="hidden @min-[860px]:inline">
         {done ? (
           <>
             <span className="group-hover:hidden group-focus-visible:hidden">Done</span>

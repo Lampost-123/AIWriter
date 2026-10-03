@@ -72,8 +72,13 @@ import type { ReadAloudApi, ReadAloudEvents } from './contracts/readAloud'
 import type { DictationApi, DictationEvents } from './contracts/dictation'
 import type { WorldBuilderApi, WorldBuilderEvents } from './contracts/worldBuilder'
 import type { ChecksApi, ChecksEvents } from './contracts/checks'
+import type { TransferApi, TransferEvents } from './contracts/transfer'
+import type { ImportingApi, ImportingEvents } from './contracts/importing'
+import type { UsageApi, UsageEvents } from './contracts/usage'
+import type { SetupApi, SetupEvents } from './contracts/setup'
+import type { LookApi, LookEvents } from './contracts/look'
 
-/** Every call the interface can make. Milestone 3's and 4's parts each add theirs in src/shared/contracts/. */
+/** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
   extends BuilderApi,
     EntryViewsApi,
@@ -93,7 +98,12 @@ export interface AppApi
     ReadAloudApi,
     DictationApi,
     WorldBuilderApi,
-    ChecksApi {
+    ChecksApi,
+    TransferApi,
+    ImportingApi,
+    UsageApi,
+    SetupApi,
+    LookApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -290,7 +300,7 @@ export interface StoryPlacement {
 
 export type ApiMethod = keyof AppApi
 
-/** Events sent from the main process to the renderer. Milestone 3's and 4's parts each add theirs in src/shared/contracts/. */
+/** Events sent from the main process to the renderer. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppEvents
   extends BuilderEvents,
     EntryViewsEvents,
@@ -310,7 +320,12 @@ export interface AppEvents
     ReadAloudEvents,
     DictationEvents,
     WorldBuilderEvents,
-    ChecksEvents {
+    ChecksEvents,
+    TransferEvents,
+    ImportingEvents,
+    UsageEvents,
+    SetupEvents,
+    LookEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID
@@ -351,4 +366,6 @@ export interface Bridge {
   platform: string
   /** The theme the window opened in, applied before the first frame so nothing flashes. */
   initialTheme: PaintedTheme
+  /** Milestone 6: the accent colour the window opened in (an AccentId), or null for the theme's own; applied as the theme is. */
+  initialAccent?: string | null
 }

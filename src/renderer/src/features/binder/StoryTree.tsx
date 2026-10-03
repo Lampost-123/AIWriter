@@ -123,6 +123,15 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
   const treeRef = useRef<HTMLDivElement>(null)
   /** Row to focus once it has rendered (after add/delete/rename). */
   const focusNext = useRef<ID | null>(null)
+  // The sortable lists keep the same array while their ids are the same, so a saved word count (which reloads
+  // the outline) re-renders only the rows that changed, not every row in the story, between two keystrokes.
+  const sortableItems = useRef(new Map<string, string[]>())
+  const stableItems = (key: string, items: string[]): string[] => {
+    const was = sortableItems.current.get(key)
+    if (was && was.length === items.length && was.every((x, i) => x === items[i])) return was
+    sortableItems.current.set(key, items)
+    return items
+  }
 
   const groups = useMemo(() => groupOutline(outline), [outline])
   // Chapters in the order shown: each act's together (the order the story itself keeps).
@@ -511,7 +520,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         lifted={drag?.kind === 'chapter' && drag.id === chapterId}
         h={h}
       >
-        <SortableContext items={shown.map(sceneDndId)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={stableItems(chapterId, shown.map(sceneDndId))} strategy={verticalListSortingStrategy}>
           {shown.map((id) => {
             const scene = sceneById.get(id)
             return scene ? (
@@ -551,7 +560,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
       >
         {runs.map((run) => {
           const chapters = (
-            <SortableContext key={run.act?.id ?? 'no-act'} items={run.chapters.map(chapterDndId)} strategy={verticalListSortingStrategy}>
+            <SortableContext key={run.act?.id ?? 'no-act'} items={stableItems(`act:${run.act?.id ?? ''}`, run.chapters.map(chapterDndId))} strategy={verticalListSortingStrategy}>
               {run.chapters.map((chapterId) => chapterBlock(chapterId, run.act ? 2 : 1))}
             </SortableContext>
           )

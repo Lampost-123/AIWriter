@@ -34,6 +34,9 @@ export type ShortcutId =
   | 'listen'
   | 'stopReading'
   | 'buildWorld'
+  // Milestone 6
+  | 'focusMode'
+  | 'leaveFocusMode'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -80,6 +83,8 @@ export const SHORTCUTS: Shortcut[] = [
     group: 'Writing',
     keys: ['Mod', 'Enter']
   },
+  { id: 'focusMode', name: 'Focus mode: only the page shows (press again to leave)', group: 'Writing', keys: ['F11'] },
+  { id: 'leaveFocusMode', name: 'Leave focus mode', where: 'in focus mode', group: 'Writing', keys: ['Esc'] },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },

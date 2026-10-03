@@ -342,6 +342,45 @@ export interface Settings {
   backup: { extraFolder: string | null }
   /** Read aloud and dictation (milestone 4): Settings › Read aloud and dictation. */
   speech: SpeechSettings
+  /** Milestone 6: the accent colour Adam picked in Settings › Appearance (null: the theme's own). */
+  accent: string | null
+  /**
+   * Milestone 6: the optional monthly AI spending limit in US dollars (null: no limit, no warnings), and what
+   * has been said about it this month (`notice`, see src/shared/contracts/usage.ts; null until anything has).
+   */
+  usage: { monthlyLimit: number | null; notice?: UsageNotice | null }
+  /**
+   * Milestone 6: where the first-run setup stands, so quitting midway resumes there (see
+   * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
+   */
+  firstRun?: FirstRun | null
+}
+
+/**
+ * Milestone 6 (Usage and cost): what has been said about the monthly limit, for one month and one limit. A new
+ * month or a changed limit starts afresh, so each is said once and "Carry on this month" lasts until then.
+ */
+export interface UsageNotice {
+  /** The month it is about, in local time ("2026-10"). */
+  month: string
+  /** The limit it is about (US dollars). */
+  limit: number
+  /** The quiet toast at 80% has shown. */
+  warned: boolean
+  /** The toast saying the limit was reached (and background work paused) has shown. */
+  reached: boolean
+  /** Adam chose "Carry on this month": nothing asks or pauses again until the month turns or the limit changes. */
+  carryOn: boolean
+}
+
+/**
+ * Milestone 6: the first-run setup's place. `worldId` is the world it set up (null before one is made);
+ * `step` 'guide' means the setup is over and the first scene (`sceneId`) shows its small guide.
+ */
+export interface FirstRun {
+  worldId: ID | null
+  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  sceneId: ID | null
 }
 
 /**

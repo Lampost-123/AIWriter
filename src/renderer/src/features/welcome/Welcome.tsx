@@ -1,10 +1,13 @@
-import { BookOpen, FolderX, Globe2, WandSparkles } from 'lucide-react'
+import { BookOpen, FolderX, Globe2, LibraryBig, WandSparkles } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { AppInfo, WorldSummary } from '@shared/types'
 import { Button, Card, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
+import { WelcomeWorldMenu } from '@/features/transfer/WorldFileItems'
+import { openSampleWorld } from '@/features/setup/setupStore'
+import { WelcomeActionButtons } from './welcomeActions'
 
 /** Shown when no world is open: create the first world, or open an existing one. */
 export function Welcome(): React.JSX.Element {
@@ -15,6 +18,7 @@ export function Welcome(): React.JSX.Element {
   const [name, setName] = useState('')
   // Which way the world is being made: 'build' opens the World builder in it once it is made.
   const [busy, setBusy] = useState<false | 'create' | 'build'>(false)
+  const [exploring, setExploring] = useState(false)
 
   const load = useCallback(async (): Promise<{ info: AppInfo; worlds: WorldSummary[] }> => {
     const [i, w] = await Promise.all([api.getAppInfo(), api.listWorlds()])
@@ -42,7 +46,7 @@ export function Welcome(): React.JSX.Element {
   const reachable = info?.libraryReachable ?? true
 
   return (
-    <div className="flex h-full items-start justify-center overflow-auto bg-bg px-6 pt-[12vh]">
+    <div className="flex h-full items-start justify-center overflow-auto bg-bg px-6 pt-[12vh] [scrollbar-gutter:stable_both-edges]">
       <div className="w-full max-w-[460px] animate-fade-in">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
@@ -88,19 +92,41 @@ export function Welcome(): React.JSX.Element {
         ) : (
           <MissingLibrary path={info?.libraryPath ?? ''} reload={load} />
         )}
+        {reachable ? (
+          // Milestone 6: other ways to start: the sample world, and (once joined) importing a manuscript or a world file.
+          // The same buttons, in the same rows, as the first run's world step.
+          <div className="mt-3 flex flex-col items-start gap-2">
+            <Button
+              icon={<LibraryBig size={15} />}
+              loading={exploring}
+              disabled={exploring || !!busy}
+              title="A short finished story with its characters, places and memory filled in, to look round"
+              onClick={() => {
+                setExploring(true)
+                void openSampleWorld().finally(() => setExploring(false))
+              }}
+            >
+              Explore the sample world
+            </Button>
+            <WelcomeActionButtons />
+          </div>
+        ) : null}
         {reachable && worlds && worlds.length > 0 ? (
           <div className="mt-6">
             <h3 className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Open a world</h3>
             <div className="flex flex-col gap-1">
               {worlds.map((w) => (
-                <button
-                  key={w.id}
-                  onClick={() => void openWorld(w.id).catch((e: Error) => toast(e.message, { tone: 'danger' }))}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-fg hover:bg-surface-2"
-                >
-                  <Globe2 size={15} className="text-muted" />
-                  <span className="flex-1 truncate">{w.name}</span>
-                </button>
+                <div key={w.id} className="group/world flex items-center gap-1 rounded-lg pr-1 hover:bg-surface-2">
+                  <button
+                    onClick={() => void openWorld(w.id).catch((e: Error) => toast(e.message, { tone: 'danger' }))}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-fg"
+                  >
+                    <Globe2 size={15} className="text-muted" />
+                    <span className="flex-1 truncate">{w.name}</span>
+                  </button>
+                  {/* Milestone 6: Export world… and Make a copy */}
+                  <WelcomeWorldMenu worldId={w.id} name={w.name} onCopied={() => void load().catch(() => undefined)} />
+                </div>
               ))}
             </div>
           </div>

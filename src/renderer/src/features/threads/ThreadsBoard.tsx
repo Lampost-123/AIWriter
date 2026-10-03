@@ -69,7 +69,16 @@ export function ThreadsBoard(): React.JSX.Element {
       ) : error ? (
         <ViewError what="The plot threads board" error={error} onRetry={retry} />
       ) : !storyId ? (
-        <EmptyState icon={<Spool size={20} />} title="No story yet" className="mt-[10vh]">
+        <EmptyState
+          icon={<Spool size={20} />}
+          title="No story yet"
+          className="mt-[10vh]"
+          actions={
+            <Button variant="primary" icon={<Plus size={15} />} onClick={() => useApp.getState().setNewStoryOpen(true)}>
+              New story…
+            </Button>
+          }
+        >
           Add a story in the binder, and its plot threads appear here.
         </EmptyState>
       ) : (

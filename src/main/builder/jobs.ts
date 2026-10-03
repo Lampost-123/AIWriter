@@ -183,21 +183,28 @@ async function ask(
     ...(start.sampling ? {} : { sampling: false }),
     ...(askedFor ? { thinking: askedFor } : {})
   }
-  gens.insertGeneration(db, {
-    id,
-    sceneId: '',
-    job: 'builder',
-    providerId: model.target.id,
-    providerName: model.target.name,
-    modelId: model.choice.modelId,
-    params,
-    direction: o.direction.slice(0, 4000),
-    blocks: [],
-    messages,
-    budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: prompt },
-    entries: o.entries,
-    createdAt: now()
-  })
+  try {
+    gens.insertGeneration(db, {
+      id,
+      sceneId: '',
+      job: 'builder',
+      providerId: model.target.id,
+      providerName: model.target.name,
+      modelId: model.choice.modelId,
+      params,
+      direction: o.direction.slice(0, 4000),
+      blocks: [],
+      messages,
+      budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: prompt },
+      entries: o.entries,
+      createdAt: now()
+    })
+  } catch (e) {
+    // Milestone 6: refused before anything was sent (this month's spending reached Adam's limit part way
+    // through a job), in its own plain words rather than as "Something went wrong".
+    if (e instanceof UserError) return { status: 'error', text: '', error: e.message }
+    throw e
+  }
   let text = ''
   run.records.set(id, () => text)
   const outcome = await streamChat({

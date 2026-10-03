@@ -79,7 +79,7 @@ export function refusal(key: string, mac = false): string | null {
   }
   if (KEPT_BY_WINDOW.has(key)) return `AI Write keeps ${key} to itself, so it can't be the dictation key. Pick another, ${suggest}.`
   if (key === 'F2') return `F2 renames chapters and scenes in the binder. Pick another, ${suggest}.`
-  if (key === 'F11') return `F11 is kept for focus mode, which comes in a later update. Pick another, ${suggest}.`
+  if (key === 'F11') return `F11 is for focus mode, so it can't be the dictation key. Pick another, ${suggest}.`
   if (UNKNOWN.has(key)) return `AI Write can't tell that key apart from others. Pick another, ${suggest}.`
   return null
 }

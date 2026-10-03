@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   Globe2,
+  LibraryBig,
   PanelLeft,
   PanelRight,
   PenLine,
@@ -23,7 +24,10 @@ import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { openScene } from '@/features/memory/openScene'
 import { AskButton } from '@/features/ask/AskButton'
+import { WorldFileItems } from '@/features/transfer/WorldFileItems'
+import { FocusButton } from '@/features/look/FocusLayer'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
+import { openSampleWorld, useSetup } from '@/features/setup/setupStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
 import { UpdateBanner } from './UpdateBanner'
@@ -84,6 +88,8 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
   // The first world other than this one, where the keyboard starts when the palette asks to switch.
   const otherWorld = useRef<HTMLDivElement>(null)
   const worldId = world?.id
+  // Milestone 6: the sample world can be opened (or made again) from here, unless it is the one open.
+  const sampleOpen = useSetup((s) => !!worldId && s.sampleWorldId === worldId)
 
   // The list of worlds is there before the menu first opens, so it opens whole (from the palette too),
   // and it is fetched again each time the menu opens.
@@ -186,6 +192,14 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
             >
               <Plus size={14} className="text-muted" /> New world…
             </M.Item>
+            {/* Milestone 6: Export world…, Make a copy, Import a world file… */}
+            <M.Separator className="my-1 h-px bg-line" />
+            <WorldFileItems itemClass={menuItem} hasWorld={!!world} />
+            {sampleOpen ? null : (
+              <M.Item onSelect={() => void openSampleWorld()} className={menuItem}>
+                <LibraryBig size={14} className="text-muted" /> Explore the sample world
+              </M.Item>
+            )}
           </M.Content>
         </M.Portal>
       </M.Root>
@@ -292,7 +306,8 @@ export function TopBar(): React.JSX.Element {
   }, [navigate])
 
   return (
-    <header className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
+    // Focus mode (milestone 6) fades the bar away (data-focus-chrome, styles.css).
+    <header data-focus-chrome className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
       <IconButton
         label="Show or hide the binder"
         active={floatingBinder.floating ? floatingBinder.open : layout?.binderOpen}
@@ -343,6 +358,12 @@ export function TopBar(): React.JSX.Element {
       ) : null}
       <SaveIndicator />
       {hasWorld ? <AskButton /> : null}
+      {/* In the smallest windows the bar has no room for it (F11 and the palette still reach focus mode). */}
+      {hasWorld ? (
+        <span className="hidden min-[1000px]:flex">
+          <FocusButton />
+        </span>
+      ) : null}
       <IconButton
         label="Settings"
         title={withShortcut('Settings', 'settings')}

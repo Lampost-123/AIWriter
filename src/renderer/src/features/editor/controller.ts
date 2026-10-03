@@ -200,6 +200,8 @@ export class SceneController {
   private leaving = new Set<SceneSession>()
   private loadTicket = 0
   private requested: ID | null = null
+  /** The world `requested` was asked for in: a copied or imported world has the same scene ids as the one it came from. */
+  private requestedWorld: ID | null = null
   private stream: Stream | null = null
   /** Scenes left while Generate's draft writes into them (see Away). */
   private away = new Map<ID, Away>()
@@ -276,17 +278,22 @@ export class SceneController {
   /** Shows a scene. The previous scene stays on screen until the next one is ready. */
   async open(id: ID): Promise<void> {
     if (this.destroyed) return
-    if (this.session?.id === id) {
+    const openWorld = app().world?.id ?? null
+    // A scene with the same id in another world (Make a copy, Import a world file) is another scene: it is loaded
+    // afresh, or the page would stay tied to the world that was closed and nothing typed would be saved.
+    if (this.session?.id === id && this.session.worldId === openWorld) {
       // Back to the scene already on screen: cancel any other load and keep it as it is
       // (clearing a failed load of another scene, so the page shows again).
       this.loadTicket++
       this.requested = id
+      this.requestedWorld = openWorld
       this.events.onError(null)
       if (takeFocusRequest(id)) this.focus()
       return
     }
-    if (this.requested === id) return
+    if (this.requested === id && this.requestedWorld === openWorld) return
     this.requested = id
+    this.requestedWorld = openWorld
     const ticket = ++this.loadTicket
     try {
       // A draft still being written into the scene on screen stops; its last words land first.
@@ -343,7 +350,7 @@ export class SceneController {
 
     // Back in a scene its draft is still writing into (or getting ready to): the scene as the draft has it.
     const kept = this.away.get(scene.id)
-    if (kept) {
+    if (kept && kept.session.worldId === worldId) {
       this.away.delete(scene.id)
       this.showAgain(scene, kept)
       return
