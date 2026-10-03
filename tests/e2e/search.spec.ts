@@ -161,7 +161,7 @@ test('Esc gives focus back; ? lists the shortcuts, but not while typing; the top
   await expect(writing.getByRole('listitem').filter({ hasText: 'Generate a draft of the scene' })).toContainText('Ctrl')
   await expect(writing.getByRole('listitem').filter({ hasText: 'Mark scene done' })).toContainText('Enter')
   await expect(list.getByRole('region', { name: 'Moving around' }).getByRole('listitem').filter({ hasText: 'Search' })).toContainText('K')
-  await expect(list).not.toContainText('Focus mode')
+  await expect(writing.getByRole('listitem').filter({ hasText: 'Focus mode: only the page' })).toContainText('F11')
   await win.keyboard.press('Escape')
   await expect(list).toBeHidden()
 

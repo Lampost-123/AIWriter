@@ -12,6 +12,7 @@ import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget
 import { REPLY_LIMIT_CAP, THINKING_ROOM, withThinkingShare } from '../ai/context'
 import { describeFailure, providerWho, type Failure } from '../ai/errors'
 import { newId, now } from '../util'
+import { heldAt } from '../usage/gate'
 import { estimateTokens } from './text'
 
 type DB = Database.Database
@@ -145,18 +146,20 @@ export async function callModel(o: CallOptions): Promise<CallResult> {
     ...(start.sampling ? {} : { sampling: false }),
     ...(asked ? { thinking: asked } : {})
   }
-  if (o.closed() || !o.db.open) {
-    return {
-      generationId: id,
-      status: 'stopped',
-      text: '',
-      error: null,
-      failure: null,
-      promptTokens: null,
-      completionTokens: null,
-      cost: null
-    }
+  const stopped: CallResult = {
+    generationId: id,
+    status: 'stopped',
+    text: '',
+    error: null,
+    failure: null,
+    promptTokens: null,
+    completionTokens: null,
+    cost: null
   }
+  if (o.closed() || !o.db.open) return stopped
+  // Milestone 6: this month's AI spending reached Adam's limit while a run was under way. The run stops
+  // here, as it would on closing, and the scene waits to be read once Adam carries on (usage/gate.ts).
+  if (heldAt() != null) return stopped
   gens.insertGeneration(o.db, {
     id,
     sceneId: o.targetId,

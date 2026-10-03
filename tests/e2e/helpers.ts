@@ -30,7 +30,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir }, opts.env)
+  // A fresh data folder would show the first-run setup (milestone 6); app tests start at the Welcome screen
+  // unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }.
+  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off' }, opts.env)
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()

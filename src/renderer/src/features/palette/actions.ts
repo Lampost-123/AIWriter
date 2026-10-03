@@ -30,6 +30,11 @@ import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
+import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
+import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
+import { offerMemory, startImport } from '@/features/importing/importStore'
+import { enterFocus, leaveFocus } from '@/features/look/focusMode'
+import { openSampleWorld } from '@/features/setup/setupStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -95,7 +100,8 @@ const SETTINGS: Record<SettingsAction, SettingsTab> = {
   'settings-backups': 'backups',
   'settings-trash': 'trash',
   'settings-about': 'about',
-  'settings-speech': 'speech'
+  'settings-speech': 'speech',
+  'settings-usage': 'usage'
 }
 
 /** Runs one of the palette's actions. */
@@ -211,6 +217,7 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'settings-trash':
       case 'settings-about':
       case 'settings-speech':
+      case 'settings-usage':
         a.navigate({ kind: 'settings', tab: SETTINGS[fixed] })
         return
       // ----- Milestone 4 -----
@@ -272,6 +279,37 @@ export async function runAction(id: ActionId): Promise<void> {
       }
       case 'go-consistency':
         if (a.storyId) openConsistency(a.storyId)
+        return
+      // ----- Milestone 6 -----
+      case 'export-story':
+        if (a.storyId) openExportStory(a.storyId, currentChapterId())
+        return
+      case 'export-bible':
+        if (a.storyId) openExportBible(a.storyId)
+        return
+      case 'export-world':
+        await exportWorld()
+        return
+      case 'copy-world':
+        await copyWorld()
+        return
+      case 'import-world':
+        await importWorld()
+        return
+      case 'import-manuscript':
+        startImport()
+        return
+      case 'build-memory':
+        if (a.storyId) offerMemory(a.storyId)
+        return
+      case 'focus-mode':
+        enterFocus()
+        return
+      case 'leave-focus-mode':
+        leaveFocus()
+        return
+      case 'sample-world':
+        await openSampleWorld()
         return
       default: {
         const unknown: never = fixed

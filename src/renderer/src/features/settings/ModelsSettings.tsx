@@ -14,7 +14,7 @@ import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 
-type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
+export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
 
 const PRESETS: { name: string; baseUrl: string; needsKey: boolean }[] = [
   { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', needsKey: true },
@@ -32,11 +32,21 @@ async function refreshSettings(): Promise<void> {
   useApp.setState({ settings: await api.getSettings() })
 }
 
-export function ModelsSettings(): React.JSX.Element {
+/**
+ * The providers and this visit's connection tests (by provider id, or by job for a model's test). Shared with the
+ * first-run setup (milestone 6), which shows the same cards.
+ */
+export function useConnectionTests(): {
+  providers: ProviderConfig[] | null
+  loadError: string | null
+  reload: () => Promise<void>
+  results: Record<string, TestResult>
+  test: (key: string, providerId: ID, modelId?: string) => Promise<void>
+  clearResult: (key: string) => void
+} {
   const [providers, setProviders] = useState<ProviderConfig[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, TestResult>>({})
-  const readAloud = useApp((s) => !!s.settings?.speech?.readAloud)
 
   const reload = useCallback(async () => {
     try {
@@ -61,12 +71,21 @@ export function ModelsSettings(): React.JSX.Element {
       setResults((r) => ({ ...r, [key]: { state: 'done', ok: false, message: (e as Error).message } }))
     }
   }, [])
-  const clearResult = (key: string): void =>
-    setResults((r) => {
-      const n = { ...r }
-      delete n[key]
-      return n
-    })
+  const clearResult = useCallback(
+    (key: string): void =>
+      setResults((r) => {
+        const n = { ...r }
+        delete n[key]
+        return n
+      }),
+    []
+  )
+  return { providers, loadError, reload, results, test, clearResult }
+}
+
+export function ModelsSettings(): React.JSX.Element {
+  const { providers, loadError, reload, results, test, clearResult } = useConnectionTests()
+  const readAloud = useApp((s) => !!s.settings?.speech?.readAloud)
 
   if (loadError && !providers) {
     return (
@@ -149,7 +168,7 @@ export function ModelsSettings(): React.JSX.Element {
 
 // ---------- Pieces ----------
 
-function ResultNotice({ result }: { result: TestResult | undefined }): React.JSX.Element | null {
+export function ResultNotice({ result }: { result: TestResult | undefined }): React.JSX.Element | null {
   if (!result) return null
   if (result.state === 'testing') {
     return (
@@ -179,7 +198,7 @@ function IconTile({ children, tone = 'accent' }: { children: ReactNode; tone?: '
 
 // ---------- OpenRouter ----------
 
-function OpenRouterCard({
+export function OpenRouterCard({
   provider,
   result,
   onTest,
@@ -344,20 +363,23 @@ function OpenRouterCard({
 
 // ---------- Other providers ----------
 
-function OtherProviders({
+export function OtherProviders({
   providers,
   results,
   onTest,
   onClearResult,
-  onChanged
+  onChanged,
+  startAdding = false
 }: {
   providers: ProviderConfig[]
   results: Record<string, TestResult>
   onTest: (id: ID) => void
   onClearResult: (id: ID) => void
   onChanged: () => Promise<void>
+  /** Opens with the Add a provider form showing (the first-run setup's "Use another provider"). */
+  startAdding?: boolean
 }): React.JSX.Element {
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState(startAdding)
   const [editing, setEditing] = useState<ID | null>(null)
 
   const remove = async (p: ProviderConfig): Promise<void> => {
@@ -607,7 +629,7 @@ function ProviderForm({
  * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
  * and read aloud's.
  */
-type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check'
+export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -820,7 +842,7 @@ function HelperModel({
 }
 
 /** A chosen model: its name, provider, how much it reads and its price, with Test and Change. */
-function ChosenModel({
+export function ChosenModel({
   job,
   choice,
   provider,
@@ -942,7 +964,7 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
   )
 }
 
-function ModelPicker({
+export function ModelPicker({
   providers,
   providerResults,
   current,

@@ -1,8 +1,9 @@
-import { RotateCcw } from 'lucide-react'
+import { Plus, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { CheckLine } from '@/features/consistency/CheckLine'
+import { ImportLine } from '@/features/importing/ImportLine'
 import { rememberScene } from './lastScene'
 import { useOutline } from './outlineStore'
 import { StorySwitcher } from './StorySwitcher'
@@ -61,8 +62,12 @@ export function Binder(): React.JSX.Element {
             </Button>
           </div>
         ) : !storyId ? (
-          <div className="px-4 py-8 text-center text-[12.5px] leading-relaxed text-muted animate-fade-in">
-            This world has no stories yet. Use the menu above to start one.
+          <div className="flex flex-col items-center px-4 py-10 text-center animate-fade-in">
+            <p className="text-[13px] font-medium text-fg">No stories yet</p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">A story holds its chapters and scenes. Every story in this world shares its characters, places and lore.</p>
+            <Button size="sm" className="mt-3" icon={<Plus size={14} />} onClick={() => useApp.getState().setNewStoryOpen(true)}>
+              New story…
+            </Button>
           </div>
         ) : slow ? (
           <TreeSkeleton />
@@ -70,6 +75,8 @@ export function Binder(): React.JSX.Element {
       </div>
       {/* Milestone 5: a check running, quietly, with Stop. */}
       <CheckLine />
+      {/* Milestone 6: the import catch-up building the memory, quietly, with Stop. */}
+      <ImportLine />
       <WorldSection />
     </div>
   )

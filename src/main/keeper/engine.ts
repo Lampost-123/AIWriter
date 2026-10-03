@@ -185,6 +185,20 @@ export class Keeper {
     await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
   }
 
+  /**
+   * Milestone 6, the import catch-up's Stop: these scenes' queued reads are dropped and one being read now is
+   * stopped (its run ends as stopped, nothing applied). Anyone waiting for them is let go.
+   */
+  forget(ids: ID[]): void {
+    if (this.closed || !ids.length) return
+    const drop = new Set(ids)
+    this.queue = this.queue.filter((x) => !drop.has(x))
+    this.urgent = this.urgent.filter((x) => !drop.has(x))
+    if (this.current && drop.has(this.current.sceneId)) this.current.controller.abort()
+    for (const id of ids) this.settle(id)
+    this.emitStatus()
+  }
+
   /** The world is closing: stop now and write nothing more. Finishes the open records first (synchronously). */
   stop(): void {
     if (this.closed) return
@@ -357,8 +371,18 @@ export class Keeper {
     }
     this.reading = null
     if (this.closed) return
+    // Milestone 6: a read stopped part way because the model can no longer be used (this month's AI spending
+    // reached Adam's limit) waits as with no model, with the reason in the note, rather than without a word.
+    let asNow = m
+    if (outcome.status === 'stopped' && this.db.open) {
+      const now = this.deps.model()
+      if ('error' in now) {
+        outcome = { status: 'no-model' }
+        asNow = now
+      }
+    }
     try {
-      await this.after(id, outcome, model, controller, records, m)
+      await this.after(id, outcome, model, controller, records, asNow)
     } catch (e) {
       console.error('The memory keeper could not finish after reading a scene', e)
     }

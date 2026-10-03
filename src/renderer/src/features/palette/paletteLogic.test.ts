@@ -177,6 +177,11 @@ describe('finding actions by typing', () => {
       'Rename this world',
       'Ask the world',
       'Build the world from a summary',
+      // Milestone 6
+      'Export world',
+      'Make a copy of this world',
+      'Import a world file',
+      'Explore the sample world',
       'Codex'
     ])
   })

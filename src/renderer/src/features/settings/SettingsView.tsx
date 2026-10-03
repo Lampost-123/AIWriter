@@ -8,11 +8,12 @@ import { SpeechSettings } from './SpeechSettings'
 import { BackupsSettings } from './BackupsSettings'
 import { RecentlyDeleted } from './RecentlyDeleted'
 import { AboutSettings } from './AboutSettings'
+import { UsageSettings } from '@/features/usage/UsageSettings'
 
 const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
   { id: 'models', label: 'Models', blurb: 'Connect OpenRouter or another provider, and pick the model that writes your scenes.' },
   { id: 'preferences', label: 'My writing preferences', blurb: 'Your own defaults, used in every world. Each world can override them.' },
-  { id: 'appearance', label: 'Appearance', blurb: 'Theme, text size and page width.' },
+  { id: 'appearance', label: 'Appearance', blurb: 'Theme, accent colour, text size and page width.' },
   {
     id: 'speech',
     label: 'Read aloud and dictation',
@@ -23,6 +24,12 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
     id: 'trash',
     label: 'Recently deleted',
     blurb: 'Scenes, chapters and entries deleted from the open world. Each is kept for 30 days, then removed for good.'
+  },
+  // Milestone 6 (Usage and cost)
+  {
+    id: 'usage',
+    label: 'Usage and cost',
+    blurb: 'What the AI has cost across every world in your library, and an optional monthly limit.'
   },
   { id: 'about', label: 'About and updates', blurb: 'Version, library folder and updates.' }
 ]
@@ -57,6 +64,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
           {current.id === 'speech' && <SpeechSettings />}
           {current.id === 'backups' && <BackupsSettings />}
           {current.id === 'trash' && <RecentlyDeleted />}
+          {current.id === 'usage' && <UsageSettings />}
           {current.id === 'about' && <AboutSettings />}
         </div>
       </div>

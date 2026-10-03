@@ -6,7 +6,7 @@ import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { api } from './api'
 
-export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'backups' | 'trash' | 'about'
+export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'backups' | 'trash' | 'usage' | 'about'
 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =
@@ -43,6 +43,8 @@ export type View =
   // ----- Milestone 5 -----
   /** A story's consistency: its issues by chapter and scene, checking a chapter or the story, and the reports. */
   | { kind: 'consistency'; storyId: ID }
+  // Milestone 6: importing a manuscript (the split preview, then the import catch-up's progress)
+  | { kind: 'import' }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words

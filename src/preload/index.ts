@@ -1,11 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Bridge, PaintedTheme } from '@shared/api'
+import { accentIdOf } from '@shared/contracts/look'
 
 /** The theme main opened the window in (passed as --aiwrite-theme=...). */
 function initialTheme(): PaintedTheme {
   const arg = process.argv.find((a) => a.startsWith('--aiwrite-theme='))?.split('=')[1]
   return arg === 'dark' || arg === 'sepia' ? arg : 'light'
 }
+
+/** The accent colour main opened the window in (--aiwrite-accent=...), null for the theme's own. */
+const initialAccent = (): string | null => accentIdOf(process.argv.find((a) => a.startsWith('--aiwrite-accent='))?.split('=')[1])
 
 const bridge: Bridge = {
   invoke: (method, ...args) => ipcRenderer.invoke(`api:${method}`, ...args),
@@ -16,7 +20,8 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener(channel, wrapped)
   },
   platform: process.platform,
-  initialTheme: initialTheme()
+  initialTheme: initialTheme(),
+  initialAccent: initialAccent()
 }
 
 contextBridge.exposeInMainWorld('aiwrite', bridge)

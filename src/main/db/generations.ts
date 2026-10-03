@@ -18,6 +18,7 @@ import type {
 } from '@shared/types'
 import { countWords } from '@shared/defaults'
 import { UserError } from '../util'
+import { aiCallFinished, beforeAiCall } from '../usage/gate'
 import { touchWorld } from './repo'
 
 type DB = Database.Database
@@ -60,6 +61,9 @@ export interface NewGeneration {
 }
 
 export function insertGeneration(db: DB, g: NewGeneration): void {
+  // Milestone 6: every AI call is recorded here just before it is sent, so the monthly limit can refuse it
+  // here, before anything starts (usage/gate.ts).
+  beforeAiCall()
   db.transaction(() => {
     db.prepare(
       `INSERT INTO generations (id, scene_id, job, status, error, provider_id, provider_name, model_id, params_json, direction,
@@ -114,6 +118,8 @@ export function finishGeneration(db: DB, id: ID, f: Finish): void {
     // Backups watch the world's last-changed time, so a finished draft gets backed up.
     touchWorld(db)
   })()
+  // Milestone 6: the spending is added up again (usage/gate.ts).
+  aiCallFinished(db)
 }
 
 const storedParams = (db: DB, id: ID): StoredParams | null => {

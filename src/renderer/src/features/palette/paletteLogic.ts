@@ -78,6 +78,18 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'export-story'
+  | 'export-bible'
+  | 'export-world'
+  | 'copy-world'
+  | 'import-world'
+  | 'settings-usage'
+  | 'import-manuscript'
+  | 'build-memory'
+  | 'focus-mode'
+  | 'leave-focus-mode'
+  | 'sample-world'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -98,6 +110,10 @@ export interface ActionContext {
   reading?: boolean
   /** "Show speakers and tone" is on. */
   speakers?: boolean
+  /** Milestone 6: the open story has scenes the memory hasn't read since they were imported. */
+  unreadStory?: boolean
+  /** Focus mode is on (milestone 6). */
+  focus?: boolean
 }
 
 export interface ActionDef {
@@ -202,10 +218,18 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'spelling point view tense voice words',
     away: true
   },
-  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme text size page width', away: true },
+  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme accent colour color text size page width', away: true },
   { id: 'settings-backups', label: 'Settings › Backups', keywords: 'restore copy folder', away: true },
   { id: 'settings-trash', label: 'Settings › Recently deleted', keywords: 'trash bin restore bring back', away: true },
   { id: 'settings-about', label: 'Settings › About and updates', keywords: 'version update help', away: true },
+  // Milestone 6
+  {
+    id: 'settings-usage',
+    label: 'Usage and cost',
+    also: 'Settings › Usage and cost',
+    keywords: 'spending money dollars price tokens limit monthly budget bill ai',
+    away: true
+  },
   { id: 'backup-now', label: 'Back up now', keywords: 'backup copy save' },
   { id: 'new-world', label: 'New world', keywords: 'add create' },
   { id: 'switch-world', label: 'Switch to another world', keywords: 'open change worlds' },
@@ -288,7 +312,42 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
-  }
+  },
+  // ----- Milestone 6 -----
+  { id: 'export-story', label: 'Export story', keywords: 'word docx epub ebook pdf markdown text manuscript chapter save print', when: hasStory },
+  { id: 'export-bible', label: 'Export series bible', keywords: 'entries characters places lore timeline plot threads pdf markdown bible save print', when: hasStory },
+  { id: 'export-world', label: 'Export world', keywords: 'aiwrite file move computer save share whole' },
+  { id: 'copy-world', label: 'Make a copy of this world', keywords: 'duplicate world copy' },
+  { id: 'import-world', label: 'Import a world file', keywords: 'aiwrite open file move computer bring in' },
+  {
+    id: 'import-manuscript',
+    label: 'Import a manuscript',
+    keywords: 'word docx markdown text txt file book novel bring open existing chapters scenes',
+    away: true
+  },
+  {
+    id: 'build-memory',
+    label: 'Build the memory from this story',
+    keywords: 'imported read catch up learn characters ai',
+    away: true,
+    when: (c) => !!c.unreadStory
+  },
+  {
+    id: 'focus-mode',
+    label: 'Focus mode',
+    keywords: 'distraction free full screen fullscreen zen hide panels page only',
+    shortcut: 'focusMode',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.focus
+  },
+  {
+    id: 'leave-focus-mode',
+    label: 'Leave focus mode',
+    keywords: 'exit distraction free full screen fullscreen show panels',
+    shortcut: 'leaveFocusMode',
+    when: (c) => !!c.focus
+  },
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

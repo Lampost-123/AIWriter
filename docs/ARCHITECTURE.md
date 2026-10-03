@@ -642,6 +642,211 @@ the briefing, ties to people not in the scene (block 11). The data model stays f
 | Reports | `src/main/checks/reports.ts`, `ipc/checksReports.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
 | Briefing | `ai/context.ts` block 11 |
 
+## Milestone 6: polish
+
+What it adds (spec, Build plan 6, "Import and export", "Easy to work with", "Cost and usage", "Look and
+feel", "Reliability"): a whole world as one `.aiwrite` file (export, import, make a copy); exporting a story,
+chapter or selection to Word, EPUB, PDF, Markdown and plain text, and the series bible to PDF and Markdown;
+importing a manuscript (Word, Markdown, plain text) split into chapters and scenes with a preview, then the
+import catch-up that builds the memory from it; the first-run setup and the sample world; the usage and cost
+page with an optional monthly limit; themes finished (accent colour, reduced motion) and focus mode (F11); a
+full pass against the no-jank checks and the speed budgets. The data model stays frozen (migrations 1 and 2).
+
+- **A world travels with its history.** Export, import and Make a copy carry the world folder's `history.db`
+  with `world.db`, plus `images/`; never `backups/`, the speech server, its downloads or the audio cache, and
+  never API keys (`secrets.ts`). Character voices and "Say it as" are in world.db's `meta`, so they travel. A
+  missing or damaged `history.db` never stops a world opening: History starts afresh. An imported or copied
+  world gets a new id, so it never collides with the one it came from.
+- **Zip files** (`.aiwrite`, `.docx`, `.epub`) are written and read with `fflate` (bundled; a dev dependency
+  like the other bundled libraries).
+- **New AI jobs** get their own Thinking entry in Settings › Models, default Off. The import catch-up is memory
+  work, so it uses the memory model and its Thinking.
+- **Settings** stay few: `accent` (Appearance) and `usage.monthlyLimit` (Usage and cost) are the only new ones.
+
+### How world files and export work
+
+**World files and export** (`src/main/transfer/`, `features/transfer/`)
+- A `.aiwrite` file (`worldFile.ts`) is a zip: `manifest.json` first (format `aiwrite-world`, `formatVersion`,
+  the app's version, the world's name, when, world.db's `user_version`, whether history is in it), then `world.db`
+  and `history.db` each copied with SQLite's online backup (the open world's own connection; another world's
+  read-only) and made self-contained, then `images/`. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
+  pieces, so the window never stalls and a big world never sits whole in memory. A history.db that can't be read
+  is left out (the toast says so); the export still succeeds.
+- Import and Make a copy build the world in a hidden folder in the library (`.aiwrite-import-<id>`,
+  `.aiwrite-copy-<id>`, removed after an hour if the app closed midway), with world.db under another name until it
+  has its new id and name, then rename the folder into place (`freeFolder`). So the library never lists a half-made
+  world or two worlds with one id, and `separateCopies()` in world.ts never has to step in. An import with the name
+  of a world already here is "<name> (imported)"; a copy is "<name> (copy)". Refused in plain words: not a zip or
+  no manifest (`not-a-world-file`), a file cut short or a world.db failing `quick_check` (`damaged-world-file`),
+  and a newer format, schema or app version (`newer-world-file`). A history.db in the file that isn't SQLite is
+  dropped; deeper damage is handled by History's own open path (set aside, start afresh). Zip entries outside
+  `manifest.json`, `world.db`, `history.db` and `images/` are ignored (`stagedName`).
+- Manuscripts (`manuscript.ts`) are read from the stored editor documents (plain text for scenes without one):
+  paragraphs with italics and bold, block quotes, and one scene break between scenes or where Adam put one. Deleted
+  chapters and scenes never come in (`getOutline`), nor scenes with no words. Chapters keep their number in the
+  story even in a selection; a title that only says "Chapter 3" isn't repeated. Writers: `docx.ts` (hand-written
+  OOXML, Georgia, A4, the title on Heading 1 so it is in Word's navigation pane, a page break before each chapter),
+  `epub.ts` (EPUB 3 with nav and toc.ncx, mimetype first and stored), `html.ts` (the EPUB pages and the PDF page,
+  A5), `plain.ts` (Markdown and text). PDFs are printed in a hidden window (`pdf.ts`), with the interface's Literata
+  files when it finds them in `out/renderer/assets`.
+- The series bible (`bible.ts`) is read with `memoryAt` (the story's end), `timelineOf` and `threadsBoardOf`: every
+  live entry by kind (threads get their own section from the board), with its fields, relationships, what has
+  happened to it and what a character knows; no ids.
+- Each call asks where with the system dialog (`showSaveDialog`/`showOpenDialog`; the app tests replace them), writes
+  to `<file>.partial` and renames, and sends `transfer:progress` for its `jobId`. In the window, `withProgress`
+  (`worldFiles.ts`) shows a progress toast only once work has run 400 ms; the dialogs show it on their status line.
+  The last format picked is kept in localStorage (`aiwrite.export.format`, this computer only).
+- Ways in: the story menu in the binder (Export story…, Export series bible…), the world menu (Export world…, Make a
+  copy, Import a world file…), the Welcome screen (a menu on each world, and Import a world file… under the list,
+  shown even with no worlds) and the palette (`export-story`, `export-bible`, `export-world`, `copy-world`,
+  `import-world`). The dialogs are mounted once in the workspace (`ExportDialogs`).
+**Usage and cost** (`src/main/usage/`, `features/usage/`, Settings › Usage and cost)
+- **What is counted.** Every AI call is a `generations` row (job, model, provider, tokens, cost), the memory
+  keeper's included (jobs `memory`, `summary`); `memory_runs` only adds those up per run, so it is never read
+  (no double counting). Cost is the record's own (`draftCost` and its kin: the provider's figure, else tokens x
+  prices, else an estimate), so the page agrees with the toolbar and the Drafts list. A row turned down before
+  anything was sent isn't a call; one with no cost counts as "no price from the provider"; a cost with no
+  tokens is an estimate. Days and months are local.
+- **Across the library** (`library.ts`): each world's sums by day, job, model and provider (`aggregate.ts`),
+  read incrementally (rows past the last rowid, plus rows that were still streaming; a changed row count or
+  last-row id reads it all again, and spending already counted never goes down). The open world is read
+  through its own connection; other worlds read-only, only when world.db or its -wal changed size or time,
+  and closed at once. Sums are kept in `usage-cache.json` in the app's data folder (keyed by folder and time
+  zone), so the page opens fast after the first time.
+- **The limit** (`limit.ts`, `index.ts`): with none set, nothing is added up before AI calls. From 80%, one
+  toast a month; at the limit another, and AI calls are held until Adam chooses **Carry on this month**, raises
+  the limit or the month turns. What was said is `settings.usage.notice` (one month and one limit; a new month
+  or limit starts afresh). Held means: (1) the window's AI-starting calls listed in `ASKS_FIRST` are refused in
+  `ipc/index.ts` before the handler runs (UserError code `spend-limit`), and `lib/api.ts` asks ("This month's AI
+  spending has reached your $20 limit." Carry on this month / Not now), then makes the same call once more or
+  fails with `cancelled`; a new AI action belongs in `ASKS_FIRST`. (2) As a backstop, `insertGeneration` refuses
+  any AI call while held (`usage/gate.ts`), before anything is sent, so no job slips past and no draft is cut
+  mid-way. (3) Automatic work waits rather than asks: the memory keeper sees the limit as "no model" (scenes stay
+  waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
+  done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
+  (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
+### How manuscript import works
+
+**Reading** (`src/main/importing/`: `docx.ts`, `markdown.ts`, `text.ts`, `lines.ts`, `xml.ts`, `read.ts`)
+- Every reader turns the file into `ManuscriptBlock`s (contract `importing.ts`): paragraphs with bold and italic
+  runs, headings (`level` from the file, `hint` from the words or a Word style's name), break marks, the title.
+  `lines.ts` recognises chapter and part lines by their words and break marks, for every format, and
+  `finishBlocks` counts bare numbers ("12") only when there are several and joins "CHAPTER ONE" with a title on
+  the next line.
+- Word: fflate unzips `word/document.xml`, `styles.xml` and `docProps/core.xml`; `xml.ts` walks tags without a
+  tree. Headings come from heading styles, outline levels (the paragraph's own or its style chain's), and style
+  names ("Chapter Title"). Deletions, comments, footnotes, field codes, hidden text, text boxes and the table of
+  contents are skipped; insertions are kept. Page breaks are noted (`pageBreak`).
+- Text files are read as blank-line paragraphs (hard-wrapped lines joined), a paragraph a line, or indented
+  paragraphs; bytes decode as UTF-8, UTF-16 with its mark, else Windows-1252.
+
+**The split** (`features/importing/split.ts`, pure). Every heading, break mark, and paragraph Adam split at is a
+boundary with a role (act, chapter, scene, ordinary text). `proposeRoles` picks the chapter level (where the
+"Chapter ..." headings are; else the top level, or the second when the top holds a few sections of 15,000+ words),
+acts above, scenes below, deeper headings as text; with no chapters at all, page breaks start them. Adam's
+changes are `SplitEdits` kept apart from the proposal; merging a chapter makes it a scene, merging a scene makes its
+heading text (a break mark becomes a line across the page). Text before the first chapter is the "Opening" chapter.
+`toPlan` makes the `ImportPlan` the main process imports.
+
+**Importing** (`importing/save.ts`, `importing/doc.ts`, `db/importing.ts`): one transaction through `repo`
+(story after the last on the shelf, chapters, scenes, then acts holding their chapters). Each scene is saved as the
+editor saves it: paragraphs with fresh 8-character `pid`s, bold and italic marks, hard breaks, horizontal rules, and
+the editor's own text form. From the Welcome screen (`importManuscriptFromWelcome`, no world open) the import makes a
+world named after the book and its empty "Book 1" gives way (`newWorld`). Undo is the toast's: it deletes the story
+(into Recently deleted) and brings back the split to change.
+
+**Unread scenes.** An imported scene is left with `memory_status 'current'`, `memory_version = text_version = 1`
+and `memory_paragraphs_json '[]'`: the keeper sees nothing to do, so nothing is read or paid for until Adam asks.
+That state means "imported, not read" (`db/importing.ts`); an edit makes it `pending` as any scene, and the keeper
+then reads it whole.
+
+**The import catch-up** (`importing/catchUp.ts`) drives the memory keeper rather than reading anything itself: each
+unread scene, in reading order, is marked `pending` and handed to the keeper's queue (`updateNow`), two at a time so
+Adam's own scenes are read in between and the roll-ups wait for the end, then waited for (`whenRead`). So it runs on
+the memory model with the memory's Thinking, writes What changed and summaries, and leaves Generate's catch-up as it
+was. The stories still to read are in the world's meta key `import_catchup`; the keeper reads scenes left pending at
+app start and the catch-up carries on when the world opens. It pauses with the reason when there is no memory model
+or two scenes in a row fail ("Try again"). Stop calls the keeper's `forget` (added for this: drops queued reads and
+aborts the one running) and puts the handed scenes back to unread. Progress ("Reading chapter 3 of 24") is the
+binder's `ImportLine` under the Check line; the cost estimate (`importing/estimate.ts`) is shown before it starts.
+Ways in: the story menu ("Import a manuscript…", "Build the memory from this story" while it has unread scenes) and
+the palette (`import-manuscript`, `build-memory`).
+### How look and focus work
+
+- **Accent colour** (`contracts/look.ts`, `features/look/accents.ts`, `AccentPicker.tsx`): `settings.accent` is one of
+  `ACCENT_IDS` (teal, indigo, plum, graphite) or null for the theme's own (ink blue in Light and Dark, russet in
+  Sepia). None reads as amber, red or green. Each has `--accent`, `--accent-hover`, `--accent-soft` and `--accent-fg`
+  per theme in `styles.css` (`[data-theme='…'][data-accent='…']`, set by `<html data-accent>`); `accents.ts` holds the
+  same values for the swatches, and `accents.test.ts` and `tests/unit/contrast.test.ts` check they agree and keep AA
+  contrast in every theme. `--focus` follows the accent. Like the theme, main passes `--aiwrite-accent=…` to the window
+  and the preload exposes `initialAccent`, so the first frame already has it; a swatch paints at once, then saves.
+- **Tokens added**: `--ai-fg` (text on filled amber), `--overlay` (behind dialogs). Light `--ai` and `--success` were
+  darkened a little so their text passes AA on every background they sit on.
+- **Reduced motion**: one rule in `styles.css` ends every transition and animation at once (and only once, so nothing
+  loops or flickers) and turns off smooth scrolling. Code-driven motion asks `features/look/motion.ts`
+  (`reducedMotion()`, `scrollBehavior()`). Panels and popovers use 150–200 ms.
+- **Focus mode** (`features/look/focusMode.ts`, pure decisions in `focusLogic.ts`, `FocusLayer.tsx`): F11 (also the
+  top bar's button and the palette) on the writing page sets `<html data-focus>` and asks main to fill the screen
+  (`setFullScreen`; it only undoes a full screen it made, and `look:fullScreen` ends focus mode if the window leaves
+  full screen another way). The binder and scene panel slide shut without touching the saved layout; whatever carries
+  `data-focus-chrome` (the top bar, the scene's toolbar, the binder) fades, keeping its room, then is hidden; the
+  window behind takes the page's colour. While the panels move, the caret's line (or the line a third of the way
+  down) is held at the same height on screen. Esc leaves only when nothing else wanted it (a layer, the selection
+  bar, a draft or beat being written, an AI change waiting: those come first, judged as the key went down); F11
+  toggles. Leaving the writing page ends it. Ask the world and a name shown beside the page open the scene panel over
+  the page's right edge; anything they changed in the saved layout is put back on leaving (`layoutToRestore`).
+
+### Who builds what (parallel build, milestone 6)
+
+| Part | Owns |
+|---|---|
+| World files and export | `contracts/transfer.ts`, `ipc/transfer.ts`, `src/main/transfer/`, `features/transfer/` |
+| Manuscript import | `contracts/importing.ts`, `ipc/importing.ts`, `src/main/importing/`, `features/importing/`, the `import` view |
+| Usage and cost | `contracts/usage.ts`, `ipc/usage.ts`, `src/main/usage/`, `features/usage/`, Settings › Usage and cost |
+| First run | `contracts/setup.ts`, `ipc/setup.ts`, `src/main/setup/` (the sample world), `features/welcome/`, `features/setup/` |
+| Look and focus | `contracts/look.ts`, `ipc/look.ts`, `features/look/`, the theme tokens in `styles.css`, Settings › Appearance, focus mode |
+
+Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `defaults.ts`, `lib/store.ts`,
+`App.tsx`, menus and the palette, this file) change only additively.
+
+### How the first run works
+
+**First-run setup** (`src/main/setup/state.ts`, `ipc/setup.ts`, `features/setup/`)
+- It shows in place of the Welcome screen (and of the workspace) while `useSetup().step` is set. `setupAt` decides at launch:
+  a library with no world of Adam's own (the sample doesn't count) and no world open starts at the first step; a setup under
+  way resumes at its step with its own world (opened for it); someone with worlds never sees it, nor does a library that
+  can't be reached, nor anyone who has used AI Write before (a writer model chosen, or a last world of his own: so deleting
+  every world, or a library that can't be read just now, shows the Welcome screen). App.tsx loads it before `init()`, so the
+  Welcome screen never flashes first; when the last world reopened, it answers without looking through the library.
+- Steps: the world (made at once with `createWorld`; Back renames it), Connect, Writer model, Style, Lay it out. Where it
+  stands is one settings field, `Settings.firstRun` (`{ worldId, step, sceneId }`), written by `setSetupStep` as each step
+  shows, so quitting midway resumes there. Connect and Writer model use Settings › Models' own pieces (exported from
+  `ModelsSettings.tsx`: `OpenRouterCard`, `OtherProviders`, `ModelPicker`, `ChosenModel`, `useConnectionTests`), so keys
+  are kept and tested exactly as there. The writer model step suggests a model (`recommendWriter`) with "Use this"; it is
+  never chosen silently. Style is saved as Adam's writing preferences (point of view, tense, spelling, voice notes).
+- `finishSetup` makes sure the world has a story, chapter and scene and sets `firstRun.step` to `'guide'` on that scene.
+  `FirstSceneGuide` (a bar above the page in `SceneView`, never over the words) follows what Adam does: card filled,
+  Generate, his own typing in the page (`beforeinput`), Mark done; done or closed, `firstRun` goes back to null for good.
+  "Describe my world" opens the World builder instead, with the guide waiting on the scene.
+- App tests start at the Welcome screen: `tests/e2e/helpers.ts` sets `AIWRITE_SETUP=off` unless a test asks for `'on'`
+  (a setup already under way still resumes).
+
+**The sample world** (`src/main/setup/sampleContent.ts`, `sampleWorld.ts`, `library.ts`)
+- Gullhaven, written for AI Write: one story, two chapters, four scenes, four characters with profiles and voices, places
+  (one inside another), a group, a hard rule, two plot threads, relationships, knowledge, changes over time and summaries.
+  It is made in a closed database through the usual SQL helpers (`initWorld`, `createEntry`, `insertChange`, `putSummary`,
+  `addLink`), then opened: Adam-typed pages are `'adam'`, what the memory found is `'text'` with source links to the exact
+  words. Every scene is marked read at its version with the paragraphs the keeper stores (`markProcessed`) and summaries
+  carry the keeper's fingerprints, so opening it never starts a paid memory run and it never looks unread.
+- It is found by the world meta key `sample_world`; `openSampleWorld` opens that one or makes it, so there is only ever
+  one, and a deleted one is made again. Ways in: the first run's world step, the Welcome screen, the world switcher and the
+  palette ("Explore the sample world"). While it is open, `SampleWorldBar` says so and offers "Start my own world" (the
+  setup, or the New world dialog once Adam has worlds).
+
+**Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
+Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
+are each wired in with one line.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

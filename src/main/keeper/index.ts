@@ -20,6 +20,7 @@ import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
 import { fillFound } from '../builder/fill'
+import { pausedNote } from '../usage/gate'
 
 let keeper: Keeper | null = null
 
@@ -55,7 +56,12 @@ export function initKeeper(): void {
     scenesDeleted(w.db)
     keeper = new Keeper({
       db: w.db,
-      model: memoryModel,
+      // Milestone 6: while this month's AI spending has reached Adam's limit, the memory waits as it does with no
+      // model (scenes stay waiting, with the reason in the top bar's note) and catches up when he carries on.
+      model: () => {
+        const paused = pausedNote()
+        return paused ? { error: paused } : memoryModel()
+      },
       emitStatus: (s) => emit('memory:status', s),
       emitChanged: (p) => emit('memory:changed', { sceneId: p.sceneId, entryIds: [...new Set(p.entryIds)] }),
       onNewEntries: (entryIds, model) => fillLater(w.db, entryIds, model),
@@ -152,8 +158,19 @@ export function entryEditedByHand(db: Database.Database, before: Entry, after: E
 }
 
 /** Settings changed (a memory model was chosen, a key added): try again now. */
+const settingsListeners: (() => void)[] = []
+/** Runs when the memory's model, its Thinking or the spending limit changes (the import catch-up carries on). */
+export const onMemorySettingsChanged = (fn: () => void): void => void settingsListeners.push(fn)
+
 export function memorySettingsChanged(): void {
   currentKeeper()?.updateNow()
+  for (const fn of settingsListeners) {
+    try {
+      fn()
+    } catch (e) {
+      console.error('memory settings listener failed', e)
+    }
+  }
 }
 
 export function memoryStatus(): MemoryStatus {
