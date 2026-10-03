@@ -279,7 +279,7 @@ export class Marker {
         .call({ system: MARK_PROMPT(s.cast, s.pov), user: contextFor(part.before, part.text), reply, temperature: 0.3 })
         .then(({ text, error }) => {
           const said = text == null ? {} : parseNumbered(text, 300)
-          const got = Object.keys(said).length ? marksFrom(part, said, s.pov) : null
+          const got = Object.keys(said).length ? marksFrom(part, said, s.pov, s.cast) : null
           const blocks = got ? s.blocks.filter((b) => got.has(b.id)).map((b) => withMarks(b, got.get(b.id)!)) : null
           this.finish(key, s, call, part.blockIds, blocks, error)
         })

@@ -6,7 +6,7 @@
 // (cast.ts) can't tell: "she said" three lines into a conversation takes a reader who has followed the scene.
 // "Mark who says what" also has it note each line's tone and pace, a part of the scene at a time, a little ahead of
 // the reading.
-import type { CastMember } from './cast'
+import { memberNamed, type CastMember } from './cast'
 import { besideSound, BREEZE_TAGS, canonicalTag } from './perform'
 import type { LineDelivery, ParagraphMarks } from './types'
 
@@ -339,11 +339,11 @@ A line of dialogue: who says it | how it is said | pace | sound.
 - How: a note to the voice actor, under 15 words: the feeling and how strong it is, the intent behind it, and what the listener hears when the feeling changes the voice (loud or hushed, breathy, trembling, cracking, thick with tears, a smile in it, through clenched teeth). Read it from the dialogue tag, what the speaker is doing, and what has happened in the scene so far. Fit each line to its moment, so the lines of a scene do not all sound alike. Never describe the voice itself (no age, gender or accent): it is fixed.
 - Pace, only when it is not ordinary: slow or fast.
 - Sound, only when the speaker makes one as the line starts: crying, laughing, a gasp, a sigh, a breath before something hard to say.
-Every numbered quote gets a note.
+Every number gets a note, in order: never skip a number or renumber.
 
 A sentence of narration: how the narrator reads it | pace | sound.
 - The narrator performs the telling as a good audiobook narrator does, following the scene closely: tense and quick in a chase, soft and aching in grief, dry in a joke, low and slow in a tender moment, savouring or urgent and rising as it goes. Say how it sounds as well as the mood (low and hushed, a catch in the voice, a smile in it, breathless).
-- Note the first numbered sentence of each paragraph, and a later one only where the mood turns; a sentence with no note is read like the one before it, so a mood that carries on needs nothing. A sentence that only says who spoke (she said) needs no note.
+- Where the mood carries on from the sentence before, or the sentence only says who spoke (she said), the note is just: same
 - A sound, where the sentence has the narrator's subject make one: an inhale as they breathe something in, a sigh, gasp or exhale where it happens.
 
 Sounds: ${SOUND_NAMES}.`
@@ -354,12 +354,32 @@ export interface BlockMarks {
   delivery: Record<string, LineDelivery>
 }
 
+/** A narration note that only says the mood carries on. */
+const SAME = /^(?:same|same as before|as before|unchanged|carries on|continue[sd]?|-+)$/i
+
+/**
+ * A speaker that is really a note on how a line is said ("hushed, dread building"): what a reply gives when its
+ * numbers have slipped. Never a cast member's name.
+ */
+export function looksLikeNote(who: string, cast: CastMember[] = []): boolean {
+  if (!who || memberNamed(cast, who)) return false
+  return who.includes(',') || who.split(/\s+/).length > 5
+}
+
+/** A narration note that is really a line of dialogue's ("Adam, shaky, ..."): it starts with a cast member's name. */
+export function startsWithSpeaker(tone: string | undefined, cast: CastMember[], pov?: string): boolean {
+  const first = (tone ?? '').split(/\s*[,|]\s*/)[0]?.trim() ?? ''
+  if (!first) return false
+  return !!memberNamed(cast, first) || (!!pov && first.toLowerCase() === pov.toLowerCase())
+}
+
 /**
  * The notes of a reply, by paragraph. A quote skipped, or said by nobody, gets an empty note (and an unknown
  * speaker when none was named), and so does the first sentence of narration a paragraph got no note for, so
- * neither is asked about again.
+ * neither is asked about again. A note that has slipped onto the wrong line (a model that skipped or renumbered:
+ * a quote "said by" a mood, narration "said by" a character) is left out, and the rules decide who speaks.
  */
-export function marksFrom(part: MarkPart, said: Record<string, string>, pov?: string): Map<string, BlockMarks> {
+export function marksFrom(part: MarkPart, said: Record<string, string>, pov?: string, cast: CastMember[] = []): Map<string, BlockMarks> {
   const out = new Map<string, BlockMarks>()
   const of = (id: string): BlockMarks => out.get(id) ?? out.set(id, { speakers: {}, delivery: {} }).get(id)!
   const told = new Set<string>()
@@ -368,13 +388,19 @@ export function marksFrom(part: MarkPart, said: Record<string, string>, pov?: st
     const m = of(a.blockId)
     if (a.quote) {
       const { who, how } = readMark(raw)
+      if (looksLikeNote(who, cast)) {
+        m.speakers[a.key] = UNKNOWN
+        m.delivery[a.key] = {}
+        return
+      }
       const name = who === NARRATION ? NARRATOR : pov && /^(?:i|me|myself)$/i.test(who) ? pov : who
       m.speakers[a.key] = name || UNKNOWN
       m.delivery[a.key] = how && name !== NARRATOR ? how : {}
       return
     }
+    if (SAME.test(raw.replace(/[."']/g, '').trim())) return
     const { how } = readMark(/^\s*(?:the )?narrat(?:ion|or)\s*(?:\||$)/i.test(raw) ? raw : `narration | ${raw}`)
-    if (!how) return
+    if (!how || startsWithSpeaker(raw, cast, pov)) return
     m.delivery[a.key] = how
     told.add(a.blockId)
   })

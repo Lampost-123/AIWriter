@@ -181,3 +181,30 @@ describe('the plan as a whole', () => {
     ])
   })
 })
+
+describe('notes that slipped onto the wrong line when the scene was marked', () => {
+  it('reads the quote in its speaker’s own voice, and the narration without the character’s note', () => {
+    // Saved by a model that renumbered: the quote "said by" a mood, the narration given Mara's note.
+    const marks = new Map<string, ParagraphMarks>([
+      [
+        'p1',
+        {
+          speakers: { 'get out': 'hushed, dread building' },
+          delivery: { 'get out': { pace: 'slow' }, '~mara looked up': { tone: 'Mara Quill, sharp, daring him to argue' } }
+        }
+      ]
+    ])
+    expect(said('Mara looked up. “Get out,” she snapped.', { marks })).toEqual([
+      { who: 'Narrator', how: '', input: 'Mara looked up.', voice: 'narrator', design: '' },
+      { who: 'Mara Quill', how: 'sharp and irritated', input: 'Get out,', voice: 'narrator', design: 'A low, dry woman’s voice.' },
+      { who: 'Narrator', how: '', input: 'she snapped.', voice: 'narrator', design: '' }
+    ])
+    // The same keys, marked well, are used as they are.
+    const good = new Map<string, ParagraphMarks>([['p1', { speakers: { 'get out': 'Tomas' }, delivery: { '~mara looked up': { tone: 'tense' } } }]])
+    expect(said('Mara looked up. “Get out,” she snapped.', { marks: good }).map((c) => [c.who, c.how])).toEqual([
+      ['Narrator', 'tense'],
+      ['Tomas', 'sharp and irritated'],
+      ['Narrator', 'tense']
+    ])
+  })
+})
