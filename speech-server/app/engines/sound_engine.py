@@ -15,6 +15,7 @@ Stability AI Community License: AI Write shows "Powered by Stability AI" whereve
 
 import base64
 import json
+import re
 import time
 
 import numpy as np
@@ -32,6 +33,8 @@ TAKES = (1, 4, 3)
 NOT_DOWNLOADED = "Not downloaded yet. Download the sound effects in AI Write's Settings, Read aloud and dictation."
 PARTLY = "Only partly downloaded. Download the sound effects again in AI Write's Settings, Read aloud and dictation."
 INTERRUPTED = "The voices needed the graphics card, so this sound was stopped part way. Try again once they have finished."
+FULL = "The graphics card was too full to make this sound just now. Try again in a little while."
+OUT_OF_MEMORY = re.compile(r"out of memory|OutOfMemoryError|CUDA_ERROR_OUT_OF_MEMORY", re.IGNORECASE)
 
 
 def clamp_seconds(kind: str, seconds) -> float:
@@ -134,6 +137,10 @@ class SoundEngine(WorkerEngine):
                 raise EngineError(f"{self.name} stopped while making that sound; it starts again with the next one.")
             out = json.loads(line)
             if out.get("error"):
+                if OUT_OF_MEMORY.search(str(out["error"])):
+                    # The card filled up (beside the voices, say): its memory goes back now, and the sound waits.
+                    self.unload()
+                    raise EngineBusy(FULL)
                 raise EngineError(f"{self.name} couldn't make that sound: {out['error']}")
             channels = int(out.get("channels") or 1)
             samples = np.frombuffer(base64.b64decode(out["b64"]), dtype=np.float32).reshape(-1, channels)
