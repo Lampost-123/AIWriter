@@ -23,6 +23,7 @@ import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { AskButton } from '@/features/ask/AskButton'
 import { WorldFileItems } from '@/features/transfer/WorldFileItems'
+import { FocusButton } from '@/features/look/FocusLayer'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
@@ -293,7 +294,8 @@ export function TopBar(): React.JSX.Element {
   }, [navigate])
 
   return (
-    <header className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
+    // Focus mode (milestone 6) fades the bar away (data-focus-chrome, styles.css).
+    <header data-focus-chrome className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
       <IconButton
         label="Show or hide the binder"
         active={floatingBinder.floating ? floatingBinder.open : layout?.binderOpen}
@@ -343,6 +345,7 @@ export function TopBar(): React.JSX.Element {
       ) : null}
       <SaveIndicator />
       {hasWorld ? <AskButton /> : null}
+      {hasWorld ? <FocusButton /> : null}
       <IconButton
         label="Settings"
         title={withShortcut('Settings', 'settings')}

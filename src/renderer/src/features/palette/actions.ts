@@ -33,6 +33,7 @@ import { checkChapter, checkScene, checkStory, openConsistency } from '@/feature
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
 import { offerMemory, startImport } from '@/features/importing/importStore'
+import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -299,6 +300,12 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'build-memory':
         if (a.storyId) offerMemory(a.storyId)
+        return
+      case 'focus-mode':
+        enterFocus()
+        return
+      case 'leave-focus-mode':
+        leaveFocus()
         return
       default: {
         const unknown: never = fixed

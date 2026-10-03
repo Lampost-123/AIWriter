@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, nativeTheme, shell, type ContextMenuParams, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import type { PaintedTheme } from '@shared/api'
+import { accentIdOf } from '@shared/contracts/look'
 import { registerIpc } from './ipc'
 import { closeWorld, openWorld } from './world'
 import { getSettings } from './settings'
@@ -39,6 +40,16 @@ function startTheme(): PaintedTheme {
   }
   if (theme === 'light' || theme === 'dark' || theme === 'sepia') return theme
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+/** The accent colour the window opens in (milestone 6), as the theme: none for the theme's own. */
+function startAccent(): string[] {
+  try {
+    const accent = accentIdOf(getSettings().accent)
+    return accent ? [`--aiwrite-accent=${accent}`] : []
+  } catch {
+    return []
+  }
 }
 
 /** Each theme's --bg colour in styles.css. */
@@ -104,7 +115,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
-      additionalArguments: [`--aiwrite-theme=${theme}`]
+      additionalArguments: [`--aiwrite-theme=${theme}`, ...startAccent()]
     }
   })
   mainWindow = win

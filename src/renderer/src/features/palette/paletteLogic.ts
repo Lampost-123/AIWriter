@@ -87,6 +87,8 @@ export type FixedActionId =
   | 'settings-usage'
   | 'import-manuscript'
   | 'build-memory'
+  | 'focus-mode'
+  | 'leave-focus-mode'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -109,6 +111,8 @@ export interface ActionContext {
   speakers?: boolean
   /** Milestone 6: the open story has scenes the memory hasn't read since they were imported. */
   unreadStory?: boolean
+  /** Focus mode is on (milestone 6). */
+  focus?: boolean
 }
 
 export interface ActionDef {
@@ -213,7 +217,7 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'spelling point view tense voice words',
     away: true
   },
-  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme text size page width', away: true },
+  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme accent colour color text size page width', away: true },
   { id: 'settings-backups', label: 'Settings › Backups', keywords: 'restore copy folder', away: true },
   { id: 'settings-trash', label: 'Settings › Recently deleted', keywords: 'trash bin restore bring back', away: true },
   { id: 'settings-about', label: 'Settings › About and updates', keywords: 'version update help', away: true },
@@ -326,6 +330,21 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'imported read catch up learn characters ai',
     away: true,
     when: (c) => !!c.unreadStory
+  },
+  {
+    id: 'focus-mode',
+    label: 'Focus mode',
+    keywords: 'distraction free full screen fullscreen zen hide panels page only',
+    shortcut: 'focusMode',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.focus
+  },
+  {
+    id: 'leave-focus-mode',
+    label: 'Leave focus mode',
+    keywords: 'exit distraction free full screen fullscreen show panels',
+    shortcut: 'leaveFocusMode',
+    when: (c) => !!c.focus
   }
 ]
 

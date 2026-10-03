@@ -73,7 +73,8 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
   return (
     // Sized by its own width (both side panels change it). As it narrows, the story's name goes first, then the
     // chapter's, then Mark done's words, then the status word, so a scene's title of a few words stays whole.
-    <header className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
+    // Focus mode (milestone 6) fades it away, keeping its room so the page doesn't move (data-focus-chrome, styles.css).
+    <header data-focus-chrome className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
         {story ? (
           <>

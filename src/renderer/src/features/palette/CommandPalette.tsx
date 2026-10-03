@@ -75,6 +75,7 @@ import { giveFocusBack, openPalette, PALETTE_LAYER, usePalette } from './palette
 import { followRecent, recentPlaces } from './recent'
 import { useReading } from '@/features/readAloud/control'
 import { canBuildMemory, useImport } from '@/features/importing/importStore'
+import { useFocusMode } from '@/features/look/focusMode'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -294,9 +295,10 @@ function useActionContext(): ActionContext {
   const reading = useReading((s) => s.reading)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
   const unreadStory = useImport((s) => canBuildMemory(s.catchUp, storyId))
+  const focus = useFocusMode((s) => s.on)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus]
   )
 }
 
@@ -526,7 +528,7 @@ export function CommandPalette(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-fade-in" />
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           aria-describedby={undefined}

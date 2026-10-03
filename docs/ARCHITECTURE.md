@@ -771,6 +771,30 @@ aborts the one running) and puts the handed scenes back to unread. Progress ("Re
 binder's `ImportLine` under the Check line; the cost estimate (`importing/estimate.ts`) is shown before it starts.
 Ways in: the story menu ("Import a manuscript…", "Build the memory from this story" while it has unread scenes) and
 the palette (`import-manuscript`, `build-memory`).
+### How look and focus work
+
+- **Accent colour** (`contracts/look.ts`, `features/look/accents.ts`, `AccentPicker.tsx`): `settings.accent` is one of
+  `ACCENT_IDS` (teal, indigo, plum, graphite) or null for the theme's own (ink blue in Light and Dark, russet in
+  Sepia). None reads as amber, red or green. Each has `--accent`, `--accent-hover`, `--accent-soft` and `--accent-fg`
+  per theme in `styles.css` (`[data-theme='…'][data-accent='…']`, set by `<html data-accent>`); `accents.ts` holds the
+  same values for the swatches, and `accents.test.ts` and `tests/unit/contrast.test.ts` check they agree and keep AA
+  contrast in every theme. `--focus` follows the accent. Like the theme, main passes `--aiwrite-accent=…` to the window
+  and the preload exposes `initialAccent`, so the first frame already has it; a swatch paints at once, then saves.
+- **Tokens added**: `--ai-fg` (text on filled amber), `--overlay` (behind dialogs). Light `--ai` and `--success` were
+  darkened a little so their text passes AA on every background they sit on.
+- **Reduced motion**: one rule in `styles.css` ends every transition and animation at once (and only once, so nothing
+  loops or flickers) and turns off smooth scrolling. Code-driven motion asks `features/look/motion.ts`
+  (`reducedMotion()`, `scrollBehavior()`). Panels and popovers use 150–200 ms.
+- **Focus mode** (`features/look/focusMode.ts`, pure decisions in `focusLogic.ts`, `FocusLayer.tsx`): F11 (also the
+  top bar's button and the palette) on the writing page sets `<html data-focus>` and asks main to fill the screen
+  (`setFullScreen`; it only undoes a full screen it made, and `look:fullScreen` ends focus mode if the window leaves
+  full screen another way). The binder and scene panel slide shut without touching the saved layout; whatever carries
+  `data-focus-chrome` (the top bar, the scene's toolbar, the binder) fades, keeping its room, then is hidden; the
+  window behind takes the page's colour. While the panels move, the caret's line (or the line a third of the way
+  down) is held at the same height on screen. Esc leaves only when nothing else wanted it (a layer, the selection
+  bar, a draft or beat being written, an AI change waiting: those come first, judged as the key went down); F11
+  toggles. Leaving the writing page ends it. Ask the world and a name shown beside the page open the scene panel over
+  the page's right edge; anything they changed in the saved layout is put back on leaving (`layoutToRestore`).
 
 ### Who builds what (parallel build, milestone 6)
 
