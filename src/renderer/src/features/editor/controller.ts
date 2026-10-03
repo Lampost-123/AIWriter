@@ -46,6 +46,8 @@ class SceneSession {
   private snapshot: PMNode | null = null
   private disposed = false
   private closing = false
+  /** Off screen while Generate's draft is still writing into it (see SceneController.away). */
+  away = false
   /** This scene's own save state; the top bar shows all sessions combined. */
   state: AutosaveState | null = null
 
@@ -76,7 +78,7 @@ class SceneSession {
       },
       // A scene left behind that was deleted meanwhile: nothing more can be saved into it, so it stops
       // trying, and the top bar goes back to saying how the open scene is doing.
-      isGone: (e) => this.closing && sceneGone(e),
+      isGone: (e) => (this.closing || this.away) && sceneGone(e),
       onGone: () => {
         this.state = null
         void api.clearRecovery(this.id).catch(() => undefined)
@@ -100,6 +102,12 @@ class SceneSession {
   /** The scene is leaving the screen: keep its last document for any pending save. */
   leave(doc: PMNode): void {
     this.snapshot = doc
+  }
+
+  /** The scene is on screen again (it was kept for a draft): its document is the editor's once more. */
+  back(): void {
+    this.snapshot = null
+    this.away = false
   }
 
   /** Saves what's pending, then lets go (a failed save keeps retrying until it lands, unless the scene was deleted). */
@@ -168,16 +176,41 @@ export interface ControllerEvents {
 /** How long a scene switch waits for a stopped draft's last words before moving on. */
 const LAST_WORDS_WAIT_MS = 2000
 
+interface Stream {
+  generationId: ID
+  split: SplitState
+  quiet?: boolean
+  /** Generate's draft: it keeps writing into its scene when Adam opens another one. */
+  keepWriting?: boolean
+}
+
+/**
+ * A scene Adam left while Generate's draft writes into it, or gets ready to (`stream` null). Its editor
+ * is kept off screen: the draft lands in it and is saved as it goes, and coming back to the scene
+ * picks it up again, still writing, undo and all.
+ */
+interface Away {
+  session: SceneSession
+  state: EditorState
+  stream: Stream | null
+}
+
 export class SceneController {
   private session: SceneSession | null = null
   private leaving = new Set<SceneSession>()
   private loadTicket = 0
   private requested: ID | null = null
-  private stream: { generationId: ID; split: SplitState; quiet?: boolean } | null = null
+  private stream: Stream | null = null
+  /** Scenes left while Generate's draft writes into them (see Away). */
+  private away = new Map<ID, Away>()
+  /** The open scene Generate's draft is getting ready for: leaving it keeps it for the draft. */
+  private expecting: ID | null = null
+  /** Scenes whose draft finished while Adam was elsewhere: their editor, so Ctrl+Z takes the draft out once he is back. */
+  private finishedAway = new Map<ID, { worldId: ID; state: EditorState }>()
   /** The draft being written starts below the visible page. */
   private draftBelow = false
-  /** The draft being stopped because Adam opened another scene (no "added below" message for it). */
-  private stopping: ID | null = null
+  /** Drafts being stopped because Adam opened another scene or world, or deleted it (no "added below" message for them). */
+  private stopping = new Set<ID>()
   /**
    * Adam picked where a draft goes, so the keyboard belongs in the page; a draft replacing the
    * scene's text gets it once that draft ends (see takeKeyboard).
@@ -214,7 +247,8 @@ export class SceneController {
         return sceneIdOf()
       },
       holdForReplace: (sceneId) => this.holdForReplace(sceneId),
-      releaseHold: () => this.releaseHold(),
+      expectDraft: (sceneId) => this.expectDraft(sceneId),
+      releaseHold: (sceneId) => this.releaseHold(sceneId),
       beginStream: (sceneId, generationId, opts) => this.beginStream(sceneId, generationId, opts),
       appendStream: (generationId, text) => this.appendStream(generationId, text),
       endStream: (generationId, opts) => this.endStream(generationId, opts),
@@ -223,12 +257,12 @@ export class SceneController {
       flush: () => this.flush(),
       getText: () => streamDoc.sceneText(this.editor.state.doc),
       hasText: () => this.editor.state.doc.textContent.trim() !== '',
-      stopDraft: (reason) => this.stopStreamForSwitch(reason),
+      stopDraft: (reason, sceneIds) => this.stopStreamForSwitch(reason, sceneIds),
       get editor() {
         return editorOf()
       },
       busy: () => this.busy(),
-      current: () => this.current(),
+      current: (sceneId) => this.current(sceneId),
       replaceScene: (sceneId, doc, text, opts) => this.replaceScene(sceneId, doc, text, opts)
     }
   }
@@ -297,9 +331,22 @@ export class SceneController {
     const prev = this.session
     if (prev) {
       this.remember()
-      prev.leave(this.editor.state.doc)
-      this.leaving.add(prev)
-      void prev.close()
+      // Generate's draft keeps writing into the scene being left (or is getting ready to): keep it for the draft.
+      if (this.stream?.keepWriting || this.expecting === prev.id) this.keepAway(prev)
+      else {
+        prev.leave(this.editor.state.doc)
+        this.leaving.add(prev)
+        void prev.close()
+      }
+    }
+    for (const [id, f] of this.finishedAway) if (f.worldId !== worldId) this.finishedAway.delete(id)
+
+    // Back in a scene its draft is still writing into (or getting ready to): the scene as the draft has it.
+    const kept = this.away.get(scene.id)
+    if (kept) {
+      this.away.delete(scene.id)
+      this.showAgain(scene, kept)
+      return
     }
 
     // Coming back to a scene whose last save hasn't landed yet (saving is failing): the text on
@@ -322,7 +369,14 @@ export class SceneController {
         // Keep the start of the scene.
       }
     }
-    const state = EditorState.create({ doc, selection, plugins: this.editor.state.plugins })
+    // A draft finished here while Adam was elsewhere, and nothing has changed the scene since: its
+    // editor comes back, so one Ctrl+Z takes the whole draft out, as it would had he stayed.
+    const finished = this.finishedAway.get(scene.id)
+    this.finishedAway.delete(scene.id)
+    const state =
+      finished && finished.state.doc.eq(doc)
+        ? finished.state.apply(finished.state.tr.setSelection(Selection.fromJSON(finished.state.doc, selection.toJSON())).setMeta('addToHistory', false))
+        : EditorState.create({ doc, selection, plugins: this.editor.state.plugins })
     // A wish for the keyboard was about the scene being left.
     this.keyboardWanted = false
 
@@ -332,7 +386,7 @@ export class SceneController {
       scene.wordCount,
       () => this.editor.state.doc,
       () => this.reportSaveState(),
-      (gone) => this.dropLeaving(gone)
+      (gone) => this.sessionGone(gone)
     )
     this.words.cancel()
     app().setSceneWords(scene.wordCount)
@@ -398,15 +452,35 @@ export class SceneController {
 
   /** Saves everything pending now (Ctrl+S, closing the window, switching worlds). Works after destroy too. */
   async flush(): Promise<void> {
-    await Promise.allSettled([this.session?.saver.flush(), ...[...this.leaving].map((s) => s.saver.flush())])
+    await Promise.allSettled([this.session?.saver.flush(), ...[...this.leaving, ...this.keptSessions()].map((s) => s.saver.flush())])
   }
 
   /** The top bar shows one state for the open scene and any scene still finishing its save. */
   private reportSaveState(): void {
-    const state = combineSaveStates([this.session?.state, ...[...this.leaving].map((s) => s.state)])
+    const state = combineSaveStates([this.session?.state, ...[...this.leaving, ...this.keptSessions()].map((s) => s.state)])
     if (state) app().setSaveState(state)
     // The scene that was failing or saving has gone (saved, or its world was closed): don't leave that showing.
     else if (app().saveState !== 'saved') app().setSaveState('idle')
+  }
+
+  private keptSessions(): SceneSession[] {
+    return [...this.away.values()].map((a) => a.session)
+  }
+
+  /**
+   * A session has nothing more to save. One kept for its draft goes this way when its scene was deleted
+   * (from the binder or with its story): there is nothing left to write the draft into, so it stops.
+   */
+  private sessionGone(s: SceneSession): void {
+    for (const [id, a] of this.away) {
+      if (a.session !== s) continue
+      this.away.delete(id)
+      if (a.stream) {
+        void api.stopGeneration(a.stream.generationId).catch(() => undefined)
+        toast('Drafting stopped because its scene was deleted. Undo (or Recently deleted) brings the scene back with the text so far.')
+      } else void api.cancelDraftStart(id).catch(() => undefined)
+    }
+    this.dropLeaving(s)
   }
 
   private dropLeaving(s: SceneSession): void {
@@ -437,25 +511,64 @@ export class SceneController {
     return true
   }
 
-  /** Lets go of the held text: the draft that was to replace it didn't start. */
-  private releaseHold(): void {
-    if (this.destroyed || this.stream) return
+  /** Generate's draft is getting ready for the open scene: leaving the scene now keeps it for the draft. */
+  private expectDraft(sceneId: ID): void {
+    if (!this.destroyed && this.session?.id === sceneId) this.expecting = sceneId
+  }
+
+  /**
+   * Lets go of the held text: the draft that was to replace it didn't start. With a scene, also
+   * lets go of that scene if it was kept for the draft while Adam was elsewhere.
+   */
+  private releaseHold(sceneId?: ID): void {
+    if (this.destroyed) return
+    const kept = sceneId ? this.away.get(sceneId) : undefined
+    if (kept) {
+      if (!kept.stream) this.dropKept(kept)
+      return
+    }
+    if (sceneId && sceneId !== this.session?.id) return
+    if (sceneId && this.expecting === sceneId) this.expecting = null
+    if (this.stream) return
     const tr = streamDoc.releaseHold(this.editor.state)
     if (tr) this.editor.view.dispatch(tr)
     this.keyboardBack()
   }
 
-  private beginStream(sceneId: ID, generationId: ID, opts: { replace?: boolean; noBreak?: boolean; quiet?: boolean } = {}): boolean {
-    if (this.destroyed || !this.session || this.session.id !== sceneId || this.requested !== sceneId) return false
+  private beginStream(
+    sceneId: ID,
+    generationId: ID,
+    opts: { replace?: boolean; noBreak?: boolean; quiet?: boolean; keepWriting?: boolean } = {}
+  ): boolean {
+    if (this.destroyed) return false
+    const start = { replace: !!opts.replace, noBreak: !!opts.noBreak }
+    const stream: Stream = { generationId, split: newSplitState(), quiet: !!opts.quiet, keepWriting: !!opts.keepWriting }
+    const kept = opts.keepWriting ? this.away.get(sceneId) : undefined
+    if (kept) {
+      // Adam opened another scene while the draft got ready: it is written into the scene kept for it.
+      if (kept.stream) return false
+      this.setKept(kept, kept.state.apply(streamDoc.startStream(kept.state, generationId, start)))
+      kept.stream = stream
+      return true
+    }
+    // Generate's draft starts even with another scene on its way in: the scene is then kept for it.
+    if (!this.session || this.session.id !== sceneId || (this.requested !== sceneId && !opts.keepWriting)) return false
     if (this.stream) this.finishStream()
-    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, { replace: !!opts.replace, noBreak: !!opts.noBreak }))
-    this.stream = { generationId, split: newSplitState(), quiet: !!opts.quiet }
+    if (this.expecting === sceneId) this.expecting = null
+    this.editor.view.dispatch(streamDoc.startStream(this.editor.state, generationId, start))
+    this.stream = stream
     this.updateDraftBelow()
     return true
   }
 
   private appendStream(generationId: ID, text: string): void {
-    if (!this.stream || this.stream.generationId !== generationId || this.destroyed) return
+    if (this.destroyed) return
+    if (this.stream?.generationId !== generationId) {
+      const kept = this.keptFor(generationId)
+      if (kept?.stream) this.appendKept(kept, kept.stream, text)
+      return
+    }
+    if (!this.stream) return
     const { ops, state } = splitChunk(this.stream.split, text)
     this.stream.split = state
     const before = this.editor.state
@@ -493,11 +606,13 @@ export class SceneController {
    * how to get the old text back, so there's no message here. Returns whether the draft took the
    * place of the scene's text.
    */
-  private endStream(generationId: ID, opts: { failed?: boolean } = {}): { replaced: boolean } {
+  private endStream(generationId: ID, opts: { failed?: boolean } = {}): { replaced: boolean; away?: boolean } {
+    const kept = this.keptFor(generationId)
+    if (kept) return { replaced: this.finishKept(kept), away: !this.stopping.has(generationId) }
     if (!this.stream || this.stream.generationId !== generationId) {
       return { replaced: this.lastEnded?.generationId === generationId && this.lastEnded.replaced }
     }
-    return this.finishStream({ announce: this.stopping !== generationId, failed: !!opts.failed })
+    return this.finishStream({ announce: !this.stopping.has(generationId), failed: !!opts.failed })
   }
 
   /**
@@ -545,25 +660,45 @@ export class SceneController {
   }
 
   /**
-   * Leaving the scene mid-draft (or deleting it) stops the draft; the text so far stays. Waits
-   * (briefly) for the last words that were already on their way, so the scene keeps everything
-   * the draft's record has.
+   * Opening another scene stops a draft being written into the page (Generate's own drafts keep
+   * writing: see Away); switching worlds or deleting the scene stops it wherever it writes. With
+   * `sceneIds`, only drafts of those scenes. The text so far stays: this waits (briefly) for the last
+   * words that were already on their way, so the scene keeps everything the draft's record has.
    */
-  private async stopStreamForSwitch(reason: 'scene' | 'world' | 'deleted'): Promise<void> {
-    if (!this.stream) return
-    const id = this.stream.generationId
-    this.stopping = id
-    // The keyboard goes wherever Adam is going.
-    this.keyboardWanted = false
+  private async stopStreamForSwitch(reason: 'scene' | 'world' | 'deleted', sceneIds?: ID[]): Promise<void> {
+    const hit = (id: ID | null | undefined): boolean => !sceneIds || (!!id && sceneIds.includes(id))
+    const ids: ID[] = []
+    if (this.stream && hit(this.session?.id) && !(reason === 'scene' && this.stream.keepWriting)) {
+      ids.push(this.stream.generationId)
+      // The keyboard goes wherever Adam is going.
+      this.keyboardWanted = false
+    }
+    if (reason !== 'scene') {
+      for (const a of [...this.away.values()]) {
+        if (!hit(a.session.id)) continue
+        if (a.stream) ids.push(a.stream.generationId)
+        else {
+          // Still getting ready: it is called off, and the scene goes as any scene left behind does.
+          void api.cancelDraftStart(a.session.id).catch(() => undefined)
+          this.dropKept(a)
+        }
+      }
+    }
+    if (!ids.length) return
     let replaced = false
+    for (const id of ids) this.stopping.add(id)
     try {
-      const stopped = api.stopGeneration(id).catch(() => undefined)
+      const stopped = Promise.all(ids.map((id) => api.stopGeneration(id).catch(() => undefined)))
       await Promise.race([stopped, new Promise((r) => setTimeout(r, LAST_WORDS_WAIT_MS))])
-      // Usually the draft's own "done" has ended the stream by now.
-      if (this.stream?.generationId === id) replaced = this.finishStream().replaced
-      else replaced = this.lastEnded?.generationId === id && this.lastEnded.replaced
+      for (const id of ids) {
+        // Usually the draft's own "done" has ended it by now.
+        const kept = this.keptFor(id)
+        if (this.stream?.generationId === id) replaced = this.finishStream().replaced || replaced
+        else if (kept) replaced = this.finishKept(kept) || replaced
+        else replaced = (this.lastEnded?.generationId === id && this.lastEnded.replaced) || replaced
+      }
     } finally {
-      this.stopping = null
+      for (const id of ids) this.stopping.delete(id)
     }
     if (reason === 'deleted') {
       toast(
@@ -579,6 +714,103 @@ export class SceneController {
         ? `Drafting stopped because you ${where}. The text so far is kept, and the text it replaced can be put back from that scene's Drafts tab.`
         : `Drafting stopped because you ${where}. The text so far is kept.`
     )
+  }
+
+  // ---------- Scenes kept for Generate's draft (see Away) ----------
+
+  /** Keeps the scene being left for Generate's draft, which goes on writing into it off screen. */
+  private keepAway(s: SceneSession): void {
+    const state = this.editor.state
+    s.leave(state.doc)
+    s.away = true
+    this.away.set(s.id, { session: s, state, stream: this.stream })
+    this.stream = null
+    this.expecting = null
+    this.setDraftBelow(false)
+  }
+
+  /** Shows a scene kept for its draft again, as the draft has it: still writing (or still getting ready). */
+  private showAgain(scene: Scene, kept: Away): void {
+    const view = this.editor.view
+    const el = this.scroller()
+    if (this.stream) this.finishStream()
+    kept.session.back()
+    this.session = kept.session
+    this.stream = kept.stream
+    this.expecting = kept.stream ? null : scene.id
+    this.keyboardWanted = false
+    this.words.cancel()
+    app().setSceneWords(countWords(streamDoc.sceneText(kept.state.doc)))
+    this.events.onShow(scene)
+    this.events.onError(null)
+    view.updateState(kept.state)
+    this.follow.stop()
+    if (el) el.scrollTop = memory.get(scene.id)?.scrollTop ?? 0
+    this.reportSaveState()
+    this.updateDraftBelow()
+    const idle = !document.activeElement || document.activeElement === document.body
+    if (takeFocusRequest(scene.id) || idle) this.focus()
+  }
+
+  private keptFor(generationId: ID): Away | undefined {
+    for (const a of this.away.values()) if (a.stream?.generationId === generationId) return a
+    return undefined
+  }
+
+  /** The kept scene's editor moves on (the draft wrote more): saved as usual, and to its recovery file. */
+  private setKept(kept: Away, state: EditorState): void {
+    const changed = !state.doc.eq(kept.state.doc)
+    kept.state = state
+    kept.session.leave(state.doc)
+    if (changed) kept.session.changed()
+  }
+
+  private appendKept(kept: Away, stream: Stream, text: string): void {
+    const { ops, state } = splitChunk(stream.split, text)
+    stream.split = state
+    const tr = streamDoc.appendStream(kept.state, ops)
+    if (!tr) return
+    // The text being replaced goes with the draft's record first, as on screen.
+    if (streamDoc.replacedIn(tr)) this.keepReplaced(stream.generationId, kept.state.doc)
+    this.setKept(kept, kept.state.apply(tr))
+  }
+
+  /**
+   * Ends a draft written into a kept scene, as finishStream does on screen (one undo step), then lets
+   * the scene go. Its editor is kept for when Adam is back. Returns whether the draft took the place
+   * of the scene's text.
+   */
+  private finishKept(kept: Away): boolean {
+    const generationId = kept.stream?.generationId
+    this.away.delete(kept.session.id)
+    let state = kept.state
+    const tidy = streamDoc.finishStreamText(state)
+    if (tidy) state = state.apply(tidy)
+    const old = streamDoc.activeStream(state)?.before?.doc ?? null
+    const replaced = !!old && old.textContent.trim() !== '' && !old.eq(state.doc)
+    if (generationId && old && !replaced) this.keepReplaced(generationId, null)
+    state = streamDoc.commitStream(state)
+    if (generationId) this.lastEnded = { generationId, replaced }
+    this.finishedAway.set(kept.session.id, { worldId: kept.session.worldId, state })
+    this.setKept(kept, state)
+    this.letGo(kept.session)
+    return replaced
+  }
+
+  /** A scene kept for a draft that never began: its held text (if any) is let go, and so is the scene. */
+  private dropKept(kept: Away): void {
+    this.away.delete(kept.session.id)
+    const tr = streamDoc.releaseHold(kept.state)
+    if (tr) this.setKept(kept, kept.state.apply(tr))
+    this.letGo(kept.session)
+  }
+
+  /** Its last save runs, as for any scene left behind. */
+  private letGo(s: SceneSession): void {
+    s.away = false
+    this.leaving.add(s)
+    void s.close()
+    this.reportSaveState()
   }
 
   // ---------- The keyboard, and undoing a replace ----------
@@ -702,8 +934,10 @@ export class SceneController {
     return !this.destroyed && (!!this.stream || streamDoc.holding(this.editor.state))
   }
 
-  /** The page as it shows now, as it would be saved. */
-  private current(): { sceneId: ID; doc: unknown; text: string } | null {
+  /** The page as it shows now, as it would be saved (or a scene kept for its draft, as it would be saved). */
+  private current(sceneId?: ID): { sceneId: ID; doc: unknown; text: string } | null {
+    const kept = sceneId && !this.destroyed ? this.away.get(sceneId) : undefined
+    if (kept) return { sceneId: kept.session.id, doc: kept.state.doc.toJSON(), text: streamDoc.sceneText(kept.state.doc) }
     if (this.destroyed || !this.session) return null
     const doc = this.editor.state.doc
     return { sceneId: this.session.id, doc: doc.toJSON(), text: streamDoc.sceneText(doc) }
@@ -787,6 +1021,17 @@ export class SceneController {
       this.finishStream()
       void api.stopGeneration(id).catch(() => undefined)
     }
+    // And any draft writing into a scene kept for it.
+    for (const a of [...this.away.values()]) {
+      if (a.stream) {
+        void api.stopGeneration(a.stream.generationId).catch(() => undefined)
+        this.finishKept(a)
+      } else {
+        void api.cancelDraftStart(a.session.id).catch(() => undefined)
+        this.dropKept(a)
+      }
+    }
+    this.finishedAway.clear()
     this.destroyed = true
     this.editor.off('update', this.onUpdate)
     this.editor.off('transaction', this.onTransaction)
@@ -819,7 +1064,13 @@ export class SceneController {
       this.stream = null
       void api.stopGeneration(id).catch(() => undefined)
     }
-    const sessions = [...this.leaving, ...(this.session ? [this.session] : [])]
+    for (const a of this.away.values()) {
+      if (a.stream) void api.stopGeneration(a.stream.generationId).catch(() => undefined)
+      else void api.cancelDraftStart(a.session.id).catch(() => undefined)
+    }
+    const sessions = [...this.leaving, ...this.keptSessions(), ...(this.session ? [this.session] : [])]
+    this.away.clear()
+    this.finishedAway.clear()
     this.session = null
     this.leaving.clear()
     for (const s of sessions) {

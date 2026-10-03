@@ -21,6 +21,7 @@ import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
+import { openScene } from '@/features/memory/openScene'
 import { AskButton } from '@/features/ask/AskButton'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
@@ -267,7 +268,9 @@ export function TopBar(): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
   const askOpen = useApp((s) => s.askOpen)
-  const drafting = useApp((s) => s.activeGeneration !== null)
+  // The scene a draft is being written into: shown when it isn't the page on screen.
+  const draftScene = useApp((s) => s.activeGeneration?.sceneId ?? null)
+  const draftElsewhere = !!draftScene && (view.kind !== 'write' || draftScene !== sceneId)
   const hasWorld = useApp((s) => s.world !== null)
   const worldButton = useRef<HTMLButtonElement>(null)
   const layout = settings?.layout
@@ -325,12 +328,13 @@ export function TopBar(): React.JSX.Element {
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (
         <span className="mr-3 shrink-0 whitespace-nowrap text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
-      ) : drafting ? (
-        // A draft keeps writing into the scene while another page is open; this goes back to it.
+      ) : null}
+      {draftElsewhere && draftScene ? (
+        // A draft keeps writing into its scene while another page or scene is open; this goes back to it.
         <button
           type="button"
-          onClick={() => navigate({ kind: 'write' })}
-          title="A draft is being written into the scene. Click to go back to it."
+          onClick={() => (draftScene === sceneId ? navigate({ kind: 'write' }) : void openScene(draftScene))}
+          title="A draft is being written into a scene. Click to go back to it."
           className="mr-2 flex h-7 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-2 text-[12.5px] font-medium text-ai transition-colors duration-150 hover:bg-surface-2 animate-fade-in"
         >
           <span className="h-2 w-2 rounded-full bg-ai animate-pulse" aria-hidden />

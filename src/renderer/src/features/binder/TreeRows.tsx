@@ -5,6 +5,7 @@ import type { Act, Chapter, ID, SceneMeta } from '@shared/types'
 import { Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { registerFlusher } from '@/lib/flush'
+import { useApp } from '@/lib/store'
 import { ChapterIssueBadge, SceneIssueBadge } from '@/features/consistency/IssueBadge'
 import { InlineTitle } from './InlineTitle'
 import { formatWords } from './outlineModel'
@@ -112,6 +113,18 @@ export interface SceneRowProps {
   h: RowHandlers
 }
 
+/** A draft is being written into this scene, perhaps while Adam is in another one. */
+function DraftingDot({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+  const drafting = useApp((s) => s.activeGeneration?.sceneId === sceneId)
+  if (!drafting) return null
+  return (
+    <span className="ml-1.5 flex h-4 w-2 shrink-0 items-center justify-center" title="A draft is being written into this scene">
+      <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
+      <span className="sr-only">A draft is being written into this scene</span>
+    </span>
+  )
+}
+
 export function SceneRowContent({
   scene,
   selected,
@@ -135,6 +148,7 @@ export function SceneRowContent({
         <span className={cn('min-w-0 flex-1 truncate', selected ? 'font-medium text-fg' : 'text-fg/90')}>{scene.title || 'Untitled scene'}</span>
       )}
       {/* Milestone 5: open issues, after the title so nothing moves when they load. */}
+      {renaming ? null : <DraftingDot sceneId={scene.id} />}
       {renaming ? null : <SceneIssueBadge sceneId={scene.id} />}
       {scene.memoryState === 'failed' && !renaming ? (
         // The scene header says why and offers Try again.

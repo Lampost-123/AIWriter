@@ -274,7 +274,8 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
   const wasOpen = app().storyId === story.id
   try {
     // A draft being written into it stops first, and its last words are saved before it goes.
-    if (wasOpen) await editorBridge()?.stopDraft('deleted')
+    const open = app().sceneId
+    if (wasOpen && open) await editorBridge()?.stopDraft('deleted', [open])
     await editorBridge()?.flush()
     if (othersStartHere) await api.backupNow().catch(() => undefined)
     await api.deleteStory(story.id)
