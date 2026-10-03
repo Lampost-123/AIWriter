@@ -10,6 +10,7 @@ import { Suggestions } from '@/features/edits/suggestions'
 import { ReadAloudHighlight } from '@/features/readAloud/highlight'
 import { SpeakerLabels } from '@/features/readAloud/speakerLabels'
 import { LiveChecks } from '@/features/liveChecks/liveDecorations'
+import { FindHighlights } from '@/features/find/highlights'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -70,6 +71,8 @@ export function sceneExtensions(): AnyExtension[] {
     Suggestions,
     ReadAloudHighlight,
     SpeakerLabels,
-    LiveChecks
+    LiveChecks,
+    // Writing by hand: find in the open scene (Ctrl+F) marks its matches.
+    FindHighlights
   ]
 }

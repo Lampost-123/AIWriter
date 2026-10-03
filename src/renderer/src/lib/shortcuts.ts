@@ -37,6 +37,9 @@ export type ShortcutId =
   // Milestone 6
   | 'focusMode'
   | 'leaveFocusMode'
+  // Writing by hand
+  | 'findInScene'
+  | 'findInStory'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -85,6 +88,8 @@ export const SHORTCUTS: Shortcut[] = [
   },
   { id: 'focusMode', name: 'Focus mode: only the page shows (press again to leave)', group: 'Writing', keys: ['F11'] },
   { id: 'leaveFocusMode', name: 'Leave focus mode', where: 'in focus mode', group: 'Writing', keys: ['Esc'] },
+  { id: 'findInScene', name: 'Find and replace in this scene', group: 'Writing', keys: ['Mod', 'F'] },
+  { id: 'findInStory', name: 'Find and replace in the whole story', group: 'Writing', keys: ['Mod', 'Shift', 'F'] },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },

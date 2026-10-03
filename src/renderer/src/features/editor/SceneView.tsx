@@ -26,6 +26,7 @@ import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
 import { FirstSceneGuide } from '@/features/setup/FirstSceneGuide'
+import { FindBar } from '@/features/find/FindBar'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -274,6 +275,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </button>
       ) : null}
       {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
+      {/* Writing by hand: find and replace in the scene (Ctrl+F), over the top of the page. */}
+      <FindBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
     </div>
   )
 }

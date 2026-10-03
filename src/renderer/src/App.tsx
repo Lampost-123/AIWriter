@@ -41,6 +41,7 @@ import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
 import { useFocusMode } from '@/features/look/focusMode'
 import { FocusLayer } from '@/features/look/FocusLayer'
+import { FindLayer } from '@/features/find/FindLayer'
 import { FirstRun } from '@/features/setup/FirstRun'
 import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
@@ -262,6 +263,7 @@ function Workspace(): React.JSX.Element {
       <DictationLayer />
       <ExportDialogs />
       <FocusLayer />
+      <FindLayer />
     </>
   )
 }
