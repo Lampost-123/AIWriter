@@ -5,7 +5,7 @@
 //
 // To take new baselines on purpose (only when Classic is meant to change): npx playwright test classic --update-snapshots
 import type { Page } from '@playwright/test'
-import { binder, expect, invoke, openSettings, test } from './helpers'
+import { binder, expect, invoke, test } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 
@@ -50,7 +50,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(main(win).getByRole('heading', { level: 1, name: 'Style guide' })).toBeVisible()
     await shot(win, `style-${theme}`)
 
-    await openSettings(win, 'Appearance')
-    await shot(win, `appearance-${theme}`)
+    // (Settings › Appearance isn't here: the Style switch between the looks is added to it in both.)
+    await binder(win).getByRole('button', { name: 'Plot threads board', exact: true }).click()
+    await expect(main(win).locator('section[aria-labelledby^="board-"]').first()).toBeVisible()
+    await shot(win, `threads-${theme}`)
   })
 }
