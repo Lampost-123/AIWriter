@@ -12,7 +12,7 @@ import { attributeRun, memberNamed, type Attribution, type CastMember, type Scen
 import { cleanForSpeech } from './cleanText'
 import { cueFor, tagSounds, withTag } from './perform'
 import { sayAs, type SayRule } from './say'
-import { NARRATOR, quoteKey, savedFor, spansIn, UNKNOWN } from './speakers'
+import { looksLikeNote, NARRATOR, quoteKey, savedFor, spansIn, startsWithSpeaker, UNKNOWN } from './speakers'
 import {
   quickStart,
   restBetween,
@@ -83,11 +83,17 @@ export function narratorPace(how: LineDelivery | undefined): LineDelivery | unde
   return out
 }
 
-/** The marks on each sentence of a paragraph's narration, in order. */
-function narrationNotes(para: string, marks: ParagraphMarks | undefined): NarrationNote[] {
+/**
+ * The marks on each sentence of a paragraph's narration, in order. A note that slipped there from a line of
+ * dialogue when it was marked ("Adam, shaky, ...") is left out.
+ */
+function narrationNotes(para: string, marks: ParagraphMarks | undefined, cast?: SceneCast): NarrationNote[] {
   return spansIn(para)
     .filter((x) => !x.quote)
-    .map((x) => ({ at: x.at, end: x.end, how: narratorPace(savedFor(marks?.delivery, para.slice(x.at, x.end), true)) }))
+    .map((x) => {
+      const how = savedFor(marks?.delivery, para.slice(x.at, x.end), true)
+      return { at: x.at, end: x.end, how: cast && startsWithSpeaker(how?.tone, cast.all, cast.pov?.name) ? undefined : narratorPace(how) }
+    })
 }
 
 /**
@@ -161,9 +167,12 @@ function prepare(
   const marks = input.marks.get(u.pid)
   const quote = u.role === 'other' && !!u.quote
   const quoteText = u.quote ? u.para.slice(u.quote.at, u.quote.at + u.quote.len) : ''
-  const label = u.quote ? savedFor(marks?.speakers, quoteText) : undefined
-  const how = quote ? savedFor(marks?.delivery, quoteText) : undefined
-  const notes = quote ? [] : narrationNotes(u.para, marks)
+  // A speaker that is really a mood ("hushed, dread building") slipped there when the scene was marked: not kept.
+  const marked = u.quote ? savedFor(marks?.speakers, quoteText) : undefined
+  const slipped = !!marked && looksLikeNote(marked, input.cast.all)
+  const label = slipped ? undefined : marked
+  const how = quote && !slipped ? savedFor(marks?.delivery, quoteText) : undefined
+  const notes = quote ? [] : narrationNotes(u.para, marks, input.cast)
   const told = quote || u.quote ? undefined : savedNarration(u, notes)
 
   // The words, with italics between asterisks so a written sound in italics ("*sighs*") is seen, and with the sounds
@@ -254,7 +263,7 @@ function withSoundsAt(u: Utterance, italics: [number, number][] | undefined, at:
 
 /** A paragraph's marked speaker for a quote, as the run's rules take it: a cast member, null for someone else, undefined for none. */
 function labelled(cast: SceneCast, name: string | undefined): CastMember | null | undefined {
-  if (!name || name === UNKNOWN || name === NARRATOR) return undefined
+  if (!name || name === UNKNOWN || name === NARRATOR || looksLikeNote(name, cast.all)) return undefined
   return memberNamed(cast.all, name)
 }
 
@@ -269,7 +278,7 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   const italicsOf = new Map<string, [number, number][] | undefined>()
   const split = (p: ReadParagraph, start: number): Utterance[] => {
     italicsOf.set(p.pid, p.italics)
-    return segmentParagraph(p.pid, p.text, start, narrationNotes(p.text, input.marks.get(p.pid)))
+    return segmentParagraph(p.pid, p.text, start, narrationNotes(p.text, input.marks.get(p.pid), input.cast))
   }
   const context = (input.before ?? []).flatMap((p) => split(p, 0))
   let run = input.paragraphs.flatMap((p, i) => split(p, i === 0 ? Math.max(0, input.offset ?? 0) : 0))

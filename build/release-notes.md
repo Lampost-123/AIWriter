@@ -1,6 +1,6 @@
-<!-- version: 0.6.15 -->
-What's new in 0.6.15:
+<!-- version: 0.6.16 -->
+What's new in 0.6.16:
 
-- Ask the world: several edits now apply one after another without losing their place, and the chat no longer tells you to apply changes it didn't make. If an answer mentions changes but none came with it, it says so.
+- Read aloud: characters speak in their own voices again. Notes on how lines are said could slip one line out of place, so a character's line went to the narrator or the general dialogue voice. Those slipped notes are now ignored, and new ones are kept in place.
 
-Also in 0.6.14: the narrator keeps one even pace. In 0.6.13: Ask the world became an editor that proposes changes you Apply or turn down.
+Also in 0.6.15: Ask the world's edits apply one after another, and it no longer tells you to apply changes it didn't make.
