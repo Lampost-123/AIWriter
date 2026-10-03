@@ -60,6 +60,19 @@ export const useSetup = create<SetupStore>((set, get) => ({
   }
 }))
 
+// The sample world can be opened from the world list too: whenever another world opens, ask whether it is the sample
+// (launch only looks at the world it reopened, so a slow library never holds up the window).
+useApp.subscribe((s, prev) => {
+  const id = s.world?.id
+  if (!id || id === prev.world?.id || id === useSetup.getState().sampleWorldId) return
+  api
+    .sampleWorldOpen()
+    .then((sample) => {
+      if (sample) useSetup.setState({ sampleWorldId: sample })
+    })
+    .catch(() => undefined)
+})
+
 /**
  * Opens the sample world (making it the first time), from the first run, the Welcome screen, the world switcher
  * or the palette. Anything unsaved in the open world is saved first.

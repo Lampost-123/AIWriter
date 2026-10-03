@@ -16,6 +16,12 @@ export interface SetupFacts {
   worldIds: ID[]
   /** Those that are the sample world. */
   sampleIds: ID[]
+  /**
+   * AI Write has been used here before: a writer model is chosen, or the last world open was one of Adam's own
+   * (not the sample, nor the world a setup was making). A library that then looks empty (his worlds deleted, or
+   * not readable just now) shows the Welcome screen, never the setup.
+   */
+  usedBefore: boolean
 }
 
 /** The setup's step to show, and the world it sets up; step null when it doesn't show. */
@@ -27,14 +33,17 @@ export function setupAt(f: SetupFacts): { step: SetupStep | null; worldId: ID | 
   // open (Adam went to look at the sample world), it waits for "Start my own world".
   if (run) return f.openWorldId === null || f.openWorldId === run.worldId ? run : none
   if (f.off) return none
-  // A fresh library: nothing of Adam's own yet, and no world open.
-  return f.openWorldId === null && !ownWorlds(f) ? { step: 'world', worldId: null } : none
+  // A fresh install: nothing of Adam's own yet, no world open, and AI Write never used here.
+  return f.openWorldId === null && !ownWorlds(f) && !f.usedBefore ? { step: 'world', worldId: null } : none
 }
 
-/** "Start my own world": the setup under way, else the first step while Adam has no world of his own; else none. */
+/**
+ * "Start my own world": the setup under way, else the first step while Adam has no world of his own and has never
+ * used AI Write before; else none (the New world dialog).
+ */
 export function startAt(f: SetupFacts): { step: SetupStep | null; worldId: ID | null } {
   if (!f.reachable) return { step: null, worldId: null }
-  return resumable(f) ?? (ownWorlds(f) ? { step: null, worldId: null } : { step: 'world', worldId: null })
+  return resumable(f) ?? (ownWorlds(f) || f.usedBefore ? { step: null, worldId: null } : { step: 'world', worldId: null })
 }
 
 /** A setup under way whose world is still in the library. */

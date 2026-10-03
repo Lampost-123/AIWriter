@@ -42,6 +42,8 @@ export interface SetupApi {
   finishSetup(): Promise<{ storyId: ID; sceneId: ID }>
   /** The first scene's guide is done or closed: it never shows again. */
   endFirstSceneGuide(): Promise<void>
+  /** The open world's id when it is the sample world (opened from the world list, say); else null. */
+  sampleWorldOpen(): Promise<ID | null>
   /** Opens the sample world, making it first when it isn't in the library (so there is only ever one). */
   openSampleWorld(): Promise<World>
 }

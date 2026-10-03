@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { setupAt, startAt, type SetupFacts } from './state'
 
-const fresh: SetupFacts = { off: false, reachable: true, firstRun: undefined, openWorldId: null, worldIds: [], sampleIds: [] }
+const fresh: SetupFacts = { off: false, reachable: true, firstRun: undefined, openWorldId: null, worldIds: [], sampleIds: [], usedBefore: false }
 const facts = (patch: Partial<SetupFacts>): SetupFacts => ({ ...fresh, ...patch })
 
 describe('setupAt', () => {
@@ -14,6 +14,12 @@ describe('setupAt', () => {
   it('never shows to someone with worlds of their own (Adam)', () => {
     expect(setupAt(facts({ worldIds: ['w1'] })).step).toBeNull()
     expect(setupAt(facts({ worldIds: ['w1'], openWorldId: 'w1' })).step).toBeNull()
+  })
+
+  it('never shows to someone who has used AI Write before, even when the library looks empty or holds only the sample', () => {
+    expect(setupAt(facts({ usedBefore: true })).step).toBeNull()
+    expect(setupAt(facts({ usedBefore: true, worldIds: ['s'], sampleIds: ['s'] })).step).toBeNull()
+    expect(startAt(facts({ usedBefore: true, worldIds: ['s'], sampleIds: ['s'], openWorldId: 's' })).step).toBeNull()
   })
 
   it('still shows when the only world is the sample, unless the sample is open', () => {

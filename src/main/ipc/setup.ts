@@ -9,19 +9,24 @@ import * as repo from '../db/repo'
 import { ensureLibraryFolder, getSettings, updateSettings } from '../settings'
 import { UserError } from '../util'
 import { openSampleWorld, sampleWorlds } from '../setup/library'
+import { isSampleWorld } from '../setup/sampleWorld'
 import { setupAt, startAt, type SetupFacts } from '../setup/state'
 
 /** What the setup's rules need to know, read now. */
 function facts(): SetupFacts {
   const reachable = ensureLibraryFolder()
   const worlds = reachable ? world.listWorlds() : []
+  const settings = getSettings()
+  const sampleIds = sampleWorlds(worlds).map((w) => w.id)
+  const last = settings.lastWorldId
   return {
     off: process.env.AIWRITE_SETUP === 'off',
     reachable,
-    firstRun: getSettings().firstRun,
+    firstRun: settings.firstRun,
     openWorldId: world.maybeCurrentWorld()?.id ?? null,
     worldIds: worlds.map((w) => w.id),
-    sampleIds: sampleWorlds(worlds).map((w) => w.id)
+    sampleIds,
+    usedBefore: !!settings.models.writer || (!!last && last !== settings.firstRun?.worldId && !sampleIds.includes(last))
   }
 }
 
@@ -35,10 +40,18 @@ const remember = (firstRun: FirstRun | null): void => void updateSettings({ firs
 
 export const setupHandlers: Handlers<keyof SetupApi> = {
   getSetup: () => {
+    // Nearly every launch: the last world reopened and no setup under way for another world. The answer then needs
+    // no look through the library (which can be slow, on a network or a waking drive), so the window shows at once.
+    const open = world.maybeCurrentWorld()
+    const run = getSettings().firstRun
+    if (open && (!run || run.step === 'guide' || run.worldId === open.id)) {
+      const resume = run && run.step !== 'guide' && run.worldId === open.id ? { step: run.step, worldId: open.id } : null
+      return { step: resume?.step ?? null, worldId: resume?.worldId ?? null, sampleWorldId: isSampleWorld(open.db) ? open.id : null }
+    }
     const f = facts()
     // A setup whose world has gone (deleted outside AI Write) is forgotten; the rules start afresh.
-    const run = f.firstRun
-    if (f.reachable && run?.worldId && !f.worldIds.includes(run.worldId)) {
+    const was = f.firstRun
+    if (f.reachable && was?.worldId && !f.worldIds.includes(was.worldId)) {
       remember(null)
       f.firstRun = null
     }
@@ -72,6 +85,10 @@ export const setupHandlers: Handlers<keyof SetupApi> = {
   },
   endFirstSceneGuide: () => {
     if (getSettings().firstRun) remember(null)
+  },
+  sampleWorldOpen: () => {
+    const open = world.maybeCurrentWorld()
+    return open && isSampleWorld(open.db) ? open.id : null
   },
   openSampleWorld: () => {
     try {

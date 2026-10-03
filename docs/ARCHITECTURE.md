@@ -682,7 +682,9 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
 - It shows in place of the Welcome screen (and of the workspace) while `useSetup().step` is set. `setupAt` decides at launch:
   a library with no world of Adam's own (the sample doesn't count) and no world open starts at the first step; a setup under
   way resumes at its step with its own world (opened for it); someone with worlds never sees it, nor does a library that
-  can't be reached. App.tsx loads it before `init()`, so the Welcome screen never flashes first.
+  can't be reached, nor anyone who has used AI Write before (a writer model chosen, or a last world of his own: so deleting
+  every world, or a library that can't be read just now, shows the Welcome screen). App.tsx loads it before `init()`, so the
+  Welcome screen never flashes first; when the last world reopened, it answers without looking through the library.
 - Steps: the world (made at once with `createWorld`; Back renames it), Connect, Writer model, Style, Lay it out. Where it
   stands is one settings field, `Settings.firstRun` (`{ worldId, step, sceneId }`), written by `setSetupStep` as each step
   shows, so quitting midway resumes there. Connect and Writer model use Settings › Models' own pieces (exported from

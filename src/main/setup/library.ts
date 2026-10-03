@@ -58,8 +58,13 @@ export function makeSampleWorld(): ID {
   try {
     d = world.openDatabase(world.worldDbPath(folder))
     migrate(d)
-    repo.initWorld(d, id, SAMPLE_NAME)
-    fillSampleWorld(d)
+    // One transaction: if AI Write stops halfway (a crash, the power), the folder holds no world id, so it is
+    // never listed as a half-made world of Adam's own.
+    const db = d
+    db.transaction(() => {
+      repo.initWorld(db, id, SAMPLE_NAME)
+      fillSampleWorld(db)
+    })()
     d.pragma('wal_checkpoint(TRUNCATE)')
   } catch (e) {
     d?.close()
