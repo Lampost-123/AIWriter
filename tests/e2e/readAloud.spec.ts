@@ -23,6 +23,9 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
+// These tests type straight quotes and look for them as typed (smart punctuation is Writing by hand's).
+test.use({ smartPunctuation: false })
+
 interface FakeSpeech {
   url: string
   close(): Promise<void>

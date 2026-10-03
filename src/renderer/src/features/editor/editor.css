@@ -104,3 +104,43 @@
   text-decoration-style: solid;
   text-decoration-color: var(--accent);
 }
+
+/* Writing by hand: the "Book" paragraph style (Settings › Appearance). No gap between paragraphs; each one after
+   the first starts indented, except straight after a scene break or a block quote. The page's column carries
+   data-paragraphs. An AI change waiting in the page shows its new paragraphs the same way. */
+[data-paragraphs='book'] .scene-prose p {
+  margin-bottom: 0;
+}
+
+[data-paragraphs='book'] .scene-prose > p:not(:first-of-type) {
+  text-indent: 1.5em;
+}
+
+[data-paragraphs='book'] .scene-prose > :is(hr, blockquote) + p:not(:first-of-type) {
+  text-indent: 0;
+}
+
+[data-paragraphs='book'] .scene-prose blockquote {
+  margin: 0.6em 0;
+}
+
+[data-paragraphs='book'] .scene-prose .aw-sugg-gap {
+  height: 0;
+}
+
+[data-paragraphs='book'] .scene-prose .aw-sugg-gap + .aw-sugg-words::before {
+  content: '';
+  display: inline-block;
+  width: 1.5em;
+}
+
+[data-paragraphs='book'] .scene-prose .aw-sugg-new.on-its-own {
+  margin-bottom: 0;
+  text-indent: 1.5em;
+}
+
+/* Typewriter scrolling (Settings › Editor) keeps the line being typed 40% of the way down the page, so the
+   page needs room below its last line to scroll that far. */
+[data-typewriter='on'] {
+  padding-bottom: 62vh;
+}
