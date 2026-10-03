@@ -72,20 +72,21 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
 
   return (
     // Sized by its own width (both side panels change it). As it narrows, the story's name goes first, then the
-    // chapter's, then Mark done's words, then the status word, so a scene's title of a few words stays whole.
+    // chapter's, then Mark done's words, then the status word, so a scene's title of a few words stays whole (with both
+    // side panels open in a 1366-wide window the header is about 740 px: Mark done is then its tick alone).
     // Focus mode (milestone 6) fades it away, keeping its room so the page doesn't move (data-focus-chrome, styles.css).
     <header data-focus-chrome className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
         {story ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[840px]:inline">{story.title}</span>
-            <span className="hidden text-line-strong @min-[840px]:inline">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[1040px]:inline">{story.title}</span>
+            <span className="hidden text-line-strong @min-[1040px]:inline">/</span>
           </>
         ) : null}
         {chapter ? (
           <>
-            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[780px]:inline">{chapter.title}</span>
-            <span className="hidden text-line-strong @min-[780px]:inline">/</span>
+            <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[940px]:inline">{chapter.title}</span>
+            <span className="hidden text-line-strong @min-[940px]:inline">/</span>
           </>
         ) : null}
         {editing ? (
@@ -103,7 +104,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
             type="button"
             title="Rename this scene"
             onClick={() => setEditing(true)}
-            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 @min-[780px]:max-w-[65%]"
+            className="-mx-1 h-7 min-w-0 shrink truncate rounded-[4px] px-1 text-left text-[14px] font-semibold text-fg outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 @min-[940px]:max-w-[65%]"
           >
             {title || 'Untitled scene'}
           </button>

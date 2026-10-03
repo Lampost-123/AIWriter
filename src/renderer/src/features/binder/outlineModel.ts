@@ -207,4 +207,6 @@ export function placeChapterIn(outline: Outline, chapterId: ID, place: ChapterPl
 }
 
 /** Word counts shown in the binder: blank for nothing written yet. */
-export const formatWords = (n: number): string => (n > 0 ? n.toLocaleString('en-GB') : '')
+// One formatter for every row (toLocaleString makes a new one each call, which adds up across a long binder).
+const WORDS = new Intl.NumberFormat('en-GB')
+export const formatWords = (n: number): string => (n > 0 ? WORDS.format(n) : '')

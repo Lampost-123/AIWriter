@@ -46,7 +46,7 @@ export function Welcome(): React.JSX.Element {
   const reachable = info?.libraryReachable ?? true
 
   return (
-    <div className="flex h-full items-start justify-center overflow-auto bg-bg px-6 pt-[12vh]">
+    <div className="flex h-full items-start justify-center overflow-auto bg-bg px-6 pt-[12vh] [scrollbar-gutter:stable_both-edges]">
       <div className="w-full max-w-[460px] animate-fade-in">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
@@ -94,9 +94,9 @@ export function Welcome(): React.JSX.Element {
         )}
         {reachable ? (
           // Milestone 6: other ways to start: the sample world, and (once joined) importing a manuscript or a world file.
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          // The same buttons, in the same rows, as the first run's world step.
+          <div className="mt-3 flex flex-col items-start gap-2">
             <Button
-              variant="ghost"
               icon={<LibraryBig size={15} />}
               loading={exploring}
               disabled={exploring || !!busy}

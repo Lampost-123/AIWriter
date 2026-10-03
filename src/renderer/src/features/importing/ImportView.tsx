@@ -506,21 +506,23 @@ function MemoryPage(): React.JSX.Element {
         {page === 'done' && result ? (
           <>
             <Heading>Imported</Heading>
-            <Notice
-              tone="success"
-              action={
-                <Button size="sm" onClick={() => void openImported(result.storyId)}>
-                  Open the story
-                </Button>
-              }
-            >
-              <span className="flex items-start gap-2">
-                <CircleCheck size={16} className="mt-0.5 shrink-0 text-success" />
-                <span>
-                  “{title}” is in your world: {countsText(result.acts, result.chapters, result.scenes)}, {wordsText(result.words)}.
+            <div className="mt-4">
+              <Notice
+                tone="success"
+                action={
+                  <Button size="sm" onClick={() => void openImported(result.storyId)}>
+                    Open the story
+                  </Button>
+                }
+              >
+                <span className="flex items-start gap-2">
+                  <CircleCheck size={16} className="mt-0.5 shrink-0 text-success" />
+                  <span>
+                    “{title}” is in your world: {countsText(result.acts, result.chapters, result.scenes)}, {wordsText(result.words)}.
+                  </span>
                 </span>
-              </span>
-            </Notice>
+              </Notice>
+            </div>
           </>
         ) : (
           <Heading>Build the memory from “{title}”</Heading>

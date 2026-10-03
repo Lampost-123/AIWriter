@@ -25,7 +25,7 @@ export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
   if (!step) return null
   return (
-    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh]">
+    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges]">
       <div className="w-full max-w-[600px]">
         <div className="mb-7 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">

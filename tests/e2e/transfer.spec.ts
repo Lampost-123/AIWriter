@@ -161,6 +161,13 @@ test('a world exported to a file and imported again is a world of its own, with 
   expect(imported.folder).not.toBe(original.folder)
   await expect(win.locator('.scene-prose')).toContainText('The rain had not stopped since dawn.')
   expect((await invoke(win, 'listSnapshots', sceneId)).snapshots.map((s) => s.label)).toContain('Marked done')
+  // Its scene has the same id as the one on screen before: the page is loaded from the imported world, so it
+  // shows its word count and what is typed is saved there.
+  await expect(win.getByRole('banner')).toContainText('7 words')
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('Control+End')
+  await win.keyboard.type(' Then it stopped.')
+  await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('The rain had not stopped since dawn. Then it stopped.')
   // History shows the version it came with.
   await win.locator('main header').getByRole('button', { name: 'History of this scene', exact: true }).click()
   await expect(win.getByRole('heading', { level: 1, name: 'History' })).toBeVisible()

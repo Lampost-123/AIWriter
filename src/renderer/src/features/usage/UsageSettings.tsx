@@ -133,7 +133,15 @@ export function UsageSettings(): React.JSX.Element {
               <div className="text-[12.5px] tabular-nums text-muted">{callsAndTokens(report.total)}</div>
             </div>
             {report.bars.length ? (
-              <SpendChart bars={report.bars} unit={report.unit} />
+              // A stretch with no AI use keeps the chart's room (nothing jumps between stretches) and says so.
+              <div className="relative">
+                <SpendChart bars={report.bars} unit={report.unit} />
+                {report.total.calls === 0 ? (
+                  <p className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[13px] text-muted">
+                    No AI use in this stretch of time.
+                  </p>
+                ) : null}
+              </div>
             ) : (
               <p className="py-6 text-center text-[13px] text-muted">No AI use in this stretch of time.</p>
             )}

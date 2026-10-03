@@ -81,6 +81,9 @@ export function plainFileError(e: unknown, doing: string): unknown {
   if (['EPERM', 'EBUSY', 'EACCES'].includes(code)) {
     return new UserError(`Couldn't ${doing} because another program (often OneDrive or antivirus) is using the file. Try again in a moment.`)
   }
+  if (code === 'ENOENT' || code === 'ENOTDIR') {
+    return new UserError(`Couldn't ${doing} because a folder it needs can't be reached (a drive unplugged, or a folder moved). Check it's there, then try again.`)
+  }
   return e
 }
 
