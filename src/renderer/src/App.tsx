@@ -35,6 +35,7 @@ import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
+import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -215,6 +216,7 @@ function Workspace(): React.JSX.Element {
       <ShortcutsList />
       <NewStoryDialog />
       <DictationLayer />
+      <ExportDialogs />
     </>
   )
 }

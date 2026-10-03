@@ -5,6 +5,7 @@ import { Button, Card, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
+import { ImportWorldButton, WelcomeWorldMenu } from '@/features/transfer/WorldFileItems'
 
 /** Shown when no world is open: create the first world, or open an existing one. */
 export function Welcome(): React.JSX.Element {
@@ -93,16 +94,25 @@ export function Welcome(): React.JSX.Element {
             <h3 className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Open a world</h3>
             <div className="flex flex-col gap-1">
               {worlds.map((w) => (
-                <button
-                  key={w.id}
-                  onClick={() => void openWorld(w.id).catch((e: Error) => toast(e.message, { tone: 'danger' }))}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-fg hover:bg-surface-2"
-                >
-                  <Globe2 size={15} className="text-muted" />
-                  <span className="flex-1 truncate">{w.name}</span>
-                </button>
+                <div key={w.id} className="group/world flex items-center gap-1 rounded-lg pr-1 hover:bg-surface-2">
+                  <button
+                    onClick={() => void openWorld(w.id).catch((e: Error) => toast(e.message, { tone: 'danger' }))}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] text-fg"
+                  >
+                    <Globe2 size={15} className="text-muted" />
+                    <span className="flex-1 truncate">{w.name}</span>
+                  </button>
+                  {/* Milestone 6: Export world… and Make a copy */}
+                  <WelcomeWorldMenu worldId={w.id} name={w.name} onCopied={() => void load().catch(() => undefined)} />
+                </div>
               ))}
             </div>
+          </div>
+        ) : null}
+        {/* Milestone 6: a world exported on another computer */}
+        {reachable && worlds ? (
+          <div className={worlds.length ? 'mt-2' : 'mt-6'}>
+            <ImportWorldButton />
           </div>
         ) : null}
       </div>
