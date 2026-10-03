@@ -197,7 +197,12 @@ export async function startDraft(
     if (!bridge.beginStream(sceneId, generationId, { replace: o.replace, keepWriting: true })) {
       void api.stopGeneration(generationId).catch(() => undefined)
       giveUp()
-      toast("The editor wasn't ready for this scene, so the draft was stopped. Try again in a moment.")
+      // A scene deleted while its draft got ready has already said so.
+      const gone = await api.getScene(sceneId).then(
+        () => false,
+        () => true
+      )
+      if (!gone) toast("The editor wasn't ready for this scene, so the draft was stopped. Try again in a moment.")
       return
     }
     r.generationId = generationId

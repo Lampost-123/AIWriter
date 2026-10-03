@@ -1447,6 +1447,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // With Auto, room is kept for the longest scene Auto allows (autoMax).
   let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null)
   const fits = (): boolean => measure() <= budget.available
+  const auto = prepared.targetWords == null && prepared.autoMax != null
+  let ceiling = prepared.autoMax ?? AUTO_LENGTH.max
 
   function measure(): number {
     const hasPrev = state.some((s) => s.b.id === 'previous-scene' && !s.dropped)
@@ -1526,6 +1528,16 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       }
     }
   }
+  // Auto, when the briefing as Adam set it leaves too little room for autoMax words: the briefing comes
+  // first, so Auto's ceiling comes down to what fits beside it (to no less than a typical scene) before
+  // any block is shortened.
+  if (auto) {
+    const over = lengthTooLong({ ...budget, used: measure() })
+    if (over) {
+      ceiling = Math.max(Math.min(AUTO_LENGTH.typical, ceiling), Math.min(ceiling, over.maxWords))
+      budget = computeBudget(prepared.contextLength, ceiling)
+    }
+  }
   fit()
 
   // Auto, when even the shortest briefing leaves too little room for autoMax words: Auto's ceiling comes
@@ -1533,14 +1545,14 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   // length), and the briefing is fitted again to the smaller reply room. The closing instruction says the
   // new ceiling; its tokens were counted with the old one (the same number of digits, near enough).
   let finals = prepared.finals
-  if (prepared.targetWords == null && prepared.autoMax != null) {
+  if (auto) {
     const over = lengthTooLong({ ...budget, used: measure() })
     if (over) {
-      const max = Math.max(AUTO_LENGTH.min, Math.min(prepared.autoMax, over.maxWords))
-      budget = computeBudget(prepared.contextLength, max)
+      ceiling = Math.max(AUTO_LENGTH.min, Math.min(ceiling, over.maxWords))
+      budget = computeBudget(prepared.contextLength, ceiling)
       fit()
-      if (prepared.autoFinals) finals = prepared.autoFinals(max)
     }
+    if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
   const blocks: ContextBlock[] = state.map((s) => ({

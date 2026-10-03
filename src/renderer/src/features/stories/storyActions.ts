@@ -273,9 +273,10 @@ export async function endFirst(storyId: ID, endRefId: ID, chapter: string): Prom
 export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStartHere: boolean): Promise<void> {
   const wasOpen = app().storyId === story.id
   try {
-    // A draft being written into it stops first, and its last words are saved before it goes.
-    const open = app().sceneId
-    if (wasOpen && open) await editorBridge()?.stopDraft('deleted', [open])
+    // A draft being written into any of its scenes (open, or kept for its draft while Adam is elsewhere)
+    // stops first, and its last words are saved before it goes.
+    const { scenes } = await api.getOutline(story.id)
+    await editorBridge()?.stopDraft('deleted', scenes.map((s) => s.id))
     await editorBridge()?.flush()
     if (othersStartHere) await api.backupNow().catch(() => undefined)
     await api.deleteStory(story.id)
