@@ -167,14 +167,20 @@ function ExportStoryDialog(): React.JSX.Element {
           <Segmented<ManuscriptFormat> label="Format" value={format} onChange={setFormat} options={MANUSCRIPT_FORMATS} />
           <p className="text-[12px] text-faint">{MANUSCRIPT_FORMATS.find((f) => f.value === format)?.hint}</p>
         </div>
-        <p className="text-[12px] leading-relaxed text-faint">
-          Chapter headings, scene breaks, italics and bold are kept. Anything in Recently deleted is left out.{' '}
+        <div className="flex flex-col items-start gap-1">
+          <p className="text-[12px] leading-relaxed text-faint">
+            Chapter headings, scene breaks, italics and bold are kept. Anything in Recently deleted is left out.
+          </p>
           {request ? (
-            <button type="button" className="text-muted underline-offset-2 hover:text-fg hover:underline" onClick={() => openExportBible(request.storyId)}>
+            <button
+              type="button"
+              className="text-[12px] text-muted underline underline-offset-2 hover:text-fg"
+              onClick={() => openExportBible(request.storyId)}
+            >
               Export the series bible instead
             </button>
           ) : null}
-        </p>
+        </div>
       </div>
       <Status busy={busy} step={step} error={error} />
     </Dialog>

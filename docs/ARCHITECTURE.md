@@ -663,6 +663,44 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   work, so it uses the memory model and its Thinking.
 - **Settings** stay few: `accent` (Appearance) and `usage.monthlyLimit` (Usage and cost) are the only new ones.
 
+### How world files and export work
+
+**World files and export** (`src/main/transfer/`, `features/transfer/`)
+- A `.aiwrite` file (`worldFile.ts`) is a zip: `manifest.json` first (format `aiwrite-world`, `formatVersion`,
+  the app's version, the world's name, when, world.db's `user_version`, whether history is in it), then `world.db`
+  and `history.db` each copied with SQLite's online backup (the open world's own connection; another world's
+  read-only) and made self-contained, then `images/`. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
+  pieces, so the window never stalls and a big world never sits whole in memory. A history.db that can't be read
+  is left out (the toast says so); the export still succeeds.
+- Import and Make a copy build the world in a hidden folder in the library (`.aiwrite-import-<id>`,
+  `.aiwrite-copy-<id>`, removed after an hour if the app closed midway), with world.db under another name until it
+  has its new id and name, then rename the folder into place (`freeFolder`). So the library never lists a half-made
+  world or two worlds with one id, and `separateCopies()` in world.ts never has to step in. An import with the name
+  of a world already here is "<name> (imported)"; a copy is "<name> (copy)". Refused in plain words: not a zip or
+  no manifest (`not-a-world-file`), a file cut short or a world.db failing `quick_check` (`damaged-world-file`),
+  and a newer format, schema or app version (`newer-world-file`). A history.db in the file that isn't SQLite is
+  dropped; deeper damage is handled by History's own open path (set aside, start afresh). Zip entries outside
+  `manifest.json`, `world.db`, `history.db` and `images/` are ignored (`stagedName`).
+- Manuscripts (`manuscript.ts`) are read from the stored editor documents (plain text for scenes without one):
+  paragraphs with italics and bold, block quotes, and one scene break between scenes or where Adam put one. Deleted
+  chapters and scenes never come in (`getOutline`), nor scenes with no words. Chapters keep their number in the
+  story even in a selection; a title that only says "Chapter 3" isn't repeated. Writers: `docx.ts` (hand-written
+  OOXML, Georgia, A4, the title on Heading 1 so it is in Word's navigation pane, a page break before each chapter),
+  `epub.ts` (EPUB 3 with nav and toc.ncx, mimetype first and stored), `html.ts` (the EPUB pages and the PDF page,
+  A5), `plain.ts` (Markdown and text). PDFs are printed in a hidden window (`pdf.ts`), with the interface's Literata
+  files when it finds them in `out/renderer/assets`.
+- The series bible (`bible.ts`) is read with `memoryAt` (the story's end), `timelineOf` and `threadsBoardOf`: every
+  live entry by kind (threads get their own section from the board), with its fields, relationships, what has
+  happened to it and what a character knows; no ids.
+- Each call asks where with the system dialog (`showSaveDialog`/`showOpenDialog`; the app tests replace them), writes
+  to `<file>.partial` and renames, and sends `transfer:progress` for its `jobId`. In the window, `withProgress`
+  (`worldFiles.ts`) shows a progress toast only once work has run 400 ms; the dialogs show it on their status line.
+  The last format picked is kept in localStorage (`aiwrite.export.format`, this computer only).
+- Ways in: the story menu in the binder (Export story…, Export series bible…), the world menu (Export world…, Make a
+  copy, Import a world file…), the Welcome screen (a menu on each world, and Import a world file… under the list,
+  shown even with no worlds) and the palette (`export-story`, `export-bible`, `export-world`, `copy-world`,
+  `import-world`). The dialogs are mounted once in the workspace (`ExportDialogs`).
+
 ### Who builds what (parallel build, milestone 6)
 
 | Part | Owns |
