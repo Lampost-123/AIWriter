@@ -21,14 +21,14 @@ import { newId, UserError } from '../util'
 import * as providers from '../ai/providers'
 import { jobModel, type JobModel } from '../ai/jobModel'
 import { runTask, stopTask } from '../ai/tasks'
-import { getSpeechStatus } from '../speech'
+import { soundsInstalled, soundsServerState, type SoundsServerState } from '../speech'
 import { speechFetch } from '../speech/client'
 import type { Ask } from '../readAloud/marks'
 import { paragraphsOfDoc } from '../readAloud/suggest'
 import { CueTimer, type ClipStore } from './align'
 import { cleanEdits, cueInputOf, editCue, saveSceneEdits, sceneEdits } from './edits'
 import { SOUND_ID, SoundLibrary } from './library'
-import { besideVoices, generateSound, SoundMaker } from './making'
+import { generateSound, SoundMaker } from './making'
 import { SoundMarker, SoundStore, type SoundScene } from './marks'
 import { clipSounds, sceneCues, soundsAhead, type Paragraph } from './scene'
 
@@ -54,42 +54,15 @@ const store = (): SoundStore => (marksStore ??= new SoundStore(join(userDataDir(
 
 // ---------- Whether sounds can be made ----------
 
-/** What the speech engine said about the sound model, asked at most this often. */
-const MODEL_MS = 10_000
-let model: { at: number; installed: boolean; ready: boolean } | null = null
-let asking: Promise<void> | null = null
-/** The scene being read now, so it plans again when sounds become possible. */
-let reading: { worldId: ID; sceneId: ID } | null = null
-
-function refreshModel(): Promise<void> {
-  asking ??= getSpeechStatus()
-    .then((s) => {
-      const was = model
-      const installed = !!s.installed.sounds
-      model = { at: Date.now(), installed, ready: s.soundsReady ?? (installed && s.server === 'connected') }
-      // The sound model was just found: a reading going on plans again, with its sounds.
-      if (model.installed && !was?.installed && reading && speech().soundEffects) emit('sounds:marked', { sceneId: reading.sceneId, pids: [] })
-      if (model.ready !== was?.ready) {
-        if (model.ready) maker?.kick()
-        statusSoon()
-      }
-    })
-    .catch((e: unknown) => console.warn('[sounds] could not ask the speech engine about sounds', e))
-    .finally(() => {
-      asking = null
-    })
-  return asking
-}
-
-/** The sound model as last heard of (asked again in the background when that was a while ago). */
-function soundModel(): { installed: boolean; ready: boolean } {
-  if (!model || Date.now() - model.at > MODEL_MS) void refreshModel()
-  return model ?? { installed: false, ready: false }
-}
+/**
+ * The sound model is downloaded, and what the speech server last said about sounds (its 10-second health check):
+ * whether it can make them now, beside the voices, and time words. Null while it isn't answering.
+ */
+const server = (): SoundsServerState | null => soundsServerState()
 
 /** Sound effects are on and their model is downloaded. */
 function soundsOn(): boolean {
-  return speech().soundEffects && soundModel().installed
+  return speech().soundEffects && soundsInstalled()
 }
 
 // ---------- Making sounds ----------
@@ -101,12 +74,9 @@ function theMaker(): SoundMaker {
   maker = new SoundMaker({
     library: l,
     enabled: () => speech().soundEffects,
-    ready: async () => {
-      if (!model || Date.now() - model.at > MODEL_MS) await refreshModel()
-      return model?.ready ?? false
-    },
-    beside: besideVoices(speechFetch),
-    generate: (req) => generateSound(speechFetch, req),
+    ready: async () => soundsInstalled() && !!server()?.ready,
+    beside: async () => !!server()?.beside,
+    generate: (req) => generateSound(speechFetch, req, () => server() !== null),
     made: (soundId, ok) => emit('sounds:ready', { soundId, ok }),
     changed: () => statusSoon()
   })
@@ -121,10 +91,15 @@ function theMaker(): SoundMaker {
   return maker
 }
 
+/** Sounds wanted some time: made in the background, but only while sound effects are on (the queue isn't even started otherwise). */
+function wantMade(ids: string[]): void {
+  if (ids.length && speech().soundEffects) theMaker().background(ids)
+}
+
 function status(): SoundsStatus {
   const m = maker?.status() ?? { making: null, waiting: 0 }
   return {
-    ready: model?.ready ?? false,
+    ready: soundsInstalled() && !!server()?.ready,
     library: library().stats(),
     making: m.making ? (library().get(m.making)?.description ?? null) : null,
     waiting: m.waiting
@@ -220,7 +195,7 @@ const theMarker = (): SoundMarker =>
     done: (sceneId, pids) => emit('sounds:marked', { sceneId, pids }),
     found: (_s, cues) => {
       const l = library()
-      theMaker().background(cues.flatMap((c) => l.want(c.kind, c.description, c.seconds)?.id ?? []))
+      wantMade(cues.flatMap((c) => l.want(c.kind, c.description, c.seconds)?.id ?? []))
     }
   }))
 
@@ -269,10 +244,7 @@ export function soundsForReading(o: {
   offset: number
   pids?: ReadonlySet<string>
 }): { finish(plan: ReadingPlan): ReadingPlan } | null {
-  if (!speech().soundEffects) return null
-  // Remembered first: when the sound model turns out to be downloaded, this reading plans again with its sounds.
-  reading = { worldId: o.worldId, sceneId: o.sceneId }
-  if (!soundModel().installed) return null
+  if (!soundsOn()) return null
   try {
     const scene = wholeScene(o.db, o.sceneId, [...o.before, ...o.paragraphs], o.pids)
     const edits = sceneEdits(o.db, o.sceneId)
@@ -324,14 +296,12 @@ export function soundsInBackground(worldId: ID, db: DB, sceneId: ID, paragraphs:
 export function stopSoundMarks(worldId: ID, sceneId: ID): void {
   marker?.stop(worldId, sceneId)
   maker?.stopped()
-  if (reading?.worldId === worldId && reading.sceneId === sceneId) reading = null
 }
 
 /** The world closed: its marking is forgotten; the library goes on making what was wanted (it is the app's). */
 export function soundsWorldClosing(): void {
   marker?.forgetAll()
   maker?.dropReadings()
-  reading = null
 }
 
 // ---------- The Sounds view and Settings ----------
@@ -353,8 +323,9 @@ const checkScene = (sceneId: unknown): ID => {
   return sceneId
 }
 
-export async function getSoundsStatus(): Promise<SoundsStatus> {
-  await refreshModel()
+export function getSoundsStatus(): SoundsStatus {
+  // Turned on (Settings asks as it shows the line): sounds wanted before are made now.
+  if (speech().soundEffects) theMaker().kick()
   return status()
 }
 
@@ -365,7 +336,7 @@ export function getSceneSounds(sceneId: ID, given: unknown): SceneSounds {
   const edits = sceneEdits(w.db, id)
   const cues = cuesNow(w.id, id, paragraphs, edits, true)
   // Shown: their sounds are made in the background (while sound effects are on).
-  theMaker().background([...new Set(cues.map((c) => c.soundId).filter(Boolean))])
+  wantMade([...new Set(cues.map((c) => c.soundId).filter(Boolean))])
   const here = new Set(paragraphs.map((p) => p.pid))
   return {
     sceneId: id,
@@ -380,6 +351,9 @@ export function markSceneSounds(sceneId: ID, given: unknown): SceneSounds {
   const w = world.currentWorld()
   const id = checkScene(sceneId)
   const paragraphs = paragraphsOf(given)
+  // Find sounds asks the AI only when the sounds it finds can be made.
+  if (!speech().soundEffects) throw new UserError('Turn on sound effects first, in Settings › Read aloud and dictation.')
+  if (!soundsInstalled()) throw new UserError('Download the sound effects first, in Settings › Read aloud and dictation.')
   const edits = sceneEdits(w.db, id)
   const m = theMarker()
   m.forgive(w.id, id)
@@ -401,7 +375,7 @@ export function editSoundCue(sceneId: ID, given: unknown, cueId: unknown, cue: u
   saveSceneEdits(w.db, id, next)
   if (input) {
     const e = library().want(input.kind, input.description)
-    if (e) theMaker().background([e.id])
+    if (e) wantMade([e.id])
   }
   emit('sounds:marked', { sceneId: id, pids: changedPids(before, next) })
   return { sounds: getSceneSounds(id, paragraphs), undo: before }
@@ -432,7 +406,7 @@ export async function soundAudio(soundId: unknown): Promise<Uint8Array | null> {
 export function makeSoundNow(soundId: unknown): void {
   if (typeof soundId !== 'string' || !SOUND_ID.test(soundId)) return
   const e = library().retry(soundId)
-  if (!e || e.state === 'ready') return
+  if (!e || e.state === 'ready' || !speech().soundEffects) return
   theMaker().first(soundId)
   statusSoon()
 }
@@ -443,7 +417,8 @@ export function soundCueTimes(
   o: { key: string; text: string; from: number; to: number; at: number[] },
   cache: ClipStore
 ): Promise<{ seconds: number[]; aligned: boolean }> {
-  timer ??= new CueTimer(cache, speechFetch)
+  // Words are timed only when the server has a dictation model to hear them with (and is answering).
+  timer ??= new CueTimer(cache, speechFetch, { canHear: () => !!server()?.aligner })
   return timer.times(o)
 }
 
@@ -463,7 +438,7 @@ export async function clearSoundLibrary(): Promise<SoundsStatus> {
 export async function undoClearSoundLibrary(): Promise<SoundsStatus> {
   const l = library()
   if (!(await l.undoClear())) throw new UserError('The sounds can no longer be brought back.')
-  theMaker().background(
+  wantMade(
     l
       .list()
       .filter((e) => e.state === 'waiting')

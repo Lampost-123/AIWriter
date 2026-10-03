@@ -124,15 +124,21 @@ export class AudioCache {
   }
 
   /** Keeps something beside a clip (only while the clip is kept: it is deleted with it). */
-  async putExtra(key: string, name: string, data: string): Promise<void> {
-    const index = await this.load()
-    if (!index.has(key)) return
-    const file = this.extraOf(key, name)
-    const temp = `${file}.${randomUUID()}.tmp`
-    await fs.writeFile(temp, data, 'utf8')
-    await fs.rename(temp, file).catch(async (e: unknown) => {
-      await fs.rm(temp, { force: true }).catch(() => undefined)
-      throw e
+  putExtra(key: string, name: string, data: string): Promise<void> {
+    // One at a time with trimming and clearing, so a clip isn't deleted while this is written beside it.
+    return this.oneAtATime(async () => {
+      const index = await this.load()
+      const entry = index.get(key)
+      if (!entry) return
+      const file = this.extraOf(key, name)
+      const temp = `${file}.${randomUUID()}.tmp`
+      await fs.writeFile(temp, data, 'utf8')
+      await fs.rename(temp, file).catch(async (e: unknown) => {
+        await fs.rm(temp, { force: true }).catch(() => undefined)
+        throw e
+      })
+      // Made again meanwhile (new audio): what was heard in the old one doesn't fit it.
+      if (index.get(key) !== entry) await fs.rm(file, { force: true }).catch(() => undefined)
     })
   }
 

@@ -162,6 +162,16 @@ describe('what is kept beside a clip (the words heard in it, for sound effects)'
     expect(existsSync(join(dir, key('a').slice(0, 2), `${key('a')}.words.json`))).toBe(false)
   })
 
+  it('leaves nothing behind when it is written as its clip is trimmed', async () => {
+    const cache = new AudioCache(dir, () => 150)
+    await cache.put(key('a'), clip(1))
+    later(1)
+    // Kept beside "a" at the same moment "b" pushes "a" out.
+    await Promise.all([cache.put(key('b'), clip(2)), cache.putExtra(key('a'), 'words', '{}')])
+    expect(await cache.get(key('a'))).toBeNull()
+    expect(readdirSync(join(dir, key('a').slice(0, 2))).filter((n) => n.startsWith(key('a')))).toEqual([])
+  })
+
   it('goes with its clip when the cache is cleared, and stays with a clip in use', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const cache = new AudioCache(dir, () => 10_000)

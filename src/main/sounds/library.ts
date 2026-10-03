@@ -9,7 +9,7 @@ import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { LibrarySound, SoundKind } from '@shared/contracts/sounds'
-import { readJson, writeFileAtomic } from '../util'
+import { isLocked, readJson, writeFileAtomic } from '../util'
 
 export type SoundState = LibrarySound['state']
 
@@ -173,6 +173,8 @@ export function wantSeconds(kind: SoundKind, seconds?: number | null): number {
 
 /** Cleared sounds are kept aside this long for Undo. */
 export const UNDO_CLEAR_MS = 120_000
+/** Undo tries this many times when a folder is held open for a moment. */
+const UNDO_TRIES = 8
 
 export class SoundLibrary {
   private sounds: Record<string, LibraryEntry> | null = null
@@ -417,12 +419,32 @@ export class SoundLibrary {
     this.aside = null
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
-    await fs.rm(this.dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
-    try {
-      renameSync(aside.dir, this.dir)
-    } catch (e) {
-      console.warn('[sounds] could not bring the sound library back', e)
-      return false
+    // Both moves happen in one go, with nothing written between them: the sounds made since the clear (their folder
+    // may have been made again meanwhile) go aside to be deleted, and the cleared ones come back. A folder held open
+    // for a moment (on Windows) is tried again a few times.
+    for (let tries = 1; ; tries++) {
+      const since = existsSync(this.dir) ? `${this.dir}-cleared-${this.now()}-${tries}` : null
+      try {
+        if (since) renameSync(this.dir, since)
+        try {
+          renameSync(aside.dir, this.dir)
+        } catch (e) {
+          if (since) renameSync(since, this.dir)
+          throw e
+        }
+        if (since) void fs.rm(since, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
+        break
+      } catch (e) {
+        if (tries >= UNDO_TRIES || !isLocked(e)) {
+          console.warn('[sounds] could not bring the sound library back', e)
+          // Still kept aside: deleted later as it would have been.
+          const timer = setTimeout(() => this.dropAside(), UNDO_CLEAR_MS)
+          ;(timer as { unref?: () => void }).unref?.()
+          this.aside = { dir: aside.dir, timer }
+          return false
+        }
+        await new Promise((r) => setTimeout(r, 150))
+      }
     }
     this.sounds = null
     this.load()

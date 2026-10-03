@@ -163,7 +163,8 @@ export async function hearClip(fetcher: Fetcher, wav: Buffer): Promise<HeardFile
       method: 'POST',
       headers: { 'content-type': 'audio/wav' },
       body: new Uint8Array(wav),
-      timeoutMs: 60_000
+      // On the processor, beside whatever the graphics card is doing; the window plays by the estimate until it comes.
+      timeoutMs: ALIGN_TIMEOUT_MS
     })
   } catch {
     return null
@@ -193,6 +194,9 @@ export interface ClipStore {
   putExtra(key: string, name: string, data: string): Promise<void>
 }
 
+/** How long a clip's words are waited for. */
+export const ALIGN_TIMEOUT_MS = 20_000
+
 /** Remembered this long: the server has no dictation engine; and a clip that couldn't be heard. */
 export const NO_ALIGNER_MS = 60_000
 export const FAILED_MS = 10 * 60_000
@@ -203,11 +207,18 @@ export class CueTimer {
   private failed = new Map<string, number>()
   private hearing = new Map<string, Promise<HeardFile | null>>()
 
+  private readonly now: () => number
+  /** The server has a dictation model to hear the words with (and is answering); when not, nothing is asked. */
+  private readonly canHear: () => boolean
+
   constructor(
     private readonly cache: ClipStore,
     private readonly fetcher: Fetcher,
-    private readonly now: () => number = Date.now
-  ) {}
+    o: { now?: () => number; canHear?: () => boolean } = {}
+  ) {
+    this.now = o.now ?? Date.now
+    this.canHear = o.canHear ?? (() => true)
+  }
 
   /** The words heard in a clip: kept, else asked for (once at a time) and kept. */
   private async heard(key: string, wav: Buffer): Promise<HeardFile | null> {
@@ -220,7 +231,7 @@ export class CueTimer {
         /* unreadable: heard again */
       }
     }
-    if (this.now() < this.noAligner || this.now() < (this.failed.get(key) ?? 0)) return null
+    if (!this.canHear() || this.now() < this.noAligner || this.now() < (this.failed.get(key) ?? 0)) return null
     let pending = this.hearing.get(key)
     if (!pending) {
       pending = hearClip(this.fetcher, wav).then(async (got) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { alignedTimes, alignWords, CueTimer, estimateTimes, NO_ALIGNER_MS, pageWords, type ClipStore, type HeardWord } from './align'
+import { ALIGN_TIMEOUT_MS, alignedTimes, alignWords, CueTimer, estimateTimes, NO_ALIGNER_MS, pageWords, type ClipStore, type HeardWord } from './align'
 import { silentWav, wavInfo, wavSeconds } from './wav'
 
 /** Words heard one after another, `gap` seconds apart, each lasting most of that. */
@@ -109,7 +109,7 @@ describe('timing a clip’s sounds', () => {
   it('estimates, and doesn’t ask again for a minute, when there is no dictation engine', async () => {
     let now = 1_000
     const fetcher = vi.fn(async () => answer(503, { detail: 'no-aligner' }))
-    const timer = new CueTimer(store(silentWav(3.4)), fetcher, () => now)
+    const timer = new CueTimer(store(silentWav(3.4)), fetcher, { now: () => now })
     const req = { key: KEY, text, from: 0, to: text.length, at: [17] }
     expect(await timer.times(req)).toEqual({ seconds: [1.7], aligned: false })
     await timer.times(req)
@@ -128,6 +128,24 @@ describe('timing a clip’s sounds', () => {
       throw new Error('not running')
     })
     expect(await down.times(req)).toEqual({ seconds: [1.7], aligned: false })
+  })
+
+  it('doesn’t ask at all when the server has no dictation model, but still uses words kept before', async () => {
+    const cache = store(silentWav(3.4))
+    const fetcher = vi.fn(async (_path: string, _init: RequestInit) => answer(200, { words: [], engine: '' }))
+    const timer = new CueTimer(cache, fetcher, { canHear: () => false })
+    const req = { key: KEY, text, from: 0, to: text.length, at: [text.indexOf('slammed')] }
+    expect(await timer.times(req)).toEqual({ seconds: [2.1], aligned: false })
+    expect(fetcher).not.toHaveBeenCalled()
+    cache.extras.set(`${KEY}.words`, JSON.stringify({ v: 1, engine: 'whisper', words: heard(['behind', 'him', 'the', 'door', 'slammed', 'shut']) }))
+    expect(await timer.times(req)).toEqual({ seconds: [2.2], aligned: true })
+  })
+
+  it('waits a short while for the words, not minutes', async () => {
+    const fetcher = vi.fn(async (_path: string, _init: RequestInit) => answer(200, { words: [], engine: '' }))
+    await new CueTimer(store(silentWav(1)), fetcher).times({ key: KEY, text, from: 0, to: text.length, at: [0] })
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({ timeoutMs: ALIGN_TIMEOUT_MS })
+    expect(ALIGN_TIMEOUT_MS).toBeLessThanOrEqual(20_000)
   })
 
   it('estimates from a speaking speed when the clip isn’t to hand', async () => {
