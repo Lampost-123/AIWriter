@@ -22,6 +22,7 @@ import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } 
 import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
+import { setAsideWordingClashes } from './wordingClashes'
 
 let keeper: Keeper | null = null
 
@@ -55,6 +56,12 @@ export function initKeeper(): void {
     keeper?.stop()
     // Scenes deleted while the keeper wasn't told (or emptied from the Trash) stop counting first.
     scenesDeleted(w.db)
+    // Once per world (0.6.2): issues raised for a scene merely wording something differently are set aside.
+    try {
+      setAsideWordingClashes(w.db)
+    } catch (e) {
+      console.warn('Could not set aside the issues that only differ in wording', e)
+    }
     keeper = new Keeper({
       db: w.db,
       // Milestone 6: while this month's AI spending has reached Adam's limit, the memory waits as it does with no
