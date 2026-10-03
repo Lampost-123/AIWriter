@@ -936,7 +936,8 @@ and `Opening.tsx` with its keyframes in `styles.css`.
 - **Ways back**: the top bar's Home button (left of the binder button), "Go to the start screen" in the world menu, and
   the palette (`start-screen`). From the start screen, any palette action leaves it first. Importing a manuscript from it
   always makes a new world named after the book (`useImport.forNewWorld`), even with another world open behind it.
-- **New story from a recipe** (Story recipes, not merged yet) has a marked place in `OtherWays` in `StartScreen.tsx`.
+- **New story from a recipe…** (`RecipeTile` in `StartScreen.tsx`) shows once there is a finished recipe: it picks the recipe, then
+  the world, sets `useRecipes.forStory` and opens New story in that world (`newStoryIn`), so the dialog starts with the recipe chosen.
 
 ## Interview me on scenes and chapters
 
