@@ -34,6 +34,7 @@ import { currentChapterId, openExportBible, openExportStory } from '@/features/t
 import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
 import { offerMemory, startImport } from '@/features/importing/importStore'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
+import { openSampleWorld } from '@/features/setup/setupStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -306,6 +307,9 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'leave-focus-mode':
         leaveFocus()
+        return
+      case 'sample-world':
+        await openSampleWorld()
         return
       default: {
         const unknown: never = fixed

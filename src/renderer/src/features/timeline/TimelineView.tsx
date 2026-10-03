@@ -6,7 +6,7 @@
 // Each row reads When, then the scene, then the lanes, so the scene stays on screen however many lanes
 // Adam picks (more than fit scroll sideways); until he picks, only as many as fit are shown.
 import * as P from '@radix-ui/react-popover'
-import { CalendarRange, CircleAlert, MapPin, Rows3, Search } from 'lucide-react'
+import { CalendarRange, CircleAlert, MapPin, Plus, Rows3, Search } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import type { Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
@@ -93,7 +93,16 @@ export function TimelineView(): React.JSX.Element {
       ) : error ? (
         <ViewError what="The timeline" error={error} onRetry={retry} />
       ) : !storyId ? (
-        <EmptyState icon={<CalendarRange size={20} />} title="No story yet" className="mt-[10vh]">
+        <EmptyState
+          icon={<CalendarRange size={20} />}
+          title="No story yet"
+          className="mt-[10vh]"
+          actions={
+            <Button variant="primary" icon={<Plus size={15} />} onClick={() => useApp.getState().setNewStoryOpen(true)}>
+              New story…
+            </Button>
+          }
+        >
           Add a story in the binder, and its scenes appear here in the order they happen.
         </EmptyState>
       ) : (

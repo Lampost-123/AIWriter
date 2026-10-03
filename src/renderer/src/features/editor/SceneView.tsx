@@ -25,6 +25,7 @@ import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
+import { FirstSceneGuide } from '@/features/setup/FirstSceneGuide'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -217,6 +218,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <div className="h-12 shrink-0 border-b border-line/70" />
       )}
       <ReadAloudBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
+      {/* Milestone 6: the first scene's guide, above the page (never over the words). */}
+      {shown && !error ? <FirstSceneGuide sceneId={shown.id} /> : null}
       <div
         ref={scrollerRef}
         onScroll={() => {

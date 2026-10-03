@@ -235,6 +235,8 @@ function makeOwnWorld(file: string, name: string, copy = false): ID {
     d.transaction(() => {
       repo.setMeta(d, 'id', id)
       repo.setMeta(d, 'name', name)
+      // A copied or imported sample world is a world of Adam's own: only the one the app made is the sample.
+      d.prepare("DELETE FROM meta WHERE key = 'sample_world'").run()
       if (copy) {
         const top = (d.prepare('SELECT max(rowid) AS top FROM generations').get() as { top: number | null }).top ?? 0
         repo.setMeta(d, 'usage_from_rowid', String(top))

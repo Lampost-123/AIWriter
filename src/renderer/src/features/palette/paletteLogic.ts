@@ -89,6 +89,7 @@ export type FixedActionId =
   | 'build-memory'
   | 'focus-mode'
   | 'leave-focus-mode'
+  | 'sample-world'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -345,7 +346,8 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'exit distraction free full screen fullscreen show panels',
     shortcut: 'leaveFocusMode',
     when: (c) => !!c.focus
-  }
+  },
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

@@ -344,6 +344,11 @@ export interface Settings {
    * has been said about it this month (`notice`, see src/shared/contracts/usage.ts; null until anything has).
    */
   usage: { monthlyLimit: number | null; notice?: UsageNotice | null }
+  /**
+   * Milestone 6: where the first-run setup stands, so quitting midway resumes there (see
+   * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
+   */
+  firstRun?: FirstRun | null
 }
 
 /**
@@ -361,6 +366,16 @@ export interface UsageNotice {
   reached: boolean
   /** Adam chose "Carry on this month": nothing asks or pauses again until the month turns or the limit changes. */
   carryOn: boolean
+}
+
+/**
+ * Milestone 6: the first-run setup's place. `worldId` is the world it set up (null before one is made);
+ * `step` 'guide' means the setup is over and the first scene (`sceneId`) shows its small guide.
+ */
+export interface FirstRun {
+  worldId: ID | null
+  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  sceneId: ID | null
 }
 
 /**

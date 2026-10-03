@@ -181,6 +181,7 @@ describe('finding actions by typing', () => {
       'Export world',
       'Make a copy of this world',
       'Import a world file',
+      'Explore the sample world',
       'Codex'
     ])
   })
