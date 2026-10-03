@@ -55,6 +55,7 @@ import {
   type BeatMode,
   type PageMark
 } from './sessionLogic'
+import { WORDS_META } from '@/features/goals/wordsMeta'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -538,7 +539,8 @@ function makeWay(r: Run, bridge: EditorBridge, ed: Editor): boolean {
     const tr = removeParagraphs(ed.state, r.old)
     if (tr) {
       holdHeight(ed.view.dom)
-      ed.view.dispatch(tr)
+      // Writing by hand: the beat's words come off the AI words kept today (its new version adds its own).
+      ed.view.dispatch(tr.setMeta(WORDS_META, 'ai-net'))
       // Anything typed straight after is a step of its own.
       ed.view.dispatch(closeHistory(ed.state.tr))
       r.removed = true

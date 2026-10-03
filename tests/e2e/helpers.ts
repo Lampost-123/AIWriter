@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ApiMethod, AppApi, Bridge, IpcResult } from '@shared/api'
@@ -20,6 +20,11 @@ export interface LaunchOptions {
   /** Reuse a data folder (to test what survives a restart). A fresh temp folder by default. */
   dataDir?: string
   env?: Record<string, string>
+  /**
+   * Writing by hand: false starts a fresh data folder with smart punctuation off, for tests that type straight
+   * quotes and look for them as typed. On by default, as for Adam.
+   */
+  smartPunctuation?: boolean
 }
 
 export const newDataDir = (): string => mkdtempSync(join(tmpdir(), 'aiwrite-e2e-'))
@@ -27,12 +32,18 @@ export const newDataDir = (): string => mkdtempSync(join(tmpdir(), 'aiwrite-e2e-
 /** Launches the built app with its own data folder and waits for the first window. */
 export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> {
   const dataDir = opts.dataDir ?? newDataDir()
+  const settingsFile = join(dataDir, 'app', 'settings.json')
+  if (opts.smartPunctuation === false && !existsSync(settingsFile)) {
+    mkdirSync(join(dataDir, 'app'), { recursive: true })
+    writeFileSync(settingsFile, JSON.stringify({ editor: { smartPunctuation: false } }))
+  }
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
-  // A fresh data folder would show the first-run setup (milestone 6); app tests start at the Welcome screen
-  // unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }.
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off' }, opts.env)
+  // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
+  // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
+  // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
+  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off' }, opts.env)
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()
@@ -59,15 +70,18 @@ export async function closeWindow(app: ElectronApplication): Promise<void> {
 
 /** Calls the app's API from the window, like the interface does. Throws the plain-words error on failure. */
 export async function invoke<M extends ApiMethod>(win: Page, method: M, ...args: Parameters<AppApi[M]>): Promise<Awaited<ReturnType<AppApi[M]>>> {
+  // Plain types for what crosses into the window: Playwright's types for evaluate's argument are worked out
+  // over every API method otherwise, which made type checking slow and hungry as the API grew.
+  const sent: [string, unknown[]] = [method, args as unknown[]]
   const res = (await win.evaluate(
-    ([m, a]) => (globalThis as unknown as { aiwrite: Bridge }).aiwrite.invoke(m as ApiMethod, ...(a as unknown[])),
-    [method, args] as const
+    ([m, a]) => (globalThis as unknown as { aiwrite: Bridge }).aiwrite.invoke(m as ApiMethod, ...a),
+    sent
   )) as IpcResult<unknown>
   if (!res.ok) throw new Error(res.error.message)
   return res.value as Awaited<ReturnType<AppApi[M]>>
 }
 
-/** Creates a world from the welcome screen and waits for the workspace. */
+/** Creates a world from the start screen (with no worlds yet) and waits for the workspace. */
 export async function createWorldFromWelcome(win: Page, name: string): Promise<void> {
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await win.getByLabel('World name').fill(name)
@@ -88,13 +102,14 @@ export async function openSettings(win: Page, tab: string): Promise<void> {
  * The test fixture: `launch()` starts the app; every app is closed afterwards, with a
  * screenshot of its window attached when the test failed, and their data folders removed.
  */
-export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<LaunchedApp> }>({
-  // eslint-disable-next-line no-empty-pattern
-  launch: async ({}, use, testInfo) => {
+export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<LaunchedApp>; smartPunctuation: boolean }>({
+  // A spec that types straight quotes and expects them as typed says test.use({ smartPunctuation: false }).
+  smartPunctuation: [true, { option: true }],
+  launch: async ({ smartPunctuation }, use, testInfo) => {
     const apps: LaunchedApp[] = []
     const made = new Set<string>()
     await use(async (opts = {}) => {
-      const a = await launchApp(opts)
+      const a = await launchApp({ smartPunctuation, ...opts })
       // Removed once the apps have closed: Windows won't delete files an app still has open.
       made.add(a.dataDir)
       apps.push(a)

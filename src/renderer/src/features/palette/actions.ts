@@ -28,6 +28,9 @@ import { openChapterInterview, openOutlineHelper } from '@/features/outline/open
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
+import { insertSceneBreak, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic } from '@/features/typing/format'
+import { openFindInScene, openFindInStory } from '@/features/find/open'
+import { openWordCounts } from '@/features/goals/WordCounts'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
@@ -35,6 +38,8 @@ import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFi
 import { offerMemory, startImport } from '@/features/importing/importStore'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
+import { goToStartScreen } from '@/features/start/home'
+import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -101,11 +106,14 @@ const SETTINGS: Record<SettingsAction, SettingsTab> = {
   'settings-trash': 'trash',
   'settings-about': 'about',
   'settings-speech': 'speech',
-  'settings-usage': 'usage'
+  'settings-usage': 'usage',
+  'settings-editor': 'editor'
 }
 
 /** Runs one of the palette's actions. */
 export async function runAction(id: ActionId): Promise<void> {
+  // From the start screen, an action happens in the workspace, so that shows first.
+  if (id !== 'start-screen' && app().home) app().leaveHome()
   const a = app()
   const entry = entryAction(id)
   try {
@@ -218,6 +226,7 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'settings-about':
       case 'settings-speech':
       case 'settings-usage':
+      case 'settings-editor':
         a.navigate({ kind: 'settings', tab: SETTINGS[fixed] })
         return
       // ----- Milestone 4 -----
@@ -322,6 +331,47 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'sample-world':
         await openSampleWorld()
         return
+      case 'start-screen':
+        goToStartScreen()
+        return
+      case 'go-recipes':
+        openRecipes()
+        return
+      case 'make-recipe':
+        startMaking()
+        return
+      // ----- Writing by hand -----
+      case 'bold':
+        toggleBold()
+        return
+      case 'italic':
+        toggleItalic()
+        return
+      case 'block-quote':
+        toggleBlockQuote()
+        return
+      case 'scene-break':
+        insertSceneBreak()
+        return
+      case 'paste-plain':
+        await pasteAsPlainText()
+        return
+      case 'find-scene':
+        openFindInScene()
+        return
+      case 'find-story':
+        openFindInStory()
+        return
+      case 'spell-check-on':
+      case 'spell-check-off':
+        await a.updateSettings({ editor: { spellCheck: fixed === 'spell-check-on' } })
+        toast(fixed === 'spell-check-on' ? 'Spell check is on.' : 'Spell check is off. Settings › Editor turns it back on.')
+        return
+      case 'word-counts':
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        // After the palette has closed and given the keyboard back.
+        setTimeout(openWordCounts, 0)
+        return
       default: {
         const unknown: never = fixed
         throw new Error(`Unknown action ${String(unknown)}`)
@@ -334,6 +384,7 @@ export async function runAction(id: ActionId): Promise<void> {
 
 /** Opens a search result: a scene (at the words, when it has them), an entry, a story or the style guide. */
 export async function openResult(open: SearchOpen): Promise<void> {
+  if (app().home) app().leaveHome()
   const a = app()
   try {
     switch (open.kind) {

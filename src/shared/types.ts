@@ -312,11 +312,41 @@ export interface ModelChoice {
  * next scene ideas; the writer model until Adam picks one) and 'speech' is "Read aloud" (who says each line
  * and how, voice suggestions; the memory model until Adam picks one). 'world' is the World builder (building
  * the world from a summary; the character builder's model until Adam picks one). 'check' is the Consistency
- * check model (milestone 5's AI checks; the memory model until Adam picks one).
+ * check model (milestone 5's AI checks; the memory model until Adam picks one). 'recipe' is the Recipe maker
+ * (Story recipes: reads a whole story and sums it up as a recipe; the memory model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
+
+/** The page's look (Settings › Appearance) and the writing-by-hand switches (Settings › Editor). */
+export interface EditorSettings {
+  fontSize: number
+  lineHeight: number
+  pageWidth: number
+  /** 'spaced': a gap between paragraphs. 'book': no gap, each paragraph after the first indented. */
+  paragraphStyle: 'spaced' | 'book'
+  /** Curly quotes, dashes and ellipses as Adam types (Ctrl+Z straight after puts the plain one back). */
+  smartPunctuation: boolean
+  /** Underline misspelt words (in the UK or US spelling of Adam's writing preferences). */
+  spellCheck: boolean
+  /** Keep the line being typed at the same height on screen. */
+  typewriter: boolean
+}
+
+/** One day's words: typed by Adam, and AI words he kept. `date` is local, "2026-10-03". */
+export interface WritingDay {
+  date: string
+  typed: number
+  ai: number
+}
+
+export interface WritingGoals {
+  /** Words a day to aim for; null: no target (and no streak). */
+  daily: number | null
+  /** The most recent days with any words, oldest first (a year at most). */
+  days: WritingDay[]
+}
 
 /** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
 export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
@@ -331,7 +361,9 @@ export interface Settings {
   thinking: Record<Job, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
-  editor: { fontSize: number; lineHeight: number; pageWidth: number }
+  editor: EditorSettings
+  /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
+  goals: WritingGoals
   layout: { binderWidth: number; inspectorWidth: number; binderOpen: boolean; inspectorOpen: boolean }
   lastWorldId: ID | null
   lastStoryId: ID | null
@@ -354,6 +386,13 @@ export interface Settings {
    * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
    */
   firstRun?: FirstRun | null
+  /**
+   * The start screen: "When AI Write opens", Settings › Appearance. 'start' (the default) shows the start screen at
+   * launch; 'last' goes straight to where Adam left off.
+   */
+  startWith: 'start' | 'last'
+  /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
+  worldsSeenAt: Record<ID, string>
 }
 
 /**
@@ -538,6 +577,8 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
  * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
  * Milestone 5 adds 'check': one AI consistency check of a scene.
+ * Story recipes add 'recipe': one call of the Recipe maker. Those records are kept in the recipe library's own
+ * spending file (`Recipes/spending.db`), never in a world, and without the words sent or received.
  */
 export type GenerationJob =
   | 'draft'
@@ -553,6 +594,7 @@ export type GenerationJob =
   | 'speech'
   | 'world'
   | 'check'
+  | 'recipe'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'

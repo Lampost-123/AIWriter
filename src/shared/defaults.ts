@@ -73,12 +73,13 @@ export const AUTO_UPDATES = true
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
-  models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null },
+  models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null, recipe: null },
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
-  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off' },
+  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off' },
   creativity: 'balanced',
   theme: 'system',
-  editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70 },
+  editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70, paragraphStyle: 'spaced', smartPunctuation: true, spellCheck: true, typewriter: false },
+  goals: { daily: null, days: [] },
   layout: { binderWidth: 272, inspectorWidth: 340, binderOpen: true, inspectorOpen: true },
   lastWorldId: null,
   lastStoryId: null,
@@ -87,7 +88,9 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   backup: { extraFolder: null },
   speech: defaultSpeechSettings(),
   accent: null,
-  usage: { monthlyLimit: null, notice: null }
+  usage: { monthlyLimit: null, notice: null },
+  startWith: 'start',
+  worldsSeenAt: {}
 })
 
 /** The speech server's own address: port 8766, so it never clashes with MCreader or Poor Man's Holodeck (8765). */

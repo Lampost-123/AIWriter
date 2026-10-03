@@ -19,13 +19,18 @@ const ALLOWED = new Set(['out', 'package.json', 'resources', 'node_modules'])
 const MAX_MB = 50
 
 const problems = []
-const top = [...new Set(asar.listPackage(file).map((p) => p.split(/[\\/]/)[1]).filter(Boolean))]
+const listed = asar.listPackage(file).map((p) => p.replace(/\\/g, '/'))
+const top = [...new Set(listed.map((p) => p.split('/')[1]).filter(Boolean))]
 const extra = top.filter((t) => !ALLOWED.has(t))
 const mb = statSync(file).size / 1e6
 console.log(`${file}: ${mb.toFixed(1)} MB, holding ${top.join(', ')}`)
 
 if (extra.length) problems.push(`the app holds files that aren't part of it (${extra.join(', ')}); check the platform "files" lists in electron-builder.yml`)
 if (mb > MAX_MB) problems.push(`app.asar is ${mb.toFixed(0)} MB, far more than the app needs (about 28 MB)`)
+// The thesaurus for synonyms (writing by hand, under 1 MB) ships in resources/, with the WordNet licence it needs.
+for (const needed of ['resources/thesaurus/en-thesaurus.txt.gz', 'resources/thesaurus/WordNet-LICENSE.txt']) {
+  if (!listed.includes(`/${needed}`)) problems.push(`${needed} is missing from the app (synonyms need it); check resources/** in electron-builder.yml`)
+}
 if (native) {
   const node = join(`${file}.unpacked`, 'node_modules', 'better-sqlite3', 'prebuilds', `${native}.node`)
   if (!existsSync(node)) problems.push(`the database engine for ${native} is missing (${node})`)

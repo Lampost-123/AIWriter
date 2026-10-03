@@ -77,6 +77,10 @@ import type { ImportingApi, ImportingEvents } from './contracts/importing'
 import type { UsageApi, UsageEvents } from './contracts/usage'
 import type { SetupApi, SetupEvents } from './contracts/setup'
 import type { LookApi, LookEvents } from './contracts/look'
+import type { LibraryApi, LibraryEvents } from './contracts/library'
+import type { RecipesApi, RecipesEvents } from './contracts/recipes'
+import type { FindApi, FindEvents } from './contracts/find'
+import type { SpellingApi, SpellingEvents } from './contracts/spelling'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -103,7 +107,11 @@ export interface AppApi
     ImportingApi,
     UsageApi,
     SetupApi,
-    LookApi {
+    LookApi,
+    LibraryApi,
+    RecipesApi,
+    FindApi,
+    SpellingApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -325,7 +333,11 @@ export interface AppEvents
     ImportingEvents,
     UsageEvents,
     SetupEvents,
-    LookEvents {
+    LookEvents,
+    LibraryEvents,
+    RecipesEvents,
+    FindEvents,
+    SpellingEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

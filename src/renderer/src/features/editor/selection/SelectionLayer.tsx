@@ -1,5 +1,5 @@
-// The small bar over words Adam selects in the page: the AI tools ("Rewrite", milestone 4), "Add to memory"
-// and "Quick start a character".
+// The small bar over words Adam selects in the page: Bold and Italic (writing by hand), the AI tools
+// ("Rewrite", milestone 4), "Add to memory" and "Quick start a character".
 // It shows once the selection settles (after the mouse is let go, or a moment after the keyboard
 // stops), never while a draft is being written into the selected part, and goes on Esc, typing, or a
 // click elsewhere. It sits in the page's scrolling area, so it moves with the words, and it is not a
@@ -20,6 +20,7 @@ import { useSceneNames } from '../names/sceneNames'
 import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
 import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
+import { MarkButtons } from '@/features/typing/MarkButtons'
 import { AiTools } from '@/features/edits/AiTools'
 import { suggestionsOf } from '@/features/edits/suggestions'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
@@ -271,6 +272,8 @@ export function SelectionLayer({
             'select-none whitespace-nowrap'
           )}
         >
+          <MarkButtons editor={editor} />
+          <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
           <AiTools
             editor={editor}
             from={bar.from}

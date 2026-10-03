@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, shell, type ContextMenuParams, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import type { PaintedTheme } from '@shared/api'
 import { accentIdOf } from '@shared/contracts/look'
@@ -10,11 +10,15 @@ import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
 import { initAi } from './ai'
 import { initKeeper } from './keeper'
+import { closeRecipes, initRecipes } from './recipes'
 import { activeDraftIds, stopDraft } from './ai/drafts'
 import { stopAllTasks } from './ai/tasks'
 import { registerPortraitScheme, servePortraits } from './portraits'
 import { initHistory } from './history'
 import { initSpeech, stopSpeech } from './speech'
+import { purgeOldDeletedWorlds } from './library'
+import { initSpelling } from './spelling'
+import { contextMenuFor } from './spelling/menu'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
 // App tests of dictation: Chromium's own pretend microphone (a beep), with no permission prompt.
@@ -68,30 +72,6 @@ function isReloadOrDevToolsKey(input: Electron.Input): boolean {
   return key === 'f5' || key === 'f12' || (mod && key === 'r') || (mod && input.shift && (key === 'i' || key === 'j'))
 }
 
-/** The right-click menu for text: spelling suggestions, Add to dictionary, and Cut, Copy, Paste. */
-function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): MenuItemConstructorOptions[] {
-  const wc = win.webContents
-  const items: MenuItemConstructorOptions[] = []
-  if (p.misspelledWord) {
-    for (const s of p.dictionarySuggestions.slice(0, 5)) items.push({ label: s, click: () => wc.replaceMisspelling(s) })
-    if (p.dictionarySuggestions.length === 0) items.push({ label: 'No suggestions', enabled: false })
-    items.push({ label: 'Add to dictionary', click: () => wc.session.addWordToSpellCheckerDictionary(p.misspelledWord) })
-    items.push({ type: 'separator' })
-  }
-  if (p.isEditable) {
-    items.push(
-      { role: 'cut', label: 'Cut', enabled: p.editFlags.canCut },
-      { role: 'copy', label: 'Copy', enabled: p.editFlags.canCopy },
-      { role: 'paste', label: 'Paste', enabled: p.editFlags.canPaste },
-      { type: 'separator' },
-      { role: 'selectAll', label: 'Select all', enabled: p.editFlags.canSelectAll }
-    )
-  } else if (p.selectionText.trim()) {
-    items.push({ role: 'copy', label: 'Copy' })
-  }
-  return items
-}
-
 /** A reload or a crash starts the interface afresh with nothing listening to a draft being written: stop it (its text is kept). */
 function stopRunningDrafts(): void {
   for (const id of activeDraftIds()) void stopDraft(id).catch((e) => console.warn('Could not stop a draft', e))
@@ -141,9 +121,13 @@ function createWindow(): void {
     // Developers running from source can still open the developer tools.
     if (!app.isPackaged && input.key.toLowerCase() !== 'r' && input.key !== 'F5') win.webContents.toggleDevTools()
   })
+  // The right-click menu for text (src/main/spelling/menu.ts): spelling, synonyms, Cut, Copy and Paste.
   win.webContents.on('context-menu', (_e, p) => {
-    const items = contextMenuFor(win, p)
-    if (items.length) Menu.buildFromTemplate(items).popup({ window: win })
+    void contextMenuFor(win, p)
+      .then((items) => {
+        if (items.length && !win.isDestroyed()) Menu.buildFromTemplate(items).popup({ window: win })
+      })
+      .catch((e: unknown) => console.warn('Could not show the right-click menu', e))
   })
 
   let loaded = false
@@ -234,12 +218,16 @@ function main(): void {
       initBackups()
       initAi()
       initKeeper()
+      initRecipes()
       initHistory()
       initSpeech()
+      initSpelling()
       // Reopen the last world straight away, so the page is ready as soon as the window shows.
       reopenLastWorld()
       createWindow()
       initUpdater()
+      // Deleted worlds past 30 days go for good; a moment after launch, so the first paint isn't kept waiting.
+      setTimeout(() => void purgeOldDeletedWorlds(), 10_000).unref()
     })
     .catch((e: unknown) => {
       // Never leave an invisible AI Write running (it would block opening it again).
@@ -264,6 +252,7 @@ function main(): void {
   })
 
   app.on('window-all-closed', () => {
+    closeRecipes()
     closeWorld()
     stopSpeech()
     app.quit()

@@ -1,5 +1,8 @@
-<!-- version: 0.6.4 -->
-Cheaper redrafts with Claude, and cache savings on the usage page.
+<!-- version: 0.6.7 -->
+A start screen.
 
-- With a Claude model through OpenRouter, AI Write now asks it to keep the parts of a briefing that don't change (the instructions, style guide, world rules, setting and characters). Redrafting a scene within five minutes costs much less for those parts.
-- The usage page shows how many tokens came from a provider's cache, for example "41.2k tokens, 12k from the cache".
+- AI Write now opens on a start screen. Continue goes straight back to where you left off.
+- Every world, with its stories, words and when you last opened it. Rename or open anything from here.
+- Delete a whole world: it waits in Recently deleted for 30 days, with Undo and Restore.
+- Home, at the left of the top bar, comes back here. A draft keeps writing meanwhile.
+- Settings › Appearance › When AI Write opens: or go straight to where you left off.
