@@ -1,8 +1,8 @@
 <!-- version: 0.6.1 -->
 Fixes and small improvements.
 
-- A draft keeps writing when you open another scene. It lands in its own scene, the binder shows which one, and going back shows it still writing, with Stop.
-- Auto length: the AI picks how long a scene needs to be. It's the new default; you can still set a word count under Generate or on the scene card.
-- When the AI makes or fills in a character, it also fills in how they sound when read aloud. Anything you typed there is kept.
-- Before the read-aloud voices download, Settings says what they need (graphics card, memory, disk space) and whether this computer has it.
-- Reading aloud shows which chapter and scene is playing, in the player and in the binder. Click the name to go there.
+- A draft keeps writing when you open another scene, and still shows Stop when you go back.
+- Auto length is the new default: the AI picks how long a scene needs. You can still set a word count.
+- The AI fills in how a character sounds when read aloud, and keeps what you typed.
+- Settings says what the read-aloud voices need before they download.
+- Reading aloud shows which chapter and scene is playing.

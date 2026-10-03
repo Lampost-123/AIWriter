@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { win32 } from 'node:path'
+import { join as nativeJoin, win32 } from 'node:path'
 import {
   findCard,
   findNvidia,
@@ -192,7 +192,7 @@ describe('free disk space', () => {
       asked.push(p)
       return { bavail: 1000n, bsize: 4096n }
     }
-    const home = join(process.cwd(), 'nowhere-yet', 'speech')
+    const home = nativeJoin(process.cwd(), 'nowhere-yet', 'speech')
     expect(await freeSpace(home, statfs, (p) => p === process.cwd())).toBe(4_096_000)
     expect(asked).toEqual([process.cwd()])
   })
