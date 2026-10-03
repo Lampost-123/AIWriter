@@ -253,3 +253,18 @@ describe('keeping a chapter’s scene cards', () => {
     expect(kept.id).not.toBe(lone.id)
   })
 })
+
+describe('a “Scene 1” the interview has asked about', () => {
+  it('is never taken by a kept scene card, so Undo can always put things back', async () => {
+    const { keepOutline } = await import('./structure')
+    const w = dbWorld()
+    const storyId = w.id('b1')
+    const chapter = repo.createChapter(w.db, storyId, { title: 'The letter' })
+    const lone = repo.createScene(w.db, chapter.id, { title: 'Scene 1' })
+    // A question about it was asked (and stopped with no answers): its card is still empty.
+    await askPlanQuestion(deps(w.db), { taskId: 'q-lone', target: { kind: 'scene', sceneId: lone.id }, asked: [] })
+    const [kept] = keepOutline(w.db, storyId, [{ key: 's1', kind: 'scene', parent: { id: chapter.id }, title: 'A letter', text: 'x' }])
+    expect(kept.id).not.toBe(lone.id)
+    expect(kept.reused).toBeUndefined()
+  })
+})

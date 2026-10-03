@@ -64,7 +64,8 @@ function loneScene(db: DB, storyId: ID, chapterId: ID): ID | null {
   const [only] = scenes
   if (only.wordCount > 0 || !/^\s*scene\s*1\s*$/i.test(only.title)) return null
   const scene = repo.getScene(db, only.id)
-  if (scene.text.trim()) return null
+  // Anything pointing at it (an AI call made for it, a pin...) would stop its Undo putting it back.
+  if (scene.text.trim() || acts.sceneReferenced(db, only.id)) return null
   const c = { ...emptySceneCard(), ...scene.card }
   const empty =
     !c.povId &&

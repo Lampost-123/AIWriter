@@ -18,7 +18,7 @@ import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { fillOnCard, filledMessage, unfill } from './planInterviewLogic'
-import { suggestChapter, treeOf, useOutlineHelper } from './helperStore'
+import { chapterHelperKey, suggestChapter, treeOf, useOutlineHelper } from './helperStore'
 
 export interface PlanProblem {
   message: string
@@ -122,7 +122,7 @@ async function askNext(key: string): Promise<void> {
     if (!still()) return
     const q = await api.askPlanQuestion({ taskId, target: s.target, card, asked: s.asked })
     if (!still()) return
-    if (q.status === 'complete' && q.done) void finish(key)
+    if (q.status === 'complete' && q.done) void finish(key, true)
     else if (q.status === 'complete') patch(key, { phase: 'question', taskId: null, topic: q.topic, question: q.question })
     else if (q.status === 'error')
       patch(key, { phase: 'problem', taskId: null, failed: 'ask', problem: { message: q.error ?? 'Something went wrong. Try again.' } })
@@ -196,11 +196,19 @@ export function closePlanInterview(target: PlanTarget): void {
   if (s?.taskId) void api.stopTask(s.taskId).catch(() => undefined)
 }
 
-async function finish(key: string): Promise<void> {
+/** `byAI`: the AI said it had enough (rather than Adam pressing Done or Stop). */
+async function finish(key: string, byAI = false): Promise<void> {
   const s = get(key)
   if (!s) return
   if (!answeredOf(s)) {
     put(key, null)
+    if (byAI) {
+      toast(
+        s.target.kind === 'scene'
+          ? 'The AI had nothing to ask: the scene card and the outline already cover it.'
+          : 'The AI had nothing to ask about this chapter. You can suggest scenes from what it already has.'
+      )
+    }
     return
   }
   if (s.target.kind === 'chapter') {
@@ -256,17 +264,37 @@ const chapterAnswers = new Map<string, PlanAnswer[]>()
 /** The answers the chapter's last interview ended with (none if it had none). */
 export const lastChapterAnswers = (chapterId: ID): PlanAnswer[] => chapterAnswers.get(keyOf({ kind: 'chapter', chapterId })) ?? []
 
-/** The chapter's story, title and goal, from the binder's outline (the open story's: the planner is only opened for it). */
-function chapterInfo(chapterId: ID): { storyId: ID; title: string; goal: string } | null {
+/** The story each chapter planned here is in, so it is found even after Adam opens another story. */
+const chapterStories = new Map<ID, ID>()
+export const noteChapterStory = (chapterId: ID, storyId: ID): void => void chapterStories.set(chapterId, storyId)
+
+/** The chapter's story, title and goal: from the binder's outline when it shows the chapter's story, else asked for. */
+async function chapterInfo(chapterId: ID): Promise<{ storyId: ID; title: string; goal: string } | null> {
   const o = useOutlineStore.getState().outline
   const c = o?.chapters.find((x) => x.id === chapterId)
-  return o && c ? { storyId: o.story.id, title: c.title, goal: c.goal } : null
+  if (o && c) return { storyId: o.story.id, title: c.title, goal: c.goal }
+  const storyId = chapterStories.get(chapterId)
+  if (!storyId) return null
+  try {
+    const found = (await api.getOutline(storyId)).chapters.find((x) => x.id === chapterId)
+    return found ? { storyId, title: found.title, goal: found.goal } : null
+  } catch {
+    return null
+  }
 }
 
 /** Plans the chapter on the outline helper's page: its goal (if it has none) and scene cards to keep. */
 export async function planChapter(chapterId: ID, answers: PlanAnswer[]): Promise<void> {
-  const info = chapterInfo(chapterId)
-  if (!info) return
+  const info = await chapterInfo(chapterId)
+  if (!info) {
+    toast('Couldn’t find that chapter to plan. It may have been deleted.')
+    return
+  }
+  const running = useOutlineHelper.getState().sessions[chapterHelperKey(useApp.getState().world?.id, info.storyId, chapterId)]?.run
+  if (running?.status === 'running') {
+    toast('Scene cards for this chapter are still being suggested. Your answers are used when you suggest again.')
+    return
+  }
   listen()
   await suggestChapter(info.storyId, chapterId, info.title, answers)
 }
@@ -277,7 +305,8 @@ function listen(): void {
   if (listening) return
   listening = true
   onEvent('task:done', (d) => {
-    if (d.job !== 'outline' || d.status === 'error') return
+    // Only a whole reply: one stopped part way may have only half the goal.
+    if (d.job !== 'outline' || d.status !== 'complete') return
     const found = Object.entries(useOutlineHelper.getState().sessions).find(([, s]) => s.run?.taskId === d.taskId)
     const run = found?.[1].run
     if (!found || !run?.lead) return
@@ -290,7 +319,7 @@ function listen(): void {
 }
 
 async function giveGoal(chapterId: ID, goal: string): Promise<void> {
-  const info = chapterInfo(chapterId)
+  const info = await chapterInfo(chapterId)
   if (!info || info.goal.trim()) return
   try {
     await api.updateChapter(chapterId, { goal })
@@ -302,7 +331,7 @@ async function giveGoal(chapterId: ID, goal: string): Promise<void> {
     action: {
       label: 'Undo',
       run: async () => {
-        const now = chapterInfo(chapterId)
+        const now = await chapterInfo(chapterId)
         if (!now || now.goal.trim() !== goal) return
         await api.updateChapter(chapterId, { goal: '' }).catch(() => undefined)
         useApp.getState().bumpOutline()

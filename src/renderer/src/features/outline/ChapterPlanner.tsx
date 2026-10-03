@@ -16,7 +16,7 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { chapterHelperKey, checkKept, stopOutline, treeOf, useOutlineHelper } from './helperStore'
 import { PlanInterview, usePlanSession } from './PlanInterview'
-import { lastChapterAnswers, planChapter, startPlanInterview } from './planInterviewStore'
+import { lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from './planInterviewStore'
 import { Suggestions } from './Suggestions'
 import { countNodes, totalOf, withoutGone } from './tree'
 
@@ -61,6 +61,7 @@ function Planner({ storyId, chapter }: { storyId: string; chapter: Chapter }): R
 
   // What was kept is looked for again each time the page opens.
   useEffect(() => {
+    noteChapterStory(chapter.id, storyId)
     void checkKept(storyId, chapter.id)
   }, [storyId, chapter.id])
 
