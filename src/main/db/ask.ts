@@ -3,6 +3,7 @@
 // over a better-sqlite3 handle, no Electron imports.
 
 import type Database from 'better-sqlite3'
+import type { Proposal } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 
 type DB = Database.Database
@@ -51,6 +52,19 @@ export interface TurnRow {
   costEstimated: boolean
   cutOff: boolean
   createdAt: string
+  /** The editor chat's steps (their labels) and proposals, as kept in the record's params. */
+  steps: string[]
+  proposals: Proposal[]
+}
+
+const jsonList = <T>(v: unknown): T[] => {
+  if (typeof v !== 'string' || !v) return []
+  try {
+    const parsed = JSON.parse(v) as unknown
+    return Array.isArray(parsed) ? (parsed as T[]) : []
+  } catch {
+    return []
+  }
 }
 
 const toTurn = (r: Row): TurnRow => ({
@@ -63,11 +77,15 @@ const toTurn = (r: Row): TurnRow => ({
   cost: (r.cost as number | null) ?? null,
   costEstimated: r.cost != null && r.prompt_tokens == null,
   cutOff: r.cut_off === 1 || r.cut_off === true,
-  createdAt: r.created_at as string
+  createdAt: r.created_at as string,
+  steps: jsonList<{ label?: string }>(r.steps).map((s) => s.label ?? '').filter(Boolean),
+  proposals: jsonList<Proposal>(r.proposals)
 })
 
 const TURN_COLUMNS = `id, ${CHAT_ID} AS chat_id, status, error, direction, response, cost, prompt_tokens, created_at,
-  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cutOff') END AS cut_off`
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cutOff') END AS cut_off,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.steps') END AS steps,
+  CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals`
 
 /** A chat's turns, oldest first. */
 export function chatTurnRows(db: DB, chatId: ID): TurnRow[] {
@@ -81,6 +99,22 @@ export function chatTurnRows(db: DB, chatId: ID): TurnRow[] {
 export function chatTurnRow(db: DB, generationId: ID): TurnRow | null {
   const r = db.prepare(`SELECT ${TURN_COLUMNS} FROM generations WHERE id = ? AND job = 'chat'`).get(generationId) as Row | undefined
   return r && r.chat_id ? toTurn(r) : null
+}
+
+/** The editor chat: keeps a turn's proposals with its record (while it is answered, and as Adam decides on each). */
+export function saveProposals(db: DB, generationId: ID, proposals: Proposal[]): void {
+  db.prepare("UPDATE generations SET params_json = json_set(params_json, '$.proposals', json(?)) WHERE id = ? AND json_valid(params_json)").run(
+    JSON.stringify(proposals),
+    generationId
+  )
+}
+
+/** The editor chat: a turn's proposals as kept. */
+export function proposalsOf(db: DB, generationId: ID): Proposal[] {
+  const r = db
+    .prepare("SELECT CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.proposals') END AS proposals FROM generations WHERE id = ?")
+    .get(generationId) as Row | undefined
+  return jsonList<Proposal>(r?.proposals)
 }
 
 /** Puts back whether an entry counts as touched by hand (undoing a note is as if it had never been saved). */

@@ -10,7 +10,7 @@
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
 import type { TaskDone } from '@shared/contracts/tasks'
-import type { ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID } from '@shared/types'
+import type { AgentStep, ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID, ToolCall, ToolSpec } from '@shared/types'
 import * as gens from '../db/generations'
 import { estimateTokens } from '../keeper/text'
 import { memoryReplyLimits, sentAs } from '../keeper/model'
@@ -62,6 +62,18 @@ export interface TaskRequest {
    * stop it (stopAllTasks); Stop, or its own world or file closing, still does.
    */
   outlivesWindow?: boolean
+  /**
+   * The editor chat: tools the model may use on the way to its answer. Each time it asks for some, `run` answers
+   * them (looking things up, or noting a change it proposes) and the model carries on, up to `maxSteps` requests;
+   * the last is asked without tools, so it answers. What it writes along the way is the reply, step after step.
+   */
+  agent?: {
+    tools: ToolSpec[]
+    maxSteps: number
+    run(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
+    /** Kept with the record when it finishes (the editor chat's proposals). */
+    extraParams?: () => Partial<GenerationParams>
+  }
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -187,32 +199,33 @@ async function stream(
     }
   }
 
-  const outcome = await streamChat({
-    target: model.target,
-    body: {
-      model: model.choice.modelId,
-      messages: req.messages,
-      temperature: req.temperature,
-      top_p: o.topP,
-      max_tokens: o.limit,
-      min_p: req.minP ?? null
-    },
-    signal: r.controller.signal,
-    onText: (t) => {
-      r.text += t
-      progressTimer ??= setTimeout(progress, PROGRESS_MS)
-      saveTimer ??= setTimeout(save, SAVE_MS)
-    },
-    onRetry: (info) => emit('task:retrying', { taskId: r.taskId, ...info }),
-    // A provider that turns the limit down is asked with the reply's own room, or less if that is turned down too.
-    fallbackMaxTokens: o.limit > o.reply ? o.reply : o.reply > 2000 ? 2000 : undefined,
-    startParams: o.start,
-    thinking: model.thinking,
-    thinkingRoom: o.thinkingRoom,
-    fetchImpl: req.fetchImpl,
-    delays: req.retryDelays
-  }).catch(
-    (e: unknown): StreamOutcome => ({
+  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined): Promise<StreamOutcome> =>
+    streamChat({
+      target: model.target,
+      body: {
+        model: model.choice.modelId,
+        messages,
+        temperature: req.temperature,
+        top_p: o.topP,
+        max_tokens: o.limit,
+        min_p: req.minP ?? null,
+        ...(tools?.length ? { tools } : {})
+      },
+      signal: r.controller.signal,
+      onText: (t) => {
+        r.text += t
+        progressTimer ??= setTimeout(progress, PROGRESS_MS)
+        saveTimer ??= setTimeout(save, SAVE_MS)
+      },
+      onRetry: (info) => emit('task:retrying', { taskId: r.taskId, ...info }),
+      // A provider that turns the limit down is asked with the reply's own room, or less if that is turned down too.
+      fallbackMaxTokens: o.limit > o.reply ? o.reply : o.reply > 2000 ? 2000 : undefined,
+      startParams: o.start,
+      thinking: model.thinking,
+      thinkingRoom: o.thinkingRoom,
+      fetchImpl: req.fetchImpl,
+      delays: req.retryDelays
+    }).catch((e: unknown): StreamOutcome => ({
       // streamChat doesn't throw; this is a last line of defence so the record always finishes.
       status: 'error',
       text: r.text,
@@ -228,8 +241,57 @@ async function stream(
       cutOff: false,
       sentParams: o.start,
       effort: thinkingEffort(model.target, model.choice.modelId, model.thinking)
-    })
-  )
+    }))
+  // The editor chat: ask, answer the tools the model asks for, and ask again, until it answers without tools (or
+  // the last step, asked without them). Tokens and cost add up over the steps; the words written along the way are
+  // the reply.
+  const steps: AgentStep[] = []
+  let outcome = await once(req.messages, req.agent?.tools)
+  if (req.agent) {
+    let messages = req.messages
+    const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
+    const add = (a: number | null, b: number | null): number | null => (a == null && b == null ? null : (a ?? 0) + (b ?? 0))
+    for (let step = 1; outcome.status === 'complete' && outcome.toolCalls?.length && step < req.agent.maxSteps; step++) {
+      if (r.controller.signal.aborted) break
+      const calls = outcome.toolCalls
+      let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
+      try {
+        answered = await req.agent.run(calls)
+      } catch (e) {
+        answered = {
+          results: calls.map((c) => ({
+            role: 'tool' as const,
+            toolCallId: c.id,
+            content: `That didn't work: ${(e as Error)?.message ?? e}`
+          })),
+          steps: []
+        }
+      }
+      steps.push(...answered.steps)
+      messages = [...messages, { role: 'assistant', content: outcome.text, toolCalls: calls }, ...answered.results]
+      if (r.text && !/\n\n$/.test(r.text)) {
+        r.text += '\n\n'
+        progressTimer ??= setTimeout(progress, PROGRESS_MS)
+      }
+      // The last step is asked without tools, so the model answers in words.
+      const last = step === req.agent.maxSteps - 1
+      outcome = await once(messages, last ? undefined : req.agent.tools)
+      total.prompt = add(total.prompt, outcome.promptTokens)
+      total.cached = add(total.cached, outcome.cachedTokens)
+      total.completion = add(total.completion, outcome.completionTokens)
+      total.cost = add(total.cost, outcome.cost)
+    }
+    outcome = {
+      ...outcome,
+      text: r.text,
+      promptTokens: total.prompt,
+      cachedTokens: total.cached,
+      completionTokens: total.completion,
+      cost: total.cost
+    }
+    if (steps.length) o.params.steps = steps
+    Object.assign(o.params, req.agent.extraParams?.() ?? {})
+  }
   if (progressTimer) clearTimeout(progressTimer)
   if (saveTimer) clearTimeout(saveTimer)
 

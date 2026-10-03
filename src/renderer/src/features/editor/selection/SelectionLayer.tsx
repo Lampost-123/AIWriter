@@ -8,7 +8,7 @@
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import { BookmarkPlus, UserPlus } from '@/components/ui/icons'
+import { BookmarkPlus, UserPlus, MessagesSquare } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
@@ -21,6 +21,7 @@ import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
 import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
 import { MarkButtons } from '@/features/typing/MarkButtons'
+import { askAbout } from '@/features/ask/open'
 import { AiTools } from '@/features/edits/AiTools'
 import { suggestionsOf } from '@/features/edits/suggestions'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
@@ -296,6 +297,10 @@ export function SelectionLayer({
           <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
           <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
             Quick start a character
+          </BarButton>
+          {/* The editor chat: talk about these words (it can propose changes to them, for Adam to apply). */}
+          <BarButton icon={<MessagesSquare size={14} />} onClick={() => askAbout(bar.text)}>
+            Ask about this
           </BarButton>
           <ListenFromHere editor={editor} sceneId={sceneId} from={bar.from} to={bar.to} />
         </div>

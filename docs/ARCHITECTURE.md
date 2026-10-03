@@ -1175,6 +1175,29 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   sample world, with screenshots taken before the New look began (one set per platform).
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.
 
+## The editor chat (Ask the world, October 2026)
+
+Ask the world is also an editor: it talks and brainstorms, looks things up for itself, and proposes changes that
+only happen when Adam applies them. Adam's choices: it may propose any change (words, scene cards, memory entries,
+new entries, scenes and chapters, new titles) but never deletes; each change has Apply and Not this, with Apply all;
+it uses the Chat and brainstorm model, with no setting of its own.
+
+- **Tool calling.** `ai/client.ts` sends `tools` and reads streamed `tool_calls`; `ai/tasks.ts` runs the loop when a
+  request has `agent`: up to `MAX_STEPS` (8) requests, the last one without tools so the model answers in words.
+  Cost and tokens add up across steps; each step's label is kept in `params.steps` (What the AI saw: "Steps it
+  took").
+- **The tools** (`ask/agent.ts`, `EditorAgent`): `read_scene`, `outline`, `search`, `get_entry`, `style_guide`,
+  `scene_issues` look things up; the `propose_*` tools only record a proposal (checked first: an edit's words must
+  be in the scene exactly once, on one line) and tell the model nothing has changed yet. A mistake goes back to the
+  model as the tool's answer, never as an error. Proposals are saved with the answer's record (`db/ask.ts`) and
+  sent as `ask:proposals`; each step as `ask:step`.
+- **Applying** happens in the window (`features/ask/applyProposal.ts`) through the usual APIs, each with its Undo:
+  words go into the page as one step after `snapshotBefore`; a new character is made as the builder makes one, so
+  it gets its read-aloud voice. The cards are `features/ask/Proposals.tsx`.
+- **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
+- **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
+- Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

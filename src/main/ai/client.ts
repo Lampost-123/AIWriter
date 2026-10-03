@@ -4,7 +4,7 @@
 // happened in plain words. No Electron imports, so it is tested against the
 // fake provider in tests/fake-provider.
 
-import type { ChatMessage, ProviderKind, ThinkingLevel } from '@shared/types'
+import type { ChatMessage, ProviderKind, ThinkingLevel, ToolCall, ToolSpec } from '@shared/types'
 import {
   describeFailure,
   extractProviderMessage,
@@ -40,6 +40,8 @@ export interface ChatBody {
    * other servers may turn down a field they don't know; left out with the other creativity settings.
    */
   min_p?: number | null
+  /** Tools the model may ask to use (the editor chat). Left out when empty. */
+  tools?: ToolSpec[]
 }
 
 export const APP_REFERER = 'https://github.com/lampost-123/aiwriter'
@@ -136,7 +138,8 @@ const paramsByModel = new Map<string, SentParams>()
 const paramKey = (t: Pick<ChatTarget, 'baseUrl'>, model: string): string => `${t.baseUrl.replace(/\/+$/, '')}\n${model}`
 
 /** The request wording that works for this model, as far as this session knows. */
-export const knownParams = (t: Pick<ChatTarget, 'baseUrl'>, model: string): SentParams => paramsByModel.get(paramKey(t, model)) ?? DEFAULT_PARAMS
+export const knownParams = (t: Pick<ChatTarget, 'baseUrl'>, model: string): SentParams =>
+  paramsByModel.get(paramKey(t, model)) ?? DEFAULT_PARAMS
 export function rememberParams(t: Pick<ChatTarget, 'baseUrl'>, model: string, p: SentParams): void {
   paramsByModel.set(paramKey(t, model), p)
 }
@@ -145,7 +148,13 @@ export function rememberParams(t: Pick<ChatTarget, 'baseUrl'>, model: string, p:
  * `reasoning_effort` for other servers. A model that can't turn its thinking off is asked for as
  * little as it can ('low'); one that takes none of them is asked nothing.
  */
-export const THINKING_EFFORTS: Record<ThinkingLevel, string[]> = { auto: [], off: ['none', 'low'], low: ['low'], medium: ['medium'], high: ['high'] }
+export const THINKING_EFFORTS: Record<ThinkingLevel, string[]> = {
+  auto: [],
+  off: ['none', 'low'],
+  low: ['low'],
+  medium: ['medium'],
+  high: ['high']
+}
 /** Efforts each model has turned down this session. */
 const rejectedEfforts = new Map<string, Set<string>>()
 /** Models seen using up their whole reply limit thinking. */
@@ -189,6 +198,8 @@ export interface StreamOutcome {
   sentParams: SentParams
   /** The thinking effort finally asked for; null when nothing was asked. */
   effort: string | null
+  /** The tools the model asked to use, in order (the editor chat); empty when none. */
+  toolCalls?: ToolCall[]
 }
 
 type Attempt =
@@ -245,8 +256,7 @@ export function cachedOf(usage: Record<string, unknown>): number | null {
  * OpenRouter, which passes the marks on). OpenAI, DeepSeek, Grok and Gemini 2.5 and later cache on their
  * own: the briefing is sent with what stays the same first (SEND_ORDER in context.ts), so they reuse it.
  */
-export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean =>
-  t.kind === 'openrouter' && /^anthropic\//i.test(model)
+export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean => t.kind === 'openrouter' && /^anthropic\//i.test(model)
 
 /**
  * The messages as sent. For a model that caches only where asked, the system message and the part of
@@ -256,7 +266,16 @@ export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean 
  */
 export function sentMessages(t: Pick<ChatTarget, 'kind'>, model: string, messages: ChatMessage[], cache = true): unknown[] {
   const mark = cache && marksCache(t, model)
-  return messages.map(({ cacheUpTo, ...m }) => {
+  return messages.map(({ cacheUpTo, toolCalls, toolCallId, ...m }) => {
+    // The editor chat's tool turns, in the shape every OpenAI-compatible server takes.
+    if (m.role === 'tool') return { role: 'tool', tool_call_id: toolCallId ?? '', content: m.content }
+    if (toolCalls?.length) {
+      return {
+        role: 'assistant',
+        content: m.content || null,
+        tool_calls: toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } }))
+      }
+    }
     if (!mark || !m.content) return m
     const cut = m.role === 'system' ? m.content.length : Math.min(cacheUpTo ?? 0, m.content.length)
     if (cut <= 0) return m
@@ -279,7 +298,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     cost: null as number | null,
     finishReason: null as string | null,
     /** The model sent thinking (never shown). */
-    thought: false
+    thought: false,
+    /** The tools asked for, by their index in the stream (their parts arrive piece by piece). */
+    calls: new Map<number, ToolCall>()
   }
   /** What an earlier try that came back empty already cost (a model that used up its limit thinking is still billed). */
   const spent = { completionTokens: 0, cost: 0, any: false }
@@ -326,7 +347,11 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       maxTokens,
       cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens'),
       sentParams: { ...sent },
-      effort
+      effort,
+      toolCalls: [...s.calls.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, c]) => c)
+        .filter((c) => c.name)
     }
   }
 
@@ -350,6 +375,19 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         const text = visibleText(part.content)
         if (text) emit(text)
         if (hasThinking(part)) s.thought = true
+        // Tools asked for (the editor chat): each call's id and name come first, its arguments in pieces after.
+        if (Array.isArray(part.tool_calls)) {
+          for (const [k, raw] of (part.tool_calls as unknown[]).entries()) {
+            const c = (raw ?? {}) as { index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }
+            const at = typeof c.index === 'number' ? c.index : k
+            const call = s.calls.get(at) ?? { id: '', name: '', arguments: '' }
+            if (typeof c.id === 'string' && c.id) call.id = c.id
+            if (typeof c.function?.name === 'string' && c.function.name) call.name += c.function.name
+            if (typeof c.function?.arguments === 'string') call.arguments += c.function.arguments
+            if (!call.id) call.id = `call_${at}`
+            s.calls.set(at, call)
+          }
+        }
       }
       if (typeof choice.finish_reason === 'string' && choice.finish_reason) s.finishReason = choice.finish_reason
     }
@@ -372,6 +410,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     // How the last try ended says nothing about this one.
     s.finishReason = null
     s.thought = false
+    s.calls = new Map()
     const ctl = new AbortController()
     let timedOut = false
     const onAbort = (): void => ctl.abort()
@@ -386,14 +425,31 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     }
     const failFromThrow = (e: unknown): Attempt => {
       if (o.signal.aborted) return { kind: 'stopped' }
-      if (timedOut) return { kind: 'fail', failure: s.text ? { type: 'dropped' } : { type: 'timeout' }, retry: { kind: 'timeout' }, retryAfterMs: null }
+      if (timedOut)
+        return { kind: 'fail', failure: s.text ? { type: 'dropped' } : { type: 'timeout' }, retry: { kind: 'timeout' }, retryAfterMs: null }
       if (s.text) return { kind: 'fail', failure: { type: 'dropped' }, retry: null, retryAfterMs: null }
-      return { kind: 'fail', failure: { type: 'network', code: networkCode(e), message: String((e as Error)?.message ?? e) }, retry: { kind: 'network' }, retryAfterMs: null }
+      return {
+        kind: 'fail',
+        failure: { type: 'network', code: networkCode(e), message: String((e as Error)?.message ?? e) },
+        retry: { kind: 'network' },
+        retryAfterMs: null
+      }
     }
     arm(headersTimeout)
     try {
       const { max_tokens: _limit, temperature, top_p, min_p, ...rest } = o.body
-      const payload: Record<string, unknown> = { ...rest, messages: sentMessages(o.target, rest.model, rest.messages, o.cache !== false), stream: true }
+      const { tools, ...plain } = rest
+      const payload: Record<string, unknown> = {
+        ...plain,
+        messages: sentMessages(o.target, plain.model, plain.messages, o.cache !== false),
+        stream: true
+      }
+      if (tools?.length) {
+        payload.tools = tools.map((t) => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters }
+        }))
+      }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
       const minPSent = sent.sampling && sent.minP !== false && min_p != null && o.target.kind === 'openrouter'
@@ -494,7 +550,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       } finally {
         reader.cancel().catch(() => undefined)
       }
-      if (!done && !s.finishReason && !s.text) {
+      if (!done && !s.finishReason && !s.text && !s.calls.size) {
         // The stream closed without a word or a sign that it had finished.
         return { kind: 'fail', failure: { type: 'network', code: null, message: 'closed' }, retry: { kind: 'network' }, retryAfterMs: null }
       }
@@ -521,7 +577,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         s.text += rest
         o.onText(rest)
       }
-      if (!s.text.trim()) {
+      if (!s.text.trim() && !s.calls.size) {
         // Nothing to show. When the model was thinking, or stopped at the reply limit, its thinking
         // used up the limit: ask once more with room to think and still answer, and remember the model.
         const thinking = s.thought || filter.sawThinking || s.finishReason === 'length' || s.finishReason === 'max_tokens'
@@ -565,7 +621,12 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     }
     // Some models (OpenAI's reasoning models, for one) want the reply limit under another
     // name, or set their own creativity. Ask once more the way they want; remember it.
-    if (!triedTokenParam && sent.tokenParam === 'max_tokens' && r.failure.type === 'http' && looksLikeTokenParamRejected(r.failure.status, r.failure.message)) {
+    if (
+      !triedTokenParam &&
+      sent.tokenParam === 'max_tokens' &&
+      r.failure.type === 'http' &&
+      looksLikeTokenParamRejected(r.failure.status, r.failure.message)
+    ) {
       triedTokenParam = true
       sent = { ...sent, tokenParam: 'max_completion_tokens' }
       rememberParams(o.target, o.body.model, sent)
@@ -603,7 +664,11 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         attempt: retries,
         waitMs: wait,
         reason: retryReason(
-          { status: cause.kind === 'status' ? cause.status : undefined, network: cause.kind === 'network', timeout: cause.kind === 'timeout' },
+          {
+            status: cause.kind === 'status' ? cause.status : undefined,
+            network: cause.kind === 'network',
+            timeout: cause.kind === 'timeout'
+          },
           ref
         )
       })
@@ -617,7 +682,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
 
 // ---------- Plain JSON requests (model lists, connection tests) ----------
 
-export type JsonResult = { ok: true; json: unknown; status: number; ms: number } | { ok: false; failure: Failure; status: number | null; ms: number }
+export type JsonResult =
+  { ok: true; json: unknown; status: number; ms: number } | { ok: false; failure: Failure; status: number | null; ms: number }
 
 export async function requestJson(
   target: ChatTarget,
@@ -640,7 +706,12 @@ export async function requestJson(
     } catch (e) {
       const ms = Date.now() - started
       if (ctl.signal.aborted) return { ok: false, failure: { type: 'timeout' }, status: null, ms }
-      return { ok: false, failure: { type: 'network', code: networkCode(e), message: String((e as Error)?.message ?? e) }, status: null, ms }
+      return {
+        ok: false,
+        failure: { type: 'network', code: networkCode(e), message: String((e as Error)?.message ?? e) },
+        status: null,
+        ms
+      }
     }
     let text = ''
     try {
@@ -649,7 +720,8 @@ export async function requestJson(
       if (ctl.signal.aborted) return { ok: false, failure: { type: 'timeout' }, status: res.status, ms: Date.now() - started }
     }
     const ms = Date.now() - started
-    if (!res.ok) return { ok: false, failure: { type: 'http', status: res.status, message: extractProviderMessage(text) }, status: res.status, ms }
+    if (!res.ok)
+      return { ok: false, failure: { type: 'http', status: res.status, message: extractProviderMessage(text) }, status: res.status, ms }
     try {
       return { ok: true, json: JSON.parse(text), status: res.status, ms }
     } catch {

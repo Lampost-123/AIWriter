@@ -3,7 +3,7 @@
 // recent when the panel first shows that story. Answers stream in as task events, matched by the task
 // id this side makes. Saved notes are remembered for this session, so an answer shows "Saved".
 import { create } from 'zustand'
-import type { AskTurn, ChatSummary, SavedNote } from '@shared/contracts/ask'
+import type { AskTurn, ChatSummary, ProposalStatus, SavedNote } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { api, ApiError, onEvent } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
@@ -105,6 +105,13 @@ function listen(): void {
     const r = get().running
     if (r?.taskId === p.taskId) set({ running: { ...r, retrying: p.reason } })
   })
+  // The editor chat: what it looks up on the way, and the changes it proposes, as they happen.
+  onEvent('ask:step', (p) => {
+    updateTask(p.taskId, (t) => ({ ...t, steps: [...(t.steps ?? []), p.label] }), p.generationId || undefined)
+  })
+  onEvent('ask:proposals', (p) => {
+    updateTask(p.taskId, (t) => ({ ...t, proposals: p.proposals }), p.generationId || undefined)
+  })
   onEvent('task:done', (p) => {
     if (p.job !== 'chat') return
     const shown = get().turns.find((t) => t.taskId === p.taskId || t.generationId === p.generationId)
@@ -170,6 +177,18 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
   } catch (e) {
     if (get().storyKey === key) set({ loading: false, loadError: errorOf(e).message })
   }
+}
+
+/** The editor chat: what Adam made of a proposed change, shown at once and kept with the answer. */
+export async function setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void> {
+  set({
+    turns: get().turns.map((t) =>
+      t.generationId === generationId && t.proposals
+        ? { ...t, proposals: t.proposals.map((p) => (p.id === proposalId ? { ...p, status } : p)) }
+        : t
+    )
+  })
+  await api.setProposalStatus(generationId, proposalId, status).catch(() => undefined)
 }
 
 /** Starts a new chat. An answer still arriving stops; what arrived is kept in its chat. */
