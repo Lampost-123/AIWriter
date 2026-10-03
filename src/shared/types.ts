@@ -341,6 +341,21 @@ export interface Settings {
   accent: string | null
   /** Milestone 6: the optional monthly AI spending limit in US dollars (null: no limit, no warnings). */
   usage: { monthlyLimit: number | null }
+  /**
+   * Milestone 6: where the first-run setup stands, so quitting midway resumes there (see
+   * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
+   */
+  firstRun?: FirstRun | null
+}
+
+/**
+ * Milestone 6: the first-run setup's place. `worldId` is the world it set up (null before one is made);
+ * `step` 'guide' means the setup is over and the first scene (`sceneId`) shows its small guide.
+ */
+export interface FirstRun {
+  worldId: ID | null
+  step: 'world' | 'connect' | 'model' | 'style' | 'builder' | 'guide'
+  sceneId: ID | null
 }
 
 /**
