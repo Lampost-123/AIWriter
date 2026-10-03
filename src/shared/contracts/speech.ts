@@ -13,8 +13,11 @@ export type SpeechServerState = 'connected' | 'starting' | 'not-running'
 /** The two dictation models: Parakeet (sharper, about 1 GB) and Whisper (smaller). Both English only, on the processor. */
 export type DictationModel = 'parakeet' | 'whisper'
 
-/** What can be downloaded: the server itself (with its Python environment), the voices (Breeze TTS 2), or a dictation model. */
-export type SpeechDownloadKind = 'server' | 'voices' | DictationModel
+/**
+ * What can be downloaded: the server itself (with its Python environment), the voices (Breeze TTS 2), a dictation model,
+ * or the sound effects model ('sounds': Stable Audio Open and CLAP, in their own environment; contracts/sounds.ts).
+ */
+export type SpeechDownloadKind = 'server' | 'voices' | DictationModel | 'sounds'
 
 /** One download as Settings shows it: its step, a progress bar, the latest line of output, Cancel and Try again. */
 export interface SpeechDownload {
@@ -64,6 +67,8 @@ export interface SpeechStatus {
    * none chosen in AI Write, the model a server AI Write didn't start has chosen for itself.
    */
   dictationReady: boolean
+  /** Sound effects can be made now: the sound model is downloaded and the server answers. */
+  soundsReady?: boolean
   /** AI Write starts and stops the server itself ("Start with AI Write" is on). */
   managed: boolean
   /** Why the server isn't running when it should be, in plain words with the fix; '' when nothing is wrong. */
@@ -74,14 +79,14 @@ export interface SpeechStatus {
    */
   repair: boolean
   /** What is downloaded on this computer, in AI Write's own speech folder (`voices` is 'own' once they are). */
-  installed: { server: boolean; voices: 'own' | null; parakeet: boolean; whisper: boolean }
+  installed: { server: boolean; voices: 'own' | null; parakeet: boolean; whisper: boolean; sounds?: boolean }
   /** What the server holds in memory now (a model unused for five minutes is let go). */
-  loaded: { voices: boolean; dictation: DictationModel | null }
+  loaded: { voices: boolean; dictation: DictationModel | null; sounds?: boolean }
   /**
    * The voices, or the dictation model in use, failed to load the last time they were asked for (out of
    * memory, say), and why; null once they load. They stay ready: the next use tries again.
    */
-  loadProblems: { voices: SpeechLoadProblem | null; dictation: SpeechLoadProblem | null }
+  loadProblems: { voices: SpeechLoadProblem | null; dictation: SpeechLoadProblem | null; sounds?: SpeechLoadProblem | null }
   /** What the voices run on: the graphics card's name, or 'Processor'; '' while the server isn't answering. */
   device: string
   /** The NVIDIA graphics card on this computer ('' when there is none); null until it has been looked for. */

@@ -316,6 +316,12 @@ export interface ModelChoice {
  */
 export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check'
 
+/**
+ * The jobs with a Thinking level of their own: every job, and 'sounds', the AI marking of sound effects under Read aloud
+ * (it uses the Read aloud model, so it has no model choice of its own).
+ */
+export type ThinkingJob = Job | 'sounds'
+
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
 /** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
@@ -327,8 +333,8 @@ export interface Settings {
   libraryPath: string
   providers: ProviderConfig[]
   models: Record<Job, ModelChoice | null>
-  /** How much each job's model thinks before it answers. */
-  thinking: Record<Job, ThinkingLevel>
+  /** How much each job's model thinks before it answers ('sounds': marking sound effects, with the Read aloud model). */
+  thinking: Record<ThinkingJob, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
   editor: { fontSize: number; lineHeight: number; pageWidth: number }
@@ -427,6 +433,13 @@ export interface SpeechSettings {
   keepReading: boolean
   /** "Follow along": keeps the sentence being read a third of the way down the page. */
   followAlong: boolean
+  /**
+   * "Sound effects and ambience" (contracts/sounds.ts): the AI marks the sounds of what is read, and they play under the
+   * voice. Off until Adam turns it on; it needs its own download.
+   */
+  soundEffects: boolean
+  /** How loud the sounds are under the voice, 0 to 1 (the default is low). */
+  soundVolume: number
   /** Spoken audio kept on disk, in GB (oldest first past it). */
   cacheLimitGb: number
   /** Dictation: which speech-to-text model the server loads at start ('none' until Adam picks one). */

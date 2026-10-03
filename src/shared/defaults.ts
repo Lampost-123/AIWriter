@@ -75,7 +75,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   providers: [],
   models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null },
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
-  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off' },
+  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', sounds: 'off' },
   creativity: 'balanced',
   theme: 'system',
   editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70 },
@@ -112,6 +112,8 @@ export const defaultSpeechSettings = (): SpeechSettings => ({
   sounds: false,
   keepReading: true,
   followAlong: true,
+  soundEffects: false,
+  soundVolume: 0.5,
   cacheLimitGb: 5,
   dictationEngine: 'none',
   dictationKey: '',
