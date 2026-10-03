@@ -43,6 +43,7 @@ import { quoteKey } from './speakers'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
+import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
 
 /** Where reading aloud keeps its caches. */
 export const speechCacheDir = (): string => join(userDataDir(), 'speech-cache')
@@ -117,6 +118,7 @@ const theMarker = (): Marker =>
 export function readAloudWorldClosing(): void {
   marker?.forgetAll()
   draftMarks?.forget()
+  soundsWorldClosing()
 }
 
 const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettings().speech })
@@ -151,6 +153,8 @@ function markInBackground(sceneId: ID, paragraphs: { pid: string; text: string }
     pids: new Set(paragraphs.map((p) => p.pid))
   }
   const want = new Set(pids)
+  // Sound effects: the new paragraphs' sounds are marked too, quietly (src/main/sounds).
+  soundsInBackground(w.id, w.db, sceneId, paragraphs, pids)
   if (s.markSpeakers) {
     theMarker().noteAll(marking, want)
     return
@@ -264,6 +268,10 @@ export function planReading(req: ReadingRequest): ReadingPlan {
     marks: kept
   }
   const first = planClips(base)
+  // Sound effects (src/main/sounds): their marking starts beside the speakers', and each clip gets its sounds. They
+  // never make a clip wait.
+  const sfx = soundsForReading({ worldId: w.id, db: w.db, sceneId: req.sceneId, before, paragraphs, offset: base.offset, pids: pidsOf(req.pids) })
+  const done = (plan: ReadingPlan): ReadingPlan => (sfx ? sfx.finish(plan) : plan)
   const m = theMarker()
   const marking: MarkingScene = {
     worldId: w.id,
@@ -281,17 +289,19 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   else if (first.unplaced.size) m.label(marking, first.unplaced)
   const ahead = markAhead ? { markAhead } : {}
   const busy = m.busyIn(w.id, req.sceneId)
-  if (!busy.size) return { clips: first.clips, marking: [], ...ahead }
+  if (!busy.size) return done({ clips: first.clips, marking: [], ...ahead })
   // A line waits for its speaker only when that changes its voice: with nobody's own voice, only the bar's name does.
-  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return { clips: first.clips, marking: [...busy], ...ahead }
+  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return done({ clips: first.clips, marking: [...busy], ...ahead })
   const again = planClips({ ...base, ...(s.markSpeakers ? { marking: busy } : { labelling: busy }) })
-  return { clips: again.clips, marking: [...busy], ...ahead }
+  return done({ clips: again.clips, marking: [...busy], ...ahead })
 }
 
 /** Stops the AI marking a scene (its reading stopped). */
 export function stopMarks(sceneId: ID): void {
   const w = world.maybeCurrentWorld()
-  if (w) marker?.stop(w.id, sceneId)
+  if (!w) return
+  marker?.stop(w.id, sceneId)
+  stopSoundMarks(w.id, sceneId)
 }
 
 /** A clip from the window, checked and cut to size, so only what reading aloud would ask for is sent. */

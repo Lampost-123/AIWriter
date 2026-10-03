@@ -51,7 +51,7 @@ export interface TaskRequest {
   /** Each memory entry sent, with the version (updatedAt) that was sent. */
   entries?: { entryId: ID; version: string }[]
   /** What the call was part of. */
-  extra?: Pick<GenerationParams, 'variant' | 'beat' | 'tool' | 'chatId'>
+  extra?: Pick<GenerationParams, 'variant' | 'beat' | 'tool' | 'chatId' | 'sounds'>
   emit: Emit
   /** The provider turned the key down, so Settings can show it isn't working. */
   onKeyRejected?: () => void
