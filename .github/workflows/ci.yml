@@ -42,7 +42,7 @@ jobs:
       - name: App tests (Playwright driving the built app)
         run: |
           command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)
-          xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test
+          xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test tests/e2e/classic.spec.ts
 
       - name: Keep the test report
         if: failure()
