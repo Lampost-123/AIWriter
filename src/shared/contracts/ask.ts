@@ -1,7 +1,11 @@
 // Ask the world (milestone 4): a chat panel for brainstorming that can see the memory, answers from it,
 // cites the entries it used, and can save anything useful to the memory as Adam's own note with one
-// click. It never changes the manuscript or the memory on its own. Owned by the Ask the world part.
-// See docs/ARCHITECTURE.md, "Milestone 4".
+// click. Owned by the Ask the world part. See docs/ARCHITECTURE.md, "Milestone 4".
+//
+// The editor chat (Adam, 2026-10-03): the same chat can look things up for itself (scenes, the outline, search,
+// entries, the style guide, a scene's issues) and propose changes: to a scene's words, its card, an entry, a new
+// entry, a new scene or chapter, or a rename. It never changes anything on its own and never deletes: each change is
+// a Proposal Adam applies (or not) from the chat, and every applied change can be undone.
 //
 // Each turn is a 'chat' generation record with `params.chatId`, run by the shared task runner (task:*
 // events) with the "Chat and brainstorm" model (jobModel('chat')).
@@ -10,7 +14,7 @@
 // it stands at the open scene, or at the story's end when no scene is open), chosen by the same rules
 // as a draft's briefing: an own version of events (a what-if) never reaches another story's chat, and
 // a chat never carries on in another story. Answers name the entries they used as [[Entry name]].
-import type { EntryKind, ID, Origin } from '../types'
+import type { EntryKind, ID, Origin, SceneCard } from '../types'
 
 export interface AskApi {
   /**
@@ -35,9 +39,58 @@ export interface AskApi {
   saveAskNote(input: SaveNoteInput): Promise<SavedNote>
   /** Takes a note saved with saveAskNote back out (the toast's Undo). */
   undoAskNote(undo: NoteUndo): Promise<void>
+  /** The editor chat: records what Adam made of a proposed change (it is applied by the window, through the usual calls). */
+  setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void>
 }
 
-export interface AskEvents {}
+export interface AskEvents {
+  /** The editor chat looked something up or noted a change: a short line for the answer being written ("Reading Ch 2, Sc 1"). */
+  'ask:step': { taskId: ID; generationId: ID; label: string }
+  /** The editor chat proposed changes (all of this turn's, so far). */
+  'ask:proposals': { taskId: ID; generationId: ID; proposals: Proposal[] }
+}
+
+/** What Adam made of a proposed change. */
+export type ProposalStatus = 'pending' | 'applied' | 'declined'
+
+/** The parts of a scene card the editor chat may propose. */
+export type CardProposal = Partial<Pick<SceneCard, 'goal' | 'conflict' | 'outcome' | 'mood' | 'when' | 'notes' | 'beats'>>
+
+/** The parts of an entry the editor chat may propose (new values; `fields` by the kind's field keys). */
+export interface EntryProposal {
+  summary?: string
+  description?: string
+  aliases?: string[]
+  fields?: Record<string, string>
+}
+
+/**
+ * A change the editor chat proposes. Nothing happens until Adam applies it (and it can be undone after); `why` is the
+ * chat's own short reason. `id` is unique within its turn.
+ */
+export type Proposal = { id: string; status: ProposalStatus; why: string } & (
+  | {
+      /** Words in a scene: `find` (exactly as in the scene now) becomes `replace` ('' cuts them). */
+      kind: 'text'
+      sceneId: ID
+      sceneLabel: string
+      find: string
+      replace: string
+    }
+  | { kind: 'card'; sceneId: ID; sceneLabel: string; patch: CardProposal }
+  | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
+  | { kind: 'newEntry'; entryKind: EntryKind; name: string; summary: string; description: string }
+  | {
+      /** A new scene at the end of a chapter, with a card if given. */
+      kind: 'newScene'
+      chapterId: ID
+      chapterLabel: string
+      title: string
+      card: CardProposal
+    }
+  | { kind: 'newChapter'; storyId: ID; title: string }
+  | { kind: 'rename'; target: 'scene' | 'chapter'; targetId: ID; from: string; to: string }
+)
 
 export interface AskInput {
   /** Made by the interface (any unique id), so every task event can be matched to it. */
@@ -68,6 +121,10 @@ export interface AskTurn {
   /** The answer ran into its length limit, so it stops before its end. */
   cutOff: boolean
   createdAt: string
+  /** The editor chat: what it looked up on the way, in plain words. */
+  steps?: string[]
+  /** The editor chat: the changes it proposes, and what Adam made of each. */
+  proposals?: Proposal[]
 }
 
 /** A chat in the list of earlier chats. */

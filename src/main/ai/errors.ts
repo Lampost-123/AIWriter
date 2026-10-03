@@ -218,6 +218,11 @@ function describeStatus(
       ? 'Your OpenRouter credit has run out. Top up, or switch the writer model in Settings.'
       : `${who} says your account is out of credit. Top up there, or switch the writer model in Settings.`
   }
+  // Only the editor chat sends tools: a model that can't take them says so in many ways (OpenRouter: a 404, "No endpoints
+  // found that support tool use").
+  if (status >= 400 && status < 500 && /\btool(s|_choice| use| call)|function.?call/i.test(msg)) {
+    return `This model can’t use the tools the editor chat needs to look things up and propose changes. Choose another Chat and brainstorm model in ${SETTINGS}: most Claude, GPT, DeepSeek and Gemini models can.`
+  }
   if (status === 404) {
     if (ctx.during !== 'models' && (p.kind === 'openrouter' || /model/i.test(msg))) {
       return `${who} doesn't have a model called ${model}. ${otherModel}`

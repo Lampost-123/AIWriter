@@ -23,7 +23,8 @@ type Entry = GenerationRecord['entries'][number]
 const CHAT_ROLES: Record<GenerationRecord['messages'][number]['role'], string> = {
   system: 'Instructions and briefing',
   user: 'Question',
-  assistant: 'Earlier answer'
+  assistant: 'Earlier answer',
+  tool: 'Looked up'
 }
 
 /** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
@@ -386,6 +387,27 @@ function DraftRecord({
           </div>
         )}
       </section>
+
+      {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
+      {rec.params.steps?.length ? (
+        <section className="mt-8" aria-label="Steps it took">
+          <SectionTitle>Steps it took</SectionTitle>
+          <ol className="flex flex-col gap-2">
+            {rec.params.steps.map((s, i) => (
+              <li key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+                <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
+                  <span className="tabular-nums text-faint">{i + 1}.</span>
+                  <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                  <span className="font-mono text-[11px] text-faint">{s.tool}</span>
+                </div>
+                <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-2.5 font-mono text-[11.5px] leading-[1.55] text-fg">
+                  {s.result}
+                </pre>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       <section className="mt-8">
         <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>

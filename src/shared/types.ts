@@ -586,13 +586,40 @@ export interface ContextEntry {
 }
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  /** 'tool': a tool's answer to a call the model made (the editor chat). */
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** An assistant turn that asked for tools (the editor chat): the calls, in order. */
+  toolCalls?: ToolCall[]
+  /** A tool's answer: the call it answers. */
+  toolCallId?: string
   /**
    * Where the part of `content` that stays the same from one request to the next ends (a character
    * index), so a model that caches only where asked (Claude) can reuse it. Never sent as it is.
    */
   cacheUpTo?: number
+}
+
+/** One tool the editor chat's model used: what it did in plain words, the call, and (shortened) what came back. */
+export interface AgentStep {
+  label: string
+  tool: string
+  arguments: string
+  result: string
+}
+
+/** A tool the model asked to use (the editor chat): its call id, the tool's name and the arguments as sent (JSON text). */
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
+/** A tool offered to the model: its name, what it does and its parameters (a JSON Schema object). */
+export interface ToolSpec {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
 }
 
 export interface DraftOptions {
@@ -704,6 +731,10 @@ export interface GenerationRecord extends GenerationSummary {
     tool?: EditTool
     /** A turn of an Ask the world conversation. */
     chatId?: ID
+    /** The editor chat: each tool the model used on the way to its answer, in order (for "What the AI saw"). */
+    steps?: AgentStep[]
+    /** The editor chat: the changes the answer proposes, and what Adam made of each. */
+    proposals?: import('./contracts/ask').Proposal[]
     // ----- The style guide's helpers -----
     /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
     min_p?: number

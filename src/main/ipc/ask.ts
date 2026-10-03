@@ -19,6 +19,8 @@ import { countTokens } from '../ai/tokenService'
 import { finishAsk, prepareAsk } from '../ask/context'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
+import { EDITOR_TOOLS, EditorAgent, MAX_STEPS } from '../ask/agent'
+import { proposalsOf, saveProposals } from '../db/ask'
 
 /** Questions in a chat are asked again and again with the same briefing: only what changed is counted again. */
 const countCached = cachedCounter(countTokens)
@@ -89,7 +91,18 @@ export const askHandlers: Handlers<keyof AskApi> = {
       if (event === 'task:done' && (payload as { status?: string }).status === 'complete') notes.onWorked()
       emit(event, payload)
     }
-    const { generationId } = startTask({
+    // The editor chat: its tools look things up and note proposed changes, never change anything themselves.
+    let generationId = ''
+    const agent = new EditorAgent(
+      db,
+      { storyId, sceneId: input.sceneId ?? null, prefs: getWritingPrefs() },
+      (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
+      (proposals) => {
+        if (generationId && db.open) saveProposals(db, generationId, proposals)
+        emit('ask:proposals', { taskId: input.taskId, generationId, proposals })
+      }
+    )
+    ;({ generationId } = startTask({
       db,
       taskId: input.taskId,
       job: 'chat',
@@ -104,8 +117,14 @@ export const askHandlers: Handlers<keyof AskApi> = {
       entries: b.entries,
       extra: { chatId },
       emit: send,
-      onKeyRejected: notes.onKeyRejected
-    })
+      onKeyRejected: notes.onKeyRejected,
+      agent: {
+        tools: EDITOR_TOOLS,
+        maxSteps: MAX_STEPS,
+        run: (calls) => agent.runAll(calls),
+        extraParams: () => (agent.proposals.length ? { proposals: agent.proposals } : {})
+      }
+    }))
     const row = chatTurnRow(db, generationId)
     const turn: AskTurn = row
       ? toTurn(row)
@@ -130,6 +149,17 @@ export const askHandlers: Handlers<keyof AskApi> = {
       (r) => r.entryId,
       () => saveNote(world.db(), input)
     ),
+  setProposalStatus: (generationId, proposalId, status) => {
+    const db = world.db()
+    if (status !== 'pending' && status !== 'applied' && status !== 'declined') throw new UserError('Something went wrong. Try again.')
+    const all = proposalsOf(db, generationId)
+    if (!all.some((p) => p.id === proposalId)) return
+    saveProposals(
+      db,
+      generationId,
+      all.map((p) => (p.id === proposalId ? { ...p, status } : p))
+    )
+  },
   undoAskNote: (undo) => {
     memoryWrite(
       () => undo.entryId,
