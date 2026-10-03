@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type Re
 import { cardLength, emptySceneCard } from '@shared/defaults'
 import type { Entry, ID, SceneCard } from '@shared/types'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
+import { Feather, ListOrdered, Spool, TextQuote, Users, type IconType } from '@/components/ui/icons'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
@@ -212,7 +213,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         onUse={fillFromIdea}
         beside={interview ? null : <InterviewButton target={interviewTarget} />}
       />
-      <Group title="Who and where" action={<SaveNote status={autosave.status} error={autosave.error} />}>
+      <Group title="Who and where" icon={Users} action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <Field label="Point of view" hint={characters.length ? 'The scene is told through their eyes.' : 'No characters yet. Type a name under Characters present to add one.'}>
           {(id) => <OptionSelect id={id} value={povValue} onChange={setPov} options={povOptions} />}
         </Field>
@@ -241,7 +242,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </Field>
       </Group>
 
-      <Group title="What happens">
+      <Group title="What happens" icon={ListOrdered}>
         <div className="flex flex-col gap-1">
           <label htmlFor={ids.beats} className="text-[12px] font-medium text-muted">
             Beats
@@ -263,7 +264,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <BringAbout sceneId={sceneId} entries={byId} />
       </Group>
 
-      <Group title="Plot threads">
+      <Group title="Plot threads" icon={Spool}>
         <div className="flex flex-col gap-1">
           <label htmlFor={ids.setsUp} className="text-[12px] font-medium text-muted">
             Sets up
@@ -302,7 +303,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </div>
       </Group>
 
-      <Group title="How it reads">
+      <Group title="How it reads" icon={Feather}>
         <Field label="Mood or tone">
           {(id) => <Input id={id} value={card.mood} placeholder="Quiet and tense, with a bitter edge" onChange={(e) => update({ mood: e.target.value })} />}
         </Field>
@@ -331,6 +332,7 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
       <Group
         title="Summary"
+        icon={TextQuote}
         action={
           <button
             type="button"
@@ -361,11 +363,15 @@ const OptionSelect = memo(function OptionSelect({
   return <Select id={id} value={value} onChange={onChange} options={options} allowNone noneLabel="None" placeholder="None" />
 })
 
-function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }): React.JSX.Element {
+/** One part of the card. The New look shows it as a card of its own, its small-caps head led by an icon. */
+function Group({ title, icon: Icon, action, children }: { title: string; icon: IconType; action?: ReactNode; children: ReactNode }): React.JSX.Element {
   return (
-    <section className="flex flex-col gap-3.5 border-t border-line pt-4 first:border-t-0 first:pt-0">
+    <section className="flex flex-col gap-3.5 border-t border-line pt-4 first:border-t-0 first:pt-0 look-new:rounded-card look-new:border-t-0 look-new:bg-raise look-new:p-3.5 look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:first:pt-3.5">
       <div className="flex h-5 items-center justify-between gap-2">
-        <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{title}</h3>
+        <h3 className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint look-new:tracking-[0.08em]">
+          <Icon size={14} className="hidden text-accent look-new:inline" aria-hidden />
+          {title}
+        </h3>
         {action}
       </div>
       {children}

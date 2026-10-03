@@ -1158,6 +1158,13 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
 - **Fonts.** Classic's prose is the static Literata it always had (`--serif-font`); the New look uses Literata's
   variable font, whose optical sizes give the headings their display cut. Each look loads only its own.
+- **The New look's frame** (Classic renders today's binder and sample bar instead): the area rail
+  (`layout/AreaRail.tsx`: Write, Plan, World, Check; Ask and Settings at its foot), the area's side list in the
+  binder's pane (`layout/AreaList.tsx`; Write's is the binder without its World section), the trail in the top bar
+  (`layout/Trail.tsx`) and the sample world as a chip. **Which area a screen belongs to is one table**,
+  `AREA_OF` in `layout/areas.ts` (TypeScript asks for every view), so a screen opened from anywhere lights its
+  area. The selection glides (`components/ui/GlidePill.tsx`: one pill behind a list, moved by transform), and a
+  new page fades in with a small rise (`.view-in`, styles.css).
 - **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
   sample world, with screenshots taken before the New look began (one set per platform).
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.

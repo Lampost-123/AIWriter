@@ -91,7 +91,7 @@ export function KeeperStatus(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[176px] shrink-0 justify-end" role="status" aria-live="polite">
+    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px]" role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger

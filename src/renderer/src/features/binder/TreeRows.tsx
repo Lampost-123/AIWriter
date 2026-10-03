@@ -44,7 +44,7 @@ export interface RowHandlers {
 }
 
 const rowBase =
-  'group/row relative flex h-8 select-none items-center rounded-md text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60'
+  'group/row relative flex h-8 select-none items-center rounded-md text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 look-new:rounded-[9px] look-new:transition-colors look-new:duration-(--dur-quick)'
 
 /** A chapter's or scene's left padding by its depth: inside an act, one step further in, so it reads as the act's. */
 const chapterPad = (level: number): string => (level >= 2 ? 'pl-4' : 'pl-1')
@@ -214,8 +214,9 @@ export const SceneRow = memo(function SceneRow({ scene, level = 2, selected, qui
           ? 'z-10 bg-accent-soft ring-1 ring-inset ring-accent/40 [&>*]:opacity-0'
           : selected
             ? quiet
-              ? 'bg-surface-3/70'
-              : 'bg-accent-soft'
+              ? 'bg-surface-3/70 look-new:bg-transparent'
+              : // The New look: the gliding pill behind the row (Binder) is its highlight.
+                'bg-accent-soft look-new:bg-transparent'
             : menuOpen
               ? 'bg-surface-2'
               : 'hover:bg-surface-2'

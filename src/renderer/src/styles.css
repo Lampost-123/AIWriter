@@ -363,6 +363,22 @@
   --glow: radial-gradient(1200px 600px at 50% -10%, rgb(255 230 180 / 0.45), transparent 60%);
 }
 
+/*
+  The New look's raised surfaces, wherever they open: menus, lists that drop down and popovers sit on the --raise
+  colour above everything, with a soft ring and the deepest shadow, and spring open from where they were opened.
+  (Plain rules, outside Tailwind's layers, so they win over each one's own classes in the New look only.)
+*/
+[data-look='new'] :is([role='menu'], [role='listbox'][data-state], [data-radix-popper-content-wrapper] > [role='dialog']) {
+  background-color: var(--raise);
+  border-color: transparent;
+  border-radius: 12px;
+  box-shadow: var(--elev-3), 0 0 0 1px var(--line);
+}
+[data-look='new'] [data-radix-popper-content-wrapper] > [data-state='open'] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: pop-in var(--dur-base) var(--motion-spring);
+}
+
 /* look-new:… applies a class in the New look only; look-classic:… in Classic only. */
 @custom-variant look-new (&:where([data-look='new'], [data-look='new'] *));
 @custom-variant look-classic (&:where([data-look='classic'], [data-look='classic'] *));
@@ -440,6 +456,48 @@
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+/*
+  The New look: switching views, the page that opens fades in with a 6px rise (the main pane only; nothing else
+  moves). Two copies of the same keyframes, so returning to the writing page (which stays mounted) can start it
+  again by switching between them.
+*/
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes view-in-again {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[data-look='new'] .view-in {
+  animation: view-in var(--dur-view) var(--motion-glide) both;
+}
+[data-look='new'] .view-in-again {
+  animation: view-in-again var(--dur-view) var(--motion-glide) both;
+}
+/* The New look's toasts spring up into place. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 /* The New look's one-time note springs up from the corner. */

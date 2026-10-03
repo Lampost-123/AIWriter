@@ -40,7 +40,9 @@ import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
-import { useLookSetting } from '@/features/look/look'
+import { useLookSetting, useNewLook } from '@/features/look/look'
+import { AreaRail } from '@/layout/AreaRail'
+import { AreaList } from '@/layout/AreaList'
 import { LookNote } from '@/features/look/LookNote'
 import { useFocusMode } from '@/features/look/focusMode'
 import { FocusLayer } from '@/features/look/FocusLayer'
@@ -106,7 +108,8 @@ export function App(): React.JSX.Element | null {
   const showStart = !setupStep && (home || (!world && !noWorldPage))
 
   return (
-    <div className="relative flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
+    // The New look: a soft light falls on the window's frame from above (none in Classic).
+    <div className="relative flex h-full flex-col look-new:[background-image:var(--glow)]" inert={restoring} aria-busy={restoring || undefined}>
       {setupStep ? (
         <FirstRun />
       ) : world ? (
@@ -188,6 +191,8 @@ function useWindowWidth(): { width: number; resizing: boolean } {
 }
 
 const BINDER = { min: 220, max: 440, floor: 200 }
+/** The New look's area rail, always beside the side list (layout/AreaRail.tsx). */
+const RAIL = 64
 const SCENE_PANEL = { min: 280, max: 520, floor: 260 }
 /** The top bar's binder button (in a small window it shows the binder over the page instead). */
 const BINDER_BUTTON = 'Show or hide the binder'
@@ -204,14 +209,23 @@ function Workspace(): React.JSX.Element {
   const focus = useFocusMode((s) => s.on)
   const focusMoving = useFocusMode((s) => s.moving)
   const focusPanel = focus && (askOpen || peeking)
+  // The New look: the area rail, then the area's list where Classic has the binder (and no sample bar: a chip in the top bar).
+  const isNew = useNewLook()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
   const writing = view.kind === 'write'
+  // The New look: each time the writing page comes back, it fades in again (see .view-in in styles.css).
+  const returns = useRef(0)
+  const wasWriting = useRef(writing)
+  if (writing && !wasWriting.current) returns.current++
+  wasWriting.current = writing
   // Ask the world (milestone 4) shows in this panel too, even with no scene open.
   const scenePanel = writing && (!!sceneId || askOpen)
   // In a small window the open panels give up some width, so the page keeps room to write in.
   // Adam's chosen widths are kept and come back when the window is wider.
-  const win = useWindowWidth()
+  const shown = useWindowWidth()
+  // The panels share what the rail leaves.
+  const win = isNew ? { ...shown, width: shown.width - RAIL } : shown
   // The scene panel comes and goes with the writing page (it isn't there on other pages). When it
   // does, the binder takes its new width at once too, rather than easing while the page swaps.
   const hadScenePanel = useRef(scenePanel)
@@ -226,7 +240,9 @@ function Workspace(): React.JSX.Element {
   const right = { open: !focus && scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
   const floats = binderFloats(win.width, BINDER.floor, right, pageMin)
   const floating = useFloatingPane(floats)
-  const left = { open: !focus && layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
+  // The New look: Settings has a list of its own beside the rail, so the area's list steps aside there.
+  const listAside = isNew && view.kind === 'settings'
+  const left = { open: !focus && !listAside && layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
   const fit = fitPanels(win.width, left, right, pageMin)
   // A panel squeezed narrower than its own minimum is dragged from where it shows, and the width
   // saved is the one that shows where Adam lets go, so nothing jumps on release.
@@ -236,34 +252,44 @@ function Workspace(): React.JSX.Element {
   return (
     <>
       <TopBar />
-      <div data-focus-chrome>
-        <SampleWorldBar />
-      </div>
+      {isNew ? null : (
+        <div data-focus-chrome>
+          <SampleWorldBar />
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1">
+        {isNew ? (
+          <div className="contents" inert={focus}>
+            <AreaRail />
+          </div>
+        ) : null}
         <div data-focus-chrome className="contents" inert={focus}>
           <ResizablePane
             side="left"
             label="Binder"
             width={left.open ? fit.left : layout.binderWidth}
-            open={focus ? false : floats ? floating.open : layout.binderOpen}
+            open={focus || listAside ? false : floats ? floating.open : layout.binderOpen}
             floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON } : null}
             min={binderMin}
             max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
             instant={!focusMoving && (win.resizing || pageSwap)}
             onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
           >
-            <Binder />
+            {isNew ? <AreaList /> : <Binder />}
           </ResizablePane>
         </div>
         <main className="relative min-w-0 flex-1 bg-bg">
           {/* The writing view stays in place under the other pages, so a draft keeps writing into the scene
               while Adam looks at something else, and the page and caret are where he left them. Hidden with
               visibility (not display), which keeps its scroll position. */}
-          <div className={cn('h-full', !writing && 'invisible pointer-events-none')} inert={!writing}>
+          <div
+            className={cn('h-full', !writing && 'invisible pointer-events-none', writing && returns.current > 0 && (returns.current % 2 ? 'view-in' : 'view-in-again'))}
+            inert={!writing}
+          >
             <SceneView />
           </div>
           {!writing ? (
-            <div className="absolute inset-0 bg-bg">
+            <div key={view.kind} className="view-in absolute inset-0 bg-bg">
               {view.kind === 'entries' && <EntriesView kind={view.entryKind} entryId={view.entryId} from={view.from} />}
               {view.kind === 'style' && <StyleView />}
               {view.kind === 'settings' && <SettingsView tab={view.tab} />}

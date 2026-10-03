@@ -126,7 +126,9 @@ function Toast({ t }: { t: ToastItem }): React.JSX.Element {
       }}
       className={cn(
         'pointer-events-auto flex items-start gap-3 rounded-lg border bg-surface px-3.5 py-2.5 text-[13px] shadow-pop animate-slide-up',
-        t.tone === 'danger' ? 'border-danger/40' : t.tone === 'success' ? 'border-success/40' : 'border-line'
+        // The New look: a raised card that springs up into place.
+        'look-new:rounded-xl look-new:bg-raise look-new:shadow-e3 look-new:[animation:toast-in_var(--dur-base)_var(--motion-spring)_both]',
+        t.tone === 'danger' ? 'border-danger/40' : t.tone === 'success' ? 'border-success/40' : 'border-line look-new:border-transparent look-new:ring-1 look-new:ring-line'
       )}
     >
       {/* A long file path or web address wraps inside the toast rather than running off the window. */}
