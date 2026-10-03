@@ -9,6 +9,7 @@ import { addUp, emptyBucket, splitKey, type Bucket, type WorldTally } from './ag
 export const JOB_GROUPS: Record<string, { key: string; label: string }> = {
   draft: { key: 'writing', label: 'Writing' },
   beat: { key: 'writing', label: 'Writing' },
+  polish: { key: 'writing', label: 'Writing' },
   edit: { key: 'edits', label: 'Rewrites and edits' },
   memory: { key: 'memory', label: 'Memory' },
   summary: { key: 'memory', label: 'Memory' },
@@ -19,7 +20,8 @@ export const JOB_GROUPS: Record<string, { key: string; label: string }> = {
   world: { key: 'world', label: 'World builder' },
   speech: { key: 'speech', label: 'Read aloud' },
   check: { key: 'check', label: 'Consistency checks' },
-  story: { key: 'story', label: 'Story flows' }
+  story: { key: 'story', label: 'Story flows' },
+  sample: { key: 'sample', label: 'Style guide samples' }
 }
 
 export function jobGroup(job: string): { key: string; label: string } {

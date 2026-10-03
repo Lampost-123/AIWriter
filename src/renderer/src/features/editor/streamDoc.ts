@@ -120,7 +120,8 @@ type StreamMeta =
   | { type: 'replaced'; before: EditorState }
   | { type: 'restored' }
   | { type: 'undo-asked' }
-  | { type: 'end' }
+  /** `landed`: where the draft that ends here begins, in the document the step starts from (none when nothing arrived). */
+  | { type: 'end'; landed?: number }
 
 export const streamKey = new PluginKey<StreamInfo | null>('aiwriteStream')
 
@@ -178,6 +179,12 @@ export function holding(state: EditorState): boolean {
 }
 
 /** True when this step is the one in which a draft's first words took the place of the scene's text. */
+/** Where the draft a step ends begins (for the live checks' count of common AI phrases), or null. */
+export function landedIn(tr: Transaction): number | null {
+  const meta = tr.getMeta(streamKey) as StreamMeta | undefined
+  return meta?.type === 'end' && meta.landed !== undefined ? tr.mapping.map(meta.landed, -1) : null
+}
+
 export const replacedIn = (tr: Transaction): boolean => (tr.getMeta(streamKey) as StreamMeta | undefined)?.type === 'replaced'
 
 /** True when Adam asked to undo a draft that is still replacing the scene's text (the editor stops it and puts the old text back). */
@@ -440,10 +447,11 @@ export function commitStream(state: EditorState): EditorState {
     }
     return state.apply(closeHistory(tr))
   }
+  const landed: StreamMeta = { type: 'end', landed: from }
   try {
     const draft = state.doc.slice(from, size).content
     // 1. Put the region back as it was before the stream, without recording it.
-    const tr1 = state.tr.replaceWith(from, size, before).setMeta('addToHistory', false).setMeta(streamKey, end)
+    const tr1 = state.tr.replaceWith(from, size, before).setMeta('addToHistory', false).setMeta(streamKey, landed)
     const s1 = state.apply(tr1)
     // 2. Put the whole draft back as one recorded step of its own.
     const tr2 = closeHistory(s1.tr.replaceWith(from, from + before.size, draft))
@@ -453,7 +461,7 @@ export function commitStream(state: EditorState): EditorState {
     // 3. Close the group so the next thing Adam types is a separate undo step.
     return s2.apply(closeHistory(s2.tr))
   } catch {
-    return state.apply(closeHistory(state.tr.setMeta(streamKey, end).setMeta('addToHistory', false)))
+    return state.apply(closeHistory(state.tr.setMeta(streamKey, landed).setMeta('addToHistory', false)))
   }
 }
 
@@ -465,14 +473,16 @@ export function commitStream(state: EditorState): EditorState {
  */
 function commitReplace(state: EditorState, info: StreamInfo): EditorState {
   const end: StreamMeta = { type: 'end' }
-  const plainEnd = (): EditorState => state.apply(closeHistory(state.tr.setMeta(streamKey, end).setMeta('addToHistory', false)))
+  // The draft took the whole scene's place.
+  const landed: StreamMeta = { type: 'end', landed: 0 }
+  const plainEnd = (meta = end): EditorState => state.apply(closeHistory(state.tr.setMeta(streamKey, meta).setMeta('addToHistory', false)))
   const before = info.before
   // Nothing arrived (or only a lead-in, and the old text is back already): the scene is as it was.
   if (!before) return plainEnd()
   const selection = state.selection.toJSON()
   try {
     if (!samePlugins(before, state)) throw new Error('the editor was set up again')
-    const tr = before.tr.setMeta(streamKey, end)
+    const tr = before.tr.setMeta(streamKey, landed)
     if (!state.doc.eq(before.doc)) {
       tr.replaceWith(0, before.doc.content.size, state.doc.content)
       if (!tr.doc.eq(state.doc)) throw new Error('draft did not round-trip')
@@ -486,14 +496,14 @@ function commitReplace(state: EditorState, info: StreamInfo): EditorState {
     try {
       const draft = state.doc.content
       const tr1 = state.tr.replaceWith(0, state.doc.content.size, before.doc.content)
-      const s1 = state.apply(tr1.setMeta('addToHistory', false).setMeta(streamKey, end))
+      const s1 = state.apply(tr1.setMeta('addToHistory', false).setMeta(streamKey, landed))
       const tr2 = closeHistory(s1.tr.replaceWith(0, s1.doc.content.size, draft))
       if (!tr2.doc.eq(state.doc)) throw new Error('draft did not round-trip')
       tr2.setSelection(Selection.fromJSON(tr2.doc, selection))
       const s2 = s1.apply(tr2)
       return s2.apply(closeHistory(s2.tr))
     } catch {
-      return plainEnd()
+      return plainEnd(landed)
     }
   }
 }

@@ -44,6 +44,8 @@ export interface TaskRequest {
   reply: number
   temperature: number
   topP?: number
+  /** min_p, sent only to OpenRouter (see ai/client.ts); left out when not given. */
+  minP?: number
   /** Saved with the record and shown in "What the AI saw" (Adam's instruction or question). */
   direction?: string
   /** The briefing's blocks, for "What the AI saw" (none when the call has no briefing to show). */
@@ -51,7 +53,7 @@ export interface TaskRequest {
   /** Each memory entry sent, with the version (updatedAt) that was sent. */
   entries?: { entryId: ID; version: string }[]
   /** What the call was part of. */
-  extra?: Pick<GenerationParams, 'variant' | 'beat' | 'tool' | 'chatId'>
+  extra?: Pick<GenerationParams, 'variant' | 'beat' | 'tool' | 'chatId' | 'polishOf'>
   emit: Emit
   /** The provider turned the key down, so Settings can show it isn't working. */
   onKeyRejected?: () => void
@@ -115,9 +117,12 @@ function begin(req: TaskRequest): Running {
   const start: SentParams = model.choice.sampling === false ? { ...known, sampling: false } : known
   const topP = req.topP ?? 0.95
   const asked = levelOfEffort(thinkingEffort(model.target, model.choice.modelId, model.thinking))
+  // min_p is sent only to OpenRouter, with the other creativity settings (ai/client.ts), so only then is it noted.
+  const minP = req.minP != null && start.sampling && start.minP !== false && model.target.kind === 'openrouter' ? req.minP : null
   const params: GenerationParams = {
     temperature: req.temperature,
     top_p: topP,
+    ...(minP != null ? { min_p: minP } : {}),
     max_tokens: limit,
     ...(start.sampling ? {} : { sampling: false }),
     ...(asked ? { thinking: asked } : {}),
@@ -176,7 +181,14 @@ async function stream(
 
   const outcome = await streamChat({
     target: model.target,
-    body: { model: model.choice.modelId, messages: req.messages, temperature: req.temperature, top_p: o.topP, max_tokens: o.limit },
+    body: {
+      model: model.choice.modelId,
+      messages: req.messages,
+      temperature: req.temperature,
+      top_p: o.topP,
+      max_tokens: o.limit,
+      min_p: req.minP ?? null
+    },
     signal: r.controller.signal,
     onText: (t) => {
       r.text += t
@@ -218,7 +230,10 @@ async function stream(
   const cutOff = outcome.cutOff && status === 'complete'
   if (!r.closed && db.open) {
     try {
-      const used = sentAs(o.params, outcome)
+      // min_p turned down (or the creativity settings left out) on the way: the record says it wasn't sent.
+      const minPDropped = o.params.min_p != null && (outcome.sentParams.minP === false || !outcome.sentParams.sampling)
+      const { min_p: _minP, ...withoutMinP } = o.params
+      const used = minPDropped ? (sentAs(withoutMinP, outcome) ?? withoutMinP) : sentAs(o.params, outcome)
       gens.finishGeneration(db, r.generationId, {
         status,
         error,

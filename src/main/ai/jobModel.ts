@@ -12,7 +12,7 @@
 // Each job asks its model to think as that job's own Thinking says (Off unless Adam changes it).
 // No Electron imports: the caller passes the settings and the providers.
 
-import type { ID, Job, ModelChoice, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
+import type { ID, Job, ModelChoice, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import type { ChatTarget } from './client'
 import {
   describeFailure,
@@ -77,6 +77,15 @@ export function jobModel(job: ModelJob, src: ModelSources): JobModel {
     throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings › Models.`, 'no-key')
   }
   return { job, target, choice, thinking: src.settings.thinking?.[job] ?? 'off' }
+}
+
+/**
+ * The writer model for a job that has its own Thinking but no model of its own: 'sample' (a sample passage for
+ * the style guide) and 'polish' (the polish pass after a draft). Its thinking is the job's (Off unless Adam
+ * changes it), never the writer's. Throws as jobModel does.
+ */
+export function writerModelFor(job: Exclude<ThinkingJob, Job>, src: ModelSources): JobModel {
+  return { ...jobModel('writer', src), thinking: src.settings.thinking?.[job] ?? 'off' }
 }
 
 const SETTINGS = 'Settings › Models'

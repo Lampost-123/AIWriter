@@ -103,6 +103,9 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
       // An answer in Ask the world (milestone 4) goes back to its chat, beside the page.
       useApp.getState().navigate({ kind: 'write' })
       useApp.getState().setAskOpen(true)
+    } else if (rec?.job === 'sample') {
+      // A sample passage for the style guide goes back to the Style guide.
+      useApp.getState().navigate({ kind: 'style' })
     } else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
   }
@@ -117,7 +120,9 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
               ? 'Back to the variants'
               : rec?.job === 'chat'
                 ? 'Back to Ask the world'
-                : rec && sceneTitle
+                : rec?.job === 'sample'
+                  ? 'Back to the style guide'
+                  : rec && sceneTitle
                   ? `Back to “${sceneTitle}”`
                   : 'Back to the scene'}
         </Button>
@@ -183,7 +188,14 @@ function DraftRecord({
   const answer = rec.job === 'chat'
   // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
   // A record that isn't a scene's draft at all (an outline, say) is named for what it is.
-  const edit = what ? otherRecordWords(what) : editRecordWords(rec, sceneTitle)
+  // The style guide's helpers: a sample passage, and the polish pass over a draft.
+  const edit = what
+    ? otherRecordWords(what)
+    : rec.job === 'sample'
+      ? otherRecordWords('this sample passage')
+      : rec.job === 'polish'
+        ? otherRecordWords(`this polish of a draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`)
+        : editRecordWords(rec, sceneTitle)
 
   const toggle = (id: string): void =>
     setOpen((s) => {

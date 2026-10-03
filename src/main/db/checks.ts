@@ -17,6 +17,7 @@ import { newId, now } from '../util'
 import { quoteAt, quotesOverlap, stillThere } from '../checks/quote'
 import { memoryFixable } from '../checks/memoryFix'
 import { plain } from '../keeper/text'
+import { isSlopKey } from '@shared/liveChecks'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -148,6 +149,8 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     fix: typeof p.fix === 'string' && p.fix.trim() ? p.fix : null,
     memoryFix,
     ...(typeof p.occurrence === 'number' ? { occurrence: p.occurrence } : {}),
+    // An ignored common AI phrase is a phrase row: the Issues tab names it as what it is.
+    ...(r.kind === 'phrase' && typeof p.key === 'string' && isSlopKey(p.key) ? { aiPhrase: true as const } : {}),
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string
   }

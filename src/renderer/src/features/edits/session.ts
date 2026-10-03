@@ -83,6 +83,8 @@ let hooks: { focusPicker(): void; reveal(): void } | null = null
 let rejectedToast: number | null = null
 /** What to do once a change is accepted, by its id (milestone 5: the issue it fixes is marked fixed). */
 const onAccepted = new Map<ID, () => void>()
+/** History's label for the snapshot taken before a ready-made change goes in, by its id ("Before the polish pass"). */
+const snapshotLabels = new Map<ID, string>()
 
 const noop = (): void => undefined
 
@@ -419,7 +421,8 @@ export async function accept(id?: ID): Promise<void> {
   const s = current()
   if (!v || !s || (id && s.id !== id) || s.status !== 'ready' || !s.text.trim()) return
   v.dispatch(updateSuggestion(v.state, s.id, { status: 'accepting' }))
-  await Promise.race([snapshotBefore(s.sceneId, `Before ${TOOL_NAMES[s.tool]}`, { generationId: s.generationId }), wait(SNAPSHOT_WAIT_MS)])
+  const label = snapshotLabels.get(s.id) ?? `Before ${s.label ?? TOOL_NAMES[s.tool]}`
+  await Promise.race([snapshotBefore(s.sceneId, label, { generationId: s.generationId }), wait(SNAPSHOT_WAIT_MS)])
   const v2 = view()
   const now = current()
   if (!v2 || !now || now.id !== s.id) return
@@ -437,15 +440,27 @@ export async function accept(id?: ID): Promise<void> {
   if (useApp.getState().view.kind === 'write') v2.focus()
   const then = onAccepted.get(s.id)
   onAccepted.delete(s.id)
+  snapshotLabels.delete(s.id)
   then?.()
 }
 
 /**
  * Shows a ready-made replacement for words in the page as a change waiting for Accept or Reject, as the AI
- * tools' changes do, with no AI call (milestone 5: a consistency check's suggested rewrite). Returns its id,
- * or null when the page can't take it now (a draft is being written, or another change waits; it says so).
+ * tools' changes do, with no AI call (milestone 5: a consistency check's suggested rewrite; the polish pass's
+ * revision of a draft). `label` names it beside it, and `snapshot` is History's label for the snapshot taken
+ * before it goes in; `generationId` is the record What the AI saw opens. Returns its id, or null when the page
+ * can't take it now (a draft is being written, or another change waits; it says so).
  */
-export function showReplacement(o: { from: number; to: number; text: string; note?: string | null; onAccepted?: () => void }): ID | null {
+export function showReplacement(o: {
+  from: number
+  to: number
+  text: string
+  note?: string | null
+  onAccepted?: () => void
+  label?: string
+  snapshot?: string
+  generationId?: ID | null
+}): ID | null {
   const v = view()
   const bridge = editorBridge()
   const sceneId = bridge?.sceneId
@@ -462,6 +477,7 @@ export function showReplacement(o: { from: number; to: number; text: string; not
   }
   const id = newTaskId()
   if (o.onAccepted) onAccepted.set(id, o.onAccepted)
+  if (o.snapshot) snapshotLabels.set(id, o.snapshot)
   v.dispatch(
     showSuggestion(v.state, {
       id,
@@ -473,7 +489,9 @@ export function showReplacement(o: { from: number; to: number; text: string; not
       mode: 'replace',
       text: o.text,
       status: 'ready',
-      note: o.note ?? null
+      note: o.note ?? null,
+      label: o.label ?? null,
+      generationId: o.generationId ?? null
     })
   )
   dropRejectedToast()

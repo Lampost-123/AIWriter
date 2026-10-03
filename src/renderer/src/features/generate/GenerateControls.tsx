@@ -6,6 +6,8 @@
 // When the scene already has text, Generate first asks whether the new draft
 // replaces it or goes below it. Once picked, the keyboard goes into the page, and
 // Ctrl+Z on the Generate button works there too, so "Ctrl+Z undoes it" holds.
+// With "Polish after drafting" on (in the draft options), a finished draft is then
+// polished: the button shows Stop and "Polishing…" until the revision is ready.
 import * as P from '@radix-ui/react-popover'
 import { ArrowDownToLine, ChevronDown, RefreshCw, Sparkles, Square } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
@@ -21,6 +23,8 @@ import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { BLANK_DRAFT_OPTIONS, draftLength, type SceneDraftOptions } from './draftOptions'
 import { LengthField } from './LengthField'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft } from './draftRun'
+import { setPolishOn, usePolish } from './polishRun'
+import { withPolish } from './polish'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { costLabel } from '@/features/variants/cost'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
@@ -127,8 +131,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
   /** The page already has writing on it, so Generate asks whether the new draft replaces it or goes after it. */
   const [hasText, setHasText] = useState(false)
-  // This scene's draft, if Generate is writing one (it carries on while Adam is in another scene).
-  const phase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
+  // This scene's draft, if Generate is writing one (it carries on while Adam is in another scene), or its polish pass.
+  const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
+  const polishPhase = usePolish((p) => (p.sceneId === sceneId ? (p.stopping ? 'stopping' : 'polishing') : null))
+  const phase = draftPhase !== 'idle' ? draftPhase : (polishPhase ?? 'idle')
+  const polishOn = usePolish((p) => p.on)
   const retrying = useDraft((d) => (d.sceneId === sceneId ? d.retrying : null))
   const panelAsked = useDraft((d) => (d.panel?.sceneId === sceneId ? d.panel.which : null))
   const [popover, setPopover] = useState<'options' | 'need-model' | 'choose' | null>(null)
@@ -333,7 +340,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // anything is sent. A quick start shows no status at all.
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const startingSlow = useDelayed(phase === 'starting', 700)
-  const showStatus = phase === 'streaming' || phase === 'stopping' || startingSlow
+  const showStatus = phase === 'streaming' || phase === 'stopping' || phase === 'polishing' || startingSlow
+  // The polish pass reads the draft and writes it again, so a draft costs about twice as much with it.
+  const draftCost = estimate != null ? withPolish(estimate, polishOn) : null
   const afterText = 'This scene already has text. You can replace it with the new draft, or add the draft below it.'
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
@@ -343,17 +352,21 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       ? memoryReading
         ? 'Updating memory…'
         : 'Getting ready…'
-      : retrying
-        ? 'Retrying…'
-        : phase === 'stopping'
-          ? 'Stopping…'
-          : 'Writing…'
+      : phase === 'polishing'
+        ? 'Polishing…'
+        : retrying
+          ? 'Retrying…'
+          : phase === 'stopping'
+            ? 'Stopping…'
+            : 'Writing…'
   const statusTitle =
     phase === 'starting'
       ? memoryReading
         ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
         : 'Getting the draft ready.'
-      : (retrying ?? undefined)
+      : phase === 'polishing'
+        ? 'The draft is written. A second pass is polishing it; you can accept or reject the result.'
+        : (retrying ?? undefined)
 
   return (
     <div ref={rootRef} data-generate-controls className="flex items-center gap-1.5">
@@ -383,8 +396,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           >
             <span className="truncate">{modelName ?? 'No writer model'}</span>
             {writer && hasPrices ? (
-              <span className="w-[50px] shrink-0 text-left tabular-nums text-faint" title="Estimated cost of a draft">
-                {estimate != null ? `· ${formatCost(estimate)}` : ''}
+              <span
+                className="w-[50px] shrink-0 text-left tabular-nums text-faint"
+                title={polishOn ? 'Estimated cost of a draft, with the polish pass (about twice as much)' : 'Estimated cost of a draft'}
+              >
+                {draftCost != null ? `· ${formatCost(draftCost)}` : ''}
               </span>
             ) : null}
           </button>
@@ -412,7 +428,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                 icon={<Square size={11} fill="currentColor" />}
                 onClick={stop}
                 disabled={phase === 'stopping'}
-                title="Stop writing (Esc). The text so far is kept."
+                title={phase === 'polishing' ? 'Stop polishing (Esc). The draft stays as it was written.' : 'Stop writing (Esc). The text so far is kept.'}
               >
                 Stop
               </Button>
@@ -436,7 +452,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   variant="primary"
                   className="w-7 rounded-l-none border-l border-accent-fg/25 px-0!"
                   aria-label="Draft options"
-                  title="Draft options: direction, length and creativity"
+                  title="Draft options: direction, length, creativity and polish"
                   onClick={() => {
                     if (popover === 'options') setPopover(null)
                     else {
@@ -571,6 +587,21 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   </>
                 )}
               </div>
+              <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={polishOn}
+                  onChange={(e) => setPolishOn(e.target.checked)}
+                  className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
+                  <span className="block text-[12px] leading-relaxed text-faint">
+                    A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
+                    result in one step. Costs about twice as much.
+                  </span>
+                </span>
+              </label>
               <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px] text-muted">
                 <span className="min-w-0 truncate">
                   Writer:{' '}
@@ -578,8 +609,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     {modelName ?? 'none chosen'}
                   </button>
                 </span>
-                {estimate != null ? (
-                  <span className="shrink-0 tabular-nums">{estimate === 0 ? 'Free' : `${costLabel(estimate, true)} a draft`}</span>
+                {draftCost != null ? (
+                  <span className="shrink-0 tabular-nums">
+                    {draftCost === 0 ? 'Free' : `${costLabel(draftCost, true)} a draft${polishOn ? ', polished' : ''}`}
+                  </span>
                 ) : null}
               </div>
               <Button variant="primary" className="w-full" icon={<Sparkles size={14} />} onClick={() => void generate()}>

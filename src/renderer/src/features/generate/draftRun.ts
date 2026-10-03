@@ -2,6 +2,7 @@
 // another scene: the editor keeps the scene he left for the draft (see the editor's controller), the
 // words go on landing in it and are saved as they come, and coming back to the scene shows it still
 // writing, with Stop. There is one Generate draft at a time; Generate in another scene says where it is.
+// With "Polish after drafting" on, a draft that finishes in full is then polished (polishRun.ts).
 import { create } from 'zustand'
 import type { AppEvents } from '@shared/api'
 import type { ID } from '@shared/types'
@@ -13,7 +14,10 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openScene } from '@/features/memory/openScene'
+import { activeStream } from '@/features/editor/streamDoc'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
+import { blockIndexAt, draftPlace } from './polish'
+import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
 import { cardLength } from '@shared/defaults'
 
 export type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
@@ -27,6 +31,8 @@ interface Run {
   early: AppEvents['generation:chunk'][]
   earlyDone: AppEvents['generation:done'] | null
   cancelled: boolean
+  /** "Polish after drafting" was on when the draft started. */
+  polish: boolean
 }
 
 interface DraftState {
@@ -70,11 +76,13 @@ const showScene = (sceneId: ID): (() => void) => () => {
  */
 export function busyElsewhere(sceneId: ID): boolean {
   const r = run
-  if (!r || r.sceneId === sceneId) return false
-  const name = titled(r.sceneId)
+  const other = r ? r.sceneId : polishingScene()
+  if (!other || other === sceneId) return false
+  const name = titled(other)
+  const what = r ? 'still being written' : 'still being polished'
   toast(
-    `${name ? `A draft of ${name}` : 'A draft of another scene'} is still being written. Stop it there first, or wait for it to finish.`,
-    { action: { label: 'Show', run: showScene(r.sceneId) } }
+    `${name ? `A draft of ${name}` : 'A draft of another scene'} is ${what}. Stop it there first, or wait for it to finish.`,
+    { action: { label: 'Show', run: showScene(other) } }
   )
   return true
 }
@@ -119,6 +127,14 @@ function finish(p: AppEvents['generation:done']): void {
   if (!r || r.generationId !== p.generationId) return
   // A problem is reported here, in one message; otherwise the page says what the draft did.
   const failed = (p.status === 'error' && !!p.error) || !!p.cutOff
+  // Polishing a draft that came in full needs where it begins in the page, read before its stream ends.
+  const toPolish = r.polish && p.status === 'complete' && !p.cutOff
+  const editor = r.bridge.editor
+  const stream = toPolish && editor && r.bridge.sceneId === r.sceneId ? activeStream(editor.state) : null
+  const start =
+    stream && editor && stream.generationId === p.generationId
+      ? { index: blockIndexAt(editor.state.doc, stream.from), breakAdded: !!stream.breakAdded }
+      : null
   const { replaced, away } = r.bridge.endStream(p.generationId, { failed })
   run = null
   useDraft.setState(idle())
@@ -145,7 +161,12 @@ function finish(p: AppEvents['generation:done']): void {
     )
   } else if (name) {
     const done = p.status === 'stopped' ? `Drafting ${name} stopped. The text so far is kept.` : `The draft of ${name} is finished.`
-    toast(done + oldText, { action: { label: 'Show', run: showScene(r.sceneId) } })
+    // Polishing needs the draft in front of it, so a draft that finished in another scene isn't polished.
+    const unpolished = toPolish ? ' It wasn’t polished, because you were in another scene when it finished.' : ''
+    toast(done + unpolished + oldText, { action: { label: 'Show', run: showScene(r.sceneId) } })
+  } else if (toPolish) {
+    const place = start && editor && !editor.isDestroyed ? draftPlace(editor.state.doc, start.index, start.breakAdded) : null
+    if (place) void startPolish({ sceneId: r.sceneId, draftId: p.generationId, place })
   }
 }
 
@@ -159,7 +180,8 @@ export async function startDraft(
   bridge: EditorBridge,
   o: { replace: boolean; takeKeyboard: boolean; options: () => SceneDraftOptions }
 ): Promise<void> {
-  if (run) return
+  // One at a time, and not while the last draft is being polished.
+  if (run || polishingScene()) return
   // From now until the first words arrive, the text to be replaced is held as it is (dimmed, and
   // nothing can change it), so nothing typed while the draft gets ready goes with it.
   if (o.replace && !bridge.holdForReplace(sceneId)) {
@@ -169,7 +191,16 @@ export async function startDraft(
   // Picked from the choice: the keyboard goes back into the page, so Ctrl+Z works as the choice says.
   if (o.takeKeyboard) bridge.takeKeyboard()
   listenForDrafts()
-  const r: Run = { sceneId, worldId: useApp.getState().world?.id ?? null, bridge, generationId: null, early: [], earlyDone: null, cancelled: false }
+  const r: Run = {
+    sceneId,
+    worldId: useApp.getState().world?.id ?? null,
+    bridge,
+    generationId: null,
+    early: [],
+    earlyDone: null,
+    cancelled: false,
+    polish: false
+  }
   run = r
   useDraft.setState({ sceneId, phase: 'starting', retrying: null })
   // If Adam opens another scene while it gets ready, this one is kept for the draft.
@@ -185,7 +216,8 @@ export async function startDraft(
     // Save the card and the page first, so the draft is built from the latest of both.
     await flushAll()
     const card = (await api.getScene(sceneId)).card
-    const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced')
+    const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on)
+    r.polish = !!options.polish
     if (r.cancelled) return giveUp()
     const { generationId } = await api.startDraft(sceneId, options)
     // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
@@ -227,10 +259,13 @@ export async function startDraft(
   }
 }
 
-/** Stops Generate's draft (Stop, or Esc in its scene). The text so far is kept. */
+/** Stops Generate's draft (Stop, or Esc in its scene), or its polish pass. The text so far is kept. */
 export function stopDraft(): void {
   const r = run
-  if (!r) return
+  if (!r) {
+    stopPolish()
+    return
+  }
   if (!r.generationId) {
     // Still starting (perhaps waiting for the memory to catch up): it is called off and nothing is sent.
     // A draft that had already begun by then is stopped as soon as its start comes back.

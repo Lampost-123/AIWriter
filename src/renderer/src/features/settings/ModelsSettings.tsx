@@ -4,7 +4,7 @@
 // Keys are sent to the main process once and never come back.
 import { AudioLines, Check, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingLevel } from '@shared/types'
+import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
 import { isLocalUrl } from '@shared/urls'
 import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
@@ -687,7 +687,24 @@ function WriterModel({
           onCancel={writer && writerProvider ? () => setPicking(false) : undefined}
         />
       )}
-      {providers.length ? <ThinkingChoice job="writer" about="Thinking can help a model plan a scene, but drafts take longer. Models that don't think aren't affected." /> : null}
+      {providers.length ? (
+        <>
+          <ThinkingChoice job="writer" about="Thinking can help a model plan a scene, but drafts take longer. Models that don't think aren't affected." />
+          {/* The writer model's other jobs, each with its own Thinking: shorter, with the hints shown once above. */}
+          <ThinkingChoice
+            job="sample"
+            title="Thinking for sample passages"
+            about="When the writer model writes a sample passage for the style guide. Off is quickest."
+            hints={false}
+          />
+          <ThinkingChoice
+            job="polish"
+            title="Thinking for the polish pass"
+            about="When the writer model polishes a finished draft. Thinking may catch more, but the polish takes longer and costs more."
+            hints={false}
+          />
+        </>
+      ) : null}
     </SettingsSection>
   )
 }
@@ -1168,24 +1185,40 @@ const THINKING_HINTS: Record<ThinkingLevel, string> = {
   high: 'Thinks the most before it answers: slowest, and costs the most.'
 }
 
-const THINKING_NAMES: Record<ModelJob, string> = {
+const THINKING_NAMES: Record<ThinkingJob, string> = {
   writer: 'Writer model thinking',
   memory: 'Memory model thinking',
   builder: 'Character builder model thinking',
   world: 'World builder model thinking',
   chat: 'Chat and brainstorm model thinking',
   check: 'Consistency check model thinking',
-  speech: 'Read aloud model thinking'
+  speech: 'Read aloud model thinking',
+  sample: 'Thinking for sample passages',
+  polish: 'Thinking for the polish pass'
 }
 
-/** How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model does the job. */
-function ThinkingChoice({ job, about }: { job: ModelJob; about: string }): React.JSX.Element {
+/**
+ * How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model
+ * does the job. `hints: false` leaves out the line under the choice (for the writer model's other jobs, shown
+ * just below the writer's own choice, which has it).
+ */
+function ThinkingChoice({
+  job,
+  about,
+  title = 'Thinking',
+  hints = true
+}: {
+  job: ThinkingJob
+  about: string
+  title?: string
+  hints?: boolean
+}): React.JSX.Element {
   const level = useApp((s) => s.settings?.thinking?.[job] ?? 'off')
   const update = useApp((s) => s.updateSettings)
   const choose = (l: ThinkingLevel): void => void update({ thinking: { [job]: l } }).catch((e: Error) => toast(e.message, { tone: 'danger' }))
   return (
     <div className="mt-5">
-      <h3 className="text-[13.5px] font-medium text-fg">Thinking</h3>
+      <h3 className="text-[13.5px] font-medium text-fg">{title}</h3>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{about}</p>
       {/* The four levels share one width and "Model decides" takes the room its name needs, so the row fits the narrowest window. */}
       <Segmented
@@ -1196,13 +1229,15 @@ function ThinkingChoice({ job, about }: { job: ModelJob; about: string }): React
         className="mt-2.5 *:min-w-[72px] *:flex-none *:px-2.5"
       />
       {/* Every hint sits in the same cell, so the space under the choice is the longest hint's and never jumps. */}
-      <div className="mt-2 grid text-[12.5px] text-faint">
-        {THINKING_OPTIONS.map((o) => (
-          <p key={o.value} className={cn('col-start-1 row-start-1', o.value !== level && 'invisible')}>
-            {THINKING_HINTS[o.value]}
-          </p>
-        ))}
-      </div>
+      {hints ? (
+        <div className="mt-2 grid text-[12.5px] text-faint">
+          {THINKING_OPTIONS.map((o) => (
+            <p key={o.value} className={cn('col-start-1 row-start-1', o.value !== level && 'invisible')}>
+              {THINKING_HINTS[o.value]}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

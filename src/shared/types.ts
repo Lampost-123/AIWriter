@@ -545,6 +545,11 @@ export interface DraftOptions {
   /** The length to aim for, in words; null for Auto (the AI picks the length the scene needs, within AUTO_LENGTH). */
   targetWords: number | null
   creativity: Creativity
+  /**
+   * Polish after drafting: once a Generate draft is finished, a second call revises it, and the revision
+   * waits in the page to be accepted or rejected. Left out: off.
+   */
+  polish?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
@@ -560,6 +565,8 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
  * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
  * Milestone 5 adds 'check': one AI consistency check of a scene.
+ * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
+ * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  */
 export type GenerationJob =
   | 'draft'
@@ -575,6 +582,8 @@ export type GenerationJob =
   | 'speech'
   | 'world'
   | 'check'
+  | 'sample'
+  | 'polish'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
@@ -636,6 +645,11 @@ export interface GenerationRecord extends GenerationSummary {
     tool?: EditTool
     /** A turn of an Ask the world conversation. */
     chatId?: ID
+    // ----- The style guide's helpers -----
+    /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
+    min_p?: number
+    /** The polish pass: the record of the draft it revised. */
+    polishOf?: ID
   }
   direction: string
   blocks: ContextBlock[]
