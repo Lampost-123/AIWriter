@@ -2,8 +2,8 @@
 memory is free now.
 
 Free memory decides whether a model can load beside the ones already loaded (base.Engine.load): the voices
-(about 8 GB) and the sound effects (about 5.5 GB at their peak) fit together on a 16 GB card only when the
-desktop and other programs leave enough. Nothing here needs torch: the server's own environment has none.
+(about 9.5 GB) and the sound effects (about 4.5 GB at their most) don't fit together on a 16 GB card beside the
+desktop's own share, so there one is let go for the other. Nothing here needs torch: the server's own environment has none.
 """
 
 import os

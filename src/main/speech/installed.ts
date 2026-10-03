@@ -89,8 +89,13 @@ function halfDownloaded(cache: string): boolean {
   }
 }
 
-/** The snapshot in a Hugging Face cache folder the server loads (the one refs/main names, else any) when it has every file in `needs`. */
-export function snapshotWith(cache: string, needs: readonly string[]): string | null {
+/**
+ * The snapshot in a Hugging Face cache folder the server loads (the one refs/main names, else any) when it has every
+ * file in `needs`. `anyComplete`: when the one refs/main names isn't complete (a newer download stopped part way), any
+ * other complete one does; only for the sound effects, which load from the folder found (Breeze and Whisper load by
+ * their name, which follows refs/main). The same as speech-server/app/downloaded.py, snapshot_dir.
+ */
+export function snapshotWith(cache: string, needs: readonly string[], anyComplete = false): string | null {
   const snapshots = join(cache, 'snapshots')
   let ref = ''
   try {
@@ -100,11 +105,15 @@ export function snapshotWith(cache: string, needs: readonly string[]): string | 
   }
   let names: string[]
   try {
-    names = ref && isDir(join(snapshots, ref)) ? [ref] : readdirSync(snapshots).filter((n) => isDir(join(snapshots, n)))
+    const others = readdirSync(snapshots)
+      .filter((n) => n !== ref && isDir(join(snapshots, n)))
+      .sort()
+    const named = ref && isDir(join(snapshots, ref)) ? [ref] : []
+    names = anyComplete || !named.length ? [...named, ...others] : named
   } catch {
     return null
   }
-  for (const name of names.sort()) {
+  for (const name of names) {
     if (needs.every((f) => isFile(join(snapshots, name, f)))) return join(snapshots, name)
   }
   return null
@@ -128,9 +137,9 @@ export function soundsComplete(root: string, platform: NodeJS.Platform = process
   if (!existsSync(venvPython(join(root, 'venvs', 'sound'), platform))) return false
   if (!isFile(soundMark(root))) return false
   const sound = soundWeightsDir(root)
-  if (halfDownloaded(sound) || snapshotWith(sound, SOUND_FILES.map((f) => join(...f.split('/')))) === null) return false
+  if (halfDownloaded(sound) || snapshotWith(sound, SOUND_FILES.map((f) => join(...f.split('/'))), true) === null) return false
   const clap = clapWeightsDir(root)
-  return !halfDownloaded(clap) && CLAP_WEIGHTS.some((w) => snapshotWith(clap, [...CLAP_FILES, w]) !== null)
+  return !halfDownloaded(clap) && CLAP_WEIGHTS.some((w) => snapshotWith(clap, [...CLAP_FILES, w], true) !== null)
 }
 
 /** All four of Parakeet's files are in one folder under `dir` (itself, or one folder down as its archive unpacks). */

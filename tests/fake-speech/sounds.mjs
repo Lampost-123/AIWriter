@@ -11,11 +11,12 @@
 //                             (POST /v1/audio/speech) has the words it was asked to say, spread evenly over the clip; any
 //                             other gets the option alignWords (a string) spread the same way, else no words. 400 "No
 //                             audio.", 413 over 8 MB, 503 "no-aligner" when there is no aligner (the option aligner: null,
-//                             or no dictation model downloaded).
+//                             or no dictation model downloaded); 503 "busy" with x-align-retry: 1 while alignBusy is set
+//                             (dictation was using the model, which always goes first).
 //   GET  /__sounds            every sound asked for so far (the request's body), so tests can see what was made
 //
 // Options (read on every request): sounds (downloaded there; default true, or what AI Write's speech folder holds),
-// soundsLoadError, soundsBusy, soundsFail ({status, detail}), soundsDelayMs, beside (default true), aligner
+// soundsLoadError, soundsBusy, soundsFail ({status, detail}), soundsDelayMs, beside (default true), alignBusy, aligner
 // ('whisper' | 'parakeet' | null; default: the first dictation model downloaded, Whisper first), alignWords.
 import { createHash } from 'node:crypto'
 import { readWav } from './dictation.mjs'
@@ -122,6 +123,7 @@ const align = (_req, body, state) => {
   if (body.length > 8_000_000) return json({ detail: 'That clip is too long to time its words.' }, 413)
   const engine = alignerOf(state)
   if (!engine) return json({ detail: 'no-aligner' }, 503)
+  if (options.alignBusy) return json({ detail: 'busy' }, 503, { 'x-align-retry': '1' })
   const text = state.spokenClips?.get(hash(body)) ?? (typeof options.alignWords === 'string' ? options.alignWords : '')
   const said = text.split(/\s+/).filter(Boolean)
   const seconds = readWav(body).seconds

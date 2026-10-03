@@ -160,6 +160,7 @@ function forExplaining(ev: OutputEvent): string | null {
   if (ev.kind === 'error') return `@@error ${ev.message}`
   if (ev.kind === 'licence') return `@@licence ${ev.url}`
   if (ev.kind === 'key') return '@@key'
+  if (ev.kind === 'keep') return '@@keep-environment'
   return null
 }
 

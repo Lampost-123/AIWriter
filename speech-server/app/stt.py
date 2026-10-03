@@ -31,8 +31,11 @@ _choice = "none"
 _whisper = None
 _parakeet = None
 _last_used = 0.0
-# The model `align` loaded because no dictation model is chosen: (engine, model), or None.
+# The model `align` loaded because no dictation model is chosen: (engine, model), or None. It has its own lock, so
+# timing words with it never holds up dictation; and when it was last used.
 _aligner = None
+_align_lock = threading.Lock()
+_aligner_used = 0.0
 # Why each model couldn't be loaded the last time it was asked for (gone once it loads): /v1/health says
 # so, and AI Write's Settings explains it in plain words, with the fix.
 _load_errors: dict[str, str] = {}
@@ -58,6 +61,10 @@ WHISPER_MODEL = "base.en"
 
 class DictationError(RuntimeError):
     """Why dictation can't run, in plain words: AI Write shows the message as it is."""
+
+
+class AlignBusy(RuntimeError):
+    """The chosen dictation model is busy writing down what Adam said: dictation goes first, so the words aren't timed now."""
 
 
 def choice() -> str:
@@ -186,11 +193,19 @@ def _load(engine: str):
 
 
 def _drop() -> None:
-    global _whisper, _parakeet, _aligner
+    """Lets go of the dictation models, and the aligner's. Called with _lock held (then _align_lock, never the other way)."""
+    global _whisper, _parakeet
     _whisper = None
     _parakeet = None
-    _aligner = None
+    with _align_lock:
+        _drop_aligner()
     gc.collect()
+
+
+def _drop_aligner() -> None:
+    """Lets go of the aligner's model. Called with _align_lock held."""
+    global _aligner
+    _aligner = None
 
 
 def use(engine: str) -> str:
@@ -301,10 +316,15 @@ def _idle_watch() -> None:
     while True:
         time.sleep(30)
         limit = config.idle_unload_seconds()
-        if (loaded() is not None or _aligner is not None) and _last_used and time.time() - _last_used > limit:
+        if loaded() is not None and _last_used and time.time() - _last_used > limit:
             with _lock:
                 if time.time() - _last_used > limit:
                     _drop()
+        if _aligner is not None and time.time() - _aligner_used > limit:
+            with _align_lock:
+                if time.time() - _aligner_used > limit:
+                    _drop_aligner()
+                    gc.collect()
 
 
 def start_idle_watch() -> None:
@@ -347,13 +367,22 @@ def group_pieces(
     most LAST_WORD_SECONDS later, so a pause isn't counted as part of the word). Nothing ends after `end`.
     """
     words: list[list] = []  # [text, start, last piece's start, last piece's duration or None]
+    # A word mark on its own: the next piece with letters in it starts a word, from the mark's time.
+    pending: float | None = None
     for i, (piece, at) in enumerate(zip(tokens, starts)):
         text = str(piece)
         bare = text.replace(WORD_START, " ").strip()
         duration = float(durations[i]) if durations and i < len(durations) and durations[i] > 0 else None
-        opens = text.startswith((WORD_START, " ")) and any(c.isalnum() for c in bare)
-        if opens or not words:
-            words.append([bare, float(at), float(at), duration])
+        marked = text.startswith((WORD_START, " "))
+        if marked and not bare:
+            if pending is None:
+                pending = float(at)
+            continue
+        wordy = any(c.isalnum() for c in bare)
+        if (wordy and (marked or pending is not None)) or not words:
+            words.append([bare, pending if pending is not None and wordy else float(at), float(at), duration])
+            if wordy:
+                pending = None
         else:
             words[-1][0] += bare
             words[-1][2] = float(at)
@@ -406,26 +435,38 @@ def _align_parakeet(model, path: Path) -> list[dict]:
 
 def align(path: str | Path) -> tuple[list[dict], str]:
     """When each word of a spoken clip is heard: ([{"word", "start", "end"}], the engine used), in seconds from its
-    start. Raises DictationError when no dictation model is downloaded."""
-    global _whisper, _parakeet, _aligner, _last_used
+    start. Raises DictationError when no dictation model is downloaded, and AlignBusy when the chosen one is busy
+    with dictation, which always goes first (AI Write then places the sounds by an estimate)."""
+    global _whisper, _parakeet, _aligner, _last_used, _aligner_used
     path = Path(path)
-    with _lock:
-        engine = aligner()
-        if engine is None:
-            raise DictationError("No dictation model is downloaded, so the words can't be timed.")
-        if engine == _choice:
-            # The chosen model, loaded as dictating would load it.
+    engine = aligner()
+    if engine is None:
+        raise DictationError("No dictation model is downloaded, so the words can't be timed.")
+    if engine == _choice:
+        # The chosen model, loaded as dictating would load it; never ahead of dictation waiting for it.
+        if not _lock.acquire(blocking=False):
+            raise AlignBusy("Dictation is using its model now.")
+        try:
+            if _choice != engine:
+                raise AlignBusy("The dictation model is changing.")
             if engine == "whisper" and _whisper is None:
                 _whisper = _load("whisper")
             elif engine == "parakeet" and _parakeet is None:
                 _parakeet = _load("parakeet")
             model = _whisper if engine == "whisper" else _parakeet
-        else:
-            # None chosen (or the one chosen isn't downloaded): a slot of its own, which never changes the choice.
-            if _aligner is None or _aligner[0] != engine:
-                _aligner = None
-                _aligner = (engine, _load(engine))
-            model = _aligner[1]
-        _last_used = time.time()
+            _last_used = time.time()
+            words = _align_whisper(model, path) if engine == "whisper" else _align_parakeet(model, path)
+        finally:
+            _lock.release()
+        return words, engine
+    # None chosen (or the one chosen isn't downloaded): a slot of its own, which never changes the choice or waits
+    # for dictation.
+    with _align_lock:
+        if _aligner is None or _aligner[0] != engine:
+            _aligner = None
+            _aligner = (engine, _load(engine))
+        model = _aligner[1]
+        _aligner_used = time.time()
         words = _align_whisper(model, path) if engine == "whisper" else _align_parakeet(model, path)
+        _aligner_used = time.time()
     return words, engine

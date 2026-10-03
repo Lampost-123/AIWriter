@@ -226,6 +226,17 @@ describe('what is downloaded', () => {
     expect(soundsComplete(root)).toBe(false)
   })
 
+  it('counts a complete sound effects snapshot when a newer one stopped part way (they load from the folder found)', () => {
+    const root = join(dir, 'speech')
+    soundsIn(root)
+    touch(join(soundWeightsDir(root), 'snapshots', 'r9', 'model_index.json'))
+    touch(join(soundWeightsDir(root), 'refs', 'main'), 'r9')
+    expect(soundsComplete(root)).toBe(true)
+    expect(snapshotWith(soundWeightsDir(root), ['model_index.json', 'vae/config.json'], true)).toBe(join(soundWeightsDir(root), 'snapshots', 'r1'))
+    // The voices load by their name, which follows refs/main: no other snapshot counts for them.
+    expect(snapshotWith(soundWeightsDir(root), ['model_index.json', 'vae/config.json'])).toBeNull()
+  })
+
   it('reads a missing or broken record as nothing', () => {
     expect(readManifest(join(dir, 'none.json'))).toEqual({})
     writeFileSync(join(dir, 'bad.json'), '{ not json')

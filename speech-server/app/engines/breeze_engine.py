@@ -37,10 +37,12 @@ def weights_downloaded() -> bool:
 class BreezeEngine(WorkerEngine):
     id = "breeze"
     name = "Breeze TTS 2"
-    blurb = "Makes a voice from a description, clones clips, and performs tags like (laugh) and (sigh). Graphics card, about 8 GB. Non-commercial licence."
+    blurb = "Makes a voice from a description, clones clips, and performs tags like (laugh) and (sigh). Graphics card, about 9.5 GB. Non-commercial licence."
     worker = "breeze"
-    # About 8 GB while loaded, and a little more as it speaks.
-    needs_mb = 8500
+    # Measured on an RTX 5070 Ti (nvidia-smi, the whole worker): about 9460 MiB once loaded (its CUDA graphs captured),
+    # 9480 at most while speaking.
+    needs_mb = 9700
+    holds_mb = 9500
     # The voices come first: the sound effects wait for them, and are let go when the voices need the room.
     priority = 1
     wait_reason = "is reading aloud now. The sound is made once it has finished."

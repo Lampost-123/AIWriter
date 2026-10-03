@@ -409,6 +409,76 @@ print(json.dumps({
     })
   })
 
+  it('starts a word at a word mark on its own, never gluing the next piece to the word before', () => {
+    const code = `
+import json
+from app.stt import group_pieces
+print(json.dumps(group_pieces(['\\u2581the', '\\u2581', 'door', '\\u2581sl', 'am', 'med', '\\u2581', '.'], [0.0, 0.3, 0.38, 1.0, 1.1, 1.2, 1.5, 1.6], None, 2.0)))
+`
+    expect(py(code)).toEqual([
+      { word: 'the', start: 0, end: 0.3 },
+      { word: 'door', start: 0.3, end: 0.78 },
+      { word: 'slammed.', start: 1, end: 2 }
+    ])
+  })
+
+  it('lets dictation go first: timing words with its model while it is busy says so at once', () => {
+    const code = `
+import json, threading, time
+from app import stt
+stt._whisper_ready = lambda: True
+stt._parakeet_ready = lambda: True
+stt._load = lambda engine: object()
+stt._align_whisper = lambda model, path: [{'word': 'w', 'start': 0, 'end': 1}]
+stt._align_parakeet = lambda model, path: [{'word': 'p', 'start': 0, 'end': 1}]
+out = {}
+stt._choice = 'parakeet'
+with stt._lock:  # dictation writing something down
+    try:
+        stt.align('x.wav'); out['chosen, busy'] = 'timed'
+    except stt.AlignBusy:
+        out['chosen, busy'] = 'busy'
+out['chosen, free'] = stt.align('x.wav')[1]
+# None chosen: the aligner's own model, which never waits for dictation.
+stt._choice = 'none'
+with stt._lock:
+    out['own model, dictation busy'] = stt.align('x.wav')[1]
+out['choice kept'] = stt.choice()
+print(json.dumps(out))
+`
+    expect(py(code)).toEqual({
+      'chosen, busy': 'busy',
+      'chosen, free': 'parakeet',
+      'own model, dictation busy': 'whisper',
+      'choice kept': 'none'
+    })
+  })
+
+  it('finds a complete sound effects snapshot when the newest one is incomplete, but follows refs/main for the voices', () => {
+    const code = `
+import json, sys
+from pathlib import Path
+from app import downloaded as d
+root = Path(json.loads(sys.stdin.read()))
+def touch(*parts, text=''):
+    f = root.joinpath(*parts)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+sao = root / 'models' / 'hf' / 'hub' / d.hub_folder(d.SOUND_REPO)
+for f in d.SOUND_FILES:
+    touch('models', 'hf', 'hub', d.hub_folder(d.SOUND_REPO), 'snapshots', 'old', *f.split('/'))
+touch('models', 'hf', 'hub', d.hub_folder(d.SOUND_REPO), 'snapshots', 'new', 'model_index.json')
+touch('models', 'hf', 'hub', d.hub_folder(d.SOUND_REPO), 'refs', 'main', text='new')
+breeze = d.breeze_weights_dir(root)
+touch('models', 'hf', 'hub', d.hub_folder(d.BREEZE_REPO), 'snapshots', 'old', 'config.json')
+touch('models', 'hf', 'hub', d.hub_folder(d.BREEZE_REPO), 'snapshots', 'new', 'tokenizer.json')
+touch('models', 'hf', 'hub', d.hub_folder(d.BREEZE_REPO), 'refs', 'main', text='new')
+found = d.sound_dir(root)
+print(json.dumps({'sound': found.name if found else None, 'voices': d.snapshot_dir(breeze, ('config.json',))}))
+`
+    expect(py(code, dir)).toEqual({ sound: 'old', voices: null })
+  })
+
   it('times words with the dictation model chosen when it is downloaded, else Whisper, else Parakeet', () => {
     const code = `
 import json
@@ -533,33 +603,48 @@ print(json.dumps({
 })
 
 describe.skipIf(!numpyPython)('sharing the graphics card (app/engines/base.py)', () => {
-  it('loads beside the others when there is room, and never pushes out the voices while they are reading', () => {
-    const code = `
-import json, time
+  const FAKES = `
+import json, sys, threading, time
 from app.engines import base, gpu
 from app.engines.base import Engine, EngineBusy
 class Fake(Engine):
     gpu = True
     def _load(self):
         return object()
+    def _synth(self, model, text, voice, speed, params):
+        return None, 24000
 voices, sound = Fake(), Fake()
-voices.name, voices.needs_mb, voices.priority = 'Breeze TTS 2', 8500, 1
-sound.name, sound.needs_mb, sound.priority = 'Stable Audio Open', 6500, 0
+voices.name, voices.needs_mb, voices.holds_mb, voices.priority = 'Breeze TTS 2', 9700, 9500, 1
+sound.name, sound.needs_mb, sound.holds_mb, sound.priority = 'Stable Audio Open', 4500, 3100, 0
 base.REGISTRY[:] = [voices, sound]
 free = {'mb': 20000}
 gpu.free_mb = lambda fresh=False: free['mb']
+def attempt(engine):
+    try:
+        engine.load()
+        return 'loaded'
+    except EngineBusy as exc:
+        return str(exc)
 out = {}
+`
+
+  it('loads beside the others when there is room for both at their most, and never pushes out the voices in use', () => {
+    const code = `${FAKES}
 voices.load(); sound.load()
 out['room for both'] = [voices.loaded, sound.loaded]
-sound.unload(); free['mb'] = 3000
-try:
-    sound.load(); out['voices reading'] = 'loaded'
-except EngineBusy as exc:
-    out['voices reading'] = str(exc)
+sound.unload()
+# Room for the sound at rest, but not for the voices to grow as they speak beside it.
+free['mb'] = 4500 + 100 + 512 - 1
+out['voices reading'] = attempt(sound)
 out['voices kept'] = voices.loaded
+free['mb'] = 4500 + 200 + 512
+out['room for the voices to grow too'] = attempt(sound)
+sound.unload(); free['mb'] = 3000
+# Finished a while ago, but within three minutes: still reading (a pause between paragraphs).
+voices._last_used = time.time() - 120
+out['a pause in the reading'] = attempt(sound)
 voices._last_used = time.time() - 600
-sound.load()
-out['voices idle'] = [voices.loaded, sound.loaded]
+out['voices idle'] = [attempt(sound), voices.loaded, sound.loaded]
 voices.load()
 out['the voices need the room'] = [voices.loaded, sound.loaded]
 free['mb'] = None
@@ -572,9 +657,105 @@ print(json.dumps(out))
       'room for both': [true, true],
       'voices reading': 'Breeze TTS 2 is using the graphics card now. Try again once it has finished.',
       'voices kept': true,
-      'voices idle': [false, true],
+      'room for the voices to grow too': 'loaded',
+      'a pause in the reading': 'Breeze TTS 2 is using the graphics card now. Try again once it has finished.',
+      'voices idle': ['loaded', false, true],
       'the voices need the room': [true, false],
       'no answer from the card': [false, true]
+    })
+  })
+
+  it('never takes the card from the voices between asking for a line and speaking it', () => {
+    const code = `${FAKES}
+free['mb'] = 3000
+voices.load()
+voices._last_used = time.time() - 600
+# A line asked for: wanted from before its load until it is done.
+with voices.want():
+    out['wanted'] = attempt(sound)
+# Speaking now (its run lock held): the sound doesn't wait for it, and doesn't push it out.
+with voices._run_lock:
+    out['speaking'] = attempt(sound)
+out['still loaded'] = voices.loaded
+# In use counts from the end of a line, not its start.
+voices._last_used = time.time() - 600
+voices.synth('One line.', '', 1.0, {})
+out['just spoke'] = attempt(sound)
+print(json.dumps(out))
+`
+    const busy = 'Breeze TTS 2 is using the graphics card now. Try again once it has finished.'
+    expect(py(code, null, numpyPython)).toEqual({ wanted: busy, speaking: busy, 'still loaded': true, 'just spoke': busy })
+  })
+
+  it('says the sound effects can sit beside the voices only when both fit at their most', () => {
+    const code = `
+import json
+from app import engines
+from app.engines import gpu
+voices, sound = engines.get('breeze'), engines.sound()
+free = {'mb': 0}
+gpu.free_mb = lambda fresh=False: free['mb']
+out = {}
+# A 16 GB card with the desktop's 2.7 GB: neither loaded, 13.6 GB free.
+free['mb'] = 13583
+out['16 GB card, nothing loaded'] = engines.sounds_beside()
+voices._model = object(); free['mb'] = 13583 - 9460
+out['16 GB card, voices loaded'] = engines.sounds_beside()
+voices._model = None; sound._model = object(); free['mb'] = 13583 - 3090
+out['16 GB card, sound loaded'] = engines.sounds_beside()
+# A 24 GB card.
+sound._model = None; free['mb'] = 21800
+out['24 GB card, nothing loaded'] = engines.sounds_beside()
+voices._model = object(); sound._model = object(); free['mb'] = 21800 - 9460 - 3090
+out['24 GB card, both loaded'] = engines.sounds_beside()
+voices._model = sound._model = None
+gpu.free_mb = lambda fresh=False: None
+out['no answer from the card'] = engines.sounds_beside()
+print(json.dumps(out))
+`
+    expect(py(code, null, numpyPython)).toEqual({
+      '16 GB card, nothing loaded': false,
+      '16 GB card, voices loaded': false,
+      '16 GB card, sound loaded': false,
+      '24 GB card, nothing loaded': true,
+      '24 GB card, both loaded': true,
+      'no answer from the card': false
+    })
+  })
+
+  it('stops a sound model still starting when the voices want the card, and says to try later, not that it is broken', () => {
+    const code = `${FAKES}
+import subprocess
+from app.engines import worker_engine
+from app.engines.worker_engine import WorkerEngine
+# A worker that never says hello (a slow start), in place of the real one.
+real = subprocess.Popen
+worker_engine.subprocess.Popen = lambda args, **kw: real([sys.executable, '-c', 'import time; time.sleep(60)'], **kw)
+class Starting(WorkerEngine):
+    name, worker, needs_mb, holds_mb, priority = 'Stable Audio Open', 'sound', 4500, 3100, 0
+    def _available(self):
+        return True, ''
+slow = Starting()
+base.REGISTRY[:] = [voices, slow]
+free['mb'] = 30000
+result = {}
+t = threading.Thread(target=lambda: result.update(sound=attempt(slow)))
+t.start()
+time.sleep(1.0)
+t0 = time.time()
+voices.load()
+out['voices waited'] = round(time.time() - t0) < 10
+t.join(20)
+out['sound'] = result.get('sound')
+out['load error'] = slow._load_error
+out['sound loaded'] = slow.loaded
+print(json.dumps(out))
+`
+    expect(py(code, null, numpyPython)).toEqual({
+      'voices waited': true,
+      sound: 'The voices needed the graphics card first. Try again once they have finished.',
+      'load error': '',
+      'sound loaded': false
     })
   })
 })

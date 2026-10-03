@@ -19,7 +19,8 @@ can stop it; pip steps it runs directly. This tool does the rest:
 
 Lines starting "@@" are for AI Write: "@@progress <done> <total>" (bytes), "@@licence <page>" (Hugging Face
 wants a licence accepted first), "@@key" (Hugging Face turned the saved key down), "@@gpu <card name or
-none>" and "@@error <plain words>".
+none>", "@@error <plain words>" and "@@keep-environment" (a check failed on missing files, not on the
+environment: Try again downloads them again without setting the environment up afresh).
 Exit codes: 0 done, 1 failed, 3 Hugging Face wants its licence accepted or a better key.
 
 What counts as downloaded is app/downloaded.py, shared with the server: a step stopped part way never
@@ -371,6 +372,7 @@ def breeze_check(root: Path) -> int:
     # This step only runs after the weights' own step finished in the same download.
     snapshot = downloaded.snapshot_dir(downloaded.breeze_weights_dir(root), ("config.json",))
     if snapshot is None:
+        say("@@keep-environment")
         return fail("The voices didn’t finish downloading. Try again; what is already downloaded is kept.")
     mark.parent.mkdir(parents=True, exist_ok=True)
     mark.write_text(f"{snapshot.name}\n", encoding="utf-8")
@@ -452,6 +454,9 @@ def sound_weights(root: Path) -> int:
             return tell_refused(why, page)
         say(f"The download stopped: {exc.__class__.__name__}")
         return fail("The sound effects didn’t finish downloading. Check the internet connection and that there’s about 12 GB free, then Try again.")
+    if downloaded.sound_dir(root) is None or downloaded.clap_dir(root) is None:
+        # Said here, by the download itself, rather than by the check (which would set the environment up afresh).
+        return fail("The sound effects didn’t finish downloading. Try again; what is already downloaded is kept.")
     say("The sound effects are downloaded.")
     return 0
 
@@ -481,6 +486,8 @@ def sound_check(root: Path) -> int:
         return fail("Part of the sound effects didn’t install. Try again to set it up afresh; what is already downloaded is kept.")
     sound, clap = downloaded.sound_dir(root), downloaded.clap_dir(root)
     if sound is None or clap is None:
+        # The environment checked out: only the files are missing.
+        say("@@keep-environment")
         return fail("The sound effects didn’t finish downloading. Try again; what is already downloaded is kept.")
     mark.parent.mkdir(parents=True, exist_ok=True)
     mark.write_text(f"{sound.name}\n{clap.name}\n", encoding="utf-8")

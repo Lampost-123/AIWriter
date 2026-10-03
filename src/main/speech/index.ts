@@ -386,8 +386,12 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   else void refresh()
 }
 
-/** A download stopped on a problem. Its environment didn't check out: Try again sets it up afresh. */
-function failed(kind: SpeechDownloadKind, stepId: string): void {
+/**
+ * A download stopped on a problem. Its environment didn't check out: Try again sets it up afresh. Not when only files
+ * were missing (the check said so): Try again fetches those, and the environment stays.
+ */
+function failed(kind: SpeechDownloadKind, stepId: string, failure?: Failure): void {
+  if (failure?.keepEnvironment) return
   if (stepId === 'check' && (kind === 'server' || kind === 'voices' || kind === 'sounds')) rebuild.add(kind)
 }
 

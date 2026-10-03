@@ -51,19 +51,14 @@ def every_engine() -> list[Engine]:
 
 
 def sounds_beside() -> bool:
-    """The sound effects can sit beside the voices on the graphics card now: both are loaded, or the one that
-    isn't would fit in the memory free. False when that can't be told (no NVIDIA card, or nvidia-smi failed)."""
-    voices = _ENGINES[DEFAULT_ENGINE]
-    if voices.loaded and _SOUND.loaded:
-        return True
+    """The voices and the sound effects can both be held on the graphics card now, each at its most: what is free
+    covers what each still needs (all of it when not loaded, how much it grows as it works when loaded). False when
+    that can't be told (no NVIDIA card, or nvidia-smi failed). On a 16 GB card beside the desktop it is False."""
     free = gpu.free_mb()
     if free is None:
         return False
-    if voices.loaded:
-        return free >= _SOUND.needs_mb + gpu.MARGIN_MB
-    if _SOUND.loaded:
-        return free >= voices.needs_mb + gpu.MARGIN_MB
-    return free >= voices.needs_mb + _SOUND.needs_mb + gpu.MARGIN_MB
+    voices = _ENGINES[DEFAULT_ENGINE]
+    return free >= voices.grows_mb() + _SOUND.grows_mb() + gpu.MARGIN_MB
 
 
 def sounds_status() -> dict:

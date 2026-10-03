@@ -2,9 +2,9 @@
 
 Not a voice: it never shows among the engines `/v1/health` lists or the voices, and nothing reads aloud with it.
 AI Write asks for one sound at a time (POST /v1/sounds/generate) and keeps what comes back in its own library,
-so a sound is made once. The worker makes a few takes one after another on the graphics card (about 5.5 GB at
-its peak; several at once would need nearly three times that) and keeps the one CLAP, on the processor, hears
-as closest to the description.
+so a sound is made once. The worker makes a few takes one after another on the graphics card and keeps the one
+CLAP, on the processor, hears as closest to the description. Measured on an RTX 5070 Ti (nvidia-smi, the whole
+worker): about 3.1 GB held between sounds, 3.6 GB at most for an effect and 4.3 GB for 20 seconds of ambience.
 
 It shares the graphics card with the voices, which come first (base.Engine.load): it loads beside them when
 there is room, waits while they are reading aloud, and is stopped part way when they need its room. It is let go
@@ -60,11 +60,13 @@ def clamp_takes(takes) -> int:
 class SoundEngine(WorkerEngine):
     id = "sound"
     name = "Stable Audio Open"
-    blurb = "Makes sound effects and ambience from a description. Graphics card, about 5.5 GB. Stability AI Community License."
+    blurb = "Makes sound effects and ambience from a description. Graphics card, about 4.5 GB. Stability AI Community License."
     worker = "sound"
     gpu = True
-    # About 5.5 GB at its peak while a take is made, with room to spare.
-    needs_mb = 6500
+    # Measured (see above): 3090 MiB at rest, 4290 at most (20 s of ambience; its pieces are decoded the same size
+    # whatever the length), with room to spare.
+    needs_mb = 4500
+    holds_mb = 3100
     priority = 0
 
     def __init__(self) -> None:
@@ -112,9 +114,10 @@ class SoundEngine(WorkerEngine):
             raise EngineError("Say what the sound is.")
         if kind not in KINDS:
             raise EngineError("A sound is an effect or ambience.")
-        with self._run_lock:
-            proc = self.load()
+        with self.want(), self._run_lock:
+            # Before loading: the worker can be stopped for the voices from here on, and that is said as "try later".
             self._interrupted = False
+            proc = self.load()
             self._last_used = time.time()
             self._requests += 1
             req = json.dumps(
@@ -135,7 +138,14 @@ class SoundEngine(WorkerEngine):
                     raise EngineBusy(INTERRUPTED)
                 self._model = None
                 raise EngineError(f"{self.name} stopped while making that sound; it starts again with the next one.")
-            out = json.loads(line)
+            try:
+                out = json.loads(line)
+            except ValueError:
+                # Cut off part way: stopped for the voices, or it died.
+                if self._interrupted:
+                    raise EngineBusy(INTERRUPTED) from None
+                self._model = None
+                raise EngineError(f"{self.name} stopped while making that sound; it starts again with the next one.") from None
             if out.get("error"):
                 if OUT_OF_MEMORY.search(str(out["error"])):
                     # The card filled up (beside the voices, say): its memory goes back now, and the sound waits.
