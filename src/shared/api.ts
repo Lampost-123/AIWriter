@@ -366,4 +366,6 @@ export interface Bridge {
   platform: string
   /** The theme the window opened in, applied before the first frame so nothing flashes. */
   initialTheme: PaintedTheme
+  /** Milestone 6: the accent colour the window opened in (an AccentId), or null for the theme's own; applied as the theme is. */
+  initialAccent?: string | null
 }

@@ -78,6 +78,9 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'focus-mode'
+  | 'leave-focus-mode'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -98,6 +101,8 @@ export interface ActionContext {
   reading?: boolean
   /** "Show speakers and tone" is on. */
   speakers?: boolean
+  /** Focus mode is on (milestone 6). */
+  focus?: boolean
 }
 
 export interface ActionDef {
@@ -202,7 +207,7 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'spelling point view tense voice words',
     away: true
   },
-  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme text size page width', away: true },
+  { id: 'settings-appearance', label: 'Settings › Appearance', keywords: 'theme accent colour color text size page width', away: true },
   { id: 'settings-backups', label: 'Settings › Backups', keywords: 'restore copy folder', away: true },
   { id: 'settings-trash', label: 'Settings › Recently deleted', keywords: 'trash bin restore bring back', away: true },
   { id: 'settings-about', label: 'Settings › About and updates', keywords: 'version update help', away: true },
@@ -288,6 +293,22 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
+  },
+  // ----- Milestone 6 -----
+  {
+    id: 'focus-mode',
+    label: 'Focus mode',
+    keywords: 'distraction free full screen fullscreen zen hide panels page only',
+    shortcut: 'focusMode',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.focus
+  },
+  {
+    id: 'leave-focus-mode',
+    label: 'Leave focus mode',
+    keywords: 'exit distraction free full screen fullscreen show panels',
+    shortcut: 'leaveFocusMode',
+    when: (c) => !!c.focus
   }
 ]
 

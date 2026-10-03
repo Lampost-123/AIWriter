@@ -35,6 +35,9 @@ import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
+import { useAccent } from '@/features/look/accents'
+import { useFocusMode } from '@/features/look/focusMode'
+import { FocusLayer } from '@/features/look/FocusLayer'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -45,6 +48,7 @@ export function App(): React.JSX.Element | null {
   const restoring = useApp((s) => s.restoring)
 
   useTheme(settings?.theme)
+  useAccent(settings ? settings.accent : undefined)
   useEffect(() => {
     void init()
     const offFlush = installFlushOnClose()
@@ -121,6 +125,13 @@ function Workspace(): React.JSX.Element {
   const view = useApp((s) => s.view)
   const sceneId = useApp((s) => s.sceneId)
   const askOpen = useApp((s) => s.askOpen)
+  const peeking = useApp((s) => s.peekEntryId !== null)
+  // Focus mode (milestone 6): the panels slide away (their saved layout untouched), and the scene panel shows
+  // over the page's right edge only for Ask the world or a name shown beside the page.
+  const focus = useFocusMode((s) => s.on)
+  const focusMoving = useFocusMode((s) => s.moving)
+  const focusPanel = focus && (askOpen || peeking)
+  const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
   const writing = view.kind === 'write'
   // Ask the world (milestone 4) shows in this panel too, even with no scene open.
@@ -139,10 +150,10 @@ function Workspace(): React.JSX.Element {
   // their narrowest can't leave that, the binder floats over the page, shown from the binder button;
   // the saved layout is untouched, so the binder is back beside the page in a wider window.
   const pageMin = pageMinFor(settings.editor.fontSize, settings.editor.pageWidth)
-  const right = { open: scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
+  const right = { open: !focus && scenePanel && layout.inspectorOpen, width: layout.inspectorWidth, floor: SCENE_PANEL.floor }
   const floats = binderFloats(win.width, BINDER.floor, right, pageMin)
   const floating = useFloatingPane(floats)
-  const left = { open: layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
+  const left = { open: !focus && layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
   const fit = fitPanels(win.width, left, right, pageMin)
   // A panel squeezed narrower than its own minimum is dragged from where it shows, and the width
   // saved is the one that shows where Adam lets go, so nothing jumps on release.
@@ -152,20 +163,22 @@ function Workspace(): React.JSX.Element {
   return (
     <>
       <TopBar />
-      <div className="flex min-h-0 flex-1">
-        <ResizablePane
-          side="left"
-          label="Binder"
-          width={left.open ? fit.left : layout.binderWidth}
-          open={floats ? floating.open : layout.binderOpen}
-          floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON } : null}
-          min={binderMin}
-          max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
-          instant={win.resizing || pageSwap}
-          onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
-        >
-          <Binder />
-        </ResizablePane>
+      <div className="relative flex min-h-0 flex-1">
+        <div data-focus-chrome className="contents" inert={focus}>
+          <ResizablePane
+            side="left"
+            label="Binder"
+            width={left.open ? fit.left : layout.binderWidth}
+            open={focus ? false : floats ? floating.open : layout.binderOpen}
+            floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON } : null}
+            min={binderMin}
+            max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
+            instant={!focusMoving && (win.resizing || pageSwap)}
+            onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
+          >
+            <Binder />
+          </ResizablePane>
+        </div>
         <main className="relative min-w-0 flex-1 bg-bg">
           {/* The writing view stays in place under the other pages, so a draft keeps writing into the scene
               while Adam looks at something else, and the page and caret are where he left them. Hidden with
@@ -195,26 +208,31 @@ function Workspace(): React.JSX.Element {
           ) : null}
         </main>
         {scenePanel ? (
-          <ResizablePane
-            side="right"
-            label={sceneId ? 'Scene panel' : 'Ask the world'}
-            width={layout.inspectorOpen ? fit.right : layout.inspectorWidth}
-            open={layout.inspectorOpen}
-            min={sceneMin}
-            max={dragMax(win.width, fit.left, sceneMin, SCENE_PANEL.max, pageMin)}
-            instant={win.resizing}
-            onResize={(w) =>
-              void update({ layout: { inspectorWidth: chosenWidthFor(w, win.width, 'right', right, left, SCENE_PANEL.max, pageMin) } })
-            }
-          >
-            {sceneId ? <Inspector sceneId={sceneId} /> : <AskPanel sceneId={null} onClose={closeAsk} />}
-          </ResizablePane>
+          // In focus mode the panel lies over the page's right edge (once it has slid shut beside the page), so the
+          // page doesn't move when it opens.
+          <div className={overPage ? cn('absolute inset-y-0 right-0 z-30 flex', focusPanel && 'shadow-pop') : 'contents'} inert={focus && !focusPanel}>
+            <ResizablePane
+              side="right"
+              label={sceneId ? 'Scene panel' : 'Ask the world'}
+              width={focus ? Math.min(layout.inspectorWidth, SCENE_PANEL.max) : layout.inspectorOpen ? fit.right : layout.inspectorWidth}
+              open={focus ? focusPanel : layout.inspectorOpen}
+              min={sceneMin}
+              max={dragMax(win.width, fit.left, sceneMin, SCENE_PANEL.max, pageMin)}
+              instant={!focusMoving && win.resizing}
+              onResize={(w) =>
+                void update({ layout: { inspectorWidth: chosenWidthFor(w, win.width, 'right', right, left, SCENE_PANEL.max, pageMin) } })
+              }
+            >
+              {sceneId ? <Inspector sceneId={sceneId} /> : <AskPanel sceneId={null} onClose={closeAsk} />}
+            </ResizablePane>
+          </div>
         ) : null}
       </div>
       <CommandPalette />
       <ShortcutsList />
       <NewStoryDialog />
       <DictationLayer />
+      <FocusLayer />
     </>
   )
 }

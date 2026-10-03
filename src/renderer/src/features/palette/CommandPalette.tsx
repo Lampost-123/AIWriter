@@ -74,6 +74,7 @@ import {
 import { giveFocusBack, openPalette, PALETTE_LAYER, usePalette } from './paletteStore'
 import { followRecent, recentPlaces } from './recent'
 import { useReading } from '@/features/readAloud/control'
+import { useFocusMode } from '@/features/look/focusMode'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -292,9 +293,10 @@ function useActionContext(): ActionContext {
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const reading = useReading((s) => s.reading)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
+  const focus = useFocusMode((s) => s.on)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, focus }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, focus]
   )
 }
 
@@ -524,7 +526,7 @@ export function CommandPalette(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/30 data-[state=open]:animate-fade-in" />
+        <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
           aria-describedby={undefined}

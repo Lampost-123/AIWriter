@@ -10,6 +10,8 @@ import { App } from './App'
 
 // Paint the very first frame in the theme the window opened in (settings arrive a moment later).
 document.documentElement.dataset.theme = window.aiwrite.initialTheme
+// And in the accent colour Adam picked (milestone 6), if any.
+if (window.aiwrite.initialAccent) document.documentElement.dataset.accent = window.aiwrite.initialAccent
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

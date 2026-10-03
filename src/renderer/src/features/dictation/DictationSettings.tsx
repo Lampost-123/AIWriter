@@ -17,6 +17,7 @@ import { useMicLevel } from './Marker'
 import { listMicrophones, micAllowWhere, MIC_MISSING } from './mic'
 import { useSpeechEngine } from './ready'
 import { cancelRecording, finishRecording, notStarted, setPickingKey, startRecording, useDictation } from './session'
+import { scrollBehavior } from '@/features/look/motion'
 
 export function DictationSettings({ section }: { section: 'everyday' | 'more' }): React.JSX.Element {
   return section === 'everyday' ? <HoldToTalk /> : <Microphone />
@@ -212,7 +213,7 @@ function notReadyHere(status: SpeechStatus | null): string | null {
 
 /** Scrolls this Settings page up to the speech engine's settings, which come first on it. */
 function toSpeechEngine(from: HTMLElement | null): void {
-  from?.closest('.overflow-auto')?.scrollTo({ top: 0, behavior: 'smooth' })
+  from?.closest('.overflow-auto')?.scrollTo({ top: 0, behavior: scrollBehavior() })
 }
 
 function EngineNotice({ className }: { className?: string }): React.JSX.Element | null {

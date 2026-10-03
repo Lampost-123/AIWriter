@@ -24,13 +24,15 @@ describe('the shortcuts list', () => {
     expect(withShortcut('Search', 'search', false)).toBe('Search (Ctrl+K)')
   })
 
-  it('lists the spec’s frequent actions, and not focus mode (it comes later)', () => {
+  it('lists the spec’s frequent actions, focus mode among them', () => {
     const keys = (id: string): string => shortcutText(SHORTCUTS.find((s) => s.id === id)!.id, false)
     expect(keys('generate')).toBe('Ctrl+G')
     expect(keys('markDone')).toBe('Ctrl+Enter')
     expect(keys('stop')).toBe('Esc')
     expect(keys('search')).toBe('Ctrl+K')
-    expect(SHORTCUTS.some((s) => s.keys.includes('F11') || /focus mode/i.test(s.name))).toBe(false)
+    expect(keys('focusMode')).toBe('F11')
+    expect(keys('leaveFocusMode')).toBe('Esc')
+    expect(withShortcut('Focus mode', 'focusMode', true)).toBe('Focus mode (F11)')
   })
 
   it('has each shortcut once, in plain words, in a group', () => {
@@ -53,6 +55,9 @@ describe('the shortcuts list', () => {
     expect(isShortcut(press('?', { ctrlKey: true }), 'shortcuts', false)).toBe(false)
     expect(isShortcut(press('Escape'), 'stop', false)).toBe(true)
     expect(isShortcut(press('z', { metaKey: true, shiftKey: true }), 'redo', true)).toBe(true)
+    expect(isShortcut(press('F11'), 'focusMode', false)).toBe(true)
+    expect(isShortcut(press('F11', { ctrlKey: true }), 'focusMode', false)).toBe(false)
+    expect(isShortcut(press('F11', { shiftKey: true }), 'focusMode', false)).toBe(false)
   })
 
   it('knows when Adam is typing, so ? goes into the text', () => {
