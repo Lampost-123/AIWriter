@@ -33,6 +33,7 @@ function harness(answer: (req: MakeRequest) => MakeResult = () => ({ ok: true, w
   const lib = new SoundLibrary(join(dir, 'sounds'), () => now)
   const state = { enabled: true, ready: true, beside: true }
   const made: [string, boolean][] = []
+  const retook: [string, boolean][] = []
   const asked: MakeRequest[] = []
   const maker = new SoundMaker({
     library: lib,
@@ -44,11 +45,12 @@ function harness(answer: (req: MakeRequest) => MakeResult = () => ({ ok: true, w
       return answer(req)
     },
     made: (id, ok) => made.push([id, ok]),
+    retook: (id, ok) => retook.push([id, ok]),
     changed: () => undefined,
     now: () => now
   })
   const want = (description: string, kind: 'effect' | 'ambience' = 'effect'): string => lib.want(kind, description)!.id
-  return { lib, maker, state, made, asked, want, later: (ms: number) => (now += ms) }
+  return { lib, maker, state, made, retook, asked, want, later: (ms: number) => (now += ms) }
 }
 
 describe('making the library’s sounds', () => {
@@ -238,6 +240,60 @@ describe('making the library’s sounds', () => {
     h.state.enabled = true
     await h.maker.run()
     expect(h.asked.map((r) => r.prompt)).toEqual(['a bell', 'a gong'])
+  })
+})
+
+describe('making a new take', () => {
+  it('makes a made sound afresh, first, with its seed, and says so', async () => {
+    const h = harness()
+    const [a, b] = [h.want('a bell'), h.want('a gong')]
+    await h.lib.saveClip(a, silentWav(1), 1)
+    h.lib.startRetake(a)
+    h.maker.background([b])
+    h.maker.first(a)
+    await h.maker.run()
+    expect(h.asked.map((r) => r.prompt)).toEqual(['a bell', 'a gong'])
+    expect(h.asked[0]!.seed).toBe(h.lib.get(a)!.seed)
+    expect(h.asked[1]).not.toHaveProperty('seed')
+    expect(h.lib.get(a)).toMatchObject({ state: 'ready', retake: 'ready' })
+    expect(h.retook).toEqual([[a, true]])
+    expect(h.made).toEqual([
+      [a, true],
+      [b, true]
+    ])
+  })
+
+  it('leaves the sound playing as it was while the new take waits or fails', async () => {
+    let busy = true
+    const h = harness(() => (busy ? { ok: false, hold: true, error: '503 retry' } : { ok: false, hold: false, error: '500 boom' }))
+    const a = h.want('a bell')
+    await h.lib.saveClip(a, silentWav(1), 1)
+    h.lib.startRetake(a)
+    h.maker.first(a)
+    await h.maker.run()
+    expect(h.lib.get(a)).toMatchObject({ state: 'ready', retake: 'making' })
+    busy = false
+    for (let i = 0; i < GIVE_UP_AFTER; i++) {
+      h.later(RETRY_MS + 1)
+      await h.maker.run()
+    }
+    expect(h.lib.get(a)).toMatchObject({ state: 'ready', failures: 0 })
+    expect(h.lib.get(a)!.retake).toBeUndefined()
+    expect(h.retook).toEqual([[a, false]])
+    expect(h.made).toEqual([])
+  })
+
+  it('isn’t made once called off', async () => {
+    const h = harness()
+    const a = h.want('a bell')
+    await h.lib.saveClip(a, silentWav(1), 1)
+    h.state.enabled = false
+    h.lib.startRetake(a)
+    h.maker.first(a)
+    await h.lib.keepTake(a, false)
+    h.state.enabled = true
+    await h.maker.run()
+    expect(h.asked).toEqual([])
   })
 })
 
