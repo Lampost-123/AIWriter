@@ -291,6 +291,56 @@ describe('the import catch-up', () => {
     k.stop()
   })
 
+  it('Stop leaves a scene Adam edited meanwhile in the keeper’s queue, so it is still read', async () => {
+    const db = memoryWorld()
+    const r = importPlan(db, plan(1, 3))
+    const ids = repo.getOutline(db, r.storyId).scenes.map((s) => s.id)
+    let held: (() => void) | null = null
+    const holding = new Promise<void>((res) => (held = res))
+    let n = 0
+    const slow: typeof fetch = async (input, init) => {
+      if (++n === 1) {
+        held!()
+        await new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
+      }
+      return fetch(input, init)
+    }
+    const k = keeperFor(db, slow)
+    const { c } = catchUpFor(db, () => k)
+    c.start(r.storyId)
+    await holding
+    // Adam edits the second scene (already in the keeper's queue) and its quiet time passes.
+    repo.saveSceneText(db, ids[1], null, 'Kellzz had green eyes.')
+    k.sceneSaved(ids[1])
+    await new Promise((res) => setTimeout(res, 60))
+    await c.stop()
+    await k.whenIdle()
+    expect(readOrder(db)).toEqual([ids[1]])
+    expect(kdb.scenesToRead(db)).toEqual([])
+    expect(idb.unreadCounts(db)).toEqual({ [r.storyId]: 2 })
+    k.stop()
+  })
+
+  it('after a restart with no memory model, Stop puts the scenes left waiting back to unread', async () => {
+    const db = memoryWorld()
+    const r = importPlan(db, plan(1, 3))
+    const ids = repo.getOutline(db, r.storyId).scenes.map((s) => s.id)
+    // The app closed while the catch-up had handed the first two scenes to the keeper.
+    idb.markWaiting(db, ids.slice(0, 2))
+    idb.setCatchUpRecord(db, { storyIds: [r.storyId] })
+    const none = { error: 'Choose a writer model in Settings › Models to keep the memory up to date.' }
+    const k = new Keeper({ db, model: () => none, emitStatus: () => {}, emitChanged: () => {}, quietMs: 20, summaries: false, recheckMs: 60_000 })
+    k.start()
+    const { c } = catchUpFor(db, () => k, () => none)
+    c.resume()
+    await c.whenIdle()
+    expect(c.state().running).toMatchObject({ status: 'paused' })
+    await c.stop()
+    expect(kdb.scenesToRead(db)).toEqual([])
+    expect(idb.unreadCounts(db)).toEqual({ [r.storyId]: 3 })
+    k.stop()
+  })
+
   it('pauses, saying why, when there is no memory model, and carries on when asked again', async () => {
     const db = memoryWorld()
     const r = importPlan(db, plan(1, 2))

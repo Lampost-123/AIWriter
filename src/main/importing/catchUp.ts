@@ -15,6 +15,7 @@ import type Database from 'better-sqlite3'
 import type { CatchUpProgress, CatchUpState } from '@shared/contracts/importing'
 import type { ID } from '@shared/types'
 import * as idb from '../db/importing'
+import * as kdb from '../db/keeper'
 import type { MemoryModel } from '../keeper/model'
 
 type DB = Database.Database
@@ -138,13 +139,22 @@ export class CatchUp {
     while (this.loop) await this.loop
   }
 
-  /** The scenes handed to the keeper and not finished go back to unread, and the keeper lets them go. */
+  /**
+   * The scenes handed to the keeper and not finished (and any left waiting from before a restart) go back to
+   * unread, and the keeper lets them go. One Adam has edited meanwhile stays in the keeper's queue, as any
+   * edited scene does, rather than waiting for the next restart.
+   */
   private letGo(): void {
-    const ids = this.current?.handed ?? []
-    if (!ids.length) return
-    this.d.keeper()?.forget(ids)
-    if (this.d.db.open) idb.backToUnread(this.d.db, ids)
+    const { db } = this.d
+    const handed = this.current?.handed ?? []
     if (this.current) this.current.handed = []
+    const ids = [...new Set([...handed, ...(db.open ? idb.waitingForCatchUp(db) : [])])]
+    if (!ids.length) return
+    const keeper = this.d.keeper()
+    keeper?.forget(ids)
+    if (!db.open) return
+    idb.backToUnread(db, ids)
+    for (const id of ids) if (kdb.needsReading(db, id)) keeper?.updateNow(id)
   }
 
   private pause(error: string): void {

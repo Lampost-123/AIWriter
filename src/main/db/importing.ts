@@ -104,6 +104,22 @@ export function backToUnread(db: DB, sceneIds: ID[]): void {
   })()
 }
 
+/**
+ * Scenes the catch-up asked to be read that the keeper hasn't read yet, with their text unchanged since: waiting,
+ * never read, text_version = memory_version (only the catch-up leaves a scene so). After a restart they are no
+ * longer in the catch-up's own list, so Stop and a pause find them here.
+ */
+export function waitingForCatchUp(db: DB): ID[] {
+  return (
+    db
+      .prepare(
+        `SELECT s.id ${LIVE} AND s.word_count > 0 AND s.memory_status = 'pending' AND s.memory_paragraphs_json = '[]'
+           AND s.text_version = s.memory_version ${ORDER}`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as string)
+}
+
 /** The latest reason one of these scenes couldn't be read ("Memory not updated"), if any. */
 export function failureOf(db: DB, sceneIds: ID[]): string | null {
   if (!sceneIds.length) return null
