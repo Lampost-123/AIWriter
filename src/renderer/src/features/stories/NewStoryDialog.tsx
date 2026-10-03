@@ -18,6 +18,11 @@ import { Knows, PlacementEditor, Warnings, type PendingEnd } from './PlacementEd
 import { useSeriesList } from './series'
 import { createStory } from './storyActions'
 import { gapLabel, noGapReason, samePlacement } from './storiesLogic'
+// Story recipes: a new story from a recipe, with Adam's own guidance.
+import { RecipeChoice, useRecipePick } from '@/features/recipes/RecipeChoice'
+import { startFromRecipe } from '@/features/recipes/planStore'
+import { sizeForRecipe } from '@/features/recipes/recipeLogic'
+import { useRecipes } from '@/features/recipes/recipeStore'
 
 export function NewStoryDialog(): React.JSX.Element | null {
   const open = useApp((s) => s.newStoryOpen)
@@ -75,6 +80,7 @@ function NewStoryForm(): React.JSX.Element {
   const pinnedRef = useRef<HTMLDivElement>(null)
   /** The story was made: its first scene takes the keyboard (see createStory). */
   const made = useRef(false)
+  const [recipe, setRecipe] = useRecipePick()
 
   const seriesId = isNew ? null : seriesChoice
 
@@ -235,6 +241,13 @@ function NewStoryForm(): React.JSX.Element {
     if (error) {
       setBusy(false)
       setCreateError(error)
+      return
+    }
+    // From a recipe: the story takes its style (if Adam left that ticked) and the AI lays it out.
+    const storyId = useApp.getState().storyId
+    if (recipe.recipeId && storyId) {
+      const chapters = useRecipes.getState().list?.find((r) => r.id === recipe.recipeId)?.chapters ?? 0
+      void startFromRecipe({ storyId, recipeId: recipe.recipeId, guidance: recipe.guidance.trim(), useStyle: recipe.useStyle, size: sizeForRecipe(chapters) })
     }
   }
 
@@ -341,6 +354,8 @@ function NewStoryForm(): React.JSX.Element {
             </p>
           ) : null}
         </div>
+
+        <RecipeChoice value={recipe} onChange={setRecipe} />
 
         {/* While Change is open, what the story will know sits under that line, so it stays in view as
             the answers and where the story starts are chosen below. A narrow band under it keeps what

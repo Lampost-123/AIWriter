@@ -153,8 +153,9 @@ export interface RecipesApi {
   /** Moves it out of the library; restoreRecipe (the toast's Undo) brings it back. Gone for good after a few minutes. */
   deleteRecipe(id: ID): Promise<void>
   restoreRecipe(id: ID): Promise<void>
-  /** Deletes the story's text kept with the recipe (it can't be read again after). */
+  /** Deletes the story's text kept with the recipe (it can't be read again after); restoreRecipeSource is its Undo. */
   forgetRecipeSource(id: ID): Promise<void>
+  restoreRecipeSource(id: ID): Promise<void>
   /** Plans a new story from a recipe and Adam's guidance; it streams as task events with job 'outline'. */
   startRecipeStory(input: RecipeStoryRequest): Promise<{ generationId: ID }>
   /** Puts the recipe's writing style into the story's style guide and its themes and tone into the story's. */

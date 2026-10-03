@@ -45,6 +45,10 @@ import { FocusLayer } from '@/features/look/FocusLayer'
 import { FirstRun } from '@/features/setup/FirstRun'
 import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
+// Story recipes
+import { RecipesView } from '@/features/recipes/RecipesView'
+import { RecipePlan } from '@/features/recipes/RecipePlan'
+import { RecipeWatch } from '@/features/recipes/parts'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -87,6 +91,8 @@ export function App(): React.JSX.Element | null {
       <Toaster />
       {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}
       <SpendWatch />
+      {/* Story recipes: a recipe that finishes says so wherever Adam is. */}
+      <RecipeWatch />
     </div>
   )
 }
@@ -110,6 +116,17 @@ function NoWorld(): React.JSX.Element {
         <TopBar />
         <div className="min-h-0 flex-1">
           <ImportView />
+        </div>
+      </>
+    )
+  }
+  // Story recipes: the recipe library works with no world open too.
+  if (view.kind === 'recipes') {
+    return (
+      <>
+        <TopBar />
+        <div className="min-h-0 flex-1">
+          <RecipesView page={view.page} recipeId={view.recipeId} />
         </div>
       </>
     )
@@ -238,6 +255,8 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'worldBuilder' && <WorldBuilderView />}
               {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
               {view.kind === 'import' && <ImportView />}
+              {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
+              {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
             </div>
           ) : null}
         </main>

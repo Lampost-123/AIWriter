@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   Globe2,
+  CookingPot,
   LibraryBig,
   PanelLeft,
   PanelRight,
@@ -29,6 +30,7 @@ import { giveFocusBack, openPalette, usePalette } from '@/features/palette/palet
 import { openSampleWorld, useSetup } from '@/features/setup/setupStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
+import { openRecipes } from '@/features/recipes/recipeStore'
 import { UpdateBanner } from './UpdateBanner'
 
 /** How the open scene is saving. Its slot stays when there is nothing to say, so the bar never moves. */
@@ -199,6 +201,10 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
                 <LibraryBig size={14} className="text-muted" /> Explore the sample world
               </M.Item>
             )}
+            {/* Story recipes */}
+            <M.Item onSelect={openRecipes} className={menuItem}>
+              <CookingPot size={14} className="text-muted" /> Story recipes
+            </M.Item>
           </M.Content>
         </M.Portal>
       </M.Root>

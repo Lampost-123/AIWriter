@@ -192,6 +192,11 @@ export const recipesHandlers: Handlers<keyof RecipesApi> = {
     recipeFiles().removeSource(id)
     libraryChanged()
   },
+  restoreRecipeSource: (id) => {
+    stored(id)
+    if (!recipeFiles().restoreSource(id)) throw new UserError('The story’s text can’t be brought back now.', 'gone')
+    libraryChanged()
+  },
   startRecipeStory: (input) => {
     const db = world.db()
     const r = stored(input.recipeId)

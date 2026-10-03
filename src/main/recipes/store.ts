@@ -131,8 +131,23 @@ export class RecipeFiles {
     writeFileAtomic(join(this.folder(id), 'source.json'), JSON.stringify(s))
   }
 
+  /** Moves the story's text out (for its Undo); `restoreSource` brings it back until it is deleted for good. */
   removeSource(id: string): void {
-    rmSync(join(this.folder(id), 'source.json'), { force: true })
+    const from = join(this.folder(id), 'source.json')
+    if (!existsSync(from)) return
+    const to = join(this.dir, '.removed', `source-${id}`)
+    rmSync(to, { recursive: true, force: true })
+    mkdirSync(to, { recursive: true })
+    renameRetrySync(from, join(to, 'source.json'))
+    writeFileAtomic(join(to, 'removed.json'), JSON.stringify({ at: Date.now() }))
+  }
+
+  restoreSource(id: string): boolean {
+    const from = join(this.dir, '.removed', `source-${id}`, 'source.json')
+    if (!existsSync(from) || !existsSync(this.folder(id)) || this.hasSource(id)) return false
+    renameRetrySync(from, join(this.folder(id), 'source.json'))
+    rmSync(join(this.dir, '.removed', `source-${id}`), { recursive: true, force: true })
+    return true
   }
 
   // ----- Making -----
