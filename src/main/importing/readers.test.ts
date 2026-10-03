@@ -139,6 +139,29 @@ describe('Word files', () => {
     expect(readDocx(docx(p(null, 'Text.'), { styles: null }), 'C:\\Books\\My_Book.docx').title).toBe('My Book')
   })
 
+  it('finds the main part when it is not word/document.xml, and Word heading styles with no styles.xml', () => {
+    const body = `<w:document xmlns:w="w"><w:body>${p('Heading1', 'Chapter One')}${p('Heading2', 'Arrival')}${p(null, 'Rain.')}</w:body></w:document>`
+    const bytes = zipSync({
+      '_rels/.rels': strToU8(
+        '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/word/document2.xml"/></Relationships>'
+      ),
+      'word/document2.xml': strToU8(body)
+    })
+    const m = readDocx(bytes, 'x.docx')
+    expect(m.blocks.map((b) => [b.kind, b.text, b.level])).toEqual([
+      ['heading', 'Chapter One', 1],
+      ['heading', 'Arrival', 2],
+      ['para', 'Rain.', undefined]
+    ])
+  })
+
+  it('keeps the Title style inside the story as a heading, not lost', () => {
+    const m = readDocx(docx([p('Title', 'The Ferry'), p('Title', 'The Crossing'), p(null, 'Rain.'), p('Title', 'The Return'), p(null, 'Sun.')].join('')), 'x.docx')
+    expect(m.title).toBe('The Ferry')
+    expect(kinds(m)).toEqual(['title:The Ferry', 'title:The Crossing', 'para:Rain.', 'heading:The Return', 'para:Sun.'])
+    expect(m.blocks[3]).toMatchObject({ hint: 'chapter' })
+  })
+
   it('says plainly when a file is not a Word document', () => {
     expect(() => readDocx(strToU8('just text'), 'x.docx')).toThrow(/isn't a Word document/)
     expect(() => readDocx(zipSync({ 'a.txt': strToU8('x') }), 'x.docx')).toThrow(/doesn't have a Word document/)

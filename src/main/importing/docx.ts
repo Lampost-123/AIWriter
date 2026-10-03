@@ -96,6 +96,9 @@ function paraStyle(styles: Map<string, Style>, id: string | null): ParaStyle {
     if (heading) return { ...none, level: Number(heading[1]), heading: true }
     if (s.outline != null && s.outline >= 0 && s.outline <= 8) return { ...none, level: s.outline + 1, heading: true }
   }
+  // Word's own heading styles used without being written into styles.xml (or with no styles.xml at all).
+  const builtIn = list.length ? null : /^heading\s*([1-9])$/i.exec(own)
+  if (builtIn) return { ...none, level: Number(builtIn[1]), heading: true }
   // A style of the writer's own, named for what it is.
   if (/chapter/i.test(own)) return { ...none, hint: 'chapter', heading: true }
   if (/\b(part|book|act)\b/i.test(own) && /title|heading|head|name/i.test(own)) return { ...none, hint: 'part', heading: true }
@@ -162,19 +165,28 @@ function trimRuns(runs: ManuscriptRun[]): ManuscriptRun[] {
 
 /** The parts of a .docx this needs, or a plain-words error when it isn't one. */
 function unzipDocx(bytes: Uint8Array): { document: string; styles: string | null; core: string | null } {
-  let files: Record<string, Uint8Array>
-  try {
-    files = unzipSync(bytes, { filter: (f) => f.name === 'word/document.xml' || f.name === 'word/styles.xml' || f.name === 'docProps/core.xml' })
-  } catch {
-    throw new UserError(
-      "That file isn't a Word document AI Write can read. If it opens in Word, save it again as a Word Document (.docx) and import that.",
-      'not-docx'
-    )
+  const unzip = (names: Set<string>): Record<string, Uint8Array> => {
+    try {
+      return unzipSync(bytes, { filter: (f) => names.has(f.name) })
+    } catch {
+      throw new UserError(
+        "That file isn't a Word document AI Write can read. If it opens in Word, save it again as a Word Document (.docx) and import that.",
+        'not-docx'
+      )
+    }
   }
-  const doc = files['word/document.xml']
+  // The main part is usually word/document.xml, but some programs name it otherwise (word/document2.xml); the
+  // package's own list of parts (_rels/.rels) says which it is.
+  const rels = unzip(new Set(['_rels/.rels']))['_rels/.rels']
+  const target = rels ? /<Relationship\b[^>]*\bType="[^"]*\/officeDocument"[^>]*>/.exec(strFromU8(rels))?.[0] : undefined
+  const named = target ? /\bTarget="\/?([^"]+)"/.exec(target)?.[1] : undefined
+  const main = named && /\.xml$/i.test(named) ? named : 'word/document.xml'
+  const folder = main.includes('/') ? main.slice(0, main.lastIndexOf('/') + 1) : ''
+  const files = unzip(new Set([main, 'word/document.xml', `${folder}styles.xml`, 'docProps/core.xml']))
+  const doc = files[main] ?? files['word/document.xml']
   if (!doc) throw new UserError("That file doesn't have a Word document inside it. Save it again from Word as a .docx and import that.", 'not-docx')
   const text = (f: Uint8Array | undefined): string | null => (f ? strFromU8(f) : null)
-  return { document: strFromU8(doc), styles: text(files['word/styles.xml']), core: text(files['docProps/core.xml']) }
+  return { document: strFromU8(doc), styles: text(files[`${folder}styles.xml`]), core: text(files['docProps/core.xml']) }
 }
 
 /** The document's own title (File › Properties), if it has one. */
@@ -216,6 +228,12 @@ export function readDocx(bytes: Uint8Array, fileName: string): Manuscript {
     pageBreakNext = p.breakAfter
     const style = paraStyle(styles, p.styleId)
     const extra = pageBreak ? { pageBreak } : {}
+    // The Title style once the story has begun is a heading (some writers head every chapter with it), so its
+    // words stay in the story and can start a chapter.
+    if (style.title && blocks.some((b) => b.kind !== 'title')) {
+      blocks.push({ kind: 'heading', text: plainLine(text), level: null, hint: headingHint(text) ?? 'chapter', ...extra })
+      return
+    }
     if (style.title) {
       if (!title) title = plainLine(text)
       blocks.push({ kind: 'title', text: plainLine(text) })
