@@ -15,6 +15,7 @@ import { stopAllTasks } from './ai/tasks'
 import { registerPortraitScheme, servePortraits } from './portraits'
 import { initHistory } from './history'
 import { initSpeech, stopSpeech } from './speech'
+import { purgeOldDeletedWorlds } from './library'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
 // App tests of dictation: Chromium's own pretend microphone (a beep), with no permission prompt.
@@ -240,6 +241,8 @@ function main(): void {
       reopenLastWorld()
       createWindow()
       initUpdater()
+      // Deleted worlds past 30 days go for good; a moment after launch, so the first paint isn't kept waiting.
+      setTimeout(() => void purgeOldDeletedWorlds(), 10_000).unref()
     })
     .catch((e: unknown) => {
       // Never leave an invisible AI Write running (it would block opening it again).
