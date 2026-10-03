@@ -452,7 +452,7 @@ export const SAMPLE_CHAPTERS: SampleChapter[] = [
           pov: 'wren',
           present: ['wren', 'iska'],
           location: 'steps',
-          when: 'Day 2, low tide at noon',
+          when: 'Day 3, low tide at noon',
           goal: 'Wren shows Iska why a bell can’t do the light’s work.',
           conflict: 'Iska is the Board’s clerk, and fears what writing the truth will cost her.',
           outcome: 'They come back across the steps as uneasy allies.',

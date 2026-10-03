@@ -14,9 +14,6 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { cardFilled, GUIDE_STEPS, guideStep, type GuideStep } from './setupLogic'
 
-/** How long after a draft ends its last words may still arrive and be counted, before a change counts as Adam's. */
-const SETTLE_MS = 1500
-
 /** Shown above the page of the first scene only. */
 export function FirstSceneGuide({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   const firstRun = useApp((s) => s.settings?.firstRun ?? null)
@@ -55,25 +52,18 @@ function Guide({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
     }
   }, [sceneId, briefingRev])
 
-  // A change in the words once a draft has settled is Adam's own.
-  const base = useRef<number | null>(null)
-  const settleUntil = useRef(0)
-  const wasDrafting = useRef(drafting)
-  useEffect(() => {
-    if (wasDrafting.current && !drafting) settleUntil.current = Date.now() + SETTLE_MS
-    wasDrafting.current = drafting
-    if (drafting || words === 0) {
-      base.current = null
-      return
-    }
-    if (base.current === null || Date.now() < settleUntil.current) {
-      base.current = words
-      return
-    }
-    if (words !== base.current) setEdited(true)
-  }, [words, drafting])
-
   const step = guideStep({ card, words, drafting, edited, done })
+
+  // Once there is a draft, anything Adam types, pastes or deletes in the page is his own edit (a draft streaming in
+  // never fires these).
+  useEffect(() => {
+    if (step !== 'edit') return
+    const onInput = (e: Event): void => {
+      if (e.target instanceof Element && e.target.closest('.scene-prose')) setEdited(true)
+    }
+    document.addEventListener('beforeinput', onInput, true)
+    return () => document.removeEventListener('beforeinput', onInput, true)
+  }, [step])
   const ended = useRef(false)
   useEffect(() => {
     if (step !== 'finished' || ended.current) return
@@ -139,8 +129,7 @@ function StepText({ step, drafting }: { step: GuideStep; drafting: boolean }): R
   if (step === 'card')
     return (
       <>
-        <Strong>Fill in the scene card</Strong> on the right: who’s in the scene, where it happens and what should happen. The AI writes
-        from it.
+        <Strong>Fill in the scene card</Strong> on the right: who’s in it, where it happens and what should happen.
       </>
     )
   if (step === 'generate')

@@ -676,6 +676,42 @@ full pass against the no-jank checks and the speed budgets. The data model stays
 Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `defaults.ts`, `lib/store.ts`,
 `App.tsx`, menus and the palette, this file) change only additively.
 
+### How the first run works
+
+**First-run setup** (`src/main/setup/state.ts`, `ipc/setup.ts`, `features/setup/`)
+- It shows in place of the Welcome screen (and of the workspace) while `useSetup().step` is set. `setupAt` decides at launch:
+  a library with no world of Adam's own (the sample doesn't count) and no world open starts at the first step; a setup under
+  way resumes at its step with its own world (opened for it); someone with worlds never sees it, nor does a library that
+  can't be reached. App.tsx loads it before `init()`, so the Welcome screen never flashes first.
+- Steps: the world (made at once with `createWorld`; Back renames it), Connect, Writer model, Style, Lay it out. Where it
+  stands is one settings field, `Settings.firstRun` (`{ worldId, step, sceneId }`), written by `setSetupStep` as each step
+  shows, so quitting midway resumes there. Connect and Writer model use Settings › Models' own pieces (exported from
+  `ModelsSettings.tsx`: `OpenRouterCard`, `OtherProviders`, `ModelPicker`, `ChosenModel`, `useConnectionTests`), so keys
+  are kept and tested exactly as there. The writer model step suggests a model (`recommendWriter`) with "Use this"; it is
+  never chosen silently. Style is saved as Adam's writing preferences (point of view, tense, spelling, voice notes).
+- `finishSetup` makes sure the world has a story, chapter and scene and sets `firstRun.step` to `'guide'` on that scene.
+  `FirstSceneGuide` (a bar above the page in `SceneView`, never over the words) follows what Adam does: card filled,
+  Generate, his own typing in the page (`beforeinput`), Mark done; done or closed, `firstRun` goes back to null for good.
+  "Describe my world" opens the World builder instead, with the guide waiting on the scene.
+- App tests start at the Welcome screen: `tests/e2e/helpers.ts` sets `AIWRITE_SETUP=off` unless a test asks for `'on'`
+  (a setup already under way still resumes).
+
+**The sample world** (`src/main/setup/sampleContent.ts`, `sampleWorld.ts`, `library.ts`)
+- Gullhaven, written for AI Write: one story, two chapters, four scenes, four characters with profiles and voices, places
+  (one inside another), a group, a hard rule, two plot threads, relationships, knowledge, changes over time and summaries.
+  It is made in a closed database through the usual SQL helpers (`initWorld`, `createEntry`, `insertChange`, `putSummary`,
+  `addLink`), then opened: Adam-typed pages are `'adam'`, what the memory found is `'text'` with source links to the exact
+  words. Every scene is marked read at its version with the paragraphs the keeper stores (`markProcessed`) and summaries
+  carry the keeper's fingerprints, so opening it never starts a paid memory run and it never looks unread.
+- It is found by the world meta key `sample_world`; `openSampleWorld` opens that one or makes it, so there is only ever
+  one, and a deleted one is made again. Ways in: the first run's world step, the Welcome screen, the world switcher and the
+  palette ("Explore the sample world"). While it is open, `SampleWorldBar` says so and offers "Start my own world" (the
+  setup, or the New world dialog once Adam has worlds).
+
+**Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
+Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
+are each wired in with one line.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
