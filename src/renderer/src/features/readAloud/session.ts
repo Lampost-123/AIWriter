@@ -13,7 +13,6 @@ import { toast } from '@/components/ui'
 import { api, ApiError, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { ClipPlayer, clipAudio, hasAudio, playRate, PLAY_FAILED } from './audio'
-import { paceKeeper, spokenWords } from './evenPace'
 import { FollowAlong } from './follow'
 import { barRoom, readingPlace, setReadingPlace, type ReadingPlace } from './highlight'
 import { reachedMarkAhead, type MarkAhead } from './markAhead'
@@ -417,12 +416,7 @@ export class Session {
         this.queue.shift()
         if (!this.showClip(next)) continue
         void this.prefetch()
-        // The narrator goes at one even pace, whatever speed the speech model read this clip at.
-        const narration = next.who === 'Narrator'
-        const pace = narration
-          ? (seconds: number) => paceKeeper(`${next.clip.voice}|${next.clip.voiceDesign ?? ''}`).factor(spokenWords(next.clip.input), seconds)
-          : undefined
-        const playing = this.player.play(url, this.rate(), (p) => this.progress(next, p), pace)
+        const playing = this.player.play(url, this.rate(), (p) => this.progress(next, p))
         this.sounds.playing(next, this.player.media)
         const end = await playing
         this.sounds.done(end === 'ended')
