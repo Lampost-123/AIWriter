@@ -21,12 +21,13 @@ import {
   DUCK_RAMP,
   EFFECT_DUCK_DB,
   EFFECT_FADE_IN,
-  KEEP_SOUNDS,
+  KEEP_BYTES,
   Lru,
   PREVIEW_BED_SECONDS,
   STOP_FADE,
   bedChange,
   dbToGain,
+  decodedBytes,
   effectsToDrop,
   volumeGain
 } from './mixerLogic'
@@ -77,8 +78,12 @@ class Mixer {
   private paused = false
   private held = false
   private ducked = false
-  private readonly buffers = new Lru<string, AudioBuffer>(KEEP_SOUNDS)
+  private readonly buffers = new Lru<string, AudioBuffer>(KEEP_BYTES, decodedBytes)
   private readonly pending = new Map<string, Promise<AudioBuffer | null>>()
+  /** Bumped by every Listen and Stop: a Listen still getting ready when another starts (or Stop) never plays. */
+  private listenSeq = 0
+  /** Bumped by forget(): a sound fetched before it is never kept. */
+  private generation = 0
 
   /** The audio clock, made on first use. Null where the window has no Web Audio (never in the app). */
   private ensure(): AudioContext | null {
@@ -101,6 +106,8 @@ class Mixer {
     // A sound made since reading wanted it: an ambience still wanted starts now; anything else is fetched next time.
     onEvent('sounds:ready', ({ soundId, ok }) => {
       if (!ok) return
+      // Made again under the same id: the copy kept here is out of date.
+      if (this.bed?.soundId !== soundId) this.buffers.delete(soundId)
       if (this.wantedBed === soundId && this.bed?.soundId !== soundId) this.setBed(soundId)
     })
     return ctx
@@ -119,6 +126,7 @@ class Mixer {
     if (!ctx) return Promise.resolve(null)
     let got = this.pending.get(soundId)
     if (!got) {
+      const generation = this.generation
       got = api
         .soundAudio(soundId)
         .then(async (bytes) => {
@@ -126,11 +134,15 @@ class Mixer {
           // decodeAudioData takes the bytes over, so it gets a copy of its own.
           const copy = new Uint8Array(bytes).buffer
           const buffer = await ctx.decodeAudioData(copy)
+          // Cleared meanwhile (Clear sounds): not kept, and not played.
+          if (generation !== this.generation) return null
           this.buffers.set(soundId, buffer)
           return buffer
         })
         .catch(() => null)
-        .finally(() => this.pending.delete(soundId))
+        .finally(() => {
+          if (this.pending.get(soundId) === got) this.pending.delete(soundId)
+        })
       this.pending.set(soundId, got)
     }
     return got
@@ -269,10 +281,11 @@ class Mixer {
     }
   }
 
-  /** Reading carries on: everything goes on from exactly where it was. */
+  /** Reading carries on: everything goes on from exactly where it was (a Listen still playing stops first). */
   resume(): void {
     if (!this.paused) return
     this.paused = false
+    this.stopListening()
     if (this.held) this.release()
     if (this.ctx) void this.ctx.resume().catch(() => undefined)
   }
@@ -282,7 +295,12 @@ class Mixer {
     this.wantedBed = null
     this.ducked = false
     const ctx = this.ctx
-    if (!ctx) return
+    if (!ctx) {
+      // Nothing was ever played: only the reading's state goes back to the start.
+      this.paused = false
+      this.held = false
+      return
+    }
     const voices = [...(this.bed ? [this.bed] : []), ...this.effects]
     this.bed = null
     this.effects = []
@@ -305,6 +323,18 @@ class Mixer {
     }
   }
 
+  /**
+   * The sound library was cleared (or put back): nothing decoded before is played again. The ambience fades out; it
+   * comes back by itself if reading still wants it and its sound is made again.
+   */
+  forget(): void {
+    this.generation++
+    this.buffers.clear()
+    this.pending.clear()
+    this.stopListening()
+    if (this.bed) this.fadeOutBed(STOP_FADE)
+  }
+
   /** The end of reading (no scene to carry on into): the ambience fades out gently, and any effect rings out. */
   endBed(): void {
     this.wantedBed = null
@@ -320,15 +350,22 @@ class Mixer {
    */
   async listen(soundId: string, kind: SoundKind): Promise<boolean> {
     this.stopListening()
+    const mine = ++this.listenSeq
     usePreview.setState({ loading: soundId, playing: null })
     const buffer = await this.load(soundId)
-    if (usePreview.getState().loading !== soundId) return !!buffer
-    usePreview.setState({ loading: null })
+    // Another Listen, or Stop, meanwhile: this one never plays.
+    if (mine !== this.listenSeq) return !!buffer
     const ctx = this.ctx
-    if (!buffer || !ctx || !this.previewBus) return false
-    // Reading's own sounds hold their places, silent, while this plays.
+    if (!buffer || !ctx || !this.previewBus) {
+      usePreview.setState({ loading: null })
+      return false
+    }
+    // Reading's own sounds hold their places, silent, while this plays. A pause may have just asked the clock to
+    // stop (its suspend still on its way), so the clock is always asked to run again, after it.
     if (this.paused) this.hold()
-    if (ctx.state === 'suspended') await ctx.resume().catch(() => undefined)
+    if (this.paused || this.held || ctx.state !== 'running') await ctx.resume().catch(() => undefined)
+    if (mine !== this.listenSeq) return true
+    usePreview.setState({ loading: null })
     const src = ctx.createBufferSource()
     src.buffer = buffer
     src.loop = kind === 'ambience'
@@ -355,6 +392,7 @@ class Mixer {
 
   /** Stops Listen (a quick fade). */
   stopListening(): void {
+    this.listenSeq++
     if (this.previewTimer) clearTimeout(this.previewTimer)
     this.previewTimer = null
     const v = this.preview
@@ -362,7 +400,7 @@ class Mixer {
       this.preview = null
       this.fade(v, this.now, 0.15)
       this.listened()
-    }
+    } else if (this.held) this.listened()
     if (usePreview.getState().loading) usePreview.setState({ loading: null })
   }
 

@@ -6,6 +6,9 @@ const calls: string[] = []
 let bedWanted: string | null = null
 const times = vi.fn<(req: { at: number[] }) => Promise<{ seconds: number[]; aligned: boolean }>>()
 let soundEffects = true
+/** Clips whose speech the reading has (or is getting), by key; all of them unless a test says. */
+let speechFor: ((key: string) => boolean) | null = null
+const spoken = vi.fn(() => Promise.resolve('blob:clip'))
 
 vi.mock('./mixer', () => ({
   mixer: {
@@ -30,7 +33,10 @@ vi.mock('./mixer', () => ({
 }))
 vi.mock('@/lib/api', () => ({ api: { soundCueTimes: (req: { at: number[] }) => times(req) } }))
 vi.mock('@/lib/store', () => ({ useApp: { getState: () => ({ settings: { speech: { soundEffects } } }) } }))
-vi.mock('@/features/readAloud/audio', () => ({ clipAudio: () => Promise.resolve('blob:clip') }))
+vi.mock('@/features/readAloud/audio', () => ({
+  clipAudio: () => spoken(),
+  hasAudio: (key: string) => (speechFor ? speechFor(key) : true)
+}))
 
 const { ReadingSounds } = await import('./readingSounds')
 
@@ -67,6 +73,8 @@ beforeEach(() => {
   calls.length = 0
   bedWanted = null
   soundEffects = true
+  speechFor = null
+  spoken.mockClear()
   times.mockReset()
 })
 afterEach(() => vi.useRealTimers())
@@ -188,6 +196,42 @@ describe('sounds during a reading', () => {
     t.shown(clip({ bed: 'rain' }))
     t.stop()
     expect(calls).toContain('stop')
+  })
+
+  it('times only clips whose speech the reading already has or is getting, never one waiting or failed', async () => {
+    times.mockResolvedValue({ seconds: [1], aligned: true })
+    const sounds: ClipSound[] = [{ cueId: 'c1', soundId: 'door', edge: 'fire', at: 3 }]
+    speechFor = (key) => key === 'have' || key === 'failed' || key === 'waits'
+    const s = new ReadingSounds(() => new Map([['p1', TEXT]]))
+    s.prepare(
+      [
+        clip({ key: 'have', sounds }),
+        clip({ key: 'later', sounds }),
+        clip({ key: 'waits', waits: true, sounds }),
+        clip({ key: 'failed', sounds })
+      ],
+      new Set(['failed'])
+    )
+    await flush()
+    expect(times).toHaveBeenCalledTimes(1)
+    // Nothing here asks for speech of its own: only the clip the reading is getting was waited on.
+    expect(spoken).toHaveBeenCalledTimes(1)
+    // Once the reading has the next clip's speech, it is timed then.
+    speechFor = () => true
+    s.prepare([clip({ key: 'later', sounds })])
+    await flush()
+    expect(times).toHaveBeenCalledTimes(2)
+  })
+
+  it('runs the sounds’ clock whenever the voice plays, and at the end of a scene', () => {
+    const s = new ReadingSounds(() => new Map())
+    const c = clip({ bed: 'rain' })
+    s.shown(c)
+    s.playing(c, media() as unknown as HTMLAudioElement)
+    expect(calls).toEqual(['bed rain', 'resume', 'duck'])
+    calls.length = 0
+    s.ended()
+    expect(calls).toEqual(['resume', 'unduck'])
   })
 
   it('does nothing while sound effects are off, and stops them when they are turned off', () => {

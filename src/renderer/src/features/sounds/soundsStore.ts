@@ -21,13 +21,13 @@ interface SoundsState {
   sounds: SceneSounds | null
   /** Why they couldn't be read (the last ones read stay showing). */
   error: string | null
-  /** "Find sounds in this scene" was pressed and hasn't answered yet. */
-  finding: boolean
+  /** Scenes where "Find sounds in this scene" was pressed and hasn't answered yet. */
+  finding: ID[]
   /** Listen was pressed on a sound being made now: it plays once it is made. */
   waiting: string | null
 }
 
-export const useSounds = create<SoundsState>(() => ({ sceneId: null, sounds: null, error: null, finding: false, waiting: null }))
+export const useSounds = create<SoundsState>(() => ({ sceneId: null, sounds: null, error: null, finding: [], waiting: null }))
 
 /** The page's paragraphs with words, as they stand now, when the page shows this scene. */
 export function pageNow(sceneId: ID): ReadParagraph[] | null {
@@ -44,7 +44,7 @@ export async function loadSounds(sceneId: ID): Promise<void> {
   const paragraphs = pageNow(sceneId)
   if (!paragraphs) return
   const mine = ++token
-  if (useSounds.getState().sceneId !== sceneId) useSounds.setState({ sceneId, sounds: null, error: null, finding: false })
+  if (useSounds.getState().sceneId !== sceneId) useSounds.setState({ sceneId, sounds: null, error: null })
   try {
     const sounds = await api.getSceneSounds(sceneId, paragraphs)
     if (mine !== token) return
@@ -55,10 +55,14 @@ export async function loadSounds(sceneId: ID): Promise<void> {
   }
 }
 
-/** An answer that carries the scene's sounds: shown, when the view still shows that scene. */
+/**
+ * An answer that carries the scene's sounds: shown, when the view still shows that scene (it is then newer than any
+ * read still on its way). Another scene's answer changes nothing here.
+ */
 function keep(sceneId: ID, sounds: SceneSounds): void {
+  if (useSounds.getState().sceneId !== sceneId) return
   token++
-  if (useSounds.getState().sceneId === sceneId) useSounds.setState({ sounds, error: null })
+  useSounds.setState({ sounds, error: null })
 }
 
 const failed = (e: unknown, words: string): void =>
@@ -67,14 +71,14 @@ const failed = (e: unknown, words: string): void =>
 /** "Find sounds in this scene": the AI marks the whole scene now (Adam's paragraphs are left as they are). */
 export async function findSounds(sceneId: ID): Promise<void> {
   const paragraphs = pageNow(sceneId)
-  if (!paragraphs || useSounds.getState().finding) return
-  useSounds.setState({ finding: true })
+  if (!paragraphs || useSounds.getState().finding.includes(sceneId)) return
+  useSounds.setState((s) => ({ finding: [...s.finding, sceneId] }))
   try {
     keep(sceneId, await api.markSceneSounds(sceneId, paragraphs))
   } catch (e) {
     failed(e, 'Sounds couldn’t be found just now. Try again in a moment.')
   } finally {
-    useSounds.setState({ finding: false })
+    useSounds.setState((s) => ({ finding: s.finding.filter((id) => id !== sceneId) }))
   }
 }
 

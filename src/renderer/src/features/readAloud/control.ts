@@ -355,6 +355,8 @@ function watch(): void {
     const speech = now.settings?.speech
     const was = before.settings?.speech
     if (speech?.speed !== was?.speed) session?.setRate(playRate(speech?.speed))
+    // Sound effects turned off: any sound goes now, even an ambience kept for Keep reading's next scene.
+    if (!speech?.soundEffects && was?.soundEffects) mixer.stop()
     // How the lines are read changed: the next lines are planned again with it.
     if (
       speech &&

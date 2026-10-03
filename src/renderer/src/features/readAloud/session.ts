@@ -218,6 +218,8 @@ export class Session {
     this.jumps++
     this.paused = false
     this.player.stop()
+    // Playing goes on, so the sounds' clock runs again (no-op when it wasn't paused).
+    this.sounds.resume()
     const wake = this.wake
     this.wake = []
     wake.forEach((fn) => fn())
@@ -450,7 +452,7 @@ export class Session {
   private prefetching = false
   private async prefetch(): Promise<void> {
     // Sound effects: the next clips' sounds and their times, alongside their audio.
-    this.sounds.prepare(this.current ? [this.current, ...this.queue.slice(0, AHEAD)] : this.queue.slice(0, AHEAD + 1))
+    this.sounds.prepare(this.current ? [this.current, ...this.queue.slice(0, AHEAD)] : this.queue.slice(0, AHEAD + 1), this.failed)
     if (this.prefetching) return
     this.prefetching = true
     try {
@@ -459,7 +461,11 @@ export class Session {
         const [key] = toFetch(list, 0, (k) => hasAudio(k) || this.failed.has(k))
         const clip = key ? list.find((c) => c.key === key) : null
         if (!clip) return
-        await clipAudio(clip.key, clip.clip).catch(() => this.failed.add(clip.key))
+        await clipAudio(clip.key, clip.clip).then(
+          // Its audio is here: its sounds can be timed now.
+          () => this.sounds.prepare([clip], this.failed),
+          () => this.failed.add(clip.key)
+        )
       }
     } finally {
       this.prefetching = false

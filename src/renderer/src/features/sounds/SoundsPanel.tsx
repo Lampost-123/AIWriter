@@ -36,7 +36,7 @@ export function SoundsPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const editor = useSceneEditor(sceneId)
   const sounds = useSounds((s) => (s.sceneId === sceneId ? s.sounds : null))
   const error = useSounds((s) => (s.sceneId === sceneId ? s.error : null))
-  const finding = useSounds((s) => s.finding)
+  const finding = useSounds((s) => s.finding.includes(sceneId))
   const ready = useSoundsReady()
   const picked = usePicked(editor)
   const [adding, setAdding] = useState(false)
@@ -354,6 +354,8 @@ function RowMenu({
           align="end"
           sideOffset={4}
           collisionPadding={8}
+          // Focus stays where the item put it (the description's box, for "Change what it sounds like").
+          onCloseAutoFocus={(e) => e.preventDefault()}
           className="z-50 min-w-[230px] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
         >
           {cue.kind === 'effect' ? (
