@@ -700,6 +700,31 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   copy, Import a world file…), the Welcome screen (a menu on each world, and Import a world file… under the list,
   shown even with no worlds) and the palette (`export-story`, `export-bible`, `export-world`, `copy-world`,
   `import-world`). The dialogs are mounted once in the workspace (`ExportDialogs`).
+**Usage and cost** (`src/main/usage/`, `features/usage/`, Settings › Usage and cost)
+- **What is counted.** Every AI call is a `generations` row (job, model, provider, tokens, cost), the memory
+  keeper's included (jobs `memory`, `summary`); `memory_runs` only adds those up per run, so it is never read
+  (no double counting). Cost is the record's own (`draftCost` and its kin: the provider's figure, else tokens x
+  prices, else an estimate), so the page agrees with the toolbar and the Drafts list. A row turned down before
+  anything was sent isn't a call; one with no cost counts as "no price from the provider"; a cost with no
+  tokens is an estimate. Days and months are local.
+- **Across the library** (`library.ts`): each world's sums by day, job, model and provider (`aggregate.ts`),
+  read incrementally (rows past the last rowid, plus rows that were still streaming; a changed row count or
+  last-row id reads it all again, and spending already counted never goes down). The open world is read
+  through its own connection; other worlds read-only, only when world.db or its -wal changed size or time,
+  and closed at once. Sums are kept in `usage-cache.json` in the app's data folder (keyed by folder and time
+  zone), so the page opens fast after the first time.
+- **The limit** (`limit.ts`, `index.ts`): with none set, nothing is added up before AI calls. From 80%, one
+  toast a month; at the limit another, and AI calls are held until Adam chooses **Carry on this month**, raises
+  the limit or the month turns. What was said is `settings.usage.notice` (one month and one limit; a new month
+  or limit starts afresh). Held means: (1) the window's AI-starting calls listed in `ASKS_FIRST` are refused in
+  `ipc/index.ts` before the handler runs (UserError code `spend-limit`), and `lib/api.ts` asks ("This month's AI
+  spending has reached your $20 limit." Carry on this month / Not now), then makes the same call once more or
+  fails with `cancelled`; a new AI action belongs in `ASKS_FIRST`. (2) As a backstop, `insertGeneration` refuses
+  any AI call while held (`usage/gate.ts`), before anything is sent, so no job slips past and no draft is cut
+  mid-way. (3) Automatic work waits rather than asks: the memory keeper sees the limit as "no model" (scenes stay
+  waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
+  done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
+  (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
 
 ### Who builds what (parallel build, milestone 6)
 

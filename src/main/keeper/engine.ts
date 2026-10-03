@@ -357,8 +357,18 @@ export class Keeper {
     }
     this.reading = null
     if (this.closed) return
+    // Milestone 6: a read stopped part way because the model can no longer be used (this month's AI spending
+    // reached Adam's limit) waits as with no model, with the reason in the note, rather than without a word.
+    let asNow = m
+    if (outcome.status === 'stopped' && this.db.open) {
+      const now = this.deps.model()
+      if ('error' in now) {
+        outcome = { status: 'no-model' }
+        asNow = now
+      }
+    }
     try {
-      await this.after(id, outcome, model, controller, records, m)
+      await this.after(id, outcome, model, controller, records, asNow)
     } catch (e) {
       console.error('The memory keeper could not finish after reading a scene', e)
     }

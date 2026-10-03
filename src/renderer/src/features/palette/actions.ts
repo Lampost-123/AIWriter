@@ -97,7 +97,8 @@ const SETTINGS: Record<SettingsAction, SettingsTab> = {
   'settings-backups': 'backups',
   'settings-trash': 'trash',
   'settings-about': 'about',
-  'settings-speech': 'speech'
+  'settings-speech': 'speech',
+  'settings-usage': 'usage'
 }
 
 /** Runs one of the palette's actions. */
@@ -213,6 +214,7 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'settings-trash':
       case 'settings-about':
       case 'settings-speech':
+      case 'settings-usage':
         a.navigate({ kind: 'settings', tab: SETTINGS[fixed] })
         return
       // ----- Milestone 4 -----
