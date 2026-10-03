@@ -37,7 +37,12 @@ async function applyText(p: Extract<Proposal, { kind: 'text' }>): Promise<Applie
   if (!editor) return { ok: false, why: `${p.sceneLabel} couldn’t be opened.` }
   if (editorBridge()?.busy()) return { ok: false, why: 'A draft is being written into this scene. Wait for it to finish, then apply.' }
   const range = findTextRange(editor.state.doc, p.find)
-  if (!range) return { ok: false, why: 'Those words have changed since the change was proposed. Ask again for a fresh one.' }
+  if (!range) {
+    return {
+      ok: false,
+      why: 'The words this change looks for aren’t in the scene any more: another change or your own editing changed them. Ask again for a fresh one.'
+    }
+  }
   await snapshotBefore(p.sceneId, 'Before an edit from Ask the world')
   // The words as the scene has them may differ in quote marks or spacing: the whole found range is replaced.
   const { from, to } = range

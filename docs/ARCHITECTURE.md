@@ -1188,7 +1188,7 @@ new entries, scenes and chapters, new titles) but never deletes; each change has
 it uses the Chat and brainstorm model, with no setting of its own.
 
 - **Tool calling.** `ai/client.ts` sends `tools` and reads streamed `tool_calls`; `ai/tasks.ts` runs the loop when a
-  request has `agent`: up to `MAX_STEPS` (8) requests, the last one without tools so the model answers in words.
+  request has `agent`: up to `MAX_STEPS` (12) requests, the last one without tools so the model answers in words.
   Cost and tokens add up across steps; each step's label is kept in `params.steps` (What the AI saw: "Steps it
   took").
 - **The tools** (`ask/agent.ts`, `EditorAgent`): `read_scene`, `outline`, `search`, `get_entry`, `style_guide`,
@@ -1199,6 +1199,11 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Applying** happens in the window (`features/ask/applyProposal.ts`) through the usual APIs, each with its Undo:
   words go into the page as one step after `snapshotBefore`; a new character is made as the builder makes one, so
   it gets its read-aloud voice. The cards are `features/ask/Proposals.tsx`.
+- **Honest about what is waiting.** A `propose_*` call that fails answers "Not proposed: nothing is waiting"; an
+  edit that overlaps another waiting one is turned down (once one is applied the other's words would be gone), and
+  `revises: N` replaces change N instead. Before the last request (no tools) the model is told what it proposed
+  (`lastWords`). If an answer still speaks of changes to apply and none came with it, the chat says so under it
+  (`speaksOfChanges`, `features/ask/askWords.ts`).
 - **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.

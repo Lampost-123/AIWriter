@@ -122,6 +122,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
         tools: EDITOR_TOOLS,
         maxSteps: MAX_STEPS,
         run: (calls) => agent.runAll(calls),
+        lastWords: () => agent.lastWords(),
         extraParams: () => (agent.proposals.length ? { proposals: agent.proposals } : {})
       }
     }))

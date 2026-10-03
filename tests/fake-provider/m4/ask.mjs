@@ -14,7 +14,8 @@
 //                italics, without the marks);
 //              - from the second question in a chat on, it starts "Answer N in this chat." (N counts the
 //                earlier answers sent with it, so tests can see the conversation was sent);
-//            Two short paragraphs; with model fake/slow, a list of twenty ideas after them, one a line, so
+//            A question with "pretend" in it gets an answer that tells the writer to apply changes it never
+//            proposed. Otherwise two short paragraphs; with model fake/slow, a list of twenty ideas after them, one a line, so
 //            there is time to Stop.
 const MARKER = '[AIWRITE-ASK v1]'
 
@@ -48,6 +49,8 @@ export function askReply(system, messages, model) {
   const cited = names.map((n) => `[[${n}]]`)
   const who =
     cited.length > 1 ? `${cited.slice(0, -1).join(', ')} and ${cited[cited.length - 1]}` : (cited[0] ?? 'nothing in the memory yet')
+  // A model that claims changes it never proposed (the app must say nothing came with the answer).
+  if (/\bpretend\b/i.test(question)) return 'I’ve tidied up the opening. Apply the changes below when you’re ready.'
   const lead = earlier ? `Answer ${earlier + 1} in this chat. ` : ''
   const paragraphs = [
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,

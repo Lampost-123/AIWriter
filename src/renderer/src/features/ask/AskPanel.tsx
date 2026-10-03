@@ -35,7 +35,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
-import { EXAMPLES, NO_ANSWER, answerNote, asOfHint, asOfText, chatWhen, savedMessage } from './askWords'
+import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
 import { Proposals } from './Proposals'
 
 /** The last request for the box to take the keyboard that was carried out. */
@@ -420,6 +420,11 @@ function TurnView({
         </p>
       ) : null}
       {turn.proposals?.length ? <Proposals generationId={turn.generationId} proposals={turn.proposals} streaming={streaming} /> : null}
+      {!streaming && turn.status === 'complete' && !turn.proposals?.length && speaksOfChanges(turn.answer) ? (
+        <p className="mt-1.5 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
+          {NO_CHANGES_CAME}
+        </p>
+      ) : null}
 
       {streaming ? (
         <div className="mt-1.5 flex h-7 items-center px-1">
