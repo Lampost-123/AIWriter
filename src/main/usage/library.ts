@@ -35,8 +35,11 @@ interface CacheFile {
 
 const VERSION = 1
 
-/** This computer's time zone (days are Adam's local days). */
-export const timeZone = (): string => `${Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''} ${new Date().getTimezoneOffset()}`
+/**
+ * This computer's time zone (days are Adam's local days). Its name only: the clocks going forward or back
+ * changes the offset but not which day a moment falls on there, so it mustn't make every world be read again.
+ */
+export const timeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone || `offset ${new Date().getTimezoneOffset()}`
 
 function markerOf(folder: string): Marker | null {
   try {

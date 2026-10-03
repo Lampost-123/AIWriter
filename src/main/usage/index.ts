@@ -274,8 +274,11 @@ world.onWorldOpened(() => {
 })
 world.onWorldClosing((w) => {
   for (const [k, v] of waiting) if (v.db === w.db) waiting.delete(k)
-  // Its tally is brought up to date while its connection is still open, and kept.
+  // Its tally is brought up to date while its connection is still open, and kept. Only one already added up:
+  // that reads just what is new, while adding up a world for the first time reads all of its records, which
+  // mustn't slow closing (or quitting) for someone who never looks at the page and has no limit.
   try {
+    if (!w.db.open || !lib().tallyOf(w.folder)) return
     lib().refreshOpen({ folder: w.folder, db: w.db, name: repo.getMeta(w.db, 'name') ?? 'Untitled world' })
     lib().save()
   } catch (e) {

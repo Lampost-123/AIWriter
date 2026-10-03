@@ -109,9 +109,14 @@ export function tallyWorld(db: DB, before: WorldTally | null, dayOf: (iso: strin
     (db.prepare('SELECT id FROM generations WHERE rowid = ?').get(rowid) as { id: string } | undefined)?.id ?? null
 
   if (before && before.seen.top <= top && (before.seen.top === 0 || idAt(before.seen.top) === before.seen.topId)) {
+    // Two halves, so each is found by rowid (an OR between them would read through every row of the table).
     const rows = db
-      .prepare(`SELECT ${COLUMNS} FROM generations WHERE rowid > ? OR rowid IN (SELECT value FROM json_each(?)) ORDER BY rowid`)
-      .all(before.seen.top, JSON.stringify(before.pending)) as Row[]
+      .prepare(
+        `SELECT ${COLUMNS} FROM generations WHERE rowid > ?
+         UNION ALL SELECT ${COLUMNS} FROM generations WHERE rowid IN (SELECT value FROM json_each(?)) AND rowid <= ?
+         ORDER BY r`
+      )
+      .all(before.seen.top, JSON.stringify(before.pending), before.seen.top) as Row[]
     const added = rows.filter((r) => r.r > before.seen.top).length
     if (before.seen.count + added === head.n) {
       const next = clone(before)

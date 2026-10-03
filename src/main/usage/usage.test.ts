@@ -408,6 +408,43 @@ describe('the memory keeper waits while the limit is reached', () => {
     expect(k.status()).toMatchObject({ behind: 0, error: null })
     k.stop()
   })
+
+  it('a read stopped part way when the limit is reached says why, and goes on once Adam carries on', async () => {
+    // Free when the run starts, reached by the time its call would be sent.
+    let looks = 0
+    let carriedOn = false
+    setSpendHooks({ held: () => (carriedOn ? null : ++looks > 1 ? 20 : null), finished: () => {} })
+    const db = memoryWorld()
+    const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
+    repo.saveSceneText(
+      db,
+      sceneId,
+      { type: 'doc', content: [{ type: 'paragraph', attrs: { pid: 'p1' }, content: [{ type: 'text', text: 'Mara Venn crossed the bridge at dusk.' }] }] },
+      'Mara Venn crossed the bridge at dusk.'
+    )
+    kdb.noteSceneSaved(db, sceneId)
+    const k = new Keeper({
+      db,
+      model: () => {
+        const paused = pausedNote()
+        return paused ? { error: paused } : model()
+      },
+      emitStatus: () => {},
+      emitChanged: () => {},
+      quietMs: 60_000,
+      summaries: false,
+      retryDelays: [0]
+    })
+    k.start()
+    await k.whenIdle()
+    expect(k.status()).toMatchObject({ behind: 1, failed: 0 })
+    expect(k.status().error).toContain(reachedWords(20))
+    carriedOn = true
+    k.updateNow()
+    await k.whenIdle()
+    expect(k.status()).toMatchObject({ behind: 0, error: null })
+    k.stop()
+  })
 })
 
 describe('every world in the library', () => {
