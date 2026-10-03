@@ -44,3 +44,5 @@ Milestone 6:
 | look.ts | Themes finished (accent colour, reduced motion) and focus mode |
 
 After milestone 6: recipes.ts (Story recipes: the recipe library, making a recipe, a new story from one).
+Writing by hand: find.ts (find and replace across the story; finding in the open scene is the window's own).
+Writing by hand: spelling.ts (spell check in the writer's spelling, the world's names, synonyms on right-click).

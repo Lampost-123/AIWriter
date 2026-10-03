@@ -13,6 +13,7 @@ import { refreshDefaultExistsPoints } from '../db/memory'
 import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, scenesRestored } from '../keeper'
 import { sceneTextSaved } from '../history'
 import { sceneSavedForMarks } from '../readAloud'
+import { syncSpelling } from '../spelling'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -75,7 +76,12 @@ export const coreHandlers: Handlers<CoreMethods> = {
     return settings
   },
   getWritingPrefs: () => getWritingPrefs(),
-  setWritingPrefs: (prefs) => setWritingPrefs(prefs),
+  setWritingPrefs: (prefs) => {
+    const saved = setWritingPrefs(prefs)
+    // Writing by hand: spell check follows a change of spelling.
+    void syncSpelling()
+    return saved
+  },
   chooseLibraryFolder: async () => {
     const win = BrowserWindow.getFocusedWindow()
     const opts = { title: 'Choose your AI Write library folder', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] }

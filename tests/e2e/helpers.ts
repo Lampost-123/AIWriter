@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ApiMethod, AppApi, Bridge, IpcResult } from '@shared/api'
@@ -20,6 +20,11 @@ export interface LaunchOptions {
   /** Reuse a data folder (to test what survives a restart). A fresh temp folder by default. */
   dataDir?: string
   env?: Record<string, string>
+  /**
+   * Writing by hand: false starts a fresh data folder with smart punctuation off, for tests that type straight
+   * quotes and look for them as typed. On by default, as for Adam.
+   */
+  smartPunctuation?: boolean
 }
 
 export const newDataDir = (): string => mkdtempSync(join(tmpdir(), 'aiwrite-e2e-'))
@@ -27,6 +32,11 @@ export const newDataDir = (): string => mkdtempSync(join(tmpdir(), 'aiwrite-e2e-
 /** Launches the built app with its own data folder and waits for the first window. */
 export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> {
   const dataDir = opts.dataDir ?? newDataDir()
+  const settingsFile = join(dataDir, 'app', 'settings.json')
+  if (opts.smartPunctuation === false && !existsSync(settingsFile)) {
+    mkdirSync(join(dataDir, 'app'), { recursive: true })
+    writeFileSync(settingsFile, JSON.stringify({ editor: { smartPunctuation: false } }))
+  }
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
@@ -91,13 +101,14 @@ export async function openSettings(win: Page, tab: string): Promise<void> {
  * The test fixture: `launch()` starts the app; every app is closed afterwards, with a
  * screenshot of its window attached when the test failed, and their data folders removed.
  */
-export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<LaunchedApp> }>({
-  // eslint-disable-next-line no-empty-pattern
-  launch: async ({}, use, testInfo) => {
+export const test = base.extend<{ launch: (opts?: LaunchOptions) => Promise<LaunchedApp>; smartPunctuation: boolean }>({
+  // A spec that types straight quotes and expects them as typed says test.use({ smartPunctuation: false }).
+  smartPunctuation: [true, { option: true }],
+  launch: async ({ smartPunctuation }, use, testInfo) => {
     const apps: LaunchedApp[] = []
     const made = new Set<string>()
     await use(async (opts = {}) => {
-      const a = await launchApp(opts)
+      const a = await launchApp({ smartPunctuation, ...opts })
       // Removed once the apps have closed: Windows won't delete files an app still has open.
       made.add(a.dataDir)
       apps.push(a)

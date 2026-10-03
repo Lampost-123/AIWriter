@@ -5,6 +5,7 @@ import { ModelsSettings } from './ModelsSettings'
 import { PreferencesSettings } from './PreferencesSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { SpeechSettings } from './SpeechSettings'
+import { EditorSettings } from './EditorSettings'
 import { BackupsSettings } from './BackupsSettings'
 import { RecentlyDeleted } from './RecentlyDeleted'
 import { AboutSettings } from './AboutSettings'
@@ -19,6 +20,7 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
     label: 'Read aloud and dictation',
     blurb: 'Hear your scenes read aloud, and speak instead of typing. Both run on this computer, with nothing sent anywhere.'
   },
+  { id: 'editor', label: 'Editor', blurb: 'Spelling, punctuation as you type, typewriter scrolling and a daily word target.' },
   { id: 'backups', label: 'Backups', blurb: 'Automatic copies of the open world, and restoring one.' },
   {
     id: 'trash',
@@ -62,6 +64,7 @@ export function SettingsView({ tab }: { tab: SettingsTab }): React.JSX.Element {
           {current.id === 'preferences' && <PreferencesSettings />}
           {current.id === 'appearance' && <AppearanceSettings />}
           {current.id === 'speech' && <SpeechSettings />}
+          {current.id === 'editor' && <EditorSettings />}
           {current.id === 'backups' && <BackupsSettings />}
           {current.id === 'trash' && <RecentlyDeleted />}
           {current.id === 'usage' && <UsageSettings />}

@@ -6,7 +6,7 @@ import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { api } from './api'
 
-export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'backups' | 'trash' | 'usage' | 'about'
+export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =

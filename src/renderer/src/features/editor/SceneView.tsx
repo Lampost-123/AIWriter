@@ -26,6 +26,8 @@ import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
 import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
 import { FirstSceneGuide } from '@/features/setup/FirstSceneGuide'
+import { TypewriterLayer } from '@/features/typing/TypewriterLayer'
+import { FindBar } from '@/features/find/FindBar'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -231,6 +233,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       >
         <div
           ref={columnRef}
+          data-paragraphs={prefs?.paragraphStyle ?? 'spaced'}
+          data-typewriter={prefs?.typewriter ? 'on' : undefined}
           className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', !(shown && !error) && 'invisible')}
           style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
         >
@@ -241,6 +245,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
+        <TypewriterLayer editor={editor} scrollerRef={scrollerRef} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState
@@ -274,6 +279,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         </button>
       ) : null}
       {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
+      {/* Writing by hand: find and replace in the scene (Ctrl+F), over the top of the page. */}
+      <FindBar editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
     </div>
   )
 }

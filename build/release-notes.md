@@ -1,4 +1,4 @@
-<!-- version: 0.6.3 -->
+<!-- version: 0.6.6 -->
 Story recipes.
 
 - Import a whole story (Word, Markdown or text) or paste it in, and the AI makes a recipe of it: its themes, writing style and structure, without its words, names or places. You see the cost first.

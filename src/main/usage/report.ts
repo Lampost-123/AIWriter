@@ -98,7 +98,7 @@ function monthsBetween(first: string, last: string): string[] {
   return out
 }
 
-const totalsOf = (b: Bucket): UsageTotals => ({ ...b })
+const totalsOf = (b: Bucket): UsageTotals => ({ ...b, cachedTokens: b.cachedTokens ?? 0 })
 const byCost = <T extends UsageTotals>(a: T, b: T): number => b.cost - a.cost || b.calls - a.calls
 
 export interface ReportInput {
