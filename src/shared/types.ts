@@ -36,6 +36,25 @@ export interface StyleGuide {
   spelling: Spelling | ''
   contentLimits: string
   notes: string
+  /**
+   * The story's feel: up to two genre presets (ids from src/shared/genres.ts). With two, the first leads
+   * and the second adds its feel. Empty: none picked. A story's non-empty list replaces the world's.
+   */
+  genres: string[]
+  /** Adam's own twist on the genre, in his words. */
+  genreNotes: string
+  /** How far romance, violence and language go on the page. A level left out: judge by the genre. */
+  intensity: ContentIntensity
+}
+
+/** One step of a content intensity scale, from 1 (the mildest) to 4 (the most). See src/shared/intensity.ts. */
+export type IntensityLevel = 1 | 2 | 3 | 4
+
+/** The content intensity scales. A story's level for a scale replaces the world's. */
+export interface ContentIntensity {
+  romance?: IntensityLevel
+  violence?: IntensityLevel
+  language?: IntensityLevel
 }
 
 /** Adam's own preferences, shared by every world. Stored in the library folder. */
@@ -45,6 +64,8 @@ export interface WritingPrefs {
   tense: string
   voiceNotes: string
   avoidWords: string[]
+  /** Steer the AI clear of common AI phrases (src/shared/slop.ts), and underline them in drafts. On unless Adam turns it off. */
+  avoidAiPhrases?: boolean
 }
 
 // ---------- Story structure ----------
@@ -321,6 +342,12 @@ export type Creativity = 'steady' | 'balanced' | 'adventurous'
 /** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
 export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
 
+/**
+ * Jobs with their own Thinking but no model of their own: 'sample' writes a sample passage for the style guide
+ * ("Write a sample for me") and 'polish' is the polish pass after a draft. Both use the writer model.
+ */
+export type ThinkingJob = Job | 'sample' | 'polish'
+
 export type ThemeName = 'system' | 'light' | 'dark' | 'sepia'
 
 export interface Settings {
@@ -328,7 +355,7 @@ export interface Settings {
   providers: ProviderConfig[]
   models: Record<Job, ModelChoice | null>
   /** How much each job's model thinks before it answers. */
-  thinking: Record<Job, ThinkingLevel>
+  thinking: Record<Job, ThinkingLevel> & Partial<Record<Exclude<ThinkingJob, Job>, ThinkingLevel>>
   creativity: Creativity
   theme: ThemeName
   editor: { fontSize: number; lineHeight: number; pageWidth: number }

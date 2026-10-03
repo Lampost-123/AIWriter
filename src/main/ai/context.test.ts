@@ -651,8 +651,11 @@ describe('blocks', () => {
     expect(block.text).toContain('UK English')
     expect(block.text).toContain('The river kept its own counsel.')
     expect(block.text).toContain('- suddenly')
-    // A short sample passage has nothing to trim.
-    expect(block.short).toBeNull()
+    expect(block.text).toContain('Write like a person, not like an AI')
+    // A short sample passage has nothing to trim: the short form only leaves out the list of AI phrases.
+    expect(block.short).toContain('The river kept its own counsel.')
+    expect(block.short).toContain('Write like a person, not like an AI')
+    expect(block.short).not.toContain('Never use stock phrases like these')
 
     const sample = Array.from({ length: 40 }, (_, i) => `Sentence ${i} runs on a little.`).join(' ')
     const long = blockOf(input({ style: style({ samplePassage: sample, avoidPhrases: ['suddenly'] }) }), 'instructions')!
@@ -1256,7 +1259,8 @@ describe('fitting the briefing to the model', () => {
       }
       return inp
     }
-    const small = assembleContext(scene(3000), countRaw)
+    // The rules against AI phrasing take about 150 tokens of block 1's short form.
+    const small = assembleContext(scene(3200), countRaw)
     const sent = (id: string) => small.blocks.find((b) => b.id === id)!
     expect(small.budget.used).toBeLessThanOrEqual(small.budget.available)
     expect(sent('instructions')).toMatchObject({ dropped: false, short: true })

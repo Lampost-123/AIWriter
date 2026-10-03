@@ -47,7 +47,10 @@ export const defaultStyleGuide = (): StyleGuide => ({
   avoidPhrases: [],
   spelling: '',
   contentLimits: '',
-  notes: ''
+  notes: '',
+  genres: [],
+  genreNotes: '',
+  intensity: {}
 })
 
 export const defaultWritingPrefs = (): WritingPrefs => ({
@@ -55,7 +58,8 @@ export const defaultWritingPrefs = (): WritingPrefs => ({
   pov: 'Close third person',
   tense: 'Past tense',
   voiceNotes: '',
-  avoidWords: []
+  avoidWords: [],
+  avoidAiPhrases: true
 })
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
@@ -75,7 +79,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   providers: [],
   models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null },
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
-  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off' },
+  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', sample: 'off', polish: 'off' },
   creativity: 'balanced',
   theme: 'system',
   editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70 },

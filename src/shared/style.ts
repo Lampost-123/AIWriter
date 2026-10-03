@@ -3,14 +3,20 @@
 // then the story's overrides on top. The context assembly and the Style guide
 // screen both use this, so what Adam sees is what the AI is given.
 
-import type { Spelling, StyleGuide, WritingPrefs } from './types'
+import { cleanGenres } from './genres'
+import { cleanIntensity, INTENSITY } from './intensity'
+import type { ContentIntensity, Spelling, StyleGuide, WritingPrefs } from './types'
 
 export type StyleSource = 'prefs' | 'world' | 'story' | 'none'
 
-export type EffectiveStyle = StyleGuide & { sources: Record<keyof StyleGuide, StyleSource> }
+export type EffectiveStyle = StyleGuide & {
+  sources: Record<keyof StyleGuide, StyleSource>
+  /** Adam's preference: steer clear of common AI phrases (src/shared/slop.ts). */
+  avoidAiPhrases: boolean
+}
 
-/** The plain-text fields of a style guide (everything except spelling and phrases to avoid). */
-export const STYLE_TEXT_KEYS = ['pov', 'tense', 'proseStyle', 'samplePassage', 'contentLimits', 'notes'] as const
+/** The plain-text fields of a style guide (everything except spelling, phrases to avoid and the story's feel). */
+export const STYLE_TEXT_KEYS = ['pov', 'tense', 'proseStyle', 'samplePassage', 'contentLimits', 'notes', 'genreNotes'] as const
 export type StyleTextKey = (typeof STYLE_TEXT_KEYS)[number]
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
@@ -77,6 +83,19 @@ export function effectiveStyle(prefs: WritingPrefs, world: StyleGuide, story: Pa
   const has = (l: string[]): boolean => l.some((x) => x.trim())
   sources.avoidPhrases = has(storyList) ? 'story' : has(worldList) ? 'world' : has(prefList) ? 'prefs' : 'none'
 
+  // The story's feel. A story's genre picks replace the world's; each intensity scale it sets replaces the world's.
+  const storyGenres = cleanGenres(s.genres)
+  const worldGenres = cleanGenres(w.genres)
+  out.genres = storyGenres.length ? storyGenres : worldGenres
+  sources.genres = storyGenres.length ? 'story' : worldGenres.length ? 'world' : 'none'
+  const storyLevels = cleanIntensity(s.intensity)
+  const worldLevels = cleanIntensity(w.intensity)
+  const intensity: ContentIntensity = { ...worldLevels, ...storyLevels }
+  out.intensity = intensity
+  const any = (l: ContentIntensity): boolean => INTENSITY.some(({ scale }) => l[scale] != null)
+  sources.intensity = any(storyLevels) ? 'story' : any(worldLevels) ? 'world' : 'none'
+
+  out.avoidAiPhrases = p.avoidAiPhrases !== false
   out.sources = sources
   return out
 }

@@ -33,6 +33,11 @@ const TEXT: Record<Exclude<StyleTextKey, 'pov' | 'tense'>, { label: string; plac
     label: 'Notes',
     placeholder: 'Anything else about how the writing should read',
     rows: 2
+  },
+  genreNotes: {
+    label: 'Your own take',
+    placeholder: 'Folk horror more than gothic. Magic is rare and frightening.',
+    rows: 2
   }
 }
 

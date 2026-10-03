@@ -68,7 +68,7 @@ import type {
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
-import { finalInstruction, indentMore, instructionsText, SHORT_SAMPLE_WORDS, type FinalOptions } from './prompts'
+import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1109,16 +1109,9 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     blocks.push({ id, priority, title, text, short: forms[1] ?? null, smaller: forms.slice(2), entryIds })
   }
 
-  // 1 Instructions and style guide (short: the sample passage trimmed).
-  const trimmed = input.style.samplePassage.trim().split(/\s+/).length > SHORT_SAMPLE_WORDS * 1.25
-  add(
-    'instructions',
-    1,
-    'Instructions and style guide',
-    instructionsText(input.style),
-    trimmed ? instructionsText(input.style, { trimSample: true }) : null,
-    []
-  )
+  // 1 Instructions and style guide (short: the sample passage trimmed, one genre, the rules without the phrase
+  // list). `add` keeps the short form only when it is actually shorter.
+  add('instructions', 1, 'Instructions and style guide', instructionsText(input.style), instructionsText(input.style, { trimSample: true }), [])
 
   // 2 Scene card and direction (no short form).
   add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
@@ -1399,7 +1392,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     hasNotes: !!clean(card.notes),
     hasDirection: !!clean(input.options.direction),
     hasBringAbout: bringAboutLines(input, sel).length > 0,
-    previousStory: previousStory(input)
+    previousStory: previousStory(input),
+    tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
   }
   const final = extras.final ?? finalInstruction
   const finalsFor = (max: number | undefined): PreparedContext['finals'] => ({
