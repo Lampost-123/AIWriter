@@ -1,8 +1,5 @@
-<!-- version: 0.6.1 -->
-Fixes and small improvements.
+<!-- version: 0.6.3 -->
+Interview me, on scenes and chapters.
 
-- A draft keeps writing when you open another scene, and still shows Stop when you go back.
-- Auto length is the new default: the AI picks how long a scene needs. You can still set a word count.
-- The AI fills in how a character sounds when read aloud, and keeps what you typed.
-- Settings says what the read-aloud voices need before they download.
-- Reading aloud shows which chapter and scene is playing.
+- On a scene card, Interview me asks a few short questions about what the card doesn't say yet. Answer, skip or press Done, and it fills in only the card's empty parts. Undo takes them back out.
+- On a chapter (its menu in the binder), Interview me gives the chapter a goal and suggests scene cards to keep, change or discard one by one.
