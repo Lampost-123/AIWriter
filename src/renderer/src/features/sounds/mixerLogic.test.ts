@@ -17,24 +17,24 @@ import {
 const db = (gain: number): number => 20 * Math.log10(gain)
 
 describe('how loud the sounds are', () => {
-  it('sits well under the voice at the default, rises evenly, and is silent at the bottom', () => {
+  it('sits under the voice at the default, rises evenly, and is silent at the bottom', () => {
     expect(volumeGain(0)).toBe(0)
     expect(volumeGain(-1)).toBe(0)
     expect(volumeGain(Number.NaN)).toBe(0)
-    // The default (0.5): about 19 dB down, clearly below a loudness-matched voice.
-    expect(db(volumeGain(0.5))).toBeCloseTo(-19, 0)
-    expect(db(volumeGain(1))).toBeCloseTo(-4, 0)
+    // The default (0.5): about 8 dB down, under a loudness-matched voice but clearly heard.
+    expect(db(volumeGain(0.5))).toBeCloseTo(-8, 0)
+    expect(db(volumeGain(1))).toBeCloseTo(2, 0)
     expect(volumeGain(2)).toBe(volumeGain(1))
     // Every step up is louder, by even steps in decibels across the middle.
     const steps = [0.1, 0.3, 0.5, 0.7, 0.9].map((v) => db(volumeGain(v)))
-    for (let i = 1; i < steps.length; i++) expect(steps[i] - steps[i - 1]).toBeCloseTo(6, 5)
+    for (let i = 1; i < steps.length; i++) expect(steps[i] - steps[i - 1]).toBeCloseTo(4, 5)
     // Near the bottom it fades to nothing rather than stopping at a floor.
     expect(volumeGain(0.01)).toBeLessThan(volumeGain(0.05) / 4)
   })
 
-  it('dips the ambience about 8 dB under a line', () => {
-    expect(BED_DUCK_DB).toBe(-8)
-    expect(dbToGain(-8)).toBeCloseTo(0.398, 3)
+  it('dips the ambience about 5 dB under a line', () => {
+    expect(BED_DUCK_DB).toBe(-5)
+    expect(dbToGain(-5)).toBeCloseTo(0.562, 3)
   })
 })
 

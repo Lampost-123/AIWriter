@@ -20,8 +20,8 @@ export const EFFECT_FADE_IN = 0.01
 /** How quickly the sounds dip under a line and come back in the breath after it. */
 export const DUCK_RAMP = 0.25
 /** How far they dip while a line is spoken. */
-export const BED_DUCK_DB = -8
-export const EFFECT_DUCK_DB = -3
+export const BED_DUCK_DB = -5
+export const EFFECT_DUCK_DB = 0
 /** A sound due within this many seconds is handed to the audio clock now, so it lands on its word exactly. */
 export const LEAD = 0.06
 /** Listen in the Sounds view plays an ambience this long, then fades it out. */
@@ -30,14 +30,14 @@ export const PREVIEW_BED_SECONDS = 8
 export const dbToGain = (db: number): number => 10 ** (db / 20)
 
 /**
- * The sounds' loudness for the volume Adam sets (0 to 1), on a curve the ear hears as even steps: about −4 dB at the
- * top, −19 dB at the middle (the default, well under the voice), fading to silence at the bottom. The clips arrive
+ * The sounds' loudness for the volume Adam sets (0 to 1), on a curve the ear hears as even steps: about +2 dB at the
+ * top, −8 dB at the middle (the default: under the voice, but clearly heard), fading to silence at the bottom. The clips arrive
  * loudness-matched, so this is the whole of their level.
  */
 export function volumeGain(volume: number): number {
   if (!Number.isFinite(volume) || volume <= 0) return 0
   const v = Math.min(1, volume)
-  return dbToGain(-34 + 30 * v) * Math.min(1, v / 0.05)
+  return dbToGain(-18 + 20 * v) * Math.min(1, v / 0.05)
 }
 
 /** What happens to the ambience when reading wants another: nothing, start one, cross to another, or fade it out. */
