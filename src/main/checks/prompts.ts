@@ -19,7 +19,7 @@ const WHAT: Record<CheckKind, string> = {
   voice:
     "voice: each character's dialogue against how they speak (their voice notes, verbal tics, what they never say, and their sample lines). Flag only lines that clearly don't sound like them.",
   style:
-    "style: the scene against the style guide's point of view and tense (a slip into another point of view, or another tense, outside dialogue), and the tone against the scene card's mood when it is far from it."
+    "style: the scene against the style guide's point of view and tense (a slip into another point of view, or another tense, outside dialogue), the tone against the scene card's mood when it is far from it, and, when a genre or content levels are given, passages that clearly break the genre's feel or go further than a content level allows."
 }
 
 /** The check names a reply may use, for the instructions. */

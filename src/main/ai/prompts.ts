@@ -125,15 +125,15 @@ export function genreText(style: Pick<StyleGuide, 'genres' | 'genreNotes'>, shor
   if (lead && blend && !short) {
     lines.push(`This story is mostly ${lead.label.toLocaleLowerCase()}, with the feel of ${blend.label.toLocaleLowerCase()}.`)
     lines.push(lead.guidance)
-    lines.push(`From ${blend.label.toLocaleLowerCase()}, bring in its ${blend.feel}: ${lowerFirst(firstSentences(blend.guidance, 2))}`)
+    lines.push(`From ${blend.label.toLocaleLowerCase()}, bring in its ${blend.feel}: ${lowerFirst(firstSentences(blend.guidance, 1))}`)
   } else if (lead) {
     lines.push(`This story is ${lead.label.toLocaleLowerCase()}.${blend ? ` It also has the feel of ${blend.label.toLocaleLowerCase()}.` : ''}`)
     lines.push(lead.guidance)
   }
   if (notes) lines.push(`The author's own take on it: ${indentMore(notes, '')}`)
-  // The leading genre's worst five and the blend's worst three keep block 1 small.
-  const cliches = short ? [] : [...(lead?.cliches.slice(0, 5) ?? []), ...(blend?.cliches.slice(0, 3) ?? [])]
-  if (cliches.length) lines.push(`Steer clear of the genre's worn-out moves, such as ${joinAnd(cliches.map((c) => c.replace(/\.$/, '')))}.`)
+  // The leading genre's worst four and the blend's worst two keep block 1 small.
+  const cliches = short ? [] : [...(lead?.cliches.slice(0, 4) ?? []), ...(blend?.cliches.slice(0, 2) ?? [])]
+  if (cliches.length) lines.push(`Steer clear of worn-out moves such as ${cliches.join('; ')}.`)
   return `Genre and feel\n${lines.join('\n')}`
 }
 
@@ -156,7 +156,7 @@ export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits
 /** The rules against common AI phrasing, with the worst offenders named (left out of the short form). */
 export function aiPhrasesText(short = false): string {
   const rules = SLOP_RULES.map((r) => `- ${r}`)
-  if (!short) rules.push(`- Never use stock phrases like these, or close variants of them: ${PROMPT_SLOP.map((p) => `"${p}"`).join(', ')}.`)
+  if (!short) rules.push(`- Never use stock phrases like these, or variants: ${PROMPT_SLOP.map((p) => `"${p}"`).join(', ')}.`)
   return `Write like a person, not like an AI\n${rules.join('\n')}`
 }
 

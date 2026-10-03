@@ -49,7 +49,7 @@ function task(tool: EditTool, o: PromptOptions): string {
     case 'vivid':
       return `The change: make the selected words more vivid, at about the same length. Choose sharper, more concrete and sensory details, stronger verbs and precise nouns; show rather than tell. Keep what happens and keep the voice. Don't overwrite: no purple prose, no piled-up adjectives.`
     case 'tone':
-      return `The change: give the selected words this tone: ${o.direction}. Shift the word choice, rhythm and detail so the passage reads that way, at about the same length. Keep what happens and who says what.`
+      return `The change: give the selected words this tone: ${o.direction}. Shift the word choice, rhythm and detail so the passage reads that way, at about the same length, while it still reads as the genre the style guide gives (if any). Keep what happens and who says what.`
     case 'voice':
       return `The change: fix the voice of the dialogue. Rewrite the words inside quotation marks so that each line sounds like the character who says it, as their voice profile describes: how they speak, their verbal tics, what they never say, and their sample lines (a guide to how they sound; don't copy them). The briefing says who says each line. Keep the narration, the speech tags and the actions exactly as they are, keep what each line means and the order of the lines, and leave any line whose speaker isn't known, or who has no voice profile, as it is.`
     case 'alternatives':
