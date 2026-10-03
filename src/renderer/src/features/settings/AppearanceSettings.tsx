@@ -1,7 +1,13 @@
-import type { ThemeName } from '@shared/types'
+import type { Settings, ThemeName } from '@shared/types'
 import { Field, Select } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { AccentPicker } from '@/features/look/AccentPicker'
+
+/** What shows when AI Write opens: the start screen (the default), or straight back to where Adam left off. */
+const START_WITH: { value: Settings['startWith']; label: string }[] = [
+  { value: 'start', label: 'The start screen' },
+  { value: 'last', label: 'Where I left off' }
+]
 
 const THEMES: { value: ThemeName; label: string }[] = [
   { value: 'system', label: 'Match my computer' },
@@ -38,6 +44,16 @@ export function AppearanceSettings(): React.JSX.Element | null {
       {range('Text size', 'fontSize', 15, 24, 1, (n) => `${n}px`)}
       {range('Line spacing', 'lineHeight', 1.4, 2.1, 0.05, (n) => n.toFixed(2))}
       {range('Page width', 'pageWidth', 55, 90, 1, (n) => `${n} characters`)}
+      <Field label="When AI Write opens" hint="The start screen shows every world and story, with where you left off at the top.">
+        {(id) => (
+          <Select
+            id={id}
+            value={settings.startWith === 'last' ? 'last' : 'start'}
+            onChange={(v) => void update({ startWith: v === 'last' ? 'last' : 'start' })}
+            options={START_WITH}
+          />
+        )}
+      </Field>
     </div>
   )
 }

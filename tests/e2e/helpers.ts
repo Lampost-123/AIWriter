@@ -30,9 +30,10 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
-  // A fresh data folder would show the first-run setup (milestone 6); app tests start at the Welcome screen
-  // unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }.
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off' }, opts.env)
+  // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
+  // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
+  // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
+  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off' }, opts.env)
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()
@@ -67,7 +68,7 @@ export async function invoke<M extends ApiMethod>(win: Page, method: M, ...args:
   return res.value as Awaited<ReturnType<AppApi[M]>>
 }
 
-/** Creates a world from the welcome screen and waits for the workspace. */
+/** Creates a world from the start screen (with no worlds yet) and waits for the workspace. */
 export async function createWorldFromWelcome(win: Page, name: string): Promise<void> {
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   await win.getByLabel('World name').fill(name)

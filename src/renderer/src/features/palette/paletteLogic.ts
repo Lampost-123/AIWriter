@@ -90,6 +90,8 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  // The start screen
+  | 'start-screen'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -347,7 +349,9 @@ export const ACTIONS: ActionDef[] = [
     shortcut: 'leaveFocusMode',
     when: (c) => !!c.focus
   },
-  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
+  // The start screen: every world and story, where Adam left off, and starting something new.
+  { id: 'start-screen', label: 'Go to the start screen', also: 'Home', keywords: 'home welcome all worlds stories library list continue left off recently deleted', away: true }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

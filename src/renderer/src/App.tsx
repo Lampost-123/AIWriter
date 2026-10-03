@@ -9,7 +9,7 @@ import { ResizablePane, useFloatingPane } from '@/layout/ResizablePane'
 import { binderFloats, chosenWidthFor, dragMax, fitPanels, pageMinFor } from '@/layout/fitPanels'
 import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
-import { Welcome } from '@/features/welcome/Welcome'
+import { StartScreen } from '@/features/start/StartScreen'
 import { Binder } from '@/features/binder/Binder'
 import { SceneView } from '@/features/editor/SceneView'
 import { EntriesView } from '@/features/world/EntriesView'
@@ -50,6 +50,8 @@ export function App(): React.JSX.Element | null {
   const init = useApp((s) => s.init)
   const settings = useApp((s) => s.settings)
   const world = useApp((s) => s.world)
+  const home = useApp((s) => s.home)
+  const view = useApp((s) => s.view)
   // While a backup is being restored nothing can be clicked, focused or typed into (see BackupsSettings).
   const restoring = useApp((s) => s.restoring)
   // Milestone 6: the first-run setup shows in place of everything else while it is under way.
@@ -59,9 +61,12 @@ export function App(): React.JSX.Element | null {
   useTheme(settings?.theme)
   useAccent(settings ? settings.accent : undefined)
   useEffect(() => {
-    // Where the first run stands is known first (it may open the world a setup was making), so the Welcome
-    // screen never flashes before the setup.
-    void useSetup.getState().load().then(init)
+    // Where the first run stands is known first (it may open the world a setup was making), so the start
+    // screen never flashes before the setup (and never shows once the setup is done).
+    void useSetup
+      .getState()
+      .load()
+      .then(() => init({ startScreen: !useSetup.getState().step }))
     const offFlush = installFlushOnClose()
     const offMemory = installMemoryEvents()
     return () => {
@@ -80,9 +85,25 @@ export function App(): React.JSX.Element | null {
 
   if (!loaded) return null
 
+  // With no world open, Settings and the manuscript import still have their pages; anything else is the start screen.
+  const noWorldPage = !world && (view.kind === 'settings' || view.kind === 'import')
+  const showStart = !setupStep && (home || (!world && !noWorldPage))
+
   return (
-    <div className="flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
-      {setupStep ? <FirstRun /> : world ? <Workspace /> : <NoWorld />}
+    <div className="relative flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
+      {setupStep ? (
+        <FirstRun />
+      ) : world ? (
+        // The start screen shows over the workspace without unmounting it, so a draft keeps writing into its
+        // scene and everything is where Adam left it when he goes back. Hidden with visibility, as the writing
+        // view is under other pages, and inert, so the keyboard can't reach it.
+        <div className={cn('isolate flex min-h-0 flex-1 flex-col', home && 'invisible')} inert={home}>
+          <Workspace />
+        </div>
+      ) : noWorldPage && !home ? (
+        <NoWorld />
+      ) : null}
+      {showStart ? <StartScreen /> : null}
       <Toaster />
       {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}
       <SpendWatch />
@@ -102,18 +123,15 @@ function NoWorld(): React.JSX.Element {
       </>
     )
   }
-  // Milestone 6: importing a manuscript from the Welcome screen (the import makes a world named after the book).
-  if (view.kind === 'import') {
-    return (
-      <>
-        <TopBar />
-        <div className="min-h-0 flex-1">
-          <ImportView />
-        </div>
-      </>
-    )
-  }
-  return <Welcome />
+  // Milestone 6: importing a manuscript from the start screen (the import makes a world named after the book).
+  return (
+    <>
+      <TopBar />
+      <div className="min-h-0 flex-1">
+        <ImportView />
+      </div>
+    </>
+  )
 }
 
 /**
