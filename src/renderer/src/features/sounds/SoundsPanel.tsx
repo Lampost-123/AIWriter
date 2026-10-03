@@ -215,7 +215,7 @@ function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue
               'after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-accent/40'
             )}
           >
-            <span className="line-clamp-2">{cue.description}</span>
+            <span className="line-clamp-2">{cue.description.charAt(0).toUpperCase() + cue.description.slice(1)}</span>
           </button>
         )}
         <p className="mt-px text-[12px] leading-[17px] text-muted">
