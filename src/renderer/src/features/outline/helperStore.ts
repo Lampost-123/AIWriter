@@ -5,8 +5,13 @@
 //
 // Keep and Discard are undone from a toast. Several in a row share one toast ("Added 2 chapters and
 // 6 scenes to the story."), so an earlier Undo is never pushed away and one Undo takes them all back.
+//
+// A chapter's interview (planInterviewStore.ts) plans one chapter on the same page, with a session of
+// its own for that chapter (`chapterId`): its run's reply has no chapter heading, so `lead` gives it the
+// chapter's, and that chapter node starts out kept (it is the chapter itself), so its scene cards are
+// kept into it one by one exactly as the outline's are.
 import { create } from 'zustand'
-import type { KeptItem, OutlineSize } from '@shared/contracts/outline'
+import type { KeptItem, OutlineSize, PlanAnswer } from '@shared/contracts/outline'
 import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, onEvent } from '@/lib/api'
@@ -55,6 +60,8 @@ export interface HelperRun {
   size: OutlineSize
   decisions: Decisions
   edits: Edits
+  /** A chapter's plan: the chapter's heading, read before the reply (which has none). */
+  lead?: string
 }
 
 export interface HelperSession {
@@ -80,7 +87,16 @@ export const useOutlineHelper = create<{ sessions: Record<string, HelperSession>
 
 /** The session's key: the story, in the world that is open. */
 export const helperKey = (worldId: ID | null | undefined, storyId: ID): string => `${worldId ?? ''}:${storyId}`
-const keyOf = (storyId: ID): string => helperKey(useApp.getState().world?.id, storyId)
+/** The session's key for a chapter's plan: the story's, then the chapter. */
+export const chapterHelperKey = (worldId: ID | null | undefined, storyId: ID, chapterId: ID): string =>
+  `${helperKey(worldId, storyId)}#${chapterId}`
+const keyOf = (storyId: ID, chapterId?: ID | null): string =>
+  chapterId ? chapterHelperKey(useApp.getState().world?.id, storyId, chapterId) : helperKey(useApp.getState().world?.id, storyId)
+/** The story and the chapter (null for the story's own session) a key is for, after the world's prefix. */
+const partsOf = (rest: string): { storyId: ID; chapterId: ID | null } => {
+  const at = rest.indexOf('#')
+  return at < 0 ? { storyId: rest, chapterId: null } : { storyId: rest.slice(0, at), chapterId: rest.slice(at + 1) }
+}
 
 const get = (key: string): HelperSession => useOutlineHelper.getState().sessions[key] ?? fresh()
 const put = (key: string, patch: Partial<HelperSession>): void =>
@@ -129,13 +145,16 @@ function listen(): void {
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
-    const showing = now.view.kind === 'outline' ? now.view.storyId : null
+    const view = now.view.kind === 'outline' ? now.view : null
     for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
       if (!key.startsWith(prefix)) continue
-      const storyId = key.slice(prefix.length)
+      const { storyId, chapterId } = partsOf(key.slice(prefix.length))
+      const showing = !!view && view.storyId === storyId && (view.chapterId ?? null) === chapterId
       const toastShows = keepBatch?.key === key && liveToast(keepBatch.toastId)
-      if ((storyId === showing || toastShows) && (s.gone.length || hasKept(s.run))) void checkKept(storyId)
-      if (storyId === showing) {
+      if ((showing || toastShows) && (s.gone.length || hasKept(s.run))) void checkKept(storyId, chapterId)
+      // A chapter's plan doesn't ask whether the story is blank.
+      if (chapterId) continue
+      if (showing) {
         void checkBlank(storyId)
       } else {
         // Not known now, and an answer on its way is out of date: the page asks when it opens.
@@ -180,8 +199,8 @@ const checks = new Map<string, number>()
  * again (and keeping it makes it anew). Only what was kept before it looked is judged, so something kept
  * while it looked is never taken for gone.
  */
-export async function checkKept(storyId: ID): Promise<void> {
-  const key = keyOf(storyId)
+export async function checkKept(storyId: ID, chapterId?: ID | null): Promise<void> {
+  const key = keyOf(storyId, chapterId)
   const run = get(key).run
   if (!run || (!hasKept(run) && !get(key).gone.length)) return
   const decisions = run.decisions
@@ -221,7 +240,9 @@ export function setHelperSize(storyId: ID, size: OutlineSize): void {
 
 /** The suggestions so far as a tree. A reply that has ended (complete, stopped or failed) counts as whole. */
 export function treeOf(run: HelperRun): TreeNode[] {
-  return outlineTree(parseOutline(run.text, run.status !== 'running'))
+  // A chapter's plan: a chapter heading the model added anyway is the chapter's own, already in `lead`.
+  const text = run.lead ? run.lead + run.text.replace(/^\s*[#*\s]*chapter\b[^\n]*\n/i, '') : run.text
+  return outlineTree(parseOutline(text, run.status !== 'running'))
 }
 
 // ---------- Suggest ----------
@@ -274,8 +295,8 @@ const hasOpen = (run: HelperRun, gone: ID[]): boolean => {
   return open(treeOf(run))
 }
 
-function offerBack(storyId: ID, taskId: ID, run: HelperRun): void {
-  const key = keyOf(storyId)
+function offerBack(storyId: ID, taskId: ID, run: HelperRun, chapterId?: ID | null): void {
+  const key = keyOf(storyId, chapterId)
   const toastId = toast('Replaced the earlier suggestions you hadn’t decided on.', {
     action: {
       label: 'Undo',
@@ -288,7 +309,7 @@ function offerBack(storyId: ID, taskId: ID, run: HelperRun): void {
         if (now.status === 'running') void api.stopTask(taskId).catch(() => undefined)
         put(key, { run: back, problem: null, gone: [] })
         // What it kept may have been deleted from the story since.
-        void checkKept(storyId)
+        void checkKept(storyId, chapterId)
       }
     }
   })
@@ -303,20 +324,56 @@ function settledOnNew(key: string, taskId: ID): void {
   if (replaced?.key === key && replaced.taskId === taskId) dropReplaced()
 }
 
+/**
+ * A chapter's plan, from its interview's answers (none: from the chapter and the outline around it).
+ * Scene cards still waiting from an earlier plan give way to the new ones, and Undo brings them back.
+ */
+export async function suggestChapter(storyId: ID, chapterId: ID, title: string, answers: PlanAnswer[]): Promise<void> {
+  listen()
+  const key = keyOf(storyId, chapterId)
+  const s = get(key)
+  if (s.run?.status === 'running') return
+  const taskId = crypto.randomUUID()
+  const lead = `## Chapter: ${title.replace(/\s+/g, ' ').trim() || 'This chapter'}\n`
+  // The chapter itself is kept from the start: its scene cards go into it.
+  const chapterKey = outlineTree(parseOutline(lead, false))[0]?.key
+  const decisions: Decisions = chapterKey ? { [chapterKey]: { status: 'kept', id: chapterId } } : {}
+  const previous = s.run
+  const wasOpen = !!previous && hasOpen(previous, s.gone)
+  dropReplaced()
+  const size: OutlineSize = { acts: 0, chapters: 1, scenes: 0 }
+  put(key, {
+    size,
+    problem: null,
+    gone: [],
+    blank: false,
+    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions, edits: {}, lead }
+  })
+  try {
+    const { generationId } = await api.startChapterPlan({ taskId, chapterId, answers })
+    patchRun(key, taskId, (r) => ({ generationId: r.generationId ?? generationId }))
+  } catch (e) {
+    if (get(key).run?.taskId !== taskId) return
+    put(key, { run: previous, gone: s.gone, problem: { message: (e as Error).message, code: e instanceof ApiError ? e.code : undefined } })
+    return
+  }
+  if (previous && wasOpen) offerBack(storyId, taskId, previous, chapterId)
+}
+
 /** Stops the request; what has arrived stays, to keep or discard. */
-export function stopOutline(storyId: ID): void {
-  const run = get(keyOf(storyId)).run
+export function stopOutline(storyId: ID, chapterId?: ID | null): void {
+  const run = get(keyOf(storyId, chapterId)).run
   if (run?.status === 'running') void api.stopTask(run.taskId).catch(() => undefined)
 }
 
-export function dismissProblem(storyId: ID): void {
-  put(keyOf(storyId), { problem: null })
+export function dismissProblem(storyId: ID, chapterId?: ID | null): void {
+  put(keyOf(storyId, chapterId), { problem: null })
 }
 
 // ---------- Edit ----------
 
-export function saveEdit(storyId: ID, nodeKey: string, edit: NodeEdit): void {
-  const key = keyOf(storyId)
+export function saveEdit(storyId: ID, nodeKey: string, edit: NodeEdit, chapterId?: ID | null): void {
+  const key = keyOf(storyId, chapterId)
   const run = get(key).run
   if (run) patchRun(key, run.taskId, (r) => ({ edits: { ...r.edits, [nodeKey]: edit } }))
 }
@@ -347,11 +404,11 @@ function inTurn(key: string, job: () => Promise<void>): Promise<void> {
  * Keep: adds these suggestions to the story (with what is still open inside them, and the act and
  * chapter around them), after what the story has. `keys` 'all': every suggestion still open.
  */
-export function keepSuggestions(storyId: ID, keys: string[] | 'all'): Promise<void> {
-  const key = keyOf(storyId)
+export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?: ID | null): Promise<void> {
+  const key = keyOf(storyId, chapterId)
   return inTurn(key, async () => {
     // What was kept but deleted from the story since is made anew, rather than looked for in vain.
-    await checkKept(storyId)
+    await checkKept(storyId, chapterId)
     const s = get(key)
     const run = s.run
     if (!run || run.status === 'running') return
@@ -370,7 +427,11 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all'): Promise<vo
     settledOnNew(key, run.taskId)
     useApp.getState().bumpOutline()
     const message =
-      keys === 'all' ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the story.` : keptMessage(tree, keys[0], items)
+      keys === 'all'
+        ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`
+        : chapterId
+          ? keptMessage(tree, keys[0], items).replace(' to the story', ' to the chapter')
+          : keptMessage(tree, keys[0], items)
     announceKept({ key, storyId, taskId: run.taskId, kept }, message)
   })
 }
@@ -379,7 +440,8 @@ function announceKept(b: Omit<KeepBatch, 'toastId'>, message: string): void {
   if (keepBatch && liveToast(keepBatch.toastId) && keepBatch.key === b.key && keepBatch.taskId === b.taskId) {
     keepBatch.kept.push(...b.kept)
     useToasts.getState().update(keepBatch.toastId, {
-      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the story.`
+      // A chapter's plan (its session's key names the chapter) adds to the chapter.
+      message: `Added ${describeCounts(countKinds(keepBatch.kept.map((k) => k.kind)))} to the ${keepBatch.key.includes('#') ? 'chapter' : 'story'}.`
     })
     return
   }
@@ -443,8 +505,8 @@ interface DiscardBatch {
 let discardBatch: DiscardBatch | null = null
 
 /** Discard: the suggestion, and everything still open inside it, goes from the list. Undo brings it back. */
-export function discardSuggestion(storyId: ID, nodeKey: string): void {
-  const key = keyOf(storyId)
+export function discardSuggestion(storyId: ID, nodeKey: string, chapterId?: ID | null): void {
+  const key = keyOf(storyId, chapterId)
   const s = get(key)
   const run = s.run
   if (!run || run.status === 'running') return

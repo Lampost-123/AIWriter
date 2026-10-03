@@ -22,9 +22,17 @@ const trim = (n: number): string => (n >= 100 ? String(Math.round(n)) : n.toFixe
 /** "1 call", "1,204 calls". */
 export const callWords = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'call' : 'calls'}`
 
-/** "37 calls · 41.2k tokens". */
-export const callsAndTokens = (t: Pick<UsageTotals, 'calls' | 'promptTokens' | 'completionTokens'>): string =>
-  `${callWords(t.calls)} · ${tokenWords(t.promptTokens + t.completionTokens)}`
+type TokenCounts = Pick<UsageTotals, 'promptTokens' | 'completionTokens'> & { cachedTokens?: number }
+
+/** "41.2k tokens", and "41.2k tokens, 12k from the cache" when the provider reused some of the prompts. */
+export function tokensWithCache(t: TokenCounts): string {
+  const all = tokenWords(t.promptTokens + t.completionTokens)
+  const cached = Math.round(t.cachedTokens ?? 0)
+  return cached > 0 ? `${all}, ${tokenWords(cached).replace(/ tokens?$/, '')} from the cache` : all
+}
+
+/** "37 calls · 41.2k tokens" (with the cached part, when there is one). */
+export const callsAndTokens = (t: Pick<UsageTotals, 'calls'> & TokenCounts): string => `${callWords(t.calls)} · ${tokensWithCache(t)}`
 
 /** The honest notes under the numbers: calls with no price, and prices that are estimates. */
 export function costNotes(t: Pick<UsageTotals, 'unpriced' | 'estimated'>): string[] {

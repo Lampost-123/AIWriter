@@ -218,6 +218,19 @@ approval step and no Review inbox.
   deleting the scene stops any draft (a kept scene deleted elsewhere stops its draft when its save
   finds the scene gone).
 
+### The memory's clashes are contradictions only (0.6.2)
+
+- The memory raises a clash only when a scene's words can't be true alongside what it says
+  (`keeper/agree.ts`). In a field that holds one value (pronouns, age, build, hair, eyes, skin, an
+  event's date) a different value is a clash; the same value in other words, more fully or more
+  vaguely ("a redder beard" for "red beard", "about twelve" for "12") is not. In a field that
+  describes, another description adds to the memory and is never a clash on its own; only the memory
+  model's own report of a contradiction raises one (and not when it only rewords the memory).
+- Facts Adam typed are never changed either way.
+- Issues raised before 0.6.2 that don't meet the rule are set aside as Ignored once per world when it
+  opens (`keeper/wordingClashes.ts`, meta `clashRule`), so they can be reopened; one a consistency
+  check also found stays.
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |
@@ -749,6 +762,18 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
   done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
   (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
+- **Prompt caching** (`ai/client.ts`): the briefing goes out with what stays the same first (`SEND_ORDER` in
+  `context.ts`), so models that cache a repeated prompt on their own (OpenAI, DeepSeek, Grok, Gemini 2.5 and
+  later) reuse it. Claude through OpenRouter caches only where asked, so `sentMessages` marks the system
+  message and, in a draft's briefing, everything before the entries named in the card or direction
+  (`ChatMessage.cacheUpTo`, never sent as such; a cached part is reused only when sent again exactly): a
+  redraft of the scene within five minutes reads that part at a tenth of the price. Variants after the first
+  in a set are sent unmarked (`cache: false`), since they go side by side and couldn't read it yet. Gemini's own
+  marks aren't sent, since they add a storage charge and Gemini 2.5 caches anyway. The tokens a provider read
+  from its cache (`prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`) are kept in
+  the record's `params_json` as `cachedTokens` (no migration; the data model stays frozen) and shown on the
+  page ("41.2k tokens, 12k from the cache"). Cost is unchanged: OpenRouter's own figure already has the
+  discount; a cost worked out from the model's prices counts every prompt token at the full price.
 ### How manuscript import works
 
 **Reading** (`src/main/importing/`: `docx.ts`, `markdown.ts`, `text.ts`, `lines.ts`, `xml.ts`, `read.ts`)
@@ -911,6 +936,34 @@ keys in JSON that already reads with defaults (world meta `style`, `stories.styl
   and to pick another writer model.
 - **min_p** 0.05 with Balanced and Adventurous, sent only to OpenRouter; a provider that rejects it is asked again without.
 - **Not yet:** the Recipe maker suggesting genres and levels waits for Story recipes to reach `main`.
+
+## Interview me on scenes and chapters
+
+The world builder's "Interview me", on a scene card and on a chapter (spec, Writing workflow › Planning). It is the
+outline helper's job: `'outline'` generation records with the chat and brainstorm model and its Thinking (no new
+job), prompt markers `[AIWRITE-OUTLINE v1] interview scene|chapter`, `fill scene` and `plan chapter`
+(`src/main/outline/interview.ts`; the fake provider answers them in `tests/fake-provider/m4/outline.mjs`). Nothing
+about an interview is stored: the answers live in the window (`features/outline/planInterviewStore.ts`, one per
+scene and chapter while the app is open) and are sent with each request.
+
+- **Questions.** One request per question (`askPlanQuestion`), with what next scene ideas are told (a scene: the
+  card as it is on screen and which parts are empty) or the chapter with the outline around it
+  (`chapterAroundText`), plus the interview so far. The AI says `{"done": true}` when it has enough; after
+  `MOST_QUESTIONS` (8) it is done without asking. Adam answers (typed or dictated), skips, or presses Done (Stop
+  while nothing is answered); an answer typed but not sent is used too.
+- **A scene** (`PlanInterview` at the top of the scene card, beside "Ideas for this scene"; the palette's "Interview
+  me about this scene"): `fillSceneCard` asks for the card's empty parts as JSON; names are matched to the world's
+  characters and places (`matchEntry`), unknown ones left out. The window puts in only parts still empty on the card
+  on screen (`planInterviewLogic.fillOnCard`), so nothing Adam wrote changes; Undo empties only what is still as it
+  was put in.
+- **A chapter** (the binder's chapter menu "Interview me about this chapter", and the palette): the outline view with
+  a `chapterId` (`ChapterPlanner.tsx`), showing the chapter's goal (editable, saved to the chapter) and the
+  interview. When it ends, `startChapterPlan` streams the outline helper's form with no chapter heading; it is a
+  helper session of its own (`helperStore.suggestChapter`, key `<story>#<chapter>`) whose `lead` is the chapter's
+  heading and whose chapter node starts out kept, so `Suggestions` (with `chapterId`) lists the scene cards and Keep,
+  Edit, Discard and their Undo work as on the outline helper's page. A goal in the reply goes to the chapter only
+  while it has none, with Undo. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
+  becomes that scene (`keepOutline`), and its Undo puts it back.
 
 ## Milestone 1 scope
 

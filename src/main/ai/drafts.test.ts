@@ -403,7 +403,9 @@ describe('drafting', () => {
 
     // What was sent never includes private notes.
     expect(JSON.stringify(fake.lastRequest()!.body.messages)).not.toContain('SECRET NOTE')
-    expect(fake.lastRequest()!.body.messages).toEqual(preview.messages)
+    // Exactly the preview's messages; where caching may start is noted with them but never sent.
+    expect(preview.messages[1].cacheUpTo).toBeGreaterThan(0)
+    expect(fake.lastRequest()!.body.messages).toEqual(preview.messages.map(({ cacheUpTo: _cut, ...m }) => m))
 
     const list = gens.listGenerations(w.db, w.second.id)
     expect(list).toHaveLength(1)

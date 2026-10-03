@@ -112,6 +112,11 @@ export interface StreamChatOptions {
    * A model that turns the level down is asked the next way, or not at all (see THINKING_EFFORTS).
    */
   thinking?: ThinkingLevel
+  /**
+   * False: nothing is marked for caching (sentMessages), for a request sent alongside another with the same
+   * prompt, which couldn't read what that one leaves in the cache yet but would pay to write it again.
+   */
+  cache?: boolean
 }
 
 /** How the request had to be worded for this model (some models reject max_tokens, temperature or top_p). */
@@ -169,6 +174,8 @@ export interface StreamOutcome {
   error: string | null
   failure: Failure | null
   promptTokens: number | null
+  /** Of the prompt tokens, how many the provider read from its cache (billed for less), when it says. */
+  cachedTokens: number | null
   completionTokens: number | null
   /** USD, when the provider reports it. */
   cost: number | null
@@ -224,6 +231,41 @@ function hasThinking(d: Record<string, unknown>): boolean {
   )
 }
 
+/**
+ * Of the prompt tokens, how many came from the provider's cache: OpenAI's and OpenRouter's
+ * `prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`.
+ */
+export function cachedOf(usage: Record<string, unknown>): number | null {
+  const details = usage.prompt_tokens_details as Record<string, unknown> | undefined
+  return (details && typeof details === 'object' ? num(details.cached_tokens) : null) ?? num(usage.prompt_cache_hit_tokens)
+}
+
+/**
+ * Whether the model caches a repeated prompt only where the request marks it. Claude does (through
+ * OpenRouter, which passes the marks on). OpenAI, DeepSeek, Grok and Gemini 2.5 and later cache on their
+ * own: the briefing is sent with what stays the same first (SEND_ORDER in context.ts), so they reuse it.
+ */
+export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean =>
+  t.kind === 'openrouter' && /^anthropic\//i.test(model)
+
+/**
+ * The messages as sent. For a model that caches only where asked, the system message and the part of
+ * a message that stays the same (`cacheUpTo`) are marked (Claude takes four marks; at most two are
+ * used). A cached part costs a tenth to read again within five minutes, and a quarter more the first
+ * time, so only what is likely to be sent again is marked. `cacheUpTo` itself is never sent.
+ */
+export function sentMessages(t: Pick<ChatTarget, 'kind'>, model: string, messages: ChatMessage[], cache = true): unknown[] {
+  const mark = cache && marksCache(t, model)
+  return messages.map(({ cacheUpTo, ...m }) => {
+    if (!mark || !m.content) return m
+    const cut = m.role === 'system' ? m.content.length : Math.min(cacheUpTo ?? 0, m.content.length)
+    if (cut <= 0) return m
+    const parts: Record<string, unknown>[] = [{ type: 'text', text: m.content.slice(0, cut), cache_control: { type: 'ephemeral' } }]
+    if (cut < m.content.length) parts.push({ type: 'text', text: m.content.slice(cut) })
+    return { ...m, content: parts }
+  })
+}
+
 export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   const doFetch = o.fetchImpl ?? fetch
   const ref = refOf(o.target)
@@ -232,6 +274,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   const s = {
     text: '',
     promptTokens: null as number | null,
+    cachedTokens: null as number | null,
     completionTokens: null as number | null,
     cost: null as number | null,
     finishReason: null as string | null,
@@ -275,6 +318,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       error,
       failure,
       promptTokens: s.promptTokens,
+      cachedTokens: s.cachedTokens,
       completionTokens: spent.any ? (s.completionTokens ?? 0) + spent.completionTokens : s.completionTokens,
       cost: spent.any && (s.cost != null || spent.cost > 0) ? (s.cost ?? 0) + spent.cost : s.cost,
       finishReason: s.finishReason,
@@ -293,6 +337,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     const usage = j.usage as Record<string, unknown> | undefined
     if (usage && typeof usage === 'object') {
       s.promptTokens = num(usage.prompt_tokens) ?? num(usage.input_tokens) ?? s.promptTokens
+      s.cachedTokens = cachedOf(usage) ?? s.cachedTokens
       s.completionTokens = num(usage.completion_tokens) ?? num(usage.output_tokens) ?? s.completionTokens
       s.cost = num(usage.cost) ?? s.cost
     }
@@ -348,7 +393,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     arm(headersTimeout)
     try {
       const { max_tokens: _limit, temperature, top_p, min_p, ...rest } = o.body
-      const payload: Record<string, unknown> = { ...rest, stream: true }
+      const payload: Record<string, unknown> = { ...rest, messages: sentMessages(o.target, rest.model, rest.messages, o.cache !== false), stream: true }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
       const minPSent = sent.sampling && sent.minP !== false && min_p != null && o.target.kind === 'openrouter'
