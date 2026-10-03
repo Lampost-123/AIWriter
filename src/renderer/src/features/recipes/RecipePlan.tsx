@@ -18,6 +18,7 @@ import { countLine, countNodes, totalOf, withoutGone } from '@/features/outline/
 import { premiseOf, recipeName, sizeForRecipe } from './recipeLogic'
 import { discardPremise, editPremise, keepPremise, patchPlan, planKey, suggestPlan, usePlans } from './planStore'
 import { listenForRecipes, useRecipes } from './recipeStore'
+import { BackButton } from './parts'
 
 export function RecipePlan({ storyId, recipeId }: { storyId: string; recipeId: string }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id)
@@ -82,6 +83,7 @@ function Plan({ storyId, recipeId, storyTitle }: { storyId: string; recipeId: st
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[720px] px-8 pb-48 pt-10">
+        <BackButton to="writing" />
         <div className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
           <CookingPot size={12} aria-hidden />
           New story from a recipe

@@ -21,9 +21,9 @@ export const PART_WORDS: Record<RecipePartId, { label: string; hint: string; sho
 
 /** The groups the recipe page shows its parts in. */
 export const PART_GROUPS: { title: string; parts: RecipePartId[] }[] = [
-  { title: 'Themes', parts: ['themes', 'tone'] },
-  { title: 'Writing style', parts: ['style', 'pov', 'tense', 'sample'] },
-  { title: 'Structure', parts: ['shape', 'beats', 'cast', 'pacing', 'devices'] }
+  { title: 'What it is about', parts: ['themes', 'tone'] },
+  { title: 'How it is written', parts: ['style', 'pov', 'tense', 'sample'] },
+  { title: 'How it is built', parts: ['shape', 'beats', 'cast', 'pacing', 'devices'] }
 ]
 
 /** A recipe's name on screen: its own, or words that never give away the story it came from. */
