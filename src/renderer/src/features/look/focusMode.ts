@@ -126,8 +126,22 @@ export function leaveFocus(): void {
     if (a.peekEntryId) a.peekEntry(null)
     if (a.askOpen) a.setAskOpen(false)
   }
-  const patch = layoutToRestore(before, useApp.getState().settings?.layout)
-  if (patch) void a.updateSettings({ layout: patch }).catch(() => undefined)
+  void restoreLayout(before)
+}
+
+/**
+ * Puts the panels back as they were before focus mode. Shown at once (the same frame focus mode ends, so the scene
+ * panel Ask the world opened never shows beside the page for a moment), then saved.
+ */
+function restoreLayout(before: PanelLayout | null): Promise<void> {
+  const settings = useApp.getState().settings
+  const patch = layoutToRestore(before, settings?.layout)
+  if (!patch || !settings) return Promise.resolve()
+  useApp.setState({ settings: { ...settings, layout: { ...settings.layout, ...patch } } })
+  return useApp
+    .getState()
+    .updateSettings({ layout: patch })
+    .catch(() => undefined)
 }
 
 export function toggleFocus(): void {
@@ -156,17 +170,29 @@ function inPageOrNowhere(t: EventTarget | null): boolean {
   return !(t instanceof Element) || t === document.body || t === document.documentElement || inPage(t)
 }
 
-/** Whether something was being written (or an AI change waited) as an Esc went down, before anything acted on it. */
-const draftingAtPress = new WeakMap<Event, boolean>()
+/**
+ * Whether something was being written (or an AI change waited), and whether a menu or card was open, as an Esc went
+ * down, before anything acted on it (a name's card closes on any key, before this hears the press).
+ */
+const atPress = new WeakMap<Event, { drafting: boolean; layerOpen: boolean }>()
+
+// Listened for from the start, so it hears an Esc before any other part of the window does (the first listener on
+// the window, in the capture phase, goes first).
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'Escape' && useFocusMode.getState().on) atPress.set(e, { drafting: drafting(), layerOpen: !!document.querySelector(LAYERS) })
+    },
+    true
+  )
+}
 
 /**
  * F11 and Esc, the app's state and the window: focus mode starts and ends with them. Installed once by the
  * workspace (FocusLayer); ends focus mode when the workspace goes.
  */
 export function installFocusMode(): () => void {
-  const onKeyFirst = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape' && useFocusMode.getState().on) draftingAtPress.set(e, drafting())
-  }
   const onKey = (e: KeyboardEvent): void => {
     if (isShortcut(e, 'focusMode')) {
       if (e.defaultPrevented || e.repeat) return
@@ -180,15 +206,19 @@ export function installFocusMode(): () => void {
       handled: escapeTaken(e) || (e.defaultPrevented && !inPage(e.target)),
       composing: e.isComposing,
       inPageOrNowhere: inPageOrNowhere(e.target),
-      layerOpen: !!document.querySelector(LAYERS),
-      drafting: draftingAtPress.get(e) ?? drafting()
+      layerOpen: atPress.get(e)?.layerOpen || !!document.querySelector(LAYERS),
+      drafting: atPress.get(e)?.drafting ?? drafting()
     })
     if (!leaves) return
     e.preventDefault()
     leaveFocus()
   }
-  window.addEventListener('keydown', onKeyFirst, true)
   window.addEventListener('keydown', onKey)
+  // The window closing while in focus mode: the panels are saved as they were before it (next time they open so).
+  const offClose = onEvent('app:flush', () => {
+    const { on, before } = useFocusMode.getState()
+    if (on) void restoreLayout(before)
+  })
   const offApp = useApp.subscribe(() => {
     if (useFocusMode.getState().on && mustLeave(place())) leaveFocus()
   })
@@ -197,8 +227,8 @@ export function installFocusMode(): () => void {
     if (!on && useFocusMode.getState().on && !useFocusMode.getState().moving) leaveFocus()
   })
   return () => {
-    window.removeEventListener('keydown', onKeyFirst, true)
     window.removeEventListener('keydown', onKey)
+    offClose()
     offApp()
     offFull()
     leaveFocus()
