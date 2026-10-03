@@ -14,6 +14,7 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openScene } from '@/features/memory/openScene'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
+import { cardLength } from '@shared/defaults'
 
 export type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
 
@@ -184,7 +185,7 @@ export async function startDraft(
     // Save the card and the page first, so the draft is built from the latest of both.
     await flushAll()
     const card = (await api.getScene(sceneId)).card
-    const options = resolveDraftOptions(o.options(), card.targetWords, useApp.getState().settings?.creativity ?? 'balanced')
+    const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced')
     if (r.cancelled) return giveUp()
     const { generationId } = await api.startDraft(sceneId, options)
     // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
