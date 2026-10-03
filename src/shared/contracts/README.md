@@ -42,3 +42,5 @@ Milestone 6:
 | usage.ts | The usage and cost page, the monthly limit |
 | setup.ts | First-run setup and the sample world |
 | look.ts | Themes finished (accent colour, reduced motion) and focus mode |
+
+Writing by hand: find.ts (find and replace across the story; finding in the open scene is the window's own).
