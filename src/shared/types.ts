@@ -313,6 +313,35 @@ export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' 
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
+/** The page's look (Settings › Appearance) and the writing-by-hand switches (Settings › Editor). */
+export interface EditorSettings {
+  fontSize: number
+  lineHeight: number
+  pageWidth: number
+  /** 'spaced': a gap between paragraphs. 'book': no gap, each paragraph after the first indented. */
+  paragraphStyle: 'spaced' | 'book'
+  /** Curly quotes, dashes and ellipses as Adam types (Ctrl+Z straight after puts the plain one back). */
+  smartPunctuation: boolean
+  /** Underline misspelt words (in the UK or US spelling of Adam's writing preferences). */
+  spellCheck: boolean
+  /** Keep the line being typed at the same height on screen. */
+  typewriter: boolean
+}
+
+/** One day's words: typed by Adam, and AI words he kept. `date` is local, "2026-10-03". */
+export interface WritingDay {
+  date: string
+  typed: number
+  ai: number
+}
+
+export interface WritingGoals {
+  /** Words a day to aim for; null: no target (and no streak). */
+  daily: number | null
+  /** The most recent days with any words, oldest first (a year at most). */
+  days: WritingDay[]
+}
+
 /** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
 export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
 
@@ -326,7 +355,9 @@ export interface Settings {
   thinking: Record<Job, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
-  editor: { fontSize: number; lineHeight: number; pageWidth: number }
+  editor: EditorSettings
+  /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
+  goals: WritingGoals
   layout: { binderWidth: number; inspectorWidth: number; binderOpen: boolean; inspectorOpen: boolean }
   lastWorldId: ID | null
   lastStoryId: ID | null

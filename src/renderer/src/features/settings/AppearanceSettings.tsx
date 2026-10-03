@@ -15,7 +15,7 @@ export function AppearanceSettings(): React.JSX.Element | null {
   const update = useApp((s) => s.updateSettings)
   if (!settings) return null
   const ed = settings.editor
-  const range = (label: string, key: keyof typeof ed, min: number, max: number, step: number, fmt: (n: number) => string): React.JSX.Element => (
+  const range = (label: string, key: 'fontSize' | 'lineHeight' | 'pageWidth', min: number, max: number, step: number, fmt: (n: number) => string): React.JSX.Element => (
     <Field label={`${label}: ${fmt(ed[key])}`}>
       {(id) => (
         <input
