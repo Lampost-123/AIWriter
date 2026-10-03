@@ -167,6 +167,11 @@ export function setSpeed(speed: number): void {
   saveSpeech({ speed })
 }
 
+/** Sound effects: the scene's sounds changed for the whole reading (muted, or back on): its next lines are planned again. */
+export function replanReading(): void {
+  session?.settingsChanged()
+}
+
 /** Stops reading, from anywhere (Ctrl+Shift+Space). The bar stays, so it can carry on from there. */
 export function stopReading(): void {
   stopSample()

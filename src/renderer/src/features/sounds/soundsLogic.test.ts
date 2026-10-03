@@ -3,7 +3,7 @@ import type { SceneCue } from '@shared/contracts/sounds'
 import { getSchema } from '@tiptap/core'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { pageParagraphs, posIn } from '@/features/readAloud/pageText'
-import { anchorRange, comesAfter, countWords, pickWords, quote, soundWords, stateWords, whereWords } from './soundsLogic'
+import { anchorRange, comesAfter, countWords, pickWords, quote, soundNotes, soundWords, stateWords, whereWords } from './soundsLogic'
 
 const schema = getSchema(sceneExtensions())
 const para = (pid: string, words: string) => schema.nodes.paragraph.create({ pid }, words ? schema.text(words) : undefined)
@@ -22,6 +22,7 @@ const cue = (over: Partial<SceneCue>): SceneCue => ({
   origin: 'ai',
   placed: true,
   sound: 'ready',
+  retake: null,
   ...over
 })
 
@@ -45,6 +46,11 @@ describe('where a sound plays, in plain words', () => {
     expect(stateWords(cue({ sound: 'waiting' }))).toBe('Being made…')
     expect(stateWords(cue({ sound: 'making' }))).toBe('Being made…')
     expect(stateWords(cue({ sound: 'failed' }))).toBe('Couldn’t be made')
+    // Muted, its own volume when not as made, and a new take being made.
+    expect(soundNotes(cue({}))).toEqual([])
+    expect(soundNotes(cue({ volume: 1 }))).toEqual([])
+    expect(soundNotes(cue({ muted: true, volume: 1.5, retake: 'making' }))).toEqual(['Muted', '150% volume', 'Making a new take…'])
+    expect(soundNotes(cue({ volume: 0.25, retake: 'ready' }))).toEqual(['25% volume'])
     expect(countWords(1)).toBe('1 sound')
     expect(countWords(3)).toBe('3 sounds')
   })
@@ -88,10 +94,10 @@ describe('where a sound’s words are on the page', () => {
 
   it('lists the words each sound is placed on, an ambience’s end too', () => {
     const until = { pid: 'p2', from: 22, to: 26, words: 'shut' }
-    expect(soundWords([cue({}), cue({ id: 'c2', kind: 'ambience', until })]).map((w) => [w.cueId, w.role])).toEqual([
-      ['c1', 'at'],
-      ['c2', 'at'],
-      ['c2', 'until']
+    expect(soundWords([cue({}), cue({ id: 'c2', kind: 'ambience', until, muted: true })]).map((w) => [w.cueId, w.role, !!w.muted])).toEqual([
+      ['c1', 'at', false],
+      ['c2', 'at', true],
+      ['c2', 'until', true]
     ])
   })
 })

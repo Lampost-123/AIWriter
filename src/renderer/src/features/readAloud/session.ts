@@ -79,7 +79,7 @@ export class Session {
   private wake: (() => void)[] = []
   private readonly player = new ClipPlayer()
   /** Sound effects under the reading (only while they are on in Settings). */
-  private readonly sounds = new ReadingSounds(() => this.texts)
+  private readonly sounds = new ReadingSounds(() => this.texts, () => this.sceneId)
   private readonly follow: FollowAlong
   /** Clips whose audio couldn't be had: not tried again ahead of time. */
   private readonly failed = new Set<string>()

@@ -7,7 +7,24 @@
 import type { Editor } from '@tiptap/core'
 import * as M from '@radix-ui/react-dropdown-menu'
 import { TextSelection } from '@tiptap/pm/state'
-import { AudioLines, Flag, MapPin, MoreHorizontal, Pencil, Play, Plus, Sparkles, Square, Trash2, Waves, Zap } from 'lucide-react'
+import {
+  AudioLines,
+  Flag,
+  MapPin,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  Trash2,
+  Volume2,
+  VolumeX,
+  Waves,
+  Zap
+} from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CueInput, SceneCue, SoundKind } from '@shared/contracts/sounds'
 import type { ID } from '@shared/types'
@@ -19,10 +36,11 @@ import { useApp } from '@/lib/store'
 import { REVEALED } from '@/features/editor/reveal'
 import { Segmented, useDelayed } from '@/features/generate/parts'
 import { pageParagraphs } from '@/features/readAloud/pageText'
-import { usePreview } from './mixer'
+import { mixer, usePreview } from './mixer'
+import { MAX_CUE_VOLUME, MIN_CUE_VOLUME, cueVolume } from './mixerLogic'
 import { setHoveredSound, setSoundMarks } from './soundMarks'
-import { anchorRange, comesAfter, countWords, pickWords, quote, soundWords, stateWords, whereWords, type Picked } from './soundsLogic'
-import { asInput, changeSound, findSounds, listenTo, loadSounds, makeAgain, stopListening, useSounds } from './soundsStore'
+import { anchorRange, comesAfter, countWords, pickWords, quote, soundNotes, soundWords, stateWords, whereWords, type Picked } from './soundsLogic'
+import { asInput, changeSound, findSounds, keepTake, listenTo, loadSounds, makeAgain, newTake, stopListening, useSounds } from './soundsStore'
 import './sounds.css'
 
 /** After typing stops, the sounds are read again this much later (their places follow the words). */
@@ -163,15 +181,19 @@ function FindBar({
 function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue; editor: Editor | null; picked: Picked }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  // "Volume...": the row's own slider, while it shows; Listen plays at what it says.
+  const [volume, setVolume] = useState<number | null>(null)
   const state = stateWords(cue)
+  const notes = soundNotes(cue)
   const hover = (on: boolean): void => {
     if (editor && !editor.isDestroyed) setHoveredSound(editor.view, on ? cue.id : null)
   }
-  const Icon = cue.kind === 'effect' ? Zap : Waves
+  const Icon = cue.muted ? VolumeX : cue.kind === 'effect' ? Zap : Waves
 
   return (
     <div
       role="group"
+      data-sound-row
       aria-label={`${KIND_WORDS[cue.kind]}: ${cue.description}`}
       onMouseEnter={() => hover(true)}
       onMouseLeave={() => hover(false)}
@@ -182,14 +204,14 @@ function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue
       className={cn(
         'group relative -mx-2 flex gap-2.5 rounded-lg px-2 py-2 transition-colors duration-150 hover:bg-surface-2',
         'has-[:focus-visible]:bg-surface-2',
-        (menuOpen || editing) && 'bg-surface-2'
+        (menuOpen || editing || volume != null) && 'bg-surface-2'
       )}
     >
       <span
-        title={KIND_WORDS[cue.kind]}
+        title={cue.muted ? `${KIND_WORDS[cue.kind]}, muted` : KIND_WORDS[cue.kind]}
         className={cn(
           'mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line bg-page',
-          cue.kind === 'effect' ? 'text-accent' : 'text-muted'
+          cue.muted ? 'text-faint' : cue.kind === 'effect' ? 'text-accent' : 'text-muted'
         )}
       >
         <Icon size={14} aria-hidden />
@@ -211,15 +233,22 @@ function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue
             onClick={() => editor && showWords(editor, cue)}
             title="Show these words in the page"
             className={cn(
-              '-mx-[7px] block w-[calc(100%+14px)] rounded-md border border-transparent px-1.5 py-0.5 text-left text-[13.5px] leading-[1.55] text-fg outline-none',
+              '-mx-[7px] block w-[calc(100%+14px)] rounded-md border border-transparent px-1.5 py-0.5 text-left text-[13.5px] leading-[1.55] outline-none',
+              cue.muted ? 'text-muted' : 'text-fg',
               'after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-accent/40'
             )}
           >
             <span className="line-clamp-2">{cue.description.charAt(0).toUpperCase() + cue.description.slice(1)}</span>
           </button>
         )}
-        <p className="mt-px text-[12px] leading-[17px] text-muted">
+        <p className={cn('mt-px text-[12px] leading-[17px]', cue.muted ? 'text-faint' : 'text-muted')}>
           <span>{whereWords(cue)}</span>
+          {notes.map((n) => (
+            <span key={n} className="text-faint">
+              {' · '}
+              {n}
+            </span>
+          ))}
           {state ? (
             <span className={cn(cue.sound === 'failed' ? 'text-danger' : 'text-faint')}>
               {' · '}
@@ -235,6 +264,20 @@ function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue
             </>
           ) : null}
         </p>
+        {volume != null ? (
+          <VolumeStrip
+            cue={cue}
+            value={volume}
+            onChange={setVolume}
+            onDone={(save) => {
+              const v = volume
+              setVolume(null)
+              if (save && Math.abs(v - cueVolume(cue.volume)) > 0.001)
+                void changeSound(sceneId, cue.id, { ...asInput(cue), volume: v }, 'Volume changed.')
+            }}
+          />
+        ) : null}
+        {cue.retake === 'ready' ? <TakeStrip cue={cue} /> : null}
       </div>
       <div className="relative z-10 flex shrink-0 items-start gap-0.5">
         <RowMenu
@@ -244,8 +287,9 @@ function SoundRow({ sceneId, cue, editor, picked }: { sceneId: ID; cue: SceneCue
           open={menuOpen}
           onOpenChange={setMenuOpen}
           onEdit={() => setEditing(true)}
+          onVolume={() => setVolume(cueVolume(cue.volume))}
         />
-        <ListenButton cue={cue} />
+        <ListenButton cue={cue} volume={volume ?? cue.volume} />
       </div>
     </div>
   )
@@ -292,7 +336,7 @@ function DescriptionEditor({ cue, onDone }: { cue: SceneCue; onDone: (descriptio
 }
 
 /** Listen: the sound on its own at the volume set (made now when it isn't yet); pressed again, it stops. */
-function ListenButton({ cue }: { cue: SceneCue }): React.JSX.Element {
+function ListenButton({ cue, volume }: { cue: SceneCue; volume?: number }): React.JSX.Element {
   const playing = usePreview((s) => !!cue.soundId && s.playing === cue.soundId)
   const loading = usePreview((s) => !!cue.soundId && s.loading === cue.soundId)
   const waiting = useSounds((s) => !!cue.soundId && s.waiting === cue.soundId)
@@ -304,7 +348,7 @@ function ListenButton({ cue }: { cue: SceneCue }): React.JSX.Element {
       size="md"
       disabled={!cue.soundId}
       active={playing}
-      onClick={() => (playing || busy ? stopListening() : void listenTo(cue))}
+      onClick={() => (playing || busy ? stopListening() : void listenTo(cue, volume))}
       className={cn('h-7 w-7', playing && 'text-accent')}
     >
       {busy ? <Spinner size={12} /> : playing ? <Square size={11} /> : <Play size={13} />}
@@ -319,7 +363,8 @@ function RowMenu({
   picked,
   open,
   onOpenChange,
-  onEdit
+  onEdit,
+  onVolume
 }: {
   sceneId: ID
   cue: SceneCue
@@ -327,7 +372,9 @@ function RowMenu({
   open: boolean
   onOpenChange: (open: boolean) => void
   onEdit: () => void
+  onVolume: () => void
 }): React.JSX.Element {
+  const canRetake = !!cue.soundId && cue.sound === 'ready' && cue.retake !== 'making'
   const anchor = 'anchor' in picked ? picked.anchor : null
   const hint = 'problem' in picked && picked.problem === 'paragraphs' ? 'Select words in one paragraph' : 'Select words in the page first'
   const move = (patch: Partial<CueInput>, done: string): void => void changeSound(sceneId, cue.id, { ...asInput(cue), ...patch }, done)
@@ -391,6 +438,30 @@ function RowMenu({
             Change what it sounds like
           </MenuItem>
           <M.Separator className="my-1 h-px bg-line" />
+          <MenuItem icon={<SlidersHorizontal size={14} />} onSelect={onVolume}>
+            Volume…
+          </MenuItem>
+          <MenuItem
+            icon={cue.muted ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            onSelect={() => move({ muted: !cue.muted }, cue.muted ? 'Sound unmuted.' : 'Sound muted.')}
+          >
+            {cue.muted ? 'Unmute this sound' : 'Mute this sound'}
+          </MenuItem>
+          <MenuItem
+            icon={<RefreshCw size={14} />}
+            disabled={!canRetake}
+            hint={
+              cue.retake === 'making'
+                ? 'A new take is being made'
+                : cue.sound !== 'ready'
+                  ? 'Once this sound is made'
+                  : 'Makes it again; then keep it or go back'
+            }
+            onSelect={() => void newTake(cue)}
+          >
+            New take
+          </MenuItem>
+          <M.Separator className="my-1 h-px bg-line" />
           <MenuItem icon={<Trash2 size={14} />} danger onSelect={() => void changeSound(sceneId, cue.id, null, 'Sound removed.')}>
             Remove
           </MenuItem>
@@ -430,6 +501,95 @@ function MenuItem({
         {hint ? <span className="block text-[11.5px] text-faint">{hint}</span> : null}
       </span>
     </M.Item>
+  )
+}
+
+/**
+ * "Volume...": the sound's own volume beside the others, a quarter to twice as made. Listen (and a Listen playing)
+ * follows it at once; it is saved when let go of with Done, Enter or leaving it (Undo in its toast); Esc puts it back.
+ */
+function VolumeStrip({
+  cue,
+  value,
+  onChange,
+  onDone
+}: {
+  cue: SceneCue
+  value: number
+  onChange: (v: number) => void
+  onDone: (save: boolean) => void
+}): React.JSX.Element {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => ref.current?.focus(), [])
+  const set = (v: number): void => {
+    onChange(v)
+    if (cue.soundId) mixer.setListenVolume(cue.soundId, v)
+  }
+  return (
+    <div
+      className="relative z-10 mt-1.5 flex items-center gap-2"
+      onBlur={(e) => {
+        // Leaving the strip saves it (but not for the row's own Listen, which plays at what it says).
+        const to = e.relatedTarget as Node | null
+        if (!e.currentTarget.closest('[data-sound-row]')?.contains(to)) onDone(true)
+      }}
+    >
+      <input
+        ref={ref}
+        type="range"
+        min={MIN_CUE_VOLUME}
+        max={MAX_CUE_VOLUME}
+        step={0.05}
+        value={value}
+        aria-label={`Volume of ${cue.description}`}
+        aria-valuetext={`${Math.round(value * 100)}%`}
+        onChange={(e) => set(Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            onDone(true)
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            if (cue.soundId) mixer.setListenVolume(cue.soundId, cueVolume(cue.volume))
+            onDone(false)
+          }
+        }}
+        className="min-w-0 flex-1 accent-[var(--accent)]"
+      />
+      <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-muted">{Math.round(value * 100)}%</span>
+      <button type="button" onClick={() => onDone(true)} className="shrink-0 text-[12px] font-medium text-accent hover:underline">
+        Done
+      </button>
+    </div>
+  )
+}
+
+/** A new take is made and playing: Listen to it, keep it, or go back to the earlier one. */
+function TakeStrip({ cue }: { cue: SceneCue }): React.JSX.Element {
+  const playing = usePreview((s) => !!cue.soundId && s.playing === cue.soundId)
+  const link = 'text-accent hover:underline'
+  return (
+    <p role="group" aria-label={`New take of ${cue.description}`} className="relative z-10 mt-1 text-[12px] leading-[17px] text-muted">
+      <span className="font-medium text-fg">New take</span>
+      {' · '}
+      <button
+        type="button"
+        aria-label={playing ? 'Stop the new take' : 'Listen to the new take'}
+        onClick={() => (playing ? stopListening() : void listenTo(cue))}
+        className={link}
+      >
+        {playing ? 'Stop' : 'Listen'}
+      </button>
+      {' · '}
+      <button type="button" onClick={() => void keepTake(cue, true)} className={link}>
+        Keep it
+      </button>
+      {' · '}
+      <button type="button" onClick={() => void keepTake(cue, false)} className={link}>
+        Go back
+      </button>
+    </p>
   )
 }
 

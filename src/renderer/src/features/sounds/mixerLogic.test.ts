@@ -5,6 +5,7 @@ import {
   Lru,
   bedAfterEdge,
   bedChange,
+  cueVolume,
   dbToGain,
   decodedBytes,
   dueEdges,
@@ -49,6 +50,21 @@ describe('which ambience plays', () => {
     expect(bedChange('rain', null)).toBe('stop')
     // A sound not chosen yet plays nothing.
     expect(bedChange('rain', '')).toBe('stop')
+    // The same ambience at another volume moves to its new level; as loud as before, nothing changes.
+    expect(bedChange('rain', 'rain', 1, 1.5)).toBe('level')
+    expect(bedChange('rain', 'rain', undefined, 1)).toBe('keep')
+    expect(bedChange('rain', 'rain', 0.5, 0.5)).toBe('keep')
+    expect(bedChange(null, null, 1, 2)).toBe('keep')
+    expect(bedChange('rain', 'harbour', 1, 2)).toBe('crossfade')
+  })
+
+  it('reads a sound’s own volume between a quarter and twice as made', () => {
+    expect(cueVolume(undefined)).toBe(1)
+    expect(cueVolume(null)).toBe(1)
+    expect(cueVolume(Number.NaN)).toBe(1)
+    expect(cueVolume(1.5)).toBe(1.5)
+    expect(cueVolume(0.1)).toBe(0.25)
+    expect(cueVolume(5)).toBe(2)
   })
 
   it('follows a clip’s edges: a start replaces any other, an end fades only its own', () => {

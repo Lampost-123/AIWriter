@@ -3,6 +3,8 @@ import type { ClipSound, PlannedClip } from '@shared/contracts/readAloud'
 
 // The reading's sounds against a stand-in mixer, the speech server's times and Settings.
 const calls: string[] = []
+/** The volumes the mixer was given, by sound. */
+const levels: Record<string, number | null | undefined> = {}
 let bedWanted: string | null = null
 const times = vi.fn<(req: { at: number[] }) => Promise<{ seconds: number[]; aligned: boolean }>>()
 let soundEffects = true
@@ -13,7 +15,8 @@ const spoken = vi.fn(() => Promise.resolve('blob:clip'))
 vi.mock('./mixer', () => ({
   mixer: {
     load: vi.fn(() => Promise.resolve(null)),
-    setBed: (id: string | null) => {
+    setBed: (id: string | null, _delay?: number, volume?: number | null) => {
+      if (id) levels[id] = volume
       bedWanted = id || null
       calls.push(`bed ${id ?? 'none'}`)
     },
@@ -21,7 +24,10 @@ vi.mock('./mixer', () => ({
       bedWanted = bed
       calls.push(`${sound.edge} ${bed ?? 'none'} +${delay.toFixed(2)}`)
     },
-    fire: (sound: ClipSound, delay: number) => calls.push(`fire ${sound.soundId} +${delay.toFixed(2)}`),
+    fire: (sound: ClipSound, delay: number) => {
+      levels[sound.soundId] = sound.volume
+      calls.push(`fire ${sound.soundId} +${delay.toFixed(2)}`)
+    },
     duck: (on: boolean) => calls.push(on ? 'duck' : 'unduck'),
     pause: () => calls.push('pause'),
     resume: () => calls.push('resume'),
@@ -39,6 +45,7 @@ vi.mock('@/features/readAloud/audio', () => ({
 }))
 
 const { ReadingSounds } = await import('./readingSounds')
+const { noteSceneMuted } = await import('./sceneMute')
 
 const TEXT = 'Rain hammered the tin roof. Then the door slammed shut.'
 
@@ -232,6 +239,35 @@ describe('sounds during a reading', () => {
     calls.length = 0
     s.ended()
     expect(calls).toEqual(['resume', 'unduck'])
+  })
+
+  it('plays each sound at its own volume, the ambience at the clip’s', async () => {
+    times.mockResolvedValue({ seconds: [0], aligned: true })
+    const s = new ReadingSounds(() => new Map([['p1', TEXT]]))
+    const c = clip({ bed: 'rain', bedVolume: 0.5, sounds: [{ cueId: 'c1', soundId: 'door', edge: 'fire', at: 0, volume: 1.5 }] })
+    s.shown(c)
+    await flush()
+    s.playing(c, media() as unknown as HTMLAudioElement)
+    expect(levels.rain).toBe(0.5)
+    expect(levels.door).toBe(1.5)
+  })
+
+  it('plays nothing in a scene whose sounds Adam muted, even from lines planned before', async () => {
+    times.mockResolvedValue({ seconds: [0], aligned: true })
+    noteSceneMuted('scene-muted', true)
+    const s = new ReadingSounds(() => new Map([['p1', TEXT]]), () => 'scene-muted')
+    const c = clip({ bed: 'rain', sounds: [{ cueId: 'c1', soundId: 'door', edge: 'fire', at: 0 }] })
+    s.shown(c)
+    await flush()
+    s.playing(c, media() as unknown as HTMLAudioElement)
+    vi.advanceTimersByTime(60)
+    s.done(true)
+    expect(calls).toContain('bed none')
+    expect(calls.some((x) => x.startsWith('fire') || x === 'bed rain')).toBe(false)
+    // Back on: its sounds play again.
+    noteSceneMuted('scene-muted', false)
+    s.shown(clip({ key: 'k2', bed: 'rain' }))
+    expect(calls).toContain('bed rain')
   })
 
   it('does nothing while sound effects are off, and stops them when they are turned off', () => {

@@ -22,10 +22,12 @@ import {
   EFFECT_DUCK_DB,
   EFFECT_FADE_IN,
   KEEP_BYTES,
+  LEVEL_RAMP,
   Lru,
   PREVIEW_BED_SECONDS,
   STOP_FADE,
   bedChange,
+  cueVolume,
   dbToGain,
   decodedBytes,
   effectsToDrop,
@@ -36,6 +38,8 @@ interface Voice {
   soundId: string
   src: AudioBufferSourceNode
   gain: GainNode
+  /** Its own volume (cueVolume): what its gain rises to. */
+  volume: number
 }
 
 /** The Sounds view's Listen: which sound is playing (or being got ready) on its own. */
@@ -69,8 +73,9 @@ class Mixer {
   private fxBus: GainNode | null = null
   private previewBus: GainNode | null = null
   private bed: Voice | null = null
-  /** The ambience reading wants now, made or not: once it is made, it starts. */
+  /** The ambience reading wants now, made or not: once it is made, it starts (at its own volume). */
   private wantedBed: string | null = null
+  private wantedVolume = 1
   private effects: Voice[] = []
   private preview: Voice | null = null
   private previewTimer: ReturnType<typeof setTimeout> | null = null
@@ -108,7 +113,7 @@ class Mixer {
       if (!ok) return
       // Made again under the same id: the copy kept here is out of date.
       if (this.bed?.soundId !== soundId) this.buffers.delete(soundId)
-      if (this.wantedBed === soundId && this.bed?.soundId !== soundId) this.setBed(soundId)
+      if (this.wantedBed === soundId && this.bed?.soundId !== soundId) this.setBed(soundId, 0, this.wantedVolume)
     })
     return ctx
   }
@@ -170,13 +175,21 @@ class Mixer {
 
   /**
    * The ambience reading wants (null or '': none). The same one carries on; another crosses over to it; none fades
-   * it out. One not made yet starts when it is, if it is still wanted. `delay`: seconds from now on the audio clock.
+   * it out; the same one at another volume moves to it. One not made yet starts when it is, if it is still wanted.
+   * `delay`: seconds from now on the audio clock. `volume`: its own volume (1 as made).
    */
-  setBed(soundId: string | null, delay = 0): void {
+  setBed(soundId: string | null, delay = 0, volume?: number | null): void {
     const id = soundId || null
+    const level = cueVolume(volume)
     this.wantedBed = id
-    const change = bedChange(this.bed?.soundId ?? null, id)
+    this.wantedVolume = level
+    const change = bedChange(this.bed?.soundId ?? null, id, this.bed?.volume, level)
     if (change === 'keep') return
+    if (change === 'level' && this.bed) {
+      this.bed.volume = level
+      ramp(this.bed.gain.gain, level, this.now + delay, LEVEL_RAMP)
+      return
+    }
     const ctx = id || this.bed ? this.ensure() : null
     if (!ctx) return
     if (!id) return this.fadeOutBed(BED_FADE_OUT, delay)
@@ -185,14 +198,14 @@ class Mixer {
       // Not here yet: the old one ends now (one ambience at a time), and the new one comes in once it is.
       this.fadeOutBed(BED_CROSSFADE, delay)
       void this.load(id).then((b) => {
-        if (b && this.wantedBed === id && this.bed?.soundId !== id) this.startBed(id, b, 0)
+        if (b && this.wantedBed === id && this.bed?.soundId !== id) this.startBed(id, b, 0, this.wantedVolume)
       })
       return
     }
-    this.startBed(id, buffer, delay)
+    this.startBed(id, buffer, delay, level)
   }
 
-  private startBed(soundId: string, buffer: AudioBuffer, delay: number): void {
+  private startBed(soundId: string, buffer: AudioBuffer, delay: number, volume: number): void {
     const ctx = this.ctx
     if (!ctx || !this.bedBus) return
     const at = this.now + delay
@@ -203,10 +216,10 @@ class Mixer {
     src.loop = true
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0, at)
-    gain.gain.linearRampToValueAtTime(1, at + (old ? BED_CROSSFADE : BED_FADE_IN))
+    gain.gain.linearRampToValueAtTime(volume, at + (old ? BED_CROSSFADE : BED_FADE_IN))
     src.connect(gain).connect(this.bedBus)
     src.start(at)
-    this.bed = { soundId, src, gain }
+    this.bed = { soundId, src, gain, volume }
   }
 
   private fadeOutBed(seconds: number, delay = 0): void {
@@ -225,8 +238,11 @@ class Mixer {
     }
   }
 
-  /** A one-off effect, at once (or `delay` seconds from now). One not made yet is skipped, and fetched for next time. */
-  fire(sound: Pick<ClipSound, 'edge' | 'soundId' | 'cueId'>, delay = 0): void {
+  /**
+   * A one-off effect, at once (or `delay` seconds from now), at its own volume. One not made yet is skipped, and
+   * fetched for next time.
+   */
+  fire(sound: Pick<ClipSound, 'edge' | 'soundId' | 'cueId' | 'volume'>, delay = 0): void {
     const buffer = sound.soundId ? this.buffers.get(sound.soundId) : undefined
     logEdge(sound, !!buffer)
     if (!buffer) {
@@ -240,10 +256,11 @@ class Mixer {
     const src = ctx.createBufferSource()
     src.buffer = buffer
     const gain = ctx.createGain()
+    const volume = cueVolume(sound.volume)
     gain.gain.setValueAtTime(0, at)
-    gain.gain.linearRampToValueAtTime(1, at + EFFECT_FADE_IN)
+    gain.gain.linearRampToValueAtTime(volume, at + EFFECT_FADE_IN)
     src.connect(gain).connect(this.fxBus)
-    const voice = { soundId: sound.soundId, src, gain }
+    const voice = { soundId: sound.soundId, src, gain, volume }
     src.onended = () => {
       this.effects = this.effects.filter((v) => v !== voice)
     }
@@ -252,9 +269,22 @@ class Mixer {
   }
 
   /** An ambience edge reached by the reading (logged for the tests like an effect). */
-  bedEdge(sound: Pick<ClipSound, 'edge' | 'soundId' | 'cueId'>, bed: string | null, delay = 0): void {
+  bedEdge(sound: Pick<ClipSound, 'edge' | 'soundId' | 'cueId' | 'volume'>, bed: string | null, delay = 0): void {
     logEdge(sound, bed ? this.ready(bed) : true)
-    this.setBed(bed, delay)
+    this.setBed(bed, delay, sound.volume)
+  }
+
+  /**
+   * The reading's scene was muted (the reading bar's button): its ambience and effects fade out at once, without
+   * touching whether the reading is paused. Its next lines are planned again without sounds.
+   */
+  silence(): void {
+    this.wantedBed = null
+    if (!this.ctx) return
+    const voices = [...(this.bed ? [this.bed] : []), ...this.effects]
+    this.bed = null
+    this.effects = []
+    for (const v of voices) this.fade(v, this.now, 0.6)
   }
 
   /** The ambience reading wants now (for a jump: the clip shown says which). */
@@ -327,6 +357,12 @@ class Mixer {
    * The sound library was cleared (or put back): nothing decoded before is played again. The ambience fades out; it
    * comes back by itself if reading still wants it and its sound is made again.
    */
+  /** One sound made again (a new take, or back to the earlier one): its copy here is out of date. */
+  forgetSound(soundId: string): void {
+    this.buffers.delete(soundId)
+    this.pending.delete(soundId)
+  }
+
   forget(): void {
     this.generation++
     this.buffers.clear()
@@ -348,7 +384,7 @@ class Mixer {
    * Plays one sound on its own at the volume set (an ambience for a few seconds, then it fades). False when it isn't
    * made yet. While reading is paused, its sounds stay silent and still.
    */
-  async listen(soundId: string, kind: SoundKind): Promise<boolean> {
+  async listen(soundId: string, kind: SoundKind, volume?: number | null): Promise<boolean> {
     this.stopListening()
     const mine = ++this.listenSeq
     usePreview.setState({ loading: soundId, playing: null })
@@ -371,10 +407,11 @@ class Mixer {
     src.loop = kind === 'ambience'
     const gain = ctx.createGain()
     const at = this.now
+    const level = cueVolume(volume)
     gain.gain.setValueAtTime(0, at)
-    gain.gain.linearRampToValueAtTime(1, at + (kind === 'ambience' ? 0.4 : EFFECT_FADE_IN))
+    gain.gain.linearRampToValueAtTime(level, at + (kind === 'ambience' ? 0.4 : EFFECT_FADE_IN))
     src.connect(gain).connect(this.previewBus)
-    const voice = { soundId, src, gain }
+    const voice = { soundId, src, gain, volume: level }
     src.onended = () => {
       if (this.preview === voice) this.listened()
     }
@@ -388,6 +425,14 @@ class Mixer {
       }, seconds * 1000)
     }
     return true
+  }
+
+  /** Listen's volume as its slider moves (the sound playing, if it is that one, follows at once). */
+  setListenVolume(soundId: string, volume: number): void {
+    const v = this.preview
+    if (!v || v.soundId !== soundId) return
+    v.volume = cueVolume(volume)
+    ramp(v.gain.gain, v.volume, this.now, 0.08)
   }
 
   /** Stops Listen (a quick fade). */

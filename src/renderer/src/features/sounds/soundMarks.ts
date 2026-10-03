@@ -28,7 +28,12 @@ export function decorateSounds(doc: PMNode, words: readonly SoundWords[], hovere
   for (const w of words) {
     const range = anchorRange(paragraphs, w.anchor)
     if (!range || range.to <= range.from) continue
-    const cls = ['aw-sound', w.role === 'until' ? 'aw-sound-until' : `aw-sound-${w.kind}`, w.cueId === hovered ? 'aw-sound-hover' : '']
+    const cls = [
+      'aw-sound',
+      w.role === 'until' ? 'aw-sound-until' : `aw-sound-${w.kind}`,
+      w.muted ? 'aw-sound-muted' : '',
+      w.cueId === hovered ? 'aw-sound-hover' : ''
+    ].filter(Boolean)
     out.push(Decoration.inline(range.from, range.to, { class: cls.join(' ').trim(), 'data-sound': w.cueId }))
   }
   return DecorationSet.create(doc, out)

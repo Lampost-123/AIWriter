@@ -53,6 +53,11 @@ describe('the sounds’ words marked in the page', () => {
     expect(marked(s)).toEqual([])
   })
 
+  it('marks a muted sound’s words more faintly', () => {
+    const s = run(start(), (v) => setSoundMarks(v, [{ ...WORDS[2], muted: true }]))
+    expect(marked(s)).toEqual([['slammed', 'aw-sound aw-sound-effect aw-sound-muted']])
+  })
+
   it('moves with the words as Adam types', () => {
     let s = run(start(), (v) => setSoundMarks(v, WORDS))
     // "And " typed at the start of the second paragraph.

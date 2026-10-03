@@ -12,6 +12,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { clipAudio, hasAudio } from '@/features/readAloud/audio'
 import { mixer } from './mixer'
+import { sceneMuted } from './sceneMute'
 import { bedAfterEdge, dueEdges, estimateTimes, leftAtEnd } from './mixerLogic'
 
 /** How often a playing clip's place is looked at, in ms. */
@@ -41,8 +42,17 @@ export class ReadingSounds {
   /** The scene's words were all read: the ambience is left for the next scene to keep or end. */
   private finished = false
 
-  /** `texts`: each paragraph's words as the reading's plan has them. */
-  constructor(private readonly texts: () => ReadonlyMap<string, string>) {}
+  /** `texts`: each paragraph's words as the reading's plan has them. `scene`: the scene being read. */
+  constructor(
+    private readonly texts: () => ReadonlyMap<string, string>,
+    private readonly scene: () => string | null = () => null
+  ) {}
+
+  /** Adam muted the sounds of the scene being read (its plan follows a moment later). */
+  private get muted(): boolean {
+    const id = this.scene()
+    return !!id && sceneMuted(id)
+  }
 
   /**
    * Gets the next clips' sounds ready: their audio, and their times for the clips whose speech the reading already has
@@ -89,7 +99,8 @@ export class ReadingSounds {
     this.clip = clip
     this.edges = []
     if (!soundsOn()) return
-    mixer.setBed(clip.bed ?? null)
+    if (this.muted) return mixer.setBed(null)
+    mixer.setBed(clip.bed ?? null, 0, clip.bedVolume)
     const sounds = clip.sounds ?? []
     if (!sounds.length) return
     this.edges = sounds.map((sound) => ({ sound, at: null, done: false }))
@@ -141,6 +152,7 @@ export class ReadingSounds {
     const e = this.edges[index]
     if (!e || e.done) return
     e.done = true
+    if (this.muted) return
     if (e.sound.edge === 'fire') return mixer.fire(e.sound, delay)
     const bed = bedAfterEdge(mixer.bedWanted, e.sound)
     if (bed !== undefined) mixer.bedEdge(e.sound, bed, delay)

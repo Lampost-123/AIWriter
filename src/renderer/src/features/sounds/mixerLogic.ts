@@ -40,13 +40,32 @@ export function volumeGain(volume: number): number {
   return dbToGain(-18 + 20 * v) * Math.min(1, v / 0.05)
 }
 
-/** What happens to the ambience when reading wants another: nothing, start one, cross to another, or fade it out. */
-export type BedChange = 'keep' | 'start' | 'crossfade' | 'stop'
+/** A sound's own volume beside the others (Adam's, in the Sounds view): 0.25 to 2, 1 when not set. */
+export const MIN_CUE_VOLUME = 0.25
+export const MAX_CUE_VOLUME = 2
+export function cueVolume(volume: number | null | undefined): number {
+  if (volume == null || !Number.isFinite(volume)) return 1
+  return Math.min(MAX_CUE_VOLUME, Math.max(MIN_CUE_VOLUME, volume))
+}
 
-/** `wanted`: a library sound, or null/'' for none (a sound not chosen yet plays nothing). */
-export function bedChange(playing: string | null, wanted: string | null | undefined): BedChange {
+/** How long an ambience takes to reach a new volume. */
+export const LEVEL_RAMP = 0.5
+
+/**
+ * What happens to the ambience when reading wants another: nothing, start one, cross to another, fade it out, or
+ * (the same one at another volume) move it to its new level.
+ */
+export type BedChange = 'keep' | 'start' | 'crossfade' | 'stop' | 'level'
+
+/** `wanted`: a library sound, or null/'' for none (a sound not chosen yet plays nothing). Volumes as cueVolume reads them. */
+export function bedChange(
+  playing: string | null,
+  wanted: string | null | undefined,
+  playingVolume?: number | null,
+  wantedVolume?: number | null
+): BedChange {
   const w = wanted || null
-  if (w === playing) return 'keep'
+  if (w === playing) return w && Math.abs(cueVolume(playingVolume) - cueVolume(wantedVolume)) > 0.001 ? 'level' : 'keep'
   if (!w) return 'stop'
   return playing ? 'crossfade' : 'start'
 }

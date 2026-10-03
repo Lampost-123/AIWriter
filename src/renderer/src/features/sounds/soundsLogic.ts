@@ -88,14 +88,28 @@ export interface SoundWords {
   /** 'at': where it plays (or starts); 'until': where an ambience ends. */
   role: 'at' | 'until'
   anchor: CueAnchor
+  /** Adam muted it: marked more faintly. */
+  muted?: boolean
 }
 
 /** The words each sound is placed on. */
 export const soundWords = (cues: readonly SceneCue[]): SoundWords[] =>
   cues.flatMap((c) => [
-    { cueId: c.id, kind: c.kind, role: 'at' as const, anchor: c.at },
-    ...(c.until ? [{ cueId: c.id, kind: c.kind, role: 'until' as const, anchor: c.until }] : [])
+    { cueId: c.id, kind: c.kind, role: 'at' as const, anchor: c.at, ...(c.muted ? { muted: true } : {}) },
+    ...(c.until ? [{ cueId: c.id, kind: c.kind, role: 'until' as const, anchor: c.until, ...(c.muted ? { muted: true } : {}) }] : [])
   ])
+
+/**
+ * What else the row says about a sound, after where it plays: muted, its own volume when it isn't as made, and a new
+ * take being made ("Muted · 150% volume").
+ */
+export function soundNotes(cue: Pick<SceneCue, 'muted' | 'volume' | 'retake'>): string[] {
+  const out: string[] = []
+  if (cue.muted) out.push('Muted')
+  if (cue.volume != null && Number.isFinite(cue.volume) && Math.abs(cue.volume - 1) > 0.001) out.push(`${Math.round(cue.volume * 100)}% volume`)
+  if (cue.retake === 'making') out.push('Making a new take…')
+  return out
+}
 
 /** "3 sounds", "1 sound". */
 export const countWords = (n: number): string => `${n} ${n === 1 ? 'sound' : 'sounds'}`
