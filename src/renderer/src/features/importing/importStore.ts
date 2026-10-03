@@ -171,6 +171,9 @@ export const resetSplit = (): void => set({ edits: noEdits() })
 
 // ---------- Importing ----------
 
+/** The world an import from the Welcome screen made for the book, until the import into it works. */
+let madeForBook: ID | null = null
+
 /**
  * Imports the split into the open world (or, from the Welcome screen, a new world named after the book) as a
  * new story, in one go. The page then offers to build the memory from it; a toast offers Undo.
@@ -182,16 +185,19 @@ export async function importNow(): Promise<void> {
   const title = s.title.trim() || s.manuscript.title
   const outline = buildOutline(s.manuscript, s.proposed, s.edits)
   let result: ImportResult
-  let newWorld = false
+  // A world made for the book by an import that then failed is still the book's: trying again replaces its empty first story too.
+  let newWorld = !!madeForBook && app().world?.id === madeForBook
   try {
     if (!app().world) {
       await app().createWorld(title)
       newWorld = true
+      madeForBook = app().world?.id ?? null
       // Making the world opens its writing page: this page stays in view instead.
       app().navigate({ kind: 'import' })
     }
     await editorBridge()?.flush()
     result = await api.importManuscript(toPlan(s.manuscript, outline, title, newWorld))
+    madeForBook = null
   } catch (e) {
     set({ importing: false, problem: plainReason(e) })
     if (newWorld) app().navigate({ kind: 'import' })
