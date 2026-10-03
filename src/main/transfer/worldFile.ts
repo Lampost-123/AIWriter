@@ -16,13 +16,14 @@
 import Database from 'better-sqlite3'
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, writeSync } from 'node:fs'
 import { cp, mkdir, open, readdir, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { strToU8, strFromU8, Unzip, UnzipInflate, Zip, ZipDeflate } from 'fflate'
 import type { ID } from '@shared/types'
 import { MIGRATIONS } from '../db/migrations'
 import * as repo from '../db/repo'
 import { newId, renameRetry, slugify, UserError } from '../util'
+import { isReservedName } from '../library/names'
 
 type DB = Database.Database
 
@@ -197,11 +198,11 @@ async function copyWorldFiles(
   }
 }
 
-/** A name for a new world folder in the library that isn't taken ("My world", "My world 2"...). */
+/** A name for a new world folder in the library that isn't taken ("My world", "My world 2"...), never Recently deleted. */
 export function freeFolder(library: string, name: string): string {
   const base = slugify(name)
   let folder = join(library, base)
-  for (let i = 2; existsSync(folder); i++) folder = join(library, `${base} ${i}`)
+  for (let i = 2; existsSync(folder) || isReservedName(basename(folder)); i++) folder = join(library, `${base} ${i}`)
   return folder
 }
 

@@ -6,6 +6,7 @@
 // once for a couple of queries and closed at once (the open world is read through its own connection), and a
 // scene's text is never read (words come from scenes.word_count).
 import Database from 'better-sqlite3'
+import { resolve } from 'node:path'
 import type { DeletedWorld, LastPlace, LibraryOverview, LibraryWorld } from '@shared/contracts/library'
 import type { ID, Settings, WorldSummary } from '@shared/types'
 import * as repo from '../db/repo'
@@ -14,7 +15,7 @@ import * as world from '../world'
 import { ensureLibraryFolder, getSettings, updateSettings } from '../settings'
 import { UserError } from '../util'
 import { readWorldDb } from './read'
-import { listDeleted, moveBack, moveToDeleted, purgeDeleted, removeDeleted } from './deleted'
+import { deletedFolder, listDeleted, moveBack, moveLiveWorldAside, moveToDeleted, purgeDeleted, removeDeleted, trashIsLiveWorld } from './deleted'
 
 type DB = Database.Database
 
@@ -110,7 +111,10 @@ export async function getLibrary(): Promise<LibraryOverview> {
       sample: read?.meta.sample ?? false
     }
   })
-  worlds.sort((a, b) => b.openedAt.localeCompare(a.openedAt) || a.name.localeCompare(b.name))
+  // The world open right now first (its openedAt is still when it was last closed), then newest opened first.
+  const openId = world.maybeCurrentWorld()?.id ?? null
+  const rank = (w: LibraryWorld): number => (w.id === openId ? 0 : 1)
+  worlds.sort((a, b) => rank(a) - rank(b) || b.openedAt.localeCompare(a.openedAt) || a.name.localeCompare(b.name))
   return { reachable: true, libraryPath, worlds, deleted, last }
 }
 
@@ -195,6 +199,20 @@ export function renameStoryIn(worldId: ID, storyId: ID, title: string): void {
 
 // ---------- Deleting and restoring ----------
 
+const samePath = (a: string, b: string): boolean => {
+  const norm = (p: string): string => (process.platform === 'win32' || process.platform === 'darwin' ? resolve(p).toLowerCase() : resolve(p))
+  return norm(a) === norm(b)
+}
+
+/** Opens a world again after something that closed it could not finish, so nothing is lost. */
+function reopen(worldId: ID): void {
+  try {
+    world.openWorld(worldId)
+  } catch (e) {
+    console.warn('Could not reopen a world', e instanceof Error ? e.message : e)
+  }
+}
+
 /**
  * Moves a world's whole folder into Recently deleted. The open world is closed first (its history.db and
  * every job on it close with it); if the folder can't be moved, it is opened again so nothing is lost.
@@ -202,20 +220,29 @@ export function renameStoryIn(worldId: ID, storyId: ID, title: string): void {
 export async function deleteWorld(worldId: ID): Promise<DeletedWorld> {
   const library = libraryOrSay()
   const found = findWorld(worldId)
-  const own = openDbOf(found)
   const facts = readWorld(found, (db) => ({ name: worldMeta(db).name, ...worldCounts(db) })) ?? { name: found.name, stories: 0, words: 0 }
-  if (own) world.closeWorld()
+  const wasOpen = world.maybeCurrentWorld()?.id === worldId
+  if (wasOpen) world.closeWorld()
   let gone: DeletedWorld
   try {
-    gone = await moveToDeleted(library, found.folder, { worldId, ...facts })
-  } catch (e) {
-    if (own) {
+    let folder = found.folder
+    // A live world in the folder called Recently deleted moves to a folder of its own first (closed meanwhile if
+    // it is open), so deleted worlds never go inside it and it can still be deleted itself.
+    if (trashIsLiveWorld(library)) {
+      const trash = deletedFolder(library)
+      const open = world.maybeCurrentWorld()
+      const other = open && samePath(open.folder, trash) ? open.id : null
+      if (other) world.closeWorld()
       try {
-        world.openWorld(worldId)
-      } catch (e2) {
-        console.warn('Could not reopen the world after it could not be deleted', e2 instanceof Error ? e2.message : e2)
+        const aside = await moveLiveWorldAside(library)
+        if (samePath(folder, trash)) folder = aside
+      } finally {
+        if (other) reopen(other)
       }
     }
+    gone = await moveToDeleted(library, folder, { worldId, ...facts })
+  } catch (e) {
+    if (wasOpen) reopen(worldId)
     throw e
   }
   const s = getSettings()

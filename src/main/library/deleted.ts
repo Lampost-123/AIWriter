@@ -2,6 +2,10 @@
 // history.db, images/, backups/) is moved into `<library>/Recently deleted/`, with a small deleted.json inside
 // saying what it was, kept for 30 days and then removed for good. Only ever touches folders inside Recently
 // deleted, and only those that hold a world. No Electron imports: every function takes the library folder.
+//
+// A live world can sit in a folder called Recently deleted (made by hand, or by an AI Write before the name was
+// kept back): while it does, nothing here lists, restores or removes anything in it, and a delete first moves
+// that world aside to a folder of its own (moveLiveWorldAside), so it stays a normal world.
 import { existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -9,6 +13,9 @@ import { DELETED_WORLDS_FOLDER, DELETED_WORLD_DAYS, type DeletedWorld } from '@s
 import type { ID } from '@shared/types'
 import { readJson, renameRetry, slugify, UserError, writeFileAtomic } from '../util'
 import { factsOf, readWorldDb } from './read'
+import { isReservedName } from './names'
+
+export { isReservedName }
 
 /** What deleted.json holds. */
 export interface DeletedNote {
@@ -41,14 +48,30 @@ export function safeTrashId(trashId: unknown): string {
   return id
 }
 
-/** A folder name directly inside a library: never Recently deleted itself, nor an import's hidden folder. */
-export const isReservedName = (name: string): boolean =>
-  name.toLowerCase() === DELETED_WORLDS_FOLDER.toLowerCase() || name.startsWith('.aiwrite-')
+/** True while Recently deleted is itself a live world's folder (it has a world.db of its own). */
+export const trashIsLiveWorld = (library: string): boolean => existsSync(join(deletedFolder(library), 'world.db'))
+
+/** Folder moves under way: Recently deleted is never tidied away meanwhile, and their new names are kept for them. */
+let movesInFlight = 0
+const claimed = new Set<string>()
+
+async function moving<T>(to: string, fn: () => Promise<T>): Promise<T> {
+  movesInFlight++
+  claimed.add(to.toLowerCase())
+  try {
+    return await fn()
+  } finally {
+    claimed.delete(to.toLowerCase())
+    movesInFlight--
+  }
+}
+
+const isClaimed = (dir: string, name: string): boolean => claimed.has(join(dir, name).toLowerCase())
 
 /** `base`, else `base 2`, `base 3`... whichever isn't taken in `dir`. */
 export function freeName(dir: string, base: string, reserved: (name: string) => boolean = () => false): string {
   let name = base
-  for (let i = 2; existsSync(join(dir, name)) || reserved(name); i++) name = `${base} ${i}`
+  for (let i = 2; existsSync(join(dir, name)) || reserved(name) || isClaimed(dir, name); i++) name = `${base} ${i}`
   return name
 }
 
@@ -93,6 +116,7 @@ const toDeleted = (trashId: string, n: DeletedNote): DeletedWorld => ({
  */
 export function listDeleted(library: string, nowMs = Date.now()): DeletedWorld[] {
   const trash = deletedFolder(library)
+  if (trashIsLiveWorld(library)) return []
   let names: string[]
   try {
     names = readdirSync(trash)
@@ -128,6 +152,7 @@ export function listDeleted(library: string, nowMs = Date.now()): DeletedWorld[]
 
 /** Removes Recently deleted itself once nothing is left in it, so the library looks as it did. */
 function tidyEmpty(library: string): void {
+  if (movesInFlight > 0) return
   try {
     const trash = deletedFolder(library)
     if (existsSync(trash) && readdirSync(trash).length === 0) rmdirSync(trash)
@@ -166,14 +191,26 @@ export async function purgeDeleted(library: string, nowMs = Date.now()): Promise
  */
 export async function moveToDeleted(library: string, folder: string, facts: Omit<DeletedNote, 'deletedAt' | 'originalFolder'>, nowMs = Date.now()): Promise<DeletedWorld> {
   const trash = deletedFolder(library)
+  // The caller moves a live world out of Recently deleted first (moveLiveWorldAside): never put a world inside one.
+  if (trashIsLiveWorld(library)) throw new Error('Recently deleted holds a live world')
   const note: DeletedNote = { ...facts, deletedAt: new Date(nowMs).toISOString(), originalFolder: basename(folder) }
   const noteFile = join(folder, NOTE_FILE)
   let trashId = ''
   try {
     mkdirSync(trash, { recursive: true })
     trashId = freeName(trash, basename(folder))
+    const to = join(trash, trashId)
     writeFileAtomic(noteFile, JSON.stringify(note, null, 2))
-    await renameRetry(folder, join(trash, trashId), MOVE_TRIES, MOVE_WAIT_MS)
+    await moving(to, async () => {
+      try {
+        await renameRetry(folder, to, MOVE_TRIES, MOVE_WAIT_MS)
+      } catch (e) {
+        // Recently deleted went away meanwhile (emptied in another window, or by hand): made again, tried once more.
+        if ((e as { code?: string })?.code !== 'ENOENT' || !existsSync(folder)) throw e
+        mkdirSync(trash, { recursive: true })
+        await renameRetry(folder, to, MOVE_TRIES, MOVE_WAIT_MS)
+      }
+    })
   } catch (e) {
     console.warn('Could not move a world to Recently deleted', folder, e instanceof Error ? e.message : e)
     try {
@@ -185,6 +222,26 @@ export async function moveToDeleted(library: string, folder: string, facts: Omit
     throw new UserError(`AI Write couldn't move that world to Recently deleted. ${IN_USE}`, 'world-in-use')
   }
   return toDeleted(trashId, note)
+}
+
+/**
+ * Recently deleted is a live world's own folder: that world moves to a free folder of its own ("Recently
+ * deleted 2"), so deleted worlds can go in a Recently deleted of their own. Returns where it went. The world
+ * must not be open (its database would keep the folder from moving).
+ */
+export async function moveLiveWorldAside(library: string): Promise<string> {
+  const from = deletedFolder(library)
+  const to = join(library, freeName(library, DELETED_WORLDS_FOLDER, isReservedName))
+  try {
+    await moving(to, () => renameRetry(from, to, MOVE_TRIES, MOVE_WAIT_MS))
+  } catch (e) {
+    console.warn('Could not move a world out of the Recently deleted folder', e instanceof Error ? e.message : e)
+    throw new UserError(
+      `AI Write couldn't delete that world: one of your worlds is in the folder called "${DELETED_WORLDS_FOLDER}", and it couldn't be moved to a folder of its own. ${IN_USE.replace('its folder', 'that folder')}`,
+      'world-in-use'
+    )
+  }
+  return to
 }
 
 /** A folder name for a world coming back: the one it had, made safe, else one from its name. */
@@ -200,13 +257,13 @@ function homeName(note: DeletedNote | null, trashId: string): string {
 export async function moveBack(library: string, trashId: unknown): Promise<string> {
   const id = safeTrashId(trashId)
   const from = join(deletedFolder(library), id)
-  if (!holdsWorld(from)) {
+  if (trashIsLiveWorld(library) || !holdsWorld(from)) {
     throw new UserError('That world is no longer in Recently deleted.', 'not-in-deleted')
   }
   const note = readNote(from)
   const to = join(library, freeName(library, homeName(note, id), isReservedName))
   try {
-    await renameRetry(from, to, MOVE_TRIES, MOVE_WAIT_MS)
+    await moving(to, () => renameRetry(from, to, MOVE_TRIES, MOVE_WAIT_MS))
   } catch (e) {
     console.warn('Could not move a world back from Recently deleted', from, e instanceof Error ? e.message : e)
     throw new UserError(`AI Write couldn't move that world back into your library. ${IN_USE}`, 'world-in-use')
@@ -222,6 +279,8 @@ export async function moveBack(library: string, trashId: unknown): Promise<strin
 
 /** Removes deleted worlds for good: one, or every one in Recently deleted. */
 export async function removeDeleted(library: string, trashId?: unknown): Promise<void> {
+  if (trashId !== undefined && trashId !== null) safeTrashId(trashId)
+  if (trashIsLiveWorld(library)) return
   const ids = trashId === undefined || trashId === null ? listDeleted(library).map((d) => d.trashId) : [safeTrashId(trashId)]
   let failed = 0
   for (const id of ids) {

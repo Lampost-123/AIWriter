@@ -2,13 +2,13 @@ import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
-import { DELETED_WORLDS_FOLDER } from '@shared/contracts/library'
 import { defaultStyleGuide } from '@shared/defaults'
 import { migrate, pendingMigrations } from './db/migrations'
 import * as repo from './db/repo'
 import { getSettings, updateSettings } from './settings'
 import { newId, now, slugify, UserError } from './util'
 import { backupBeforeMigration } from './services/backups'
+import { isReservedName } from './library/names'
 
 // The open world: one folder in the library holding world.db, images/ and backups/.
 
@@ -135,14 +135,11 @@ function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
 
 const toSummary = (w: World): WorldSummary => ({ id: w.id, name: w.name, folder: w.folder, updatedAt: w.updatedAt })
 
-/** A world folder may never be called Recently deleted (where deleted worlds go), even before that folder exists. */
-const reservedFolder = (name: string): boolean => name.toLowerCase() === DELETED_WORLDS_FOLDER.toLowerCase()
-
 function uniqueFolder(name: string): string {
   const lib = getSettings().libraryPath
   const base = slugify(name)
   let folder = join(lib, base)
-  for (let i = 2; existsSync(folder) || reservedFolder(basename(folder)); i++) folder = join(lib, `${base} ${i}`)
+  for (let i = 2; existsSync(folder) || isReservedName(basename(folder)); i++) folder = join(lib, `${base} ${i}`)
   return folder
 }
 

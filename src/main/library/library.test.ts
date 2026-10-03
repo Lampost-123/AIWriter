@@ -3,7 +3,7 @@
 // and removing it after 30 days. Test words are invented; no real world is read.
 
 import Database from 'better-sqlite3'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -123,10 +123,12 @@ describe('the start screen', () => {
   })
 
   it('orders worlds by when Adam last had them open, newest first', async () => {
+    world.closeWorld() // the open world always comes first (checked below)
     settings.updateSettings({ worldsSeenAt: { [alder]: '2026-09-02T10:00:00.000Z', [birch]: '2026-09-01T10:00:00.000Z' } })
     expect((await library.getLibrary()).worlds.map((w) => w.id)).toEqual([alder, birch])
     settings.updateSettings({ worldsSeenAt: { [birch]: '2026-09-03T10:00:00.000Z' } })
     expect((await library.getLibrary()).worlds.map((w) => w.id)).toEqual([birch, alder])
+    world.openWorld(birch)
   })
 
   it('says where Adam left off: the last world, story and scene, with their titles', async () => {
@@ -316,4 +318,85 @@ describe('the start screen', () => {
     expect(existsSync(folder)).toBe(false)
     expect(existsSync(join(trash, gone.trashId, 'history.db'))).toBe(true)
   })
+})
+
+describe('the Recently deleted folder name', () => {
+  it('is never given to a new world folder, by any way of making one', async () => {
+    const { freeFolder } = await import('../transfer/worldFile')
+    rmSync(trash, { recursive: true, force: true }) // a clean library: no Recently deleted yet
+    expect(freeFolder(lib, 'Recently deleted')).toBe(join(lib, 'Recently deleted 2'))
+    expect(freeFolder(lib, 'recently DELETED')).toBe(join(lib, 'recently DELETED 2'))
+  })
+
+  it('lists the world open right now first, then the rest by when they were last open', async () => {
+    world.createWorld('Elm')
+    const elm = world.maybeCurrentWorld()!.id
+    world.createWorld('Fir')
+    const fir = world.maybeCurrentWorld()!.id
+    world.openWorld(elm)
+    settings.updateSettings({ worldsSeenAt: { [elm]: '2020-01-01T00:00:00.000Z', [fir]: '2026-09-30T00:00:00.000Z' } })
+    const listed = (await library.getLibrary()).worlds.map((w) => w.id)
+    expect(listed[0]).toBe(elm)
+    expect(listed.indexOf(fir)).toBeGreaterThan(0)
+    expect((await library.getLibrary()).worlds[0].openedAt).toBe('2020-01-01T00:00:00.000Z')
+  })
+
+  it('moves a live world found in a folder called Recently deleted aside before deleting into it', async () => {
+    // A world left in that folder (by hand, or by an older AI Write): a world like any other.
+    world.createWorld('Gorse')
+    const gorse = world.maybeCurrentWorld()!.id
+    const gorseFolder = world.maybeCurrentWorld()!.folder
+    world.createWorld('Holly')
+    const holly = world.maybeCurrentWorld()!.id
+    renameSync(gorseFolder, trash)
+    expect(world.listWorlds().find((w) => w.id === gorse)!.folder).toBe(trash)
+
+    // Nothing in it is listed, restored or removed while it is a live world.
+    const overview = await library.getLibrary()
+    expect(overview.deleted).toEqual([])
+    expect(overview.worlds.some((w) => w.id === gorse)).toBe(true)
+    await library.emptyDeletedWorlds()
+    await expect(library.restoreWorld('images')).rejects.toThrow(/no longer in Recently deleted/)
+    expect(existsSync(join(trash, 'world.db'))).toBe(true)
+
+    // Deleting another world (the open one) moves Gorse aside first.
+    const gone = await library.deleteWorld(holly)
+    expect(gone.trashId).toBe('Holly')
+    expect(existsSync(join(trash, 'world.db'))).toBe(false)
+    const aside = world.listWorlds().find((w) => w.id === gorse)!
+    expect(aside.folder).toBe(join(lib, 'Recently deleted 2'))
+    expect((await library.getLibrary()).deleted.map((d) => d.trashId)).toEqual(['Holly'])
+
+    // And Gorse itself, open in that folder, can be deleted too: it is closed, moved aside, then deleted.
+    await library.emptyDeletedWorlds()
+    world.closeWorld()
+    renameSync(join(lib, 'Recently deleted 2'), trash)
+    world.openWorld(gorse)
+    const gorseGone = await library.deleteWorld(gorse)
+    expect(world.maybeCurrentWorld()).toBeNull()
+    expect(gorseGone).toMatchObject({ worldId: gorse, trashId: 'Recently deleted 2' })
+    expect(existsSync(join(trash, 'world.db'))).toBe(false)
+    expect(world.listWorlds().some((w) => w.id === gorse)).toBe(false)
+    const back = await library.restoreWorld('Recently deleted 2')
+    expect(back).toMatchObject({ id: gorse, folder: join(lib, 'Recently deleted 2') })
+  })
+
+  // While a delete waits for a folder another program holds, emptying Recently deleted in the meantime never
+  // takes the folder away from under it.
+  it.skipIf(process.platform !== 'win32')('keeps Recently deleted while a delete is still moving a world into it', async () => {
+    world.createWorld('Ivy')
+    const ivy = world.maybeCurrentWorld()!.id
+    const ivyFolder = world.maybeCurrentWorld()!.folder
+    world.closeWorld()
+    const holder = new Database(join(ivyFolder, 'world.db'), { readonly: true })
+    holder.prepare('SELECT 1 FROM meta').get()
+    const deleting = library.deleteWorld(ivy)
+    await new Promise((r) => setTimeout(r, 300))
+    await library.emptyDeletedWorlds() // nothing to remove yet; must not take Recently deleted away
+    expect(existsSync(trash)).toBe(true)
+    holder.close()
+    const gone = await deleting
+    expect(gone).toMatchObject({ worldId: ivy, trashId: 'Ivy' })
+    expect(existsSync(join(trash, 'Ivy', 'world.db'))).toBe(true)
+  }, 15_000)
 })
