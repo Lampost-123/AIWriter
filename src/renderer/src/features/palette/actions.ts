@@ -30,6 +30,7 @@ import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { insertSceneBreak, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic } from '@/features/typing/format'
 import { openFindInScene, openFindInStory } from '@/features/find/open'
+import { openWordCounts } from '@/features/goals/WordCounts'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
@@ -336,6 +337,16 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'find-story':
         openFindInStory()
+        return
+      case 'spell-check-on':
+      case 'spell-check-off':
+        await a.updateSettings({ editor: { spellCheck: fixed === 'spell-check-on' } })
+        toast(fixed === 'spell-check-on' ? 'Spell check is on.' : 'Spell check is off. Settings › Editor turns it back on.')
+        return
+      case 'word-counts':
+        if (a.view.kind !== 'write') a.navigate({ kind: 'write' })
+        // After the palette has closed and given the keyboard back.
+        setTimeout(openWordCounts, 0)
         return
       default: {
         const unknown: never = fixed

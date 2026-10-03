@@ -14,7 +14,8 @@ import { BREAK_CHAR, curlLike, OBJECT_CHAR, touches, type FoundMatch } from '@sh
 import { activeSuggestion } from '@/features/edits/suggestions'
 
 /** The meta the day's word count reads: these changes aren't words Adam typed. */
-export const WORDS_META = 'aiwriteWords'
+import { WORDS_META } from '@/features/goals/wordsMeta'
+export { WORDS_META }
 
 /** Ranges of the page no replacement may touch: an AI suggestion waiting there. */
 export function keptRanges(state: EditorState): { from: number; to: number }[] {

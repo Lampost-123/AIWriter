@@ -99,6 +99,9 @@ export type FixedActionId =
   | 'find-scene'
   | 'find-story'
   | 'settings-editor'
+  | 'spell-check-on'
+  | 'spell-check-off'
+  | 'word-counts'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -123,6 +126,8 @@ export interface ActionContext {
   unreadStory?: boolean
   /** Focus mode is on (milestone 6). */
   focus?: boolean
+  /** Writing by hand: spell check is on (Settings › Editor). */
+  spellCheck?: boolean
 }
 
 export interface ActionDef {
@@ -377,6 +382,15 @@ export const ACTIONS: ActionDef[] = [
     label: 'Settings › Editor',
     keywords: 'spelling spell check dictionary smart quotes punctuation typewriter scrolling daily word target goal streak',
     away: true
+  },
+  { id: 'spell-check-on', label: 'Turn spell check on', keywords: 'spelling underline misspelt dictionary', when: (c) => c.spellCheck === false },
+  { id: 'spell-check-off', label: 'Turn spell check off', keywords: 'spelling underline misspelt dictionary', when: (c) => c.spellCheck !== false },
+  {
+    id: 'word-counts',
+    label: 'Word counts and today’s writing',
+    keywords: 'words count length pages reading time chapter story selection daily target goal streak today',
+    away: toWriting,
+    when: hasScene
   }
 ]
 
