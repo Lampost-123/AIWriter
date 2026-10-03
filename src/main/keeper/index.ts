@@ -20,6 +20,7 @@ import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
 import { fieldsClearedByHand, removeScenes, restoreScenes, type ScenesOutcome } from './removed'
 import { fillFound } from '../builder/fill'
+import { voiceLater } from '../readAloud'
 
 let keeper: Keeper | null = null
 
@@ -80,8 +81,9 @@ let filling: Promise<void> = Promise.resolve()
 
 /**
  * Someone or something new was found in a scene's text, with little more than a name and a line: the memory
- * model fills in their empty fields from what the story says (builder/fill.ts), as the AI's. A follow-on after
- * the run, so it never slows or breaks the memory; a failure leaves the fields empty. Stops when the world closes.
+ * model fills in their empty fields from what the story says (builder/fill.ts), as the AI's, and then each new
+ * character gets a read-aloud voice, as Suggest would write it (readAloud/autoVoice.ts). A follow-on after the
+ * run, so it never slows or breaks the memory; a failure leaves the fields empty. Stops when the world closes.
  */
 function fillLater(db: Database.Database, entryIds: ID[], model: MemoryModel): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
@@ -90,6 +92,8 @@ function fillLater(db: Database.Database, entryIds: ID[], model: MemoryModel): v
       if (!live()) return
       const result = await fillFound(db, entryIds, model, { prefs: getWritingPrefs(), stopped: () => !live() })
       if (result.filled.length && live()) emit('memory:changed', { sceneId: null, entryIds: result.filled })
+      // From the filled-in page, so the voice fits who they are; in its own queue, so the next fill isn't held up.
+      if (live()) voiceLater(db, entryIds)
     })
     .catch((e) => console.warn('Could not fill in what the memory found', e))
 }

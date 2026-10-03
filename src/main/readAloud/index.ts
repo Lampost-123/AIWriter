@@ -40,7 +40,8 @@ import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
 import { quoteKey } from './speakers'
-import { cleanDesign, linesSpokenBy, paragraphsOfDoc, voicePrompt } from './suggest'
+import { linesSpokenBy, paragraphsOfDoc } from './suggest'
+import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
 
 /** Where reading aloud keeps its caches. */
@@ -433,20 +434,45 @@ export async function suggestCharacterVoice(
   if (entry.kind !== 'character') throw new UserError('Only characters have a voice of their own.')
   const model = jobModel('speech', modelSources())
   const current = getEntryReadAloud(db, entryId).voice.design
-  const done = await runTask({
+  const { done, design } = await askVoice({
     db,
-    taskId,
-    job: 'speech',
-    sceneId: null,
+    entry,
+    lines: linesFor(db, entry),
+    current,
     model,
-    messages: voicePrompt(entry, linesFor(db, entry), current),
-    reply: 200,
-    temperature: 0.5,
-    direction: `A voice for ${entry.name}`,
+    taskId,
     emit,
     onKeyRejected: () => providers.markCheck(model.target.id, false)
   })
-  return { design: done.status === 'error' ? '' : cleanDesign(done.text), status: done.status, error: done.error }
+  return { design, status: done.status, error: done.error }
+}
+
+/**
+ * The AI made or filled in these entries (the builder, the memory finding someone in a scene): each character among
+ * them without a voice gets one in the background, as Suggest would write it, with the Read aloud model, and "Say it
+ * as" when the name is easy to misread (autoVoice.ts). Never replaces what Adam set; a failure leaves the box empty.
+ * `delayMs` waits that long first, starting again each time the same character is handed over.
+ */
+export function voiceLater(db: ReturnType<typeof world.db>, entryIds: ID[], opts: { delayMs?: number } = {}): void {
+  if (!entryIds.length) return
+  queueVoices(entryIds, {
+    db,
+    model: () => {
+      try {
+        return jobModel('speech', modelSources())
+      } catch {
+        return null
+      }
+    },
+    live: () => world.maybeCurrentWorld()?.db === db,
+    lines: (e) => linesFor(db, e),
+    delayMs: opts.delayMs,
+    onVoiced: (ids) => {
+      // Their pages show the voice, and backups see the world changed.
+      repo.touchWorld(db)
+      emit('memory:changed', { sceneId: null, entryIds: ids })
+    }
+  })
 }
 
 export async function cacheStats(): Promise<AudioCacheStats> {

@@ -526,6 +526,14 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
   is set; it is saved even when read aloud isn't set up.
+- **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
+  description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
+  only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
+  or "Say it as" Adam set is never replaced, even one set while the AI was writing. Callers: the World builder
+  (what it made and what it filled in), the memory keeper after `fillFound` (`voiceLater`), and the character
+  builder (Quick start when it completes; AI suggestions Adam keeps, after a 20 second pause). The background queue
+  runs one character at a time and asks about each once a session; a failure leaves the box empty. The entry
+  page's voice box shows a voice that arrives while it is open (`memory:changed`), in any box Adam hasn't changed.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
