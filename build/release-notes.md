@@ -1,6 +1,6 @@
-<!-- version: 0.6.16 -->
-What's new in 0.6.16:
+<!-- version: 0.6.17 -->
+What's new in 0.6.17:
 
-- Read aloud: characters speak in their own voices again. Notes on how lines are said could slip one line out of place, so a character's line went to the narrator or the general dialogue voice. Those slipped notes are now ignored, and new ones are kept in place.
-
-Also in 0.6.15: Ask the world's edits apply one after another, and it no longer tells you to apply changes it didn't make.
+- Read aloud: the writer now says who speaks each line, and how, as it writes, so new drafts are read by the right characters in their own voices.
+- Lines in your own writing are checked more carefully, and a character's name written a little differently is still recognised.
+- The narrator is back to how it read in 0.6.12.
