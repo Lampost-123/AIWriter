@@ -317,6 +317,12 @@ export interface ModelChoice {
  */
 export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
 
+/**
+ * The jobs with a Thinking level of their own: every job, and 'sounds', the AI marking of sound effects under Read aloud
+ * (it uses the Read aloud model, so it has no model choice of its own).
+ */
+export type ThinkingJob = Job | 'sounds'
+
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
 /** The page's look (Settings › Appearance) and the writing-by-hand switches (Settings › Editor). */
@@ -357,8 +363,8 @@ export interface Settings {
   libraryPath: string
   providers: ProviderConfig[]
   models: Record<Job, ModelChoice | null>
-  /** How much each job's model thinks before it answers. */
-  thinking: Record<Job, ThinkingLevel>
+  /** How much each job's model thinks before it answers ('sounds': marking sound effects, with the Read aloud model). */
+  thinking: Record<ThinkingJob, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
   editor: EditorSettings
@@ -466,6 +472,13 @@ export interface SpeechSettings {
   keepReading: boolean
   /** "Follow along": keeps the sentence being read a third of the way down the page. */
   followAlong: boolean
+  /**
+   * "Sound effects and ambience" (contracts/sounds.ts): the AI marks the sounds of what is read, and they play under the
+   * voice. Off until Adam turns it on; it needs its own download.
+   */
+  soundEffects: boolean
+  /** How loud the sounds are under the voice, 0 to 1 (the default is low). */
+  soundVolume: number
   /** Spoken audio kept on disk, in GB (oldest first past it). */
   cacheLimitGb: number
   /** Dictation: which speech-to-text model the server loads at start ('none' until Adam picks one). */
@@ -656,6 +669,8 @@ export interface GenerationRecord extends GenerationSummary {
     tool?: EditTool
     /** A turn of an Ask the world conversation. */
     chatId?: ID
+    /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
+    sounds?: boolean
   }
   direction: string
   blocks: ContextBlock[]

@@ -18,6 +18,8 @@ export interface SpeechPaths {
   serve: string
   /** Breeze's own Python environment (its code and weights are in the speech folder too). */
   breezePython: string
+  /** The sound effects' own Python environment (Stable Audio Open and CLAP; their weights are in models/hf). */
+  soundPython: string
   /** server.log and install.log. */
   logs: string
   /** pip's downloads, Python's compiled files and the steps' temporary files: emptied after each download. */
@@ -45,6 +47,7 @@ export function speechPaths(userData: string, source: string, platform: NodeJS.P
     python: venvPython(venv, platform),
     serve: venvPython(venv, platform, true),
     breezePython: venvPython(join(home, 'venvs', 'breeze'), platform),
+    soundPython: venvPython(join(home, 'venvs', 'sound'), platform),
     logs: join(home, 'logs'),
     cache: join(home, 'cache'),
     manifest: join(home, 'installed.json'),
@@ -64,3 +67,16 @@ export const breezeCodeDir = (breezeRoot: string): string => join(breezeRoot, 'm
  * breeze-check): AI Write's own copy counts as downloaded only with it. Removed as the voices start downloading.
  */
 export const breezeMark = (breezeRoot: string): string => join(breezeRoot, 'models', 'breeze', '.ready')
+
+/** Stable Audio Open's folder in the speech folder's Hugging Face cache (speech-server/app/downloaded.py, SOUND_REPO). */
+export const soundWeightsDir = (root: string): string =>
+  join(root, 'models', 'hf', 'hub', 'models--stabilityai--stable-audio-open-1.0')
+
+/** CLAP's folder in the same cache (CLAP_REPO), which picks the best of each sound's takes. */
+export const clapWeightsDir = (root: string): string => join(root, 'models', 'hf', 'hub', 'models--laion--larger_clap_general')
+
+/**
+ * The mark the sound effects' last download step leaves once everything checked out (speech-server/tools/install.py,
+ * sound-check): they count as downloaded only with it. Removed as they start downloading.
+ */
+export const soundMark = (root: string): string => join(root, 'models', 'sound', '.ready')

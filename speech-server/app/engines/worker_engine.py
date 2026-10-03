@@ -5,7 +5,8 @@ Breeze pins a transformers the server's own environment does not carry, so it ge
 venvs/breeze and a worker process that this class talks to over stdin/stdout, one JSON
 line per request. The audio comes back as base64 float32 at the worker's sample rate.
 
-Only one GPU engine is kept in memory at a time (see `Engine.load`).
+The GPU engines share the graphics card: one that won't fit beside the others has them let go first (see
+`Engine.load`). AI Write's sound effects worker (app/workers/sound.py) is one too, in venvs/sound.
 """
 
 import base64
@@ -19,7 +20,8 @@ from typing import Any
 import numpy as np
 
 from .. import config
-from .base import Engine, EngineError
+from . import base
+from .base import GIVE_WAY, Engine, EngineBusy, EngineError
 
 log = logging.getLogger("aiwrite_speech.worker")
 
@@ -31,8 +33,22 @@ class WorkerEngine(Engine):
     #: What the worker said it runs on (the graphics card's name, or "cpu") the last time it loaded.
     device_name = ""
 
+    def __init__(self) -> None:
+        super().__init__()
+        # The worker being started (until it says hello), and whether it was stopped for a higher-priority engine.
+        self._starting: subprocess.Popen | None = None
+        self._aborted = False
+
     def _python(self):
         return config.breeze_python()
+
+    def _env(self) -> dict:
+        """What the worker is told, on top of the offline environment every child process gets."""
+        return {
+            "HF_HOME": str(config.BREEZE_HF_HOME),
+            "AIWRITE_BREEZE_CODE": str(config.BREEZE_CODE),
+            "AIWRITE_SPEECH_VOICES": str(config.VOICES),
+        }
 
     def _available(self) -> tuple[bool, str]:
         if not self._python().is_file():
@@ -44,9 +60,7 @@ class WorkerEngine(Engine):
         if not ok:
             raise RuntimeError(why)
         env = config.child_env({
-            "HF_HOME": str(config.BREEZE_HF_HOME),
-            "AIWRITE_BREEZE_CODE": str(config.BREEZE_CODE),
-            "AIWRITE_SPEECH_VOICES": str(config.VOICES),
+            **self._env(),
             # The worker watches this process and ends with it, even in the middle of a sentence.
             "AIWRITE_SPEECH_PARENT": str(os.getpid()),
         })
@@ -61,8 +75,23 @@ class WorkerEngine(Engine):
             encoding="utf-8",
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        # The worker prints one line once the model is on the graphics card.
-        first = proc.stdout.readline()
+        # Kept where a higher-priority engine can stop it (_abort_start), unless one is already waiting.
+        with base._WANT_LOCK:
+            self._aborted = self.gives_way()
+            if self._aborted:
+                proc.kill()
+            else:
+                self._starting = proc
+        try:
+            # The worker prints one line once the model is on the graphics card.
+            first = proc.stdout.readline() if not self._aborted else ""
+        finally:
+            with base._WANT_LOCK:
+                self._starting = None
+        if self._aborted:
+            proc.kill()
+            proc.wait()
+            raise EngineBusy(GIVE_WAY)
         if not first:
             proc.kill()
             raise RuntimeError("it stopped while loading. The details are in the speech engine's log (logs/server.log).")
@@ -73,6 +102,15 @@ class WorkerEngine(Engine):
         self.device_name = str(hello.get("device") or "")
         log.info("%s worker ready (%s)", self.name, hello.get("device", "?"))
         return proc
+
+    def _abort_start(self) -> None:
+        # Called with base._WANT_LOCK held.
+        if self._starting is not None:
+            self._aborted = True
+            try:
+                self._starting.kill()
+            except OSError:
+                pass
 
     def unload(self) -> None:
         proc = self._model

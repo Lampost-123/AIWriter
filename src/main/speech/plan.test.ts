@@ -2,7 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { cleanHuggingFaceKey, HF_KEY_SECRET } from './hfkey'
 import { speechPaths, venvPython } from './paths'
-import { BREEZE_PACKAGES, DROP_ENV, planFor, pythonStep, stepEnv, TORCH, TORCH_INDEX, type PlanInput, type Step } from './plan'
+import {
+  BREEZE_PACKAGES,
+  DOWNLOAD_NAMES,
+  DROP_ENV,
+  planFor,
+  pythonStep,
+  SOUND_PACKAGES,
+  SOUND_TORCH,
+  stepEnv,
+  TORCH,
+  TORCH_INDEX,
+  type PlanInput,
+  type Step
+} from './plan'
 import { buildStatus } from './status'
 import { wingetArgs } from './system'
 
@@ -26,7 +39,7 @@ const ids = (steps: Step[]): string[] => steps.map((s) => s.id)
 
 describe('the download steps', () => {
   it('are programs with argument lists, never a command line for a shell', () => {
-    for (const kind of ['server', 'voices', 'parakeet', 'whisper'] as const) {
+    for (const kind of ['server', 'voices', 'parakeet', 'whisper', 'sounds'] as const) {
       for (const step of planFor(kind, input({ hfKey: KEY }))) {
         expect(typeof step.command).toBe('string')
         expect(Array.isArray(step.args)).toBe(true)
@@ -125,6 +138,39 @@ describe('the download steps', () => {
     expect(planFor('whisper', i)[0].args).toContain('faster-whisper>=1.0')
   })
 
+  it('put the sound effects in their own environment, with the voices’ PyTorch for NVIDIA cards and exact pins', () => {
+    const i = input()
+    const steps = planFor('sounds', i)
+    expect(ids(steps)).toEqual(['venv', 'pip', 'torch', 'packages', 'torch-check', 'weights', 'check'])
+    const sound = join(userData, 'speech', 'venvs', 'sound')
+    expect(steps[0].args).toEqual(['-m', 'venv', '--clear', sound])
+    expect(steps.slice(1).every((s) => s.command === venvPython(sound, 'win32'))).toBe(true)
+    // The same PyTorch as the voices, with its torchvision, from the CUDA build's own index.
+    expect(SOUND_TORCH).toEqual([...TORCH, 'torchvision==0.24.1'])
+    expect(steps[2].args).toEqual(expect.arrayContaining([...SOUND_TORCH, '--index-url', TORCH_INDEX]))
+    expect(steps[2].expect).toBeGreaterThan(3e9)
+    // Every package pinned to one version, and never stable-audio-tools (it would swap PyTorch for the plain build).
+    expect(steps[3].args).toEqual(expect.arrayContaining(SOUND_PACKAGES))
+    expect(SOUND_PACKAGES.every((pin) => /^[\w-]+==\d+(\.\d+)+$/.test(pin))).toBe(true)
+    expect(SOUND_PACKAGES).toEqual(expect.arrayContaining(['diffusers==0.40.0', 'transformers==5.18.0']))
+    expect(steps[3].args.join(' ')).not.toMatch(/stable-audio-tools|torch==/)
+    expect(steps[4].args).toEqual([join(source, 'tools', 'install.py'), 'sound-torch'])
+    // The models go into the speech folder's Hugging Face cache, beside the voices'.
+    expect(steps[5].args).toEqual([join(source, 'tools', 'install.py'), 'sound-weights', '--root', i.paths.home])
+    expect(steps[5].env?.HF_HOME).toBe(join(userData, 'speech', 'models', 'hf'))
+    expect(steps[5].label).toBe('Downloading the sound effects model')
+    // Checked last, which leaves the mark that says they are downloaded.
+    expect(steps[6].args).toEqual([join(source, 'tools', 'install.py'), 'sound-check', '--root', i.paths.home])
+    expect(DOWNLOAD_NAMES.sounds).toBe('the sound effects')
+  })
+
+  it('skip the sound effects’ environment when it is there, and use PyTorch’s own build on a Mac', () => {
+    expect(ids(planFor('sounds', input({ soundVenv: true })))).toEqual(['pip', 'torch', 'packages', 'torch-check', 'weights', 'check'])
+    const mac = planFor('sounds', input({ platform: 'darwin', paths: speechPaths(userData, source, 'darwin') }))
+    expect(ids(mac)).not.toContain('torch-check')
+    expect(mac.find((s) => s.id === 'torch')?.args).not.toContain('--index-url')
+  })
+
   it('install Python with Windows’ own installer, for Adam only and without questions', () => {
     const step = pythonStep('C:\\Users\\Adam\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe')
     expect(step.args).toEqual(wingetArgs())
@@ -153,12 +199,12 @@ describe('the download steps', () => {
 })
 
 describe('the Hugging Face key never leaves secrets', () => {
-  it('goes to the voices’ weights step only, as an environment variable', () => {
-    for (const kind of ['server', 'voices', 'parakeet', 'whisper'] as const) {
+  it('goes to the voices’ and the sound effects’ weights steps only, as an environment variable', () => {
+    for (const kind of ['server', 'voices', 'parakeet', 'whisper', 'sounds'] as const) {
       for (const step of planFor(kind, input({ hfKey: KEY }))) {
         expect(step.args.join(' ')).not.toContain(KEY)
         expect(step.command).not.toContain(KEY)
-        if (kind === 'voices' && step.id === 'weights') expect(step.env?.HF_TOKEN).toBe(KEY)
+        if ((kind === 'voices' || kind === 'sounds') && step.id === 'weights') expect(step.env?.HF_TOKEN).toBe(KEY)
         else expect(JSON.stringify(step.env ?? {})).not.toContain(KEY)
       }
     }
@@ -166,6 +212,7 @@ describe('the Hugging Face key never leaves secrets', () => {
 
   it('is not passed at all when none is saved', () => {
     expect(JSON.stringify(planFor('voices', input()))).not.toContain('HF_TOKEN')
+    expect(JSON.stringify(planFor('sounds', input()))).not.toContain('HF_TOKEN')
   })
 
   it('shows in the status only as “there is one”', () => {

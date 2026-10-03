@@ -21,6 +21,7 @@ import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
+import { SceneMuteButton } from '@/features/sounds/SceneMuteButton'
 import { Switch } from '@/features/world/parts/Switch'
 import {
   attachPage,
@@ -62,6 +63,7 @@ export function ReadAloudBar({
   scrollerRef: React.RefObject<HTMLDivElement | null>
 }): React.JSX.Element | null {
   const bar = useReading((s) => s.bar)
+  const readingScene = useReading((s) => s.sceneId)
 
   useEffect(() => attachPage(editor, () => scrollerRef.current), [editor, scrollerRef])
   useEffect(() => sceneShown(sceneId), [sceneId])
@@ -144,6 +146,8 @@ export function ReadAloudBar({
           <Words bar={shown} />
           {player ? (
             <div className="flex shrink-0 items-center gap-1.5">
+              {/* Sound effects: mute the scene being read (only while they are on). */}
+              <SceneMuteButton sceneId={readingScene} />
               <SpeedMenu />
               <ToneChip />
             </div>

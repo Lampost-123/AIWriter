@@ -81,6 +81,7 @@ import type { LibraryApi, LibraryEvents } from './contracts/library'
 import type { RecipesApi, RecipesEvents } from './contracts/recipes'
 import type { FindApi, FindEvents } from './contracts/find'
 import type { SpellingApi, SpellingEvents } from './contracts/spelling'
+import type { SoundsApi, SoundsEvents } from './contracts/sounds'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -111,7 +112,8 @@ export interface AppApi
     LibraryApi,
     RecipesApi,
     FindApi,
-    SpellingApi {
+    SpellingApi,
+    SoundsApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -337,7 +339,8 @@ export interface AppEvents
     LibraryEvents,
     RecipesEvents,
     FindEvents,
-    SpellingEvents {
+    SpellingEvents,
+    SoundsEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

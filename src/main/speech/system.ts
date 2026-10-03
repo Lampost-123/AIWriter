@@ -50,7 +50,12 @@ export interface FoundPython {
 export const PYTHON_VERSIONS = [13, 12, 11, 10] as const
 
 /** Which version each environment prefers (MCreader's choices: its server on 3.13, Breeze on 3.12 first). */
-export const PREFER: Record<'server' | 'voices', readonly number[]> = { server: [13, 12, 11, 10], voices: [12, 11, 13, 10] }
+export const PREFER: Record<'server' | 'voices' | 'sounds', readonly number[]> = {
+  server: [13, 12, 11, 10],
+  voices: [12, 11, 13, 10],
+  // What the sound effects' packages were tested on.
+  sounds: [13, 12, 11, 10]
+}
 
 // Prints "3 13 1 64|C:\...\python.exe". Spaces in the path are fine: it comes last, after the bar.
 const PROBE =

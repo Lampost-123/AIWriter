@@ -10,13 +10,17 @@ can stop it; pip steps it runs directly. This tool does the rest:
     python tools/install.py breeze-code --root <folder>       Breeze's inference code (a pinned commit)
     python tools/install.py breeze-weights --root <folder>    the weights (about 8 GB), HF_TOKEN if asked
     python tools/install.py breeze-check --root <folder>      checks it all, then leaves models/breeze/.ready
+    python tools/install.py sound-torch                       the graphics card part of the sound effects
+    python tools/install.py sound-weights --root <folder>     Stable Audio Open and CLAP (about 6 GB), HF_TOKEN
+    python tools/install.py sound-check --root <folder>       checks it all, then leaves models/sound/.ready
     python tools/install.py parakeet-model --home <folder>
     python tools/install.py whisper-model --home <folder>
     python tools/install.py check-dictation parakeet|whisper
 
 Lines starting "@@" are for AI Write: "@@progress <done> <total>" (bytes), "@@licence <page>" (Hugging Face
 wants a licence accepted first), "@@key" (Hugging Face turned the saved key down), "@@gpu <card name or
-none>" and "@@error <plain words>".
+none>", "@@error <plain words>" and "@@keep-environment" (a check failed on missing files, not on the
+environment: Try again downloads them again without setting the environment up afresh).
 Exit codes: 0 done, 1 failed, 3 Hugging Face wants its licence accepted or a better key.
 
 What counts as downloaded is app/downloaded.py, shared with the server: a step stopped part way never
@@ -44,6 +48,8 @@ from app import downloaded  # noqa: E402
 TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
 # What Breeze was tested on; the CUDA 12.8 build has kernels for every NVIDIA card from the RTX 20s to the 50s.
 TORCH = ["torch==2.9.1", "torchaudio==2.9.1"]
+# The sound effects: the same PyTorch as the voices, with the torchvision built for it (diffusers imports it).
+SOUND_TORCH = [*TORCH, "torchvision==0.24.1"]
 
 # github.com/breezeblue-ai/breeze-tts at the commit this was written against (2026-09-10).
 BREEZE_COMMIT = "008f769016b0a24711becd7a4925030bc93f608c"
@@ -53,6 +59,16 @@ BREEZE_REPO = downloaded.BREEZE_REPO
 # Only what speaking needs: not the logo and leaderboard pictures.
 BREEZE_IGNORE = ["assets/*", "*.md", ".gitattributes"]
 BREEZE_MODULES = ("torch", "torchaudio", "librosa", "transformers", "qwen_tts", "huggingface_hub", "soundfile")
+
+SOUND_REPO = downloaded.SOUND_REPO
+CLAP_REPO = downloaded.CLAP_REPO
+# laion/larger_clap_general keeps only a pickled copy of its weights on main; Hugging Face's own converter made the
+# same weights as safetensors at this commit (refs/pr/2), which load without running anything from the file.
+CLAP_REVISION = "16c8cc3159a3c8a31e8ff5ef1f66b0d9ab3667db"
+# torchsde: diffusers offers Stable Audio Open's scheduler only with it.
+SOUND_MODULES = ("torch", "torchaudio", "torchvision", "diffusers", "transformers", "torchsde", "soundfile", "numpy")
+# What the worker actually imports from them.
+SOUND_IMPORTS = "from diffusers import StableAudioPipeline; from transformers import ClapModel, ClapProcessor; import torchaudio.functional"
 
 PARAKEET_URL = (
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
@@ -135,8 +151,13 @@ def folder_bytes(root: Path) -> int:
     return total
 
 
-def run_with_progress(work, root: Path, what: str, total: int) -> None:
-    """Runs `work()` on a thread while reporting how much has arrived under `root`."""
+def run_with_progress(work, root, what: str, total: int) -> None:
+    """Runs `work()` on a thread while reporting how much has arrived under `root` (a folder, or a list of them)."""
+    roots = list(root) if isinstance(root, (list, tuple)) else [root]
+
+    def arrived() -> int:
+        return sum(folder_bytes(r) for r in roots if r.exists())
+
     errors: list[BaseException] = []
 
     def go() -> None:
@@ -150,8 +171,8 @@ def run_with_progress(work, root: Path, what: str, total: int) -> None:
     progress = Progress(what, total)
     while thread.is_alive():
         thread.join(0.5)
-        progress(folder_bytes(root) if root.exists() else 0)
-    progress(total or folder_bytes(root), force=True)
+        progress(arrived())
+    progress(total or arrived(), force=True)
     if errors:
         raise errors[0]
 
@@ -191,21 +212,39 @@ def torch_state() -> tuple[str, str]:
     return lines[0].strip(), lines[1].strip()
 
 
-def breeze_torch() -> int:
-    """Makes sure PyTorch is the pinned CUDA build: another package may have pulled in the plain one."""
+def module_version(module: str) -> str:
+    """`module`'s version without its build tag, as installed here, or ""."""
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", f"import {module}; print({module}.__version__.split('+')[0])"],
+            capture_output=True, text=True, timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip().splitlines()[-1].strip() if out.returncode == 0 and out.stdout.strip() else ""
+
+
+def torch_in_place(pins: list[str], what: str) -> int:
+    """Makes sure PyTorch (and torchvision, when pinned with it) is the pinned CUDA build: another package may have
+    pulled in the plain one. `what` names the engine in plain words, if it has to say it failed."""
     version, cuda = torch_state()
-    want = TORCH[0].split("==", 1)[1]
-    if version == want and cuda:
+    want = pins[0].split("==", 1)[1]
+    others = [pin.split("==", 1) for pin in pins[1:] if pin.startswith("torchvision==")]
+    if version == want and cuda and all(module_version(name) == wanted for name, wanted in others):
         say("The graphics card part is in place.")
         return 0
     say("Putting the graphics card part back in place (about 3 GB)…")
     code = subprocess.call([
         sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check", "--progress-bar", "raw",
-        "--force-reinstall", "--no-deps", *TORCH, "--index-url", TORCH_INDEX,
+        "--force-reinstall", "--no-deps", *pins, "--index-url", TORCH_INDEX,
     ])
     if code:
-        return fail("The voice engine’s graphics card part didn’t download. Check the internet connection, then Try again.")
+        return fail(f"{what}’s graphics card part didn’t download. Check the internet connection, then Try again.")
     return 0
+
+
+def breeze_torch() -> int:
+    return torch_in_place(TORCH, "The voice engine")
 
 
 def breeze_code(root: Path) -> int:
@@ -333,10 +372,126 @@ def breeze_check(root: Path) -> int:
     # This step only runs after the weights' own step finished in the same download.
     snapshot = downloaded.snapshot_dir(downloaded.breeze_weights_dir(root), ("config.json",))
     if snapshot is None:
+        say("@@keep-environment")
         return fail("The voices didn’t finish downloading. Try again; what is already downloaded is kept.")
     mark.parent.mkdir(parents=True, exist_ok=True)
     mark.write_text(f"{snapshot.name}\n", encoding="utf-8")
     say("The voices are ready." if card else "The voices are installed, but no NVIDIA graphics card is visible, so they would be far too slow.")
+    return 0
+
+
+# --- the sound effects ------------------------------------------------------
+
+
+def repo_bytes(repo: str, keep, token, revision: str | None = None) -> int:
+    """How much the files of `repo` (at `revision`) that `keep(name)` picks add up to."""
+    from huggingface_hub import HfApi
+
+    info = HfApi().model_info(repo, revision=revision, files_metadata=True, token=token)
+    return sum((s.size or 0) for s in (info.siblings or []) if keep(s.rfilename))
+
+
+def sound_part(name: str) -> bool:
+    """One of the files diffusers loads (downloaded.SOUND_PATTERNS), not the original checkpoints beside them."""
+    return any(name == p or (p.endswith("/*") and name.startswith(p[:-1])) for p in downloaded.SOUND_PATTERNS)
+
+
+def clap_part(weights: str):
+    names = set(downloaded.CLAP_FILES) | {weights}
+    return lambda name: name in names
+
+
+def sound_weights(root: Path) -> int:
+    """Stable Audio Open (only what diffusers loads) and CLAP, so the first sound made downloads nothing."""
+    from huggingface_hub import snapshot_download
+
+    page = f"https://huggingface.co/{SOUND_REPO}"
+    token = os.environ.get("HF_TOKEN") or None
+    # They may change from here on: they count as downloaded again only once checked (sound-check).
+    downloaded.sound_mark(root).unlink(missing_ok=True)
+    say(f"Downloading Stable Audio Open from {page}")
+    clap = {"revision": CLAP_REVISION, "weights": "model.safetensors"}
+    try:
+        total = repo_bytes(SOUND_REPO, sound_part, token)
+    except Exception as exc:  # noqa: BLE001
+        why = refused(exc, bool(token))
+        if why:
+            return tell_refused(why, page)
+        say(f"Could not reach Hugging Face: {exc.__class__.__name__}")
+        return fail("Couldn’t reach Hugging Face to download the sound effects. Check the internet connection, then Try again.")
+    try:
+        # CLAP is public: it is fetched without the key, so a key Hugging Face turns down never stops it.
+        total += repo_bytes(CLAP_REPO, clap_part(clap["weights"]), False, clap["revision"])
+    except Exception as exc:  # noqa: BLE001
+        say(f"CLAP's converted copy isn't there ({exc.__class__.__name__}); using its original one.")
+        clap = {"revision": None, "weights": "pytorch_model.bin"}
+        try:
+            total += repo_bytes(CLAP_REPO, clap_part(clap["weights"]), False)
+        except Exception as again:  # noqa: BLE001
+            say(f"Could not reach Hugging Face: {again.__class__.__name__}")
+            return fail("Couldn’t reach Hugging Face to download the sound effects. Check the internet connection, then Try again.")
+
+    def work() -> None:
+        # One file at a time, so a stop leaves one partial file, picked up again by Try again.
+        snapshot_download(SOUND_REPO, allow_patterns=list(downloaded.SOUND_PATTERNS), max_workers=1, token=token)
+        say("Downloading CLAP, which picks the best of each sound's takes")
+        snapshot_download(
+            CLAP_REPO, revision=clap["revision"], allow_patterns=[*downloaded.CLAP_FILES, clap["weights"]],
+            max_workers=1, token=False,
+        )
+
+    hub = Path(os.environ.get("HF_HOME") or root / "models" / "hf") / "hub"
+    try:
+        run_with_progress(
+            work,
+            [hub / downloaded.hub_folder(SOUND_REPO), hub / downloaded.hub_folder(CLAP_REPO)],
+            "Downloading the sound effects",
+            total,
+        )
+    except Exception as exc:  # noqa: BLE001
+        why = refused(exc, bool(token))
+        if why:
+            return tell_refused(why, page)
+        say(f"The download stopped: {exc.__class__.__name__}")
+        return fail("The sound effects didn’t finish downloading. Check the internet connection and that there’s about 12 GB free, then Try again.")
+    if downloaded.sound_dir(root) is None or downloaded.clap_dir(root) is None:
+        # Said here, by the download itself, rather than by the check (which would set the environment up afresh).
+        return fail("The sound effects didn’t finish downloading. Try again; what is already downloaded is kept.")
+    say("The sound effects are downloaded.")
+    return 0
+
+
+def sound_check(root: Path) -> int:
+    """Checks the sound effects' environment and models; only then leaves the mark that says they are downloaded."""
+    mark = downloaded.sound_mark(root)
+    mark.unlink(missing_ok=True)
+    say("Checking the sound effects…")
+    failures = [m for m in SOUND_MODULES if not can_import(sys.executable, m)]
+    for module in SOUND_MODULES:
+        say(f"  {module}: {'missing' if module in failures else 'ok'}")
+    if not failures and subprocess.call([sys.executable, "-c", SOUND_IMPORTS], stdout=subprocess.DEVNULL) != 0:
+        say("  Stable Audio Open's pipeline or CLAP: missing")
+        failures.append("diffusers")
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", "import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"],
+            capture_output=True, text=True, timeout=300,
+        )
+        card = out.stdout.strip().splitlines()[-1].strip() if out.returncode == 0 and out.stdout.strip() else ""
+    except (OSError, subprocess.SubprocessError, IndexError):
+        card = ""
+    say(f"@@gpu {card or 'none'}")
+    if failures:
+        # AI Write sets the sound effects' environment up afresh on Try again after this step fails.
+        return fail("Part of the sound effects didn’t install. Try again to set it up afresh; what is already downloaded is kept.")
+    sound, clap = downloaded.sound_dir(root), downloaded.clap_dir(root)
+    if sound is None or clap is None:
+        # The environment checked out: only the files are missing.
+        say("@@keep-environment")
+        return fail("The sound effects didn’t finish downloading. Try again; what is already downloaded is kept.")
+    mark.parent.mkdir(parents=True, exist_ok=True)
+    mark.write_text(f"{sound.name}\n{clap.name}\n", encoding="utf-8")
+    say("The sound effects are ready." if card else "The sound effects are installed, but no NVIDIA graphics card is visible, so each would take minutes to make.")
     return 0
 
 
@@ -439,16 +594,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AI Write's speech downloads.")
     parser.add_argument("step", choices=[
         "check-server", "breeze-torch", "breeze-code", "breeze-weights", "breeze-check",
+        "sound-torch", "sound-weights", "sound-check",
         "parakeet-model", "whisper-model", "check-dictation",
     ])
     parser.add_argument("engine", nargs="?", choices=["parakeet", "whisper"])
-    parser.add_argument("--root", help="Where Breeze's environment, code and weights go.")
+    parser.add_argument("--root", help="Where Breeze's (or the sound effects') environment, code and weights go.")
     parser.add_argument("--home", help="AI Write's speech folder.")
     args = parser.parse_args()
     root = Path(args.root) if args.root else None
     home = Path(args.home) if args.home else None
 
-    if args.step in ("breeze-code", "breeze-weights", "breeze-check") and root is None:
+    if args.step in ("breeze-code", "breeze-weights", "breeze-check", "sound-weights", "sound-check") and root is None:
         parser.error(f"{args.step} needs --root")
     if args.step in ("parakeet-model", "whisper-model") and home is None:
         parser.error(f"{args.step} needs --home")
@@ -463,6 +619,12 @@ def main() -> int:
         return breeze_weights(root)
     if args.step == "breeze-check":
         return breeze_check(root)
+    if args.step == "sound-torch":
+        return torch_in_place(SOUND_TORCH, "The sound effects")
+    if args.step == "sound-weights":
+        return sound_weights(root)
+    if args.step == "sound-check":
+        return sound_check(root)
     if args.step == "parakeet-model":
         return parakeet_model(home)
     if args.step == "whisper-model":

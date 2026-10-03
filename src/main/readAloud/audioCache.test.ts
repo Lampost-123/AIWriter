@@ -127,3 +127,76 @@ describe('the spoken audio kept on disk', () => {
     expect(existsSync(join(dir, '..', 'escape.wav'))).toBe(false)
   })
 })
+
+describe('what is kept beside a clip (the words heard in it, for sound effects)', () => {
+  const shard = (k: string): string[] => readdirSync(join(dir, k.slice(0, 2))).sort()
+
+  it('keeps it beside the clip, gives it back, and counts only clips', async () => {
+    const cache = new AudioCache(dir, () => 10_000)
+    await cache.put(key('a'), clip(1))
+    await cache.putExtra(key('a'), 'words', '{"v":1}')
+    expect(await cache.getExtra(key('a'), 'words')).toBe('{"v":1}')
+    expect(shard(key('a'))).toEqual([`${key('a')}.wav`, `${key('a')}.words.json`].sort())
+    expect(await cache.stats()).toMatchObject({ files: 1, bytes: 100 })
+    // After a restart too.
+    const again = new AudioCache(dir, () => 10_000)
+    expect(await again.stats()).toMatchObject({ files: 1, bytes: 100 })
+    expect(await again.getExtra(key('a'), 'words')).toBe('{"v":1}')
+  })
+
+  it('keeps nothing for a clip it hasn’t got', async () => {
+    const cache = new AudioCache(dir, () => 10_000)
+    await cache.putExtra(key('a'), 'words', '{}')
+    expect(await cache.getExtra(key('a'), 'words')).toBeNull()
+    expect(readdirSync(dir)).toEqual([])
+    await expect(cache.putExtra(key('a'), '../x', '{}')).resolves.toBeUndefined()
+  })
+
+  it('goes with its clip when the clip is trimmed', async () => {
+    const cache = new AudioCache(dir, () => 150)
+    await cache.put(key('a'), clip(1))
+    await cache.putExtra(key('a'), 'words', '{}')
+    later(1)
+    await cache.put(key('b'), clip(2))
+    expect(await cache.get(key('a'))).toBeNull()
+    expect(existsSync(join(dir, key('a').slice(0, 2), `${key('a')}.words.json`))).toBe(false)
+  })
+
+  it('leaves nothing behind when it is written as its clip is trimmed', async () => {
+    const cache = new AudioCache(dir, () => 150)
+    await cache.put(key('a'), clip(1))
+    later(1)
+    // Kept beside "a" at the same moment "b" pushes "a" out.
+    await Promise.all([cache.put(key('b'), clip(2)), cache.putExtra(key('a'), 'words', '{}')])
+    expect(await cache.get(key('a'))).toBeNull()
+    expect(readdirSync(join(dir, key('a').slice(0, 2))).filter((n) => n.startsWith(key('a')))).toEqual([])
+  })
+
+  it('goes with its clip when the cache is cleared, and stays with a clip in use', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const cache = new AudioCache(dir, () => 10_000)
+    await cache.put(key('a'), clip(1))
+    await cache.put(key('b'), clip(2))
+    await cache.putExtra(key('a'), 'words', '{}')
+    await cache.putExtra(key('b'), 'words', '{}')
+    const rm = fs.rm
+    const busy = vi.spyOn(fs, 'rm').mockImplementation(async (file, options) => {
+      if (String(file).endsWith(`${key('a')}.wav`)) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' })
+      return rm(file, options)
+    })
+    await expect(cache.clear()).rejects.toThrow()
+    expect(await cache.getExtra(key('a'), 'words')).toBe('{}')
+    expect(existsSync(join(dir, key('b').slice(0, 2), `${key('b')}.words.json`))).toBe(false)
+    busy.mockRestore()
+    await cache.clear()
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it('is let go when the clip is made again', async () => {
+    const cache = new AudioCache(dir, () => 10_000)
+    await cache.put(key('a'), clip(1))
+    await cache.putExtra(key('a'), 'words', '{}')
+    await cache.put(key('a'), clip(2))
+    expect(await cache.getExtra(key('a'), 'words')).toBeNull()
+  })
+})

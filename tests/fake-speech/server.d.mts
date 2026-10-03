@@ -22,6 +22,24 @@ export interface FakeSpeechOptions {
   voicesLoadError?: string
   /** The same for a dictation model. */
   dictationLoadError?: { parakeet?: string; whisper?: string }
+  /** The sound effects are downloaded there (default true, or what `home` holds). */
+  sounds?: boolean
+  /** Why the sound effects fail to load (every sound asked for gets a 503 saying so). */
+  soundsLoadError?: string
+  /** The voices have the graphics card: every sound asked for gets a 503 with x-sound-retry: 1. */
+  soundsBusy?: boolean
+  /** Answer every sound asked for with this instead. */
+  soundsFail?: { status?: number; detail?: string }
+  /** How long making a sound takes, in ms. */
+  soundsDelayMs?: number
+  /** The sound effects fit beside the voices on the graphics card now (default true). */
+  beside?: boolean
+  /** The dictation model that times words (/v1/align); by default the first downloaded, Whisper first. null: none. */
+  aligner?: 'whisper' | 'parakeet' | null
+  /** /v1/align answers 503 "busy" with x-align-retry: 1 (dictation is using the model). */
+  alignBusy?: boolean
+  /** The words of a clip this server didn't speak, for /v1/align (spread evenly over the clip). */
+  alignWords?: string
   /** Refuse what the real server refuses (speech-server/app/guard.py): another Host than this computer, or a request that changes something without AI Write's header or a JSON or audio body. */
   guard?: boolean
   /** Called once the server has stopped after /shutdown. */

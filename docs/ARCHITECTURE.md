@@ -939,6 +939,50 @@ and `Opening.tsx` with its keyframes in `styles.css`.
 - **New story from a recipe…** (`RecipeTile` in `StartScreen.tsx`) shows once there is a finished recipe: it picks the recipe, then
   the world, sets `useRecipes.forStory` and opens New story in that world (`newStoryIn`), so the dialog starts with the recipe chosen.
 
+## AI sound effects under Read aloud
+
+Optional and off by default (`settings.speech.soundEffects`, Settings › Read aloud and dictation › More), with a download
+of its own (`SpeechDownloadKind` `'sounds'`). The contract is `src/shared/contracts/sounds.ts`. The data model is unchanged.
+
+- **The speech server** makes the sounds on this computer: `app/workers/sound.py` runs Stable Audio Open 1.0 through
+  diffusers' StableAudioPipeline in its own environment (`venvs/sound`, the same CUDA torch pin as Breeze), takes one at a
+  time (fp16, 100 steps), and keeps the take CLAP (laion/larger_clap_general, on the processor) ranks closest to the
+  description. `app/sound_audio.py` trims effects, makes ambience a seamless loop (its tail crossfaded into its head) and
+  brings every sound to -20 LUFS. `POST /v1/sounds/generate` answers a 44.1 kHz stereo WAV; a 503 with `x-sound-retry: 1`
+  means try later. The weights download only the diffusers parts (about 5 GB) and are loaded from the snapshot folder.
+  The licence (Stability AI Community) is gated: Adam accepts it on Hugging Face, and the existing key flow (`hfkey.ts`)
+  reaches only the weights step; Settings shows "Powered by Stability AI".
+- **Sharing the graphics card** (`app/engines/gpu.py`, `Engine.load`): each card engine has a rough memory need and a
+  priority. Another engine is let go only when nvidia-smi's free memory can't hold the one loading; the voices always win
+  (a sound being made is stopped for them), and sounds never push out voices that spoke in the last minute. The sound
+  model is let go after 90 s unused. Health says whether sounds can sit `beside` the voices; the app holds sound-making
+  while a reading plays when they can't.
+- **Word timing**: `POST /v1/align` hears a spoken clip with the downloaded dictation model (faster-whisper word times, or
+  Parakeet token times) without changing Adam's dictation choice. The app keeps the word times beside the clip in the
+  Read aloud audio cache (`<key>.words.json`), maps each sound's anchor word to them (`sounds/align.ts`), and estimates by
+  the word's place in the clip when there is no dictation model or the words don't line up.
+- **Marking** (`src/main/sounds/marks.ts`, `prompt.ts`): a part at a time just ahead of the voice, beside the speaker
+  marking, with the Read aloud model and its own Thinking (`settings.thinking.sounds`, `ThinkingJob`; records are job
+  `speech` with `params.sounds`; prompt marker `[AIWRITE-READ-ALOUD v1] sounds`). Each cue is anchored to a word by a
+  short quote and the word. The AI's marks are a cache per scene in `speech-cache/sounds/`, per paragraph with its text
+  hash. A draft landing marks its sounds in the background too. Sounds never hold a reading up.
+- **Adam's sounds** live in the world's meta key `sounds` (`SoundEdits` by scene). Any edit makes the paragraph the sound
+  starts in his: the AI's sounds there are copied in as his and the AI never marks it again. Undo restores the scene's
+  edits as they were.
+- **The sound library** (`sounds/library.ts`): app-wide in `<userData>/sounds/`, never in a world. Exact key on the
+  normalised description, then a near-duplicate check; the marking prompt is shown the library's sounds and reuses them.
+  Sounds are made one at a time ahead of the reading (`sounds/making.ts`); one not ready in time is skipped. Read aloud's
+  Clear leaves it; Clear sounds (with Undo) empties it.
+- **Playing** (`features/sounds/`): one Web Audio mixer; each clip carries the ambience in force as it starts (`bed`)
+  and its sounds (`sounds`); edges fire when the voice's audio element reaches the anchor's time, at any speed and across
+  pause. Ambience loops, crossfades and ducks under the voice; volume is `settings.speech.soundVolume`.
+- **The Sounds tab** in the scene panel (while sound effects are on) lists the scene's sounds and lets Adam add, move,
+  re-describe and remove them, each with Undo; the page marks their words faintly while it shows. Each sound has its
+  own volume (25% to 200%) and mute (`SoundCue.volume`, `muted`: edits, so the paragraph becomes Adam's); a muted sound
+  is left out of plans. "New take" makes a library sound afresh with a new seed; the earlier take is kept aside
+  (`clips/<id>.prev.wav`) until Adam keeps the new one or goes back (`keepTake`). The reading bar's "Mute sounds in this
+  scene" is `SoundEdits.muted`: a muted scene's plan has no sounds and no ambience.
+
 ## Interview me on scenes and chapters
 
 The world builder's "Interview me", on a scene card and on a chapter (spec, Writing workflow › Planning). It is the

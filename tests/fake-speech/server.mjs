@@ -4,6 +4,7 @@
 //   engine.mjs     health, models, warm-up, unload, the dictation model, shutdown (the Speech engine part)
 //   readAloud.mjs  voices and speaking (the Read aloud part)
 //   dictation.mjs  transcription (the Dictation part)
+//   sounds.mjs     sound effects and word timing (the Speech engine part)
 // Each module exports `routes`: { 'METHOD /path': (req, body, state) => { status, headers?, body, after? } }.
 // A route that answers with after: 'close' stops the server once its reply is sent (shutdown).
 //
@@ -22,6 +23,9 @@
 //   POST /v1/warmup                {engines?: ['breeze']} → {ok, engines: {breeze: 'ready' | why not}}
 //   POST /v1/unload                → {ok, unloaded: [...]}: gives the memory back; models load again when asked
 //   POST /shutdown                 (application/json only) → {ok: true}, then the server stops
+//   POST /v1/sounds/generate       {prompt, kind, seconds?, takes?, seed?} → a 44.1 kHz stereo WAV (sounds.mjs)
+//   POST /v1/align                 a spoken clip (WAV) → {words: [{word, start, end}], engine} (sounds.mjs)
+// /v1/health also says {sounds: {ready, loaded, detail, loadError, beside}, aligner: 'whisper' | 'parakeet' | null}.
 // /health, /voices, /warmup, /unload and /v1/shutdown answer too, as on the real server.
 //   GET  /__requests   every request so far (method, path, body size, and whether it carried AI Write's header),
 //                      so tests can see what was asked
@@ -46,8 +50,9 @@ import { pathToFileURL } from 'node:url'
 import { routes as engine } from './engine.mjs'
 import { routes as readAloud } from './readAloud.mjs'
 import { routes as dictation } from './dictation.mjs'
+import { routes as sounds } from './sounds.mjs'
 
-const ROUTES = { ...engine, ...readAloud, ...dictation }
+const ROUTES = { ...engine, ...readAloud, ...dictation, ...sounds }
 
 const LOOPBACK = ['localhost', '127.0.0.1', '::1']
 // What a web page can send without asking first; any other body type needs its permission, which is never given.

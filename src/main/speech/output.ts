@@ -16,6 +16,8 @@ export type OutputEvent =
   | { kind: 'key' }
   | { kind: 'gpu'; name: string }
   | { kind: 'error'; message: string }
+  /** A check failed on missing files, not on its environment: Try again needn't set the environment up afresh. */
+  | { kind: 'keep' }
   | { kind: 'line'; text: string }
 
 /** Splits output into lines as it arrives: a line can end in \n, \r\n or \r (a bar drawing over itself), and a chunk can end mid-line. */
@@ -68,6 +70,7 @@ export function parseLine(raw: string): OutputEvent | null {
   m = /^@@licence\s+(\S+)/.exec(line)
   if (m) return { kind: 'licence', url: m[1] }
   if (/^@@key$/.test(line)) return { kind: 'key' }
+  if (/^@@keep-environment$/.test(line)) return { kind: 'keep' }
   m = /^@@gpu\s+(.+)$/.exec(line)
   if (m) return { kind: 'gpu', name: m[1].trim() === 'none' ? '' : m[1].trim() }
   m = /^@@error\s+(.+)$/.exec(line)
@@ -168,6 +171,8 @@ export interface Failure {
   error: string
   need: 'python' | 'python-manual' | 'licence' | 'key' | null
   link: string
+  /** A check step failed on missing files, not on its environment ("@@keep-environment"): only those are fetched again. */
+  keepEnvironment?: boolean
 }
 
 /** Where Hugging Face's keys are made. */
@@ -186,14 +191,23 @@ const NOT_FOR_THIS_PYTHON =
  * `fallback`, the step's own plain sentence. Never a stack trace.
  */
 export function explainFailure(recent: readonly string[], fallback: string, platform: NodeJS.Platform = process.platform): Failure {
+  const failure = explain(recent, fallback, platform)
+  return recent.includes('@@keep-environment') ? { ...failure, keepEnvironment: true } : failure
+}
+
+function explain(recent: readonly string[], fallback: string, platform: NodeJS.Platform): Failure {
   const text = recent.join('\n')
   const own = [...recent].reverse().find((l) => l.startsWith('@@error '))
   const licence = recent.find((l) => l.startsWith('@@licence '))
   if (licence) {
+    const link = licence.slice('@@licence '.length).trim()
     return {
-      error: 'Hugging Face asks for the voices’ licence to be accepted before they can download.',
+      // The sound effects' model has a licence of its own (speech-server/tools/install.py, sound-weights).
+      error: /stable-audio/i.test(link)
+        ? 'Stable Audio Open asks you to accept its licence on Hugging Face before the sound effects can download.'
+        : 'Hugging Face asks for the voices’ licence to be accepted before they can download.',
       need: 'licence',
-      link: licence.slice('@@licence '.length).trim()
+      link
     }
   }
   if (recent.includes('@@key')) return { error: 'Hugging Face didn’t accept the saved key.', need: 'key', link: HF_KEYS_PAGE }

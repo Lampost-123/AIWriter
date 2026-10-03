@@ -4,7 +4,8 @@
 // the clip playing finishes, and the next ones are planned again from the words as they now stand, from
 // where that clip ends on the page (highlight.ts keeps that place through the edits). With Mark who says what it
 // also plans again where each plan asks (markAhead.ts), so the AI's notes keep ahead of it. Back one line and Next
-// line step through the clips (a clip is one line: one voice's words, a sentence or a few).
+// line step through the clips (a clip is one line: one voice's words, a sentence or a few). With sound effects on, the
+// sounds play under it (features/sounds/readingSounds.ts): each clip sets the ambience and times its sounds to its words.
 import type { Editor } from '@tiptap/core'
 import type { PlannedClip, ReadingRequest } from '@shared/contracts/readAloud'
 import type { ID } from '@shared/types'
@@ -16,7 +17,8 @@ import { FollowAlong } from './follow'
 import { barRoom, readingPlace, setReadingPlace, type ReadingPlace } from './highlight'
 import { reachedMarkAhead, type MarkAhead } from './markAhead'
 import { forPlan, hasWords, pageParagraphs, placeOf, posIn, type PageParagraph } from './pageText'
-import { toFetch } from './prefetch'
+import { AHEAD, toFetch } from './prefetch'
+import { ReadingSounds, soundsOn } from '@/features/sounds/readingSounds'
 
 export type ReadingPhase = 'starting' | 'playing' | 'waiting' | 'paused' | 'stopped' | 'finished' | 'problem'
 
@@ -76,6 +78,8 @@ export class Session {
   private paused = false
   private wake: (() => void)[] = []
   private readonly player = new ClipPlayer()
+  /** Sound effects under the reading (only while they are on in Settings). */
+  private readonly sounds = new ReadingSounds(() => this.texts, () => this.sceneId)
   private readonly follow: FollowAlong
   /** Clips whose audio couldn't be had: not tried again ahead of time. */
   private readonly failed = new Set<string>()
@@ -107,6 +111,7 @@ export class Session {
     editor.on('update', onUpdate)
     this.offs.push(() => editor.off('update', onUpdate))
     this.offs.push(onEvent('readAloud:marked', (e) => this.marked(e)))
+    this.offs.push(onEvent('sounds:marked', (e) => this.soundsMarked(e)))
     // Adam scrolling, clicking or typing in the page: Follow along leaves it alone for a while.
     const el = scroller()
     if (el) {
@@ -147,6 +152,7 @@ export class Session {
     if (!this.alive || this.paused) return
     this.paused = true
     this.player.pause()
+    this.sounds.pause()
     this.show({ ...this.bar, phase: 'paused' })
   }
 
@@ -154,6 +160,7 @@ export class Session {
     if (!this.alive || !this.paused) return
     this.paused = false
     this.player.resume()
+    this.sounds.resume()
     this.show({ ...this.bar, phase: this.current ? 'playing' : 'starting' })
     const wake = this.wake
     this.wake = []
@@ -201,7 +208,9 @@ export class Session {
 
   /** Plans again from the next line, so changed settings (Mark who says what, Perform written sounds) reach it. */
   settingsChanged(): void {
-    if (this.alive) this.replanSoon()
+    if (!this.alive) return
+    this.sounds.settingsChanged()
+    this.replanSoon()
   }
 
   /** Stepping: playing goes on (from paused too), and the reading takes the queue's first clip at once. */
@@ -209,6 +218,8 @@ export class Session {
     this.jumps++
     this.paused = false
     this.player.stop()
+    // Playing goes on, so the sounds' clock runs again (no-op when it wasn't paused).
+    this.sounds.resume()
     const wake = this.wake
     this.wake = []
     wake.forEach((fn) => fn())
@@ -219,6 +230,7 @@ export class Session {
     if (this.alive) {
       this.alive = false
       this.player.stop()
+      this.sounds.stop()
       this.follow.cancel()
       if (this.replanTimer) clearTimeout(this.replanTimer)
       this.stopWaiting?.()
@@ -332,6 +344,12 @@ export class Session {
     if (e.pids.some((pid) => this.queue.some((c) => c.pid === pid))) this.replanSoon()
   }
 
+  /** Sound effects: the sounds of some paragraphs changed (the AI marked them, or Adam changed them): plan again. */
+  private soundsMarked(e: { sceneId: ID; pids: string[] }): void {
+    if (!this.alive || e.sceneId !== this.sceneId || !soundsOn()) return
+    if (e.pids.some((pid) => this.queue.some((c) => c.pid === pid))) this.replanSoon()
+  }
+
   /** Waits for the AI's marks on a paragraph (or for a while, or for the reading to stop). */
   private marksFor(pid: string): Promise<void> {
     return new Promise((resolve) => {
@@ -398,7 +416,10 @@ export class Session {
         this.queue.shift()
         if (!this.showClip(next)) continue
         void this.prefetch()
-        const end = await this.player.play(url, this.rate(), (p) => this.progress(next, p))
+        const playing = this.player.play(url, this.rate(), (p) => this.progress(next, p))
+        this.sounds.playing(next, this.player.media)
+        const end = await playing
+        this.sounds.done(end === 'ended')
         if (!this.alive) return
         // Back one line or Next line: on to the queue's first clip, without the breath after this one.
         if (this.jumps !== jump) continue
@@ -430,6 +451,8 @@ export class Session {
   /** Gets the next clips' audio, one at a time and in order, three ahead of the one playing. */
   private prefetching = false
   private async prefetch(): Promise<void> {
+    // Sound effects: the next clips' sounds and their times, alongside their audio.
+    this.sounds.prepare(this.current ? [this.current, ...this.queue.slice(0, AHEAD)] : this.queue.slice(0, AHEAD + 1), this.failed)
     if (this.prefetching) return
     this.prefetching = true
     try {
@@ -438,7 +461,11 @@ export class Session {
         const [key] = toFetch(list, 0, (k) => hasAudio(k) || this.failed.has(k))
         const clip = key ? list.find((c) => c.key === key) : null
         if (!clip) return
-        await clipAudio(clip.key, clip.clip).catch(() => this.failed.add(clip.key))
+        await clipAudio(clip.key, clip.clip).then(
+          // Its audio is here: its sounds can be timed now.
+          () => this.sounds.prepare([clip], this.failed),
+          () => this.failed.add(clip.key)
+        )
       }
     } finally {
       this.prefetching = false
@@ -468,6 +495,7 @@ export class Session {
     this.sentence = -1
     this.span = this.measure(clip)
     this.setPlace({ clip: at })
+    this.sounds.shown(clip)
     this.show({
       phase: this.paused ? 'paused' : 'playing',
       who: clip.who,
@@ -539,6 +567,7 @@ export class Session {
 
   /** The end of the scene's words. */
   private end(): void {
+    this.sounds.ended()
     this.current = null
     this.stop(true)
     this.hooks.end()
