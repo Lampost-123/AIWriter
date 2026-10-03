@@ -5,8 +5,11 @@ import type { ClipSound } from '@shared/contracts/readAloud'
 
 /** Effects playing at once; one more lets the oldest go. */
 export const MAX_EFFECTS = 3
-/** Decoded sounds kept in the window (the oldest used is let go first). */
-export const KEEP_SOUNDS = 30
+/** Decoded sounds kept in the window, in bytes (the oldest used is let go first): a looping ambience is about 11 MB. */
+export const KEEP_BYTES = 80 * 1024 * 1024
+
+/** What a decoded sound holds in memory: 32-bit samples for each channel. */
+export const decodedBytes = (b: { length: number; numberOfChannels: number }): number => b.length * b.numberOfChannels * 4
 
 /** Fades, in seconds. */
 export const BED_FADE_IN = 1.5
@@ -95,10 +98,17 @@ export const leftAtEnd = (edges: readonly EdgeTiming[]): number[] => edges.flatM
 /** How many of the effects playing to let go so one more can start. */
 export const effectsToDrop = (playing: number, max = MAX_EFFECTS): number => Math.max(0, playing + 1 - max)
 
-/** A small least-recently-used store: the oldest used is let go once it holds more than `max`. */
+/**
+ * A small least-recently-used store: the oldest used is let go once what it holds weighs more than `max` (each item
+ * weighs `weigh(value)`, 1 unless given). The newest item always stays, even alone over the limit.
+ */
 export class Lru<K, V> {
   private readonly map = new Map<K, V>()
-  constructor(private readonly max: number) {}
+  private total = 0
+  constructor(
+    private readonly max: number,
+    private readonly weigh: (value: V) => number = () => 1
+  ) {}
 
   get(key: K): V | undefined {
     const v = this.map.get(key)
@@ -113,23 +123,33 @@ export class Lru<K, V> {
   }
 
   set(key: K, value: V): void {
-    this.map.delete(key)
+    this.delete(key)
     this.map.set(key, value)
-    while (this.map.size > this.max) {
+    this.total += this.weigh(value)
+    while (this.total > this.max && this.map.size > 1) {
       const oldest = this.map.keys().next().value as K
-      this.map.delete(oldest)
+      this.delete(oldest)
     }
   }
 
   delete(key: K): void {
+    const had = this.map.get(key)
+    if (had === undefined) return
     this.map.delete(key)
+    this.total -= this.weigh(had)
   }
 
   get size(): number {
     return this.map.size
   }
 
+  /** What it holds, by weight. */
+  get weight(): number {
+    return this.total
+  }
+
   clear(): void {
     this.map.clear()
+    this.total = 0
   }
 }

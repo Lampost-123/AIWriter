@@ -6,6 +6,7 @@ import {
   bedAfterEdge,
   bedChange,
   dbToGain,
+  decodedBytes,
   dueEdges,
   effectsToDrop,
   estimateTimes,
@@ -118,5 +119,31 @@ describe('effects and kept sounds', () => {
     expect(lru.size).toBe(2)
     lru.delete('a')
     expect(lru.get('a')).toBeUndefined()
+  })
+
+  it('keeps decoded sounds by their size, not their number', () => {
+    const mb = 1024 * 1024
+    // A stereo ambience of 30 s at 48 kHz: about 11 MB decoded.
+    expect(decodedBytes({ length: 30 * 48000, numberOfChannels: 2 }) / mb).toBeCloseTo(11, 0)
+    const lru = new Lru<string, { mb: number }>(80, (v) => v.mb)
+    for (let i = 0; i < 7; i++) lru.set(`bed${i}`, { mb: 11 })
+    expect(lru.size).toBe(7)
+    expect(lru.weight).toBe(77)
+    lru.set('bed7', { mb: 11 })
+    // Past 80: the oldest used goes.
+    expect(lru.has('bed0')).toBe(false)
+    expect(lru.weight).toBe(77)
+    // Many small effects fit where few beds do.
+    for (let i = 0; i < 40; i++) lru.set(`fx${i}`, { mb: 0.3 })
+    expect(lru.weight).toBeLessThanOrEqual(80)
+    expect(lru.has('fx39')).toBe(true)
+    // Replacing an item counts it once; one item over the limit on its own is still kept.
+    lru.set('fx39', { mb: 0.5 })
+    expect(lru.has('fx39')).toBe(true)
+    lru.set('huge', { mb: 200 })
+    expect(lru.size).toBe(1)
+    expect(lru.has('huge')).toBe(true)
+    lru.clear()
+    expect(lru.weight).toBe(0)
   })
 })

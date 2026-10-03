@@ -635,13 +635,18 @@ function SoundLibrary(): React.JSX.Element {
     setClearing(true)
     try {
       setStatus(await api.clearSoundLibrary())
+      // Nothing decoded before plays again.
+      mixer.forget()
       toast('Sounds cleared.', {
         action: {
           label: 'Undo',
           run: () =>
             void api
               .undoClearSoundLibrary()
-              .then(setStatus)
+              .then((s) => {
+                mixer.forget()
+                setStatus(s)
+              })
               .catch((e: unknown) => toast((e as Error).message || 'The sounds couldn’t be put back.', { tone: 'danger' }))
         }
       })

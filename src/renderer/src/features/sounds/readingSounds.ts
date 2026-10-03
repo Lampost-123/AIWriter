@@ -10,7 +10,7 @@
 import type { ClipSound, PlannedClip } from '@shared/contracts/readAloud'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { clipAudio } from '@/features/readAloud/audio'
+import { clipAudio, hasAudio } from '@/features/readAloud/audio'
 import { mixer } from './mixer'
 import { bedAfterEdge, dueEdges, estimateTimes, leftAtEnd } from './mixerLogic'
 
@@ -44,21 +44,29 @@ export class ReadingSounds {
   /** `texts`: each paragraph's words as the reading's plan has them. */
   constructor(private readonly texts: () => ReadonlyMap<string, string>) {}
 
-  /** Gets the next clips' sounds ready: their times and their audio. */
-  prepare(clips: readonly PlannedClip[]): void {
+  /**
+   * Gets the next clips' sounds ready: their audio, and their times for the clips whose speech the reading already has
+   * or is getting (never one waiting for the AI's marks, or one whose speech couldn't be had: nothing here asks for
+   * speech of its own). `failed`: the reading's clips whose speech couldn't be had, by key.
+   */
+  prepare(clips: readonly PlannedClip[], failed: ReadonlySet<string> = new Set()): void {
     if (!soundsOn()) return
     for (const clip of clips) {
       if (clip.bed) void mixer.load(clip.bed)
       for (const s of clip.sounds ?? []) if (s.soundId && s.edge !== 'end') void mixer.load(s.soundId)
-      if (clip.sounds?.length) void this.timesOf(clip)
+      if (clip.sounds?.length && !clip.waits && !failed.has(clip.key)) void this.timesOf(clip)
     }
   }
 
-  /** When a clip's sounds are heard; asked once the clip's audio is there (the server times them from it). */
+  /**
+   * When a clip's sounds are heard; asked once the clip's audio is there or on its way (the server times them from it).
+   * Null, and not kept, while the reading hasn't asked for its audio.
+   */
   private timesOf(clip: PlannedClip, again = false): Promise<{ seconds: number[]; aligned: boolean } | null> {
     const key = timesKey(clip)
     const have = this.times.get(key)
     if (have && !again) return have
+    if (!hasAudio(clip.key)) return Promise.resolve(null)
     const text = this.texts().get(clip.pid)
     const sounds = clip.sounds ?? []
     const got =
@@ -104,6 +112,8 @@ export class ReadingSounds {
   playing(clip: PlannedClip, media: HTMLAudioElement | null): void {
     if (!soundsOn() || this.clip !== clip) return
     this.media = media
+    // The voice plays, so the sounds' clock runs too (whatever paused it before: a step, or the end of a scene).
+    mixer.resume()
     mixer.duck(true)
     if (this.edges.length && media) {
       this.stopTicking()
@@ -159,6 +169,8 @@ export class ReadingSounds {
     this.stopTicking()
     this.finished = true
     this.clip = null
+    // The scene's last breath may have been paused: the ambience is left running for the next scene, or to fade out.
+    mixer.resume()
     mixer.duck(false)
   }
 
