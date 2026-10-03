@@ -1,5 +1,5 @@
-<!-- version: 0.6.2 -->
-Interview me, on scenes and chapters.
+<!-- version: 0.6.3 -->
+Cheaper redrafts with Claude, and cache savings on the usage page.
 
-- On a scene card, Interview me asks a few short questions about what the card doesn't say yet. Answer, skip or press Done, and it fills in only the card's empty parts. Undo takes them back out.
-- On a chapter (its menu in the binder), Interview me gives the chapter a goal and suggests scene cards to keep, change or discard one by one.
+- With a Claude model through OpenRouter, AI Write now asks it to keep the parts of a briefing that don't change (the instructions, style guide, world rules, setting and characters). Redrafting a scene within five minutes costs much less for those parts.
+- The usage page shows how many tokens came from a provider's cache, for example "41.2k tokens, 12k from the cache".
