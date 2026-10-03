@@ -240,7 +240,8 @@ function prepare(
     who: quote ? (who?.name ?? shownName(label)) : 'Narrator',
     how: tone,
     clip,
-    known: !quote || !!who || (label !== undefined && label !== UNKNOWN)
+    // Known when a tag says who it is, or the AI has been asked: a guess from a name nearby or from turns is checked.
+    known: !quote || found?.how === 'tagged' || found?.how === 'label' || label !== undefined
   }
 }
 
@@ -281,9 +282,11 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   // Who says each quote, over the whole run (and the paragraphs before it): a back-and-forth keeps its voices on
   // untagged lines. A quote the AI marked as nobody's words (a sign, a title) is read by the narrator.
   const all = [...context, ...run]
-  const labels = all.map((u) =>
-    u.quote ? savedFor(input.marks.get(u.pid)?.speakers, u.para.slice(u.quote.at, u.quote.at + u.quote.len)) : undefined
-  )
+  // A speaker that is really a mood ("hushed, dread building") slipped there when it was marked: asked about again.
+  const labels = all.map((u) => {
+    const kept = u.quote ? savedFor(input.marks.get(u.pid)?.speakers, u.para.slice(u.quote.at, u.quote.at + u.quote.len)) : undefined
+    return kept && looksLikeNote(kept, input.cast.all) ? undefined : kept
+  })
   all.forEach((u, k) => {
     if (u.quote && labels[k] === NARRATOR) u.role = 'narrator'
   })
@@ -300,8 +303,9 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   )
   const unplaced = new Map<string, Set<string>>()
   all.forEach((u, k) => {
-    // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again.
-    if (u.role !== 'other' || !u.quote || attributed[k] || labels[k] !== undefined) return
+    // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again, nor one a tag
+    // names the speaker of. A guess from a name nearby or from turns is checked.
+    if (u.role !== 'other' || !u.quote || attributed[k]?.how === 'tagged' || labels[k] !== undefined) return
     const key = quoteKey(u.para.slice(u.quote.at, u.quote.at + u.quote.len))
     if (key) (unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!).add(key)
   })

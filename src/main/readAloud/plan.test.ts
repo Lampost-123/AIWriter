@@ -206,3 +206,20 @@ describe('notes that slipped onto the wrong line when the scene was marked', () 
     ])
   })
 })
+
+describe('a speaker the rules only guess', () => {
+  const text = 'Tomas looked at the door. “We should go.”'
+  it('is checked by the AI, and the line waits for it; a tagged line isn’t asked about', () => {
+    const { unplaced, clips } = planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast, lexicon: [], marks: new Map(), labelling: new Set(['p1']) })
+    expect([...(unplaced.get('p1') ?? [])]).toEqual(['we should go'])
+    expect(clips.find((c) => c.clip.input === 'We should go.')).toMatchObject({ who: 'Tomas', waits: true })
+    expect(plan('“We should go,” said Tomas.').unplaced.size).toBe(0)
+  })
+
+  it('takes the AI’s answer over the guess', () => {
+    const marks = new Map<string, ParagraphMarks>([['p1', { speakers: { 'we should go': 'Mara Quill' } }]])
+    const { unplaced, clips } = planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast, lexicon: [], marks, labelling: new Set(['p1']) })
+    expect(unplaced.size).toBe(0)
+    expect(clips.find((c) => c.clip.input === 'We should go.')).toMatchObject({ who: 'Mara Quill', waits: false })
+  })
+})
