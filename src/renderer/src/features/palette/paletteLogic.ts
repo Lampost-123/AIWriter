@@ -78,6 +78,8 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'settings-usage'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -206,6 +208,14 @@ export const ACTIONS: ActionDef[] = [
   { id: 'settings-backups', label: 'Settings › Backups', keywords: 'restore copy folder', away: true },
   { id: 'settings-trash', label: 'Settings › Recently deleted', keywords: 'trash bin restore bring back', away: true },
   { id: 'settings-about', label: 'Settings › About and updates', keywords: 'version update help', away: true },
+  // Milestone 6
+  {
+    id: 'settings-usage',
+    label: 'Usage and cost',
+    also: 'Settings › Usage and cost',
+    keywords: 'spending money dollars price tokens limit monthly budget bill ai',
+    away: true
+  },
   { id: 'backup-now', label: 'Back up now', keywords: 'backup copy save' },
   { id: 'new-world', label: 'New world', keywords: 'add create' },
   { id: 'switch-world', label: 'Switch to another world', keywords: 'open change worlds' },

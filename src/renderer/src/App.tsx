@@ -35,6 +35,7 @@ import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
+import { SpendWatch } from '@/features/usage/SpendWatch'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -69,6 +70,8 @@ export function App(): React.JSX.Element | null {
     <div className="flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
       {world ? <Workspace /> : <NoWorld />}
       <Toaster />
+      {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}
+      <SpendWatch />
     </div>
   )
 }
