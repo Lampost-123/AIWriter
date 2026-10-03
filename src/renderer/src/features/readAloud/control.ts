@@ -12,8 +12,10 @@ import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
+import { openScene } from '@/features/memory/openScene'
 import { playRate } from './audio'
-import { readingPlace } from './highlight'
+import { FollowAlong } from './follow'
+import { barRoom, readingPlace } from './highlight'
 import { sceneAfter } from './nextScene'
 import { hasWords, pageParagraphs, placeOf, posIn, wordStart } from './pageText'
 import { Session, type ReadingBar } from './session'
@@ -211,6 +213,30 @@ export function skipLine(): void {
   begin(at.editor, at.sceneId, at.to)
 }
 
+/**
+ * The chapter and scene named in the bar: opens the scene being read (from whichever page is showing) and brings the
+ * line being read into view, a third of the way down the page.
+ */
+export function showReading(): void {
+  const { sceneId } = useReading.getState()
+  if (!sceneId) return
+  const app = useApp.getState()
+  if (app.sceneId !== sceneId || app.view.kind !== 'write') void openScene(sceneId)
+  // Once the page is on screen.
+  requestAnimationFrame(() => {
+    const p = page
+    if (!p || p.editor.isDestroyed || editorBridge()?.sceneId !== sceneId) return
+    const place = readingPlace(p.editor.state)
+    const pos = place.sentence?.from ?? place.clip?.from
+    if (pos == null) return
+    try {
+      new FollowAlong(p.scroller, barRoom).bring(p.editor.view.coordsAtPos(pos).top)
+    } catch {
+      // Not on the page any more: nothing to bring into view.
+    }
+  })
+}
+
 /** A part of Settings › Read aloud and dictation to show when it opens (its element's id), under More. */
 let reveal: string | null = null
 
@@ -257,6 +283,8 @@ async function carryOn(s: Session): Promise<void> {
   if (session !== s || useApp.getState().sceneId !== s.sceneId) return
   if (!next) return finished('Read to the end of the story.')
   carryOnInto = next.id
+  // The bar and the binder name the scene it is going on to from now.
+  useReading.setState({ sceneId: next.id })
   setBar({ phase: 'starting', who: '', how: '', note: `On to “${next.title || 'Untitled scene'}”…`, fix: null })
   // Opening the scene keeps whatever page Adam is on (the writing view stays behind it).
   if (useApp.getState().view.kind === 'write') useApp.getState().selectScene(next.id)
