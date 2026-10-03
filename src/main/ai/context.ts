@@ -1311,6 +1311,12 @@ const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   return i < 0 ? SEND_ORDER.length : i
 }
 
+/**
+ * The blocks sent before this one stay the same while Adam redrafts a scene, so a model that caches only
+ * where asked (Claude) is asked to keep them (sentMessages in client.ts).
+ */
+const STEADY_UNTIL = SEND_ORDER.indexOf('story-so-far')
+
 /** Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). */
 const KEEP_ORDER = ['threads', 'setting', 'world-rules']
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
@@ -1508,13 +1514,14 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   const sent = blocks.filter((b) => !b.dropped)
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''
-  const user = [
-    ...sent.filter((b) => b.priority > 1).map((b) => blockAsSent(b)),
-    hasPrev ? prepared.finals.withPrevious : prepared.finals.withoutPrevious
-  ].join('\n\n')
+  const parts = sent.filter((b) => b.priority > 1).map((b) => ({ id: b.id, text: blockAsSent(b) }))
+  const user = [...parts.map((p) => p.text), hasPrev ? prepared.finals.withPrevious : prepared.finals.withoutPrevious].join('\n\n')
+  // What a redraft of this scene sends again unchanged ends where the story so far begins (STEADY_UNTIL).
+  const steady = parts.filter((p) => sendRank(p) < STEADY_UNTIL).map((p) => p.text)
+  const cacheUpTo = steady.length ? steady.join('\n\n').length : 0
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: user, ...(cacheUpTo ? { cacheUpTo } : {}) }
   ]
   return { blocks, budget: { ...budget, used: measure() }, messages, knows: prepared.knows, entries: prepared.entries }
 }

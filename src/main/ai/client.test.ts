@@ -1,7 +1,7 @@
 import { createServer } from 'node:net'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { forgetParams, knownParams, requestJson, streamChat, type ChatBody, type ChatTarget, type StreamChatOptions } from './client'
+import { cachedOf, forgetParams, knownParams, requestJson, sentMessages, streamChat, type ChatBody, type ChatTarget, type StreamChatOptions } from './client'
 
 let fake: FakeProvider
 /** A local port with nothing listening on it. */
@@ -367,5 +367,66 @@ describe('requestJson', () => {
     const down = await requestJson(target({ baseUrl: `http://127.0.0.1:${closedPort}/v1` }), 'models')
     expect(down.ok).toBe(false)
     if (!down.ok) expect(down.failure).toMatchObject({ type: 'network', code: 'ECONNREFUSED' })
+  })
+})
+
+describe('prompt caching', () => {
+  const briefing = (): ChatBody => ({
+    model: 'anthropic/claude-sonnet-4.5',
+    messages: [
+      { role: 'system', content: 'The instructions and the style guide.' },
+      { role: 'user', content: 'World rules. The story so far.', cacheUpTo: 12 }
+    ],
+    temperature: 0.8,
+    top_p: 0.95,
+    max_tokens: 400
+  })
+
+  it('marks what stays the same for Claude through OpenRouter, and never sends cacheUpTo', () => {
+    const [system, user] = sentMessages({ kind: 'openrouter' }, 'anthropic/claude-sonnet-4.5', briefing().messages) as Record<string, unknown>[]
+    expect(system).toEqual({ role: 'system', content: [{ type: 'text', text: 'The instructions and the style guide.', cache_control: { type: 'ephemeral' } }] })
+    expect(user).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'World rules.', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: ' The story so far.' }
+      ]
+    })
+  })
+
+  it('sends plain messages to models that cache by themselves', () => {
+    for (const [kind, model] of [
+      ['openrouter', 'openai/gpt-4.1'],
+      ['openrouter', 'deepseek/deepseek-chat'],
+      ['custom', 'anthropic/claude-sonnet-4.5']
+    ] as const) {
+      expect(sentMessages({ kind }, model, briefing().messages)).toEqual([
+        { role: 'system', content: 'The instructions and the style guide.' },
+        { role: 'user', content: 'World rules. The story so far.' }
+      ])
+    }
+  })
+
+  it('reads the cached tokens back: none the first time, the kept part when sent again', async () => {
+    const send = () =>
+      streamChat({ target: target({ kind: 'openrouter' }), body: briefing(), signal: new AbortController().signal, onText: () => {}, delays: [5] })
+    const first = await send()
+    expect(first.status).toBe('complete')
+    expect(first.cachedTokens).toBe(0)
+    expect(fake.lastRequest()!.body.messages[0].content).toEqual([expect.objectContaining({ cache_control: { type: 'ephemeral' } })])
+    const again = await send()
+    expect(again.cachedTokens).toBeGreaterThan(0)
+    expect(again.cachedTokens!).toBeLessThan(again.promptTokens!)
+  })
+
+  it('reports no cached tokens when the provider says nothing about them', async () => {
+    const { outcome } = await run('fake/writer')
+    expect(outcome.cachedTokens).toBeNull()
+  })
+
+  it('reads the cached tokens the way each provider reports them', () => {
+    expect(cachedOf({ prompt_tokens: 900, prompt_tokens_details: { cached_tokens: 640 } })).toBe(640)
+    expect(cachedOf({ prompt_tokens: 900, prompt_cache_hit_tokens: 512, prompt_cache_miss_tokens: 388 })).toBe(512)
+    expect(cachedOf({ prompt_tokens: 900 })).toBeNull()
   })
 })

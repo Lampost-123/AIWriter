@@ -725,6 +725,16 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
   done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
   (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
+- **Prompt caching** (`ai/client.ts`): the briefing goes out with what stays the same first (`SEND_ORDER` in
+  `context.ts`), so models that cache a repeated prompt on their own (OpenAI, DeepSeek, Grok, Gemini 2.5 and
+  later) reuse it. Claude through OpenRouter caches only where asked, so `sentMessages` marks the system
+  message and, in a draft's briefing, everything before the story so far (`ChatMessage.cacheUpTo`, never sent
+  as such): a redraft of the scene within five minutes reads that part at a tenth of the price. Gemini's own
+  marks aren't sent, since they add a storage charge and Gemini 2.5 caches anyway. The tokens a provider read
+  from its cache (`prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`) are kept in
+  the record's `params_json` as `cachedTokens` (no migration; the data model stays frozen) and shown on the
+  page ("41.2k tokens, 12k from the cache"). Cost is unchanged: OpenRouter's own figure already has the
+  discount; a cost worked out from the model's prices counts every prompt token at the full price.
 ### How manuscript import works
 
 **Reading** (`src/main/importing/`: `docx.ts`, `markdown.ts`, `text.ts`, `lines.ts`, `xml.ts`, `read.ts`)

@@ -4,6 +4,7 @@ import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import {
   assembleContext,
+  blockAsSent,
   buildBlocks,
   cachedCounter,
   computeBudget,
@@ -1074,6 +1075,17 @@ describe('fitting the briefing to the model', () => {
     expect(p.blocks.every((b) => b.mode === 'auto')).toBe(true)
     expect(p.blocks.find((b) => b.id === 'pov')).toMatchObject({ hasShort: true, short: false, tokens: 1100 })
     expect(p.blocks.find((b) => b.id === 'relationships')).toMatchObject({ hasShort: false, short: false })
+  })
+
+  it('says where the part a redraft sends again unchanged ends: right before the story so far', () => {
+    for (const p of [fit(prepared, total, c), fit(prepared, total - 5 * 990, c)]) {
+      const user = p.messages[1]
+      const story = p.blocks.find((b) => b.id === 'story-so-far')!
+      expect(user.cacheUpTo).toBeGreaterThan(0)
+      expect(user.content.slice(user.cacheUpTo! + 2).startsWith(blockAsSent(story))).toBe(true)
+      expect(user.content.slice(0, user.cacheUpTo)).toContain('## World rules (never break these)')
+      expect(p.messages[0].cacheUpTo).toBeUndefined()
+    }
   })
 
   it('switches blocks to their short form from the bottom up before dropping anything', () => {

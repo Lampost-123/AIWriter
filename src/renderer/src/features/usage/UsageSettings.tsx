@@ -25,7 +25,7 @@ import { useApp } from '@/lib/store'
 import { Segmented } from '@/features/generate/parts'
 import { SpendChart } from './SpendChart'
 import { carryOn, setSpend, useSpend } from './spendStore'
-import { PERIODS, callsAndTokens, costNotes, shareOf, tokenWords } from './usageWords'
+import { PERIODS, callsAndTokens, costNotes, shareOf, tokensWithCache } from './usageWords'
 
 /** True once `on` has stayed true for `ms`, so quick loads never flash a placeholder. */
 function useDelayed(on: boolean, ms = 200): boolean {
@@ -332,7 +332,7 @@ function Breakdown({ title, rows }: { title: string; rows: BreakdownRow[] }): Re
             </div>
             <div className="mt-0.5 flex items-baseline justify-between gap-3 text-[11.5px] tabular-nums text-muted">
               <span className="min-w-0 truncate">{r.sub ? `${r.sub} · ${r.t.calls.toLocaleString('en-US')} ${r.t.calls === 1 ? 'call' : 'calls'}` : `${r.t.calls.toLocaleString('en-US')} ${r.t.calls === 1 ? 'call' : 'calls'}`}</span>
-              <span className="shrink-0">{tokenWords(r.t.promptTokens + r.t.completionTokens)}</span>
+              <span className="shrink-0">{tokensWithCache(r.t)}</span>
             </div>
             <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
               <div className="h-full rounded-full bg-accent/70" style={{ width: `${most > 0 ? (r.t.cost / most) * 100 : 0}%` }} />

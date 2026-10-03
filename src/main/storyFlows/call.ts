@@ -226,6 +226,7 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
     error: `Something went wrong: ${(e as Error)?.message ?? e}`,
     failure: null,
     promptTokens: null,
+    cachedTokens: null,
     completionTokens: null,
     cost: null,
     cutOff: false
@@ -246,6 +247,7 @@ async function callOnce(o: FlowCallOptions, messages: ChatMessage[]): Promise<On
         error,
         response: outcome.text,
         promptTokens: outcome.promptTokens,
+        cachedTokens: outcome.cachedTokens,
         completionTokens: outcome.completionTokens,
         cost,
         finishedAt: now(),
