@@ -240,6 +240,8 @@ export function buildOutline(m: Pick<Manuscript, 'blocks'>, proposed: Record<num
   // Words, openings, empty scenes dropped (a chapter keeps one), and numbered titles where there are none.
   let total = 0
   let sceneCount = 0
+  // Untitled chapters are numbered by place, unless the book's chapters have titles (that would make twins of them).
+  const headed = chapters.some((c) => c.proposed && c.proposed !== OPENING_TITLE)
   chapters.forEach((c, ci) => {
     for (const s of c.scenes) {
       // Paragraphs always count; a heading only when it is ordinary text here.
@@ -255,7 +257,7 @@ export function buildOutline(m: Pick<Manuscript, 'blocks'>, proposed: Record<num
       }
     })
     if (!c.proposed) {
-      c.proposed = `Chapter ${ci + 1}`
+      c.proposed = headed ? 'New chapter' : `Chapter ${ci + 1}`
       c.title = titleOf(c.key, c.proposed)
     }
     c.words = c.scenes.reduce((n, s) => n + s.words, 0)
