@@ -331,7 +331,7 @@ export function Toggle({ on, onChange, children }: { on: boolean; onChange: (on:
       onClick={() => onChange(!on)}
       className={cn(
         'rounded-md border px-2 py-0.5 text-[12px] transition-colors duration-150',
-        on ? 'border-accent/50 bg-accent-soft text-fg' : 'border-transparent text-muted hover:bg-surface-2 hover:text-fg'
+        on ? 'border-accent/50 bg-accent-soft text-fg' : 'border-line text-muted hover:bg-surface-2 hover:text-fg'
       )}
     >
       {children}
