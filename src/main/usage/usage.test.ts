@@ -36,6 +36,8 @@ interface Row {
   cost?: number | null
   at: string
   response?: string
+  /** Prompt tokens the provider read from its cache (kept in params_json). */
+  cached?: number
 }
 /** A generation record written straight to the table, as the AI code leaves it. */
 function addRow(db: Database.Database, r: Row): ID {
@@ -43,13 +45,14 @@ function addRow(db: Database.Database, r: Row): ID {
   db.prepare(
     `INSERT INTO generations (id, scene_id, job, status, error, provider_id, provider_name, model_id, params_json, direction, blocks_json,
       messages_json, budget_json, response, prompt_tokens, completion_tokens, cost, created_at, finished_at)
-     VALUES (?, '', ?, ?, NULL, 'p1', ?, ?, '{}', '', '[]', '[]', '{}', ?, ?, ?, ?, ?, ?)`
+     VALUES (?, '', ?, ?, NULL, 'p1', ?, ?, ?, '', '[]', '[]', '{}', ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     r.job ?? 'draft',
     r.status ?? 'complete',
     r.provider ?? 'OpenRouter',
     r.model ?? 'acme/writer',
+    JSON.stringify(r.cached === undefined ? {} : { temperature: 0.8, cachedTokens: r.cached }),
     r.response ?? 'Some words.',
     r.pt === undefined ? 100 : r.pt,
     r.ct === undefined ? 200 : r.ct,
@@ -87,6 +90,51 @@ describe('adding up one world', () => {
       '2026-10-02\tmemory\tacme/small\tOpenRouter'
     ])
     expect(t.buckets['2026-10-01\tdraft\tacme/writer\tOpenRouter'].calls).toBe(2)
+  })
+
+  it('adds up the prompt tokens read from the cache, where the provider said', () => {
+    const db = memoryDb()
+    addRow(db, { pt: 1000, cached: 800, at: '2026-10-01T09:00:00.000Z' })
+    addRow(db, { pt: 1000, cached: 0, at: '2026-10-01T09:05:00.000Z' })
+    addRow(db, { pt: 500, at: '2026-10-01T09:10:00.000Z' })
+    const t = tally(db)
+    expect(total(t)).toMatchObject({ calls: 3, promptTokens: 2500, cachedTokens: 800 })
+    // A tally kept before cached tokens were counted reads as none, and goes on from there.
+    const old = { ...t, buckets: Object.fromEntries(Object.entries(t.buckets).map(([k, { cachedTokens: _c, ...b }]) => [k, b])) }
+    addRow(db, { pt: 1000, cached: 600, at: '2026-10-01T09:15:00.000Z' })
+    expect(total(tally(db, old)).cachedTokens).toBe(600)
+  })
+
+  it('keeps the cached tokens with the finished record, beside its settings but not among them', () => {
+    const db = memoryDb()
+    gens.insertGeneration(db, {
+      id: 'cached',
+      sceneId: '',
+      job: 'draft',
+      providerId: 'p1',
+      providerName: 'OpenRouter',
+      modelId: 'anthropic/claude-sonnet-4.5',
+      params: { temperature: 1, top_p: 1, max_tokens: 4000 },
+      direction: '',
+      blocks: [],
+      messages: [],
+      budget: { contextLength: 0, reserved: 0, available: 0, used: 0 },
+      entries: [],
+      createdAt: '2026-10-01T09:00:00.000Z'
+    })
+    gens.finishGeneration(db, 'cached', {
+      status: 'complete',
+      error: null,
+      response: 'Done.',
+      promptTokens: 5000,
+      cachedTokens: 4200,
+      completionTokens: 300,
+      cost: 0.01,
+      finishedAt: '2026-10-01T09:00:30.000Z',
+      params: { temperature: 1, top_p: 1, max_tokens: 2000 }
+    })
+    expect(gens.getGeneration(db, 'cached').params).toEqual({ temperature: 1, top_p: 1, max_tokens: 2000 })
+    expect(total(tally(db))).toMatchObject({ calls: 1, promptTokens: 5000, cachedTokens: 4200 })
   })
 
   it('says which calls had no price, and which prices are estimates; a request turned down before it ran is no call', () => {

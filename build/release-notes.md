@@ -1,6 +1,5 @@
-<!-- version: 0.6.3 -->
-Fewer false issues.
+<!-- version: 0.6.4 -->
+Cheaper redrafts with Claude, and cache savings on the usage page.
 
-- The memory now flags only real contradictions, like blue eyes in one place and green in another. A scene that says the same thing in other words, or adds a detail, isn't an issue any more.
-- Issues raised before for that reason are moved to Ignored, where you can reopen any of them.
-- Facts you typed yourself are never changed.
+- With a Claude model through OpenRouter, AI Write now asks it to keep the parts of a briefing that don't change (the instructions, style guide, world rules, setting and characters). Redrafting a scene within five minutes costs much less for those parts.
+- The usage page shows how many tokens came from a provider's cache, for example "41.2k tokens, 12k from the cache".
