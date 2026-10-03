@@ -47,7 +47,8 @@
 //   A reply longer than max_tokens (at about 4 characters a token) is cut off there, with finish_reason "length".
 //
 // Milestone 4's AI calls (AI edits, Ask the world, the outline helper, read aloud) are answered by
-// the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with.
+// the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with; milestone 5's
+// (the consistency checks) by those in m5/.
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -55,6 +56,7 @@
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
+import { m5Reply } from './m5/index.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -301,6 +303,7 @@ export async function startFakeProvider(options = {}) {
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
     memory ??= fakeBuilderReply(system, messages, model)
     memory ??= m4Reply(system, messages, model)
+    memory ??= m5Reply(system, messages, model)
     const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4

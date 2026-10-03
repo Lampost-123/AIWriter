@@ -24,6 +24,7 @@ import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
 import { SpeakerLabelsLayer } from '@/features/readAloud/SpeakerLabelsLayer'
+import { LiveChecksLayer } from '@/features/liveChecks/LiveChecksLayer'
 import './editor.css'
 
 /** The centre of the window when writing: the open scene, or a way to start one. */
@@ -138,11 +139,11 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     const tryReveal = (): void => {
       const ctrl = ctrlRef.current
       if (!ctrl || !shown || shown.id !== ctrl.sceneId || useApp.getState().view.kind !== 'write') return
-      const quote = takeReveal(ctrl.sceneId)
-      if (!quote) return
+      const asked = takeReveal(ctrl.sceneId)
+      if (!asked) return
       // After this frame's focus and scroll restore, so they don't undo it.
       requestAnimationFrame(() => {
-        if (!ctrl.revealWords(quote)) toast("Those words aren't in the scene any more.")
+        if (!ctrl.revealWords(asked.quote, { wholeWord: asked.wholeWord })) toast("Those words aren't in the scene any more.")
       })
     }
     tryReveal()
@@ -236,6 +237,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <SelectionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SuggestionLayer editor={editor} sceneId={shown && !error ? shown.id : null} scrollerRef={scrollerRef} />
         <SpeakerLabelsLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
+        <LiveChecksLayer editor={editor} sceneId={shown && !error ? shown.id : null} />
         {error ? (
           <div className="absolute inset-0 flex items-start justify-center pt-[14vh]">
             <EmptyState

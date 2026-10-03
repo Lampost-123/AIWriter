@@ -31,7 +31,26 @@ function normalise(text: string): { norm: string; map: number[] } {
   return { norm, map }
 }
 
-function findInParagraphs(doc: PMNode, quote: string): { from: number; to: number } | null {
+/** Options for finding words: `wholeWord` skips matches inside a longer word ("rain" in "brain"). */
+export interface FindOptions {
+  wholeWord?: boolean
+}
+
+// A possessive's apostrophe ends the word ("king" is found in "king's"); a hyphen doesn't.
+const WORDY = /[\p{L}\p{N}-]/u
+
+/** Where `want` first stands in `norm` (as a whole word, when asked), or -1. */
+function indexIn(norm: string, want: string, wholeWord: boolean): number {
+  for (let i = norm.indexOf(want); i >= 0; i = norm.indexOf(want, i + 1)) {
+    if (!wholeWord) return i
+    const before = i > 0 ? norm[i - 1] : ''
+    const after = norm[i + want.length] ?? ''
+    if ((!before || !WORDY.test(before)) && (!after || !WORDY.test(after))) return i
+  }
+  return -1
+}
+
+function findInParagraphs(doc: PMNode, quote: string, opts: FindOptions = {}): { from: number; to: number } | null {
   const want = normalise(quote).norm
   if (!want) return null
   let found: { from: number; to: number } | null = null
@@ -54,7 +73,7 @@ function findInParagraphs(doc: PMNode, quote: string): { from: number; to: numbe
       }
     })
     const { norm, map } = normalise(text)
-    const i = norm.indexOf(want)
+    const i = indexIn(norm, want, !!opts.wholeWord)
     if (i >= 0) found = { from: at[map[i]], to: at[map[i + want.length - 1]] + 1 }
     return false
   })
@@ -66,12 +85,12 @@ function findInParagraphs(doc: PMNode, quote: string): { from: number; to: numbe
  * more. Case, curly quotes and spacing don't matter. Words spanning paragraphs are found by their
  * first paragraph's part.
  */
-export function findTextRange(doc: PMNode, quote: string): { from: number; to: number } | null {
-  const whole = findInParagraphs(doc, quote)
+export function findTextRange(doc: PMNode, quote: string, opts: FindOptions = {}): { from: number; to: number } | null {
+  const whole = findInParagraphs(doc, quote, opts)
   if (whole) return whole
   const first = quote
     .split(/\n+/)
     .map((s) => s.trim())
     .find(Boolean)
-  return first && first !== quote.trim() ? findInParagraphs(doc, first) : null
+  return first && first !== quote.trim() ? findInParagraphs(doc, first, opts) : null
 }

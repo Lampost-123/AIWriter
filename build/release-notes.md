@@ -1,11 +1,9 @@
-<!-- version: 0.4.0 -->
-Better drafting, and your scenes read aloud.
+<!-- version: 0.5.0 -->
+The consistency checker.
 
-- Variants: two or three drafts side by side, to use one or mix them.
-- Beat by beat: write a scene a beat at a time.
-- AI edits of selected words to accept or reject, and Continue.
-- Every scene keeps earlier versions to compare and restore.
-- Ask the world: a chat that answers from your world's memory.
-- Outline helper, scene ideas, and a world built from a summary, with Interview me.
-- New characters get their details filled in and a voice; the timeline starts on Day 1.
-- Read aloud with a voice for each character, and dictation.
+- Phrases to avoid, words repeated close together and misspelt names are underlined as you write.
+- Marking a scene done checks it against the memory: facts, who knows what, timeline and place.
+- Check a scene, chapter or story on request, voice and style included.
+- The Issues tab: fix the text, update the memory, or ignore. Badges in the binder show what's left.
+- A Consistency page per story, with overused phrases and plot threads left hanging.
+- Drafts remember people tied to the cast who aren't in the scene.

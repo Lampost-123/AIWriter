@@ -306,9 +306,10 @@ export interface ModelChoice {
  * builder (milestone 3). From milestone 4: 'chat' is "Chat and brainstorm" (Ask the world, the outline helper,
  * next scene ideas; the writer model until Adam picks one) and 'speech' is "Read aloud" (who says each line
  * and how, voice suggestions; the memory model until Adam picks one). 'world' is the World builder (building
- * the world from a summary; the character builder's model until Adam picks one).
+ * the world from a summary; the character builder's model until Adam picks one). 'check' is the Consistency
+ * check model (milestone 5's AI checks; the memory model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
@@ -405,7 +406,7 @@ export type DeepPartial<T> = {
 export interface ContextBlock {
   /** Stable id, e.g. 'instructions', 'scene-card', 'previous-scene', 'pov', 'present', 'relationships', 'setting', 'world-rules', 'story-so-far', 'mentioned', 'themes'. */
   id: string
-  /** 1 (most important) to 10. */
+  /** 1 (most important) to 11. */
   priority: number
   title: string
   /** The text as sent (its short form when `short` is true). */
@@ -486,6 +487,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * Continue), 'chat' (a turn of Ask the world), 'outline' (the outline helper), 'ideas' (next scene ideas)
  * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
  * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
+ * Milestone 5 adds 'check': one AI consistency check of a scene.
  */
 export type GenerationJob =
   | 'draft'
@@ -500,6 +502,7 @@ export type GenerationJob =
   | 'ideas'
   | 'speech'
   | 'world'
+  | 'check'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
@@ -762,7 +765,7 @@ export interface ExistsPoint {
 /** An entry as it is at a point in the story: baseline plus every change that counts there. */
 export interface EntryState extends Entry {
   /** What has happened to it so far, oldest first ("lost her left hand", with where). */
-  happened: { note: string; where: string; changeId: ID }[]
+  happened: { note: string; where: string; changeId: ID; at?: number }[]
   /** Field keys (and 'description' / 'summary') a change has set, so views can mark them. */
   changed: string[]
 }
@@ -776,6 +779,8 @@ export interface RelationshipState {
   bFeels: string
   /** Where it last changed, in plain words; '' for the baseline. */
   where: string
+  /** Where on the line it last changed (a step index of the walk; -1 for the baseline), for ordering. Milestone 5. */
+  at?: number
 }
 
 export interface FactState {

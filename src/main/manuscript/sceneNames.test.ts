@@ -54,7 +54,7 @@ describe("a scene's names, as of the scene", () => {
 
   it('gives the relationships as of the scene', () => {
     expect(sceneNames(db, w.id('b1.c2.s2')).relationships).toEqual([
-      { aId: w.id('mara'), bId: w.id('tobin'), type: 'friend', aFeels: 'trusts him', bFeels: 'would die for her', where: '' }
+      { aId: w.id('mara'), bId: w.id('tobin'), type: 'friend', aFeels: 'trusts him', bFeels: 'would die for her', where: '', at: -1 }
     ])
   })
 

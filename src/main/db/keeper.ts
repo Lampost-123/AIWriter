@@ -11,6 +11,8 @@ import { getChange } from './memory'
 import { linksForEntry, linksForFact, recordVersion } from './history'
 import { fingerprint } from '../keeper/facts'
 import { plain } from '../keeper/text'
+import { issuesTouched, sameThing } from './checks'
+import type { IssueKind } from '@shared/contracts/checks'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -458,7 +460,12 @@ export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string;
 
 // ---------- Issues the keeper raises ----------
 
-/** A consistency issue: the text disagrees with one of Adam's facts. Not raised twice for the same thing while open. */
+/**
+ * A consistency issue: the text disagrees with one of Adam's facts. Not raised twice for the same thing
+ * while open, and never again once Adam has ignored it (milestone 5: "Ignored issues stay ignored"): the
+ * same thing is the same key, the same entry and field, or the same kind with overlapping words, whoever
+ * raised it (db/checks.ts sameThing).
+ */
 export function raiseIssue(
   db: DB,
   i: {
@@ -472,15 +479,14 @@ export function raiseIssue(
     payload: Record<string, unknown>
   }
 ): boolean {
-  const open = db
-    .prepare("SELECT id, payload_json FROM issues WHERE scene_id = ? AND kind = ? AND status = 'open'")
-    .all(i.sceneId, i.kind) as Row[]
-  if (open.some((r) => json<{ key?: string }>(r.payload_json, {}).key === i.key)) return false
+  const open = db.prepare("SELECT * FROM issues WHERE scene_id = ? AND status IN ('open', 'ignored')").all(i.sceneId) as Row[]
+  if (open.some((r) => sameThing(i.payload, r, { key: i.key, sceneId: i.sceneId, kind: i.kind as IssueKind, quote: i.quote }))) return false
   const t = now()
   db.prepare(
     `INSERT INTO issues (id, scene_id, story_id, kind, severity, status, quote, message, payload_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
   ).run(newId(), i.sceneId, i.storyId, i.kind, i.severity, i.quote, i.message, JSON.stringify({ ...i.payload, key: i.key }), t, t)
+  issuesTouched(i.storyId, i.sceneId)
   return true
 }
 

@@ -5,6 +5,7 @@ import type { Act, Chapter, ID, SceneMeta } from '@shared/types'
 import { Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { registerFlusher } from '@/lib/flush'
+import { ChapterIssueBadge, SceneIssueBadge } from '@/features/consistency/IssueBadge'
 import { InlineTitle } from './InlineTitle'
 import { formatWords } from './outlineModel'
 import { STATUS_LABELS, StatusDot } from './StatusDot'
@@ -133,6 +134,8 @@ export function SceneRowContent({
       ) : (
         <span className={cn('min-w-0 flex-1 truncate', selected ? 'font-medium text-fg' : 'text-fg/90')}>{scene.title || 'Untitled scene'}</span>
       )}
+      {/* Milestone 5: open issues, after the title so nothing moves when they load. */}
+      {renaming ? null : <SceneIssueBadge sceneId={scene.id} />}
       {scene.memoryState === 'failed' && !renaming ? (
         // The scene header says why and offers Try again.
         <span className="ml-1 flex shrink-0 text-ai" title="Memory not updated for this scene">
@@ -270,6 +273,7 @@ function ChapterRowContent({
       ) : (
         <span className="min-w-0 flex-1 truncate font-semibold text-fg">{chapter.title || 'Untitled chapter'}</span>
       )}
+      {collapsed && !renaming ? <ChapterIssueBadge chapterId={chapter.id} /> : null}
       <RowEnd words={formatWords(words)} forceButtons={forceButtons}>
         {h ? (
           <>

@@ -73,6 +73,11 @@ export type FixedActionId =
   | 'hide-speakers'
   | 'settings-speech'
   | 'world-builder'
+  // Milestone 5
+  | 'check-scene'
+  | 'check-chapter'
+  | 'check-story'
+  | 'go-consistency'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -270,6 +275,19 @@ export const ACTIONS: ActionDef[] = [
     label: 'Build the world from a summary',
     keywords: 'builder ai quick start lay out fill make characters places lore rules premise paste',
     away: true
+  },
+  // ----- Milestone 5 -----
+  // Checking runs in the background (a quiet line in the binder), so these stay where Adam is.
+  { id: 'check-scene', label: 'Check this scene', keywords: 'consistency issues mistakes contradictions facts ai', when: hasScene },
+  { id: 'check-chapter', label: 'Check this chapter', keywords: 'consistency issues mistakes contradictions facts ai', when: hasScene },
+  { id: 'check-story', label: 'Check this story', keywords: 'consistency issues mistakes contradictions facts ai whole book', when: hasStory },
+  {
+    id: 'go-consistency',
+    label: 'Open consistency',
+    also: 'Consistency',
+    keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
+    away: true,
+    when: hasStory
   }
 ]
 

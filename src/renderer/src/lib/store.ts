@@ -40,6 +40,9 @@ export type View =
   | { kind: 'outline'; storyId: ID }
   /** Build the world from a summary (the World builder): lays out everything a summary names, and lists what it made. */
   | { kind: 'worldBuilder' }
+  // ----- Milestone 5 -----
+  /** A story's consistency: its issues by chapter and scene, checking a chapter or the story, and the reports. */
+  | { kind: 'consistency'; storyId: ID }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words
@@ -119,7 +122,7 @@ interface AppState {
   setAskOpen(open: boolean): void
 }
 
-export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast'
+export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast' | 'issues'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)

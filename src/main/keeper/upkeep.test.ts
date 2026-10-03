@@ -701,7 +701,7 @@ describe('details read in a later scene', () => {
     await readWith(w.db, scenes[3], [{ type: 'detail', entry: 'Mara', field: 'hair', value: 'red', quote: "Mara's hair was red." }])
     expect(at(scenes[4], mara.id)?.fields.hair).toBe('black')
     const issues = w.db.prepare('SELECT message FROM issues').all() as { message: string }[]
-    expect(issues.map((i) => i.message)).toContain('Mara: this scene says hair is “red”, but the memory says “black”.')
+    expect(issues.map((i) => i.message)).toContain('Mara’s hair: this scene says “red”, but the memory says “black”.')
   })
 })
 

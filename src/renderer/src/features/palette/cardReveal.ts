@@ -28,7 +28,9 @@ const textOf = (el: Element): string => el.textContent?.trim() ?? ''
 /** The scene card in the scene panel, when it is the tab on show. */
 function cardPanel(): HTMLElement | null {
   for (const tab of document.querySelectorAll<HTMLElement>('[role="tab"][aria-selected="true"]')) {
-    const id = textOf(tab) === 'Scene card' ? tab.getAttribute('aria-controls') : null
+    // By the tab's value (Radix names its panel "…-content-card"): its label reads "Card" in a narrow panel.
+    const controls = tab.getAttribute('aria-controls')
+    const id = controls?.endsWith('-content-card') ? controls : null
     if (id) return document.getElementById(id)
   }
   return null

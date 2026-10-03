@@ -81,6 +81,8 @@ let listening = false
 let hooks: { focusPicker(): void; reveal(): void } | null = null
 /** The "Change rejected" message with its Undo, while it shows: it goes once the change is back or another starts. */
 let rejectedToast: number | null = null
+/** What to do once a change is accepted, by its id (milestone 5: the issue it fixes is marked fixed). */
+const onAccepted = new Map<ID, () => void>()
 
 const noop = (): void => undefined
 
@@ -307,7 +309,10 @@ function continueFrom(state: EditorState): number {
  * words (or at `at`). The words stream into a tracked change in place; nothing in the scene changes until
  * Accept.
  */
-export async function startTool(tool: EditTool, o: { direction?: string; range?: Target; at?: number } = {}): Promise<void> {
+export async function startTool(
+  tool: EditTool,
+  o: { direction?: string; range?: Target; at?: number; onAccepted?: () => void } = {}
+): Promise<void> {
   const v = view()
   const bridge = editorBridge()
   const sceneId = bridge?.sceneId
@@ -360,6 +365,7 @@ export async function startTool(tool: EditTool, o: { direction?: string; range?:
     ...(continueAs ? { continueAs } : {})
   }
   const taskId = input.taskId
+  if (o.onAccepted) onAccepted.set(taskId, o.onAccepted)
   live = { taskId, sceneId, tool, direction, selection: input.selection, from, to, raw: '', note: null, ended: false, stopTimer: null }
   v.dispatch(showSuggestion(v.state, { id: taskId, sceneId, tool, direction, from, to, mode, lineBreaks: keepsLineBreaks(input) }))
   dropRejectedToast()
@@ -429,6 +435,52 @@ export async function accept(id?: ID): Promise<void> {
   // Typing straight after is a step of its own.
   v2.dispatch(closeHistory(v2.state.tr))
   if (useApp.getState().view.kind === 'write') v2.focus()
+  const then = onAccepted.get(s.id)
+  onAccepted.delete(s.id)
+  then?.()
+}
+
+/**
+ * Shows a ready-made replacement for words in the page as a change waiting for Accept or Reject, as the AI
+ * tools' changes do, with no AI call (milestone 5: a consistency check's suggested rewrite). Returns its id,
+ * or null when the page can't take it now (a draft is being written, or another change waits; it says so).
+ */
+export function showReplacement(o: { from: number; to: number; text: string; note?: string | null; onAccepted?: () => void }): ID | null {
+  const v = view()
+  const bridge = editorBridge()
+  const sceneId = bridge?.sceneId
+  if (!v || !bridge || !sceneId || bridge.editor !== editor || !o.text.trim()) return null
+  if (bridge.busy()) {
+    toast('A draft is being written into this scene. Wait for it to finish (or stop it), then try again.')
+    return null
+  }
+  if (current()) {
+    toast('One change at a time: accept or reject the AI’s waiting change first.', {
+      action: { label: 'Show it', run: () => hooks?.reveal() }
+    })
+    return null
+  }
+  const id = newTaskId()
+  if (o.onAccepted) onAccepted.set(id, o.onAccepted)
+  v.dispatch(
+    showSuggestion(v.state, {
+      id,
+      sceneId,
+      tool: 'rewrite',
+      direction: '',
+      from: o.from,
+      to: o.to,
+      mode: 'replace',
+      text: o.text,
+      status: 'ready',
+      note: o.note ?? null
+    })
+  )
+  dropRejectedToast()
+  known = id
+  if (useApp.getState().view.kind === 'write') v.focus()
+  hooks?.reveal()
+  return id
 }
 
 /** Reject: the text stays as it was. Undo (or Ctrl+Y) brings the change back. */

@@ -31,6 +31,7 @@ import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
 import { OutlineHelper } from '@/features/outline/OutlineHelper'
 import { WorldBuilderView } from '@/features/worldBuilder/WorldBuilderView'
+import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
@@ -189,6 +190,7 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
               {view.kind === 'outline' && <OutlineHelper key={view.storyId} storyId={view.storyId} />}
               {view.kind === 'worldBuilder' && <WorldBuilderView />}
+              {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
             </div>
           ) : null}
         </main>

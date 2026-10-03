@@ -29,6 +29,7 @@ import { showSceneIdeas } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
+import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -252,6 +253,25 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'world-builder':
         openWorldBuilder()
+        return
+      // ----- Milestone 5 -----
+      case 'check-scene':
+        if (a.sceneId && a.storyId) await checkScene(a.sceneId, a.storyId)
+        return
+      case 'check-chapter': {
+        if (!a.sceneId || !a.storyId) return
+        const chapterId = (await outlineOf(a.storyId)).scenes.find((s) => s.id === a.sceneId)?.chapterId
+        if (chapterId) await checkChapter(chapterId, a.storyId)
+        return
+      }
+      case 'check-story': {
+        // On a story's Consistency page, that story.
+        const storyId = a.view.kind === 'consistency' ? a.view.storyId : a.storyId
+        if (storyId) await checkStory(storyId)
+        return
+      }
+      case 'go-consistency':
+        if (a.storyId) openConsistency(a.storyId)
         return
       default: {
         const unknown: never = fixed

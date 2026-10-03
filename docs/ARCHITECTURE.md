@@ -559,6 +559,89 @@ The groundwork (shared before the parts start): the task runner, `jobModel`, `dr
 first lines, the new Settings › Models entries, the views, the slots and the editor bridge additions above.
 Each part also owns its tests. Shared files change only additively, and only at integration.
 
+## Milestone 5: the consistency checker
+
+What it adds (spec, Build plan 5 and "Consistency checker"): live checks (phrases to avoid, repetition,
+name spelling) underlined as Adam types; AI checks (facts, knowledge, timeline and place, voice, style and
+tone) when a scene is marked done or on request for a scene, chapter or story; the Issues tab with Fix the
+text, Update the memory and Ignore; badges in the binder; the repetition and plot threads reports; and, in
+the briefing, ties to people not in the scene (block 11). The data model stays frozen (migrations 1 and 2).
+
+- **Issues** are rows of `issues` (migration 2). Everything beyond its columns goes in `payload_json`
+  (`key`, `sources`, `fix`, `memoryFix`). An issue's `key` stops it being raised twice; an ignored key is
+  never raised again. Severity is `must-fix` (red), `warning` ("Worth a look") or `minor`. The contract is
+  `src/shared/contracts/checks.ts`; its handlers are `src/main/ipc/checks*.ts`.
+- **The model.** AI checks are the job `check`: "Consistency check model" in Settings › Models
+  (`settings.models.check`, the memory model until Adam picks one, then the writer model), with its own
+  Thinking (`settings.thinking.check`, Off). Generation records use job `'check'`; prompts start with
+  `[AIWRITE-CHECK v1] <check>`.
+- **Ties to people not in this scene** (block 11, priority 11, `ties`): for each character present, the
+  characters they have a relationship with who aren't in the scene, as of the scene: the other person's one
+  line, where the relationship stands, and the events and changes that name both, newest first. Closest
+  and most recent ties first. It is the first block shortened (names and relationship only) and dropped.
+
+- **Reports** (`checks/reports.ts`, SQL in `db/checksReports.ts`): repetition skips common words and the names
+  and aliases of characters, places, groups, items and glossary terms (names also end a phrase); its thresholds
+  are the constants at the top of the file. Plot threads reuse the board (`threadsBoardOf`, `LONG_OPEN_CHAPTERS`)
+  for "open too long"; "no setup" walks the story's line through its end. Both are kept per world until
+  `changesMade` moves, like the world views.
+- **Badges and runs** (`features/consistency/checkStore.ts`): counts reload on `issues:changed`, the story and the
+  world, never on `outlineRev`. One check runs at a time in the interface; it shows in the binder (`CheckLine`) and
+  on the Consistency page, and ends in a toast.
+
+**Live checks** (`src/shared/liveChecks.ts`, `features/liveChecks/`, `checks/live.ts`, `db/checksLive.ts`)
+- The checking happens in the window, paragraph by paragraph (`LiveCache`, by paragraph text), about 300 ms
+  after typing pauses; a keystroke only maps the underlines and drops those whose words it touched. Spelling
+  matches capitalised words against name words of 4 letters or more with the same first letter (1 letter
+  out, 2 for names of 7+), skipping common English words; a misspelt name at the caret waits until the caret
+  leaves it. Nothing is underlined while a draft streams in or text is held, nor inside an AI tool's change.
+- Ignores are `issues` rows (status `ignored`, severity `minor`, `payload_json.key`); see `liveKey`. A
+  spelling is ignored world-wide, a phrase per paragraph, a repetition per scene. Ignoring emits
+  `issues:changed`, so a list showing ignored issues shows them too.
+- For the Issues tab: `useLiveFlagCounts()` and `revealLiveFlag(kind)` in `features/liveChecks/liveFlags.ts`.
+
+### How the AI checks work
+
+- **What a check sees** (`checks/context.ts`): the scene's memory as of its **start** (`sceneMemory`, the
+  line up to just before it), so a clash with earlier scenes or Adam's notes is caught even though the keeper
+  has already followed the scene's text. Entries on the card or named in the text (with what has happened to
+  them), hard rules, who knows what, the three scenes before (When, where, who), the end of the scene before,
+  the style guide's point of view and tense, the card's mood. Entries and scenes get short ids (E1, S1).
+- **One request per scene** for every check asked for (`checks/run.ts`), split into parts for a small model;
+  a reply that can't be read is asked for once more, one cut off is asked again in halves. `checks/parse.ts`
+  drops issues whose quote isn't in the scene and keeps the scene's own words; the key is
+  `check:<check>:<entry or scene>:<plain quote>`. A whole re-run replaces what the same checks found there;
+  a stopped one (or one whose reply could only be read in part) only adds. A rewrite is kept only for the
+  model's whole quote, with which of its places in the scene it is (`occurrence`). `memoryFix` is offered only
+  for a short value of a one-line field of Adam's that no earlier scene's change has set.
+- **Issues** (`db/checks.ts`): the keeper's and the world builder's rows read as the same `Issue`. Anything
+  ignored (by key, the same entry and field, or the same kind with overlapping words: `sameThing`) is never
+  raised again, by a check or by the keeper (`raiseIssue` uses `sameThing` too); story issues are keyed on the
+  other story, the entry and the field. The live checks' ignored rows (`LIVE_KINDS`) are never counted or
+  listed as open, and Reopen deletes them; a check finding what the keeper already raised adds its
+  rewrite to the keeper's issue. Open issues whose words have left the scene become `gone` when listed or
+  counted. Every change emits `issues:changed` (`onIssuesTouched`, batched after the transaction).
+- **Runs** (`checks/runs.ts`): one at a time; Adam may have one of his own going or waiting. Before each
+  scene the memory catches up (`catchUpBeforeDraft`, then the keeper's `whenRead` for the scene itself, read
+  now if it is still waiting out its quiet time, so its clash isn't raised twice); each run's AbortController
+  ends that wait at once on Stop or when the world closes. A check Adam asks for drops a waiting mark-done check
+  of a scene it covers. Progress names scenes "Ch 3, Sc 2: The ferry". Marking a scene done queues `DONE_CHECKS` quietly (`runId` `done:<scene>:…`,
+  `CheckDone.background`); its `found` counts everything raised since, so the window can say "Found 2 things
+  to look at in this scene." Checking a story ends with `checks/stories.ts`: a side story against its host over
+  `hostSpans`, a prequel's ending against the opening of `leadsIntoBook`, leaving out what "Which happened
+  last?" already asks (`sideClashes`). Closing the world stops runs (`closeRunsFor`).
+- **Fix the text** shows the check's rewrite with `showReplacement` (`features/edits/session.ts`: a ready-made
+  tracked change, no AI call), or starts Rewrite on the sentence; `onAccepted` marks the issue fixed.
+
+### Who builds what (parallel build, milestone 5)
+
+| Part | Owns |
+|---|---|
+| Live checks | `src/shared/liveChecks.ts` (pure), `features/liveChecks/` (TipTap decorations, the hover card), `ipc/checksLive.ts`, `src/main/checks/live.ts` |
+| AI checks | `src/main/checks/` (but `live.ts`, `reports.ts`), `db/checks.ts`, `ipc/checksIssues.ts`, the `check` job (types, defaults, `jobModel`, `providers`, Settings › Models), `features/issues/`, `tests/fake-provider/m5/` |
+| Reports | `src/main/checks/reports.ts`, `ipc/checksReports.ts`, `features/consistency/` (the story's Consistency page), the binder's badges and Check menu items, the palette's actions |
+| Briefing | `ai/context.ts` block 11 |
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
