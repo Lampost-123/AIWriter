@@ -69,6 +69,7 @@ import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
+import { SPEAKER_TAG_LINE } from './speakerTags'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -1378,6 +1379,8 @@ export interface ContextExtras {
    * (so keep them to a sensible size, such as the end of the scene so far).
    */
   extraBlocks?: { id: string; title: string; text: string }[]
+  /** Asks the writer to tag each line of dialogue with who says it (ai/speakerTags.ts), for reading aloud. */
+  speakerTags?: boolean
 }
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
@@ -1403,7 +1406,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     previousStory: previousStory(input),
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
   }
-  const final = extras.final ?? finalInstruction
+  const closing = extras.final ?? finalInstruction
+  const final = (o: FinalOptions): string => (extras.speakerTags ? `${closing(o)}\n${SPEAKER_TAG_LINE}` : closing(o))
   const finalsFor = (max: number | undefined): PreparedContext['finals'] => ({
     withPrevious: final({ ...base, autoMax: max, hasPrevious: true }),
     withoutPrevious: final({ ...base, autoMax: max, hasPrevious: false })

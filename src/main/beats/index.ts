@@ -15,6 +15,7 @@ import { cleanOptions } from '../ai/gather'
 import { draftBriefing, providerNotes, type DraftBriefing } from '../ai/draftFlow'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
 import { beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
+import { noteWriterSpeakers } from '../readAloud'
 
 const BUSY = 'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
 
@@ -99,6 +100,7 @@ export async function startBeat(
       intensity: b.input.style.intensity,
       entryVersions: b.entryVersions,
       emit: o.emit,
+      onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
       ...providerNotes(b.target.id)
     })
     return { generationId, of: beats.length }

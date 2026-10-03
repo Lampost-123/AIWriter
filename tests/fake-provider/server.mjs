@@ -28,6 +28,8 @@
 //   fake/length            streams a little, then stops with finish_reason "length" (the reply limit was reached)
 //   fake/credit-limit      402 "can only afford" when max_tokens is over 3000, else a normal stream
 //   fake/memory-bad-json   memory keeper requests: a broken JSON reply the first time, then valid replies
+//   (any writer model)     asked to tag its dialogue with who says it (ai/speakerTags.ts), it tags "You came," as
+//                          {Tobin|dry, a little amused} and "I said I would." as {Mara|flat and certain}
 //   fake/memory-junk       memory keeper requests: never valid JSON (the scene shows "Memory not updated")
 //   fake/overthinker       thinks for 3000 tokens whatever it is asked: with a reply limit of 3000 or less it sends only
 //                          thinking and stops with finish_reason "length"; with more, thinking then the reply
@@ -335,7 +337,12 @@ export async function startFakeProvider(options = {}) {
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
     memory ??= recipeReply(system, messages, model)
-    const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
+    let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
+    // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
+    const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
+    if (memory === null && lastUser.includes('put who says it in curly braces')) {
+      full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
+    }
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4
     // A reply that runs into the limit stops mid-sentence.

@@ -12,6 +12,7 @@ import { isStartingBeat } from '../beats'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
+import { noteWriterSpeakers } from '../readAloud'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -63,6 +64,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
         emit,
+        onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
         ...providerNotes(b.target.id)
       })
     } finally {

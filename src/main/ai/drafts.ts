@@ -9,6 +9,7 @@ import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, 
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
+import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
 import { isKeyFailure, strongContentRefusal } from './errors'
@@ -93,6 +94,12 @@ export interface DraftRequest {
   onKeyRejected?: () => void
   /** Called when a draft came back in full, so Settings can show the provider works. */
   onWorked?: () => void
+  /**
+   * Who says each line, from the writer's own speaker tags (ai/speakerTags.ts): the tags are taken out of the text
+   * as it streams (always: a variant's too), and this hears what they said once the draft ends (before watchers
+   * hear it ended).
+   */
+  onSpeakers?: (speakers: WriterSpeaker[]) => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -180,6 +187,8 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 async function run(job: Job, req: DraftRequest, params: GenerationParams, fallbackMaxTokens: number): Promise<void> {
   const { db, emit } = req
   let pending = ''
+  // The writer's speaker tags never reach the page, the record or the word count.
+  const tags = new SpeakerTagFilter()
   let chunkTimer: ReturnType<typeof setTimeout> | null = null
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -215,7 +224,9 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       // A set's variants are sent side by side, so only the first can leave the briefing in the cache.
       cache: (req.partOf?.variant?.index ?? 1) === 1,
       signal: job.controller.signal,
-      onText: (t) => {
+      onText: (raw) => {
+        const t = tags.push(raw)
+        if (!t) return
         job.text += t
         pending += t
         chunkTimer ??= setTimeout(sendChunk, CHUNK_INTERVAL_MS)
@@ -251,6 +262,10 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
 
   if (chunkTimer) clearTimeout(chunkTimer)
   if (saveTimer) clearTimeout(saveTimer)
+  const rest = tags.flush()
+  job.text += rest
+  pending += rest
+  outcome = { ...outcome, text: job.text }
   sendChunk()
 
   let status: StreamOutcome['status'] = job.closed ? 'stopped' : outcome.status
@@ -298,6 +313,11 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     }
   }
   active.delete(job.id)
+  try {
+    req.onSpeakers?.(tags.speakers(job.text))
+  } catch (e) {
+    console.error('Could not keep who says each line', e)
+  }
   tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant })
   try {
     if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()

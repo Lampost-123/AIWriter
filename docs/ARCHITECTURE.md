@@ -540,6 +540,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
   is set; it is saved even when read aloud isn't set up.
+- **Who says each line, from the writer.** With read aloud on (or "Show speakers and tone"), a draft's closing
+  instruction asks the writer to put the speaker, and how the line is said, in curly braces just before each quote
+  (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a
+  variant's too), so they never reach the page, the record or the word count; `onSpeakers` hands what they said to
+  `noteWriterSpeakers` (`readAloud/index.ts`), which puts them on the new paragraphs' quotes as marks
+  (`writerMarks`). Only what the writer didn't say is left to the AI's marking.
+- **Speakers the rules only guess** (a name nearby, turn-taking) are checked by the AI and wait for its answer; only
+  a dialogue tag is taken without asking. A name the AI writes a little differently ("Adam (whispering)", "Adam
+  Reyes" for a page called Adam) is still that character (`memberNamed`).
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice

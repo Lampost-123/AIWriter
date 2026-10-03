@@ -1,8 +1,9 @@
 // Who says each line, and how, made as a draft is written and shown on request (Adam, 2 October 2026), against the
 // fake AI (tests/fake-provider) and the fake speech server (tests/fake-speech):
 //
-//  - With read aloud on, Generate writes a draft, and the AI's marks for its paragraphs (who says each line and how)
-//    are made in the background as it lands, without pressing Listen.
+//  - With read aloud on, Generate writes a draft, and the writer says who says each line and how as it writes (tags
+//    taken out of the text); the AI's marks for the rest (the narration) are made in the background as it lands,
+//    without pressing Listen.
 //  - "Show speakers and tone" is off at first: nothing shows. Turned on beside Listen, each paragraph shows who says it
 //    and how, small and faint above it, without changing the words, the layout or the page's width.
 //  - The same switch in Settings › Read aloud and dictation turns them off again.
@@ -77,7 +78,9 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     const shown = await labels(win)
     // The narration keeps its feeling but never slows down (the fake marks it slow).
     expect(shown[0]).toBe('Narrator · hushed and steady')
-    expect(shown.some((l) => /^(Mara|Tobin) · (quiet and wary|bright and quick)/.test(l))).toBe(true)
+    // Who says each line, and how, came from the writer itself as it wrote (its tags never reach the page).
+    expect(shown.some((l) => l.includes('Tobin · dry, a little amused') && l.includes('Mara · flat and certain'))).toBe(true)
+    expect(words).not.toContain('{')
 
     // Never part of the text, and nothing on the page moved.
     expect(await prose(win).innerText()).toBe(words)
