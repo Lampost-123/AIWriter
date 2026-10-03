@@ -129,7 +129,16 @@ Rules:
 - Keep to everything the story has established.`
 }
 
-/** What to ask for, naming the scene. */
-export function ideasAsk(sceneLabel: string): string {
-  return `Suggest three possible directions for ${sceneLabel}.`
+/**
+ * What to ask for, naming the scene; with what the writer has in mind for it, three takes on that rather than three
+ * directions of the model's own.
+ */
+export function ideasAsk(sceneLabel: string, wish?: string): string {
+  const own = wish?.replace(/\s+/g, ' ').trim().slice(0, 1500)
+  if (!own) return `Suggest three possible directions for ${sceneLabel}.`
+  return `Suggest three possible directions for ${sceneLabel}. The writer already has a rough idea of what they want, in their own words:
+
+${own}
+
+Every direction keeps to that idea: what they asked for happens in all three. Make them three different ways it could play out (a different turn, choice or surprise in each), filling in what they left open.`
 }

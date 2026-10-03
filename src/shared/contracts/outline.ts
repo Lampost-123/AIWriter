@@ -49,6 +49,8 @@ export interface OutlineRequest {
 export interface SceneIdeasRequest {
   taskId: ID
   sceneId: ID
+  /** What Adam has in mind for the scene, roughly, in his own words (optional): the three ideas are three takes on it. */
+  wish?: string
 }
 
 /** A reference to an act, chapter or scene: one that exists (`id`), or one made earlier in the same keepOutline call (`key`). */

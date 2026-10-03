@@ -43,7 +43,18 @@ export interface IdeasSession {
   hidden: boolean
 }
 
-export const useSceneIdeas = create<{ sessions: Record<string, IdeasSession>; reveal: ID | null }>(() => ({ sessions: {}, reveal: null }))
+export const useSceneIdeas = create<{
+  sessions: Record<string, IdeasSession>
+  reveal: ID | null
+  /** What Adam has in mind for each scene (by ideasKey), sent with every ask for its ideas; kept while the app is open. */
+  wishes: Record<string, string>
+}>(() => ({ sessions: {}, reveal: null, wishes: {} }))
+
+/** Keeps what Adam has in mind for a scene's ideas. */
+export function setWish(sceneId: ID, text: string): void {
+  const key = keyOf(sceneId)
+  useSceneIdeas.setState((st) => ({ wishes: { ...st.wishes, [key]: text } }))
+}
 
 export const ideasKey = (worldId: ID | null | undefined, sceneId: ID): string => `${worldId ?? ''}:${sceneId}`
 const keyOf = (sceneId: ID): string => ideasKey(useApp.getState().world?.id, sceneId)
@@ -148,7 +159,8 @@ export async function askIdeas(sceneId: ID): Promise<void> {
     hidden: false
   })
   try {
-    const { generationId } = await api.startSceneIdeas({ taskId, sceneId })
+    const wish = useSceneIdeas.getState().wishes[key]?.trim()
+    const { generationId } = await api.startSceneIdeas({ taskId, sceneId, ...(wish ? { wish } : {}) })
     const now = get(key)
     if (now?.taskId === taskId && !now.generationId) patch(key, taskId, { generationId })
   } catch (e) {
