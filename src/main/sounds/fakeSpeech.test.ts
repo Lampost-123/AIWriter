@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { startFakeSpeech, type FakeSpeech, type FakeSpeechOptions } from '../../../tests/fake-speech/server.mjs'
 import type { Fetcher } from '../readAloud/speak'
-import { CueTimer, hearClip, type ClipStore } from './align'
+import { BUSY_MS, CueTimer, hearClip, type ClipStore } from './align'
 import { generateSound, type MakeRequest } from './making'
 import { silentWav, wavInfo } from './wav'
 
@@ -92,5 +92,16 @@ describe('timing a clip’s words on the fake speech server', () => {
     expect(await hearClip(fetcher, wav)).toBe('no-aligner')
     const timer = new CueTimer(cache(), fetcher)
     expect(await timer.times({ key: KEY, text, from: 0, to: text.length, at: [17] })).toEqual({ seconds: [1.7], aligned: false })
+  })
+
+  it('estimates while dictation has the model, and asks again soon after', async () => {
+    reset({ alignBusy: true })
+    expect(await hearClip(fetcher, wav)).toBe('busy')
+    let now = 1_000_000
+    const timer = new CueTimer(cache(), fetcher, { now: () => now })
+    expect((await timer.times({ key: KEY, text, from: 0, to: text.length, at: [17] })).aligned).toBe(false)
+    reset({ aligner: 'whisper', alignWords: 'Behind him the door slammed shut' })
+    now += BUSY_MS + 1
+    expect((await timer.times({ key: KEY, text, from: 0, to: text.length, at: [17] })).aligned).toBe(true)
   })
 })

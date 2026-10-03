@@ -155,8 +155,11 @@ export interface HeardFile {
   words: HeardWord[]
 }
 
-/** Asks the speech server to hear a clip: its words and times; 'no-aligner' when it has no dictation engine; null on failure. */
-export async function hearClip(fetcher: Fetcher, wav: Buffer): Promise<HeardFile | 'no-aligner' | null> {
+/**
+ * Asks the speech server to hear a clip: its words and times; 'no-aligner' when it has no dictation engine; 'busy' when
+ * dictation is using the model just now (it goes first); null on failure.
+ */
+export async function hearClip(fetcher: Fetcher, wav: Buffer): Promise<HeardFile | 'no-aligner' | 'busy' | null> {
   let res: Response
   try {
     res = await fetcher('/align', {
@@ -172,6 +175,7 @@ export async function hearClip(fetcher: Fetcher, wav: Buffer): Promise<HeardFile
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     if (res.status === 503 && detail.includes('no-aligner')) return 'no-aligner'
+    if (res.status === 503 && res.headers.get('x-align-retry') === '1') return 'busy'
     console.warn(`[sounds] hearing a clip's words failed: ${res.status} ${detail.slice(0, 200)}`)
     return null
   }
@@ -200,6 +204,8 @@ export const ALIGN_TIMEOUT_MS = 20_000
 /** Remembered this long: the server has no dictation engine; and a clip that couldn't be heard. */
 export const NO_ALIGNER_MS = 60_000
 export const FAILED_MS = 10 * 60_000
+/** A clip not heard because dictation had the model: asked again after this long. */
+export const BUSY_MS = 15_000
 
 /** Times the sounds of clips: from the words heard (kept beside each clip), else estimates. */
 export class CueTimer {
@@ -237,6 +243,10 @@ export class CueTimer {
       pending = hearClip(this.fetcher, wav).then(async (got) => {
         if (got === 'no-aligner') {
           this.noAligner = this.now() + NO_ALIGNER_MS
+          return null
+        }
+        if (got === 'busy') {
+          this.failed.set(key, this.now() + BUSY_MS)
           return null
         }
         if (!got) {
