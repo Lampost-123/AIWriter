@@ -242,10 +242,12 @@ function afterCall(db: DB): void {
     afterTimer = null
     try {
       if (getSettings().usage?.monthlyLimit == null) {
-        // Nothing to watch; the page reads the world afresh when it opens.
+        // No limit to watch: the open world is only added up when the library already has been, and the
+        // window is told anyway, so the usage page, if it is showing, reads the new figures.
         const open = openRef()
         if (open && lib().looked) lib().refreshOpen(open)
         saveSoon()
+        emit('usage:spend', spendState())
         return
       }
       changed()

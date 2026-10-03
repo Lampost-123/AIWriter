@@ -113,9 +113,10 @@ export function UsageSettings(): React.JSX.Element {
           actions={loading ? <Spinner size={14} /> : null}
         >
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Segmented label="Which stretch of time" value={period} onChange={setPeriod} options={PERIODS} />
+            <Segmented label="Which stretch of time" value={period} onChange={setPeriod} options={PERIODS} className="shrink-0 whitespace-nowrap" />
             {worldOpen ? (
               <Segmented
+                className="shrink-0 whitespace-nowrap"
                 label="Which worlds"
                 value={scope}
                 onChange={setScope}

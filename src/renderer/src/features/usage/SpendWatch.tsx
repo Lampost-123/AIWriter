@@ -1,6 +1,7 @@
 // The monthly limit in the window (milestone 6, Usage and cost), mounted once in App:
 // - one quiet toast a month at 80% of the limit ("Usage and cost" opens the page), and one when the limit is
-//   reached (memory updates pause; "Carry on this month" lets everything go again);
+//   reached (memory updates pause; "Carry on this month" lets everything go again; AI Write asks before
+//   anything Adam starts);
 // - the ask, when an AI action Adam starts is refused at the limit (lib/api.ts calls `askAtLimit`):
 //   "This month's AI spending has reached your $20 limit." [Carry on this month] [Not now]. Carry on makes the
 //   same call again; Not now (or Esc) leaves it unstarted. Several refused at once share one ask.
@@ -44,9 +45,9 @@ export function SpendWatch(): React.JSX.Element {
           action: { label: 'Usage and cost', run: openUsage }
         })
       } else {
-        toast(`${reachedWords(s.limit)} Memory updates are paused, and AI Write will ask before starting anything else.`, {
-          action: { label: 'Carry on this month', run: () => void carryOnFromToast() },
-          secondary: { label: 'Usage and cost', run: openUsage }
+        // Short, with one button, so the words keep their room beside it.
+        toast(`${reachedWords(s.limit)} Memory updates are paused.`, {
+          action: { label: 'Carry on this month', run: () => void carryOnFromToast() }
         })
       }
       void api
