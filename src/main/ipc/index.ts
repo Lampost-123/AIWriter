@@ -29,6 +29,7 @@ import { checksHandlers } from './checks'
 import { transferHandlers } from './transfer'
 import { importingHandlers } from './importing'
 import { usageHandlers } from './usage'
+import { askFirst } from '../usage'
 import { setupHandlers } from './setup'
 import { lookHandlers } from './look'
 
@@ -82,6 +83,8 @@ export function registerIpc(): void {
   for (const [name, fn] of Object.entries(all)) {
     ipcMain.handle(`api:${name}`, async (_e, ...args: unknown[]): Promise<IpcResult<unknown>> => {
       try {
+        // Milestone 6: an AI action Adam starts asks first while this month's spending has reached his limit.
+        askFirst(name)
         return { ok: true, value: await (fn as (...a: unknown[]) => unknown)(...args) }
       } catch (err) {
         return { ok: false, error: plainMessage(err) }
