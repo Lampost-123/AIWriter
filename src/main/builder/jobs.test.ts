@@ -160,6 +160,24 @@ describe('Thinking', () => {
 })
 
 describe('Quick start', () => {
+  it('says how each job ended to what follows on from it (a character’s voice), after the window hears it', async () => {
+    const w = setup()
+    const after: { done: BuilderDone; told: boolean }[] = []
+    w.ctx.onDone = (done) =>
+      after.push({ done, told: w.events.some((e) => e.name === 'builder:done' && (e.payload as BuilderDone).jobId === done.jobId) })
+    startQuickStart(w.ctx, { jobId: 'q-follow', kind: 'character', notes: NOTES, storyId: w.storyId }, w.brief())
+    const done = await w.done('q-follow')
+    expect(after).toHaveLength(1)
+    expect(after[0].told).toBe(true)
+    expect(after[0].done).toMatchObject({ job: 'quick-start', status: 'complete', entryId: done.entryId })
+    // A follow-on that fails never breaks the job.
+    w.ctx.onDone = () => {
+      throw new Error('boom')
+    }
+    startQuickStart(w.ctx, { jobId: 'q-follow-2', kind: 'character', notes: NOTES, storyId: w.storyId }, w.brief())
+    expect((await w.done('q-follow-2')).status).toBe('complete')
+  })
+
   it("builds and saves a whole character from a few lines: Adam's words as his, the rest drafted by AI", async () => {
     // A model that streams at a readable pace, so the progress checked below is seen however fast the machine is.
     const w = setup({ modelId: 'fake/slow' })

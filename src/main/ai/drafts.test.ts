@@ -7,7 +7,8 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { insertChange, putSummary, setBlockMode, setDefaultExistsPoints, setPin } from '../db/memory'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
-import { assembleContext, replyTokenLimit, sentEntryVersions } from './context'
+import { AUTO_LENGTH } from '@shared/defaults'
+import { assembleContext, replyTokenLimit, replyTokens, sentEntryVersions } from './context'
 import { draftCost, isDrafting, onDraftActivity, startDraftJob, stopDraft, stopDraftsFor, type DraftActivity, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
@@ -294,6 +295,32 @@ describe('gatherContextInput, options', () => {
     expect(cleanOptions({ targetWords: 1e9 }, { targetWords: 1500, creativity: 'steady' }).targetWords).toBe(12000)
     expect(cleanOptions({ targetWords: NaN }, { targetWords: 1500, creativity: 'steady' }).targetWords).toBe(1500)
   })
+
+  it('keeps Auto (a length of null), and falls back to the card, which may be on Auto itself', () => {
+    expect(cleanOptions({ targetWords: null }, { targetWords: 2500, creativity: 'steady' }).targetWords).toBeNull()
+    expect(cleanOptions({}, { targetWords: 2500, creativity: 'steady' }).targetWords).toBe(2500)
+    expect(cleanOptions({}, { targetWords: null, creativity: 'steady' }).targetWords).toBeNull()
+    expect(cleanOptions({ targetWords: 'lots' as never }, { targetWords: null, creativity: 'steady' }).targetWords).toBeNull()
+    expect(cleanOptions(undefined, { targetWords: null, creativity: 'steady' }).targetWords).toBeNull()
+  })
+
+  it("drafts on Auto unless Adam set a length on the card: an older card's 1,500 reads as Auto", () => {
+    const w = setup()
+    const card = repo.getScene(w.db, w.second.id).card
+    const length = () => gatherContextInput(w.db, w.second.id, undefined, plain).options.targetWords
+    // Set before Auto existed: 600 isn't the old default, so it was Adam's.
+    expect(length()).toBe(600)
+    repo.updateSceneCard(w.db, w.second.id, { ...card, targetWords: 1500 })
+    expect(length()).toBeNull()
+    repo.updateSceneCard(w.db, w.second.id, { ...card, targetWords: 1500, lengthSet: true })
+    expect(length()).toBe(1500)
+    repo.updateSceneCard(w.db, w.second.id, { ...card, targetWords: 2500, lengthSet: false })
+    expect(length()).toBeNull()
+    // The draft options' own length wins, Auto included.
+    expect(gatherContextInput(w.db, w.second.id, { targetWords: 900 }, plain).options.targetWords).toBe(900)
+    repo.updateSceneCard(w.db, w.second.id, { ...card, targetWords: 2500, lengthSet: true })
+    expect(gatherContextInput(w.db, w.second.id, { targetWords: null }, plain).options.targetWords).toBeNull()
+  })
 })
 
 describe('drafting', () => {
@@ -324,6 +351,17 @@ describe('drafting', () => {
       offBroken()
       warn.mockRestore()
     }
+  })
+
+  it('records an Auto draft as Auto, with room kept for the longest scene Auto allows', async () => {
+    const { emit, done } = recorder()
+    const { generationId, preview } = start(w, emit, 'fake/writer', 'custom', { targetWords: null })
+    expect(preview.budget.reserved).toBe(replyTokens(AUTO_LENGTH.max))
+    expect((await done(generationId)).status).toBe('complete')
+    const rec = gens.getGeneration(w.db, generationId)
+    expect(rec.params.autoLength).toBe(true)
+    expect(rec.params).not.toHaveProperty('targetWords')
+    expect(rec.messages[1].content).toContain('- Make the scene as long as it needs to be, between 800 and 4,000 words')
   })
 
   it('records the draft, streams batched text, and finishes the record', async () => {

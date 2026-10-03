@@ -1,6 +1,7 @@
 // What this computer has for the speech engine: a Python to build its environments with (3.10 to 3.13,
 // 64-bit), Windows' own installer (winget) to install Python with one click when there is none, and an
-// NVIDIA graphics card for the voices. Each is found by running a program with an argument list (never a
+// NVIDIA graphics card for the voices (its memory and how new it is), and the free space on the disk the voices
+// go on. Each is found by running a program with an argument list (never a
 // shell), so nothing typed anywhere reaches a command line. No Electron here: tests pass their own runner.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -179,9 +180,43 @@ export const wingetArgs = (): string[] => [
   '--disable-interactivity'
 ]
 
-/** The NVIDIA card's name from nvidia-smi (installed with its driver); '' when there is none. */
-export async function findNvidia(sys: SystemEnv): Promise<string> {
-  if (sys.platform === 'darwin') return ''
+/** An NVIDIA graphics card, as nvidia-smi describes it; `name` is '' when there is none. */
+export interface GraphicsCard {
+  name: string
+  /** Its memory in MiB (nvidia-smi's "memory.total"); null when it couldn't be read. */
+  memoryMb: number | null
+  /** Its CUDA compute capability (7.5 for the RTX 20 series); null when this driver can't say. */
+  computeCap: number | null
+}
+
+export const NO_CARD: GraphicsCard = { name: '', memoryMb: null, computeCap: null }
+
+/** What each card is asked, most first: an older driver turns down a field it doesn't know (compute_cap came in 2022). */
+const CARD_QUERIES = ['name,memory.total,compute_cap', 'name,memory.total', 'name'] as const
+
+/** nvidia-smi's "--format=csv,noheader,nounits" lines: one card per line; "[N/A]" and the like count as unknown. */
+export function parseCards(stdout: string): GraphicsCard[] {
+  const num = (s: string | undefined): number | null => {
+    const n = Number((s ?? '').trim())
+    return (s ?? '').trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
+  }
+  return stdout
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, memory, cap] = line.split(',')
+      return { name: name.trim(), memoryMb: num(memory), computeCap: num(cap) }
+    })
+    .filter((c) => c.name !== '')
+}
+
+/**
+ * The NVIDIA card the voices would use, from nvidia-smi (installed with its driver): the one with the most memory
+ * when there are several (PyTorch puts the fastest first). NO_CARD when there is none or nvidia-smi can't say.
+ */
+export async function findCard(sys: SystemEnv): Promise<GraphicsCard> {
+  if (sys.platform === 'darwin') return NO_CARD
   const tries = onPath([sys.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi'], sys)
   if (sys.platform === 'win32') {
     for (const p of [
@@ -192,12 +227,43 @@ export async function findNvidia(sys: SystemEnv): Promise<string> {
     }
   }
   for (const smi of tries) {
-    const { code, stdout } = await sys.run(smi, ['--query-gpu=name', '--format=csv,noheader'], 10_000)
-    const name = stdout
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find(Boolean)
-    if (code === 0 && name) return name
+    for (const fields of CARD_QUERIES) {
+      const { code, stdout } = await sys.run(smi, [`--query-gpu=${fields}`, '--format=csv,noheader,nounits'], 10_000)
+      if (code !== 0) continue
+      const cards = parseCards(stdout)
+      if (!cards.length) break
+      return cards.reduce((best, c) => ((c.memoryMb ?? 0) > (best.memoryMb ?? 0) ? c : best))
+    }
   }
-  return ''
+  return NO_CARD
+}
+
+/** The NVIDIA card's name from nvidia-smi (installed with its driver); '' when there is none. */
+export async function findNvidia(sys: SystemEnv): Promise<string> {
+  return (await findCard(sys)).name
+}
+
+/**
+ * Free space, in bytes, on the disk `dir` is on (or would be on: the nearest folder of it that exists); null when
+ * it can't be told. `statfs` is node:fs/promises' own, passed in for tests.
+ */
+export async function freeSpace(
+  dir: string,
+  statfs: (path: string) => Promise<{ bavail: number | bigint; bsize: number | bigint }>,
+  exists: (path: string) => boolean = existsSync
+): Promise<number | null> {
+  const paths = pathsOf(process.platform)
+  let at = dir
+  while (!exists(at)) {
+    const up = paths.dirname(at)
+    if (up === at) return null
+    at = up
+  }
+  try {
+    const s = await statfs(at)
+    const bytes = Number(s.bavail) * Number(s.bsize)
+    return Number.isFinite(bytes) && bytes >= 0 ? bytes : null
+  } catch {
+    return null
+  }
 }

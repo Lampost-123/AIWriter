@@ -86,6 +86,12 @@ export interface SpeechStatus {
   device: string
   /** The NVIDIA graphics card on this computer ('' when there is none); null until it has been looked for. */
   nvidia: string | null
+  /** That card's memory in MiB, as nvidia-smi gives it; null (or absent) when it isn't known. */
+  nvidiaMemoryMb?: number | null
+  /** That card's CUDA compute capability (7.5 for the RTX 20 series); null (or absent) when it isn't known. */
+  nvidiaComputeCap?: number | null
+  /** Free space, in bytes, on the disk the speech folder is on; null (or absent) when it isn't known. */
+  freeSpace?: number | null
   /** The download running, or stopped on a problem or by Cancel; null when there's none to show. */
   download: SpeechDownload | null
   /** Downloads waiting for the one running to finish, in order. */

@@ -11,9 +11,12 @@ import type { ID } from '@shared/types'
  * a scene break, and while it is being written out of sight a small "new draft
  * below" pointer shows at the bottom of the page. Each chunk is part of the
  * normal document, so autosave keeps it and Ctrl+Z undoes the whole draft (with
- * its scene break) as one step. Going to another page keeps the draft writing;
- * opening another scene (or switching worlds) stops it first, and the text so
- * far is kept.
+ * its scene break) as one step. Going to another page keeps the draft writing,
+ * and so does opening another scene for Generate's drafts (`keepWriting`): the
+ * scene left is kept off screen, the draft goes on landing in it and is saved as
+ * it goes, and coming back shows it still writing. Other drafts (Beat by beat's)
+ * stop when another scene opens; switching worlds stops any draft. The text so
+ * far is always kept.
  *
  * With `replace`, the draft takes the place of the scene's text instead: the old
  * text is held as it is (dimmed, and nothing can change it) from the moment Adam
@@ -30,21 +33,31 @@ export interface EditorBridge {
    * in the meantime goes with it. Returns false if the editor isn't showing that scene.
    */
   holdForReplace(sceneId: ID): boolean
-  /** Lets go of held text when the draft that was to replace it didn't start. */
-  releaseHold(): void
+  /**
+   * Generate's draft is getting ready for this scene (the open one): if Adam opens another scene
+   * meanwhile, this one is kept for the draft, which then starts in it off screen.
+   */
+  expectDraft(sceneId: ID): void
+  /**
+   * Lets go of held text when the draft that was to replace it didn't start. With the scene the draft
+   * was for, also lets go of that scene if it was kept for the draft (see expectDraft).
+   */
+  releaseHold(sceneId?: ID): void
   /**
    * Prepares to receive a streamed draft. Returns false if the editor isn't showing that scene.
    * `noBreak` (milestone 4, Beat by beat): the draft carries on straight after the scene's text, with no
    * scene break before it. `quiet` (Beat by beat): the page shows no "new draft below" pointer and says
-   * nothing when the draft ends; whoever writes it shows where it goes (the beat bar).
+   * nothing when the draft ends; whoever writes it shows where it goes (the beat bar). `keepWriting`
+   * (Generate): opening another scene doesn't stop it, and it may start in a scene kept for it.
    */
-  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean; quiet?: boolean }): boolean
+  beginStream(sceneId: ID, generationId: ID, opts?: { replace?: boolean; noBreak?: boolean; quiet?: boolean; keepWriting?: boolean }): boolean
   appendStream(generationId: ID, text: string): void
   /**
    * Ends the draft. `failed`: it ended with a problem that Generate reports itself, so the page says
-   * nothing. Returns whether the draft took the place of the scene's text.
+   * nothing. Returns whether the draft took the place of the scene's text, and `away` when it ended
+   * while Adam was in another scene (whoever started it says so; the page can't).
    */
-  endStream(generationId: ID, opts?: { failed?: boolean }): { replaced: boolean }
+  endStream(generationId: ID, opts?: { failed?: boolean }): { replaced: boolean; away?: boolean }
   /** Adam picked where the draft goes: the keyboard goes into the page (once it can take it), so Ctrl+Z works there. */
   takeKeyboard(): void
   /** Ctrl+Z pressed outside the page (on the Generate button, say): undoes in the page. False when there was nothing to undo. */
@@ -57,18 +70,22 @@ export interface EditorBridge {
   hasText(): boolean
   /**
    * Stops a draft being written into the page (because Adam opened another scene or world, or is
-   * deleting the scene), once its last words are in. Says so in a message. Does nothing when no
-   * draft is writing.
+   * deleting the scene), once its last words are in; for a world or a deletion, also one writing into
+   * a scene kept for it. `sceneIds`: only drafts of these scenes. Says so in a message. Does nothing
+   * when no such draft is writing.
    */
-  stopDraft(reason: 'scene' | 'world' | 'deleted'): Promise<void>
+  stopDraft(reason: 'scene' | 'world' | 'deleted', sceneIds?: ID[]): Promise<void>
 
   // ----- Milestone 4 -----
   /** The TipTap editor showing the scene (for the AI tools, reading aloud and dictation), or null once gone. */
   readonly editor: Editor | null
   /** True while a draft is being written into the page, or the page is held for one (nothing else should change it then). */
   busy(): boolean
-  /** The page as it shows now, Adam's unsaved typing included, as it would be saved: for snapshots. Null with no scene open. */
-  current(): { sceneId: ID; doc: unknown; text: string } | null
+  /**
+   * The page as it shows now, Adam's unsaved typing included, as it would be saved: for snapshots. Null
+   * with no scene open. With `sceneId`, that scene even while it is kept for its draft off screen.
+   */
+  current(sceneId?: ID): { sceneId: ID; doc: unknown; text: string } | null
   /**
    * Puts other text in place of the whole scene (a restored snapshot, a picked variant, another draft) as
    * one step Ctrl+Z takes back, and shows `message` (if given) in a message. Returns false

@@ -6,6 +6,7 @@
 
 import type { BeatStart } from '@shared/contracts/beats'
 import type { DraftOptions, ID } from '@shared/types'
+import { AUTO_LENGTH, cardLength } from '@shared/defaults'
 import * as repo from '../db/repo'
 import { newId, UserError } from '../util'
 import * as world from '../world'
@@ -62,9 +63,13 @@ export async function startBeat(
   try {
     let beats = beatsFor(sceneId, index)
     // The scene's length (from the draft options, else the scene card) is shared out between the beats.
-    const scene = cleanOptions(input.options, { targetWords: repo.getScene(db, sceneId).card.targetWords || 1500, creativity: 'balanced' })
+    // With Auto, each beat gets its share of a typical scene's length.
+    const scene = cleanOptions(input.options, { targetWords: cardLength(repo.getScene(db, sceneId).card), creativity: 'balanced' })
     const briefing = (catchUp: boolean): Promise<DraftBriefing> => {
-      const options: Partial<DraftOptions> = { ...input.options, targetWords: beatWords(scene.targetWords, beats.length) }
+      const options: Partial<DraftOptions> = {
+        ...input.options,
+        targetWords: beatWords(scene.targetWords ?? AUTO_LENGTH.typical, beats.length)
+      }
       return draftBriefing(sceneId, options, {
         extras: {
           final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds }),

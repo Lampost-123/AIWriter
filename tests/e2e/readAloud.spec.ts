@@ -11,6 +11,8 @@
 //  - Settings: the narrator's voices with Hear, Sample, picking another voice and the saved audio; Listen from here
 //    reads from the selected words in the voice picked.
 //  - Editing while it reads: the next lines are read as they now stand. Keep reading goes on into the next scene.
+//  - The bar names the chapter and scene it reads ("Chapter 1 · Scene 1"), and the binder marks that scene and its
+//    chapter with a speaker, moving with Keep reading into the next chapter.
 //  - Mark who says what: the AI's notes on each line reach the voice and the bar ("Mara · quiet and wary"), and
 //    keep ahead of the reading to the end of a long scene.
 //  - A line the rules can't place (someone outside the cast) is marked by the AI, with no voices of their own.
@@ -419,6 +421,65 @@ test('editing while it reads: the next lines are read as they now stand; Keep re
     expect(litAt(order, 'Morning came grey')).toBeGreaterThan(litAt(order, 'Not even the gulls.'))
     expect(bar).toContain('On to “Morning”…')
     expect((await spoken(speech)).some((s) => s.input.includes('Not even the gulls.'))).toBe(true)
+  } finally {
+    await speech.close()
+  }
+})
+
+test('the bar names the chapter and scene being read, and the binder marks them as reading moves on', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    const [story] = await invoke(win, 'listStories')
+    const crossing = await invoke(win, 'createChapter', story.id, { title: 'The Crossing' })
+    const ferry = await invoke(win, 'createScene', crossing.id, { title: 'The Ferry' })
+    await invoke(win, 'saveSceneText', ferry.id, null, SCENE.slice(2).join('\n\n'))
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+
+    const chapterRow = (title: string) => binder(win).locator('[data-row="chapter"]', { hasText: title })
+    const ferryRow = binder(win).locator('[data-row="scene"]', { hasText: 'The Ferry' })
+    const marks = binder(win).locator('[data-playing]')
+
+    await sceneRow(win).click()
+    await prose(win).click()
+    await win.keyboard.type(SCENE[0])
+    await win.keyboard.press('Enter')
+    await win.keyboard.type(SCENE[1])
+    await win.keyboard.press('Control+Home')
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Narrator', { timeout: 30_000 })
+    await win.keyboard.press('Control+l')
+    await expect(readingBar(win)).toContainText('Paused')
+
+    // The bar names what it reads; the binder marks the scene (a speaker over its status dot) and its chapter.
+    const place = readingBar(win).getByRole('button', { name: 'Chapter 1 · Scene 1' })
+    await expect(place).toBeVisible()
+    await expect(sceneRow(win).locator('[data-playing]')).toHaveAttribute('title', 'Reading aloud, paused')
+    await expect(chapterRow('Chapter 1').locator('[data-playing]')).toBeVisible()
+    await expect(marks).toHaveCount(2)
+    // Clicking the name keeps the scene open, with the line being read in view.
+    await place.click()
+    await expect(prose(win)).toContainText(SCENE[1])
+    await expect(highlight(win).first()).toBeInViewport()
+
+    // Keep reading goes on into the next chapter: the bar and the marks go with it.
+    await readingBar(win).getByRole('button', { name: /^Carry on/ }).click()
+    const next = readingBar(win).getByRole('button', { name: 'Chapter 2 · The Ferry' })
+    await expect(next).toBeVisible({ timeout: 30_000 })
+    // The chapter's own title is in its tooltip.
+    await expect(next).toHaveAttribute('title', /^Chapter 2: The Crossing · The Ferry[.,]/)
+    await expect(ferryRow.locator('[data-playing]')).toHaveAttribute('title', 'Playing aloud')
+    await expect(chapterRow('The Crossing').locator('[data-playing]')).toBeVisible()
+    await expect(marks).toHaveCount(2)
+
+    // Stopped, nothing is marked as playing.
+    await win.keyboard.press('Control+Shift+Space')
+    await expect(readingBar(win)).toContainText('Stopped.')
+    await expect(marks).toHaveCount(0)
   } finally {
     await speech.close()
   }

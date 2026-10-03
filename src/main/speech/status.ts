@@ -76,6 +76,10 @@ export interface StatusParts {
   picked: 'none' | DictationModel
   installed: SpeechStatus['installed']
   nvidia: string | null
+  /** The card's memory (MiB) and compute capability, when nvidia-smi said. */
+  card?: { memoryMb: number | null; computeCap: number | null }
+  /** Free bytes on the disk the speech folder is on; null when unknown. */
+  freeSpace?: number | null
   download: SpeechDownload | null
   queued: SpeechDownloadKind[]
   hfKey: boolean
@@ -112,6 +116,9 @@ export function buildStatus(p: StatusParts): SpeechStatus {
     },
     device: h ? deviceName(h.device) : '',
     nvidia: p.nvidia,
+    nvidiaMemoryMb: p.card?.memoryMb ?? null,
+    nvidiaComputeCap: p.card?.computeCap ?? null,
+    freeSpace: p.freeSpace ?? null,
     download: p.download,
     queued: p.queued,
     hfKey: p.hfKey,
