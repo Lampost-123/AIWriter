@@ -10,15 +10,16 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDownToLine, ChevronDown, RefreshCw, Sparkles, Square } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Creativity, ID } from '@shared/types'
-import { CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button, Field, Input, Textarea, toast } from '@/components/ui'
+import { AUTO_LENGTH, cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
+import { Button, Field, Textarea, toast } from '@/components/ui'
 import { api, modKey } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { escapeTaken } from '@/lib/escape'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
-import { BLANK_DRAFT_OPTIONS, type SceneDraftOptions } from './draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftLength, type SceneDraftOptions } from './draftOptions'
+import { LengthField } from './LengthField'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft } from './draftRun'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { costLabel } from '@/features/variants/cost'
@@ -120,8 +121,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   // Kept in the store (each scene's own), so the Context tab previews the briefing with the same options.
   const opts = useApp((s) => s.draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS)
-  const [lengthText, setLengthText] = useState('')
-  const [cardWords, setCardWords] = useState<number | null>(null)
+  /** The scene card's length: a word count, null for Auto, undefined until loaded. */
+  const [cardWords, setCardWords] = useState<number | null | undefined>(undefined)
   /** The scene card says what happens (beats, a goal, an outcome or notes). Null until loaded. */
   const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
   /** The page already has writing on it, so Generate asks whether the new draft replaces it or goes after it. */
@@ -148,7 +149,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const popoverRef = useRef(popover)
   popoverRef.current = popover
   const creativity = opts.creativity ?? defaultCreativity
-  const targetWords = opts.targetWords ?? cardWords
+  /** The length this draft will aim for; null is Auto. */
+  const targetWords = draftLength(opts, cardWords ?? null)
 
   const openSettings = useCallback(() => {
     setPopover(null)
@@ -167,7 +169,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         .getScene(sceneId)
         .then((s) => {
           if (s.id !== sceneId) return
-          setCardWords(s.card.targetWords)
+          setCardWords(cardLength(s.card))
           const c = s.card
           setCardPlanned(c.beats.some((b) => b.trim() !== '') || [c.goal, c.outcome, c.notes].some((t) => t.trim() !== ''))
         })
@@ -177,16 +179,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   )
 
   useEffect(() => {
-    setCardWords(null)
+    setCardWords(undefined)
     setCardPlanned(null)
     setEstimate(null)
     lastCardLoad.current = 0
     loadCard(true)
   }, [sceneId, loadCard])
-
-  useEffect(() => {
-    setLengthText(targetWords != null ? String(targetWords) : '')
-  }, [targetWords])
 
   // Another scene: a question about the last one's text no longer applies.
   useEffect(() => setPopover((p) => (p === 'choose' ? null : p)), [sceneId])
@@ -206,7 +204,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const hasPrices = promptPrice != null && completionPrice != null
   const writerKey = writer ? `${writer.providerId}/${writer.modelId}/${writer.contextLength ?? ''}` : null
   useEffect(() => {
-    if (!writerKey || !hasPrices || targetWords == null) {
+    if (!writerKey || !hasPrices || cardWords === undefined) {
       setEstimate(null)
       return
     }
@@ -214,14 +212,15 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     const t = setTimeout(() => {
       api
         .previewContext(sceneId, { direction: opts.direction, targetWords, creativity })
-        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords, { promptPrice, completionPrice })))
+        // Auto is estimated at a typical scene's length.
+        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords ?? AUTO_LENGTH.typical, { promptPrice, completionPrice })))
         .catch(() => live && setEstimate(null))
     }, 400)
     return () => {
       live = false
       clearTimeout(t)
     }
-  }, [sceneId, writerKey, hasPrices, promptPrice, completionPrice, targetWords, opts.direction, creativity, estimateRev])
+  }, [sceneId, writerKey, hasPrices, promptPrice, completionPrice, cardWords, targetWords, opts.direction, creativity, estimateRev])
 
   // ---------- Streaming ----------
 
@@ -560,37 +559,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
                 </p>
               ) : null}
-              <div className="flex items-end gap-3">
-                <Field label="Length" className="w-[132px]">
-                  {(id) => (
-                    <div className="relative">
-                      <Input
-                        id={id}
-                        inputMode="numeric"
-                        value={lengthText}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/[^\d]/g, '').slice(0, 5)
-                          setLengthText(v)
-                          const n = parseInt(v, 10)
-                          if (n >= 100) updateOpts({ targetWords: Math.min(n, 12000) })
-                        }}
-                        onBlur={() => setLengthText(targetWords != null ? String(targetWords) : '')}
-                        className="pr-12 tabular-nums"
-                      />
-                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-faint">words</span>
-                    </div>
-                  )}
-                </Field>
-                <div className="mb-[7px] min-w-0 text-[12px]">
-                  {opts.targetWords == null || opts.targetWords === cardWords ? (
-                    <span className="text-faint">From the scene card</span>
-                  ) : cardWords != null ? (
-                    <button type="button" className="text-accent hover:underline" onClick={() => updateOpts({ targetWords: null })}>
-                      Use the card's {cardWords.toLocaleString()}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+              <LengthField value={opts.targetWords} cardWords={cardWords} onChange={(targetWords) => updateOpts({ targetWords })} />
               <div className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-medium text-muted">Creativity</span>
                 {fixedCreativity ? (

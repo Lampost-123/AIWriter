@@ -297,8 +297,9 @@ test('problems starting or writing variants are said in plain words, with the wa
     await column(win, 1).getByRole('button', { name: 'Change the length' }).click()
     const length = win.getByLabel('Length of each')
     await expect(length).toBeFocused()
-    // The scene card's length shows, selected, so typing replaces it.
-    await expect(length).toHaveValue('1500')
+    // The scene card is on Auto: the box is empty, so typing sets a length.
+    await expect(length).toHaveValue('')
+    await expect(length).toHaveAttribute('placeholder', 'Auto')
     const allSelected = () =>
       length.evaluate((el) => {
         const input = el as unknown as { selectionStart: number | null; selectionEnd: number | null; value: string }

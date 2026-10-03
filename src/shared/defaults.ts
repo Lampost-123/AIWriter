@@ -1,5 +1,26 @@
 import type { SceneCard, Settings, SpeechSettings, StyleGuide, WritingPrefs } from './types'
 
+/**
+ * Auto length: the AI picks the length a scene needs, within these limits (words). Most scenes run
+ * 1,000 to 3,000 words; 800 keeps a scene from coming back as a fragment, and 4,000 is a long scene
+ * that still fits most writer models' reply limit in one go. The briefing keeps room for the longest
+ * (max + 40%); a model with less room gets a lower ceiling, never under min. `typical` stands in for
+ * Auto wherever a number is needed: cost estimates, and sharing a scene out between its beats.
+ */
+export const AUTO_LENGTH = { min: 800, max: 4000, typical: 2000 } as const
+
+/** The scene card's length before Auto existed; a card saved with it (and no lengthSet) reads as Auto. */
+export const OLD_DEFAULT_LENGTH = 1500
+
+/** The scene card's length: its word count when Adam set one, else null (Auto). */
+export function cardLength(card: Pick<SceneCard, 'targetWords' | 'lengthSet'> | null | undefined): number | null {
+  if (!card) return null
+  const words = Number(card.targetWords)
+  if (!Number.isFinite(words) || words <= 0) return null
+  const set = card.lengthSet ?? words !== OLD_DEFAULT_LENGTH
+  return set ? Math.round(words) : null
+}
+
 export const emptySceneCard = (): SceneCard => ({
   povId: null,
   presentIds: [],
@@ -10,6 +31,7 @@ export const emptySceneCard = (): SceneCard => ({
   conflict: '',
   outcome: '',
   mood: '',
+  // Auto until Adam sets a length (lengthSet is left out so older cards keep theirs: see cardLength).
   targetWords: 1500,
   notes: '',
   whenSort: null,

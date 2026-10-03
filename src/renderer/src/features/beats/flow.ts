@@ -23,6 +23,7 @@ import { ReplaceStep } from '@tiptap/pm/transform'
 import type { AppEvents } from '@shared/api'
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { ID } from '@shared/types'
+import { cardLength } from '@shared/defaults'
 import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
 import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
@@ -413,7 +414,7 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     await flushAll()
     const card = (await api.getScene(s.sceneId)).card
     const app = useApp.getState()
-    const options = resolveDraftOptions(app.draftOptions[s.sceneId], card.targetWords, app.settings?.creativity ?? 'balanced')
+    const options = resolveDraftOptions(app.draftOptions[s.sceneId], cardLength(card), app.settings?.creativity ?? 'balanced')
     if (r.cancelled) return giveUp()
     const { generationId, of } = await api.startBeat({ sceneId: s.sceneId, sessionId: s.id, index, options, steer, soFar, soFarEnds })
     if (r.cancelled || run !== r) {

@@ -209,8 +209,10 @@ test('a length the model cannot write is refused before anything is sent', async
     const { win } = await launch()
     await createWorldFromWelcome(win, 'Alpha')
     const sceneId = await firstScene(win)
+    // A new scene's length is Auto.
+    await expect(win.getByRole('group', { name: 'Quick lengths' }).getByRole('button', { name: 'Auto' })).toHaveAttribute('aria-pressed', 'true')
     const scene = await invoke(win, 'getScene', sceneId)
-    await invoke(win, 'updateSceneCard', sceneId, { ...scene.card, targetWords: 6000 })
+    await invoke(win, 'updateSceneCard', sceneId, { ...scene.card, targetWords: 6000, lengthSet: true })
     await useWriter(win, fake, 'fake/writer', 8192)
 
     await generateButton(win).click()
@@ -218,6 +220,20 @@ test('a length the model cannot write is refused before anything is sent', async
     expect(chatRequests(fake)).toBe(0)
     await toasts(win).getByRole('button', { name: 'Draft options' }).click()
     await expect(win.getByRole('heading', { name: 'Draft options' })).toBeVisible()
+
+    // Emptying the length box goes back to Auto, which comes down to what this model can write.
+    const length = win.getByRole('dialog').getByLabel('Length', { exact: true })
+    await expect(length).toHaveValue('6000')
+    await length.fill('')
+    await expect(length).toHaveAttribute('placeholder', 'Auto')
+    await expect(win.getByText('Auto: the AI picks the length the scene needs.')).toBeVisible()
+    await expect(win.getByRole('button', { name: "Use the card's 6,000" })).toBeVisible()
+    await win.keyboard.press('Escape')
+    await generateButton(win).click()
+    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status).toBe('complete')
+    const rec = await invoke(win, 'getGeneration', (await invoke(win, 'listGenerations', sceneId))[0].id)
+    expect(rec.params.autoLength).toBe(true)
+    expect(rec.messages[1].content).toMatch(/between 800 and [\d,]+ words/)
   } finally {
     await fake.close()
   }
