@@ -545,7 +545,10 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a
   variant's too), so they never reach the page, the record or the word count; `onSpeakers` hands what they said to
   `noteWriterSpeakers` (`readAloud/index.ts`), which puts them on the new paragraphs' quotes as marks
-  (`writerMarks`). Only what the writer didn't say is left to the AI's marking.
+  (`writerMarks`). With Mark who says what, the writer notes the narration's mood too (`{~hushed}`,
+  `NARRATION_TAG_LINE`). What the writer didn't write (Adam's own words, older drafts, a line it left untagged) is
+  marked by the writer model as well, without thinking (`askFor`); the Read aloud model only suggests voices (and
+  marks sound effects).
 - **Speakers the rules only guess** (a name nearby, turn-taking) are checked by the AI and wait for its answer; only
   a dialogue tag is taken without asking. A name the AI writes a little differently ("Adam (whispering)", "Adam
   Reyes" for a page called Adam) is still that character (`memberNamed`).

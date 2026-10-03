@@ -55,7 +55,9 @@ export async function assemble(
   })
   // With reading aloud on, the writer says who speaks each line as it writes (ai/speakerTags.ts).
   const speech = settings.speech
-  const prepared = prepareContext(input, { ...extras, speakerTags: !!(speech?.readAloud || speech?.showSpeakers) })
+  // With Mark who says what, how the narration is read too.
+  const tags = speech?.readAloud || speech?.showSpeakers ? { narration: !!speech.markSpeakers } : undefined
+  const prepared = prepareContext(input, { ...extras, speakerTags: tags })
   const counts = await countCached(prepared.texts)
   return { input, preview: finishContext(prepared, counts) }
 }

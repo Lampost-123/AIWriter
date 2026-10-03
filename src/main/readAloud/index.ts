@@ -71,9 +71,11 @@ const modelSources = (): Parameters<typeof jobModel>[1] => ({
 function askFor(sceneId: ID): { call: Ask; stop: () => void } | { error: string } {
   const open = world.maybeCurrentWorld()
   if (!open) return { error: 'No world is open.' }
+  // Who says each line and how is the writer's to say (Adam, 2026-10-04): what it didn't write itself (Adam's own
+  // words, older drafts, a line it left untagged) is marked by the writer model too, without thinking (a quick job).
   let model: JobModel
   try {
-    model = jobModel('speech', modelSources())
+    model = { ...jobModel('writer', modelSources()), thinking: 'off' }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
   }
@@ -153,7 +155,17 @@ function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: 
     const speakers: Record<string, string> = {}
     const delivery: Record<string, LineDelivery> = {}
     for (const q of spansIn(p.text)) {
-      if (!q.quote || had?.speakers?.[q.key] !== undefined || speakers[q.key] !== undefined) continue
+      // A sentence of narration: how the narrator reads it.
+      if (!q.quote) {
+        if (had?.delivery?.[q.key] !== undefined || delivery[q.key] !== undefined) continue
+        const n = given.findIndex((g) => g.key === q.key)
+        if (n < 0) continue
+        const [g] = given.splice(n, 1)
+        const { how } = readMark(`narration | ${g.tone}`)
+        if (how) delivery[q.key] = how
+        continue
+      }
+      if (had?.speakers?.[q.key] !== undefined || speakers[q.key] !== undefined) continue
       const i = given.findIndex((g) => g.key === q.key)
       if (i < 0) continue
       const [g] = given.splice(i, 1)
@@ -162,7 +174,7 @@ function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: 
       // With Mark who says what, a line the writer gave no note on how it is said is left for the AI to note.
       if (how || !tone) delivery[q.key] = how ?? {}
     }
-    if (!Object.keys(speakers).length) continue
+    if (!Object.keys(speakers).length && !Object.keys(delivery).length) continue
     const block = withLabels({ id: p.pid, text: p.text, ...had }, speakers)
     blocks.push({ ...block, delivery: { ...delivery, ...(had?.delivery ?? {}) } })
   }
