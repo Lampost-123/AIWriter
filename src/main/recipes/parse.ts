@@ -53,7 +53,7 @@ export function parseRecipe(text: string): ParsedRecipe {
     }
     if (!current) {
       const n = /^\s*(?:\*\*)?name(?:\*\*)?\s*:\s*(.+)$/i.exec(line)
-      if (n && !name) name = n[1].replace(/\*\*/g, '').replace(/^["“]|["”]$/g, '').trim()
+      if (n && !name) name = n[1].replace(/\*\*/g, '').trim().replace(/^["“]|["”]$/g, '').trim()
       continue
     }
     parts[current]!.push(line)

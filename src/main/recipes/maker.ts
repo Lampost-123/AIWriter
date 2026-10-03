@@ -73,6 +73,8 @@ export const fallbackName = (chapters: number): string => `A story in ${chapters
 
 export class RecipeMaker {
   private loop: Promise<void> | null = null
+  /** The recipe being made now, until it ends (finished, paused or stopped). */
+  private making: Promise<void> | null = null
   private current: { id: string; step: RecipeMaking['step']; chapter: number; chapters: number; controller: AbortController } | null = null
   private stopping = new Set<string>()
   private closed = false
@@ -188,7 +190,7 @@ export class RecipeMaker {
       this.stopping.add(id)
       this.current.controller.abort()
       this.tell()
-      await this.loop
+      await this.making
       this.stopping.delete(id)
     }
     const files = this.d.files()
@@ -231,7 +233,10 @@ export class RecipeMaker {
       if (!files) return
       const next = this.queue(files).find((r) => r.status === 'making')
       if (!next) return
-      await this.make(files, next)
+      this.making = this.make(files, next)
+      await this.making
+      this.making = null
+      this.current = null
     }
   }
 
@@ -271,9 +276,10 @@ export class RecipeMaker {
       this.finish(files, r.id, src, fixed, name, removed)
     } catch (e) {
       if (!(e instanceof Halt)) throw e
-      // Stopped by Adam (stop or cancel): stop() says so. Closing: left as it was, to carry on next time.
-      if (this.closed || this.stopping.has(r.id)) return
-      this.pause(files, r.id, e.problem ?? STOPPED, e.held)
+      // Closing: left as it was, to carry on next time. Stopped by Adam (stop or cancel): it waits for Try again.
+      if (this.closed) return
+      if (this.stopping.has(r.id)) this.pause(files, r.id, STOPPED, 'adam')
+      else this.pause(files, r.id, e.problem ?? STOPPED, e.held)
     }
   }
 

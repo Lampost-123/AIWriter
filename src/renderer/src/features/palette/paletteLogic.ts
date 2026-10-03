@@ -355,8 +355,8 @@ export const ACTIONS: ActionDef[] = [
   },
   { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
   // Story recipes
-  { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure themes style shape beats template', away: true },
-  { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book themes style structure distil', away: true }
+  { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },
+  { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book style structure distil', away: true }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */
