@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { getSchema } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { sceneExtensions } from '@/features/editor/extensions'
-import { blockIndexAt, draftPlace, findDraft, withPolish } from './polish'
+import { looksLikeRefusalReply } from '@shared/refusal'
+import { cleanReply } from '@/features/edits/text'
+import { blockIndexAt, draftPlace, findDraft, polishable, polishedScene, withPolish } from './polish'
 
 const schema = getSchema(sceneExtensions())
 const { paragraph: p, horizontalRule: hr } = schema.nodes
@@ -54,5 +56,34 @@ describe('the polish pass in the page', () => {
   it('has nothing to polish when no words arrived', () => {
     expect(draftPlace(docOf(para('Mine.'), hr.create()), 1, true)).toBeNull()
     expect(draftPlace(docOf(para('')), 0, false)).toBeNull()
+  })
+
+  it('polishes a draft meant to replace the scene only if it did', () => {
+    expect(polishable(false, false)).toBe(true)
+    expect(polishable(true, true)).toBe(true)
+    // Only a lead-in arrived, so the old text was put back: that is Adam's, not the draft.
+    expect(polishable(true, false)).toBe(false)
+  })
+})
+
+describe('the polished version', () => {
+  const draft =
+    'Mara set the lantern down on the jetty and listened. The river kept its own counsel, slow and brown.\n\n"Again," said the ferryman, and held out his hand.'
+  const revised = 'Mara set the lantern on the jetty and listened. The river kept its counsel, slow and brown.\n\n"Again," the ferryman said, and held out his hand.'
+  const polished = (reply: string) => polishedScene(cleanReply(reply, true), draft, looksLikeRefusalReply)
+
+  it('is offered as it came, without a lead-in or the notes after it', () => {
+    expect(polished(revised)).toEqual({ text: revised })
+    expect(polished(`Here's the revised scene:\n\n${revised}`)).toEqual({ text: revised })
+    expect(polished(`${revised}\n\nChanges made:\n- Cut "own".\n- Moved the tag.`)).toEqual({ text: revised })
+    expect(polished(`${revised}\n\n---\n**Notes:** tightened the opening.`)).toEqual({ text: revised })
+    expect(polished(`${revised}\n\n## Changes\n- Fewer words.`)).toEqual({ text: revised })
+  })
+
+  it('keeps the draft when the reply is a refusal, much shorter, or empty', () => {
+    expect(polished("I'm sorry, but I can't help with this request.")).toEqual({ problem: 'refused' })
+    expect(polished('Mara set the lantern down.')).toEqual({ problem: 'short' })
+    expect(polished('Changes made: none.')).toEqual({ problem: 'short' })
+    expect(polished('')).toEqual({ problem: 'empty' })
   })
 })

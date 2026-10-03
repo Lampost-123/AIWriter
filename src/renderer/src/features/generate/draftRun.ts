@@ -16,7 +16,7 @@ import { snapshotBefore } from '@/features/history/snapshot'
 import { openScene } from '@/features/memory/openScene'
 import { activeStream } from '@/features/editor/streamDoc'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
-import { blockIndexAt, draftPlace } from './polish'
+import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
 import { cardLength } from '@shared/defaults'
 
@@ -133,7 +133,7 @@ function finish(p: AppEvents['generation:done']): void {
   const stream = toPolish && editor && r.bridge.sceneId === r.sceneId ? activeStream(editor.state) : null
   const start =
     stream && editor && stream.generationId === p.generationId
-      ? { index: blockIndexAt(editor.state.doc, stream.from), breakAdded: !!stream.breakAdded }
+      ? { index: blockIndexAt(editor.state.doc, stream.from), breakAdded: !!stream.breakAdded, replace: !!stream.replace }
       : null
   const { replaced, away } = r.bridge.endStream(p.generationId, { failed })
   run = null
@@ -164,8 +164,8 @@ function finish(p: AppEvents['generation:done']): void {
     // Polishing needs the draft in front of it, so a draft that finished in another scene isn't polished.
     const unpolished = toPolish ? ' It wasn’t polished, because you were in another scene when it finished.' : ''
     toast(done + unpolished + oldText, { action: { label: 'Show', run: showScene(r.sceneId) } })
-  } else if (toPolish) {
-    const place = start && editor && !editor.isDestroyed ? draftPlace(editor.state.doc, start.index, start.breakAdded) : null
+  } else if (toPolish && start && polishable(start.replace, replaced)) {
+    const place = editor && !editor.isDestroyed ? draftPlace(editor.state.doc, start.index, start.breakAdded) : null
     if (place) void startPolish({ sceneId: r.sceneId, draftId: p.generationId, place })
   }
 }

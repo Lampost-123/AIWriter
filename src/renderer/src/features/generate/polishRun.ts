@@ -14,7 +14,8 @@ import { useOutlineStore } from '@/features/binder/outlineStore'
 import { openScene } from '@/features/memory/openScene'
 import { showReplacement, waitingSuggestion } from '@/features/edits/session'
 import { cleanReply } from '@/features/edits/text'
-import { findDraft, lastPolish, rememberPolish, type DraftPlace } from './polish'
+import { looksLikeRefusalReply } from '@shared/refusal'
+import { findDraft, lastPolish, polishedScene, rememberPolish, type DraftPlace } from './polish'
 
 interface PolishState {
   /** "Polish after drafting" is on. */
@@ -134,11 +135,21 @@ function finish(d: TaskDone): void {
     toast('The polish pass ran out of room before the end of the scene, so the draft is kept as it was.', { action: record })
     return
   }
-  const text = cleanReply(d.text, true)
-  if (!text.trim()) {
-    toast('The polish pass sent nothing back, so the draft is kept as it was.', { action: record })
+  // Only a whole scene stands in for the draft: not a refusal, nor a reply missing much of it. Notes about the
+  // changes after the scene are left out.
+  const polished = polishedScene(cleanReply(d.text, true), l.place.text, looksLikeRefusalReply)
+  if ('problem' in polished) {
+    toast(
+      polished.problem === 'refused'
+        ? 'The writer model wouldn’t polish this draft, so it is kept as it was.'
+        : polished.problem === 'short'
+          ? 'The polished version left out much of the scene, so the draft is kept as it was.'
+          : 'The polish pass sent nothing back, so the draft is kept as it was.',
+      { action: record }
+    )
     return
   }
+  const text = polished.text
   if (put(l, text, d.generationId)) return
   // Adam is in another scene: the revision waits until he goes back to it.
   const name = titled(l.sceneId)

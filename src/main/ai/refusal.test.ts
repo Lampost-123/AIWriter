@@ -58,10 +58,20 @@ describe('the refusal note at strong content levels', () => {
   })
 
   it('tells refusals from scenes', () => {
+    expect(looksLikeRefusalReply("I'm sorry, but I can't write that scene.")).toBe(true)
+    expect(looksLikeRefusalReply("I can't help with this request.")).toBe(true)
     expect(looksLikeRefusalReply("I can't help with that request.")).toBe(true)
     expect(looksLikeRefusalReply('I apologise, but I won’t write explicit content.')).toBe(true)
-    expect(looksLikeRefusalReply('Sorry, but I must decline this one.')).toBe(true)
+    expect(looksLikeRefusalReply('Sorry, but I must decline: this goes against my guidelines.')).toBe(true)
     expect(looksLikeRefusalReply('As an AI, I have to keep things suitable for everyone.')).toBe(true)
+    expect(looksLikeRefusalReply("I'm not able to write that.")).toBe(true)
+    // Short prose that merely opens like an apology or a refusal is a scene.
+    expect(looksLikeRefusalReply('“I’m sorry,” Mara whispered.')).toBe(false)
+    expect(looksLikeRefusalReply('Sorry I’m late, he said.')).toBe(false)
+    expect(looksLikeRefusalReply('I can’t go back there.')).toBe(false)
+    expect(looksLikeRefusalReply('I have to help her, I thought.')).toBe(false)
+    expect(looksLikeRefusalReply('I’m afraid of the water.')).toBe(false)
+    expect(looksLikeRefusalReply('"I can’t write this scene," the playwright said.')).toBe(false)
     expect(looksLikeRefusalReply('The lamp burned low. Mara counted the coins twice.')).toBe(false)
     expect(looksLikeRefusalReply('')).toBe(false)
     expect(looksLikeRefusalReply(`I can't write this letter, I thought. ${'The ink had dried on the nib. '.repeat(20)}`)).toBe(false)

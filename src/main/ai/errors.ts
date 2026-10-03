@@ -2,7 +2,7 @@
 // step. Pure: every message Adam can see from the model connection is here.
 
 import type { ContentIntensity, ProviderKind } from '@shared/types'
-import { countWords } from '@shared/defaults'
+import { looksLikeRefusalReply } from '@shared/refusal'
 import { INTENSITY, intensityHigh, type IntensityScale } from '@shared/intensity'
 import { isLocalUrl } from '@shared/urls'
 
@@ -282,17 +282,7 @@ export function networkCode(err: unknown): string | null {
 
 // ---------- Refusals at strong content levels (the style guide's Content intensity) ----------
 
-/**
- * A reply that is plainly the model declining rather than writing: short, and opening with an apology or
- * "I can't write that". A scene that merely starts with a line like that runs much longer, so it never counts.
- */
-export function looksLikeRefusalReply(text: string): boolean {
-  const t = text.trim().replace(/^[*_"“\s]+/, '')
-  if (!t || countWords(t) > 80) return false
-  return /^(?:I['’]?m (?:sorry|afraid|not able|unable|not comfortable)|I am (?:sorry|afraid|not able|unable|not comfortable)|(?:my )?apologies|I apologi[sz]e|sorry,? (?:but )?I|unfortunately,? I|I can(?:['’]?t|not) (?:help|write|assist|create|produce|provide|continue|fulfil|fulfill|comply|do that|generate|engage|go)|I (?:won['’]?t|will not|must|have to|need to) (?:write|help|assist|create|produce|provide|continue|decline|generate)|I(?:['’]ll| will) have to decline|As an AI)/i.test(
-    t
-  )
-}
+export { looksLikeRefusalReply }
 
 /** What each content scale is called in the refusal note. */
 const SCALE_WORDS: Record<IntensityScale, string> = { romance: 'romance', violence: 'violence', language: 'swearing' }

@@ -4,6 +4,7 @@
 // takes the place of the draft only while the draft is still exactly as it was written.
 
 import type { Node as PMNode } from '@tiptap/pm/model'
+import { countWords } from '@shared/defaults'
 import { textOf } from '@/features/edits/text'
 
 const POLISH_KEY = 'aiwrite.draft.polish'
@@ -27,6 +28,12 @@ export function rememberPolish(on: boolean): void {
 
 /** A draft's estimated cost with the polish pass: the pass reads the draft and writes it again, so about twice. */
 export const withPolish = (estimate: number, polish: boolean): number => (polish ? estimate * 2 : estimate)
+
+/**
+ * Whether a finished draft is there to polish: one meant to replace the scene's text counts only if it did
+ * (when only a lead-in arrived, the old text is put back, and that is Adam's own writing, not the draft).
+ */
+export const polishable = (replaceMode: boolean, replaced: boolean): boolean => !replaceMode || replaced
 
 /** Where a finished draft is in the page: from top-level block `index` to the end. */
 export interface DraftPlace {
@@ -84,4 +91,37 @@ export function findDraft(doc: PMNode, place: DraftPlace): { from: number; to: n
   const last = doc.child(doc.childCount - 1)
   if (!first.isTextblock || !last.isTextblock) return 'gone'
   return { from: start + 1, to: doc.content.size - 1 }
+}
+
+/** A polished version shorter than this share of the draft's words is taken to have lost part of the scene. */
+export const POLISH_MIN_SHARE = 0.6
+
+/** A line that starts the model's own notes after the scene: "Changes made:", "**Notes:**", "Summary of changes". */
+const NOTES_LINE =
+  /^[ \t]*(?:[-=*_]{3,}[ \t]*\n[ \t]*)?(?:#{1,4}[ \t]*)?(?:\*\*|__)?(?:changes(?: made)?|notes?|edits?(?: made)?|revisions?(?: made)?|summary of (?:changes|edits)|what (?:I|was) changed|key changes|editor['’]?s notes?)(?:\*\*|__)?[ \t]*(?::(?:\*\*|__)?[^\n]*)?$/im
+
+/**
+ * The polished scene to offer in place of the draft, from the polish pass's reply (already without a lead-in:
+ * cleanReply): a trailing block of notes about the changes is taken off. Null, with the reason, when it
+ * can't stand in for the draft: a refusal, or far shorter than the draft (part of the scene is missing).
+ */
+export function polishedScene(reply: string, draft: string, isRefusal: (text: string) => boolean): { text: string } | { problem: 'refused' | 'short' | 'empty' } {
+  let text = reply.replace(/\r\n?/g, '\n').trim()
+  // Notes after the scene start on a line of their own, after a blank line (or a rule).
+  const notes = /\n[ \t]*\n/.exec(text) ? findNotes(text) : -1
+  if (notes > 0) text = text.slice(0, notes).replace(/\n[ \t]*[-=*_]{3,}[ \t]*$/, '').trim()
+  if (!text) return { problem: 'empty' }
+  if (isRefusal(text)) return { problem: 'refused' }
+  if (countWords(text) < countWords(draft) * POLISH_MIN_SHARE) return { problem: 'short' }
+  return { text }
+}
+
+/** Where the notes block starts (a position in `text`), or -1. Only a heading line after a blank line counts. */
+function findNotes(text: string): number {
+  const re = new RegExp(NOTES_LINE.source, 'gim')
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const before = text.slice(0, m.index)
+    if (m.index > 0 && /\n[ \t]*\n[ \t]*$/.test(before)) return m.index
+  }
+  return -1
 }
