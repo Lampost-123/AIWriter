@@ -96,8 +96,11 @@ const FIELDS: [string, string][] = [
   ['tics', 'VERBAL TICS']
 ]
 
-/** Asks for a voice description from what the world knows about a character. */
-export function voicePrompt(entry: Entry, lines: string[], current: string): ChatMessage[] {
+/**
+ * Asks for a voice description from what the world knows about a character. With `say`, it also asks how the name
+ * is said, as a last "SAY IT AS:" line, only when a narrator would likely misread it (readVoiceReply reads both).
+ */
+export function voicePrompt(entry: Entry, lines: string[], current: string, opts: { say?: boolean } = {}): ChatMessage[] {
   const field = (key: string): string => (entry.fields[key] ?? '').trim()
   const samples = field('sampleLines')
     .split('\n')
@@ -112,7 +115,8 @@ export function voicePrompt(entry: Entry, lines: string[], current: string): Cha
         'You write voice descriptions for a text-to-speech voice designer. From what is known about a character, describe how their voice sounds: ' +
         'apparent age and gender, pitch and register, texture (breathy, gravelly, clear, nasal), accent, pace, and the mood it usually carries. ' +
         'One or two sentences, at most 40 words, in plain English, like "A woman in her sixties with a low, smoky voice, a soft Scottish accent and a slow, amused delivery." ' +
-        'Describe the sound only, not the plot or what they say. Output only the description.'
+        'Describe the sound only, not the plot or what they say. ' +
+        (opts.say ? SAY_RULE : 'Output only the description.')
     },
     {
       role: 'user',
@@ -128,6 +132,63 @@ export function voicePrompt(entry: Entry, lines: string[], current: string): Cha
         .join('\n\n')
     }
   ]
+}
+
+/** How the name is said, asked for with the voice when the AI fills in a character by itself (autoVoice.ts). */
+const SAY_RULE =
+  'Then, only if a narrator reading the name aloud would likely say it wrong, add one last line on its own: SAY IT AS: and a respelling ' +
+  'with the stressed part in capitals, like "SAY IT AS: shiv-AWN" for Siobhan. For a name of more than one word, give pairs for just the ' +
+  'words that need one, like "SAY IT AS: Siobhan = shiv-AWN; Nguyen = win". Most names need none (Tom, Elena, Marcus, Brann, Mara): ' +
+  'then leave that line out. Output only the description, and that line when it is needed.'
+
+/** The "SAY IT AS:" line in a reply, however the AI dressed it (bold, a bullet, a dash for the colon). */
+const SAY_LINE = /^[ \t*_>#-]*say it as[ \t*_]*[:\uFF1A\u2013\u2014-][ \t*_]*(.*)$/im
+
+/** A name as letters and digits only, to compare spellings ("Mara-Lee" and "maralee" are the same). */
+const bare = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+
+/**
+ * "Say it as" as the AI wrote it, or '' when it gave none worth keeping: "none", the name as it is spelled, pairs
+ * for words that aren't in the name, or one respelling that doesn't match a name of several words.
+ */
+export function cleanSay(raw: string, entry: Pick<Entry, 'name' | 'aliases'>): string {
+  const say = raw
+    .trim()
+    .replace(/^[\s*_"“'‘`]+|[\s*_"”'’`.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!say || say.length > 120 || !/\p{L}/u.test(say)) return ''
+  if (/^(?:none|n\/?a|nothing|no|not needed|no need|-)$/i.test(say)) return ''
+  const names = [entry.name, ...entry.aliases].map((n) => n.trim()).filter(Boolean)
+  if (names.some((n) => bare(n) === bare(say))) return ''
+  if (say.includes('=')) {
+    const words = new Set(
+      names
+        .flatMap((n) => [n, ...n.split(/\s+/)])
+        .map(bare)
+        .filter(Boolean)
+    )
+    return say
+      .split(/;+/)
+      .flatMap((pair) => {
+        const [word, as] = pair.split('=').map((x) => x.trim())
+        return word && as && words.has(bare(word)) && bare(word) !== bare(as) ? [`${word} = ${as}`] : []
+      })
+      .join('; ')
+      .slice(0, 200)
+  }
+  // One respelling stands for the whole name, so for a name of several words it must say every one of them.
+  const parts = (s: string): number => s.split(/\s+/).filter(Boolean).length
+  const words = parts(entry.name.trim())
+  return words <= 1 || parts(say) === words ? say.slice(0, 200) : ''
+}
+
+/** A reply to voicePrompt with `say`: the description, and how the name is said ('' when the AI gave none). */
+export function readVoiceReply(raw: string, entry: Pick<Entry, 'name' | 'aliases'>): { design: string; say: string } {
+  const m = SAY_LINE.exec(raw)
+  if (!m) return { design: cleanDesign(raw), say: '' }
+  const rest = raw.slice(0, m.index) + raw.slice(m.index + m[0].length)
+  return { design: cleanDesign(rest), say: cleanSay(m[1] ?? '', entry) }
 }
 
 /** The description as the AI wrote it, without quotes, labels or code fences around it. */

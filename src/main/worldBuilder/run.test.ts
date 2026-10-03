@@ -704,4 +704,21 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     expect(done.status).toBe('complete')
     expect(voiceOf(t.db, t.named('Mara Venn').id)).toBe('')
   })
+
+  it('gives a voice to a character it filled in as well as those it made', async () => {
+    const { db, erin } = withErin()
+    const t = setup({ db })
+    const asked: string[] = []
+    t.ctx.voiceModel = voiceModel()
+    t.ctx.fetchImpl = (input, init) => {
+      const who = isVoiceAsk(init)
+      if (who) asked.push(who)
+      return fetch(input, init)
+    }
+    const done = await t.build(SUMMARY)
+    expect(done.status).toBe('complete')
+    expect(asked).toEqual(['Mara Venn', 'Tobin', 'Erin'])
+    expect(voiceOf(t.db, erin.id)).toBe(VOICE)
+    expect(t.steps()).toContain('Giving the characters their voices: 3 of 3')
+  })
 })

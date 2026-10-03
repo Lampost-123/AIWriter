@@ -78,6 +78,8 @@ export interface JobContext {
   emit: Emit
   /** Quick start saved an entry: lists and pages showing it reload. */
   onSaved?: (entryId: ID) => void
+  /** A job ended, as 'builder:done' says (after it is sent): what comes after it (a character's voice) starts here. */
+  onDone?: (done: BuilderDone) => void
   /** The provider turned the key down, so Settings can show it isn't working. */
   onKeyRejected?: () => void
   /** For tests. */
@@ -284,7 +286,13 @@ function begin(ctx: JobContext, jobId: ID, job: BuilderJob, work: (run: Run) => 
     )
     .then((done) => {
       running.delete(jobId)
-      ctx.emit('builder:done', run.closed ? { ...done, status: 'stopped', error: null } : done)
+      const said: BuilderDone = run.closed ? { ...done, status: 'stopped', error: null } : done
+      ctx.emit('builder:done', said)
+      try {
+        ctx.onDone?.(said)
+      } catch (e) {
+        console.warn('Could not follow on from a builder job', e)
+      }
     })
 }
 
