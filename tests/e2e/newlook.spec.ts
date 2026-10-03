@@ -47,6 +47,12 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await expect(area(win, 'World')).toHaveAttribute('aria-current', 'page')
   await expect(list(win)).toHaveAttribute('data-area-list', 'world')
   await expect(list(win).getByRole('button', { name: /^Everything/ })).toHaveAttribute('aria-current', 'page')
+  // Codex cards: a card of paper with its kind's ink along the top, and the letter in that ink.
+  const wren = main(win).locator('[data-codex-card]').filter({ hasText: 'Wren Halloway' }).first()
+  await expect(wren.locator('span.bg-k-char')).toHaveCount(1)
+  expect(await win.evaluate<string>(`getComputedStyle(document.querySelector('[data-codex-card] .text-k-char')).color`)).not.toBe(
+    await win.evaluate<string>(`getComputedStyle(document.documentElement).getPropertyValue('--muted')`)
+  )
   await list(win).getByRole('button', { name: /^Characters/ }).click()
   await expect(list(win).getByRole('button', { name: /^Characters/ })).toHaveAttribute('aria-current', 'page')
   await expect(list(win).getByRole('button', { name: /^Characters/ })).toContainText('4')

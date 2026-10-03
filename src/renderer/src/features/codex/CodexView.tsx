@@ -10,6 +10,8 @@ import type { CodexCard } from '@shared/contracts/entryViews'
 import { Badge, Button, EmptyState, IconButton, Input, Notice, Select, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
+import { KIND_INK } from '@/features/world/kindIcons'
 import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
@@ -266,7 +268,7 @@ export function CodexView(): React.JSX.Element {
         <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
           <div className="min-w-[220px] flex-1">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">Codex</h1>
+              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg look-new:text-[30px]">Codex</h1>
               {all.length ? <span className="text-[13px] tabular-nums text-faint">{all.length}</span> : null}
             </div>
             <p className="mt-0.5 text-[13px] text-muted">Everything the AI remembers about your world.</p>
@@ -431,14 +433,24 @@ const Group = memo(function Group({
   const id = useId()
   return (
     <section aria-labelledby={id} className="mt-4">
-      <h2 id={id} className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+      <h2
+        id={id}
+        className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint look-new:mb-3 look-new:mt-6 look-new:items-center look-new:font-heading look-new:text-[17px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg"
+      >
         {label}
-        <span className="font-normal tabular-nums">{cards.length}</span>
+        <span className="font-normal tabular-nums look-new:font-sans look-new:text-[12.5px] look-new:text-faint">{cards.length}</span>
+        {/* The New look: a quiet rule runs on from the heading. */}
+        <span aria-hidden className="hidden h-px flex-1 bg-line look-new:block" />
       </h2>
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
         {cards.map((c) => (
           // Cards out of view skip layout and paint, so a codex of hundreds of entries opens quickly.
-          <li key={c.id} data-codex-item={c.id} className="[contain-intrinsic-size:auto_104px] [content-visibility:auto]">
+          // (The New look: a margin of room inside each, so a card lifted on hover keeps its shadow.)
+          <li
+            key={c.id}
+            data-codex-item={c.id}
+            className="[contain-intrinsic-size:auto_104px] [content-visibility:auto] look-new:-m-1.5 look-new:p-1.5 look-new:[contain-intrinsic-size:auto_116px]"
+          >
             <Card card={c} onOpen={onOpen} />
           </li>
         ))}
@@ -451,6 +463,8 @@ const MAX_TAGS = 3
 
 const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c: CodexCard) => void }): React.JSX.Element {
   const ids = { rule: useId(), role: useId(), about: useId() }
+  const isNew = useNewLook()
+  const ink = KIND_INK[card.kind]
   const name = displayName(card)
   const role = card.kind === 'character' && card.role ? card.role[0].toLocaleUpperCase() + card.role.slice(1) : ''
   const hardRule = card.kind === 'lore' && card.hardRule
@@ -464,12 +478,20 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
       aria-describedby={[hardRule && ids.rule, role && ids.role, ids.about].filter(Boolean).join(' ')}
       onClick={() => onOpen(card)}
       // The focus ring is drawn inside the card: the list item around it clips anything outside.
-      className="flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+      className={cn(
+        'flex h-full min-h-[104px] w-full items-start gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-[border-color,background-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60',
+        // The New look: a card of paper with its kind's ink along the top; it lifts on hover and presses in.
+        'look-new:relative look-new:overflow-hidden look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:p-3.5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]',
+        'look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
+      )}
     >
+      {isNew ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} /> : null}
       <Portrait entry={card} size={48} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={cn('truncate text-[14px] font-semibold', card.name.trim() ? 'text-fg' : 'italic text-muted')}>{name}</span>
+          <span className={cn('truncate text-[14px] font-semibold look-new:font-heading look-new:text-[15px]', card.name.trim() ? 'text-fg' : 'italic text-muted')}>
+            {name}
+          </span>
           {hardRule ? (
             <span id={ids.rule} className="flex shrink-0 text-accent" title="Hard rule">
               <ShieldCheck size={13} aria-hidden />
@@ -477,7 +499,10 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
             </span>
           ) : null}
           {role ? (
-            <span id={ids.role} className="ml-auto shrink-0 pl-1 text-[11.5px] text-faint">
+            <span
+              id={ids.role}
+              className={cn('ml-auto shrink-0 pl-1 text-[11.5px] text-faint', isNew && cn('rounded-full px-2 py-px text-[11px] font-medium', ink.soft, ink.text))}
+            >
               {role}
             </span>
           ) : null}

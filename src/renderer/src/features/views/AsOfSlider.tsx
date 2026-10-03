@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from '@/components/ui/icons'
 import type { AsOf, AsOfStop } from '@shared/types'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 import { inSentence, longestLabel, nextChange, stopIndex } from './asOfLogic'
 
 export function AsOfSlider({
@@ -27,6 +28,7 @@ export function AsOfSlider({
   const current = stops[index]
   const longest = longestLabel(stops)
   const marks = stops.map((s, i) => (s.changes > 0 ? i : -1)).filter((i) => i >= 0)
+  const isNew = useNewLook()
   const prev = nextChange(stops, index, -1)
   const next = nextChange(stops, index, 1)
   const at = (i: number): string => (stops.length > 1 ? `${(i / (stops.length - 1)) * 100}%` : '50%')
@@ -70,6 +72,14 @@ export function AsOfSlider({
           onChange={(e) => go(Number(e.target.value))}
           className="absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer accent-[var(--accent)]"
         />
+        {/* The New look: a faint tick for every scene along the track (not when there are too many to tell apart). */}
+        {isNew && stops.length > 2 && stops.length <= 120 ? (
+          <div aria-hidden className="pointer-events-none absolute inset-x-[7px] top-[-3px] h-1.5">
+            {stops.map((_, i) => (
+              <span key={i} className="absolute h-1.5 w-px -translate-x-1/2 bg-line-strong" style={{ left: at(i) }} />
+            ))}
+          </div>
+        ) : null}
         {/* Where the entry changes: quiet marks under the track, never in the way of dragging. */}
         <div aria-hidden className="pointer-events-none absolute inset-x-[7px] bottom-[-3px] h-1">
           {marks.map((i) => (

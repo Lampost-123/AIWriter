@@ -548,6 +548,16 @@
     transform: translateX(100%);
   }
 }
+/* The New look: page titles everywhere in Literata's display cut (each keeps its own size). */
+[data-look='new'] main h1:not(.scene-prose *) {
+  font-family: var(--heading-font);
+  letter-spacing: -0.015em;
+}
+/* The New look: a relationship on the map draws in as it appears (moving the "as of" slider). */
+[data-look='new'] .tie-line {
+  stroke-dasharray: 1;
+  animation: tick-draw 420ms var(--motion-glide) both;
+}
 /* The New look's toasts spring up into place. */
 @keyframes toast-in {
   from {

@@ -13,6 +13,7 @@ import type { Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/w
 import { Badge, Button, EmptyState, Input } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { PopoverPanel, Segmented } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
@@ -57,6 +58,7 @@ export function TimelineView(): React.JSX.Element {
   // Lanes mean nothing until a scene has a date: until then the page only explains the When box.
   const dated = !!data?.points.some((p) => p.dated)
 
+  const isNew = useNewLook()
   const subtitle = (
     <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span>Scenes and events in the order they happen in your world.</span>
@@ -65,7 +67,12 @@ export function TimelineView(): React.JSX.Element {
   )
 
   return (
-    <div ref={page} className="flex h-full flex-col">
+    // The New look: each lane's marks in the ink of what it follows (characters violet, plot threads moss).
+    <div
+      ref={page}
+      className="flex h-full flex-col"
+      style={isNew ? ({ '--lane-ink': mode === 'characters' ? 'var(--k-char)' : 'var(--k-thread)' } as React.CSSProperties) : undefined}
+    >
       <ViewHeader title="Timeline" subtitle={subtitle}>
         <StoryFilter value={storyId} onChange={setStoryId} />
         {data && dated ? (
@@ -624,9 +631,9 @@ function MarkDot({ mark }: { mark: Mark }): React.JSX.Element {
     <span
       aria-hidden
       className={cn(
-        'relative z-[1] inline-block h-3 w-3 rounded-full border-2 border-accent',
-        filled ? 'bg-accent' : 'bg-bg',
-        mark === 'both' && 'bg-[linear-gradient(90deg,var(--accent)_50%,var(--bg)_50%)]'
+        'relative z-[1] inline-block h-3 w-3 rounded-full border-2 border-(--lane-ink,var(--accent))',
+        filled ? 'bg-(--lane-ink,var(--accent))' : 'bg-bg',
+        mark === 'both' && 'bg-[linear-gradient(90deg,var(--lane-ink,var(--accent))_50%,var(--bg)_50%)]'
       )}
     />
   )

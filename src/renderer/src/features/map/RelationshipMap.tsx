@@ -592,6 +592,9 @@ const TieLine = memo(function TieLine({
         stroke={on ? 'var(--accent)' : 'var(--line-strong)'}
         strokeWidth={on ? 2 : 1.5}
         vectorEffect="non-scaling-stroke"
+        // The New look draws it in as it appears (styles.css, .tie-line).
+        pathLength={1}
+        className="tie-line"
       />
       {/* A wider, invisible line, so the relationship is easy to point at. */}
       <line

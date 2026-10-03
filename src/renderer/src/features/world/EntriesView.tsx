@@ -6,6 +6,7 @@ import type { BuilderKind } from '@shared/contracts/builder'
 import { Button, EmptyState, IconButton, Input, Notice, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { useCodex } from '@/features/codex/codexStore'
 import { Portrait } from '@/features/views/Portrait'
@@ -13,7 +14,7 @@ import { EntryForm } from './EntryForm'
 import { getDraft, withDrafts } from './entryDrafts'
 import { createEntry } from './entryActions'
 import { entryInitial, filterEntries, keepRowOrder, kindNoun, kindNounMany, placePath, withArticle } from './entryLogic'
-import { KIND_ICONS } from './kindIcons'
+import { KIND_ICONS, KIND_INK } from './kindIcons'
 import { useKeepFocusInPlace } from './parts/useKeepFocusInPlace'
 import { useSlow } from './parts/useSlow'
 
@@ -403,6 +404,7 @@ const EntryRow = memo(function EntryRow({
 }): React.JSX.Element {
   const name = entry.name.trim() || 'Unnamed'
   const initial = entryInitial(name)
+  const isNew = useNewLook()
   const inside = places && entry.parentId ? placePath(places, entry.parentId).join(' › ') : ''
   const sub = entry.summary.trim() || (inside ? `In ${inside}` : '')
   return (
@@ -424,7 +426,12 @@ const EntryRow = memo(function EntryRow({
           aria-hidden
           className={cn(
             'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold',
-            active ? 'bg-accent text-accent-fg' : 'bg-surface-3 text-muted'
+            // The New look: the letter in its kind's ink and tint, in the serif, ringed when chosen.
+            isNew
+              ? cn(KIND_INK[entry.kind].tile, 'font-heading text-[13px]', active && 'ring-2 ring-accent')
+              : active
+                ? 'bg-accent text-accent-fg'
+                : 'bg-surface-3 text-muted'
           )}
         >
           {entry.kind === 'lore' && entry.hardRule ? <ShieldCheck size={14} /> : initial}
