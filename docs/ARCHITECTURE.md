@@ -894,7 +894,50 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
 
 **Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
-are each wired in with one line.
+are each wired in with one line. (The Welcome screen is now the start screen, below; it shows them as tiles.)
+
+### How the start screen works
+
+**The library** (`contracts/library.ts`, `src/main/library/`, `ipc/library.ts`): `getLibrary` reads every world and its
+stories (read-only, word counts from `scenes.word_count`, never a scene's text), Recently deleted and where Adam left off.
+Deleting a world moves its whole folder into `<library>/Recently deleted/` with a `deleted.json` beside it, for 30 days
+(removed for good after that, or by "Empty now"); `listWorlds` never lists that folder. Renames work on any world, open or
+not, without switching (`renameWorldIn`, `renameStoryIn`; they send no events, so the window refreshes the store itself).
+
+**The screen** (`features/start/`): `StartScreen.tsx` (Continue, Start something new, the worlds, Recently deleted),
+`WorldCard.tsx` (a world opened up to its stories, each with a `CardMenu`: Open, Rename in place with `InlineTitle`,
+Details; a world also Export world…, Make a copy, Delete world…), `DeletedWorlds.tsx` (the delete confirmation and
+Recently deleted with Restore and Empty now), `startActions.ts` (what each does), `startLogic.ts` (its words, the search,
+"Book N" for a plain story; unit-tested), `libraryStore.ts` (the last `getLibrary`, kept on screen while it is read again)
+and `Opening.tsx` with its keyframes in `styles.css`.
+- **Over the workspace.** `useApp.home` says it shows. App.tsx keeps the workspace mounted under it, hidden with
+  visibility and `inert`, so a draft keeps writing into its scene and Continue with the open world is instant. Keys
+  pressed on the start screen stop there, so the workspace's shortcuts never fire under it. Opening a world, a story or a
+  page (`openWorld`, `createWorld`, `selectScene`, `selectStory`, `navigate`) closes it; something on it that opens a
+  world underneath while it stays up (deleting a story in another world, New story…) runs inside `keepHome`. With no
+  world open it always shows, except for Settings and the manuscript import, which have their pages without a world.
+  Opening another world stops a draft with its words kept (`flushBeforeWorldChange`, as the world menu does).
+- **At launch.** `init()` asks `startScreenAtLaunch()` once, alongside the settings: true once per run when "When AI
+  Write opens" (`Settings.startWith`, Settings › Appearance) is the start screen, false on a window reload and with
+  `AIWRITE_START=off`. A first-run setup wins (App passes `startScreen: false`), so the start screen never follows it.
+  Nothing waits for the library: with a world open, Continue shows at once from the store; the worlds fill in when
+  `getLibrary` answers (nothing is below them to move). App tests set `AIWRITE_START=off` (`tests/e2e/helpers.ts`)
+  unless they ask for `'on'`; with no worlds the screen is the old "Create a world" card, so `createWorldFromWelcome`
+  still works.
+- **The opening** plays once per run: the mark's strokes (`pathLength` 1) draw in the accent colour while the cards rise
+  (`.start-rise`, `--rise` orders them), about a second in all, and a faint texture of the accent drifts behind them
+  (a transform only). Any key or click, or the time running out, sets `data-opening='done'`, which ends every
+  animation where it would have ended; `data-paused` holds it while the window is hidden; with less motion it is a fade.
+  Coming back later, the screen just fades in.
+- **Deleting a world** asks first (it names the world and what it holds), saves and stops any draft when it is the open
+  one, then the store goes to no world (`closeWorld`). Undo in the toast restores it (and reopens it behind the start
+  screen if it was open). A story is deleted with the usual `deleteStory` (Undo, Recently deleted in its world, a backup
+  first when other stories start in it), its world opened behind the start screen first.
+- **Ways back**: the top bar's Home button (left of the binder button), "Go to the start screen" in the world menu, and
+  the palette (`start-screen`). From the start screen, any palette action leaves it first. Importing a manuscript from it
+  always makes a new world named after the book (`useImport.forNewWorld`), even with another world open behind it.
+- **New story from a recipe…** (`RecipeTile` in `StartScreen.tsx`) shows once there is a finished recipe: it picks the recipe, then
+  the world, sets `useRecipes.forStory` and opens New story in that world (`newStoryIn`), so the dialog starts with the recipe chosen.
 
 ## AI sound effects under Read aloud
 

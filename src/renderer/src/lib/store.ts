@@ -102,8 +102,18 @@ interface AppState {
   newStoryOpen: boolean
   /** Ask the world (milestone 4) shows in the right-hand panel beside the page, in place of the scene panel's tabs. */
   askOpen: boolean
+  /**
+   * The start screen is showing (features/start/). It shows over the workspace, which stays as it was underneath (a
+   * draft keeps writing). Opening a world or a page leaves it; with no world open it always shows (but for Settings
+   * and the manuscript import, which can be open without a world).
+   */
+  home: boolean
 
-  init(): Promise<void>
+  /**
+   * Loads settings and the open world. The first time (at launch) it also asks whether the start screen shows:
+   * `startScreen: false` (a first-run setup is showing) skips that, and the start screen then shows only with no world.
+   */
+  init(opts?: { startScreen?: boolean }): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
   createWorld(name: string): Promise<void>
   openWorld(id: ID): Promise<void>
@@ -129,6 +139,12 @@ interface AppState {
   setNewStoryOpen(open: boolean): void
   /** Opens Ask the world beside the page (opening the panel), or closes it. */
   setAskOpen(open: boolean): void
+  /** Shows the start screen over the workspace (the Home button, the world menu, the palette). */
+  goHome(): void
+  /** Closes the start screen, back to the workspace as it was. */
+  leaveHome(): void
+  /** The open world has gone (deleted from the start screen): nothing of it is left on screen, and the start screen shows. */
+  closeWorld(): void
 }
 
 /** 'sounds': the Sounds tab, shown while sound effects are on (features/sounds/SoundsPanel.tsx). */
@@ -153,7 +169,7 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
   return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0, sceneWords: 0, saveState: 'idle', peekEntryId: null }
 }
 
-/** Nothing of a world left on screen: the welcome screen shows instead. */
+/** Nothing of a world left on screen: the start screen shows instead. */
 const NO_WORLD: Partial<AppState> = {
   world: null,
   stories: [],
@@ -177,6 +193,27 @@ const placeIn = (world: World | null, storyId: ID | null, sceneId: ID | null): D
 /** Undo toasts act on the open world, so they must never outlive it. */
 const dropUndoToasts = (): void => useToasts.getState().clearActions()
 
+/** While above 0, opening a world, a story or a page leaves the start screen up (see keepHome). */
+let homeHolds = 0
+/** The start screen was asked about once, at launch (a later init, after a failed switch, keeps it as it is). */
+let askedAtLaunch = false
+
+/** The patch that closes the start screen, unless something on it is opening a world it stays up for. */
+const leaveHomePatch = (): Partial<AppState> => (homeHolds > 0 ? {} : { home: false })
+
+/**
+ * Runs something from the start screen that opens a world, story or page underneath it (to delete a story in
+ * another world, say) while the start screen stays up.
+ */
+export async function keepHome<T>(run: () => Promise<T>): Promise<T> {
+  homeHolds++
+  try {
+    return await run()
+  } finally {
+    homeHolds--
+  }
+}
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
   settings: null,
@@ -199,12 +236,20 @@ export const useApp = create<AppState>((set, get) => ({
   peekEntryId: null,
   newStoryOpen: false,
   askOpen: false,
+  home: false,
 
-  async init() {
-    const settings = await api.getSettings()
-    const world = await api.getWorld()
+  async init(opts) {
+    // Asked once per launch, alongside the settings (it never holds up the window).
+    const ask = !askedAtLaunch && opts?.startScreen !== false
+    askedAtLaunch = true
+    const [settings, world, atLaunch] = await Promise.all([
+      api.getSettings(),
+      api.getWorld(),
+      ask ? api.startScreenAtLaunch().catch(() => false) : Promise.resolve(null)
+    ])
     const extra = world ? await loadWorldState(world, settings) : NO_WORLD
-    set({ settings, ...extra, ready: true })
+    const home = !world || (atLaunch ?? (get().ready ? get().home : false))
+    set({ settings, ...extra, home, ready: true })
   },
 
   async updateSettings(patch) {
@@ -217,7 +262,7 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const world = await api.createWorld(name)
       const settings = await api.getSettings()
-      set({ settings, ...(await loadWorldState(world, settings)) })
+      set({ settings, ...(await loadWorldState(world, settings)), ...leaveHomePatch() })
     } catch (e) {
       await get().resync()
       throw e
@@ -229,7 +274,7 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const world = await api.openWorld(id)
       const settings = await api.getSettings()
-      set({ settings, ...(await loadWorldState(world, settings)) })
+      set({ settings, ...(await loadWorldState(world, settings)), ...leaveHomePatch() })
     } catch (e) {
       await get().resync()
       throw e
@@ -251,19 +296,19 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   selectStory(id) {
-    set({ storyId: id, sceneId: null, view: { kind: 'write' } })
+    set({ storyId: id, sceneId: null, view: { kind: 'write' }, ...leaveHomePatch() })
     void api.updateSettings({ lastStoryId: id, ...placeIn(get().world, id, null) })
   },
 
   selectScene(id, storyId) {
-    const patch: Partial<AppState> = { sceneId: id, view: { kind: 'write' } }
+    const patch: Partial<AppState> = { sceneId: id, view: { kind: 'write' }, ...leaveHomePatch() }
     if (storyId) patch.storyId = storyId
     set(patch)
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
   },
 
   navigate(view) {
-    set({ view })
+    set({ view, ...leaveHomePatch() })
   },
 
   setSaveState: (saveState) => set({ saveState }),
@@ -286,5 +331,11 @@ export const useApp = create<AppState>((set, get) => ({
     set({ askOpen, ...(askOpen ? { peekEntryId: null } : {}) })
     const layout = get().settings?.layout
     if (askOpen && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
+  },
+  goHome: () => set({ home: true }),
+  leaveHome: () => set({ home: false }),
+  closeWorld() {
+    dropUndoToasts()
+    set({ ...NO_WORLD, home: true })
   }
 }))

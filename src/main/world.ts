@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
 import { defaultStyleGuide } from '@shared/defaults'
 import { migrate, pendingMigrations } from './db/migrations'
@@ -8,6 +8,7 @@ import * as repo from './db/repo'
 import { getSettings, updateSettings } from './settings'
 import { newId, now, slugify, UserError } from './util'
 import { backupBeforeMigration } from './services/backups'
+import { isReservedName } from './library/names'
 import { recipesDir } from './recipes/paths'
 
 // The open world: one folder in the library holding world.db, images/ and backups/.
@@ -76,6 +77,8 @@ export function listWorlds(): WorldSummary[] {
     if (!name.isDirectory()) continue
     // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/).
     if (name.name.startsWith('.aiwrite-')) continue
+    // Deleted worlds wait one folder down, in Recently deleted (src/main/library/deleted.ts): that folder has no
+    // world.db of its own, so readSummary passes it over like any folder that isn't a world.
     // Story recipes live beside the worlds, in a folder that is never one (src/main/recipes/paths.ts).
     if (join(lib, name.name) === recipesDir(lib)) continue
     if (current && join(lib, name.name) === current.folder) {
@@ -139,12 +142,19 @@ function uniqueFolder(name: string): string {
   const lib = getSettings().libraryPath
   const base = slugify(name)
   let folder = join(lib, base)
-  for (let i = 2; existsSync(folder); i++) folder = join(lib, `${base} ${i}`)
+  for (let i = 2; existsSync(folder) || isReservedName(basename(folder)); i++) folder = join(lib, `${base} ${i}`)
   return folder
 }
 
 export function closeWorld(): void {
   if (!current) return
+  // The start screen's "last opened": stamped as a world closes (switching worlds, deleting it, quitting),
+  // never as it opens, since AI Write reopens the last world at launch.
+  try {
+    updateSettings({ worldsSeenAt: { [current.id]: now() } })
+  } catch (e) {
+    console.warn('Could not note when the world was last open', e instanceof Error ? e.message : e)
+  }
   for (const fn of closingListeners) {
     try {
       fn(current)

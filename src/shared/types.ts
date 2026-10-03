@@ -392,6 +392,13 @@ export interface Settings {
    * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
    */
   firstRun?: FirstRun | null
+  /**
+   * The start screen: "When AI Write opens", Settings › Appearance. 'start' (the default) shows the start screen at
+   * launch; 'last' goes straight to where Adam left off.
+   */
+  startWith: 'start' | 'last'
+  /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
+  worldsSeenAt: Record<ID, string>
 }
 
 /**

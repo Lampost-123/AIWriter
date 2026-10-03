@@ -37,8 +37,9 @@ export function findTarget(): Target | null {
   if (scene && active && scene.editor.view.dom.contains(active)) return { kind: 'scene', ...scene }
   if (active instanceof HTMLElement && active.isContentEditable) return { kind: 'editable', el: active }
   // Nothing to type in has the keyboard (a button was just clicked, say): the page, where its cursor
-  // was, while it shows with nothing over it.
-  if (scene && useApp.getState().view.kind === 'write' && !document.querySelector(COVERED)) return { kind: 'scene', ...scene }
+  // was, while it shows with nothing over it (the start screen hides it).
+  const { view, home } = useApp.getState()
+  if (scene && view.kind === 'write' && !home && !document.querySelector(COVERED)) return { kind: 'scene', ...scene }
   return null
 }
 
@@ -54,7 +55,7 @@ export function deliver(target: Target, text: string): void {
     insertIntoScene(target.editor, text)
     // Nothing else has the keyboard: the page takes it, so Adam can carry on typing after the words.
     const active = document.activeElement
-    if (useApp.getState().view.kind === 'write' && (!active || active === document.body)) target.editor.view.focus()
+    if (useApp.getState().view.kind === 'write' && !useApp.getState().home && (!active || active === document.body)) target.editor.view.focus()
     return
   }
   const typed = target.kind === 'box' ? insertIntoField(target.el, text) : insertIntoEditable(target.el, text)
