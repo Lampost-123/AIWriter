@@ -354,7 +354,12 @@ export function TopBar(): React.JSX.Element {
       ) : null}
       <SaveIndicator />
       {hasWorld ? <AskButton /> : null}
-      {hasWorld ? <FocusButton /> : null}
+      {/* In the smallest windows the bar has no room for it (F11 and the palette still reach focus mode). */}
+      {hasWorld ? (
+        <span className="hidden min-[1000px]:flex">
+          <FocusButton />
+        </span>
+      ) : null}
       <IconButton
         label="Settings"
         title={withShortcut('Settings', 'settings')}
