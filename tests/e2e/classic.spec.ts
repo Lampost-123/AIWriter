@@ -29,12 +29,16 @@ for (const theme of ['light', 'dark'] as const) {
       w.unmaximize()
       w.setContentSize(1280, 800)
     })
+    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
     await invoke(win, 'openSampleWorld')
     // No spelling squiggles (the dictionary loads in its own time) and the theme asked for.
     await invoke(win, 'updateSettings', { theme, editor: { spellCheck: false } })
     await win.reload()
     await expect(binder(win)).toBeVisible()
     await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
+    // The pointer rests on the top bar's empty middle, never over a list or the page (their scroll bars show only
+    // while the pointer is over them, and where it starts differs from one machine to another).
+    await win.mouse.move(700, 22)
     await shot(win, `write-${theme}`)
 
     await binder(win).getByRole('button', { name: 'Codex', exact: true }).click()
