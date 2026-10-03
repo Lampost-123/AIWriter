@@ -10,7 +10,7 @@
 // Models; the memory model until Adam picks one). A new story from a recipe is planned with the outline
 // helper's model and its suggestions (keep, edit or discard), and takes the recipe's style and themes.
 
-import type { ID } from '../types'
+import type { ContentIntensity, ID } from '../types'
 import type { ImportPlan, Manuscript } from './importing'
 import type { OutlineSize } from './outline'
 
@@ -39,12 +39,15 @@ export interface RecipeParts {
   pacing: string
   /** Set-ups and pay-offs, twists and recurring motifs. */
   devices: string
+  /** Its genres and content levels, by AI Write's own labels: "Genres: Horror, Mystery. Romance: Fade to black.
+   * Violence: Vivid. Language: Mild." (src/main/recipes/feel.ts reads it back). '' in a recipe made before it. */
+  feel: string
 }
 
 export type RecipePartId = keyof RecipeParts
 
 /** The parts in the order the recipe page shows them. */
-export const RECIPE_PARTS: RecipePartId[] = ['themes', 'tone', 'style', 'pov', 'tense', 'sample', 'shape', 'beats', 'cast', 'pacing', 'devices']
+export const RECIPE_PARTS: RecipePartId[] = ['themes', 'tone', 'feel', 'style', 'pov', 'tense', 'sample', 'shape', 'beats', 'cast', 'pacing', 'devices']
 
 /**
  * 'making': being read or written now (or waiting its turn); 'paused': it couldn't go on (`problem` says why;
@@ -125,7 +128,7 @@ export interface RecipeStoryBefore {
   storyId: ID
   themes: string
   tone: string
-  style: { pov?: string; tense?: string; proseStyle?: string; samplePassage?: string }
+  style: { pov?: string; tense?: string; proseStyle?: string; samplePassage?: string; genres?: string[]; intensity?: ContentIntensity }
 }
 
 export interface RecipesApi {
@@ -161,7 +164,7 @@ export interface RecipesApi {
   restoreRecipeSource(id: ID): Promise<void>
   /** Plans a new story from a recipe and Adam's guidance; it streams as task events with job 'outline'. */
   startRecipeStory(input: RecipeStoryRequest): Promise<{ generationId: ID }>
-  /** Puts the recipe's writing style into the story's style guide and its themes and tone into the story's. */
+  /** Puts the recipe's writing style, genres and content levels into the story's style guide and its themes and tone into the story's. */
   applyRecipeToStory(storyId: ID, recipeId: ID): Promise<RecipeStoryBefore>
   /** Undo for applyRecipeToStory. */
   unapplyRecipe(before: RecipeStoryBefore): Promise<void>

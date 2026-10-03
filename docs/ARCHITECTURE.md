@@ -978,7 +978,8 @@ keys in JSON that already reads with defaults (world meta `style`, `stories.styl
   a moderation error, a content filter or a short reply that is plainly a refusal says some models won't write that level
   and to pick another writer model.
 - **min_p** 0.05 with Balanced and Adventurous, sent only to OpenRouter; a provider that rejects it is asked again without.
-- **Not yet:** the Recipe maker suggesting genres and levels waits for Story recipes to reach `main`.
+- **From a recipe:** the Recipe maker suggests genres and levels in the recipe's "Genre and content" part (Story
+  recipes), so a story started from it gets them too.
 
 ## Interview me on scenes and chapters
 
@@ -1062,16 +1063,20 @@ deleted, and a new story can be planned from one. The data model stays frozen: w
   sentence at a time. A suggested name that gives the story away becomes "A story in N chapters".
 - **A recipe holds** (`contracts/recipes.ts`): themes (with each act's tone and mood), tone, point of view, tense,
   writing style in plain words, a sample passage written fresh, shape and turning points, beats as general moves, cast
-  roles, pacing and devices. Every part is editable on its page (saved as he types); a part he changed is his
+  roles, pacing and devices, and its genre and content: "Genres: Horror, Mystery. Romance: Fade to black. Violence:
+  Vivid. Language: Mild." (`recipes/feel.ts`: the prompt lists the preset and step labels from `genres.ts` and
+  `intensity.ts`; the reply is read back by those labels, any case, unknown words left out, and saved in their own
+  form, so it holds none of the story's words and skips the leak check; '' in a recipe made before it). Every part is editable on its page (saved as he types); a part he changed is his
   (`edited`) and **Read the story again** never overwrites it. A neutral name the AI suggests, or his own.
 
 ### A new story from a recipe
 
 - The New story dialog shows "From a recipe" once the library has a finished recipe (a recipe's page opens the dialog
   with it picked): his own guidance, and "Write it in the recipe's style, with its themes and tone" (on by default).
-- On Create, `applyRecipeToStory` puts the recipe's point of view, tense, writing style and sample passage into the
-  story's style guide (`Story.style`) and its themes and tone into the story's (Undo in the toast,
-  `unapplyRecipe`). From then on drafting reads the story's style guide, not the recipe.
+- On Create, `applyRecipeToStory` (`recipes/apply.ts`) puts the recipe's point of view, tense, writing style and sample
+  passage into the story's style guide (`Story.style`), with its genres and each level its "Genre and content" part
+  names (read the same way, so Adam's own edits count; nothing there changes nothing), and its themes and tone into
+  the story's (Undo in the toast, `unapplyRecipe`, puts the genres and levels back too). From then on drafting reads the story's style guide, not the recipe.
 - The plan page (View `recipePlan`) asks `startRecipeStory`: the **chat and brainstorm model** (the outline helper's),
   an `outline` record in the world holding the recipe and the guidance (never the source text), with the world's
   characters, places and threads, the guidance first ("it wins wherever it differs"). The answer is a `Premise:` line

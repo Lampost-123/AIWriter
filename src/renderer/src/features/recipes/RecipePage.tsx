@@ -201,7 +201,7 @@ function Part({ part, value, mine, onChange, onBlur }: { part: RecipePartId; val
         <AutoTextarea
           id={id}
           value={value}
-          minRows={part === 'sample' ? 5 : 3}
+          minRows={part === 'sample' ? 5 : part === 'feel' ? 2 : 3}
           maxRows={30}
           placeholder={w.hint}
           onChange={(e) => onChange(e.target.value)}

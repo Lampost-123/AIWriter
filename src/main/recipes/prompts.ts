@@ -10,6 +10,7 @@
 
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { RecipePartId, RecipeParts } from '@shared/contracts/recipes'
+import { feelChoices } from './feel'
 
 export const MARKER = '[AIWRITE-RECIPE v1]'
 
@@ -25,7 +26,8 @@ export const PART_HEADINGS: Record<RecipePartId, string> = {
   beats: 'Beats',
   cast: 'Cast roles',
   pacing: 'Pacing',
-  devices: 'Devices'
+  devices: 'Devices',
+  feel: 'Genre and content'
 }
 
 const NEVER = `Never use the story's names: not its people, places, ships, houses, groups, titles or invented words. Call characters by the part they play ("the mentor", "the rival", "the lead's sister") and places by what they are ("a port city", "the family farm"). Never quote the story or copy its sentences or phrases: describe in your own words.`
@@ -47,6 +49,7 @@ Tension: <where it rises and falls in the chapter, in a sentence or two>
 Tone: <the chapter's tone and mood in a few words>
 Devices:
 - <a set-up, pay-off, twist, reveal or recurring motif, if any>
+Content: <how much romance, violence and swearing the chapter has, and how openly it is shown, in a few words>
 Style: <the narrative voice, point of view and tense, sentence rhythm, vocabulary, how much is description, inner thought and dialogue, how its scenes open and close: two to four sentences>`
 }
 
@@ -109,7 +112,10 @@ ${heads[9]}
 <Chapter and scene lengths, how much is dialogue, where tension rises and falls. Use the figures given.>
 
 ${heads[10]}
-<Set-ups and pay-offs, twists and recurring motifs. One line each.>`
+<Set-ups and pay-offs, twists and recurring motifs. One line each.>
+
+${heads[11]}
+<The story's genres and how far its romance, violence and language go, on one line in exactly this form: "Genres: <genre>, <genre>. Romance: <level>. Violence: <level>. Language: <level>." Choose only from these words. ${feelChoices()} Leave a level out when the story gives no sign of it.>`
 }
 
 export function combineAsk(o: { chapters: number; words: number; pacing: string; notes: string[] }): string {
@@ -191,7 +197,7 @@ export function storyAsk(size: OutlineSize): string {
 
 /** The recipe as the story's plan is told it (its writing style goes to the style guide instead). */
 export function recipeText(p: RecipeParts): string {
-  const parts: RecipePartId[] = ['themes', 'tone', 'shape', 'beats', 'cast', 'pacing', 'devices']
+  const parts: RecipePartId[] = ['themes', 'tone', 'feel', 'shape', 'beats', 'cast', 'pacing', 'devices']
   return parts
     .filter((k) => p[k].trim())
     .map((k) => `### ${PART_HEADINGS[k]}\n${p[k].trim()}`)
