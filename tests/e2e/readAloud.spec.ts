@@ -550,7 +550,7 @@ test('Mark who says what keeps its notes ahead of the reading, to the end of a l
     await win.keyboard.press('Control+Shift+Space')
     const said = await spoken(speech)
     for (const n of [2, 5, 7, 8, 9]) {
-      expect(said.find((s) => s.input.startsWith(`Part ${n}.`))?.delivery, `Part ${n}`).toBe('hushed and steady. Keep an even, steady pace throughout.')
+      expect(said.find((s) => s.input.startsWith(`Part ${n}.`))?.delivery, `Part ${n}`).toBe('hushed and steady')
     }
   } finally {
     await speech.close()

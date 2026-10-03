@@ -141,3 +141,29 @@ describe('who says each line over a conversation', () => {
     expect(run.map((a) => a?.who.id ?? null)).toEqual(['mara', 'tom', null])
   })
 })
+
+describe('a name the AI gives back', () => {
+  const people = castOf([
+    { id: 'a', name: 'Adam', aliases: [], about: '' },
+    { id: 'm', name: 'Mara Quill', aliases: [], about: '' },
+    { id: 'r', name: 'Ring', aliases: [], about: '' }
+  ])
+  const who = (w: string): string | null => memberNamed(people, w)?.name ?? null
+
+  it('is the character, however it is written', () => {
+    expect(who('Adam')).toBe('Adam')
+    expect(who('ADAM.')).toBe('Adam')
+    expect(who('Adam (whispering)')).toBe('Adam')
+    expect(who('Adam Reyes')).toBe('Adam')
+    expect(who('“Mara”')).toBe('Mara Quill')
+    expect(who('the Ring')).toBe('Ring')
+  })
+
+  it('is nobody in the cast when it only mentions them, or names two', () => {
+    expect(who('Adam’s brother')).toBeNull()
+    expect(who("Adam's brother")).toBeNull()
+    expect(who('Adam and Mara')).toBeNull()
+    expect(who('the guard')).toBeNull()
+    expect(who('narrator')).toBeNull()
+  })
+})

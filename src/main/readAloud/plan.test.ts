@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { castOf, everyone } from './cast'
-import { EVEN_PACE, planClips, type PlanInput, type PlanSettings } from './plan'
+import { planClips, type PlanInput, type PlanSettings } from './plan'
 import { lexiconOf } from './say'
 import type { ParagraphMarks } from './types'
 
@@ -59,7 +59,7 @@ describe('how each clip is said', () => {
     const text = 'She had never been so sure.'
     const at = text.indexOf('never')
     const [clip] = plan(text, { paragraphs: [{ pid: 'p1', text, italics: [[at, at + 5]] }] }).clips
-    expect(clip.clip.delivery).toBe(`Put clear emphasis on 'never'. ${EVEN_PACE}`)
+    expect(clip.clip.delivery).toBe("Put clear emphasis on 'never'.")
     expect(clip.clip.input).toBe('She had never been so sure.')
   })
 
@@ -90,12 +90,12 @@ describe('how each clip is said', () => {
     const marks = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the door opened': { tone: 'hushed' } } }]])
     expect(plan('The door opened.', { settings: steady, marks }).clips[0].clip).toMatchObject({
       instruct: '',
-      delivery: `hushed. ${EVEN_PACE}`,
+      delivery: 'hushed',
       gentle: true
     })
   })
 
-  it('keeps the narrator at one pace, keeping the feeling; a character’s line keeps its pace', () => {
+  it('never slows the narrator, keeping the feeling; a character’s line keeps its pace', () => {
     const marks = new Map<string, ParagraphMarks>([
       [
         'p1',
@@ -109,13 +109,11 @@ describe('how each clip is said', () => {
     ])
     const [narration, line] = plan('The stairs went on. “Wait,” said Tomas.', { marks }).clips
     expect(narration).toMatchObject({ how: 'hushed, dread building' })
-    expect(narration.clip).toMatchObject({ delivery: `hushed, dread building. ${EVEN_PACE}`, pace: '' })
+    expect(narration.clip).toMatchObject({ delivery: 'hushed, dread building', pace: '' })
     expect(line.clip).toMatchObject({ delivery: 'wary', pace: 'slow' })
-    // Nor speeds it up: the feeling is kept, the hurry isn't. A note that was only about pace leaves the narration plain.
-    const quick = new Map<string, ParagraphMarks>([
-      ['p1', { delivery: { '~the stairs went on': { tone: 'urgent, breathless, picking up speed', pace: 'fast' } } }]
-    ])
-    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: `urgent. ${EVEN_PACE}`, pace: '' })
+    // A quickening is kept, and a note that was only about slowing leaves the narration plain.
+    const quick = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'urgent', pace: 'fast' } } }]])
+    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: 'urgent', pace: 'fast' })
     const slowOnly = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'slowly, measured', pace: 'slow' } } }]])
     expect(plan('The stairs went on.', { marks: slowOnly }).clips[0].clip).toMatchObject({ delivery: '', pace: '' })
   })
@@ -206,5 +204,22 @@ describe('notes that slipped onto the wrong line when the scene was marked', () 
       ['Tomas', 'sharp and irritated'],
       ['Narrator', 'tense']
     ])
+  })
+})
+
+describe('a speaker the rules only guess', () => {
+  const text = 'Tomas looked at the door. “We should go.”'
+  it('is checked by the AI, and the line waits for it; a tagged line isn’t asked about', () => {
+    const { unplaced, clips } = planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast, lexicon: [], marks: new Map(), labelling: new Set(['p1']) })
+    expect([...(unplaced.get('p1') ?? [])]).toEqual(['we should go'])
+    expect(clips.find((c) => c.clip.input === 'We should go.')).toMatchObject({ who: 'Tomas', waits: true })
+    expect(plan('“We should go,” said Tomas.').unplaced.size).toBe(0)
+  })
+
+  it('takes the AI’s answer over the guess', () => {
+    const marks = new Map<string, ParagraphMarks>([['p1', { speakers: { 'we should go': 'Mara Quill' } }]])
+    const { unplaced, clips } = planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast, lexicon: [], marks, labelling: new Set(['p1']) })
+    expect(unplaced.size).toBe(0)
+    expect(clips.find((c) => c.clip.input === 'We should go.')).toMatchObject({ who: 'Mara Quill', waits: false })
   })
 })

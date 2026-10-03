@@ -32,14 +32,16 @@ import { isDrafting, type DraftActivity } from '../ai/drafts'
 import { voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
-import { everyone } from './cast'
+import { everyone, memberNamed, type CastMember } from './cast'
 import { DraftMarks } from './draftMarks'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
 import { labelOf, markedEnough } from './labels'
 import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
-import { quoteKey } from './speakers'
+import { quoteKey, readMark, spansIn, withLabels, type Para } from './speakers'
+import type { LineDelivery } from './types'
+import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
@@ -123,6 +125,57 @@ export function readAloudWorldClosing(): void {
 
 const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettings().speech })
 
+// ---------- Who says each line, from the writer ----------
+
+/** The speakers the writer gave the lines of its latest drafts (ai/speakerTags.ts), by scene, until their paragraphs are marked. */
+const fromWriter = new Map<ID, WriterSpeaker[]>()
+const WRITER_KEEP = 400
+
+/** A draft ended: who the writer said says each of its lines, kept for its paragraphs once they are in the page. */
+export function noteWriterSpeakers(sceneId: ID, speakers: WriterSpeaker[]): void {
+  if (!speakers.length) return
+  fromWriter.set(sceneId, [...(fromWriter.get(sceneId) ?? []), ...speakers].slice(-WRITER_KEEP))
+}
+
+/**
+ * Puts the writer's speakers (and how each line is said) on the quotes of these paragraphs that have none kept yet,
+ * each used once, and keeps them as the AI's marks are kept. Returns the marks as they are now.
+ */
+function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: string }[], cast: CastMember[], tone: boolean) {
+  const store = markStore()
+  const kept = store.current(worldId, sceneId, paragraphs)
+  const given = fromWriter.get(sceneId)
+  if (!given?.length) return kept
+  const blocks: Para[] = []
+  for (const p of paragraphs) {
+    const had = kept.get(p.pid)
+    const speakers: Record<string, string> = {}
+    const delivery: Record<string, LineDelivery> = {}
+    for (const q of spansIn(p.text)) {
+      if (!q.quote || had?.speakers?.[q.key] !== undefined || speakers[q.key] !== undefined) continue
+      const i = given.findIndex((g) => g.key === q.key)
+      if (i < 0) continue
+      const [g] = given.splice(i, 1)
+      const { how } = readMark(`x | ${g.tone}`)
+      speakers[q.key] = memberNamed(cast, g.who)?.name ?? g.who
+      // With Mark who says what, a line the writer gave no note on how it is said is left for the AI to note.
+      if (how || !tone) delivery[q.key] = how ?? {}
+    }
+    if (!Object.keys(speakers).length) continue
+    const block = withLabels({ id: p.pid, text: p.text, ...had }, speakers)
+    blocks.push({ ...block, delivery: { ...delivery, ...(had?.delivery ?? {}) } })
+  }
+  if (!given.length) fromWriter.delete(sceneId)
+  if (!blocks.length) return kept
+  try {
+    store.save(worldId, sceneId, blocks, paragraphs, new Set(paragraphs.map((p) => p.pid)))
+  } catch (e) {
+    console.warn('[read aloud] could not keep the writer’s speakers', e)
+    return kept
+  }
+  return store.current(worldId, sceneId, paragraphs)
+}
+
 // ---------- Marking a draft as it lands ----------
 
 /** Marks are worth making: read aloud is on or set up (its voices are downloaded), or "Show speakers and tone" is on. */
@@ -142,7 +195,8 @@ function markInBackground(sceneId: ID, paragraphs: { pid: string; text: string }
   const s = speech()
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, sceneId, sceneText)
-  const kept = markStore().current(w.id, sceneId, paragraphs)
+  // The writer said who says the new lines: only what it didn't is left to the AI.
+  const kept = writerMarks(w.id, sceneId, paragraphs, rc.cast.all, s.markSpeakers)
   const marking: MarkingScene = {
     worldId: w.id,
     sceneId,
@@ -256,7 +310,7 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   const scene = [...before, ...paragraphs]
   const sceneText = scene.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, req.sceneId, sceneText)
-  const kept = markStore().current(w.id, req.sceneId, scene)
+  const kept = writerMarks(w.id, req.sceneId, scene, rc.cast.all, s.markSpeakers)
   const base = {
     paragraphs,
     before,

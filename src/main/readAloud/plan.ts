@@ -58,28 +58,24 @@ const shownName = (label: string | undefined): string =>
 const paced = (h: LineDelivery): string =>
   [h.tone, h.pace === 'slow' ? 'slowly' : h.pace === 'fast' ? 'quickly' : ''].filter(Boolean).join(', ')
 
-/** Words in a note that slow the voice right down, or hurry it. */
-const PACING =
-  /^(?:(?:very |quite |a little )?(?:slow(?:ly|er)?|fast(?:er)?|quick(?:ly|er)?|rapid(?:ly)?|brisk(?:ly)?|hurried(?:ly)?|rushed|racing|breathless(?:ly)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?)|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing|picking up (?:speed|pace)|gathering (?:speed|pace)|speeding up|slowing(?: down)?)$/i
-
-/** Said with every narration note, so the speech model keeps the pace even while it changes the feeling. */
-export const EVEN_PACE = 'Keep an even, steady pace throughout.'
+/** Words in a note that slow the voice right down. */
+const SLOWING = /^(?:(?:very |quite )?slow(?:ly|er)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing)$/i
 
 /**
- * The narrator keeps one pace (Adam, 2026-10-03: narration that slows down or speeds up is hard to listen to): a
- * narration mark keeps its feeling and tone, but not its pace or the words in its note that would slow or hurry the
- * voice. The characters' own lines keep their pace (a slow, halting line of dialogue says something about the speaker).
+ * The narrator never slows down (Adam, 2026-10-03: slowed narration is hard to listen to): a narration mark keeps its
+ * feeling and tone, but not "slow" or the words in its note that would slow the voice. A quickening is kept, and the
+ * characters' own lines keep their pace (a slow, halting line of dialogue says something about the speaker).
  */
 export function narratorPace(how: LineDelivery | undefined): LineDelivery | undefined {
   if (!how) return how
   const tone = how.tone
     ?.split(/\s*,\s*/)
-    .filter((w) => w && !PACING.test(w.replace(/[.]+$/, '').trim()))
+    .filter((w) => w && !SLOWING.test(w.replace(/[.]+$/, '').trim()))
     .join(', ')
   const out: LineDelivery = { ...how }
   if (tone) out.tone = tone
   else delete out.tone
-  delete out.pace
+  if (out.pace === 'slow') delete out.pace
   return out
 }
 
@@ -230,8 +226,7 @@ function prepare(
   const clip: ClipRequest = {
     input: sayAs(text, input.lexicon),
     ...voice,
-    // Narration with a note keeps the pace even while its feeling changes.
-    delivery: !quote && direction?.delivery ? `${direction.delivery.replace(/[.\s]+$/, '')}. ${EVEN_PACE}` : (direction?.delivery ?? ''),
+    delivery: direction?.delivery ?? '',
     pace: direction?.pace ?? '',
     gentle: !!direction?.gentle,
     sounds: s.sounds
@@ -245,7 +240,8 @@ function prepare(
     who: quote ? (who?.name ?? shownName(label)) : 'Narrator',
     how: tone,
     clip,
-    known: !quote || !!who || (label !== undefined && label !== UNKNOWN)
+    // Known when a tag says who it is, or the AI has been asked: a guess from a name nearby or from turns is checked.
+    known: !quote || found?.how === 'tagged' || found?.how === 'label' || label !== undefined
   }
 }
 
@@ -286,9 +282,11 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   // Who says each quote, over the whole run (and the paragraphs before it): a back-and-forth keeps its voices on
   // untagged lines. A quote the AI marked as nobody's words (a sign, a title) is read by the narrator.
   const all = [...context, ...run]
-  const labels = all.map((u) =>
-    u.quote ? savedFor(input.marks.get(u.pid)?.speakers, u.para.slice(u.quote.at, u.quote.at + u.quote.len)) : undefined
-  )
+  // A speaker that is really a mood ("hushed, dread building") slipped there when it was marked: asked about again.
+  const labels = all.map((u) => {
+    const kept = u.quote ? savedFor(input.marks.get(u.pid)?.speakers, u.para.slice(u.quote.at, u.quote.at + u.quote.len)) : undefined
+    return kept && looksLikeNote(kept, input.cast.all) ? undefined : kept
+  })
   all.forEach((u, k) => {
     if (u.quote && labels[k] === NARRATOR) u.role = 'narrator'
   })
@@ -305,8 +303,9 @@ export function planClips(input: PlanInput): { clips: PlannedClip[]; unplaced: M
   )
   const unplaced = new Map<string, Set<string>>()
   all.forEach((u, k) => {
-    // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again.
-    if (u.role !== 'other' || !u.quote || attributed[k] || labels[k] !== undefined) return
+    // A quote the AI was asked about already (even when it couldn't tell) isn't asked about again, nor one a tag
+    // names the speaker of. A guess from a name nearby or from turns is checked.
+    if (u.role !== 'other' || !u.quote || attributed[k]?.how === 'tagged' || labels[k] !== undefined) return
     const key = quoteKey(u.para.slice(u.quote.at, u.quote.at + u.quote.len))
     if (key) (unplaced.get(u.pid) ?? unplaced.set(u.pid, new Set()).get(u.pid)!).add(key)
   })

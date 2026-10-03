@@ -127,14 +127,37 @@ export interface SceneCast {
 /** A cast where the scene's own cast is everyone (tests, and scenes whose card lists nobody). */
 export const everyone = (all: CastMember[], pov: CastMember | null = null): SceneCast => ({ all, scene: all, pov })
 
-/** A name the AI gave back ("Ines", "the captain") as a cast member. */
-export function memberNamed(cast: CastMember[], who: string | undefined): CastMember | null {
-  const w = (who ?? '')
-    .trim()
+/** A letter or number in any alphabet. */
+const NAME_CHAR = '[\\p{L}\\p{N}]'
+
+/** A name as the AI might write it, for comparing: no case, "the", notes in brackets or end punctuation. */
+const bareName = (s: string): string =>
+  s
     .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/[\s"“”'’.,!?;:—–-]+$/u, '')
+    .replace(/^[\s"“”'’]+/u, '')
     .replace(/^the\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/**
+ * A name the AI gave back ("Ines", "the captain") as a cast member. The AI doesn't always write a name exactly as the
+ * page has it: "Adam (whispering)" or "Adam." is Adam, and so is "Adam Reyes" for a page called "Adam", when only one
+ * character's name is in it ("Adam's brother" is not Adam).
+ */
+export function memberNamed(cast: CastMember[], who: string | undefined): CastMember | null {
+  const w = bareName(who ?? '')
   if (!w || w === 'narrator') return null
-  return cast.find((c) => c.names.some((n) => n.toLowerCase().replace(/^the\s+/, '') === w)) ?? null
+  const exact = cast.find((c) => c.names.some((n) => bareName(n) === w))
+  if (exact) return exact
+  const within = cast.filter((c) =>
+    c.names.some((n) => {
+      const name = bareName(n)
+      return name.length >= 3 && new RegExp(`${START}${esc(name)}(?!${NAME_CHAR}|['’]s${END})`, 'iu').test(w)
+    })
+  )
+  return within.length === 1 ? within[0] : null
 }
 
 /**

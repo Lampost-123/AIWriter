@@ -53,7 +53,9 @@ export async function assemble(
     maxOutput: settings.models.writer?.maxOutput ?? null,
     creativity: settings.creativity
   })
-  const prepared = prepareContext(input, extras)
+  // With reading aloud on, the writer says who speaks each line as it writes (ai/speakerTags.ts).
+  const speech = settings.speech
+  const prepared = prepareContext(input, { ...extras, speakerTags: !!(speech?.readAloud || speech?.showSpeakers) })
   const counts = await countCached(prepared.texts)
   return { input, preview: finishContext(prepared, counts) }
 }
