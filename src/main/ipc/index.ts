@@ -32,6 +32,8 @@ import { usageHandlers } from './usage'
 import { askFirst } from '../usage'
 import { setupHandlers } from './setup'
 import { lookHandlers } from './look'
+import { findHandlers } from './find'
+import { spellingHandlers } from './spelling'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -69,7 +71,10 @@ const all: Handlers<ApiMethod> = {
   ...importingHandlers,
   ...usageHandlers,
   ...setupHandlers,
-  ...lookHandlers
+  ...lookHandlers,
+  // Writing by hand
+  ...findHandlers,
+  ...spellingHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

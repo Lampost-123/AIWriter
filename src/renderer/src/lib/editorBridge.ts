@@ -90,8 +90,10 @@ export interface EditorBridge {
    * Puts other text in place of the whole scene (a restored snapshot, a picked variant, another draft) as
    * one step Ctrl+Z takes back, and shows `message` (if given) in a message. Returns false
    * (and changes nothing) when the editor isn't showing that scene or a draft is being written into it.
+   * `words: 'ai'` (writing by hand): the new words are AI words Adam chose to keep (a picked variant), counted
+   * as such today; otherwise they aren't counted as new writing at all.
    */
-  replaceScene(sceneId: ID, doc: unknown, text: string, opts?: { message?: string }): boolean
+  replaceScene(sceneId: ID, doc: unknown, text: string, opts?: { message?: string; words?: 'ai' }): boolean
 }
 
 let current: EditorBridge | null = null
