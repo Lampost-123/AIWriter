@@ -18,7 +18,21 @@ async function settle(win: Page): Promise<void> {
 
 const NO_SCROLL_BARS = join(__dirname, 'classic.spec.css')
 
+/** Every scroll bar drawn again, so none keeps a look from before the style above (Chromium doesn't repaint it). */
+const REDRAW_SCROLL_BARS = `for (const el of document.querySelectorAll('*')) {
+  const s = getComputedStyle(el)
+  if (!/auto|scroll/.test(s.overflowX + s.overflowY)) continue
+  const top = el.scrollTop, left = el.scrollLeft, was = el.style.overflow
+  el.style.overflow = 'hidden'
+  void el.offsetWidth
+  el.style.overflow = was
+  el.scrollTop = top
+  el.scrollLeft = left
+}`
+
 const shot = async (win: Page, name: string): Promise<void> => {
+  await settle(win)
+  await win.evaluate(REDRAW_SCROLL_BARS)
   await settle(win)
   // Scroll bars show only while the pointer is over a list or the page, and where the real pointer rests differs from
   // one machine to another, so they are left out of every picture.
@@ -39,6 +53,10 @@ for (const theme of ['light', 'dark'] as const) {
     // No spelling squiggles (the dictionary loads in its own time) and the theme asked for.
     await invoke(win, 'updateSettings', { theme, editor: { spellCheck: false } })
     await win.reload()
+    // As soon as the page loads, before the pointer can rest on a list: a scroll bar isn't repainted when its style
+    // changes later.
+    await win.waitForLoadState('domcontentloaded')
+    await win.addStyleTag({ path: NO_SCROLL_BARS })
     await expect(binder(win)).toBeVisible()
     await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
     await shot(win, `write-${theme}`)
