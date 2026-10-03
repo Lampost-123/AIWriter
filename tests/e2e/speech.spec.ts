@@ -460,6 +460,31 @@ test('always uses its own copy of the voices, even with MCreader v2’s complete
   }
 })
 
+test('says what the voices need before they download, and where this computer falls short', async ({ launch }, testInfo) => {
+  const env = fakes(testInfo, {
+    AIWRITE_FAKE_SPEECH_GPU: 'NVIDIA GeForce RTX 3060 Laptop GPU',
+    AIWRITE_FAKE_SPEECH_GPU_MEMORY: '6144',
+    AIWRITE_FAKE_SPEECH_GPU_CAP: '8.6',
+    AIWRITE_FAKE_SPEECH_FREE_GB: '9.6'
+  }).env
+  const { win } = await launch({ env })
+  await openSpeech(win)
+  const section = engine(win)
+  await expect(
+    section.getByText(
+      'They need an NVIDIA graphics card (RTX 20 series or newer) with at least 8 GB of memory. Without one they run on the processor, ' +
+        'far too slowly for reading aloud. They take about 12 GB of disk space, and need about 15 GB free while they download.'
+    )
+  ).toBeVisible()
+  const computer = section.getByRole('list', { name: 'This computer' })
+  await expect(computer.getByRole('listitem')).toHaveText([
+    'This computer’s NVIDIA GeForce RTX 3060 Laptop GPU has 6 GB of memory, and the voices need about 8 GB, so they won’t fit on it.',
+    'Only 9 GB is free on the disk the voices go on, and they need about 15 GB. Free up some space first.'
+  ])
+  // Said, not stopped: the download is still Adam's to start.
+  await expect(section.getByRole('button', { name: 'Download the voices' })).toBeEnabled()
+})
+
 test('asks for the voices’ licence with a link and a key box; the key is kept like the AI keys and only the download gets it', async ({
   launch
 }, testInfo) => {

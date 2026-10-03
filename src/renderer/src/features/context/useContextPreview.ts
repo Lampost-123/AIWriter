@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { resolveDraftOptions } from '@/features/generate/draftOptions'
 import { quietReason } from './contextLogic'
+import { cardLength } from '@shared/defaults'
 
 /** How long to wait after a change before working the briefing out again. */
 const PAUSE_MS = 350
@@ -48,7 +49,7 @@ export function useContextPreview(sceneId: ID): ContextPreviewState {
       try {
         // The card's length is read fresh each time, as Adam may just have changed it.
         const scene = await api.getScene(sceneId)
-        const p = await api.previewContext(sceneId, resolveDraftOptions(opts, scene.card.targetWords, defaultCreativity))
+        const p = await api.previewContext(sceneId, resolveDraftOptions(opts, cardLength(scene.card), defaultCreativity))
         if (mine !== ticket.current) return
         loaded.current = true
         setPreview(p)

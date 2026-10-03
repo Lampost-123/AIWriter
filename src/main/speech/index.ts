@@ -7,10 +7,12 @@
 //
 // For the app's tests, AIWRITE_FAKE_SPEECH_INSTALL names a script run in place of every download step,
 // AIWRITE_FAKE_SPEECH_RUN one run in place of the server (tests/fake-speech/), AIWRITE_FAKE_SPEECH_PYTHON
-// ('missing' or 'manual') pretends Python isn't here, and AIWRITE_FAKE_SPEECH_GPU names the graphics card.
+// ('missing' or 'manual') pretends Python isn't here, AIWRITE_FAKE_SPEECH_GPU names the graphics card (with
+// AIWRITE_FAKE_SPEECH_GPU_MEMORY its memory in MiB and AIWRITE_FAKE_SPEECH_GPU_CAP its compute capability), and
+// AIWRITE_FAKE_SPEECH_FREE_GB is the free disk space.
 import { app, shell } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { lstat, readdir, rm } from 'node:fs/promises'
+import { lstat, readdir, rm, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DictationModel, SpeechDownloadKind, SpeechStatus, SpeechStorage } from '@shared/contracts/speech'
 import { emit } from '../events'
@@ -30,7 +32,7 @@ import { askToShutDown, fetchHealth, freePort, listenOn, logTail, pickDictation,
 import { setStarting } from './starting'
 import { cleanHuggingFaceKey, HF_KEY_SECRET as HF_KEY } from './hfkey'
 import { buildStatus, DOWNLOAD_AGAIN, startProblem, type Health } from './status'
-import { findNvidia, findPythons, findWinget, pickPython, PREFER, realSystem, type FoundPython } from './system'
+import { findCard, findPythons, findWinget, freeSpace, pickPython, PREFER, realSystem, type FoundPython, type GraphicsCard } from './system'
 import { normaliseAddress, speechBase } from './url'
 
 /** How long a start may take before AI Write says so (the first start can be slow while antivirus checks the files). */
@@ -46,7 +48,11 @@ const fake = {
   install: (): string => process.env.AIWRITE_FAKE_SPEECH_INSTALL ?? '',
   run: (): string => process.env.AIWRITE_FAKE_SPEECH_RUN ?? '',
   python: (): string => process.env.AIWRITE_FAKE_SPEECH_PYTHON ?? '',
-  gpu: (): string | undefined => process.env.AIWRITE_FAKE_SPEECH_GPU
+  gpu: (): string | undefined => process.env.AIWRITE_FAKE_SPEECH_GPU,
+  number: (name: string): number | null => {
+    const n = Number(process.env[name] ?? '')
+    return process.env[name] && Number.isFinite(n) ? n : null
+  }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -86,7 +92,11 @@ let problemRepair = false
 /** The server has been asked how it is at least once (Settings then answers at once and asks again meanwhile). */
 let checked = false
 let nvidia: string | null = null
+/** The card's memory and compute capability, for what the voices need (Settings); null when not known. */
+let card: Pick<GraphicsCard, 'memoryMb' | 'computeCap'> = { memoryMb: null, computeCap: null }
 let lookingForCard: Promise<void> | null = null
+/** Free bytes on the disk the speech folder is on, for what the voices need; null when not known. */
+let space: number | null = null
 let poll: ReturnType<typeof setInterval> | null = null
 /** Environments to set up afresh at their next download: the speech engine asked for again (the repair), or a check step that failed. */
 const rebuild = new Set<'server' | 'voices'>()
@@ -114,6 +124,8 @@ function status(): SpeechStatus {
     picked: s?.dictationEngine ?? 'none',
     installed: installedNow(p, manifest),
     nvidia,
+    card,
+    freeSpace: space,
     download: downloads.current,
     queued: [...downloads.queue],
     hfKey: hasSecret(HF_KEY),
@@ -148,20 +160,49 @@ async function refresh(timeoutMs = 1500): Promise<Health | null> {
   return h
 }
 
-/** Looks for an NVIDIA card once; `again` looks afresh (Check) but keeps what was found until there's an answer, so nothing flickers. */
-function lookForCard(again = false): void {
-  if ((nvidia !== null && !again) || lookingForCard) return
+/**
+ * Looks for an NVIDIA card (and its memory) once; `again` looks afresh (Check) but keeps what was found until
+ * there's an answer, so nothing flickers. Never throws: what can't be found stays unknown.
+ */
+function lookForCard(again = false): Promise<void> {
+  if (lookingForCard) return lookingForCard
+  if (nvidia !== null && !again) return Promise.resolve()
   lookingForCard = (async () => {
     const forced = fake.gpu()
-    const found = forced !== undefined ? forced : await findNvidia(realSystem()).catch(() => null)
-    const next = found ?? nvidia ?? ''
-    if (next !== nvidia) {
+    const found: GraphicsCard | null =
+      forced !== undefined
+        ? {
+            name: forced,
+            memoryMb: fake.number('AIWRITE_FAKE_SPEECH_GPU_MEMORY'),
+            computeCap: fake.number('AIWRITE_FAKE_SPEECH_GPU_CAP')
+          }
+        : await findCard(realSystem()).catch(() => null)
+    const next = found?.name ?? nvidia ?? ''
+    const nextCard = found ? { memoryMb: found.memoryMb, computeCap: found.computeCap } : card
+    if (next !== nvidia || JSON.stringify(nextCard) !== JSON.stringify(card)) {
       nvidia = next
+      card = nextCard
       changed()
     }
   })().finally(() => {
     lookingForCard = null
   })
+  return lookingForCard
+}
+
+/** Measures the free space where the voices would go (cheap: one statfs). Tells the window when it moved by a GB or more. */
+async function lookForSpace(): Promise<void> {
+  const forced = fake.number('AIWRITE_FAKE_SPEECH_FREE_GB')
+  let next: number | null = null
+  try {
+    next = forced !== null ? forced * 1024 ** 3 : await freeSpace(paths().home, statfs)
+  } catch {
+    next = null
+  }
+  const gb = (n: number | null): number | null => (n === null ? null : Math.round(n / 1024 ** 3))
+  const moved = gb(next) !== gb(space)
+  space = next
+  if (moved) changed()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -575,7 +616,10 @@ export function voicesInstalled(): boolean {
 }
 
 export async function getSpeechStatus(): Promise<SpeechStatus> {
-  lookForCard()
+  const first = nvidia === null
+  const looking = Promise.all([lookForCard(), lookForSpace()])
+  // The first time, what the voices need is said with the answer (briefly waited for), so Settings doesn't jump.
+  if (first) await Promise.race([looking, sleep(3000)])
   // Once the server has been asked, Settings gets what is known at once; a change since arrives as speech:status.
   if (!starting) {
     if (checked) void refresh()
@@ -585,7 +629,8 @@ export async function getSpeechStatus(): Promise<SpeechStatus> {
 }
 
 export async function checkSpeech(): Promise<SpeechStatus> {
-  lookForCard(true)
+  void lookForCard(true)
+  void lookForSpace()
   if (starting) return status()
   const h = await refresh(3000)
   if (!h && speechSettings().runServer && !downloads.pending('server')) void ensureRunning()

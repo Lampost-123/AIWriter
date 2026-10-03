@@ -79,8 +79,7 @@ import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setPare
 import { BATCH_ITEM_TOKENS, BATCH_MOST, MAX_SUMMARY_CHARS, NAMES_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
 import { startTimeline } from './timeline'
 import { fillGaps, fillTargets, FILL_SAID_TOKENS, storySaid } from '../builder/fill'
-import { cleanDesign, linesSpokenBy, voicePrompt } from '../readAloud/suggest'
-import { getEntryReadAloud, setEntryReadAloud } from '../readAloud/voiceStore'
+import { giveVoices as voicesFor } from '../readAloud/autoVoice'
 
 type DB = Database.Database
 
@@ -166,6 +165,8 @@ interface Build {
   taskId: ID | null
   cost: number | null
   generationIds: ID[]
+  /** The pages "Filling in missing details" filled in (characters among them get voices too). */
+  filled: ID[]
   /** What is being laid out, as the first look listed it, so each profile can link to the rest. */
   plan: PlanItem[]
   found: Map<ID, { entryId: ID; kind: EntryKind; name: string }>
@@ -222,6 +223,7 @@ export function startBuild(ctx: BuildContext, input: WorldBuildInput): Promise<v
     taskId: null,
     cost: null,
     generationIds: [],
+    filled: [],
     plan: [],
     found: new Map(),
     missed: [],
@@ -1066,66 +1068,39 @@ async function fillTheGaps(b: Build): Promise<void> {
     ids
   )
   b.generationIds.push(...result.generationIds)
+  b.filled.push(...result.filled)
   if (result.cost != null) b.cost = (b.cost ?? 0) + result.cost
 }
 
 // ---------- Voices for the characters it made ----------
 
 /**
- * Each character the build made gets a read-aloud voice described in plain words, as Suggest on the character's
- * page would write it, unless it has one already. Saved even when reading aloud isn't set up: it is only words,
- * ready for when it is. A request that fails leaves that character without one.
+ * Each character the build made or filled in gets a read-aloud voice described in plain words, as Suggest on the
+ * character's page would write it (readAloud/autoVoice.ts), and "Say it as" when the name is easy to misread, unless
+ * it has a voice already. Saved even when reading aloud isn't set up: it is only words, ready for when it is. A
+ * request that fails leaves that character without one.
  */
 async function giveVoices(b: Build): Promise<void> {
   const model = b.ctx.voiceModel
-  const db = b.ctx.db
   if (!model) return
-  const ids = b.writer.made.flatMap((m) => (m.what === 'entry' && m.kind === 'character' && m.entryId ? [m.entryId] : []))
-  const characters = repo.getEntries(db, ids).filter((e) => {
-    const v = getEntryReadAloud(db, e.id).voice
-    return !v.design.trim() && !v.voice.trim()
-  })
-  const storyIds = repo.listStories(db).map((s) => s.id)
-  for (const [i, e] of characters.entries()) {
-    if (halted(b)) return
-    setStep(b, 'voices', `Giving the characters their voices: ${i + 1} of ${characters.length}`)
-    const taskId = newId()
-    b.taskId = taskId
-    let done: TaskDone
-    try {
-      done = await runTask({
-        db,
-        taskId,
-        job: 'speech',
-        sceneId: null,
-        model,
-        messages: voicePrompt(e, linesSpokenBy(db, e, { storyIds }), ''),
-        reply: 200,
-        temperature: 0.5,
-        direction: `A voice for ${e.name}`,
-        emit: relay(b),
-        fetchImpl: b.ctx.fetchImpl,
-        retryDelays: b.ctx.retryDelays
-      })
-    } catch (err) {
-      console.warn('Could not ask for a voice', err)
-      continue
-    } finally {
-      b.taskId = null
-    }
-    if (done.cost != null) b.cost = (b.cost ?? 0) + done.cost
-    const design = done.status === 'complete' ? cleanDesign(done.text) : ''
-    if (!design || halted(b) || !db.open) continue
-    try {
-      // Never over a voice set meanwhile.
-      const now = getEntryReadAloud(db, e.id)
-      if (now.voice.design.trim() || now.voice.voice.trim() || !repo.getEntries(db, [e.id]).length) continue
-      setEntryReadAloud(db, e.id, { voice: { design, voice: '' }, say: now.say })
-      saved(b, [e.id])
-    } catch (err) {
-      console.warn('Could not save a voice', err)
-    }
-  }
+  const made = b.writer.made.flatMap((m) => (m.what === 'entry' && m.kind === 'character' && m.entryId ? [m.entryId] : []))
+  const result = await voicesFor(
+    {
+      db: b.ctx.db,
+      model,
+      emit: relay(b),
+      stopped: () => halted(b),
+      onStep: (n, of) => setStep(b, 'voices', `Giving the characters their voices: ${n} of ${of}`),
+      onTask: (taskId) => {
+        b.taskId = taskId
+      },
+      onVoiced: (id) => saved(b, [id]),
+      fetchImpl: b.ctx.fetchImpl,
+      retryDelays: b.ctx.retryDelays
+    },
+    [...made, ...b.filled]
+  )
+  if (result.cost != null) b.cost = (b.cost ?? 0) + result.cost
 }
 
 /** A disagreement the check found: a consistency issue (nothing on the page changes), listed on the results page. */

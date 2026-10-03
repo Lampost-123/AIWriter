@@ -1,9 +1,8 @@
-<!-- version: 0.6.0 -->
-Polish, import and export.
+<!-- version: 0.6.1 -->
+Fixes and small improvements.
 
-- Import a manuscript from Word, Markdown or text, adjust the chapters and scenes, then build the memory from it.
-- Export a story to Word, EPUB, PDF, Markdown or text, and the series bible to PDF or Markdown.
-- Move a whole world, history included, as one .aiwrite file, or make a copy of it.
-- Usage and cost in Settings, with an optional monthly limit.
-- Choose an accent colour. F11 is focus mode.
-- A sample world to explore, and a guided setup on a new computer.
+- A draft keeps writing when you open another scene, and still shows Stop when you go back.
+- Auto length is the new default: the AI picks how long a scene needs. You can still set a word count.
+- The AI fills in how a character sounds when read aloud, and keeps what you typed.
+- Settings says what the read-aloud voices need before they download.
+- Reading aloud shows which chapter and scene is playing.

@@ -50,6 +50,7 @@ export async function assemble(
   const input = gatherContextInput(world.db(), sceneId, options, {
     prefs: getWritingPrefs(),
     contextLength: settings.models.writer?.contextLength ?? null,
+    maxOutput: settings.models.writer?.maxOutput ?? null,
     creativity: settings.creativity
   })
   const prepared = prepareContext(input, extras)
@@ -93,6 +94,13 @@ export async function draftBriefing(
   // before sending, rather than letting the provider turn it down with a message about the briefing.
   const tooLong = choice.contextLength != null && choice.contextLength > 0 ? lengthTooLong(preview.budget) : null
   if (tooLong) {
+    if (tooLong.maxWords >= 100 && input.options.targetWords == null) {
+      // Auto came down as far as it goes (AUTO_LENGTH.min) and still doesn't fit: a set length can.
+      throw new UserError(
+        `This model can write about ${tooLong.maxWords.toLocaleString('en-GB')} words in one go, less than Auto needs. Set a length in the draft options or on the scene card, or pick a model that can read more in Settings › Models.`,
+        'too-long'
+      )
+    }
     if (tooLong.maxWords >= 100) {
       throw new UserError(
         `This model can write about ${tooLong.maxWords.toLocaleString('en-GB')} words in one go. Lower the length in the draft options or on the scene card, or pick a model that can read more in Settings › Models.`,

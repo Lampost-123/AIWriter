@@ -15,10 +15,14 @@
 //
 //   voice     Suggest (a character's voice): always
 //             "A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery."
+//             When the system prompt also asks how the name is said ("SAY IT AS:", the AI filling in a voice by
+//             itself), a character called Siobhan also gets a last line "SAY IT AS: shiv-AWN" (SUGGESTED_SAY);
+//             every other name gets none.
 
 const MARKER = '[AIWRITE-READ-ALOUD v1]'
 
 export const SUGGESTED_VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
+export const SUGGESTED_SAY = 'shiv-AWN'
 
 /** The names under "Characters in this story:" in the system prompt. */
 function castNames(system) {
@@ -71,6 +75,9 @@ export function readAloudReply(system, messages, _model) {
     )
   }
 
-  if (job === 'voice') return SUGGESTED_VOICE
+  if (job === 'voice') {
+    const name = /^CHARACTER: ([^(\n]+?)(?: \(|$)/m.exec(userText(messages))?.[1] ?? ''
+    return system.includes('SAY IT AS:') && name === 'Siobhan' ? `${SUGGESTED_VOICE}\nSAY IT AS: ${SUGGESTED_SAY}` : SUGGESTED_VOICE
+  }
   return null
 }
