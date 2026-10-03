@@ -340,8 +340,9 @@ export function toPlan(m: Pick<Manuscript, 'blocks'>, outline: Outline, title: s
 export const wordsText = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'word' : 'words'}`
 
 /** "24 chapters, 96 scenes" (with acts when there are any). */
-export function outlineCounts(o: Pick<Outline, 'acts' | 'chapters' | 'scenes'>): string {
+export function countsText(acts: number, chapters: number, scenes: number): string {
   const n = (k: number, one: string, many: string): string => `${k.toLocaleString('en-US')} ${k === 1 ? one : many}`
-  const acts = o.acts.length ? `${n(o.acts.length, 'act', 'acts')}, ` : ''
-  return `${acts}${n(o.chapters.length, 'chapter', 'chapters')}, ${n(o.scenes, 'scene', 'scenes')}`
+  return `${acts ? `${n(acts, 'act', 'acts')}, ` : ''}${n(chapters, 'chapter', 'chapters')}, ${n(scenes, 'scene', 'scenes')}`
 }
+
+export const outlineCounts = (o: Pick<Outline, 'acts' | 'chapters' | 'scenes'>): string => countsText(o.acts.length, o.chapters.length, o.scenes)

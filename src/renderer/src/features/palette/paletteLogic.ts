@@ -78,6 +78,9 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'import-manuscript'
+  | 'build-memory'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -98,6 +101,8 @@ export interface ActionContext {
   reading?: boolean
   /** "Show speakers and tone" is on. */
   speakers?: boolean
+  /** Milestone 6: the open story has scenes the memory hasn't read since they were imported. */
+  unreadStory?: boolean
 }
 
 export interface ActionDef {
@@ -288,6 +293,20 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
+  },
+  // ----- Milestone 6 -----
+  {
+    id: 'import-manuscript',
+    label: 'Import a manuscript',
+    keywords: 'word docx markdown text txt file book novel bring open existing chapters scenes',
+    away: true
+  },
+  {
+    id: 'build-memory',
+    label: 'Build the memory from this story',
+    keywords: 'imported read catch up learn characters ai',
+    away: true,
+    when: (c) => !!c.unreadStory
   }
 ]
 

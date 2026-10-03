@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { CheckLine } from '@/features/consistency/CheckLine'
+import { ImportLine } from '@/features/importing/ImportLine'
 import { rememberScene } from './lastScene'
 import { useOutline } from './outlineStore'
 import { StorySwitcher } from './StorySwitcher'
@@ -70,6 +71,8 @@ export function Binder(): React.JSX.Element {
       </div>
       {/* Milestone 5: a check running, quietly, with Stop. */}
       <CheckLine />
+      {/* Milestone 6: the import catch-up building the memory, quietly, with Stop. */}
+      <ImportLine />
       <WorldSection />
     </div>
   )

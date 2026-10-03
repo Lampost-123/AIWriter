@@ -30,6 +30,7 @@ import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
+import { offerMemory, startImport } from '@/features/importing/importStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -272,6 +273,13 @@ export async function runAction(id: ActionId): Promise<void> {
       }
       case 'go-consistency':
         if (a.storyId) openConsistency(a.storyId)
+        return
+      // ----- Milestone 6 -----
+      case 'import-manuscript':
+        startImport()
+        return
+      case 'build-memory':
+        if (a.storyId) offerMemory(a.storyId)
         return
       default: {
         const unknown: never = fixed

@@ -74,6 +74,7 @@ import {
 import { giveFocusBack, openPalette, PALETTE_LAYER, usePalette } from './paletteStore'
 import { followRecent, recentPlaces } from './recent'
 import { useReading } from '@/features/readAloud/control'
+import { canBuildMemory, useImport } from '@/features/importing/importStore'
 
 /** How many recent places show with nothing typed. */
 const RECENT = 5
@@ -292,9 +293,10 @@ function useActionContext(): ActionContext {
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const reading = useReading((s) => s.reading)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
+  const unreadStory = useImport((s) => canBuildMemory(s.catchUp, storyId))
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory]
   )
 }
 
