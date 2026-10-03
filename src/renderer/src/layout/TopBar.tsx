@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   Globe2,
+  LibraryBig,
   PanelLeft,
   PanelRight,
   PenLine,
@@ -23,6 +24,7 @@ import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { AskButton } from '@/features/ask/AskButton'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
+import { openSampleWorld, useSetup } from '@/features/setup/setupStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
 import { UpdateBanner } from './UpdateBanner'
@@ -83,6 +85,8 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
   // The first world other than this one, where the keyboard starts when the palette asks to switch.
   const otherWorld = useRef<HTMLDivElement>(null)
   const worldId = world?.id
+  // Milestone 6: the sample world can be opened (or made again) from here, unless it is the one open.
+  const sampleOpen = useSetup((s) => !!worldId && s.sampleWorldId === worldId)
 
   // The list of worlds is there before the menu first opens, so it opens whole (from the palette too),
   // and it is fetched again each time the menu opens.
@@ -185,6 +189,11 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
             >
               <Plus size={14} className="text-muted" /> New world…
             </M.Item>
+            {sampleOpen ? null : (
+              <M.Item onSelect={() => void openSampleWorld()} className={menuItem}>
+                <LibraryBig size={14} className="text-muted" /> Explore the sample world
+              </M.Item>
+            )}
           </M.Content>
         </M.Portal>
       </M.Root>

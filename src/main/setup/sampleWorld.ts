@@ -131,13 +131,7 @@ function fill(db: DB): void {
   })
 
   /** Where some words are in a scene now, as a source link records them (paragraph id and range). */
-  const linkTo = (
-    factKind: 'entry' | 'field' | 'change',
-    factId: ID,
-    field: string | null,
-    sceneKey: string,
-    quote: string
-  ): void => {
+  const linkTo = (factKind: 'entry' | 'field' | 'change', factId: ID, field: string | null, sceneKey: string, quote: string): void => {
     const scene = repo.getScene(db, id(sceneKey))
     for (const p of sceneParagraphs(scene.doc, scene.text)) {
       const r = findQuote(p.text, quote)

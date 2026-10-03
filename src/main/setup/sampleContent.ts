@@ -14,8 +14,7 @@ import type { EntryKind } from '@shared/types'
 export const SAMPLE_NAME = 'Sample world: Gullhaven'
 
 export const SAMPLE_WORLD = {
-  themes:
-    'What a town owes the people who keep it safe. Old duties against new sums. Whether pride and need can live in the same house.',
+  themes: 'What a town owes the people who keep it safe. Old duties against new sums. Whether pride and need can live in the same house.',
   tone: 'Quiet and salt-worn, warm underneath, with a thread of unease.',
   style: {
     pov: 'Close third person',
@@ -46,7 +45,8 @@ export interface SampleEntry {
    * Who made it: Adam (typed it himself) or the memory reading a scene (`scene`, by key), with the words it was
    * found in and the words each field came from (in the same scene, unless it says another).
    */
-  made: { by: 'adam' } | { by: 'text'; scene: string; quote: string; fieldQuotes?: Record<string, string | { scene: string; quote: string }> }
+  made:
+    { by: 'adam' } | { by: 'text'; scene: string; quote: string; fieldQuotes?: Record<string, string | { scene: string; quote: string }> }
 }
 
 export const SAMPLE_ENTRIES: SampleEntry[] = [
@@ -77,7 +77,8 @@ export const SAMPLE_ENTRIES: SampleEntry[] = [
       speech: 'Short, plain sentences. Talks about the weather when she means something else.',
       tics: 'Says “Right, then” before doing something hard.',
       neverSays: 'That she is tired.',
-      sampleLines: 'Right, then. Wick first, glass after.\nThe wind’s backing west. You’ll want to be in before dark.\nHe’s fine. He’s resting his hands.'
+      sampleLines:
+        'Right, then. Wick first, glass after.\nThe wind’s backing west. You’ll want to be in before dark.\nHe’s fine. He’s resting his hands.'
     },
     made: { by: 'adam' }
   },
@@ -180,7 +181,10 @@ export const SAMPLE_ENTRIES: SampleEntry[] = [
       scene: 's3',
       quote: 'the Drowned Steps',
       fieldQuotes: {
-        geography: { scene: 's4', quote: 'a causeway of old cut stone, green with weed, running from the foot of the headland out to Bell Rock' }
+        geography: {
+          scene: 's4',
+          quote: 'a causeway of old cut stone, green with weed, running from the foot of the headland out to Bell Rock'
+        }
       }
     }
   },
@@ -267,11 +271,37 @@ export const SAMPLE_CHANGES: SampleChange[] = [
     fields: { movement: 'Slow on the stairs; keeps his shaking hands in his pockets' },
     quote: 'kept his hands in his coat pockets so she wouldn’t see them shake'
   },
-  { entry: 'letter', scene: 's2', kind: 'thread', status: 'open', note: 'Iska Vey brings a sealed letter for the keeper', quote: 'I have a letter for Edric Halloway' },
+  {
+    entry: 'letter',
+    scene: 's2',
+    kind: 'thread',
+    status: 'open',
+    note: 'Iska Vey brings a sealed letter for the keeper',
+    quote: 'I have a letter for Edric Halloway'
+  },
   { entry: 'iska', scene: 's2', kind: 'knowledge', fact: 'letter', quote: 'I know what it says' },
-  { entry: 'edric', scene: 's3', kind: 'knowledge', fact: 'letter', quote: 'The Harbour Board means to put out the Gullhaven Light at midwinter' },
-  { entry: 'wren', scene: 's3', kind: 'knowledge', fact: 'letter', quote: 'The Harbour Board means to put out the Gullhaven Light at midwinter' },
-  { entry: 'letter', scene: 's3', kind: 'thread', status: 'resolved', note: 'The light is to be put out at midwinter', quote: 'Her father read the letter at the kitchen table' },
+  {
+    entry: 'edric',
+    scene: 's3',
+    kind: 'knowledge',
+    fact: 'letter',
+    quote: 'The Harbour Board means to put out the Gullhaven Light at midwinter'
+  },
+  {
+    entry: 'wren',
+    scene: 's3',
+    kind: 'knowledge',
+    fact: 'letter',
+    quote: 'The Harbour Board means to put out the Gullhaven Light at midwinter'
+  },
+  {
+    entry: 'letter',
+    scene: 's3',
+    kind: 'thread',
+    status: 'resolved',
+    note: 'The light is to be put out at midwinter',
+    quote: 'Her father read the letter at the kitchen table'
+  },
   { entry: 'midwinter', scene: 's3', kind: 'thread', status: 'open', note: 'Seven weeks until midwinter', quote: 'That’s seven weeks.' },
   {
     entry: 'wren',

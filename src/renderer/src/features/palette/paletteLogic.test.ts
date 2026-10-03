@@ -177,6 +177,7 @@ describe('finding actions by typing', () => {
       'Rename this world',
       'Ask the world',
       'Build the world from a summary',
+      'Explore the sample world',
       'Codex'
     ])
   })

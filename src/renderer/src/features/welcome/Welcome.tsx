@@ -1,10 +1,12 @@
-import { BookOpen, FolderX, Globe2, WandSparkles } from 'lucide-react'
+import { BookOpen, FolderX, Globe2, LibraryBig, WandSparkles } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { AppInfo, WorldSummary } from '@shared/types'
 import { Button, Card, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
+import { openSampleWorld } from '@/features/setup/setupStore'
+import { WelcomeActionButtons } from './welcomeActions'
 
 /** Shown when no world is open: create the first world, or open an existing one. */
 export function Welcome(): React.JSX.Element {
@@ -15,6 +17,7 @@ export function Welcome(): React.JSX.Element {
   const [name, setName] = useState('')
   // Which way the world is being made: 'build' opens the World builder in it once it is made.
   const [busy, setBusy] = useState<false | 'create' | 'build'>(false)
+  const [exploring, setExploring] = useState(false)
 
   const load = useCallback(async (): Promise<{ info: AppInfo; worlds: WorldSummary[] }> => {
     const [i, w] = await Promise.all([api.getAppInfo(), api.listWorlds()])
@@ -88,6 +91,25 @@ export function Welcome(): React.JSX.Element {
         ) : (
           <MissingLibrary path={info?.libraryPath ?? ''} reload={load} />
         )}
+        {reachable ? (
+          // Milestone 6: other ways to start: the sample world, and (once joined) importing a manuscript or a world file.
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              icon={<LibraryBig size={15} />}
+              loading={exploring}
+              disabled={exploring || !!busy}
+              title="A short finished story with its characters, places and memory filled in, to look round"
+              onClick={() => {
+                setExploring(true)
+                void openSampleWorld().finally(() => setExploring(false))
+              }}
+            >
+              Explore the sample world
+            </Button>
+            <WelcomeActionButtons />
+          </div>
+        ) : null}
         {reachable && worlds && worlds.length > 0 ? (
           <div className="mt-6">
             <h3 className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Open a world</h3>

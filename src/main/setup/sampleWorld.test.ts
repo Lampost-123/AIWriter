@@ -44,7 +44,12 @@ describe('the sample world', () => {
     expect(outline.scenes).toHaveLength(4)
     for (const s of outline.scenes) expect(s.wordCount).toBeGreaterThan(150)
     expect(outline.scenes.map((s) => s.status)).toEqual(['done', 'done', 'done', 'drafted'])
-    expect(repo.listEntries(db).map((e) => e.name).sort()).toEqual(SAMPLE_ENTRIES.map((e) => e.name).sort())
+    expect(
+      repo
+        .listEntries(db)
+        .map((e) => e.name)
+        .sort()
+    ).toEqual(SAMPLE_ENTRIES.map((e) => e.name).sort())
     expect(entry('The Gullhaven Light').parentId).toBe(entry('Gullhaven').id)
     expect(entry('The light is never dark').hardRule).toBe(true)
   })
@@ -55,7 +60,12 @@ describe('the sample world', () => {
     const iska = entry('Iska Vey')
     expect(iska.origin).toBe('text')
     expect(iska.byHand).toBe(false)
-    expect(hist.linksForEntry(db, iska.id).map((l) => l.factKind).sort()).toEqual(['entry', 'field', 'field'])
+    expect(
+      hist
+        .linksForEntry(db, iska.id)
+        .map((l) => l.factKind)
+        .sort()
+    ).toEqual(['entry', 'field', 'field'])
     const textChanges = mem.listAllChanges(db).filter((c) => c.anchor === 'scene')
     expect(textChanges.length).toBeGreaterThan(5)
     for (const c of textChanges) {
@@ -137,7 +147,9 @@ describe('the sample world', () => {
   it('leaves no row pointing at nothing', () => {
     const orphans = (sql: string): number => (db.prepare(sql).get() as { n: number }).n
     expect(orphans('SELECT COUNT(*) AS n FROM changes c LEFT JOIN entries e ON e.id = c.entry_id WHERE e.id IS NULL')).toBe(0)
-    expect(orphans("SELECT COUNT(*) AS n FROM changes c LEFT JOIN scenes s ON s.id = c.scene_id WHERE c.scene_id IS NOT NULL AND s.id IS NULL")).toBe(0)
+    expect(
+      orphans('SELECT COUNT(*) AS n FROM changes c LEFT JOIN scenes s ON s.id = c.scene_id WHERE c.scene_id IS NOT NULL AND s.id IS NULL')
+    ).toBe(0)
     expect(orphans('SELECT COUNT(*) AS n FROM exists_points p LEFT JOIN entries e ON e.id = p.entry_id WHERE e.id IS NULL')).toBe(0)
     expect(orphans('SELECT COUNT(*) AS n FROM source_links l LEFT JOIN scenes s ON s.id = l.scene_id WHERE s.id IS NULL')).toBe(0)
     expect(

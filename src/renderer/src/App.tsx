@@ -35,6 +35,9 @@ import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
+import { FirstRun } from '@/features/setup/FirstRun'
+import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
+import { useSetup } from '@/features/setup/setupStore'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -43,10 +46,15 @@ export function App(): React.JSX.Element | null {
   const world = useApp((s) => s.world)
   // While a backup is being restored nothing can be clicked, focused or typed into (see BackupsSettings).
   const restoring = useApp((s) => s.restoring)
+  // Milestone 6: the first-run setup shows in place of everything else while it is under way.
+  const setupStep = useSetup((s) => s.step)
+  const setupReady = useSetup((s) => s.ready)
 
   useTheme(settings?.theme)
   useEffect(() => {
-    void init()
+    // Where the first run stands is known first (it may open the world a setup was making), so the Welcome
+    // screen never flashes before the setup.
+    void useSetup.getState().load().then(init)
     const offFlush = installFlushOnClose()
     const offMemory = installMemoryEvents()
     return () => {
@@ -57,7 +65,7 @@ export function App(): React.JSX.Element | null {
 
   // The window stays hidden until the first real frame (in the right theme) is painted, so
   // nothing flashes. requestAnimationFrame then setTimeout lands just after that paint.
-  const loaded = ready && !!settings
+  const loaded = ready && !!settings && setupReady
   useEffect(() => {
     if (!loaded) return
     requestAnimationFrame(() => setTimeout(() => void api.showWindow().catch(() => undefined), 0))
@@ -67,7 +75,7 @@ export function App(): React.JSX.Element | null {
 
   return (
     <div className="flex h-full flex-col" inert={restoring} aria-busy={restoring || undefined}>
-      {world ? <Workspace /> : <NoWorld />}
+      {setupStep ? <FirstRun /> : world ? <Workspace /> : <NoWorld />}
       <Toaster />
     </div>
   )
@@ -152,6 +160,7 @@ function Workspace(): React.JSX.Element {
   return (
     <>
       <TopBar />
+      <SampleWorldBar />
       <div className="flex min-h-0 flex-1">
         <ResizablePane
           side="left"

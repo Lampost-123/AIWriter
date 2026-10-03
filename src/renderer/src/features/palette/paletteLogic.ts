@@ -78,6 +78,8 @@ export type FixedActionId =
   | 'check-chapter'
   | 'check-story'
   | 'go-consistency'
+  // Milestone 6
+  | 'sample-world'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -288,7 +290,9 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'issues problems mistakes contradictions repetition repeated words pet phrases plot threads report',
     away: true,
     when: hasStory
-  }
+  },
+  // ----- Milestone 6 -----
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

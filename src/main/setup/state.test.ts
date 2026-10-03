@@ -30,7 +30,9 @@ describe('setupAt', () => {
   })
 
   it('is over once the first scene has its guide', () => {
-    expect(setupAt(facts({ firstRun: { worldId: 'w1', step: 'guide', sceneId: 'x' }, worldIds: ['w1'], openWorldId: 'w1' })).step).toBeNull()
+    expect(
+      setupAt(facts({ firstRun: { worldId: 'w1', step: 'guide', sceneId: 'x' }, worldIds: ['w1'], openWorldId: 'w1' })).step
+    ).toBeNull()
   })
 
   it('starts afresh when the world it was setting up has gone', () => {
@@ -41,13 +43,20 @@ describe('setupAt', () => {
     expect(setupAt(facts({ reachable: false })).step).toBeNull()
     expect(setupAt(facts({ off: true })).step).toBeNull()
     // A setup already under way resumes even then.
-    expect(setupAt(facts({ off: true, firstRun: { worldId: 'w1', step: 'connect', sceneId: null }, worldIds: ['w1'] })).step).toBe('connect')
+    expect(setupAt(facts({ off: true, firstRun: { worldId: 'w1', step: 'connect', sceneId: null }, worldIds: ['w1'] })).step).toBe(
+      'connect'
+    )
   })
 })
 
 describe('startAt ("Start my own world" from the sample)', () => {
   it('resumes a setup under way', () => {
-    const f = facts({ firstRun: { worldId: 'w1', step: 'model', sceneId: null }, worldIds: ['w1', 's'], sampleIds: ['s'], openWorldId: 's' })
+    const f = facts({
+      firstRun: { worldId: 'w1', step: 'model', sceneId: null },
+      worldIds: ['w1', 's'],
+      sampleIds: ['s'],
+      openWorldId: 's'
+    })
     expect(startAt(f)).toEqual({ step: 'model', worldId: 'w1' })
   })
 
