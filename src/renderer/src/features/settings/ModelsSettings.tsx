@@ -2,7 +2,7 @@
 // and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, consistency
 // check and read aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, Check, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
+import { AudioLines, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -149,6 +149,14 @@ export function ModelsSettings(): React.JSX.Element {
         providerResults={results}
         onTest={(pid, mid) => void test('check', pid, mid)}
         onClearResult={() => clearResult('check')}
+      />
+      <HelperModel
+        job="recipe"
+        providers={providers}
+        result={results.recipe}
+        providerResults={results}
+        onTest={(pid, mid) => void test('recipe', pid, mid)}
+        onClearResult={() => clearResult('recipe')}
       />
       {/* Only once read aloud is on: until then it has nothing to do, so it doesn't crowd the page. */}
       {readAloud ? (
@@ -629,7 +637,7 @@ function ProviderForm({
  * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
  * and read aloud's.
  */
-export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check'
+export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check' | 'recipe'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -759,6 +767,16 @@ const HELPERS: Record<
     waiting: 'Once a provider is connected above, the consistency checks use the memory model, or one you choose here.',
     noWriter: 'Choose a writer model above, or a model just for the consistency checks here.',
     thinking: 'Off is quickest, and checks finish sooner. It applies even when the checks use the memory model.',
+    fallback: 'memory'
+  },
+  recipe: {
+    title: 'Recipe maker',
+    description:
+      'Reads a story you import for a recipe and sums up its themes, writing style and structure. The story is sent only to this model, and only while the recipe is made.',
+    icon: <CookingPot size={16} />,
+    waiting: 'Once a provider is connected above, the recipe maker uses the memory model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for making recipes here.',
+    thinking: 'Off is quickest and cheapest. It applies even when the recipe maker uses the memory model.',
     fallback: 'memory'
   },
   speech: {
@@ -955,6 +973,8 @@ function ContextLengthField({ job, choice }: { job: ModelJob; choice: ModelChoic
                   ? "AI Write reads a long summary in parts that fit this. Change it if the model's page says it can read more or less."
                   : job === 'check'
                     ? "AI Write fits how much of a scene it checks at once to this. Change it if the model's page says it can read more or less."
+                  : job === 'recipe'
+                    ? "AI Write reads a story for a recipe in parts that fit this. Change it if the model's page says it can read more or less."
                   : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
@@ -1192,6 +1212,7 @@ const THINKING_NAMES: Record<ThinkingJob, string> = {
   world: 'World builder model thinking',
   chat: 'Chat and brainstorm model thinking',
   check: 'Consistency check model thinking',
+  recipe: 'Recipe maker thinking',
   speech: 'Read aloud model thinking',
   sample: 'Thinking for sample passages',
   polish: 'Thinking for the polish pass'

@@ -77,6 +77,8 @@ import type { ImportingApi, ImportingEvents } from './contracts/importing'
 import type { UsageApi, UsageEvents } from './contracts/usage'
 import type { SetupApi, SetupEvents } from './contracts/setup'
 import type { LookApi, LookEvents } from './contracts/look'
+import type { LibraryApi, LibraryEvents } from './contracts/library'
+import type { RecipesApi, RecipesEvents } from './contracts/recipes'
 import type { StyleApi, StyleEvents } from './contracts/style'
 import type { PolishApi, PolishEvents } from './contracts/polish'
 import type { FindApi, FindEvents } from './contracts/find'
@@ -108,6 +110,8 @@ export interface AppApi
     UsageApi,
     SetupApi,
     LookApi,
+    LibraryApi,
+    RecipesApi,
     StyleApi,
     PolishApi,
     FindApi,
@@ -334,6 +338,8 @@ export interface AppEvents
     UsageEvents,
     SetupEvents,
     LookEvents,
+    LibraryEvents,
+    RecipesEvents,
     StyleEvents,
     PolishEvents,
     FindEvents,

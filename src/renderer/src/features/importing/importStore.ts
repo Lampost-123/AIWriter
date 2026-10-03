@@ -9,6 +9,7 @@ import type { ID } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
+import { flushBeforeWorldChange } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { buildOutline, countsText, noEdits, proposeRoles, toPlan, type Role, type SplitEdits } from './split'
@@ -34,6 +35,11 @@ export interface ImportSession {
   problem: string | null
   /** The import catch-up in the open world, as last reported. */
   catchUp: CatchUpState
+  /**
+   * Started from the start screen: the import makes a new world named after the book even while another world is
+   * open (behind the start screen), as it does with no world open.
+   */
+  forNewWorld: boolean
 }
 
 const NO_CATCH_UP: CatchUpState = { running: null, unread: {}, finished: null }
@@ -49,7 +55,8 @@ export const useImport = create<ImportSession>(() => ({
   result: null,
   memoryStoryId: null,
   problem: null,
-  catchUp: NO_CATCH_UP
+  catchUp: NO_CATCH_UP,
+  forNewWorld: false
 }))
 
 const get = useImport.getState
@@ -125,25 +132,25 @@ export function listenForCatchUp(): void {
 // ---------- Ways in ----------
 
 /** "Import a manuscript…" (the story menu, the palette): the import page, asking for the file straight away. */
-export function startImport(): void {
+export function startImport(forNewWorld = false): void {
   listenForCatchUp()
-  set({ page: 'file', problem: null })
+  set({ page: 'file', problem: null, forNewWorld })
   app().navigate({ kind: 'import' })
   void chooseFile()
 }
 
 /**
- * For the Welcome screen (no world open): the same, and importing then makes a world named after the book
- * (the story's title), with the book as its first story.
+ * For the start screen and the first run: the same, and importing then makes a world named after the book (the
+ * story's title), with the book as its first story, whether or not a world is open behind the start screen.
  */
 export function importManuscriptFromWelcome(): void {
-  startImport()
+  startImport(true)
 }
 
 /** "Build the memory from this story" (the story menu, the palette): the page with what it would cost, and one button. */
 export function offerMemory(storyId: ID): void {
   listenForCatchUp()
-  set({ page: 'memory', memoryStoryId: storyId })
+  set({ page: 'memory', memoryStoryId: storyId, forNewWorld: false })
   app().navigate({ kind: 'import' })
 }
 
@@ -171,11 +178,11 @@ export const resetSplit = (): void => set({ edits: noEdits() })
 
 // ---------- Importing ----------
 
-/** The world an import from the Welcome screen made for the book, until the import into it works. */
+/** The world an import from the start screen made for the book, until the import into it works. */
 let madeForBook: ID | null = null
 
 /**
- * Imports the split into the open world (or, from the Welcome screen, a new world named after the book) as a
+ * Imports the split into the open world (or, from the start screen, a new world named after the book) as a
  * new story, in one go. The page then offers to build the memory from it; a toast offers Undo.
  */
 export async function importNow(): Promise<void> {
@@ -188,7 +195,9 @@ export async function importNow(): Promise<void> {
   // A world made for the book by an import that then failed is still the book's: trying again replaces its empty first story too.
   let newWorld = !!madeForBook && app().world?.id === madeForBook
   try {
-    if (!app().world) {
+    if (!app().world || (s.forNewWorld && !newWorld)) {
+      // A world open behind the start screen is saved (and any draft in it stopped) before the new one opens.
+      if (app().world) await flushBeforeWorldChange()
       await app().createWorld(title)
       newWorld = true
       madeForBook = app().world?.id ?? null
@@ -198,6 +207,8 @@ export async function importNow(): Promise<void> {
     await editorBridge()?.flush()
     result = await api.importManuscript(toPlan(s.manuscript, outline, title, newWorld))
     madeForBook = null
+    // The book's world is the open one now: importing again (after Undo) goes into it.
+    set({ forNewWorld: false })
   } catch (e) {
     set({ importing: false, problem: plainReason(e) })
     if (newWorld) app().navigate({ kind: 'import' })

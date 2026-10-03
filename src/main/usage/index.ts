@@ -27,6 +27,8 @@ import { setSpendHooks } from './gate'
 import { UsageLibrary, type OpenWorldRef } from './library'
 import { carriedOn, cleanLimit, msToNextMonth, spendStateOf, toastShown } from './limit'
 import { buildReport, monthOf } from './report'
+import { monthCost, type WorldTally } from './aggregate'
+import { recipeTally } from '../recipes/ledger'
 
 type DB = Database.Database
 
@@ -60,6 +62,11 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'sortStartChanges',
   'updateMemoryNow',
   'startCatchUp',
+  // Story recipes
+  'startRecipe',
+  'carryOnRecipe',
+  'readRecipeAgain',
+  'startRecipeStory',
   'writeStyleSample',
   'startPolish'
 ])
@@ -104,6 +111,28 @@ function upToDate(): void {
   saveSoon()
 }
 
+// ---------- Story recipes ----------
+
+/** What making recipes has cost in this library (its own spending file, outside every world), kept up to date. */
+let recipes: { library: string; tally: WorldTally | null } | null = null
+function recipesTally(): WorldTally | null {
+  const library = getSettings().libraryPath
+  const before = recipes?.library === library ? recipes.tally : null
+  const tally = recipeTally(library, before)
+  recipes = { library, tally }
+  return tally
+}
+
+/** A Recipe maker call finished: the spending is added up again, as after any AI call. */
+export function recipeCallFinished(): void {
+  try {
+    if (getSettings().usage?.monthlyLimit == null) emit('usage:spend', spendState())
+    else changed()
+  } catch (e) {
+    console.warn('Could not add up the spending after a recipe call', e)
+  }
+}
+
 // ---------- The limit ----------
 
 /**
@@ -115,7 +144,8 @@ export function spendState(now = new Date()): SpendState {
   const { monthlyLimit, notice } = getSettings().usage ?? { monthlyLimit: null }
   if (monthlyLimit == null) return spendStateOf(0, null, null, month)
   upToDate()
-  return spendStateOf(lib().monthSpend(month), monthlyLimit, notice, month)
+  const r = recipesTally()
+  return spendStateOf(lib().monthSpend(month) + (r ? monthCost(r, month) : 0), monthlyLimit, notice, month)
 }
 
 let last = ''
@@ -227,11 +257,15 @@ export function usageReport(query: UsageQuery): UsageReport {
   const period = (['this-month', 'last-month', 'last-30-days', 'all-time'] as const).includes(query?.period) ? query.period : 'this-month'
   const every = l.tallies()
   const own = open ? l.tallyOf(open.folder) : null
+  // Making recipes belongs to no world: it counts across the library, never in one world's figures.
+  const r = recipesTally()
+  const extra = r ? [r] : []
   return buildReport({
     period,
     scope,
-    tallies: scope === 'world' && own ? [own] : every.map((w) => w.tally),
-    everyTally: every.map((w) => w.tally),
+    tallies: scope === 'world' && own ? [own] : [...every.map((w) => w.tally), ...extra],
+    everyTally: [...every.map((w) => w.tally), ...extra],
+    worlds: scope === 'world' && own ? 1 : every.length,
     today: new Date(),
     worldName: open?.name ?? null,
     unreadable: scope === 'world' ? 0 : l.unreadableCount

@@ -182,7 +182,9 @@ describe('finding actions by typing', () => {
       'Make a copy of this world',
       'Import a world file',
       'Explore the sample world',
-      'Codex'
+      'Codex',
+      // The start screen lists every world.
+      'Go to the start screen'
     ])
   })
 

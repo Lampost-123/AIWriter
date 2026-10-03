@@ -333,9 +333,10 @@ export interface ModelChoice {
  * next scene ideas; the writer model until Adam picks one) and 'speech' is "Read aloud" (who says each line
  * and how, voice suggestions; the memory model until Adam picks one). 'world' is the World builder (building
  * the world from a summary; the character builder's model until Adam picks one). 'check' is the Consistency
- * check model (milestone 5's AI checks; the memory model until Adam picks one).
+ * check model (milestone 5's AI checks; the memory model until Adam picks one). 'recipe' is the Recipe maker
+ * (Story recipes: reads a whole story and sums it up as a recipe; the memory model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
@@ -412,6 +413,13 @@ export interface Settings {
    * src/shared/contracts/setup.ts). Missing or null: no setup under way and no first-scene guide.
    */
   firstRun?: FirstRun | null
+  /**
+   * The start screen: "When AI Write opens", Settings › Appearance. 'start' (the default) shows the start screen at
+   * launch; 'last' goes straight to where Adam left off.
+   */
+  startWith: 'start' | 'last'
+  /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
+  worldsSeenAt: Record<ID, string>
 }
 
 /**
@@ -601,6 +609,8 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
  * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
  * Milestone 5 adds 'check': one AI consistency check of a scene.
+ * Story recipes add 'recipe': one call of the Recipe maker. Those records are kept in the recipe library's own
+ * spending file (`Recipes/spending.db`), never in a world, and without the words sent or received.
  * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  */
@@ -618,6 +628,7 @@ export type GenerationJob =
   | 'speech'
   | 'world'
   | 'check'
+  | 'recipe'
   | 'sample'
   | 'polish'
 

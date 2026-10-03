@@ -894,7 +894,50 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
 
 **Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
-are each wired in with one line.
+are each wired in with one line. (The Welcome screen is now the start screen, below; it shows them as tiles.)
+
+### How the start screen works
+
+**The library** (`contracts/library.ts`, `src/main/library/`, `ipc/library.ts`): `getLibrary` reads every world and its
+stories (read-only, word counts from `scenes.word_count`, never a scene's text), Recently deleted and where Adam left off.
+Deleting a world moves its whole folder into `<library>/Recently deleted/` with a `deleted.json` beside it, for 30 days
+(removed for good after that, or by "Empty now"); `listWorlds` never lists that folder. Renames work on any world, open or
+not, without switching (`renameWorldIn`, `renameStoryIn`; they send no events, so the window refreshes the store itself).
+
+**The screen** (`features/start/`): `StartScreen.tsx` (Continue, Start something new, the worlds, Recently deleted),
+`WorldCard.tsx` (a world opened up to its stories, each with a `CardMenu`: Open, Rename in place with `InlineTitle`,
+Details; a world also Export world…, Make a copy, Delete world…), `DeletedWorlds.tsx` (the delete confirmation and
+Recently deleted with Restore and Empty now), `startActions.ts` (what each does), `startLogic.ts` (its words, the search,
+"Book N" for a plain story; unit-tested), `libraryStore.ts` (the last `getLibrary`, kept on screen while it is read again)
+and `Opening.tsx` with its keyframes in `styles.css`.
+- **Over the workspace.** `useApp.home` says it shows. App.tsx keeps the workspace mounted under it, hidden with
+  visibility and `inert`, so a draft keeps writing into its scene and Continue with the open world is instant. Keys
+  pressed on the start screen stop there, so the workspace's shortcuts never fire under it. Opening a world, a story or a
+  page (`openWorld`, `createWorld`, `selectScene`, `selectStory`, `navigate`) closes it; something on it that opens a
+  world underneath while it stays up (deleting a story in another world, New story…) runs inside `keepHome`. With no
+  world open it always shows, except for Settings and the manuscript import, which have their pages without a world.
+  Opening another world stops a draft with its words kept (`flushBeforeWorldChange`, as the world menu does).
+- **At launch.** `init()` asks `startScreenAtLaunch()` once, alongside the settings: true once per run when "When AI
+  Write opens" (`Settings.startWith`, Settings › Appearance) is the start screen, false on a window reload and with
+  `AIWRITE_START=off`. A first-run setup wins (App passes `startScreen: false`), so the start screen never follows it.
+  Nothing waits for the library: with a world open, Continue shows at once from the store; the worlds fill in when
+  `getLibrary` answers (nothing is below them to move). App tests set `AIWRITE_START=off` (`tests/e2e/helpers.ts`)
+  unless they ask for `'on'`; with no worlds the screen is the old "Create a world" card, so `createWorldFromWelcome`
+  still works.
+- **The opening** plays once per run: the mark's strokes (`pathLength` 1) draw in the accent colour while the cards rise
+  (`.start-rise`, `--rise` orders them), about a second in all, and a faint texture of the accent drifts behind them
+  (a transform only). Any key or click, or the time running out, sets `data-opening='done'`, which ends every
+  animation where it would have ended; `data-paused` holds it while the window is hidden; with less motion it is a fade.
+  Coming back later, the screen just fades in.
+- **Deleting a world** asks first (it names the world and what it holds), saves and stops any draft when it is the open
+  one, then the store goes to no world (`closeWorld`). Undo in the toast restores it (and reopens it behind the start
+  screen if it was open). A story is deleted with the usual `deleteStory` (Undo, Recently deleted in its world, a backup
+  first when other stories start in it), its world opened behind the start screen first.
+- **Ways back**: the top bar's Home button (left of the binder button), "Go to the start screen" in the world menu, and
+  the palette (`start-screen`). From the start screen, any palette action leaves it first. Importing a manuscript from it
+  always makes a new world named after the book (`useImport.forNewWorld`), even with another world open behind it.
+- **New story from a recipe…** (`RecipeTile` in `StartScreen.tsx`) shows once there is a finished recipe: it picks the recipe, then
+  the world, sets `useRecipes.forStory` and opens New story in that world (`newStoryIn`), so the dialog starts with the recipe chosen.
 
 ## Genres and writing styles
 
@@ -964,6 +1007,85 @@ scene and chapter while the app is open) and are sent with each request.
   Edit, Discard and their Undo work as on the outline helper's page. A goal in the reply goes to the chapter only
   while it has none, with Undo. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
   becomes that scene (`keepOutline`), and its Undo puts it back.
+## Story recipes
+
+What it adds (spec, "Story recipes", its own update after milestone 6): Adam brings in a whole story (Word, Markdown,
+plain text, or pasted) and the AI distils it into a **recipe**: the story's themes, writing style and structure,
+without its words. Recipes are kept in a recipe library on his computer, can be read, edited, renamed, copied and
+deleted, and a new story can be planned from one. The data model stays frozen: world.db is unchanged.
+
+- **Where it lives.** `<library>/Recipes` (`recipes/paths.ts`; "Story recipes" only if a world already uses a
+  folder called Recipes), beside the worlds and never one of them: it holds no world.db, so the world list, the usage
+  page's worlds and world files never see it; `listWorlds` skips it by name too, and `slugify` never names a world's
+  folder "Recipes". Backups, world exports and the installer only ever take world folders or the app, so they never
+  include it; `.gitignore` ignores a stray `/Recipes/` at the repository root. Each recipe is a folder named by id
+  (never by the story's title): `recipe.json`, `source.json` (the story's text) and, while it is made, `making.json`
+  (each chapter's notes). Deleting or cancelling moves the folder to `.removed/` for its Undo toast; it is deleted for
+  good after 10 minutes or when the app quits.
+- **The story's text** goes only to the Recipe maker's model, and only while a recipe is made (or read again). It is
+  kept with the recipe after it is made, as the spec says ("so it can be read again"), until Adam presses **Forget
+  the story's text** (Undo in its toast). A copy of a recipe doesn't copy the text. The notes on each chapter go once
+  the recipe is made.
+- **The Recipe maker** is its own job, `recipe`: "Recipe maker" in Settings › Models (`settings.models.recipe`, the
+  memory model until Adam picks one, then the writer model), with its own Thinking (`settings.thinking.recipe`, Off).
+  Prompts start with `[AIWRITE-RECIPE v1] <step>` (`chapter`, `combine`, `fix`, `story`); the fake provider answers
+  them in `tests/fake-provider/recipes.mjs`.
+- **What it costs is counted, without the words.** Recipe calls go through the task runner (`ai/tasks.ts`) like any
+  AI call, so the monthly limit holds them before anything is sent, but their records are written to the recipe
+  library's own `Recipes/spending.db` (same `generations` table, `recipes/spending.ts`), never to a world. As each
+  call ends its words are wiped from its record (what was sent, the reply, the error), leaving job `recipe`, the
+  model, tokens and cost. `usage/index.ts` adds that file's tally to the library's spending (and so to the monthly
+  limit) as the job group "Story recipes"; it is not counted as a world and never shows in one world's figures.
+  `startRecipe`, `carryOnRecipe`, `readRecipeAgain` and `startRecipeStory` are in `ASKS_FIRST`.
+
+### How a recipe is made
+
+- **In.** The make page uses the manuscript import's readers (`chooseManuscript`; pasted text through
+  `readPastedStory`, read as a .txt file is) and its split (`features/importing/split.ts`): the chapters with their
+  words, scenes and opening words, and merging one with the one before. Before anything is sent the page shows the
+  estimate (`recipes/estimate.ts`: one request per chapter, or per piece of a long chapter cut to fit the model, plus
+  the recipe and a possible fix) and says the story goes only to the recipe maker model.
+- **The maker** (`recipes/maker.ts`, wired in `recipes/index.ts`) works like the import catch-up: in the background,
+  one recipe at a time in the order asked, chapter by chapter ("Reading chapter 3 of 24", Cancel), each chapter's notes
+  saved as they come so it carries on after a restart. It pauses with the reason when there is no model or the monthly
+  limit holds AI calls (and carries on by itself when the models or the limit change), or after two failed calls in a
+  row (Try again). Its calls aren't stopped by a window reload (`outlivesWindow` in the task runner), so they are
+  never paid for twice. The notes file is written before a recipe says it is being made, and a recipe left "being
+  made" without one is paused at start; something unexpected breaking pauses the recipe with Try again. Cancel on a
+  finished recipe being read again puts it back as it was (`wasReady`); only a new recipe leaves the library. Then it writes the recipe from the notes and the pacing figures code counted (`recipes/source.ts`:
+  words, scenes, share of dialogue, where each chapter falls), and checks it.
+- **No names, places or sentences** (`recipes/leaks.ts`). The prompts forbid them; then the recipe is checked against
+  the story: names (words capitalised mid-sentence twice, or once and never in lower case, even ordinary words such as
+  "Will" or "Rose"; words only ever at sentence starts that aren't ordinary English words; the title's words) and any
+  run of 8 or more words copied from the story, judged as the whole matching run (only a run under 12 words made
+  entirely of little words passes). Parts that leak are asked for once more (`fix`); whatever still leaks is taken out a
+  sentence at a time. A suggested name that gives the story away becomes "A story in N chapters".
+- **A recipe holds** (`contracts/recipes.ts`): themes (with each act's tone and mood), tone, point of view, tense,
+  writing style in plain words, a sample passage written fresh, shape and turning points, beats as general moves, cast
+  roles, pacing and devices. Every part is editable on its page (saved as he types); a part he changed is his
+  (`edited`) and **Read the story again** never overwrites it. A neutral name the AI suggests, or his own.
+
+### A new story from a recipe
+
+- The New story dialog shows "From a recipe" once the library has a finished recipe (a recipe's page opens the dialog
+  with it picked): his own guidance, and "Write it in the recipe's style, with its themes and tone" (on by default).
+- On Create, `applyRecipeToStory` puts the recipe's point of view, tense, writing style and sample passage into the
+  story's style guide (`Story.style`) and its themes and tone into the story's (Undo in the toast,
+  `unapplyRecipe`). From then on drafting reads the story's style guide, not the recipe.
+- The plan page (View `recipePlan`) asks `startRecipeStory`: the **chat and brainstorm model** (the outline helper's),
+  an `outline` record in the world holding the recipe and the guidance (never the source text), with the world's
+  characters, places and threads, the guidance first ("it wins wherever it differs"). The answer is a `Premise:` line
+  and then the outline helper's own form, so `features/outline/helperStore.ts` (`suggestOutlineWith`, added for this)
+  reads it and its `Suggestions` keep, edit and discard acts, chapters and scene cards exactly as the outline helper
+  does. The premise is kept as the story's premise, with Undo.
+- Ways in: the palette (`go-recipes`, `make-recipe`), the top bar's world menu and the Welcome screen ("Story
+  recipes"); the library works with no world open, but a story needs one.
+- Not yet: "Interview me" for a recipe, and matching each cast role to one of Adam's characters (or building a new one
+  as Quick start does).
+
+| Part | Owns |
+|---|---|
+| Story recipes | `contracts/recipes.ts`, `ipc/recipes.ts`, `src/main/recipes/`, `features/recipes/`, the `recipe` job (types, defaults, `jobModel`, providers, Settings › Models), `tests/fake-provider/recipes.mjs`, `tests/e2e/recipes.spec.ts` |
 
 ## Milestone 1 scope
 

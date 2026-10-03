@@ -729,3 +729,8 @@ const COMMON = new Set([
   dear darling honey love sweetheart please thanks thank sorry hello goodbye hey hi
 `)
 ])
+
+/** Story recipes: a common English word (lower case), as the spelling check judges one. */
+export const isCommonWord = (lower: string): boolean => COMMON.has(lower)
+/** Story recipes: one of the little words prose leans on (lower case), as the repetition check judges one. */
+export const isStopWord = (lower: string): boolean => STOP.has(lower)

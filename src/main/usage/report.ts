@@ -21,6 +21,7 @@ export const JOB_GROUPS: Record<string, { key: string; label: string }> = {
   speech: { key: 'speech', label: 'Read aloud' },
   check: { key: 'check', label: 'Consistency checks' },
   story: { key: 'story', label: 'Story flows' },
+  recipe: { key: 'recipe', label: 'Story recipes' },
   sample: { key: 'sample', label: 'Style guide samples' }
 }
 
@@ -112,6 +113,8 @@ export interface ReportInput {
   today: Date
   worldName: string | null
   unreadable: number
+  /** How many worlds `tallies` covers, when it holds more than worlds (the recipe library's spending). */
+  worlds?: number
 }
 
 export function buildReport(i: ReportInput): UsageReport {
@@ -172,7 +175,7 @@ export function buildReport(i: ReportInput): UsageReport {
       .map((m): UsageModelRow => ({ modelId: m.modelId, provider: m.provider, ...totalsOf(addUp(m.parts)) }))
       .sort(byCost),
     jobs: [...jobs.entries()].map(([key, j]): UsageJobRow => ({ key, label: j.label, ...totalsOf(addUp(j.parts)) })).sort(byCost),
-    worlds: i.tallies.length,
+    worlds: i.worlds ?? i.tallies.length,
     unreadable: i.unreadable,
     worldName: i.worldName,
     anyEver: i.everyTally.some((t) => Object.values(t.buckets).some((b) => b.calls > 0))

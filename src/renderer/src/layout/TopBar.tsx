@@ -3,6 +3,8 @@ import {
   Check,
   ChevronDown,
   Globe2,
+  House,
+  CookingPot,
   LibraryBig,
   PanelLeft,
   PanelRight,
@@ -29,8 +31,10 @@ import { FocusButton } from '@/features/look/FocusLayer'
 import { WordCountButton } from '@/features/goals/WordCounts'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { openSampleWorld, useSetup } from '@/features/setup/setupStore'
+import { goToStartScreen } from '@/features/start/home'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
+import { openRecipes } from '@/features/recipes/recipeStore'
 import { UpdateBanner } from './UpdateBanner'
 
 /** How the open scene is saving. Its slot stays when there is nothing to say, so the bar never moves. */
@@ -126,11 +130,11 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
       <M.Root open={!!menuOpen} onOpenChange={(o) => usePalette.setState({ worldMenu: o ? 'bar' : false })}>
         {/* While the world is renamed, its name box covers this; the button keeps its room, so nothing moves.
             A long name is cut shorter in a small window, so the bar fits at its narrowest, and shorter still
-            while an update is offered there (the offer needs the room; see TopBar). */}
+            while an update is offered there (the offer needs the room; see TopBar). 184px leaves room for the Home button. */}
         <M.Trigger
           ref={trigger}
           className={cn(
-            'flex h-7 max-w-[200px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
+            'flex h-7 max-w-[184px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
             'min-[1100px]:max-w-[260px] max-xl:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:max-w-[120px]',
             renaming && 'invisible'
           )}
@@ -173,6 +177,16 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
               </M.Item>
             ))}
             <M.Separator className="my-1 h-px bg-line" />
+            {/* The start screen: every world and story, and where Adam left off. */}
+            <M.Item
+              onSelect={() => {
+                keepFocus.current = true
+                goToStartScreen()
+              }}
+              className={menuItem}
+            >
+              <House size={14} className="text-muted" /> Go to the start screen
+            </M.Item>
             {world ? (
               <M.Item
                 onSelect={() => {
@@ -201,6 +215,10 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
                 <LibraryBig size={14} className="text-muted" /> Explore the sample world
               </M.Item>
             )}
+            {/* Story recipes */}
+            <M.Item onSelect={openRecipes} className={menuItem}>
+              <CookingPot size={14} className="text-muted" /> Story recipes
+            </M.Item>
           </M.Content>
         </M.Portal>
       </M.Root>
@@ -308,6 +326,10 @@ export function TopBar(): React.JSX.Element {
   return (
     // Focus mode (milestone 6) fades the bar away (data-focus-chrome, styles.css).
     <header data-focus-chrome className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
+      {/* The start screen: every world and story, where Adam left off, and starting something new. */}
+      <IconButton label="Start screen" title="Start screen: all your worlds and stories" onClick={goToStartScreen}>
+        <House size={16} />
+      </IconButton>
       <IconButton
         label="Show or hide the binder"
         active={floatingBinder.floating ? floatingBinder.open : layout?.binderOpen}

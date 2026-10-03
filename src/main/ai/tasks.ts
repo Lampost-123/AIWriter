@@ -57,6 +57,11 @@ export interface TaskRequest {
   emit: Emit
   /** The provider turned the key down, so Settings can show it isn't working. */
   onKeyRejected?: () => void
+  /**
+   * Story recipes: background work no window is listening to (the Recipe maker). A window reload or crash doesn't
+   * stop it (stopAllTasks); Stop, or its own world or file closing, still does.
+   */
+  outlivesWindow?: boolean
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -72,6 +77,8 @@ interface Running {
   text: string
   /** The world closed under this task: its record is already finished. */
   closed: boolean
+  /** Not stopped when the window reloads (TaskRequest.outlivesWindow). */
+  outlivesWindow: boolean
   done: Promise<TaskResult>
 }
 
@@ -150,6 +157,7 @@ function begin(req: TaskRequest): Running {
     controller: new AbortController(),
     text: '',
     closed: false,
+    outlivesWindow: !!req.outlivesWindow,
     done: Promise.resolve(null as unknown as TaskResult)
   }
   running.set(req.taskId, r)
@@ -306,7 +314,10 @@ export function stopTasksFor(db: DB): void {
 
 /** Stops every task (the window reloaded or crashed, so nothing is listening any more); their text is kept. */
 export function stopAllTasks(): void {
-  for (const id of [...running.keys()]) void stopTask(id).catch((e) => console.warn('Could not stop a task', e))
+  for (const [id, r] of [...running.entries()]) {
+    if (r.outlivesWindow) continue
+    void stopTask(id).catch((e) => console.warn('Could not stop a task', e))
+  }
 }
 
 /** For tests: forget every task (as a fresh start would). */

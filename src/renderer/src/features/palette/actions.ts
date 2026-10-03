@@ -38,6 +38,8 @@ import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFi
 import { offerMemory, startImport } from '@/features/importing/importStore'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
+import { goToStartScreen } from '@/features/start/home'
+import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -110,6 +112,8 @@ const SETTINGS: Record<SettingsAction, SettingsTab> = {
 
 /** Runs one of the palette's actions. */
 export async function runAction(id: ActionId): Promise<void> {
+  // From the start screen, an action happens in the workspace, so that shows first.
+  if (id !== 'start-screen' && app().home) app().leaveHome()
   const a = app()
   const entry = entryAction(id)
   try {
@@ -327,6 +331,15 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'sample-world':
         await openSampleWorld()
         return
+      case 'start-screen':
+        goToStartScreen()
+        return
+      case 'go-recipes':
+        openRecipes()
+        return
+      case 'make-recipe':
+        startMaking()
+        return
       // ----- Writing by hand -----
       case 'bold':
         toggleBold()
@@ -371,6 +384,7 @@ export async function runAction(id: ActionId): Promise<void> {
 
 /** Opens a search result: a scene (at the words, when it has them), an entry, a story or the style guide. */
 export async function openResult(open: SearchOpen): Promise<void> {
+  if (app().home) app().leaveHome()
   const a = app()
   try {
     switch (open.kind) {
