@@ -148,3 +148,63 @@ describe('Adam’s sounds in the world', () => {
     expect(cleanEdits(null)).toEqual({ owned: {} })
   })
 })
+
+describe('a sound’s volume and mute, and muting a scene', () => {
+  it('sets a sound’s volume and mute like any change: its paragraph becomes Adam’s', () => {
+    const none: SoundEdits = { owned: {} }
+    const input = cueInputOf({ kind: 'effect', description: 'a door slamming', at: on('p2', 'slammed'), volume: 5, muted: true }, paragraphs)
+    expect(input).toMatchObject({ volume: 2, muted: true })
+    const edits = editCue({ edits: none, cues: cuesWith(none), cueId: 'ai:door', cue: input, newId })
+    expect(edits.owned.p2!.find((c) => c.id === 'ai:door')).toMatchObject({ volume: 2, muted: true, origin: 'adam' })
+    // The dog, copied in with it, is as made.
+    expect(edits.owned.p2!.find((c) => c.id === 'ai:dog')).not.toHaveProperty('volume')
+    expect(cuesWith(edits).find((c) => c.id === 'ai:door')).toMatchObject({ volume: 2, muted: true })
+  })
+
+  it('keeps the volume and mute a change doesn’t mention, and drops them back to as made', () => {
+    const none: SoundEdits = { owned: {} }
+    let edits = editCue({
+      edits: none,
+      cues: cuesWith(none),
+      cueId: 'ai:door',
+      cue: cueInputOf({ kind: 'effect', description: 'a door slamming', at: on('p2', 'slammed'), volume: 0.1, muted: true }, paragraphs),
+      newId
+    })
+    edits = editCue({
+      edits,
+      cues: cuesWith(edits),
+      cueId: 'ai:door',
+      cue: cueInputOf({ kind: 'effect', description: 'a heavy door slamming', at: on('p2', 'slammed') }, paragraphs),
+      newId
+    })
+    expect(edits.owned.p2!.find((c) => c.id === 'ai:door')).toMatchObject({ description: 'a heavy door slamming', volume: 0.25, muted: true })
+    edits = editCue({
+      edits,
+      cues: cuesWith(edits),
+      cueId: 'ai:door',
+      cue: cueInputOf({ kind: 'effect', description: 'a heavy door slamming', at: on('p2', 'slammed'), volume: 1, muted: false }, paragraphs),
+      newId
+    })
+    const door = edits.owned.p2!.find((c) => c.id === 'ai:door')!
+    expect(door).not.toHaveProperty('volume')
+    expect(door).not.toHaveProperty('muted')
+  })
+
+  it('keeps a scene muted through Adam’s changes, and in the world with no other edits', () => {
+    const muted: SoundEdits = { owned: {}, muted: true }
+    expect(editCue({ edits: muted, cues: cuesWith(muted), cueId: 'ai:rain', cue: null, newId })).toEqual({ owned: { p1: [] }, muted: true })
+    const db = memoryWorld()
+    saveSceneEdits(db, 's1', muted)
+    expect(sceneEdits(db, 's1')).toEqual({ owned: {}, muted: true })
+    saveSceneEdits(db, 's1', { owned: {} })
+    expect(JSON.parse(repo.getMeta(db, 'sounds')!)).toEqual({})
+    expect(cleanEdits({ owned: {}, muted: 'yes' })).toEqual({ owned: {} })
+  })
+
+  it('reads a kept volume and mute', () => {
+    const at = { pid: 'p1', from: 0, to: 4, words: 'Rain' }
+    expect(
+      cleanEdits({ owned: { p1: [{ id: 'adam:1', kind: 'effect', description: 'bang', at, volume: 7, muted: 'no' }] } }).owned.p1![0]
+    ).toEqual({ id: 'adam:1', kind: 'effect', description: 'bang', soundId: '', at, origin: 'adam', volume: 2 })
+  })
+})

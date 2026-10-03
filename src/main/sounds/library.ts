@@ -38,6 +38,17 @@ export interface LibraryEntry {
   /** Times making it failed, and when it last did. */
   failures: number
   failedAt: number
+  /**
+   * A new take: 'making' while it is made (the take before plays meanwhile), 'ready' once made with the take before
+   * kept aside (`prev`, its clip `clips/<id>.prev.wav`) until Adam keeps the new one or goes back.
+   */
+  retake?: 'making' | 'ready'
+  /** The seed the new take is made with, so it differs from the last. */
+  seed?: number
+  /** Times making the new take failed. */
+  retakeFailures?: number
+  /** The take before the new one, kept aside. */
+  prev?: { seconds: number; bytes: number; score: number | null; made: number }
 }
 
 interface LibraryFile {
@@ -188,6 +199,10 @@ export class SoundLibrary {
 
   private get file(): string {
     return join(this.dir, 'library.json')
+  }
+
+  private prevOf(id: string): string {
+    return this.clipOf(id).replace(/\.wav$/, '.prev.wav')
   }
 
   private clipOf(id: string): string {
@@ -343,6 +358,15 @@ export class SoundLibrary {
       await fs.rm(temp, { force: true }).catch(() => undefined)
       return false
     }
+    if (e.retake === 'making' && e.state === 'ready') {
+      // A new take: the one before goes aside (one only), for going back.
+      const kept = await fs.rename(file, this.prevOf(id)).then(
+        () => true,
+        () => false
+      )
+      e.prev = kept ? { seconds: e.seconds, bytes: e.bytes, score: e.score ?? null, made: e.made } : undefined
+      e.retake = kept ? 'ready' : undefined
+    } else if (e.retake === 'making') e.retake = undefined
     await fs.rename(temp, file)
     e.state = 'ready'
     e.seconds = Math.round(seconds * 100) / 100
@@ -352,6 +376,72 @@ export class SoundLibrary {
     e.failures = 0
     this.save()
     return true
+  }
+
+  /**
+   * New take: a made sound is made afresh with another seed (the take it has plays meanwhile). False when it isn't
+   * made yet (then it is simply made).
+   */
+  startRetake(id: string): boolean {
+    const e = this.get(id)
+    if (!e || e.state !== 'ready') return false
+    e.retake = 'making'
+    e.seed = Math.floor(Math.random() * 2 ** 31)
+    e.retakeFailures = 0
+    this.save()
+    return true
+  }
+
+  /** Making the new take failed: counted; with `giveUp` it is let go (the take it has stays). Returns the count. */
+  retakeFailed(id: string, giveUp: boolean): number {
+    const e = this.get(id)
+    if (!e) return 0
+    e.retakeFailures = (e.retakeFailures ?? 0) + 1
+    const n = e.retakeFailures
+    if (giveUp) this.endRetake(id)
+    else this.save()
+    return n
+  }
+
+  /** The new take isn't wanted any more (given up, or Adam went back before it was made). */
+  endRetake(id: string): void {
+    const e = this.get(id)
+    if (!e || e.retake !== 'making') return
+    e.retake = e.prev ? 'ready' : undefined
+    e.retakeFailures = 0
+    this.save()
+  }
+
+  /**
+   * After a new take: keep it (the take before is deleted) or go back to the take before. Returns true when the
+   * sound's audio changed (it went back).
+   */
+  async keepTake(id: string, keep: boolean): Promise<boolean> {
+    const e = this.get(id)
+    if (!e) return false
+    if (e.retake === 'making' && !keep) {
+      // Not made yet: it isn't made.
+      this.endRetake(id)
+      return false
+    }
+    const prev = e.prev
+    if (!prev) return false
+    if (keep) {
+      await fs.rm(this.prevOf(id), { force: true }).catch(() => undefined)
+    } else {
+      try {
+        await fs.rename(this.prevOf(id), this.clipOf(id))
+      } catch (err) {
+        console.warn('[sounds] could not go back to the earlier take', err)
+        return false
+      }
+      if (this.get(id) !== e) return false
+      Object.assign(e, { seconds: prev.seconds, bytes: prev.bytes, score: prev.score, made: prev.made })
+    }
+    e.prev = undefined
+    if (e.retake === 'ready') e.retake = undefined
+    this.save()
+    return !keep
   }
 
   /** A made sound's audio, or null when it isn't made (or its file has gone, when it waits to be made again). */

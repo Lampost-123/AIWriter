@@ -19,6 +19,8 @@ export interface MakeRequest {
   seconds: number
   /** Takes made; the server keeps the one CLAP ranks best. */
   takes: number
+  /** For a new take: another seed, so it comes out differently. */
+  seed?: number
 }
 
 /** A sound made; or why not, and whether to wait and ask again (`hold`: the server can't now) rather than count a failure. */
@@ -37,7 +39,7 @@ export type MakeResult =
     }
 
 export interface MakerDeps {
-  library: Pick<SoundLibrary, 'get' | 'setState' | 'failed' | 'saveClip'>
+  library: Pick<SoundLibrary, 'get' | 'setState' | 'failed' | 'saveClip' | 'retakeFailed'>
   /** Sound effects are on. */
   enabled(): boolean
   /** The sound model is downloaded and the server answers. */
@@ -47,6 +49,8 @@ export interface MakerDeps {
   generate(req: MakeRequest): Promise<MakeResult>
   /** A sound was made (ok) or given up on. */
   made(soundId: string, ok: boolean): void
+  /** A new take of a made sound was made (ok: it plays now, the take before kept aside) or given up on. */
+  retook?(soundId: string, ok: boolean): void
   /** What Settings shows changed (the one being made, how many wait). */
   changed(): void
   now?: () => number
@@ -160,6 +164,12 @@ export class SoundMaker {
     this.kick()
   }
 
+  /** A sound isn't wanted any more (its new take was called off). */
+  drop(id: string): void {
+    this.queue.delete(id)
+    this.deps.changed()
+  }
+
   /** The library was emptied: nothing waits. */
   clear(): void {
     this.queue.clear()
@@ -231,7 +241,8 @@ export class SoundMaker {
         return
       }
       const e = this.deps.library.get(id)
-      if (!e || e.state === 'ready') {
+      // Made already (and no new take wanted): nothing to do.
+      if (!e || (e.state === 'ready' && e.retake !== 'making')) {
         this.queue.delete(id)
         continue
       }
@@ -248,9 +259,16 @@ export class SoundMaker {
       this.making = id
       this.deps.library.setState(id, 'making')
       this.deps.changed()
+      const retake = e.state === 'ready' && e.retake === 'making'
       let res: MakeResult
       try {
-        res = await this.deps.generate({ prompt: e.description, kind: e.kind, seconds: e.want, takes: TAKES })
+        res = await this.deps.generate({
+          prompt: e.description,
+          kind: e.kind,
+          seconds: e.want,
+          takes: TAKES,
+          ...(retake && e.seed !== undefined ? { seed: e.seed } : {})
+        })
       } catch (err) {
         res = { ok: false, hold: false, error: err instanceof Error ? err.message : String(err) }
       }
@@ -264,13 +282,14 @@ export class SoundMaker {
         })
         this.queue.delete(id)
         if (kept) this.deps.made(id, true)
+        if (retake) this.deps.retook?.(id, kept)
         this.deps.changed()
         continue
       }
       if (res.hold) {
         // The server can't make it now (not answering, or the voices need the graphics card): nothing is held against
         // it, but it waits a while, longer each time, so the others get a turn.
-        this.deps.library.setState(id, 'waiting')
+        if (!retake) this.deps.library.setState(id, 'waiting')
         if (w) {
           w.holds++
           w.notBefore = this.now() + Math.min(MAX_HOLD_MS, (res.waitMs ?? HOLD_MS) * 2 ** (w.holds - 1))
@@ -286,11 +305,14 @@ export class SoundMaker {
         this.pausedUntil = this.now() + Math.min(RETRY_MS, PAUSE_MS * 2 ** (this.serverFailures - 1))
       }
       const now = this.deps.library.get(id)
-      const giveUp = !!res.final || (now?.failures ?? 0) + 1 >= GIVE_UP_AFTER
-      this.deps.library.failed(id, giveUp)
+      const giveUp = !!res.final || ((retake ? now?.retakeFailures : now?.failures) ?? 0) + 1 >= GIVE_UP_AFTER
+      // A new take that fails leaves the sound as it was (it still plays); only the new take is given up on.
+      if (retake) this.deps.library.retakeFailed(id, giveUp)
+      else this.deps.library.failed(id, giveUp)
       if (giveUp || !w) {
         this.queue.delete(id)
-        this.deps.made(id, false)
+        if (retake) this.deps.retook?.(id, false)
+        else this.deps.made(id, false)
       } else {
         w.notBefore = this.now() + RETRY_MS
         if (w.rank === NOW_RANK) w.rank = BACKGROUND_RANK + w.seq
