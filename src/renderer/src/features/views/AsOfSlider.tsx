@@ -1,10 +1,11 @@
 // The as-of slider: drag through a story's line (every story it follows on from, then its own
 // scenes) to see the memory at any point. Small marks show where the entry changes; the buttons
 // jump between them. Keyboard: arrows move one scene, Home and End go to the ends.
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from '@/components/ui/icons'
 import type { AsOf, AsOfStop } from '@shared/types'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 import { inSentence, longestLabel, nextChange, stopIndex } from './asOfLogic'
 
 export function AsOfSlider({
@@ -21,6 +22,7 @@ export function AsOfSlider({
   label?: string
   className?: string
 }): React.JSX.Element | null {
+  const isNew = useNewLook()
   if (!stops.length) return null
   const found = stopIndex(stops, value)
   const index = found >= 0 ? found : stops.length - 1
@@ -70,6 +72,14 @@ export function AsOfSlider({
           onChange={(e) => go(Number(e.target.value))}
           className="absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer accent-[var(--accent)]"
         />
+        {/* The New look: a faint tick for every scene along the track (not when there are too many to tell apart). */}
+        {isNew && stops.length > 2 && stops.length <= 120 ? (
+          <div aria-hidden className="pointer-events-none absolute inset-x-[7px] top-[-3px] h-1.5">
+            {stops.map((_, i) => (
+              <span key={i} className="absolute h-1.5 w-px -translate-x-1/2 bg-line-strong" style={{ left: at(i) }} />
+            ))}
+          </div>
+        ) : null}
         {/* Where the entry changes: quiet marks under the track, never in the way of dragging. */}
         <div aria-hidden className="pointer-events-none absolute inset-x-[7px] bottom-[-3px] h-1">
           {marks.map((i) => (

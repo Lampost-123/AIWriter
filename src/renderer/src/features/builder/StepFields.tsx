@@ -1,7 +1,7 @@
 // A step's fields: what Adam types, the AI's suggestions waiting on Keep or Discard (in the soft
 // amber highlight), a field being written, and the three options for one field. A suggestion's box is
 // the size of the box it would fill, line for line, so nothing moves when he keeps or discards it.
-import { ImagePlus, Shuffle, Sparkles, Square, X } from 'lucide-react'
+import { ImagePlus, Shuffle, Sparkles, Square, X } from '@/components/ui/icons'
 import { memo, useEffect, useId, useLayoutEffect, useRef } from 'react'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'

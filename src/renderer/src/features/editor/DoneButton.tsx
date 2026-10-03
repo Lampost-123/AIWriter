@@ -1,9 +1,11 @@
 // Mark done (Ctrl+Enter) in the scene header. A scene marked done shows as Done, in green, and the
 // same button reopens it. Its width never changes with its state, so nothing in the header moves.
-import { Check, RotateCcw } from 'lucide-react'
+import { Check, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { Spinner, toast } from '@/components/ui'
+import { DrawnTick } from '@/components/ui/DrawnTick'
+import { useNewLook } from '@/features/look/look'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -16,6 +18,16 @@ const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-co
 
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'
+  const isNew = useNewLook()
+  // The New look: the tick draws itself when the scene is marked done (not when it opens done).
+  const [justDone, setJustDone] = useState(false)
+  const was = useRef({ done, sceneId })
+  useEffect(() => {
+    const before = was.current
+    was.current = { done, sceneId }
+    // Another scene opening (done or not) isn't this one being marked done.
+    setJustDone(done && !before.done && before.sceneId === sceneId)
+  }, [done, sceneId])
   const [pending, setPending] = useState(false)
   // It takes a moment at most; the spinner only shows if it takes longer than that.
   const slow = useDelayed(pending, 250)
@@ -69,23 +81,34 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         'transition-[background-color,border-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
         // Room for the words only when the header is wide enough (see SceneHeader); the width then stays put in either state.
         '@min-[860px]:w-[112px] @min-[860px]:px-2.5',
+        // The New look: its words show whenever there is room for them beside the tools.
+        'look-new:@min-[540px]:w-[104px] look-new:@min-[540px]:px-3',
+        // The New look: a raised pill that presses in.
+        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform] look-new:duration-(--dur-base) look-new:active:scale-[0.96]',
         done
-          ? 'border-success/35 bg-success-soft text-success hover:border-success/70'
-          : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2'
+          ? 'border-success/35 bg-success-soft text-success hover:border-success/70 look-new:border-transparent look-new:bg-raise look-new:text-fg look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'
+          : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2 look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'
       )}
     >
       {slow ? (
         <Spinner size={14} />
       ) : done ? (
         <>
-          <Check size={14} className="group-hover:hidden group-focus-visible:hidden" aria-hidden />
-          <RotateCcw size={13} className="hidden group-hover:block group-focus-visible:block" aria-hidden />
+          {isNew ? (
+            <DrawnTick size={15} draw={justDone} className="text-success" />
+          ) : (
+            <Check size={14} className="group-hover:hidden group-focus-visible:hidden" aria-hidden />
+          )}
+          <RotateCcw size={13} className="hidden group-hover:block group-focus-visible:block look-new:hidden!" aria-hidden />
         </>
       ) : (
         <Check size={14} aria-hidden />
       )}
-      <span className="hidden @min-[860px]:inline">
-        {done ? (
+      <span className="hidden @min-[860px]:inline look-new:@min-[540px]:inline">
+        {done && isNew ? (
+          // The New look: the status pill beside it says Done, so this says what it does.
+          'Reopen'
+        ) : done ? (
           <>
             <span className="group-hover:hidden group-focus-visible:hidden">Done</span>
             <span className="hidden group-hover:inline group-focus-visible:inline">Reopen</span>

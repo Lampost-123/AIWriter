@@ -42,8 +42,8 @@ import {
   Sun,
   Trash2,
   WandSparkles,
-  type LucideIcon
-} from 'lucide-react'
+  type IconType
+} from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SearchGroupId, SearchHit, SearchResults, TextPart } from '@shared/contracts/search'
 import { Kbd, Spinner } from '@/components/ui'
@@ -54,7 +54,8 @@ import { isShortcut, shortcutKeys } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { useDelayed } from '@/features/generate/parts'
-import { KIND_ICONS } from '@/features/world/kindIcons'
+import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
+import { useNewLook } from '@/features/look/look'
 import { openResult, runAction } from './actions'
 import {
   entryAction,
@@ -112,7 +113,7 @@ const searchedGroups = (expanded: ReadonlySet<string>): string =>
 
 // ---------- Icons ----------
 
-const ACTION_ICONS: Partial<Record<ActionId, LucideIcon>> = {
+const ACTION_ICONS: Partial<Record<ActionId, IconType>> = {
   generate: Sparkles,
   stop: Square,
   'mark-done': Check,
@@ -143,7 +144,7 @@ const ACTION_ICONS: Partial<Record<ActionId, LucideIcon>> = {
   shortcuts: Keyboard
 }
 
-function actionIcon(a: ActionDef): LucideIcon {
+function actionIcon(a: ActionDef): IconType {
   const entry = entryAction(a.id)
   if (entry) return entry.verb === 'new' ? Plus : KIND_ICONS[entry.kind]
   if (a.id.startsWith('settings-')) return Settings
@@ -151,7 +152,7 @@ function actionIcon(a: ActionDef): LucideIcon {
 }
 
 /** A result's icon: what it is, from the start of its key ('summary:…', 'chapter:…'), or its kind of entry. */
-function hitIcon(hit: SearchHit): LucideIcon {
+function hitIcon(hit: SearchHit): IconType {
   switch (hit.key.split(':')[0]) {
     case 'summary':
       return AlignLeft
@@ -206,6 +207,7 @@ interface OptionRowProps {
 }
 
 function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JSX.Element {
+  const isNew = useNewLook()
   const base = cn('flex cursor-default select-none gap-3 rounded-lg px-3', active && 'bg-surface-2')
   const props = {
     id: domId('palette-option', row.key),
@@ -243,9 +245,17 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
 
   const { hit } = row
   const Icon = hitIcon(hit)
+  // The New look: a world entry's icon sits on a tile in its kind's ink.
+  const kind = isNew && hit.open.kind === 'entry' ? hit.open.entryKind : null
   return (
     <div {...props} className={cn(base, 'items-start py-2')}>
-      <Icon size={15} className={cn('mt-[3px] shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+      {kind ? (
+        <span className={cn('grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[6px]', KIND_INK[kind].tile)} aria-hidden>
+          <Icon size={14} />
+        </span>
+      ) : (
+        <Icon size={15} className={cn('mt-[3px] shrink-0', active ? 'text-fg' : 'text-muted')} aria-hidden />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-[13.5px] font-medium text-fg">
@@ -530,6 +540,7 @@ export function CommandPalette(): React.JSX.Element {
   return (
     <D.Root open={open} onOpenChange={(o) => usePalette.setState({ open: o })}>
       <D.Portal>
+        {/* The New look: the palette is a raised pane with a hint of blur behind it (only it: small, so it costs little). */}
         <D.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=open]:animate-fade-in" />
         <D.Content
           {...{ [PALETTE_LAYER]: '' }}
@@ -547,7 +558,7 @@ export function CommandPalette(): React.JSX.Element {
           }}
           // Keys pressed here stay here: the app's shortcuts underneath (Ctrl+G, Ctrl+Enter...) wait until it closes.
           onKeyDown={(e) => e.stopPropagation()}
-          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className="fixed left-1/2 top-[12vh] z-50 flex w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise/90 look-new:backdrop-blur-md look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
         >
           <D.Title className="sr-only">Search</D.Title>
           <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line px-4">

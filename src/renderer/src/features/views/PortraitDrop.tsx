@@ -1,6 +1,6 @@
 // A portrait Adam can change: click to choose a picture, or drop one on it. Removing it is
 // undoable from the toast. The picture is made small first (lib/image.ts) and kept in the world.
-import { ImagePlus, Trash2 } from 'lucide-react'
+import { ImagePlus, Trash2 } from '@/components/ui/icons'
 import { useRef, useState } from 'react'
 import type { Entry } from '@shared/types'
 import { toast } from '@/components/ui'

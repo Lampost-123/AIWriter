@@ -2,7 +2,7 @@
 // start screen's Recently deleted section (each deleted world with when it goes for good, Restore, and Empty now
 // with a second confirmation).
 
-import { Globe2, RotateCcw, Trash2 } from 'lucide-react'
+import { Globe2, RotateCcw, Trash2 } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { DeletedWorld, LibraryWorld } from '@shared/contracts/library'
 import { Button, Card, Dialog } from '@/components/ui'

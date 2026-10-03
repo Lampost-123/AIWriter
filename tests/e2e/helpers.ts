@@ -43,7 +43,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
   // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off' }, opts.env)
+  // The New look: app tests start in Classic (today's layout), with no one-time note, unless they ask for the New
+  // look with { env: { AIWRITE_LOOK: 'new' } } (or '' for what Adam gets: the New look, and the note after updating).
+  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic' }, opts.env)
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()

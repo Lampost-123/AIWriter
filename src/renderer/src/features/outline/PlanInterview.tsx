@@ -3,7 +3,7 @@
 // Not a transcript: the answers are used once, at the end, to fill in the scene card's empty parts or to
 // plan the chapter. Narrow enough for the scene panel. The interview itself is in planInterviewStore.ts.
 
-import { MessageCircleQuestion, Square } from 'lucide-react'
+import { MessageCircleQuestion, Square } from '@/components/ui/icons'
 import { useEffect, useRef } from 'react'
 import type { PlanTarget } from '@shared/contracts/outline'
 import { Button, Notice } from '@/components/ui'

@@ -1,6 +1,6 @@
 // Interview mode: Adam asks, the character answers in character. Any reply can be saved as a sample
 // line of their voice with one click. The conversation lives here only; it isn't stored in the world.
-import { Check, MessageCircle, Send, Square, X } from 'lucide-react'
+import { Check, MessageCircle, Send, Square, X } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { InterviewTurn } from '@shared/contracts/builder'
 import type { ID } from '@shared/types'

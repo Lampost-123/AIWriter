@@ -1,4 +1,4 @@
-import { CalendarRange, History, LayoutGrid, Network, Palette, SearchCheck, Spool, WandSparkles } from 'lucide-react'
+import { CalendarRange, History, LayoutGrid, Network, Palette, SearchCheck, Spool, WandSparkles } from '@/components/ui/icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
@@ -19,7 +19,7 @@ const ENTRY_LINKS: { kind: EntryKind; label: string; icon: ReactNode }[] = ENTRY
 })
 
 /** Counts of world bible entries, reloaded whenever entries change. Null until first loaded. */
-function useEntryCounts(): Counts | null {
+export function useEntryCounts(): Counts | null {
   const rev = useApp((s) => s.entriesRev)
   const worldId = useApp((s) => s.world?.id)
   const [counts, setCounts] = useState<Counts | null>(null)

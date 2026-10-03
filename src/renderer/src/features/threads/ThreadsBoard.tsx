@@ -2,7 +2,7 @@
 // Resolved and (when there are any) Planned, with where each was set up and paid off linked to those
 // scenes. A thread open for many chapters gets a calm amber note, so nothing is forgotten. Clicking a
 // thread opens its page.
-import { Hourglass, Spool, Plus } from 'lucide-react'
+import { Hourglass, Spool, Plus } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import type { BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
@@ -136,6 +136,8 @@ function ThreadCard({ thread: t }: { thread: BoardThread }): React.JSX.Element {
       }}
       className={cn(
         'group cursor-pointer rounded-xl border bg-surface px-4 py-3 shadow-soft transition-colors duration-150 hover:border-line-strong',
+        // The New look: a card of paper edged in the plot threads' moss ink, lifting a little on hover.
+        'look-new:rounded-card look-new:border-transparent look-new:bg-page look-new:shadow-[var(--elev-1),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)] look-new:transition-[transform,box-shadow] look-new:duration-(--dur-quick) look-new:hover:-translate-y-0.5 look-new:hover:shadow-[var(--elev-2),inset_3px_0_0_var(--k-thread),inset_0_0_0_1px_var(--line)]',
         t.longOpen ? 'border-ai/40' : 'border-line'
       )}
     >

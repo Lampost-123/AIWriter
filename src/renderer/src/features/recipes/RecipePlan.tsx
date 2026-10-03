@@ -4,7 +4,7 @@
 // they behave exactly as there; the premise is kept as the story's premise. Nothing is added without a click.
 // Owned by the Story recipes part.
 
-import { Check, CookingPot, Sparkles, Square } from 'lucide-react'
+import { Check, CookingPot, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { Button, EmptyState, Notice, Select } from '@/components/ui'

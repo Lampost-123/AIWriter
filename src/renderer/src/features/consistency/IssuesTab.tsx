@@ -1,7 +1,7 @@
 // The Consistency page's Issues tab: every open issue in the story, story-wide ones first, then by
 // chapter and scene in story order, must-fix first in each. Clicking an issue opens its scene at the
 // words, with the scene panel on its Issues tab; Ignore is undoable from its toast.
-import { CircleCheck, EyeOff, RotateCcw, SearchCheck } from 'lucide-react'
+import { CircleCheck, EyeOff, RotateCcw, SearchCheck } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'

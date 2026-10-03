@@ -45,10 +45,16 @@ function mapped(range: { from: number; to: number } | null, tr: Transaction): { 
 const barThreshold = { top: 0, right: 0, bottom: 0, left: 0 }
 const barMargin = { top: 5, right: 5, bottom: 5, left: 5 }
 
-/** The reading bar's height over the page, in pixels (0 when it is closed). */
-export function setBarRoom(px: number): void {
-  barThreshold.top = Math.max(0, Math.round(px))
+/**
+ * The reading bar's height over the page, in pixels (0 when it is closed): over the top of the page (Classic), or
+ * floating at its foot (the New look).
+ */
+export function setBarRoom(px: number, side: 'top' | 'bottom' = 'top'): void {
+  const room = Math.max(0, Math.round(px))
+  barThreshold.top = side === 'top' ? room : 0
+  barThreshold.bottom = side === 'bottom' ? room : 0
   barMargin.top = barThreshold.top + 5
+  barMargin.bottom = barThreshold.bottom + 5
 }
 
 /** The room the reading bar takes at the top of the page now. */

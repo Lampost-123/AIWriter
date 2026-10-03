@@ -2,7 +2,7 @@
 // paste as plain text, each with its shortcut beside it. Bold, Italic and Block quote are ticked when the
 // words at the caret already have them. Picking one puts the caret back in the page.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Bold, Check, ClipboardType, Italic, SeparatorHorizontal, TextQuote, Type } from 'lucide-react'
+import { Bold, Check, ClipboardType, Italic, SeparatorHorizontal, TextQuote, Type } from '@/components/ui/icons'
 import { useRef, useState } from 'react'
 import { shortcutText, type ShortcutId } from '@/lib/shortcuts'
 import { ToolButton } from '@/features/editor/ToolButton'

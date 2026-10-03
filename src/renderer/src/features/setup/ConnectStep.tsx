@@ -2,7 +2,7 @@
 // cards are Settings › Models' own (OpenRouterCard, OtherProviders), so the key is kept the same way (encrypted, in
 // the main process, never in a world) and tested by the same code.
 
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink } from '@/components/ui/icons'
 import { useState } from 'react'
 import { Notice } from '@/components/ui'
 import { OpenRouterCard, OtherProviders, useConnectionTests } from '@/features/settings/ModelsSettings'

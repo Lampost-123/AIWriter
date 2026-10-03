@@ -6,7 +6,7 @@
 // The summary is kept in the world, so the page reopens with it, and building again adds only what is
 // missing. Owned by the World builder part.
 
-import { AlertTriangle, ArrowRight, Check, Globe2, Link2, Palette, Sparkles, Square, Undo2 } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Check, Globe2, Link2, Palette, Sparkles, Square, Undo2 } from '@/components/ui/icons'
 import { useEffect, useId, useRef } from 'react'
 import type { WorldBuildDone, WorldBuildItem } from '@shared/contracts/worldBuilder'
 import type { EntryKind, ID } from '@shared/types'

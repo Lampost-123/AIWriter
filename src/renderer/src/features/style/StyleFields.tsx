@@ -1,3 +1,6 @@
+import { cn } from '@/lib/cn'
+import { BookOpen, Eye, Feather, Palette, Pencil, ShieldCheck, type IconType } from '@/components/ui/icons'
+import { useNewLook } from '@/features/look/look'
 import { memo, useId, type ReactNode } from 'react'
 import type { EffectiveStyle, StyleTextKey } from '@shared/style'
 import type { Spelling, StyleGuide } from '@shared/types'
@@ -197,11 +200,30 @@ export const StyleFields = memo(function StyleFields({
   )
 })
 
+/** The New look: each group's icon, on a tile in a soft ink. */
+const GROUP_ICONS: Record<string, { icon: IconType; tile: string }> = {
+  Voice: { icon: Eye, tile: 'bg-k-char-soft text-k-char' },
+  Prose: { icon: Pencil, tile: 'bg-k-lore-soft text-k-lore' },
+  'Limits and notes': { icon: ShieldCheck, tile: 'bg-k-event-soft text-k-event' },
+  'Story feel': { icon: Palette, tile: 'bg-k-item-soft text-k-item' },
+  'Themes and tone': { icon: Feather, tile: 'bg-k-place-soft text-k-place' },
+  'About this story': { icon: BookOpen, tile: 'bg-k-group-soft text-k-group' }
+}
+
 /** A titled group of fields, set off from the one above by a rule. */
 export function Group({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
+  const isNew = useNewLook()
+  const mark = isNew ? GROUP_ICONS[title] : undefined
   return (
-    <section className="flex flex-col gap-4 border-t border-line pt-6">
-      <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">{title}</h3>
+    <section className="flex flex-col gap-4 border-t border-line pt-6 look-new:border-transparent look-new:pt-4">
+      <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint look-new:flex look-new:items-center look-new:gap-2.5 look-new:font-heading look-new:text-[20px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg">
+        {mark ? (
+          <span aria-hidden className={cn('grid h-7 w-7 place-items-center rounded-lg', mark.tile)}>
+            <mark.icon size={16} />
+          </span>
+        ) : null}
+        {title}
+      </h3>
       {children}
     </section>
   )

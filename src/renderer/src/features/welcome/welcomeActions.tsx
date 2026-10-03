@@ -8,7 +8,7 @@
 // `run` is called with nothing open in front of it (the Welcome screen, or the setup's first step); any error it
 // throws is shown in a toast.
 
-import { CookingPot, FileArchive, FileText, type LucideIcon } from 'lucide-react'
+import { CookingPot, FileArchive, FileText, type IconType } from '@/components/ui/icons'
 import { useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -20,7 +20,7 @@ export interface WelcomeAction {
   id: 'import-manuscript' | 'import-world' | (string & {})
   /** The button's words: "Import a manuscript…". */
   label: string
-  icon: LucideIcon
+  icon: IconType
   /** A few words under it, or in its tooltip. */
   hint?: string
   run: () => void | Promise<void>

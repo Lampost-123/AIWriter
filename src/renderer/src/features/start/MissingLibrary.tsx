@@ -1,4 +1,4 @@
-import { FolderX } from 'lucide-react'
+import { FolderX } from '@/components/ui/icons'
 import { useState } from 'react'
 import { Button, Card, toast } from '@/components/ui'
 import { api } from '@/lib/api'

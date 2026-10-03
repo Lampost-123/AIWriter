@@ -93,3 +93,72 @@ describe('accent colour contrast', () => {
     }
   }
 })
+
+// The New look ("Lamplight", <html data-look='new'>): its own frame, panes, page and raised surfaces in each theme,
+// over the theme's colours, and an ink for each kind of thing in the world. The same rules hold, every accent too.
+const newLookTokens = (theme: string): Record<string, string> => ({ ...themeTokens(theme), ...blockTokens(`[data-look='new'][data-theme='${theme}']`) })
+
+const NEW_LOOK_PAIRS: Record<string, string[]> = {
+  fg: ['bg', 'surface', 'surface-2', 'page', 'raise', 'ai-soft'],
+  muted: ['bg', 'surface', 'surface-2', 'page', 'raise', 'ai-soft'],
+  faint: ['bg', 'surface', 'surface-2', 'page', 'raise'],
+  ai: ['bg', 'surface', 'surface-2', 'page', 'raise', 'ai-soft'],
+  'ai-fg': ['ai'],
+  danger: ['bg', 'surface', 'page', 'raise', 'danger-soft'],
+  success: ['bg', 'surface', 'page', 'raise', 'success-soft']
+}
+const NEW_LOOK_ACCENT_PAIRS: Record<string, string[]> = {
+  accent: ['bg', 'surface', 'surface-2', 'page', 'raise', 'accent-soft'],
+  'accent-fg': ['accent', 'accent-hover']
+}
+const KINDS = ['char', 'place', 'group', 'item', 'lore', 'event', 'thread', 'gloss']
+
+describe('the New look: text contrast', () => {
+  for (const theme of THEMES) {
+    const t = newLookTokens(theme)
+    for (const [text, bgs] of Object.entries({ ...NEW_LOOK_PAIRS, ...NEW_LOOK_ACCENT_PAIRS })) {
+      for (const bg of bgs) {
+        it(`${theme}: --${text} on --${bg} is at least 4.5:1`, () => {
+          expect(contrast(t[text], t[bg])).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+    it(`${theme}: --faint stays lighter than --muted`, () => {
+      expect(contrast(t.faint, t.bg)).toBeLessThan(contrast(t.muted, t.bg))
+    })
+    it(`${theme}: the frame is deepest, the panes a step up, the page lightest`, () => {
+      const order = [luminance(t.bg), luminance(t.surface), luminance(t.page)]
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+    })
+  }
+})
+
+describe('the New look: kind inks', () => {
+  for (const theme of THEMES) {
+    const t = newLookTokens(theme)
+    for (const kind of KINDS) {
+      // A kind's words and icon sit on its own soft tile, and on the page, the panes, the frame and raised cards.
+      for (const bg of [`k-${kind}-soft`, 'page', 'surface', 'bg', 'raise']) {
+        it(`${theme}: --k-${kind} on --${bg} is at least 4.5:1`, () => {
+          expect(t[`k-${kind}`], `--k-${kind} in ${theme}`).toMatch(/^#/)
+          expect(contrast(t[`k-${kind}`], t[bg])).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+  }
+})
+
+describe('the New look: accent colour contrast', () => {
+  for (const theme of THEMES) {
+    for (const accent of ACCENT_IDS) {
+      const t = { ...newLookTokens(theme), ...blockTokens(`[data-theme='${theme}'][data-accent='${accent}']`) }
+      for (const [text, bgs] of Object.entries(NEW_LOOK_ACCENT_PAIRS)) {
+        for (const bg of bgs) {
+          it(`${theme} with ${accent}: --${text} on --${bg} is at least 4.5:1`, () => {
+            expect(contrast(t[text], t[bg])).toBeGreaterThanOrEqual(4.5)
+          })
+        }
+      }
+    }
+  }
+})

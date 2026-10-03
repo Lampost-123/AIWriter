@@ -1,7 +1,7 @@
 // Story settings ({ kind: 'story', storyId }): the story's title, series, premise, themes and tone; "What
 // is it?" with the same live sentence as the New story dialog, saved with Undo; the time since the
 // previous story; a prequel's starting cast; the style the AI gets for it; and deleting it with Undo.
-import { BookOpen, Check, Plus, Trash2, X } from 'lucide-react'
+import { BookOpen, Check, Plus, Trash2, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { StoryPlacement } from '@shared/api'
 import type { StoryDetails, StoryRef } from '@shared/contracts/stories'

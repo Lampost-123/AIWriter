@@ -6,7 +6,7 @@
 // The page shows the scene's latest set: the one being written (it keeps writing while Adam is on other
 // pages), else the last one from the records, until a new one starts. With none yet, it offers to start.
 // In a small window the columns keep a readable width and the row scrolls sideways.
-import { ArrowLeft, Columns3, RotateCcw, Sparkles, Square } from 'lucide-react'
+import { ArrowLeft, Columns3, RotateCcw, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { ID } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'

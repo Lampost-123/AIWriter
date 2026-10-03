@@ -2,7 +2,7 @@
 // the one-click downloads with their progress (everyday), and the server address, Check, the Hugging
 // Face key, where things are kept and removing them (More). Owned by the Speech engine part. The sound
 // effects' download card (SoundsDownload.tsx) is made of the same pieces, exported below.
-import { AudioLines, CircleAlert, CircleCheck, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from 'lucide-react'
+import { AudioLines, CircleAlert, CircleCheck, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from '@/components/ui/icons'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import type {
   DictationModel,

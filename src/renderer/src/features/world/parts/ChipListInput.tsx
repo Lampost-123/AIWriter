@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { registerFlusher } from '@/lib/flush'

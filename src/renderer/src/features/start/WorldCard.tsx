@@ -2,7 +2,7 @@
 // stories with what each is, their words and last edit. Each world and story has a menu (Open, Rename in place,
 // Details; a world also Export, Make a copy and Delete; a story Delete).
 
-import { BookOpen, ChevronRight, Copy, FileDown, FolderOpen, Globe2, Info, PenLine, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronRight, Copy, FileDown, FolderOpen, Globe2, Info, PenLine, Trash2 } from '@/components/ui/icons'
 import { useRef, useState } from 'react'
 import type { LibraryStory, LibraryWorld } from '@shared/contracts/library'
 import { Badge, Button } from '@/components/ui'

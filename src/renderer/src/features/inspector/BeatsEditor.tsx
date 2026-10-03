@@ -1,6 +1,6 @@
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type Modifier } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { GripVertical, Plus, X } from 'lucide-react'
+import { GripVertical, Plus, X } from '@/components/ui/icons'
 import { forwardRef, memo, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { useFitHeight } from '@/features/world/parts/AutoTextarea'
@@ -150,7 +150,8 @@ export const BeatsEditor = memo(function BeatsEditor({
         accessibility={{ screenReaderInstructions: { draggable: 'To move a beat, press Space, then the arrow keys, then Space again to drop it.' } }}
       >
         <SortableContext items={beats.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-          <ol className="flex flex-col rounded-md border border-line bg-page py-1 transition-[border-color,box-shadow] duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 hover:border-line-strong">
+          {/* The New look: each beat its own small card, numbered in a dot of the accent. */}
+          <ol className="flex flex-col rounded-md border border-line bg-page py-1 transition-[border-color,box-shadow] duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 hover:border-line-strong look-new:gap-1.5 look-new:border-0 look-new:bg-transparent look-new:py-0 look-new:focus-within:ring-0">
             {beats.map((b, i) => (
               <BeatRow
                 key={b.id}
@@ -212,7 +213,11 @@ const BeatRow = memo(function BeatRow({
     <li
       ref={setNodeRef}
       style={{ transform: transform ? `translate3d(0, ${Math.round(transform.y)}px, 0)` : undefined, transition }}
-      className={cn('group relative flex items-start gap-0.5 pl-0.5 pr-1', isDragging && 'z-10 rounded-md bg-surface shadow-pop')}
+      className={cn(
+        'group relative flex items-start gap-0.5 pl-0.5 pr-1',
+        'look-new:rounded-[9px] look-new:bg-raise look-new:py-0.5 look-new:pl-1.5 look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:focus-within:shadow-[inset_0_0_0_1.5px_var(--accent)]',
+        isDragging && 'z-10 rounded-md bg-surface shadow-pop'
+      )}
     >
       <button
         type="button"
@@ -228,7 +233,10 @@ const BeatRow = memo(function BeatRow({
       >
         <GripVertical size={13} />
       </button>
-      <span aria-hidden className="mt-[6px] w-4 shrink-0 select-none text-right text-[12px] tabular-nums text-faint">
+      <span
+        aria-hidden
+        className="mt-[6px] w-4 shrink-0 select-none text-right text-[12px] tabular-nums text-faint look-new:mt-[6px] look-new:grid look-new:h-[18px] look-new:w-[18px] look-new:place-items-center look-new:rounded-full look-new:bg-accent-soft look-new:text-[10.5px] look-new:font-semibold look-new:text-accent"
+      >
         {index + 1}.
       </span>
       <BeatText

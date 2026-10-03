@@ -1,5 +1,5 @@
 // Small pieces the builder's screens share.
-import { AlertTriangle, Check, CircleDashed, Sparkles } from 'lucide-react'
+import { AlertTriangle, Check, CircleDashed, Sparkles } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import type { BuilderKind } from '@shared/contracts/builder'
 import type { Entry, ID } from '@shared/types'

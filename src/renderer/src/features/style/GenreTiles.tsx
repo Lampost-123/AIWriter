@@ -15,15 +15,15 @@ import {
   Swords,
   Timer,
   WandSparkles,
-  type LucideIcon
-} from 'lucide-react'
+  type IconType
+} from '@/components/ui/icons'
 import type { CSSProperties } from 'react'
 import { GENRES, genresOf } from '@shared/genres'
 import { cn } from '@/lib/cn'
 import { genreRole, type GenresShown } from './feelLogic'
 
 /** The presets' icon names (src/shared/genres.ts) and their icons. */
-const ICONS: Record<string, LucideIcon> = {
+const ICONS: Record<string, IconType> = {
   WandSparkles,
   Moon,
   Swords,
@@ -64,7 +64,7 @@ export function GenreTiles({ shown, onPick, labelledBy }: { shown: GenresShown; 
             title={g.blurb}
             onClick={() => onPick(g.id)}
             style={hue(g.hue)}
-            className="genre-tile relative flex h-[72px] flex-col items-start justify-between rounded-xl px-3 pb-2.5 pt-3 text-left"
+            className="genre-tile relative flex h-[72px] flex-col items-start justify-between rounded-xl px-3 pb-2.5 pt-3 text-left look-new:rounded-card look-new:shadow-e1 look-new:hover:-translate-y-px look-new:active:scale-[0.97]"
           >
             <Icon size={19} strokeWidth={1.75} className="genre-ink" aria-hidden />
             <span className="max-w-full truncate text-[13px] font-medium leading-tight text-fg">{g.label}</span>

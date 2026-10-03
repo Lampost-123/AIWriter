@@ -8,7 +8,7 @@
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
-import { BookmarkPlus, UserPlus } from 'lucide-react'
+import { BookmarkPlus, UserPlus } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'

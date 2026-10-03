@@ -5,7 +5,7 @@
 // Esc then gives it back.
 import { forwardRef } from 'react'
 import { createPortal } from 'react-dom'
-import { WandSparkles } from 'lucide-react'
+import { WandSparkles } from '@/components/ui/icons'
 import { SLOP_GROUPS } from '@shared/slop'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'

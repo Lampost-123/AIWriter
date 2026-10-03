@@ -1,7 +1,7 @@
 // The inspector's "Drafts" tab: the scene's drafts (the one in the page and the others kept beside it,
 // milestone 4), then every draft the AI wrote for it, newest first, each with a link to exactly what the
 // AI was given.
-import { ChevronRight, History, Undo2 } from 'lucide-react'
+import { ChevronRight, History, Undo2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { GenerationSummary, ID } from '@shared/types'
 import type { SceneDrafts } from '@shared/contracts/history'

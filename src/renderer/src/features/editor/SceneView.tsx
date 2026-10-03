@@ -1,5 +1,5 @@
 import { EditorContent, useEditor } from '@tiptap/react'
-import { ArrowDown, FilePlus2, Feather, RotateCcw } from 'lucide-react'
+import { ArrowDown, FilePlus2, Feather, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'
@@ -20,6 +20,8 @@ import { SelectionLayer } from './selection/SelectionLayer'
 import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
+import { PageTitle } from './PageTitle'
+import { useNewLook } from '@/features/look/look'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
 import { ReadAloudBar } from '@/features/readAloud/ReadAloudBar'
@@ -59,6 +61,7 @@ interface Shown {
 function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const prefs = useApp((s) => s.settings?.editor)
+  const isNew = useNewLook()
   const scrollerRef = useRef<HTMLDivElement>(null)
   const columnRef = useRef<HTMLDivElement>(null)
   const ctrlRef = useRef<SceneController | null>(null)
@@ -213,7 +216,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-page">
+    // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css).
+    <div className="scene-sheet relative flex h-full min-h-0 flex-col bg-page look-new:mx-2 look-new:overflow-hidden look-new:rounded-t-[14px] look-new:shadow-sheet">
       {shown && !error ? (
         <SceneHeader sceneId={shown.id} fallbackTitle={shown.title} fallbackStatus={shown.status} />
       ) : (
@@ -238,6 +242,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           className={cn('mx-auto pb-[38vh] pt-12 font-serif', wide ? 'px-10' : 'px-6', !(shown && !error) && 'invisible')}
           style={{ fontSize, lineHeight, maxWidth: `calc(${pageWidth}ch + 5rem)` }}
         >
+          {isNew && shown && !error ? <PageTitle sceneId={shown.id} fallbackTitle={shown.title} /> : null}
           <EditorContent editor={editor} />
         </div>
         <NamesLayer editor={editor} sceneId={shown && !error ? shown.id : null} />

@@ -1,7 +1,8 @@
 import { join } from 'node:path'
-import { mkdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import type { DeepPartial, Settings, WritingPrefs } from '@shared/types'
 import { defaultSettings, defaultWritingPrefs } from '@shared/defaults'
+import { LOOKS, lookNoteDue, type Look } from '@shared/contracts/look'
 import { defaultLibraryDir, userDataDir } from './paths'
 import { readJson, writeFileAtomic } from './util'
 
@@ -22,13 +23,28 @@ function merge<T>(base: T, patch: unknown): T {
 
 export function getSettings(): Settings {
   if (!cached) {
-    const stored = readJson<Partial<Settings>>(settingsFile(), {})
+    const file = settingsFile()
+    const existed = existsSync(file)
+    const stored = readJson<Partial<Settings>>(file, {})
     cached = merge(defaultSettings(defaultLibraryDir()), stored)
+    // The New look is the default, with a one-time note offering Classic to anyone who used AI Write before it.
+    // App tests choose the look they start in (AIWRITE_LOOK) and never see the note unless they ask for it.
+    if (!('look' in stored)) {
+      const forced = lookFromEnv()
+      if (forced) cached.look = forced
+      cached.lookNote = !forced && lookNoteDue(existed ? (stored as Record<string, unknown>) : null)
+    }
     // A library on a drive that isn't plugged in must not stop AI Write starting:
     // the welcome screen says so and offers to try again or choose another folder.
     ensureLibraryFolder(cached.libraryPath)
   }
   return cached
+}
+
+/** The look app tests start in (AIWRITE_LOOK=new or classic); undefined for everyone else. */
+function lookFromEnv(): Look | undefined {
+  const v = process.env.AIWRITE_LOOK
+  return (LOOKS as readonly string[]).includes(v ?? '') ? (v as Look) : undefined
 }
 
 /** Makes sure the library folder exists. False when it can't be reached or made. */

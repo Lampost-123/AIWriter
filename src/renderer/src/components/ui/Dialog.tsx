@@ -1,5 +1,5 @@
 import * as D from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 
@@ -40,11 +40,11 @@ export function Dialog({
           }}
           onCloseAutoFocus={onCloseAutoFocus}
           style={{ width }}
-          className="fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
+          className="fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-xl border border-line bg-surface p-5 shadow-pop focus:outline-none data-[state=open]:animate-pop-in look-new:rounded-2xl look-new:border-transparent look-new:bg-raise look-new:p-6 look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)] look-new:data-[state=open]:[animation:pop-in_var(--dur-base)_var(--motion-spring)]"
         >
           <div className="mb-3 flex items-start justify-between gap-4">
             <div>
-              <D.Title className="text-[15px] font-semibold text-fg">{title}</D.Title>
+              <D.Title className="text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[18px] look-new:tracking-[-0.01em]">{title}</D.Title>
               {description ? <D.Description className="mt-1 text-[13px] text-muted">{description}</D.Description> : null}
             </div>
             <D.Close className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-fg" aria-label="Close">

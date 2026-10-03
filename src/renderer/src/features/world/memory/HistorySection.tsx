@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight } from '@/components/ui/icons'
 import { useId, useMemo, useRef, useState } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, FactVersion, ID } from '@shared/types'

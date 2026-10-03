@@ -1,4 +1,4 @@
-import { BookOpen } from 'lucide-react'
+import { ArrowRight, BookOpen } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defaultStyleGuide } from '@shared/defaults'
 import { cleanGenres } from '@shared/genres'
@@ -10,6 +10,8 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { cn } from '@/lib/cn'
+import { useNewLook } from '@/features/look/look'
 import { createDraftCache } from '@/features/world/parts/draftCache'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
@@ -42,6 +44,7 @@ const fullStyle = (s: Partial<StyleGuide> | undefined): StyleGuide => {
 
 /** The world's style guide and themes, and the open story's premise and overrides. */
 export function StyleView(): React.JSX.Element | null {
+  const isNew = useNewLook()
   const world = useApp((s) => s.world)
   const storyId = useApp((s) => s.storyId)
   const story = useApp((s) => s.stories.find((x) => x.id === s.storyId) ?? null)
@@ -79,9 +82,10 @@ export function StyleView(): React.JSX.Element | null {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    // The New look: the guide is a sheet of paper on the frame, as the page is.
+    <div className="h-full overflow-y-auto look-new:mx-2 look-new:mt-1 look-new:h-[calc(100%-4px)] look-new:rounded-t-[14px] look-new:bg-page look-new:shadow-sheet">
       <div className="mx-auto w-full max-w-[680px] animate-fade-in px-8 pb-24 pt-8">
-        <h1 className="text-[20px] font-semibold text-fg">Style guide</h1>
+        <h1 className="text-[20px] font-semibold text-fg look-new:text-[30px]">Style guide</h1>
         <p className="mt-1 text-[13px] leading-relaxed text-muted">
           How every draft should read. Your own writing preferences sit underneath, the world's guide goes on top, and each story can change anything for itself.
         </p>
@@ -93,13 +97,24 @@ export function StyleView(): React.JSX.Element | null {
           }}
           className="mt-5"
         >
-          <TabsList
-            className="mb-6 px-0!"
-            items={[
-              { value: 'world', label: 'World' },
-              { value: 'story', label: 'This story' }
-            ]}
-          />
+          {isNew ? (
+            <AppliesTo
+              tab={tab}
+              world={world.name}
+              onPick={(v) => {
+                lastTab = v
+                setTab(v)
+              }}
+            />
+          ) : (
+            <TabsList
+              className="mb-6 px-0!"
+              items={[
+                { value: 'world', label: 'World' },
+                { value: 'story', label: 'This story' }
+              ]}
+            />
+          )}
           <TabsContent value="world">
             <WorldStyleForm key={world.id} world={world} prefs={prefs} />
           </TabsContent>
@@ -305,6 +320,35 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
         mode="story"
         afterSample={<SampleWriter worldId={world.id} storyId={story.id} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />}
       />
+    </div>
+  )
+}
+
+/**
+ * The New look: which layer the guide below sets, as a row (my preferences, then the world, then this story), in place
+ * of the tabs. My preferences opens Settings, where they live.
+ */
+function AppliesTo({ tab, world, onPick }: { tab: Tab; world: string; onPick: (t: Tab) => void }): React.JSX.Element {
+  const chip = (on: boolean): string =>
+    cn(
+      'rounded-full px-3 py-1 text-[13px] transition-colors duration-(--dur-quick)',
+      on ? 'bg-accent-soft font-semibold text-accent' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+    )
+  const arrow = <ArrowRight size={13} aria-hidden className="text-faint" />
+  return (
+    <div role="tablist" aria-label="Applies to" className="mb-6 flex flex-wrap items-center gap-2 text-[13px] text-muted">
+      <span>Applies to</span>
+      <button type="button" className={chip(false)} onClick={() => useApp.getState().navigate({ kind: 'settings', tab: 'preferences' })}>
+        My preferences
+      </button>
+      {arrow}
+      <button type="button" role="tab" aria-selected={tab === 'world'} className={chip(tab === 'world')} onClick={() => onPick('world')}>
+        World: {world}
+      </button>
+      {arrow}
+      <button type="button" role="tab" aria-selected={tab === 'story'} className={chip(tab === 'story')} onClick={() => onPick('story')}>
+        This story
+      </button>
     </div>
   )
 }

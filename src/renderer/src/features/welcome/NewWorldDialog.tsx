@@ -1,4 +1,4 @@
-import { WandSparkles } from 'lucide-react'
+import { WandSparkles } from '@/components/ui/icons'
 import { useState } from 'react'
 import { Button, Dialog, Field, Input, toast } from '@/components/ui'
 import { flushBeforeWorldChange } from '@/lib/flush'

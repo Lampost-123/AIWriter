@@ -2,7 +2,7 @@
 // and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, consistency
 // check and read aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from 'lucide-react'
+import { AudioLines, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'

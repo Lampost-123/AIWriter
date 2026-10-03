@@ -136,9 +136,11 @@ export function ResizablePane({
       style={{ width: floating || !open ? 0 : width }}
       className={cn(
         'relative flex shrink-0 flex-col',
-        floating ? 'z-30 overflow-visible' : 'overflow-hidden bg-surface',
+        floating ? 'z-30 overflow-visible' : 'overflow-hidden bg-surface look-new:bg-transparent',
         !instant && !floating && 'transition-[width] duration-200 ease-out',
         !floating && (side === 'left' ? 'border-r border-line' : 'border-l border-line'),
+        // The New look: the panes sit a step up from the window's frame, with no hairline.
+        !floating && 'look-new:border-transparent',
         !floating && !open && 'border-transparent',
         className
       )}

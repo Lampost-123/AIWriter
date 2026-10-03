@@ -3,7 +3,7 @@
 // (open one to read it, or choose full or short), and the entries from the world with why each is
 // there: pin one for this scene, this story or every scene, or leave it out, and bring it back.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronRight, EyeOff, MoreHorizontal, Pin, PinOff, Undo2 } from 'lucide-react'
+import { Check, ChevronRight, EyeOff, MoreHorizontal, Pin, PinOff, Undo2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BlockMode, ContextBlock, ContextEntry, ContextPreview, Entry, ID, PinScope } from '@shared/types'

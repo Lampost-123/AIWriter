@@ -12,7 +12,7 @@ import {
   Plus,
   Search as SearchIcon,
   Settings as SettingsIcon
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { WorldSummary } from '@shared/types'
 import { IconButton, Kbd, toast } from '@/components/ui'
@@ -36,17 +36,35 @@ import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
 import { openRecipes } from '@/features/recipes/recipeStore'
 import { UpdateBanner } from './UpdateBanner'
+import { DrawnTick } from '@/components/ui/DrawnTick'
+import { Trail } from './Trail'
+import { useNewLook } from '@/features/look/look'
+import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
 
 /** How the open scene is saving. Its slot stays when there is nothing to say, so the bar never moves. */
 function SaveIndicator(): React.JSX.Element {
   const state = useApp((s) => s.saveState)
   const writing = useApp((s) => s.view.kind === 'write')
   const label = saveNote(state, writing)
+  const isNew = useNewLook()
+  // The New look: "Saved" is a small green tick that draws itself each time.
+  const [saves, setSaves] = useState(0)
+  useEffect(() => {
+    if (state === 'saved') setSaves((n) => n + 1)
+  }, [state])
+  if (isNew && label === 'Saved') {
+    return (
+      <span aria-live="polite" className="flex min-w-[64px] shrink-0 items-center justify-end gap-1 whitespace-nowrap text-[12px] text-faint">
+        <DrawnTick key={saves} size={14} draw className="text-success" />
+        Saved
+      </span>
+    )
+  }
   return (
     <span
       aria-live="polite"
       className={cn(
-        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-300',
+        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-300 look-new:min-w-[64px]',
         state === 'error' ? 'text-danger' : 'text-faint',
         !label && 'opacity-0'
       )}
@@ -135,12 +153,20 @@ function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | null> }
           ref={trigger}
           className={cn(
             'flex h-7 max-w-[184px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-semibold text-fg hover:bg-surface-2',
+            'look-new:h-8 look-new:gap-2 look-new:rounded-[10px] look-new:pl-1',
             'min-[1100px]:max-w-[260px] max-xl:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:max-w-[120px]',
             renaming && 'invisible'
           )}
         >
-          <Globe2 size={14} className="shrink-0 text-muted" />
-          <span className="truncate">{world?.name ?? 'No world open'}</span>
+          <Globe2 size={14} className="shrink-0 text-muted look-new:hidden" />
+          {/* The New look: the world's glyph, a small lit tile. */}
+          <span
+            aria-hidden
+            className="hidden h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(140deg,#4a6fa0,#2c4466)] text-[#f3d9a4] shadow-[inset_0_1px_0_rgb(255_255_255/0.25),var(--elev-1)] look-new:grid"
+          >
+            <Globe2 size={14} />
+          </span>
+          <span className="truncate look-new:font-heading look-new:text-[15px] look-new:tracking-[-0.01em]">{world?.name ?? 'No world open'}</span>
           <ChevronDown size={13} className="shrink-0 text-muted" />
         </M.Trigger>
         <M.Portal>
@@ -246,7 +272,7 @@ function RenameWorld({ trigger }: { trigger: RefObject<HTMLButtonElement | null>
     })
   }
   return (
-    <div className="absolute inset-y-0 left-0 right-0 z-10 flex items-center gap-1.5 bg-surface px-2">
+    <div className="absolute inset-y-0 left-0 right-0 z-10 flex items-center gap-1.5 bg-surface px-2 look-new:bg-bg">
       <Globe2 size={14} className="shrink-0 text-muted" />
       <InlineTitle
         label="World name"
@@ -278,6 +304,8 @@ function SearchBox(): React.JSX.Element {
       onClick={openPalette}
       className={cn(
         '@container ml-1 flex h-7 w-[180px] min-w-[36px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
+        // The New look: a soft pill.
+        'look-new:h-8 look-new:w-[150px] look-new:rounded-full look-new:border-transparent look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:hover:border-transparent look-new:min-[1100px]:w-[190px]',
         'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         'min-[1100px]:w-[220px]'
       )}
@@ -304,6 +332,7 @@ export function TopBar(): React.JSX.Element {
   const draftScene = useApp((s) => s.activeGeneration?.sceneId ?? null)
   const draftElsewhere = !!draftScene && (view.kind !== 'write' || draftScene !== sceneId)
   const hasWorld = useApp((s) => s.world !== null)
+  const isNew = useNewLook()
   const worldButton = useRef<HTMLButtonElement>(null)
   const layout = settings?.layout
   const floatingBinder = useFloatingBinder()
@@ -325,7 +354,10 @@ export function TopBar(): React.JSX.Element {
 
   return (
     // Focus mode (milestone 6) fades the bar away (data-focus-chrome, styles.css).
-    <header data-focus-chrome className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2">
+    <header
+      data-focus-chrome
+      className="group/bar flex h-11 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 look-new:h-12 look-new:gap-1.5 look-new:border-transparent look-new:bg-transparent look-new:px-3"
+    >
       {/* The start screen: every world and story, where Adam left off, and starting something new. */}
       <IconButton label="Start screen" title="Start screen: all your worlds and stories" onClick={goToStartScreen}>
         <House size={16} />
@@ -344,8 +376,10 @@ export function TopBar(): React.JSX.Element {
       {/* The world's name and the search box: renaming the world happens over both, so nothing in the bar moves. */}
       <div className="relative flex min-w-0 items-center gap-1">
         <WorldMenu trigger={worldButton} />
-        {/* Search needs an open world (with none, the bar is only the way to Settings). */}
-        {hasWorld ? <SearchBox /> : null}
+        {/* Search needs an open world (with none, the bar is only the way to Settings). The New look has it on the
+            right, and the trail of where Adam is beside the world's name. */}
+        {hasWorld && !isNew ? <SearchBox /> : null}
+        {hasWorld && isNew ? <Trail /> : null}
         <RenameWorld trigger={worldButton} />
       </div>
       {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it.
@@ -360,8 +394,11 @@ export function TopBar(): React.JSX.Element {
       >
         <UpdateBanner />
       </div>
+      {/* The New look: the sample world says so here, as a chip (Classic has a bar under the top bar). */}
+      {isNew ? <SampleWorldChip /> : null}
       {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
       {hasWorld ? <KeeperStatus /> : null}
+      {hasWorld && isNew ? <SearchBox /> : null}
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (
         // Writing by hand: click for the selection's, chapter's and story's counts and today's writing.
@@ -380,21 +417,24 @@ export function TopBar(): React.JSX.Element {
         </button>
       ) : null}
       <SaveIndicator />
-      {hasWorld ? <AskButton /> : null}
+      {/* The New look has Ask the world and Settings on the area rail. */}
+      {hasWorld && !isNew ? <AskButton /> : null}
       {/* In the smallest windows the bar has no room for it (F11 and the palette still reach focus mode). */}
       {hasWorld ? (
         <span className="hidden min-[1000px]:flex">
           <FocusButton />
         </span>
       ) : null}
-      <IconButton
-        label="Settings"
-        title={withShortcut('Settings', 'settings')}
-        active={view.kind === 'settings'}
-        onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}
-      >
-        <SettingsIcon size={16} />
-      </IconButton>
+      {isNew && hasWorld ? null : (
+        <IconButton
+          label="Settings"
+          title={withShortcut('Settings', 'settings')}
+          active={view.kind === 'settings'}
+          onClick={() => navigate(view.kind === 'settings' ? { kind: 'write' } : { kind: 'settings', tab: 'models' })}
+        >
+          <SettingsIcon size={16} />
+        </IconButton>
+      )}
       <IconButton
         label="Show or hide the scene panel"
         active={panelAvailable && layout?.inspectorOpen}

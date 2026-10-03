@@ -2,7 +2,7 @@
 // the scene panel's tabs: compact and read-mostly, as of the open scene. Its portrait, one-liner, how
 // it stands, its relationships and how it speaks; "Open the full page" goes to its page, and Back
 // returns to the tab Adam was on. Everything comes from the scene's names, so it shows at once.
-import { ArrowLeft, ArrowUpRight, SearchX } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, SearchX } from '@/components/ui/icons'
 import { useEffect, useMemo, useRef } from 'react'
 import type { ID } from '@shared/types'
 import { Button, EmptyState, Notice } from '@/components/ui'

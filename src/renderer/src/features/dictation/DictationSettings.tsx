@@ -3,7 +3,7 @@
 // plain words with a way to its settings at the top of the page. More: the microphone (the computer's
 // default to start) and its Test, a live level meter with a try-it box that shows what was heard. The
 // engine choice and its download are the speech engine's own settings. Owned by the Dictation part.
-import { Mic, Square } from 'lucide-react'
+import { Mic, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { SpeechStatus } from '@shared/contracts/speech'
 import { Button, Notice, Select, SettingsSection, Textarea, type SelectOption } from '@/components/ui'

@@ -1,7 +1,7 @@
 // The Variants button in the scene toolbar: opens the Variants page, where 2 or 3 drafts of the scene are
 // written side by side, to use one or take paragraphs from each. While they are being written (perhaps
 // with Adam on another page or scene), a small amber light on the button says so.
-import { Columns3 } from 'lucide-react'
+import { Columns3 } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { ToolButton } from '@/features/editor/ToolButton'

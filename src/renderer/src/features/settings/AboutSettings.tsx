@@ -1,4 +1,4 @@
-import { BookOpen, CircleCheck, Download, ExternalLink, FolderOpen, Info, RefreshCw, Sparkles } from 'lucide-react'
+import { BookOpen, CircleCheck, Download, ExternalLink, FolderOpen, Info, RefreshCw, Sparkles } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import type { AppInfo, UpdateStatus } from '@shared/types'
 import { RELEASES_URL } from '@shared/defaults'

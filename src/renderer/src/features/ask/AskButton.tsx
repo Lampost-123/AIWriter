@@ -1,6 +1,6 @@
 // The top bar's Ask the world button: opens the chat beside the page (from any page), or closes it.
 // Owned by the Ask the world part.
-import { MessagesSquare } from 'lucide-react'
+import { MessagesSquare } from '@/components/ui/icons'
 import { IconButton } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { closeAsk, openAsk } from './open'

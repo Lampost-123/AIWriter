@@ -6,7 +6,7 @@
 // whatever it shows, so it never jumps. Messages show above it while it does, and a pointer above it
 // leads to a beat being written out of sight below.
 import * as P from '@radix-ui/react-popover'
-import { ArrowDown, Check, FileSearch, ListOrdered, RotateCcw, Sparkles, Square } from 'lucide-react'
+import { ArrowDown, Check, FileSearch, ListOrdered, RotateCcw, Sparkles, Square } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Textarea, useToastsAbove } from '@/components/ui'

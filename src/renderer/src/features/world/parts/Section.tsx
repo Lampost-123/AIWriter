@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight } from '@/components/ui/icons'
 import { useId, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 

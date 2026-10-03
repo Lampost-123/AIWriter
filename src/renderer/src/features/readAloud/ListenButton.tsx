@@ -1,7 +1,7 @@
 // The headphones button in the scene toolbar (only once read aloud is turned on). Owned by the Read
 // aloud part. It reads from the paragraph at the cursor; pressed again it pauses, then carries on. Ctrl+L
 // does the same from the page.
-import { Headphones } from 'lucide-react'
+import { Headphones } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'

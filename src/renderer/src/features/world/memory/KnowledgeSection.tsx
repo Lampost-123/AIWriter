@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import { useMemo, useState } from 'react'
 import type { ChangeView, Entry, ID } from '@shared/types'
 import { Field, IconButton, toast } from '@/components/ui'

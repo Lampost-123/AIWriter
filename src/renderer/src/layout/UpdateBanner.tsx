@@ -1,5 +1,5 @@
 import * as P from '@radix-ui/react-popover'
-import { Sparkles } from 'lucide-react'
+import { Sparkles } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import type { UpdateStatus } from '@shared/types'
 import { Button, toast } from '@/components/ui'

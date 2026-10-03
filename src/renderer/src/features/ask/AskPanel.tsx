@@ -4,7 +4,7 @@
 // (App.tsx). Answers are from the open story's point of view, as of the open scene; the chat changes
 // nothing in the manuscript or the memory unless Adam saves a note. Owned by the Ask the world part.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookmarkPlus, Check, ChevronDown, History, MessagesSquare, Send, Square, SquarePen, X } from 'lucide-react'
+import { BookmarkPlus, Check, ChevronDown, History, MessagesSquare, Send, Square, SquarePen, X } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { SavedNote } from '@shared/contracts/ask'
 import type { EntryKind, ID } from '@shared/types'
