@@ -6,8 +6,9 @@ import { formatCost } from '@/features/generate/format'
 /** The spec's examples: clicking one puts it in the box, to change or ask as it is. */
 export const EXAMPLES = [
   'What would Mara do if Tobin lied to her?',
-  'Give me ten tavern names that fit the north',
-  'Did I already say how old the Duke is?'
+  'Did I already say how old the Duke is?',
+  'Fix the spelling and grammar in this scene',
+  'Tighten the opening paragraph, keeping my voice'
 ]
 
 /** When a chat was last asked in, short enough for a list: "14:05", "Yesterday", "3 Oct", "3 Oct 2025". */

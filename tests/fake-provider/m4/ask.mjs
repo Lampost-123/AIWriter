@@ -60,3 +60,29 @@ export function askReply(system, messages, model) {
   }
   return paragraphs.join('\n\n')
 }
+
+/**
+ * The editor chat (Ask the world with tools): with tools offered and a question asking to fix or tighten something,
+ * the fake model works like a real one: it reads the open scene first (read_scene), then proposes an edit to the
+ * scene's first sentence (propose_edit: the sentence in capitals), then answers in words. A question asking for a new
+ * place proposes one (propose_new_entry). Returns the tool calls to send now, or null to answer in words (askReply).
+ */
+export function askToolCalls(system, messages, tools) {
+  if (!system.startsWith(MARKER) || !Array.isArray(tools) || !tools.length) return null
+  const question = String([...messages].reverse().find((m) => m.role === 'user')?.content ?? '').toLowerCase()
+  const last = messages[messages.length - 1]
+  const toolResults = messages.filter((m) => m.role === 'tool')
+  if (/\bnew place\b/.test(question)) {
+    if (toolResults.length) return null
+    return [{ name: 'propose_new_entry', arguments: { kind: 'place', name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' } }]
+  }
+  if (!/\b(fix|tighten)\b/.test(question)) return null
+  if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
+  if (last?.role === 'tool' && toolResults.length === 1) {
+    const text = String(last.content).split('\nText:\n')[1] ?? ''
+    const first = (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
+    if (!first) return null
+    return [{ name: 'propose_edit', arguments: { find: first, replace: first.replace(/\s+/g, ' ').toUpperCase(), why: 'Shouted, as asked.' } }]
+  }
+  return null
+}

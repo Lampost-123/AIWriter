@@ -49,7 +49,9 @@ export const toTurn = (r: rows.TurnRow): AskTurn => ({
   cost: r.cost,
   costEstimated: r.costEstimated,
   cutOff: r.cutOff,
-  createdAt: r.createdAt
+  createdAt: r.createdAt,
+  ...(r.steps.length ? { steps: r.steps } : {}),
+  ...(r.proposals.length ? { proposals: r.proposals } : {})
 })
 
 /** A chat's turns, oldest first. */

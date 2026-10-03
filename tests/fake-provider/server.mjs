@@ -60,6 +60,7 @@
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
+import { askToolCalls } from './m4/ask.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
 
@@ -356,6 +357,11 @@ export async function startFakeProvider(options = {}) {
       })
     }
 
+    // The editor chat: a model that can't take tools turns them down, as OpenRouter does.
+    if (body.tools?.length && model === 'fake/no-tools') {
+      return json(res, 404, { error: { code: 404, message: 'No endpoints found that support tool use. To learn more about provider routing, visit: https://openrouter.ai/docs/provider-routing' } })
+    }
+
     const nl = opts.crlf || model === 'fake/crlf' ? '\r\n' : '\n'
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     let closed = false
@@ -392,6 +398,20 @@ export async function startFakeProvider(options = {}) {
     }
     if (model === 'fake/refuse') {
       send(chunk({}, 'content_filter'))
+      send('[DONE]')
+      return res.end()
+    }
+    // The editor chat: the fake may ask for tools (m4/ask.mjs), streamed as a real model's tool calls are: the call's id
+    // and name, then its arguments.
+    const calls = body.tools?.length ? askToolCalls(system, messages, body.tools) : null
+    if (calls) {
+      calls.forEach((c, i) => {
+        const id = `call_fake_${i}_${n}`
+        send(chunk({ tool_calls: [{ index: i, id, type: 'function', function: { name: c.name, arguments: '' } }] }))
+        for (const p of pieces(JSON.stringify(c.arguments), 3)) send(chunk({ tool_calls: [{ index: i, function: { arguments: p } }] }))
+      })
+      send(chunk({}, 'tool_calls'))
+      if (body.usage?.include || body.stream_options?.include_usage) send({ id: 'fake-1', object: 'chat.completion.chunk', model, choices: [], usage })
       send('[DONE]')
       return res.end()
     }

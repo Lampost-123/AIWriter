@@ -37,6 +37,13 @@ describe('describeFailure', () => {
     expect(describeFailure(http(404, 'Not Found'), deepseek, { during: 'models' })).toContain('Click Edit and check the base URL')
   })
 
+  it('says plainly when a model can’t use the editor chat’s tools', () => {
+    const noTools = 'No endpoints found that support tool use. To learn more about provider routing, visit: https://openrouter.ai/docs/provider-routing'
+    expect(describeFailure(http(404, noTools), openrouter, { during: 'draft', modelId: 'x/y' })).toContain('This model can’t use the tools the editor chat needs')
+    expect(describeFailure(http(400, '"tool_choice" is not supported'), deepseek)).toContain('Chat and brainstorm model in Settings › Models')
+    expect(describeFailure(http(400, 'context length exceeded'), deepseek)).not.toContain('tools')
+  })
+
   it('points to the button on the page when testing on Settings › Models', () => {
     expect(describeFailure(http(401), openrouter, { during: 'test' })).toBe(
       "OpenRouter didn't accept this key. Copy it again from openrouter.ai/keys and click Replace key."

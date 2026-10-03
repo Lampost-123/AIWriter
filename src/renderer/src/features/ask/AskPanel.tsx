@@ -36,6 +36,7 @@ import {
 } from './askStore'
 import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
 import { EXAMPLES, NO_ANSWER, answerNote, asOfHint, asOfText, chatWhen, savedMessage } from './askWords'
+import { Proposals } from './Proposals'
 
 /** The last request for the box to take the keyboard that was carried out. */
 let focusHandled = 0
@@ -77,7 +78,11 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
   useEffect(() => {
     if (focusRequest === focusHandled) return
     focusHandled = focusRequest
-    if (!useApp.getState().peekEntryId) boxRef.current?.focus({ preventScroll: true })
+    const b = boxRef.current
+    if (!b || useApp.getState().peekEntryId) return
+    b.focus({ preventScroll: true })
+    // After Ask about this, the keyboard waits below the quote, for the question.
+    b.setSelectionRange(b.value.length, b.value.length)
   }, [focusRequest])
   const wasPeeking = useRef(peeking)
   useEffect(() => {
@@ -408,10 +413,26 @@ function TurnView({
         </div>
       ) : null}
 
+      {/* The editor chat: what it looked at on the way (quietly), and the changes it proposes. */}
+      {turn.steps?.length && !streaming ? (
+        <p className="mt-1.5 px-1 text-[12px] leading-relaxed text-faint" data-steps>
+          {turn.steps.length === 1 ? turn.steps[0] : `${turn.steps.length} steps: ${turn.steps.join(' · ')}`}
+        </p>
+      ) : null}
+      {turn.proposals?.length ? <Proposals generationId={turn.generationId} proposals={turn.proposals} streaming={streaming} /> : null}
+
       {streaming ? (
         <div className="mt-1.5 flex h-7 items-center px-1">
           <WritingStatus
-            text={running?.stopping ? 'Stopping…' : running?.retrying ? 'Retrying…' : 'Answering…'}
+            text={
+              running?.stopping
+                ? 'Stopping…'
+                : running?.retrying
+                  ? 'Retrying…'
+                  : turn.steps?.length
+                    ? `${turn.steps[turn.steps.length - 1]}…`
+                    : 'Answering…'
+            }
             title={running?.retrying ?? undefined}
           />
         </div>
@@ -768,7 +789,7 @@ function AskBox({
           rows={2}
           value={draft}
           aria-label="Ask about your world"
-          placeholder="Ask about your world…"
+          placeholder="Ask, brainstorm, or ask for an edit…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
