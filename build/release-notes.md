@@ -1,6 +1,6 @@
-<!-- version: 0.6.14 -->
-What's new in 0.6.14:
+<!-- version: 0.6.15 -->
+What's new in 0.6.15:
 
-- Read aloud: the narrator now keeps one even pace. It still carries the mood of each passage, but no longer speeds up or slows down. Characters' lines keep their own pace.
+- Ask the world: several edits now apply one after another without losing their place, and the chat no longer tells you to apply changes it didn't make. If an answer mentions changes but none came with it, it says so.
 
-Also in 0.6.13: Ask the world became an editor that proposes changes you Apply or turn down; Ideas for this scene takes what you have in mind; phrases to avoid are kept out harder; characters the AI makes reliably get their read-aloud voice.
+Also in 0.6.14: the narrator keeps one even pace. In 0.6.13: Ask the world became an editor that proposes changes you Apply or turn down.
