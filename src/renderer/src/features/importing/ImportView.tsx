@@ -69,6 +69,12 @@ function Heading({ children, sub }: { children: React.ReactNode; sub?: React.Rea
 }
 
 const backToWriting = (): void => useApp.getState().navigate({ kind: 'write' })
+/** Back to the start screen it was started from, with the writing page under it again (so Continue goes there). */
+const backToStart = (): void => {
+  const app = useApp.getState()
+  app.navigate({ kind: 'write' })
+  app.goHome()
+}
 
 // ---------- Picking the file, and the split ----------
 
@@ -84,7 +90,7 @@ function FilePage(): React.JSX.Element {
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto w-full max-w-[780px] px-8 pb-10 pt-10">
           <div className="mb-4 h-7">
-            <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={fromStart ? () => useApp.getState().goHome() : backToWriting} className="-ml-2.5">
+            <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={fromStart ? backToStart : backToWriting} className="-ml-2.5">
               {hasWorld ? 'Back to writing' : 'Back'}
             </Button>
           </div>

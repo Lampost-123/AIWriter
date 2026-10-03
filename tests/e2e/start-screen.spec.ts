@@ -126,8 +126,13 @@ test('a world card opens to its stories; a story opens where Adam left off, in i
   await expect(prose(win)).toContainText('The first ember caught')
   expect((await invoke(win, 'getWorld'))?.id).toBe(s.ash)
 
-  // New story… in a chosen world: that world opens behind, and the New story dialog shows over the start screen.
+  // Back on the start screen, Continue names the world open now straight away (not the one the last list named).
   await win.getByRole('button', { name: 'Start screen', exact: true }).click()
+  await expect(continueCard(win)).toBeVisible()
+  expect(await continueCard(win).textContent()).toContain('Ashgrove')
+  await expect(continueCard(win)).toContainText('Kindling')
+
+  // New story… in a chosen world: that world opens behind, and the New story dialog shows over the start screen.
   await startScreen(win).getByRole('button', { name: 'New story…' }).click()
   await win.getByRole('menuitem', { name: 'The Northern Reaches' }).click()
   const dialog = win.getByRole('dialog', { name: 'New story' })
@@ -183,6 +188,28 @@ test('worlds and stories are renamed in place, open or not, and a story in anoth
   expect((await invoke(win, 'getWorld'))?.id).toBe(s.ash)
   await toasts(win).getByRole('button', { name: 'Undo' }).click()
   await expect.poll(async () => (await invoke(win, 'listStories')).map((x) => x.title)).toEqual(['Kindling'])
+  // Undo leaves the start screen up, with the story back on it.
+  await expect(ash.getByRole('button', { name: 'Kindling', exact: true })).toBeVisible()
+  await expect(startScreen(win)).toBeVisible()
+  await expect(binder(win)).toBeHidden()
+
+  // Nothing on the start screen has the keyboard now (the toast has gone): keys still never reach the hidden page.
+  const ember = (await invoke(win, 'getOutline', s.kindling)).scenes[0].id
+  await win.evaluate("(document.activeElement && document.activeElement.blur && document.activeElement.blur(), 0)")
+  await win.keyboard.press('Control+Z')
+  await win.keyboard.press('Control+Z')
+  await expect(startScreen(win)).toBeFocused()
+  await expect(startScreen(win)).toBeVisible()
+  expect((await invoke(win, 'getScene', ember)).text).toBe('The first ember caught in the dry moss by the gate.')
+
+  // A story that isn't the open one (its world opens behind again): deleted, then Undo puts it back on the list.
+  const reaches = worldCard(win, 'The Northern Reaches')
+  await reaches.getByRole('button', { name: 'More for The Long Winter' }).click()
+  await win.getByRole('menuitem', { name: 'Delete story' }).click()
+  await expect(reaches.getByRole('button', { name: 'The Long Winter', exact: true })).toHaveCount(0)
+  await toasts(win).getByRole('button', { name: 'Undo' }).last().click()
+  await expect(reaches.getByRole('button', { name: 'The Long Winter', exact: true })).toBeVisible()
+  await expect(startScreen(win)).toBeVisible()
 })
 
 test('deleting a world asks first, offers Undo, and Recently deleted restores or empties for good', async ({ launch }) => {
@@ -198,6 +225,9 @@ test('deleting a world asks first, offers Undo, and Recently deleted restores or
   await dialog.getByRole('button', { name: 'Delete world' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(worldCard(win, 'The Northern Reaches')).toHaveCount(0)
+  // Continue went with it (there is nowhere to go back to), and the keyboard is on the start screen.
+  await expect(continueCard(win)).toHaveCount(0)
+  await expect(startScreen(win)).toBeFocused()
   await expect(deletedList(win)).toContainText('The Northern Reaches')
   await expect(deletedList(win)).toContainText('Goes for good in 30 days')
   expect(await invoke(win, 'getWorld')).toBeNull()
@@ -251,8 +281,12 @@ test('the Home button, the world menu and the palette go back to the start scree
   await expect(startScreen(win)).toBeVisible()
   await win.keyboard.press('Enter')
   await expect(startScreen(win)).toHaveCount(0)
+  // The caret is back in the page: typing carries on there.
+  await expect(prose(win)).toBeFocused()
+  await win.keyboard.press('Control+End')
+  await win.keyboard.type(' Then the far bank.')
+  await expect.poll(async () => (await invoke(win, 'getScene', s.ford)).text).toContain('Then the far bank.')
 
-  await prose(win).click()
   await win.keyboard.press('Control+K')
   await win.keyboard.type('start screen')
   await win.getByRole('option', { name: /Go to the start screen/ }).click()

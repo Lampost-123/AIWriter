@@ -10,7 +10,7 @@ import type { ID, Story } from '@shared/types'
 import { toast, useToasts } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
-import { useApp } from '@/lib/store'
+import { keepHome, useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { lastSceneOf } from '@/features/binder/lastScene'
@@ -268,9 +268,14 @@ export async function endFirst(storyId: ID, endRefId: ID, chapter: string): Prom
 /**
  * Deletes a story with Undo (and keeps it in Recently deleted for 30 days). Stories that start in it
  * take over its start point; a backup is made first when there are any. If it was open, the first other
- * story opens, and Undo opens it again (unless Adam has gone to another story meanwhile).
+ * story opens, and Undo opens it again (unless Adam has gone to another story meanwhile). From the start screen
+ * (`afterUndo`: it reads its list again), Undo leaves the start screen up while it opens the story again.
  */
-export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStartHere: boolean): Promise<void> {
+export async function deleteStory(
+  story: Pick<Story, 'id' | 'title'>,
+  othersStartHere: boolean,
+  opts: { afterUndo?: () => void } = {}
+): Promise<void> {
   const wasOpen = app().storyId === story.id
   try {
     // A draft being written into any of its scenes (open, or kept for its draft while Adam is elsewhere)
@@ -299,7 +304,12 @@ export async function deleteStory(story: Pick<Story, 'id' | 'title'>, othersStar
       api
         .restoreDeleted('story', story.id)
         .then(() => app().refreshStories())
-        .then(() => (wasOpen && app().storyId === leftIn ? openStory(story.id) : undefined))
+        .then(() => {
+          if (!wasOpen || app().storyId !== leftIn) return undefined
+          // Undone on the start screen, it stays up: the story is open again behind it.
+          return app().home ? keepHome(() => openStory(story.id)) : openStory(story.id)
+        })
+        .then(() => opts.afterUndo?.())
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
   })
 }

@@ -49,6 +49,7 @@ export function WorldCard({
 }): React.JSX.Element {
   const expanded = useLibrary((s) => !!s.expanded[world.id]) || byStory
   const [renaming, setRenaming] = useState(false)
+  const busy = useLibrary((s) => s.busy)
   const header = useRef<HTMLButtonElement>(null)
   const kinds = storyKinds(world.stories)
   const listId = `start-world-${world.id}`
@@ -96,7 +97,7 @@ export function WorldCard({
             </div>
           </button>
         )}
-        <Button size="sm" variant="ghost" aria-label={`Open ${world.name}`} title={isOpen ? 'Back to writing in this world' : 'Open this world where you left off'} onClick={() => void openWorldFromStart(world.id)}>
+        <Button size="sm" variant="ghost" aria-disabled={busy || undefined} aria-label={`Open ${world.name}`} title={isOpen ? 'Back to writing in this world' : 'Open this world where you left off'} onClick={() => void openWorldFromStart(world.id)}>
           Open
         </Button>
         <CardMenu
@@ -135,6 +136,8 @@ function WorldIcon(): React.JSX.Element {
 /** One story in an opened-up world card. */
 function StoryRow({ worldId, story, kind }: { worldId: string; story: LibraryStory; kind: string }): React.JSX.Element {
   const [renaming, setRenaming] = useState(false)
+  // Another world is being opened or closed from the start screen: opening this one waits (see exclusive).
+  const busy = useLibrary((s) => s.busy)
   const row = useRef<HTMLButtonElement>(null)
   const title = story.title.trim() || 'Untitled story'
   const meta = (
@@ -168,6 +171,7 @@ function StoryRow({ worldId, story, kind }: { worldId: string; story: LibrarySto
           ref={row}
           type="button"
           aria-label={title}
+          aria-disabled={busy || undefined}
           aria-description={[kind, wordsText(story.words), editedText(story.editedAt)].filter(Boolean).join(', ')}
           title="Open this story where you left off"
           onClick={() => void openStoryFromStart(worldId, story.id)}

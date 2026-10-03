@@ -4,7 +4,7 @@
 
 import { create } from 'zustand'
 import type { ID } from '@shared/types'
-import type { LibraryOverview, LibraryStory, LibraryWorld } from '@shared/contracts/library'
+import type { DeletedWorld, LibraryOverview, LibraryStory, LibraryWorld } from '@shared/contracts/library'
 import { api } from '@/lib/api'
 
 interface LibraryState {
@@ -13,9 +13,42 @@ interface LibraryState {
   error: string | null
   /** Worlds whose card is open to show its stories, kept while the app runs. */
   expanded: Record<ID, boolean>
+  /**
+   * Something on the start screen is opening or closing a world underneath it (deleting a story in another world,
+   * New story…, Continue): nothing else that opens or changes a world can start until it is done.
+   */
+  busy: boolean
 }
 
-export const useLibrary = create<LibraryState>(() => ({ overview: null, error: null, expanded: {} }))
+export const useLibrary = create<LibraryState>(() => ({ overview: null, error: null, expanded: {}, busy: false }))
+
+/**
+ * Runs one thing that opens, closes or changes a world from the start screen, unless another is under way (then
+ * it does nothing). The start screen's controls rest meanwhile.
+ */
+export async function exclusive(run: () => Promise<void>): Promise<void> {
+  if (useLibrary.getState().busy) return
+  useLibrary.setState({ busy: true })
+  try {
+    await run()
+  } finally {
+    useLibrary.setState({ busy: false })
+  }
+}
+
+/** A world was just deleted: it leaves the list (and Continue) at once, and waits in Recently deleted. */
+export function dropWorld(worldId: ID, gone: DeletedWorld): void {
+  const o = useLibrary.getState().overview
+  if (!o) return
+  useLibrary.setState({
+    overview: {
+      ...o,
+      worlds: o.worlds.filter((w) => w.id !== worldId),
+      deleted: [gone, ...o.deleted.filter((d) => d.trashId !== gone.trashId)],
+      last: o.last?.worldId === worldId ? null : o.last
+    }
+  })
+}
 
 let latest = 0
 

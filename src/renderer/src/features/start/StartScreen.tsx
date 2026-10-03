@@ -10,6 +10,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { LastPlace, LibraryWorld } from '@shared/contracts/library'
 import { Button, Card, Field, IconButton, Input, Kbd, Notice, toast } from '@/components/ui'
 import { flushBeforeWorldChange } from '@/lib/flush'
+import { isShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -45,6 +46,44 @@ function takeKeyboard(el: () => HTMLElement | null): () => void {
 
 const sectionTitle = 'text-[11.5px] font-semibold uppercase tracking-wide text-faint'
 
+/** Layers over the start screen where keys belong (dialogs, menus, the palette, toasts, lists to pick from). */
+const LAYERS = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [aria-live]'
+
+/**
+ * While the start screen shows, keys never reach the workspace underneath (Ctrl+Z in the hidden page, Generate, Esc
+ * stopping a draft, F11...), even when nothing on the start screen has the keyboard (a dialog or a row it was in has
+ * just gone, an Undo was clicked). Caught on the way down: a key aimed outside the start screen and its layers stops
+ * there and the start screen takes the keyboard. Ctrl+K (the palette) and Ctrl+, (Settings) still work. And when
+ * the keyboard falls to the page itself, the start screen takes it back.
+ */
+function useKeysStayHere(root: React.RefObject<HTMLDivElement | null>): void {
+  useEffect(() => {
+    const take = (): void => root.current?.focus({ preventScroll: true })
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target instanceof Element ? e.target : null
+      if (target && (root.current?.contains(target) || target.closest(LAYERS))) return
+      if (isShortcut(e, 'search') || isShortcut(e, 'settings')) return
+      e.stopImmediatePropagation()
+      take()
+    }
+    let pending = 0
+    const onFocusOut = (): void => {
+      cancelAnimationFrame(pending)
+      pending = requestAnimationFrame(() => {
+        const active = document.activeElement
+        if (!active || active === document.body) take()
+      })
+    }
+    window.addEventListener('keydown', onKey, true)
+    document.addEventListener('focusout', onFocusOut)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('focusout', onFocusOut)
+      cancelAnimationFrame(pending)
+    }
+  }, [root])
+}
+
 export function StartScreen(): React.JSX.Element {
   const { phase, paused } = useOpening()
   // Coming back later in a run, the screen simply fades in (the opening plays once).
@@ -56,6 +95,8 @@ export function StartScreen(): React.JSX.Element {
   const root = useRef<HTMLDivElement>(null)
   const [deleting, setDeleting] = useState<LibraryWorld | null>(null)
   const [newWorldOpen, setNewWorldOpen] = useState(false)
+  const busy = useLibrary((s) => s.busy)
+  useKeysStayHere(root)
 
   // Read afresh each time it shows; the last list stays meanwhile. The keyboard starts on Continue (see
   // ContinueCard) or, with nothing else holding it, here, so keys never reach the workspace underneath.
@@ -67,7 +108,7 @@ export function StartScreen(): React.JSX.Element {
   const place = useContinuePlace()
   // With a world open, Continue (and what's around it) shows at once; with none, the screen waits for the library
   // rather than showing one thing and then another.
-  const ready = !!overview || !!world
+  const ready = !!overview || !!world || !!error
   const reachable = overview?.reachable ?? true
   const worlds = overview?.worlds ?? null
   const empty = !!worlds && worlds.length === 0
@@ -78,6 +119,7 @@ export function StartScreen(): React.JSX.Element {
       tabIndex={-1}
       data-opening={phase}
       data-paused={paused || undefined}
+      aria-busy={busy || undefined}
       // Keys pressed here stay here: the workspace underneath (a draft's shortcuts, focus mode) never sees them.
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === ',') {
@@ -86,7 +128,7 @@ export function StartScreen(): React.JSX.Element {
         }
         e.stopPropagation()
       }}
-      className={cn('start-screen absolute inset-0 z-10 bg-bg outline-none', later && 'animate-fade-in')}
+      className={cn('start-screen absolute inset-0 z-10 bg-bg outline-none', later && 'animate-fade-in', busy && 'cursor-progress')}
     >
       <DriftingTexture />
       <div className="absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
@@ -144,8 +186,9 @@ export function StartScreen(): React.JSX.Element {
 }
 
 /**
- * Where Continue goes: where Adam left off, as the library says. While it is read, the open world's own place
- * (it is where he left off), so the card shows at once.
+ * Where Continue goes. With a world open, that is where Adam left off: its place from the store, always current
+ * (a library read earlier may name another world, or a scene he has since left), with the library's time and
+ * scene title when it is about the same world. With none open, where the library says.
  */
 function useContinuePlace(): LastPlace | null {
   const last = useLibrary((s) => s.overview?.last)
@@ -154,15 +197,25 @@ function useContinuePlace(): LastPlace | null {
   const sceneId = useApp((s) => s.sceneId)
   const storyTitle = useApp((s) => s.stories.find((x) => x.id === s.storyId)?.title ?? '')
   const sceneTitle = useOutlineStore((s) => s.outline?.scenes.find((x) => x.id === sceneId)?.title ?? '')
-  if (last) return last
-  if (!world) return null
-  return { worldId: world.id, worldName: world.name, storyId, storyTitle, sceneId, sceneTitle, at: '' }
+  if (!world) return last ?? null
+  const same = last?.worldId === world.id ? last : null
+  return {
+    worldId: world.id,
+    worldName: world.name,
+    storyId,
+    storyTitle,
+    sceneId,
+    sceneTitle: sceneTitle || (same && same.sceneId === sceneId ? same.sceneTitle : ''),
+    at: same?.at ?? ''
+  }
 }
 
 /** Continue: one click (or Enter, as it has the keyboard first) goes straight back where Adam left off. */
 function ContinueCard({ place }: { place: LastPlace }): React.JSX.Element {
   const button = useRef<HTMLButtonElement>(null)
   const [busy, setBusy] = useState(false)
+  // Something else on the start screen is opening a world: Continue waits for it.
+  const othersBusy = useLibrary((s) => s.busy)
   const { title, where } = continueText(place)
 
   // The keyboard starts here, so Enter continues.
@@ -174,7 +227,9 @@ function ContinueCard({ place }: { place: LastPlace }): React.JSX.Element {
       type="button"
       aria-label={`Continue: ${title}${where ? `, ${where}` : ''}`}
       disabled={busy}
+      aria-disabled={othersBusy || undefined}
       onClick={() => {
+        if (othersBusy) return
         setBusy(true)
         void continueWriting(place).finally(() => setBusy(false))
       }}
@@ -248,6 +303,7 @@ function Tile({
 
 /** The other ways to start (the sample world, and WELCOME_ACTIONS: importing a manuscript or a world file). */
 function OtherWays({ busy, setBusy }: { busy: string | null; setBusy: (id: string | null) => void }): React.JSX.Element {
+  const worldBusy = useLibrary((s) => s.busy)
   const run = async (a: WelcomeAction): Promise<void> => {
     setBusy(a.id)
     try {
@@ -265,14 +321,14 @@ function OtherWays({ busy, setBusy }: { busy: string | null; setBusy: (id: strin
         label="Explore the sample world"
         hint="A short finished story with its characters, places and memory filled in"
         busy={busy === 'sample'}
-        disabled={!!busy}
+        disabled={!!busy || worldBusy}
         onClick={() => {
           setBusy('sample')
           void openSampleWorld().finally(() => setBusy(null))
         }}
       />
       {WELCOME_ACTIONS.map((a) => (
-        <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy} onClick={() => void run(a)} />
+        <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a)} />
       ))}
       {/*
         Story recipes (spec, "New story from a recipe"; PR #16, not merged yet) wire in here: a tile
@@ -286,6 +342,8 @@ function OtherWays({ busy, setBusy }: { busy: string | null; setBusy: (id: strin
 /** Start something new: a world, a story in one of the worlds, the sample world, or an import. */
 function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null; order: number; onNewWorld: () => void }): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
+  // Something else on the start screen is opening or closing a world: these wait for it.
+  const worldBusy = useLibrary((s) => s.busy)
   const openId = useApp((s) => s.world?.id ?? null)
   const choices = useMemo(() => orderWorlds(worlds ?? [], openId), [worlds, openId])
   return (
@@ -294,9 +352,9 @@ function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null
         Start something new
       </h2>
       <div className="grid grid-cols-3 gap-2">
-        <Tile icon={Plus} label="New world" hint="Characters, places and lore for a new set of stories" disabled={!!busy} onClick={onNewWorld} />
+        <Tile icon={Plus} label="New world" hint="Characters, places and lore for a new set of stories" disabled={!!busy || worldBusy} onClick={onNewWorld} />
         <M.Root modal={false}>
-          <M.Trigger asChild disabled={!!busy || !choices.length}>
+          <M.Trigger asChild disabled={!!busy || worldBusy || !choices.length}>
             <Tile icon={BookPlus} label="New story…" hint="A new book, prequel or side story in one of your worlds" />
           </M.Trigger>
           <M.Portal>
