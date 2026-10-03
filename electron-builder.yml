@@ -9,7 +9,8 @@ directories:
   output: release
   buildResources: build
 
-# What goes into the app: only the built app (out/), package.json and resources/. electron-vite
+# What goes into the app: only the built app (out/), package.json and resources/ (the icon, and the
+# thesaurus for synonyms with its WordNet licence in resources/thesaurus/, made by build/thesaurus.mjs). electron-vite
 # bundles everything except the runtime dependencies (better-sqlite3, electron-updater,
 # js-tiktoken), which electron-builder adds from node_modules on its own.
 #

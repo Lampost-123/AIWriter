@@ -89,7 +89,7 @@ export async function putInScene(
   await snapshotBefore(sceneId, 'Before a variant', { generationId: o.generationId ?? null })
   const now = bridge.current()
   const next = sceneWith(how, blocks, now)
-  if (bridge.sceneId !== sceneId || !bridge.replaceScene(sceneId, next.doc, next.text)) {
+  if (bridge.sceneId !== sceneId || !bridge.replaceScene(sceneId, next.doc, next.text, { words: 'ai' })) {
     toast(sceneNotReady(sceneId) ?? "The scene couldn't take the new text just now, so nothing went into it. Try again in a moment.")
     return false
   }

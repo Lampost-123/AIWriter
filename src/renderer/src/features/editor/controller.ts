@@ -23,6 +23,7 @@ import { withParagraphIds } from './paragraphIds'
 import { findTextRange, type FindOptions } from './findText'
 import { REVEALED } from './reveal'
 import { requestPutBack } from './putBack'
+import { WORDS_META } from '@/features/goals/wordsMeta'
 
 /** Where Adam was in each scene this session, so coming back restores the view. */
 const memory = new Map<ID, { scrollTop: number; anchor: number; head: number }>()
@@ -924,7 +925,8 @@ export class SceneController {
     }
     const tr = closeHistory(view.state.tr.replaceWith(0, view.state.doc.content.size, old.content))
     tr.setSelection(Selection.atStart(tr.doc))
-    view.dispatch(tr)
+    // Earlier text put back isn't new writing (writing by hand: the daily word count).
+    view.dispatch(tr.setMeta(WORDS_META, 'none'))
     // Typing straight after is a step of its own.
     view.dispatch(closeHistory(view.state.tr))
     this.follow.stop()
@@ -951,14 +953,15 @@ export class SceneController {
   }
 
   /** Other text in place of the whole scene, as one step Ctrl+Z takes back. */
-  private replaceScene(sceneId: ID, doc: unknown, text: string, opts: { message?: string } = {}): boolean {
+  private replaceScene(sceneId: ID, doc: unknown, text: string, opts: { message?: string; words?: 'ai' } = {}): boolean {
     if (this.destroyed || this.session?.id !== sceneId || this.busy()) return false
     const view = this.editor.view
     const next = withParagraphIds(streamDoc.docFromStored(this.editor.schema, doc, text)).doc
     if (!next.eq(view.state.doc)) {
       const tr = closeHistory(view.state.tr.replaceWith(0, view.state.doc.content.size, next.content))
       tr.setSelection(Selection.atStart(tr.doc))
-      view.dispatch(tr)
+      // Writing by hand: a picked variant's words are AI words kept; other text put in isn't new writing.
+      view.dispatch(tr.setMeta(WORDS_META, opts.words ?? 'none'))
       // Typing straight after is a step of its own.
       view.dispatch(closeHistory(view.state.tr))
       this.follow.stop()

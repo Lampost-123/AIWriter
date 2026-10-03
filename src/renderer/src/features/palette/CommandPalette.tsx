@@ -294,11 +294,12 @@ function useActionContext(): ActionContext {
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const reading = useReading((s) => s.reading)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
+  const spellCheck = useApp((s) => s.settings?.editor.spellCheck !== false)
   const unreadStory = useImport((s) => canBuildMemory(s.catchUp, storyId))
   const focus = useFocusMode((s) => s.on)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck]
   )
 }
 

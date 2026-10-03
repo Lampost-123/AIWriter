@@ -1,5 +1,8 @@
-<!-- version: 0.6.4 -->
-Cheaper redrafts with Claude, and cache savings on the usage page.
+<!-- version: 0.6.5 -->
+Writing by hand.
 
-- With a Claude model through OpenRouter, AI Write now asks it to keep the parts of a briefing that don't change (the instructions, style guide, world rules, setting and characters). Redrafting a scene within five minutes costs much less for those parts.
-- The usage page shows how many tokens came from a provider's cache, for example "41.2k tokens, 12k from the cache".
+- Bold and Italic on the bar over selected words, and a Format menu (block quote, scene break, paste as plain text).
+- Ctrl+F finds and replaces in a scene; Ctrl+Shift+F across the story, with one Undo. It can rename a character in memory too.
+- Spell check in UK or US English, knowing your world's names, with offline synonyms on right-click.
+- Curly quotes and dashes as you type, word counts with pages and reading time, and a daily word target with a streak.
+- Settings › Editor holds the new switches.

@@ -26,6 +26,7 @@ import { openScene } from '@/features/memory/openScene'
 import { AskButton } from '@/features/ask/AskButton'
 import { WorldFileItems } from '@/features/transfer/WorldFileItems'
 import { FocusButton } from '@/features/look/FocusLayer'
+import { WordCountButton } from '@/features/goals/WordCounts'
 import { giveFocusBack, openPalette, usePalette } from '@/features/palette/paletteStore'
 import { openSampleWorld, useSetup } from '@/features/setup/setupStore'
 import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
@@ -279,7 +280,6 @@ export function TopBar(): React.JSX.Element {
   const update = useApp((s) => s.updateSettings)
   const view = useApp((s) => s.view)
   const navigate = useApp((s) => s.navigate)
-  const words = useApp((s) => s.sceneWords)
   const sceneId = useApp((s) => s.sceneId)
   const askOpen = useApp((s) => s.askOpen)
   // The scene a draft is being written into: shown when it isn't the page on screen.
@@ -342,7 +342,8 @@ export function TopBar(): React.JSX.Element {
       {hasWorld ? <KeeperStatus /> : null}
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (
-        <span className="mr-3 shrink-0 whitespace-nowrap text-[12px] tabular-nums text-faint">{words.toLocaleString()} words</span>
+        // Writing by hand: click for the selection's, chapter's and story's counts and today's writing.
+        <WordCountButton />
       ) : null}
       {draftElsewhere && draftScene ? (
         // A draft keeps writing into its scene while another page or scene is open; this goes back to it.
