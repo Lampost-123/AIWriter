@@ -13,9 +13,11 @@
 // Needs the whole feature: the sounds core (src/main/sounds, ipc/sounds.ts, the read-aloud plan's sounds) and the
 // speech engine's sound model and fake (tests/fake-speech), besides this window's part.
 import type { Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, newDataDir, openSettings, startFake, test, useFakeModel } from './helpers'
 
 interface FakeSpeech {
   url: string
@@ -29,37 +31,59 @@ async function startSpeech(): Promise<FakeSpeech> {
   return startFakeSpeech({ sounds: true })
 }
 
+/**
+ * A data folder whose speech folder already holds the sound effects' download, as the fake download steps leave it
+ * (tests/fake-speech/install.mjs) and as AI Write records it once they have all worked (speech/installed.json).
+ */
+function withSoundModel(): string {
+  const dataDir = newDataDir()
+  const home = join(dataDir, 'app', 'speech')
+  mkdirSync(home, { recursive: true })
+  const env = { ...process.env, AIWRITE_SPEECH_HOME: home }
+  for (const step of ['venv', 'weights', 'check'])
+    execFileSync(process.execPath, [join(__dirname, '..', 'fake-speech', 'install.mjs'), 'sounds', step], { env, stdio: 'ignore' })
+  writeFileSync(join(home, 'installed.json'), JSON.stringify({ sounds: { at: new Date().toISOString() } }))
+  return dataDir
+}
+
 const prose = (win: Page) => win.locator('.scene-prose')
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
 const soundsTab = (win: Page) => scenePanel(win).getByRole('tab', { name: 'Sounds' })
 const soundsPanel = (win: Page) => scenePanel(win).getByRole('tabpanel', { name: 'Sounds' })
 const sound = (win: Page, name: string | RegExp) => soundsPanel(win).getByRole('group', { name })
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
+/** One toast (the newest saying these words), so its own Undo is pressed. */
+const toast = (win: Page, words: string) => toasts(win).locator('> div').filter({ hasText: words }).last()
 const readingBar = (win: Page) => win.getByRole('region', { name: 'Reading aloud' })
 
 const DOOR = 'A heavy wooden door slamming shut'
 const RAIN = 'Steady rain on a tin roof'
 const SCENE = ['Rain hammered the tin roof.', 'Then the door slammed shut.']
 
-/** Selects these words in the page, as Adam would with the mouse (the first place they appear). */
+/**
+ * Selects these words in the page (the first place they appear) with the keyboard, as Adam might: the arrow keys to
+ * the top of the scene and on to them, then Shift and the arrow keys over them. The page reads it as it would his own,
+ * and its "Selected words" bar shows before anything else is clicked.
+ */
 async function selectWords(win: Page, words: string): Promise<void> {
-  await prose(win).evaluate((el, w) => {
-    // (Run in the window: the tests' own types have no DOM.)
-    const doc = (globalThis as unknown as { document: { createTreeWalker(n: unknown, f: number): { nextNode(): unknown }; createRange(): { setStart(n: unknown, o: number): void; setEnd(n: unknown, o: number): void }; getSelection(): { removeAllRanges(): void; addRange(r: unknown): void } } }).document
-    const walker = doc.createTreeWalker(el, 4)
-    for (let node = walker.nextNode() as { textContent: string } | null; node; node = walker.nextNode() as { textContent: string } | null) {
-      const at = node.textContent.indexOf(w)
-      if (at < 0) continue
-      const range = doc.createRange()
-      range.setStart(node, at)
-      range.setEnd(node, at + w.length)
-      const sel = doc.getSelection()
-      sel.removeAllRanges()
-      sel.addRange(range)
-      return
-    }
-    throw new Error(`“${w}” isn’t in the page`)
-  }, words)
+  const paragraphs = await prose(win).locator('p').allTextContents()
+  let before = 0
+  let found = -1
+  for (const p of paragraphs) {
+    const at = p.indexOf(words)
+    if (found < 0 && at >= 0) found = before + at
+    // Past the end of a paragraph, one more step goes to the start of the next.
+    before += p.length + 1
+  }
+  if (found < 0) throw new Error(`“${words}” isn’t in the page`)
+  await prose(win).focus()
+  // Just after it gets the keyboard, the editor puts its own selection back (20 ms later): keys before then are undone.
+  await win.waitForTimeout(150)
+  // To the top of the scene from wherever the caret is (one step per character and paragraph is always enough).
+  for (let i = 0; i < before; i++) await win.keyboard.press('ArrowLeft')
+  for (let i = 0; i < found; i++) await win.keyboard.press('ArrowRight')
+  for (let i = 0; i < words.length; i++) await win.keyboard.press('Shift+ArrowRight')
+  await expect(win.getByRole('toolbar', { name: 'Selected words' })).toBeVisible()
 }
 
 /** The sounds reading has reached so far (the window's test log). */
@@ -71,7 +95,8 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
   const fake = await startFake()
   const speech = await startSpeech()
   try {
-    const { win } = await launch()
+    // The sound effects' download is done (its own card is the speech engine's, with its own tests).
+    const { win } = await launch({ dataDir: withSoundModel() })
     await createWorldFromWelcome(win, 'Tin roof')
     await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true } })
     await useFakeModel(win, fake)
@@ -116,7 +141,6 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(soundsPanel(win).getByText('No sounds in this scene yet')).toBeVisible()
 
     // Add a sound: the door, on "slammed".
-    await prose(win).click()
     await selectWords(win, 'slammed')
     await soundsPanel(win).getByRole('button', { name: 'Add a sound' }).click()
     const form = soundsPanel(win).getByRole('region', { name: 'Add a sound' })
@@ -129,10 +153,9 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(prose(win).locator('.aw-sound')).toHaveText(['slammed'])
 
     // Undo takes it out again; added once more.
-    await toasts(win).filter({ hasText: 'Sound added.' }).getByRole('button', { name: 'Undo' }).click()
+    await toast(win, 'Sound added.').getByRole('button', { name: 'Undo' }).click()
     await expect(sound(win, `Sound effect: ${DOOR}`)).toHaveCount(0)
     await expect(prose(win).locator('.aw-sound')).toHaveCount(0)
-    await prose(win).click()
     await selectWords(win, 'slammed')
     await soundsPanel(win).getByRole('button', { name: 'Add a sound' }).click()
     await form.getByLabel('What it sounds like').fill(DOOR)
@@ -140,7 +163,6 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(sound(win, `Sound effect: ${DOOR}`)).toBeVisible()
 
     // An ambience: the rain, from "Rain hammered" to the end of the scene.
-    await prose(win).click()
     await selectWords(win, 'Rain hammered')
     await soundsPanel(win).getByRole('button', { name: 'Add a sound' }).click()
     await form.getByRole('radio', { name: 'Ambience' }).click()
@@ -159,7 +181,7 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await win.getByRole('menuitem', { name: 'Remove' }).click()
     await expect(toasts(win).getByText('Sound removed.')).toBeVisible()
     await expect(rain).toHaveCount(0)
-    await toasts(win).filter({ hasText: 'Sound removed.' }).getByRole('button', { name: 'Undo' }).click()
+    await toast(win, 'Sound removed.').getByRole('button', { name: 'Undo' }).click()
     await expect(rain).toBeVisible()
 
     // The palette opens the tab from another one.
@@ -183,8 +205,9 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
       .toBe(true)
     // Nothing ever goes wrong out loud: the bar never shows a problem.
     await expect(readingBar(win)).not.toContainText('Try again')
+    // (Two short lines: the reading may already have reached the end; stopping is harmless then.)
     await win.keyboard.press('Control+Shift+Space')
-    await expect(readingBar(win)).toContainText('Stopped.')
+    await expect(win.getByRole('button', { name: 'Listen', exact: true })).toHaveAttribute('aria-pressed', 'false')
 
     // Turned off in Settings, the tab goes.
     await invoke(win, 'updateSettings', { speech: { soundEffects: false } })
