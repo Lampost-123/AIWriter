@@ -5,7 +5,8 @@
 // app's user data folder: never in a world folder or a backup. Files are named only by the hash of what was asked
 // for (`keyOf`), under `<first two hex>/<hash>.wav`, so no path ever comes from a request. Past the limit Adam
 // picks, the clips played longest ago go first. A clip that can't be deleted (in use, on Windows) is left for next
-// time.
+// time. A clip may have small files kept beside it (`<hash>.<name>.json`: the words heard in it and when, for sound
+// effects); they go with it, and only clips count in its size.
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -13,6 +14,10 @@ import type { AudioCacheStats } from '@shared/contracts/readAloud'
 import { UserError } from '../util'
 
 export const GB = 1024 ** 3
+
+/** The names of what may be kept beside a clip ('words': the words heard in it and when, for sound effects). */
+export const EXTRAS = ['words'] as const
+const EXTRA_NAME = /^[a-z]{1,20}$/
 
 /** One clip kept: its size, and when it was last played. */
 interface Kept {
@@ -40,6 +45,12 @@ export class AudioCache {
   private fileOf(key: string): string {
     if (!/^[0-9a-f]{64}$/.test(key)) throw new Error('Bad audio cache key')
     return path.join(this.dir, key.slice(0, 2), `${key}.wav`)
+  }
+
+  /** A file kept beside a clip: `<hash>.<name>.json`. */
+  private extraOf(key: string, name: string): string {
+    if (!EXTRA_NAME.test(name)) throw new Error('Bad audio cache extra')
+    return path.join(path.dirname(this.fileOf(key)), `${key}.${name}.json`)
   }
 
   private async load(): Promise<Map<string, Kept>> {
@@ -95,10 +106,34 @@ export class AudioCache {
     await fs.writeFile(temp, audio)
     await fs.rename(temp, file)
     const previous = index.get(key)
-    if (previous) this.total -= previous.bytes
+    if (previous) {
+      this.total -= previous.bytes
+      // New audio: what was kept beside the old (its words' times) no longer fits it.
+      for (const name of EXTRAS) await fs.rm(this.extraOf(key, name), { force: true }).catch(() => undefined)
+    }
     index.set(key, { bytes: audio.length, used: Date.now() })
     this.total += audio.length
     await this.prune()
+  }
+
+  /** What is kept beside a clip under `name` (the words heard in it), or null when the clip or it isn't kept. */
+  async getExtra(key: string, name: string): Promise<string | null> {
+    const index = await this.load()
+    if (!index.has(key)) return null
+    return fs.readFile(this.extraOf(key, name), 'utf8').catch(() => null)
+  }
+
+  /** Keeps something beside a clip (only while the clip is kept: it is deleted with it). */
+  async putExtra(key: string, name: string, data: string): Promise<void> {
+    const index = await this.load()
+    if (!index.has(key)) return
+    const file = this.extraOf(key, name)
+    const temp = `${file}.${randomUUID()}.tmp`
+    await fs.writeFile(temp, data, 'utf8')
+    await fs.rename(temp, file).catch(async (e: unknown) => {
+      await fs.rm(temp, { force: true }).catch(() => undefined)
+      throw e
+    })
   }
 
   /** Takes a clip out of the index, unless that was done already (or a newer copy has taken its place). */
@@ -108,10 +143,11 @@ export class AudioCache {
     this.total -= entry.bytes
   }
 
-  /** Deletes one clip's file; false when it can't be deleted now (in use, on Windows). */
+  /** Deletes one clip's file, and what is kept beside it; false when it can't be deleted now (in use, on Windows). */
   private async remove(key: string): Promise<boolean> {
     try {
       await fs.rm(this.fileOf(key), { force: true })
+      for (const name of EXTRAS) await fs.rm(this.extraOf(key, name), { force: true }).catch(() => undefined)
       return true
     } catch (e) {
       console.warn('[read aloud] could not delete a saved clip', e)
@@ -167,7 +203,8 @@ export class AudioCache {
         if (!/^[0-9a-f]{2}$/.test(shard)) continue
         const folder = path.join(this.dir, shard)
         for (const name of await fs.readdir(folder).catch(() => [] as string[])) {
-          if (index.has(name.replace(/\.wav$/, ''))) continue
+          // A clip still in use keeps what is beside it.
+          if (index.has(name.slice(0, 64)) && /^[0-9a-f]{64}\.(?:wav|[a-z]+\.json)$/.test(name)) continue
           await fs.rm(path.join(folder, name), { recursive: true, force: true }).catch(() => undefined)
         }
         await fs.rmdir(folder).catch(() => undefined)

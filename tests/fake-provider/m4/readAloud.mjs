@@ -18,11 +18,56 @@
 //             When the system prompt also asks how the name is said ("SAY IT AS:", the AI filling in a voice by
 //             itself), a character called Siobhan also gets a last line "SAY IT AS: shiv-AWN" (SUGGESTED_SAY);
 //             every other name gets none.
+//
+//   sounds    Sound effects (src/main/sounds/prompt.ts): for each numbered paragraph ("[P3] ..." under "The passage:" in
+//             the user message; "[--]" paragraphs are left alone), a door effect where it says "slammed"
+//             (SOUND_DOOR, word "slammed", 2 seconds), a thunder effect where it says "thunder" (SOUND_THUNDER), and a
+//             rain ambience where it says "rain" (SOUND_RAIN, word "rain", playing on), unless the message says rain is
+//             playing already. "at" is the word with the words either side of it, as written. A paragraph that says
+//             "indoors" stops the ambience playing ({"type": "stop"}).
+//             e.g. {"sounds":[{"type":"ambience","sound":"steady rain on a roof","p":1,"at":"The rain fell","word":"rain","until":null}]}
 
 const MARKER = '[AIWRITE-READ-ALOUD v1]'
 
 export const SUGGESTED_VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
 export const SUGGESTED_SAY = 'shiv-AWN'
+export const SOUND_DOOR = 'a heavy wooden door slamming shut'
+export const SOUND_THUNDER = 'a distant rumble of thunder'
+export const SOUND_RAIN = 'steady rain on a roof'
+
+/** The numbered paragraphs of a sounds request: [{n, text}]. */
+function soundParagraphs(text) {
+  const passage = text.split('The passage:\n')[1] ?? ''
+  return [...passage.matchAll(/\[P(\d+)\] ([\s\S]*?)(?=\n\n\[(?:P\d+|--)\] |$)/g)].map((m) => ({ n: Number(m[1]), text: m[2] }))
+}
+
+/** A word in a paragraph with the words either side of it, as written; null when it isn't there. */
+function around(text, word) {
+  const m = new RegExp(`(?:\\S+\\s+)?\\b${word}\\b(?:\\s+\\S+)?`, 'i').exec(text)
+  return m ? { at: m[0].trim(), word: new RegExp(`\\b${word}\\b`, 'i').exec(m[0])[0] } : null
+}
+
+function soundsReply(user) {
+  const sounds = []
+  let raining = /Playing as this passage starts: the ambience "[^"]*rain/i.test(user)
+  for (const p of soundParagraphs(user)) {
+    const rain = around(p.text, 'rain')
+    if (rain && !raining) {
+      sounds.push({ type: 'ambience', sound: SOUND_RAIN, p: p.n, ...rain, until: null })
+      raining = true
+    }
+    const door = around(p.text, 'slammed')
+    if (door) sounds.push({ type: 'effect', sound: SOUND_DOOR, p: p.n, ...door, seconds: 2 })
+    const thunder = around(p.text, 'thunder')
+    if (thunder) sounds.push({ type: 'effect', sound: SOUND_THUNDER, p: p.n, ...thunder, seconds: 4 })
+    const inside = around(p.text, 'indoors')
+    if (inside && raining) {
+      sounds.push({ type: 'stop', p: p.n, ...inside })
+      raining = false
+    }
+  }
+  return JSON.stringify({ sounds })
+}
 
 /** The names under "Characters in this story:" in the system prompt. */
 function castNames(system) {
@@ -74,6 +119,8 @@ export function readAloudReply(system, messages, _model) {
       )
     )
   }
+
+  if (job === 'sounds') return soundsReply(userText(messages))
 
   if (job === 'voice') {
     const name = /^CHARACTER: ([^(\n]+?)(?: \(|$)/m.exec(userText(messages))?.[1] ?? ''

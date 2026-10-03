@@ -622,6 +622,8 @@ export interface GenerationRecord extends GenerationSummary {
     tool?: EditTool
     /** A turn of an Ask the world conversation. */
     chatId?: ID
+    /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
+    sounds?: boolean
   }
   direction: string
   blocks: ContextBlock[]
