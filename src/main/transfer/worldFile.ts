@@ -163,8 +163,22 @@ async function copyWorldFiles(
   progress: Progress
 ): Promise<HistoryCarried> {
   progress('Copying the world', 0)
-  if (src.db && !src.db.open) throw new UserError('The world was closed before it could be copied. Open it again, then try once more.')
-  await copyDatabase(src.db ?? join(src.folder, 'world.db'), to.worldDb, (f) => progress('Copying the world', f))
+  const closed = (): UserError => new UserError('The world was closed before it could be copied. Open it again, then try once more.')
+  if (src.db && !src.db.open) throw closed()
+  try {
+    await copyDatabase(src.db ?? join(src.folder, 'world.db'), to.worldDb, (f) => progress('Copying the world', f))
+  } catch (e) {
+    // The world was closed (or another opened) part way through: the copy stops, in plain words.
+    if (src.db && !src.db.open) throw closed()
+    const code = codeOf(e)
+    if (code.startsWith('SQLITE_CORRUPT') || code === 'SQLITE_NOTADB') {
+      throw new UserError(
+        "This world's file is damaged, so it couldn't be copied. If the world opens, bring back an earlier copy in Settings › Backups, then try again.",
+        'damaged-world'
+      )
+    }
+    throw e
+  }
   const history = join(src.folder, 'history.db')
   if (!existsSync(history)) return 'none'
   progress('Copying its history', 0)
@@ -199,6 +213,8 @@ export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   for (const n of names) {
     if (!STAGING.test(n)) continue
     const dir = join(library, n)
+    // One stopped just before it took its own name is already a whole world (the library lists it): never removed.
+    if (existsSync(join(dir, 'world.db'))) continue
     try {
       if (nowMs - statSync(dir).mtimeMs > STALE_MS) rmSync(dir, { recursive: true, force: true })
     } catch {
@@ -338,12 +354,17 @@ export async function exportWorld(opts: ExportWorldOptions): Promise<{ history: 
 const NOT_OURS = "This file isn't an AI Write world file, or it is damaged. Check it's the .aiwrite file you exported, then try again."
 const DAMAGED = 'This world file is damaged, so it was not imported. Export the world again from the computer it came from, then import the new file.'
 
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i
+
 /** Where an entry of the zip goes in the staging folder, or null when it isn't one we take (or would land outside it). */
 export function stagedName(name: string): string | null {
   if (name === 'manifest.json' || name === 'world.db' || name === 'history.db') return name
   if (!name.startsWith('images/') || name.endsWith('/')) return null
   const parts = name.slice('images/'.length).split('/')
-  if (parts.some((p) => !p || p === '.' || p === '..' || /[\\:*?"<>|\u0000-\u001f]/.test(p))) return null
+  // Windows also drops a name's trailing dots and spaces, and opens a device for CON, NUL, COM1... (even "nul.png").
+  const unsafe = (p: string): boolean =>
+    !p || p === '.' || p === '..' || /[\\:*?"<>|\u0000-\u001f]/.test(p) || /[. ]$/.test(p) || WINDOWS_DEVICE.test(p)
+  if (parts.some(unsafe)) return null
   return ['images', ...parts].join('/')
 }
 

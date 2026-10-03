@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import { openHistory } from '../history/open'
 import { HistoryStore } from '../history/store'
 import { UserError } from '../util'
-import { checkManifest, copyWorld, exportWorld, importWorld, isNewerVersion, stagedName, WORLD_FILE_FORMAT } from './worldFile'
+import { checkManifest, copyWorld, exportWorld, importWorld, isNewerVersion, removeStaleStaging, stagedName, WORLD_FILE_FORMAT } from './worldFile'
 
 let root: string
 let library: string
@@ -206,6 +206,22 @@ describe('the .aiwrite file', () => {
     expect(stagedName('images/C:/evil')).toBeNull()
     expect(stagedName('backups/old.db')).toBeNull()
     expect(stagedName('../world.db')).toBeNull()
+    // Names Windows would change or read as a device.
+    expect(stagedName('images/CON')).toBeNull()
+    expect(stagedName('images/nul.png')).toBeNull()
+    expect(stagedName('images/com1/a.png')).toBeNull()
+    expect(stagedName('images/a./b.png')).toBeNull()
+    expect(stagedName('images/a.png ')).toBeNull()
+    expect(stagedName('images/console.png')).toBe('images/console.png')
+  })
+
+  it('clears away an import the app stopped in the middle of, but never one that is already a whole world', () => {
+    mkdirSync(join(library, '.aiwrite-import-half'))
+    writeFileSync(join(library, '.aiwrite-import-half', 'world.db.incoming'), 'x')
+    mkdirSync(join(library, '.aiwrite-copy-whole'))
+    writeFileSync(join(library, '.aiwrite-copy-whole', 'world.db'), 'x')
+    removeStaleStaging(library, Date.now() + 2 * 60 * 60 * 1000)
+    expect(readdirSync(library)).toEqual(['.aiwrite-copy-whole'])
   })
 
   it('reads versions and manifests', () => {
@@ -246,5 +262,17 @@ describe('Make a copy', () => {
     expect(made.history).toBe('left-out')
     expect(existsSync(join(made.folder, 'history.db'))).toBe(false)
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
+  })
+
+  it('refuses a world whose world.db is damaged in plain words, leaving nothing behind', async () => {
+    const w = makeWorld('Broken', false)
+    const file = join(w.folder, 'world.db')
+    const bytes = readFileSync(file)
+    // Its header stays, its pages are scribbled over.
+    bytes.fill(0x5a, 100)
+    writeFileSync(file, bytes)
+    const e = await refused(copyWorld({ source: { folder: w.folder, db: null }, library, name: 'Broken (copy)' }))
+    expect(e.code).toBe('damaged-world')
+    expect(readdirSync(library)).toEqual(['Broken'])
   })
 })
