@@ -6,6 +6,7 @@
 import type { Editor } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { TextSelection } from '@tiptap/pm/state'
+import { redo } from '@tiptap/pm/history'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { ID } from '@shared/types'
@@ -14,7 +15,7 @@ import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { takeEscape } from '@/lib/escape'
-import { withShortcut } from '@/lib/shortcuts'
+import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useFind } from './findStore'
 import { anchorAfter, findStateOf, setCurrentTr, setFindInputs } from './highlights'
 import { isKept, replaceMatchesTr } from './pageEdits'
@@ -163,6 +164,16 @@ export function FindBar({
     return true
   }
 
+  /**
+   * After a replace that leaves nothing to find, the buttons turn off and would drop the keyboard: it goes to the bar
+   * itself first, so Ctrl+Z still reaches onBarKey.
+   */
+  const keepKeyboard = (): void => {
+    const bar = barRef.current
+    if (!bar || findStateOf(editor.state).matches.length) return
+    if (!bar.contains(document.activeElement) || document.activeElement instanceof HTMLButtonElement) bar.focus()
+  }
+
   const replaceOne = (): void => {
     const view = editor.view
     const st = findStateOf(view.state)
@@ -180,6 +191,7 @@ export function FindBar({
     view.dispatch(closeHistory(view.state.tr))
     moved.current = true
     reveal()
+    keepKeyboard()
   }
 
   const replaceAll = (): void => {
@@ -193,6 +205,7 @@ export function FindBar({
     }
     view.dispatch(r.tr)
     view.dispatch(closeHistory(view.state.tr))
+    keepKeyboard()
     const left = r.kept ? ` ${r.kept === 1 ? 'One' : r.kept} inside the AI’s suggested change ${r.kept === 1 ? 'was' : 'were'} left as ${r.kept === 1 ? 'it is' : 'they are'}.` : ''
     toast(`Replaced ${times(r.count)} in this scene. ${modKey()}+Z puts ${r.count === 1 ? 'it' : 'them'} back.${left}`)
   }
@@ -221,6 +234,19 @@ export function FindBar({
     }
   }
 
+  /**
+   * Ctrl+Z and Ctrl+Y pressed on the bar's buttons or switches (after Replace or Replace all, say) undo and redo in
+   * the page, as the message after Replace all says. In the Find and Replace boxes they undo typing there.
+   */
+  const onBarKey = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.target instanceof HTMLInputElement || e.nativeEvent.isComposing) return
+    const undoing = isShortcut(e, 'undo')
+    if (!undoing && !isShortcut(e, 'redo')) return
+    e.preventDefault()
+    if (undoing) editorBridge()?.undo()
+    else if (!editorBridge()?.busy()) redo(editor.view.state, editor.view.dispatch)
+  }
+
   const has = count.n > 0
   return (
     <div
@@ -230,7 +256,9 @@ export function FindBar({
       style={{ top }}
       // Presses here stay here (the page puts the caret at the end on a press below its words).
       onMouseDown={(e) => e.stopPropagation()}
-      className="absolute right-4 z-20 w-[420px] max-w-[calc(100%-32px)] rounded-lg border border-line bg-surface p-2 shadow-pop animate-fade-in"
+      onKeyDown={onBarKey}
+      tabIndex={-1}
+      className="absolute right-4 z-20 w-[420px] outline-none max-w-[calc(100%-32px)] rounded-lg border border-line bg-surface p-2 shadow-pop animate-fade-in"
     >
       <div className="flex items-center gap-1.5">
         <Input

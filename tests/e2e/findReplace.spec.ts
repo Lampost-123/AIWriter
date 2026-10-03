@@ -68,15 +68,33 @@ test('Ctrl+F finds and replaces in the open scene, over the page, and Ctrl+Z put
   await expect(bar(win).getByText('No matches')).toBeVisible()
   await expect.poll(() => savedText(win, sceneId)).toBe('Tobin rode north. Tobin’s horse was tired.\n\nThe road was long, and Tobin sang to Tamara.')
 
-  // Esc closes the bar and the keyboard goes back into the page; one Ctrl+Z takes Replace all back.
-  await bar(win).getByRole('textbox', { name: 'Find' }).press('Escape')
-  await expect(bar(win)).toBeHidden()
-  await expect(prose(win)).toBeFocused()
-  await expect(prose(win).locator('.aw-find')).toHaveCount(0)
+  // Straight after Replace all (the keyboard still on the bar), one Ctrl+Z takes it back, and Ctrl+Y does it again.
+  await expect.poll(() => bar(win).evaluate((el) => el.contains(el.ownerDocument.activeElement))).toBe(true)
   await win.keyboard.press('Control+z')
   await expect(prose(win)).toContainText('Tobin rode north. Mara’s horse was tired.')
   await expect(prose(win)).toContainText('and mara sang to Tamara.')
+  await expect(bar(win).getByText('1 of 2')).toBeVisible()
   await expect.poll(() => savedText(win, sceneId)).toContain('and mara sang')
+  await win.keyboard.press('Control+y')
+  await expect(prose(win)).toContainText('and Tobin sang to Tamara.')
+  await win.keyboard.press('Control+z')
+  await expect(prose(win)).toContainText('and mara sang to Tamara.')
+
+  // In the Find box, Ctrl+Z undoes typing there and leaves the page alone.
+  const find = bar(win).getByRole('textbox', { name: 'Find' })
+  await find.click()
+  await find.press('End')
+  await find.pressSequentially('x')
+  await expect(find).toHaveValue('marax')
+  await find.press('Control+z')
+  await expect(find).toHaveValue('mara')
+  await expect(prose(win)).toContainText('Tobin rode north. Mara’s horse was tired.')
+
+  // Esc closes the bar and the keyboard goes back into the page.
+  await find.press('Escape')
+  await expect(bar(win)).toBeHidden()
+  await expect(prose(win)).toBeFocused()
+  await expect(prose(win).locator('.aw-find')).toHaveCount(0)
 })
 
 test('Ctrl+Shift+F replaces the ticked matches across the story, renames the character in memory, and one Undo puts everything back', async ({
@@ -156,6 +174,33 @@ test('Ctrl+Shift+F replaces the ticked matches across the story, renames the cha
   expect(await savedText(win, second)).toBe('At night Mara’s fire burned low.')
   expect(await savedText(win, third)).toBe('Nobody saw Mara go.')
   expect(await invoke(win, 'getEntry', mara.id)).toMatchObject({ name: 'Mara', aliases: [] })
+})
+
+test('Undo across the story leaves the open scene alone when a new line went in at its start since', async ({ launch }) => {
+  const { win } = await launch()
+  await createWorldFromWelcome(win, 'Undo after Enter')
+  const { sceneId } = await storyAndScene(win)
+  await expect(prose(win)).toBeFocused()
+  await win.keyboard.type('Mara walked.')
+  await expect.poll(() => savedText(win, sceneId)).toBe('Mara walked.')
+
+  await win.keyboard.press('Control+Shift+f')
+  await storyFind(win).getByRole('textbox', { name: 'Find in the story' }).fill('Mara')
+  await storyFind(win).getByRole('textbox', { name: 'Replace with' }).fill('Kell')
+  await storyFind(win).getByRole('button', { name: 'Replace all 1' }).click()
+  const done = toasts(win).locator('> div', { hasText: 'Replaced once in one scene.' })
+  await expect(done).toBeVisible()
+  await expect(prose(win)).toContainText('Kell walked.')
+
+  // Enter at the very start of the scene, then Undo: the words stay as they are, and the message says why.
+  await prose(win).click()
+  await win.keyboard.press('Control+Home')
+  await win.keyboard.press('Enter')
+  await done.getByRole('button', { name: 'Undo' }).click()
+  await expect(toasts(win).getByText('“Scene 1” changed since, so it was left as it is.')).toBeVisible()
+  await expect(prose(win)).toContainText('Kell walked.')
+  await expect(prose(win)).not.toContainText('Mara')
+  await expect.poll(() => savedText(win, sceneId)).toBe('Kell walked.')
 })
 
 test('a match in the story’s list opens its scene there, with the find bar', async ({ launch }) => {

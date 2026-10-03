@@ -303,14 +303,19 @@ function sortedKeys(v: unknown): unknown {
 
 /**
  * The same document with neighbouring text of the same formatting joined, empty text dropped and keys in order,
- * so two documents that show the same can be compared (with comparableDoc, which leaves paragraph ids out).
+ * so two documents written down differently but otherwise exactly the same compare the same as text. Paragraph
+ * ids and empty paragraphs count.
  */
 export function tidyDoc(doc: unknown): unknown {
   if (!isNode(doc)) return doc
   const visit = (n: DocNode): DocNode => {
     if (!Array.isArray(n.content)) return n
     const kids = childrenOf(n).map(visit)
-    return { ...n, content: isTextblock(n) ? tidyInline(kids) : kids }
+    const content = isTextblock(n) ? tidyInline(kids) : kids
+    // An empty paragraph is written with no content at all, as the editor writes it.
+    if (content.length) return { ...n, content }
+    const { content: _none, ...rest } = n
+    return rest
   }
   return sortedKeys(visit(doc))
 }

@@ -101,6 +101,9 @@ describe('stored documents', () => {
     const a = doc(p('a', { type: 'text', text: 'x', marks: [bold] }))
     const b = doc(p('a', { marks: [bold], type: 'text', text: 'x' }))
     expect(JSON.stringify(tidyDoc(a))).toBe(JSON.stringify(tidyDoc(b)))
+    // An empty paragraph counts (it moves every position after it), however it is written down.
+    expect(JSON.stringify(tidyDoc(doc(p('a'), p('b', t('x')))))).not.toBe(JSON.stringify(tidyDoc(doc(p('b', t('x'))))))
+    expect(JSON.stringify(tidyDoc(doc({ type: 'paragraph', attrs: { pid: 'a' }, content: [] })))).toBe(JSON.stringify(tidyDoc(doc(p('a')))))
   })
 })
 
