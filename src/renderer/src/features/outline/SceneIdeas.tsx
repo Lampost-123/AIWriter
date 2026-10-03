@@ -2,13 +2,15 @@
 // and the story so far; one click fills the card with the one Adam picks. Shown at the top of the scene
 // card (features/inspector/SceneCardPanel.tsx). Owned by the Outline part.
 //
-// A quiet "Ideas for this scene" while the card is empty; asked (or from the palette), the three ideas
-// stream in, each a short title, a line on what happens and its beats, with Use this. Stop keeps what
-// has arrived; the list stays until one is used or it is closed, even if Adam starts filling the card.
+// A quiet "Ideas for this scene" while the card is empty. Clicked, it asks what Adam has in mind, roughly, in his own
+// words (optional: the three ideas are then three takes on it); asked (or from the palette), the three ideas stream
+// in, each a short title, a line on what happens and its beats, with Use this. What he has in mind stays above them,
+// and Other ideas asks again with it as it stands. Stop keeps what has arrived; the list stays until one is used or
+// it is closed, even if Adam starts filling the card.
 import { Lightbulb, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ID, SceneCard } from '@shared/types'
-import { Button, IconButton, Notice } from '@/components/ui'
+import { Button, IconButton, Notice, Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
@@ -22,6 +24,7 @@ import {
   closeIdeas,
   ideasKey,
   registerCard,
+  setWish,
   stopIdeas,
   useSceneIdeas,
   type IdeasProblem,
@@ -45,6 +48,8 @@ export function SceneIdeas({
   const session = useSceneIdeas((st) => st.sessions[ideasKey(worldId, sceneId)])
   const reveal = useSceneIdeas((st) => st.reveal)
   const root = useRef<HTMLDivElement>(null)
+  // Clicked "Ideas for this scene": the box for what Adam has in mind shows before anything is asked.
+  const [composing, setComposing] = useState(false)
 
   // The card on screen, so Undo after "Use this" changes what Adam sees, not only what is saved.
   useEffect(() => registerCard(sceneId, onUse), [sceneId, onUse])
@@ -73,6 +78,7 @@ export function SceneIdeas({
 
   if (phase !== 'showing' && !show) return beside ? <div className="flex items-center gap-4">{beside}</div> : null
   const ask = (): void => {
+    setComposing(false)
     void askIdeas(sceneId)
     showTop()
   }
@@ -83,11 +89,30 @@ export function SceneIdeas({
           {beside ? <div className="mb-2 flex items-center gap-4">{beside}</div> : null}
           <Ideas sceneId={sceneId} s={session} card={card} onAsk={ask} />
         </>
+      ) : composing ? (
+        <>
+          {beside ? <div className="mb-2 flex items-center gap-4">{beside}</div> : null}
+          <section aria-label="Ideas for this scene" className="flex flex-col gap-2">
+            <h3 className="flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+              <Lightbulb size={12} className="shrink-0 text-ai" aria-hidden />
+              Ideas for this scene
+            </h3>
+            <Wish sceneId={sceneId} onAsk={ask} autoFocus />
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="primary" onClick={ask}>
+                Suggest ideas
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setComposing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </section>
+        </>
       ) : (
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={() => void askIdeas(sceneId)}
+            onClick={() => setComposing(true)}
             title="Three possible directions for this scene, from the outline, open plot threads and the story so far"
             className="-mx-1.5 inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           >
@@ -147,6 +172,8 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
           </IconButton>
         )}
       </div>
+
+      {running ? <WishLine sceneId={sceneId} /> : <Wish sceneId={sceneId} onAsk={onAsk} />}
 
       {running ? (
         <WritingStatus
@@ -284,6 +311,41 @@ function IdeaCard({
       </div>
     </div>
   )
+}
+
+/** The box for what Adam has in mind for the scene, roughly; Ctrl+Enter asks for ideas with it. */
+function Wish({ sceneId, onAsk, autoFocus }: { sceneId: ID; onAsk: () => void; autoFocus?: boolean }): React.JSX.Element {
+  const worldId = useApp((s) => s.world?.id)
+  const wish = useSceneIdeas((st) => st.wishes[ideasKey(worldId, sceneId)] ?? '')
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[12px] font-medium text-muted">What do you have in mind? (optional)</span>
+      <Textarea
+        value={wish}
+        autoFocus={autoFocus}
+        minRows={2}
+        maxRows={8}
+        placeholder="Roughly what you want to happen, in your own words. The ideas will be three takes on it."
+        onChange={(e) => setWish(sceneId, e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault()
+            e.stopPropagation()
+            onAsk()
+          }
+        }}
+        className="text-[13px]"
+      />
+    </label>
+  )
+}
+
+/** While the ideas are written: what they were asked to follow, if anything. */
+function WishLine({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+  const worldId = useApp((s) => s.world?.id)
+  const wish = useSceneIdeas((st) => st.wishes[ideasKey(worldId, sceneId)]?.trim() ?? '')
+  if (!wish) return null
+  return <p className="line-clamp-3 break-words text-[12.5px] italic leading-relaxed text-muted">Going by: {wish}</p>
 }
 
 const Caret = (): React.JSX.Element => <span aria-hidden className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />

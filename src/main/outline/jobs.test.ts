@@ -363,3 +363,15 @@ describe('asking for next scene ideas', () => {
     expect(record.blocks.find((b) => b.id === 'previous')).toBeUndefined()
   })
 })
+
+describe('next scene ideas: what Adam has in mind', () => {
+  it('asks for three directions of the model’s own, or three takes on Adam’s own idea', async () => {
+    const { ideasAsk } = await import('./prompts')
+    expect(ideasAsk('this scene')).toBe('Suggest three possible directions for this scene.')
+    expect(ideasAsk('this scene', '   ')).toBe('Suggest three possible directions for this scene.')
+    const own = ideasAsk('the scene “Low Tide”', ' Wren finds   the letter,\nand it ends badly. ')
+    expect(own).toContain('Suggest three possible directions for the scene “Low Tide”.')
+    expect(own).toContain('Wren finds the letter, and it ends badly.')
+    expect(own).toContain('Every direction keeps to that idea')
+  })
+})

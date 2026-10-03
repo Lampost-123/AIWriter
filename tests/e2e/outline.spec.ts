@@ -572,7 +572,14 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     // ----- Asked from the empty card: three directions, each with what happens and its beats -----
     fake.reset()
     await sceneCard(win).getByRole('button', { name: 'Ideas for this scene' }).click()
+    // First, roughly what Adam has in mind (optional), in his own words; it goes to the AI with the ask.
+    const wish = ideasList(win).getByLabel('What do you have in mind? (optional)')
+    await expect(wish).toBeFocused()
+    await wish.fill('Mara has to pay back an old debt, and it costs her.')
+    await ideasList(win).getByRole('button', { name: 'Suggest ideas' }).click()
     await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' })).toBeVisible()
+    // It stays above the ideas, for Other ideas.
+    await expect(wish).toHaveValue('Mara has to pay back an old debt, and it costs her.')
     await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
     await expect(ideasList(win).locator('[data-idea]')).toContainText(['The door left open', 'A debt called in', 'The wrong messenger'])
     await expect(ideasList(win).locator('[data-idea]').nth(1)).toContainText(
@@ -581,6 +588,7 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await expect(ideasList(win).locator('[data-idea]').nth(1).locator('li')).toHaveCount(4)
     expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] ideas')).toBe(true)
+    expect(JSON.stringify(fake.lastRequest()!.body.messages)).toContain('Mara has to pay back an old debt, and it costs her.')
 
     // ----- Use this: the card is filled in one click, and the scene takes the idea's name -----
     await ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' }).click()

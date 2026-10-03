@@ -177,7 +177,7 @@ export function startIdeasJob(deps: JobDeps, input: SceneIdeasRequest): { genera
       entryIds: facts.threads.map((t) => t.id)
     },
     { id: 'cast', title: 'Characters and places', priority: 5, forms: castForms(facts.cast), entryIds: facts.cast.map((c) => c.id) },
-    { id: 'ask', title: 'What to suggest', priority: 0, forms: [ideasAsk(label)] }
+    { id: 'ask', title: 'What to suggest', priority: 0, forms: [ideasAsk(label, input.wish)] }
   ]
   const fitted = fitBlocks(drafts, system, briefingBudget(deps.model, IDEAS_REPLY), MODEL_NAMES.chat)
   return startTask({
