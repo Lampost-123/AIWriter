@@ -41,6 +41,10 @@ export interface SoundCue {
   at: CueAnchor
   until?: CueAnchor | null
   origin: 'ai' | 'adam'
+  /** How loud this sound is beside the others, 0.25 to 2 (1, or missing: as made). Adam's to set. */
+  volume?: number
+  /** Adam muted this sound: it stays in the list but doesn't play. */
+  muted?: boolean
 }
 
 /** A cue as the Sounds view shows it: where it is now, and whether its sound can play yet. */
@@ -49,6 +53,12 @@ export interface SceneCue extends SoundCue {
   placed: boolean
   /** The library sound: 'ready' plays; 'waiting' and 'making' are being made; 'failed' couldn't be made. */
   sound: 'ready' | 'waiting' | 'making' | 'failed'
+  /**
+   * A new take of its sound: 'making' while it is made; 'ready' once made and playing, with the earlier take kept so
+   * Adam can keep the new one or go back (keepTake); null otherwise. A take is the library sound's, so every scene
+   * using it hears the new one.
+   */
+  retake: 'making' | 'ready' | null
 }
 
 /** A scene's sounds in reading order, for the Sounds view and the page's marks. */
@@ -59,11 +69,15 @@ export interface SceneSounds {
   marking: string[]
   /** Paragraphs whose sounds are Adam's: the AI leaves them alone. */
   owned: string[]
+  /** Adam muted the sounds of this scene (the reading bar's button): none play in it. */
+  muted: boolean
 }
 
 /** Adam's sounds in one scene (world meta `sounds`, by scene id). A paragraph listed is his, even with no cues. */
 export interface SoundEdits {
   owned: Record<string, SoundCue[]>
+  /** The scene's sounds are muted (the reading bar's button). */
+  muted?: boolean
 }
 
 /** One sound in the app-wide library. */
@@ -95,6 +109,8 @@ export interface CueInput {
   description: string
   at: CueAnchor
   until?: CueAnchor | null
+  volume?: number
+  muted?: boolean
 }
 
 /** What the window asks to time a clip's sounds: the clip, and where its sounds are in its paragraph's words. */
@@ -143,6 +159,12 @@ export interface SoundsApi {
   clearSoundLibrary(): Promise<SoundsStatus>
   /** Undo for clearSoundLibrary. */
   undoClearSoundLibrary(): Promise<SoundsStatus>
+  /** "New take": makes the sound afresh (first in the queue); once made it plays, and the earlier take is kept aside. */
+  retakeSound(soundId: string): Promise<void>
+  /** After a new take: keep it (the earlier one is let go) or go back to the earlier one (`keep` false). */
+  keepTake(soundId: string, keep: boolean): Promise<void>
+  /** The reading bar's "Mute sounds in this scene" (and back on). Kept with the world, like Adam's other sound edits. */
+  muteSceneSounds(sceneId: ID, muted: boolean): Promise<void>
 }
 
 export interface SoundsEvents {

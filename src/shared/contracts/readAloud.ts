@@ -110,6 +110,8 @@ export interface PlannedClip {
    * or null for none), so stepping back or ahead puts the right one on.
    */
   bed?: string | null
+  /** How loud that ambience is (its sound's own volume, 1 when missing). */
+  bedVolume?: number
   /** Sound effects: the sounds heard during this clip, in order. */
   sounds?: ClipSound[]
 }
@@ -120,6 +122,8 @@ export interface ClipSound {
   /** The library sound ('' when it hasn't one yet: nothing plays). */
   soundId: string
   edge: 'fire' | 'start' | 'end'
+  /** How loud it is (its sound's own volume, 1 when missing). Muted sounds and muted scenes aren't in a plan at all. */
+  volume?: number
   /** Where in the clip's paragraph's text, [from, to) of the clip. */
   at: number
 }
