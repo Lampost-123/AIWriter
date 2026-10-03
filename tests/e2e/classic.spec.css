@@ -1,0 +1,5 @@
+/* The Classic guard (classic.spec.ts) leaves scroll bars out of its pictures: they show only while the pointer is over
+   a list or the page, and where the real pointer rests differs from one machine to another. */
+*::-webkit-scrollbar-thumb {
+  background-color: transparent !important;
+}

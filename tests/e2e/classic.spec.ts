@@ -4,6 +4,7 @@
 // (classic.spec.ts-snapshots/*-win32.png, *-linux.png).
 //
 // To take new baselines on purpose (only when Classic is meant to change): npx playwright test classic --update-snapshots
+import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { binder, expect, invoke, test } from './helpers'
 
@@ -15,9 +16,13 @@ async function settle(win: Page): Promise<void> {
   await win.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(undefined))))')
 }
 
+const NO_SCROLL_BARS = join(__dirname, 'classic.spec.css')
+
 const shot = async (win: Page, name: string): Promise<void> => {
   await settle(win)
-  await expect(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 150, animations: 'disabled', caret: 'hide' })
+  // Scroll bars show only while the pointer is over a list or the page, and where the real pointer rests differs from
+  // one machine to another, so they are left out of every picture.
+  await expect(win).toHaveScreenshot(`${name}.png`, { maxDiffPixels: 150, animations: 'disabled', caret: 'hide', stylePath: NO_SCROLL_BARS })
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -36,9 +41,6 @@ for (const theme of ['light', 'dark'] as const) {
     await win.reload()
     await expect(binder(win)).toBeVisible()
     await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
-    // The pointer rests on the top bar's empty middle, never over a list or the page (their scroll bars show only
-    // while the pointer is over them, and where it starts differs from one machine to another).
-    await win.mouse.move(700, 22)
     await shot(win, `write-${theme}`)
 
     await binder(win).getByRole('button', { name: 'Codex', exact: true }).click()
