@@ -121,7 +121,12 @@ export function leaveFocus(): void {
   settleSoon()
   void api.setFullScreen(false).catch(() => undefined)
   const a = useApp.getState()
-  const patch = layoutToRestore(before, a.settings?.layout)
+  // Ask the world or a name opened over the page's edge, with the scene panel shut before: they close with focus mode.
+  if (before && !before.inspectorOpen) {
+    if (a.peekEntryId) a.peekEntry(null)
+    if (a.askOpen) a.setAskOpen(false)
+  }
+  const patch = layoutToRestore(before, useApp.getState().settings?.layout)
   if (patch) void a.updateSettings({ layout: patch }).catch(() => undefined)
 }
 
