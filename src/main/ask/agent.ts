@@ -16,8 +16,11 @@ import { searchIndex } from '../search'
 
 type DB = Database.Database
 
-/** How many requests one answer may take (each look-up is one more): enough to look around, never a runaway bill. */
-export const MAX_STEPS = 8
+/**
+ * How many requests one answer may take (each look-up is one more): enough to look around and propose a page of
+ * corrections, never a runaway bill.
+ */
+export const MAX_STEPS = 12
 /** The most of one scene's words sent back at once. */
 const SCENE_CHARS = 24_000
 /** The most of any other answer sent back at once. */
@@ -64,10 +67,16 @@ export const EDITOR_TOOLS: ToolSpec[] = [
   {
     name: 'propose_edit',
     description:
-      "Propose replacing some words in a scene. `find` must be copied exactly from the scene's current text (read it first), within one paragraph and long enough to occur only once; `replace` is the new words ('' to cut). The writer sees it and decides; nothing changes unless they apply it. Propose one change per call; several calls for several changes.",
+      "Propose replacing some words in a scene. `find` must be copied exactly from the scene's current text (read it first), within one paragraph and long enough to occur only once; `replace` is the new words ('' to cut). The writer sees it and decides; nothing changes unless they apply it. One change per call; for several, make several calls at once. Changes must not overlap: all the fixes in one sentence go in one change. To revise a change you already proposed, give its number as `revises`.",
     parameters: {
       type: 'object',
-      properties: { scene: optionalScene, find: str, replace: str, why: { type: 'string', description: 'A short reason, in plain words.' } },
+      properties: {
+        scene: optionalScene,
+        find: str,
+        replace: str,
+        why: { type: 'string', description: 'A short reason, in plain words.' },
+        revises: { type: 'string', description: 'The number of an earlier change in this answer that this one takes the place of.' }
+      },
       required: ['find', 'replace', 'why']
     }
   },
@@ -233,11 +242,29 @@ export class EditorAgent {
     return found
   }
 
-  private propose(p: NewProposal): string {
-    const proposal = { ...p, id: String(this.proposals.length + 1), status: 'pending', why: squash(p.why).slice(0, 300) } as Proposal
+  private propose(p: NewProposal, revises?: Proposal): string {
+    const why = squash(p.why).slice(0, 300)
+    if (revises) {
+      const i = this.proposals.indexOf(revises)
+      this.proposals[i] = { ...p, id: revises.id, status: 'pending', why } as Proposal
+      this.onProposals([...this.proposals])
+      return `Change ${revises.id} now proposes this instead. Nothing has changed yet: it happens only if the writer applies it.`
+    }
+    const proposal = { ...p, id: String(this.proposals.length + 1), status: 'pending', why } as Proposal
     this.proposals.push(proposal)
     this.onProposals([...this.proposals])
     return `Proposed to the writer as change ${proposal.id}. Nothing has changed yet: it happens only if they apply it. Tell them briefly what you proposed and why.`
+  }
+
+  /**
+   * Said to the model before its last request, which has no tools: the changes it has proposed, so its answer never
+   * tells the writer to apply something that isn't there.
+   */
+  lastWords(): string {
+    const list = this.proposals.map((p) => `change ${p.id}`).join(', ')
+    return this.proposals.length
+      ? `[AI Write, not the writer] No more tools can be used for this answer. Proposed so far: ${list}. Answer the writer now, mentioning only these; if you meant to propose more, say what they would be and that the writer can ask for them.`
+      : "[AI Write, not the writer] No more tools can be used for this answer, and no changes were proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything. Answer now; if you meant to propose changes, say what they would be and that the writer can ask again."
   }
 
   /** Answers one call: what it found, or a plain line on what went wrong. Never throws. */
@@ -253,6 +280,8 @@ export class EditorAgent {
       return this.done(call, label, result)
     } catch (e) {
       const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
+      // A proposal that didn't go through says so, so the model doesn't tell the writer it is waiting for them.
+      if (call.name.startsWith('propose_')) return this.done(call, 'A change that didn’t fit', `Not proposed: nothing is waiting for the writer. ${message}`)
       return this.done(call, 'Looking something up', message)
     }
   }
@@ -371,10 +400,25 @@ export class EditorAgent {
         if (count === 0) throw new Mistake('Those words are not in the scene as written. Read the scene and copy the words exactly.')
         if (count > 1) throw new Mistake('Those words occur more than once. Include more of the sentence so they occur only once.')
         if (find === text('replace')) throw new Mistake('The new words are the same as the old.')
+        const revisesId = text('revises').replace(/\D/g, '')
+        const revises = revisesId ? this.proposals.find((p) => p.id === revisesId) : undefined
+        if (revisesId && revises?.kind !== 'text') throw new Mistake(`There is no change ${revisesId} to words to revise.`)
+        // Applying one change mustn't lose the words another looks for: overlapping changes become one.
+        const at = hay.indexOf(find)
+        const clash = this.proposals.find((p): p is Extract<Proposal, { kind: 'text' }> => {
+          if (p === revises || p.kind !== 'text' || p.sceneId !== id || p.status !== 'pending') return false
+          const from = hay.indexOf(p.find)
+          return from >= 0 && from < at + find.length && at < from + p.find.length
+        })
+        if (clash) {
+          throw new Mistake(
+            `Those words overlap change ${clash.id} (“${clip(clash.find, 120)}”): once one is applied, the other's words are gone. Make one change covering both, with \`revises\`: "${clash.id}".`
+          )
+        }
         const label = sceneLabelIn(this.outline(), id)
         return [
-          `Proposing an edit to ${label}`,
-          this.propose({ kind: 'text', sceneId: id, sceneLabel: label, find, replace: text('replace'), why: text('why') })
+          revises ? `Revising change ${revises.id}` : `Proposing an edit to ${label}`,
+          this.propose({ kind: 'text', sceneId: id, sceneLabel: label, find, replace: text('replace'), why: text('why') }, revises)
         ]
       }
       case 'propose_scene_card': {

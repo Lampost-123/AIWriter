@@ -71,6 +71,8 @@ export interface TaskRequest {
     tools: ToolSpec[]
     maxSteps: number
     run(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
+    /** Said to the model before the last request (the one without tools). */
+    lastWords?: () => string
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
   }
@@ -275,6 +277,8 @@ async function stream(
       }
       // The last step is asked without tools, so the model answers in words.
       const last = step === req.agent.maxSteps - 1
+      const note = last ? req.agent.lastWords?.() : undefined
+      if (note) messages = [...messages, { role: 'user', content: note }]
       outcome = await once(messages, last ? undefined : req.agent.tools)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)

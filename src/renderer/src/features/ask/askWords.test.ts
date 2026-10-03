@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerNote, asOfText, chatWhen, savedMessage } from './askWords'
+import { answerNote, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
 
 describe('Ask the world’s words', () => {
   it('say when a chat was last asked in, briefly', () => {
@@ -39,5 +39,15 @@ describe('Ask the world’s words', () => {
     expect(savedMessage({ ...note, name: 'Mara Venn: What would she do', created: true, onlyIn: 'Mara Keeps Her Hand' })).toBe(
       'Saved to your lore as “Mara Venn: What would she do”, in Mara Keeps Her Hand only.'
     )
+  })
+})
+
+describe('an answer that speaks of changes', () => {
+  it('is noticed when it asks to apply, or names its proposed changes', () => {
+    expect(speaksOfChanges('I’ve fixed three typos. Apply the changes when ready.')).toBe(true)
+    expect(speaksOfChanges('Here are my proposed edits for the opening.')).toBe(true)
+    expect(speaksOfChanges('See the changes below.')).toBe(true)
+    expect(speaksOfChanges('Mara would never forgive Tobin for that lie.')).toBe(false)
+    expect(speaksOfChanges('Did you want me to change the ending?')).toBe(false)
   })
 })

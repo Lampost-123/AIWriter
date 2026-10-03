@@ -68,3 +68,10 @@ export function savedMessage(note: Pick<SavedNote, 'name' | 'created' | 'onlyIn'
   if (note.onlyIn) return `Saved to memory for ${note.name}, in ${note.onlyIn} only.`
   return `Saved to memory for ${note.name}, as your own note.`
 }
+
+/** Said under an answer that talks of changes to apply when none came with it (the model claimed what it didn't do). */
+export const NO_CHANGES_CAME = 'No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.'
+
+/** True when an answer tells the writer to apply or accept changes, or speaks of the changes it proposed. */
+export const speaksOfChanges = (answer: string): boolean =>
+  /\b(apply|applying|accept|approve)\b|\bproposed (?:changes?|edits?|fix(?:es)?)\b|\b(?:changes?|edits?) (?:below|above)\b/i.test(answer)
