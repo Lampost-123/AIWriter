@@ -207,10 +207,14 @@ function cardLines(card: SceneCard, name: (id: ID) => string): string {
   return lines.join('\n')
 }
 
-/** Everything next scene ideas tell the AI about one scene, as of just before it. */
-export function ideasFacts(db: DB, sceneId: ID): IdeasFacts {
+/**
+ * Everything next scene ideas (and a scene's interview) tell the AI about one scene, as of just before it.
+ * `onScreen`: the card as the window shows it, in place of the saved one.
+ */
+export function ideasFacts(db: DB, sceneId: ID, onScreen?: SceneCard | null): IdeasFacts {
   const { story } = repo.sceneLocation(db, sceneId)
-  const scene = repo.getScene(db, sceneId)
+  const saved = repo.getScene(db, sceneId)
+  const scene = onScreen ? { ...saved, card: { ...saved.card, ...onScreen } } : saved
   const plan = storyPlan(db, story.id)
   const memory = sceneMemory(db, sceneId)
   const byId = new Map(memory.entries.map((e) => [e.id, e]))

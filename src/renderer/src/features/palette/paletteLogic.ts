@@ -67,6 +67,8 @@ export type FixedActionId =
   | 'ask-world'
   | 'outline-helper'
   | 'scene-ideas'
+  | 'scene-interview'
+  | 'chapter-interview'
   | 'listen'
   | 'stop-reading'
   | 'show-speakers'
@@ -90,6 +92,18 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  // Writing by hand
+  | 'bold'
+  | 'italic'
+  | 'block-quote'
+  | 'scene-break'
+  | 'paste-plain'
+  | 'find-scene'
+  | 'find-story'
+  | 'settings-editor'
+  | 'spell-check-on'
+  | 'spell-check-off'
+  | 'word-counts'
   // Sound effects under Read aloud
   | 'sounds'
 
@@ -116,6 +130,8 @@ export interface ActionContext {
   unreadStory?: boolean
   /** Focus mode is on (milestone 6). */
   focus?: boolean
+  /** Writing by hand: spell check is on (Settings › Editor). */
+  spellCheck?: boolean
   /** Sound effects are on (with read aloud): the scene panel has its Sounds tab. */
   soundEffects?: boolean
 }
@@ -265,6 +281,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'ask-world', label: 'Ask the world', keywords: 'chat brainstorm question ai ideas memory', away: toWriting },
   { id: 'outline-helper', label: 'Outline helper', keywords: 'ai plan premise acts chapters scenes suggest', away: true, when: hasStory },
   { id: 'scene-ideas', label: 'Ideas for this scene', keywords: 'ai next scene directions suggest card', away: toWriting, when: hasScene },
+  { id: 'scene-interview', label: 'Interview me about this scene', keywords: 'ai questions plan card fill', away: toWriting, when: hasScene },
+  { id: 'chapter-interview', label: 'Interview me about this chapter', keywords: 'ai questions plan goal scenes suggest', away: true, when: hasScene },
   {
     id: 'listen',
     label: 'Listen',
@@ -358,7 +376,37 @@ export const ACTIONS: ActionDef[] = [
     shortcut: 'leaveFocusMode',
     when: (c) => !!c.focus
   },
-  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true }
+  { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
+  // Writing by hand
+  { id: 'bold', label: 'Bold', keywords: 'format strong heavy text style', shortcut: 'bold', when: seesScene },
+  { id: 'italic', label: 'Italic', keywords: 'format emphasis slanted text style', shortcut: 'italic', when: seesScene },
+  { id: 'block-quote', label: 'Block quote', keywords: 'format quotation indent letter inset', shortcut: 'quote', when: seesScene },
+  { id: 'scene-break', label: 'Scene break', keywords: 'format divider separator rule section line', when: seesScene },
+  { id: 'paste-plain', label: 'Paste as plain text', keywords: 'format clipboard unformatted without formatting', shortcut: 'pastePlain', when: seesScene },
+  {
+    id: 'find-scene',
+    label: 'Find and replace in this scene',
+    keywords: 'search change words swap',
+    shortcut: 'findInScene',
+    away: toWriting,
+    when: hasScene
+  },
+  { id: 'find-story', label: 'Find and replace in the whole story', keywords: 'search change words swap rename everywhere all scenes', shortcut: 'findInStory', when: hasStory },
+  {
+    id: 'settings-editor',
+    label: 'Settings › Editor',
+    keywords: 'spelling spell check dictionary smart quotes punctuation typewriter scrolling daily word target goal streak',
+    away: true
+  },
+  { id: 'spell-check-on', label: 'Turn spell check on', keywords: 'spelling underline misspelt dictionary', when: (c) => c.spellCheck === false },
+  { id: 'spell-check-off', label: 'Turn spell check off', keywords: 'spelling underline misspelt dictionary', when: (c) => c.spellCheck !== false },
+  {
+    id: 'word-counts',
+    label: 'Word counts and today’s writing',
+    keywords: 'words count length pages reading time chapter story selection daily target goal streak today',
+    away: toWriting,
+    when: hasScene
+  }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

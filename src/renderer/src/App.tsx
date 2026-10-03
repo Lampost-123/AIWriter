@@ -30,6 +30,7 @@ import { ShortcutsList } from '@/features/palette/ShortcutsList'
 import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
 import { OutlineHelper } from '@/features/outline/OutlineHelper'
+import { ChapterPlanner } from '@/features/outline/ChapterPlanner'
 import { WorldBuilderView } from '@/features/worldBuilder/WorldBuilderView'
 import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
@@ -41,9 +42,12 @@ import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
 import { useFocusMode } from '@/features/look/focusMode'
 import { FocusLayer } from '@/features/look/FocusLayer'
+import { FindLayer } from '@/features/find/FindLayer'
 import { FirstRun } from '@/features/setup/FirstRun'
 import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
+import { installSpelling } from '@/features/spelling/install'
+import { installGoals } from '@/features/goals/goalStore'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -64,9 +68,14 @@ export function App(): React.JSX.Element | null {
     void useSetup.getState().load().then(init)
     const offFlush = installFlushOnClose()
     const offMemory = installMemoryEvents()
+    // Writing by hand: spell check in step with the world and story, and the words written each day.
+    const offSpelling = installSpelling()
+    const offGoals = installGoals()
     return () => {
       offFlush()
       offMemory()
+      offSpelling()
+      offGoals()
     }
   }, [init])
 
@@ -228,7 +237,12 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
               {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
               {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
-              {view.kind === 'outline' && <OutlineHelper key={view.storyId} storyId={view.storyId} />}
+              {view.kind === 'outline' &&
+                (view.chapterId ? (
+                  <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
+                ) : (
+                  <OutlineHelper key={view.storyId} storyId={view.storyId} />
+                ))}
               {view.kind === 'worldBuilder' && <WorldBuilderView />}
               {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
               {view.kind === 'import' && <ImportView />}
@@ -262,6 +276,7 @@ function Workspace(): React.JSX.Element {
       <DictationLayer />
       <ExportDialogs />
       <FocusLayer />
+      <FindLayer />
     </>
   )
 }

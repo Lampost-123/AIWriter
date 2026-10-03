@@ -34,6 +34,8 @@ export interface UsageTotals {
   /** US dollars, from the calls with a known price. */
   cost: number
   promptTokens: number
+  /** Of the prompt tokens, those the provider read from its cache, so billed for less (when it said). */
+  cachedTokens: number
   completionTokens: number
   /** Calls with no price at all (the provider didn't say, and the model's prices aren't known), so not in `cost`. */
   unpriced: number

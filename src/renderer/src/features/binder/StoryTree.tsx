@@ -23,6 +23,7 @@ import {
   FolderInput,
   FolderPlus,
   ListTree,
+  MessageCircleQuestion,
   PenLine,
   Plus,
   SearchCheck,
@@ -35,7 +36,7 @@ import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
-import { openOutlineHelper } from '@/features/outline/open'
+import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
@@ -675,6 +676,9 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
                 ))}
               </RowMenuSub>
             ) : null}
+            <RowMenuItem icon={<MessageCircleQuestion size={14} />} onSelect={() => openChapterInterview(outline.story.id, menu.id)}>
+              Interview me about this chapter
+            </RowMenuItem>
             <RowMenuItem icon={<SearchCheck size={14} />} onSelect={() => void checkChapter(menu.id, outline.story.id)}>
               Check this chapter
             </RowMenuItem>

@@ -195,6 +195,15 @@ describe("Adam's facts", () => {
     expect(w.db.prepare("SELECT COUNT(*) AS n FROM issues WHERE status = 'open'").get()).toEqual({ n: 1 })
   })
 
+  it('the same in other words (or less of it) is no clash, and his words stay as he typed them', async () => {
+    const w = world()
+    const mara = repo.createEntry(w.db, 'character', { name: 'Mara', fields: { eyes: 'pale blue' } })
+    save(w.db, w.sceneId, [['p1', "Mara's eyes were blue."]])
+    await read(w.db, w.sceneId)
+    expect(repo.getEntry(w.db, mara.id).fields.eyes).toBe('pale blue')
+    expect(w.db.prepare("SELECT COUNT(*) AS n FROM issues").get()).toEqual({ n: 0 })
+  })
+
   it('fills an empty field on his page, but never one he typed', async () => {
     const w = world()
     const mara = repo.createEntry(w.db, 'character', { name: 'Mara' })

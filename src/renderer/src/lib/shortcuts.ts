@@ -37,6 +37,10 @@ export type ShortcutId =
   // Milestone 6
   | 'focusMode'
   | 'leaveFocusMode'
+  // Writing by hand
+  | 'pastePlain'
+  | 'findInScene'
+  | 'findInStory'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -72,6 +76,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },
   { id: 'italic', name: 'Italic', group: 'Writing', keys: ['Mod', 'I'] },
   { id: 'quote', name: 'Quoted passage', group: 'Writing', keys: ['Mod', 'Shift', 'B'] },
+  { id: 'pastePlain', name: 'Paste as plain text, without its formatting', group: 'Writing', keys: ['Mod', 'Shift', 'V'] },
   { id: 'lineBreak', name: 'New line in the same paragraph', group: 'Writing', keys: ['Shift', 'Enter'] },
   { id: 'showName', name: 'Show who or what an underlined name is, beside the page', group: 'Writing', keys: ['Mod', 'Click'] },
   { id: 'listen', name: 'Listen from the cursor, or pause and carry on', group: 'Writing', keys: ['Mod', 'L'] },
@@ -85,6 +90,8 @@ export const SHORTCUTS: Shortcut[] = [
   },
   { id: 'focusMode', name: 'Focus mode: only the page shows (press again to leave)', group: 'Writing', keys: ['F11'] },
   { id: 'leaveFocusMode', name: 'Leave focus mode', where: 'in focus mode', group: 'Writing', keys: ['Esc'] },
+  { id: 'findInScene', name: 'Find and replace in this scene', group: 'Writing', keys: ['Mod', 'F'] },
+  { id: 'findInStory', name: 'Find and replace in the whole story', group: 'Writing', keys: ['Mod', 'Shift', 'F'] },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },

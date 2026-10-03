@@ -25,6 +25,7 @@ import { fieldKeys } from './prompts'
 import type { Ids } from './request'
 import { findMention, spotIn, type ReadPlan, type Spot } from './track'
 import { existedEarlier } from './places'
+import { contradicts } from './agree'
 import {
   changeContent,
   changeWords,
@@ -884,13 +885,18 @@ function addDetail(run: Run, e: Entry, field: string, value: string, s: Spot): v
   }
   if (run.suppressed(fp, s.quote)) return
   if (adamField(e, field)) {
-    if (!run.wasOffered(e.id, field, value)) clash(run, e, field, before, value, s)
+    // Adam's own fact is never changed: only words that can't be true alongside it raise an issue.
+    if (!run.wasOffered(e.id, field, value) && contradicts(field, before, value)) clash(run, e, field, before, value, s)
     return
   }
   if (before.trim() && fieldOrigin(e, field) === 'text') {
-    // Words elsewhere still say the old value: that is a clash between scenes, not a change.
+    // Words elsewhere still say the old value: a value that can't also be true is a clash between scenes;
+    // the same in other words, or more of it, leaves the memory as those scenes have it.
     const support = hist.linksForEntry(db, e.id).filter((l) => l.factKind === 'field' && l.field === field && l.state === 'ok')
-    if (support.some((l) => l.sceneId !== run.scene.sceneId)) return clash(run, e, field, before, value, s)
+    if (support.some((l) => l.sceneId !== run.scene.sceneId)) {
+      if (contradicts(field, before, value)) clash(run, e, field, before, value, s)
+      return
+    }
   }
   // An own version of events or a prequel (no other story sees it), or an entry that was already
   // there in earlier scenes (drafting those doesn't see it): the detail is a change in this scene.
@@ -930,7 +936,12 @@ function pinDetail(run: Run, e: Entry, field: string, value: string, before: str
   const here = run.stateHere(e.id)
   const now = here ? fieldValue(here, field) : before
   if (plain(now) === plain(value)) return
-  if (now.trim() && plain(now) !== plain(before)) return raiseClash(run, e, field, now, value, s)
+  if (now.trim() && plain(now) !== plain(before)) {
+    // The memory here says it differently because of an earlier scene's change: only a value that can't
+    // also be true is a clash; the same in other words leaves the memory as it is.
+    if (contradicts(field, now, value)) raiseClash(run, e, field, now, value, s)
+    return
+  }
   const data: ChangeData =
     field === 'summary' || field === 'description'
       ? { kind: 'update', payload: { note: '', [field]: value } }
@@ -1146,7 +1157,10 @@ function applyClash(run: Run, c: Record<string, unknown>, chunk: ChunkReply, ref
   const text = str(c.text, 300)
   if (!e || !s || !text) return
   const field = fieldKey(e.kind, c.about)
-  clash(run, run.entry(e.id) ?? e, field, field ? fieldValue(e, field) || str(c.memory, 300) : str(c.memory, 300), text, s)
+  const memory = field ? fieldValue(e, field) || str(c.memory, 300) : str(c.memory, 300)
+  // Reported as a contradiction, but only saying the same in other words (or more of it): not a clash.
+  if (!contradicts(field, memory, text, true)) return
+  clash(run, run.entry(e.id) ?? e, field, memory, text, s)
 }
 
 // ---------- After the reply: names, last mentions, side stories ----------

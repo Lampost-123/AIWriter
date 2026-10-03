@@ -7,6 +7,9 @@ import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
 import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
+// These tests type straight quotes and look for them as typed (smart punctuation is Writing by hand's).
+test.use({ smartPunctuation: false })
+
 const prose = (win: Page) => win.locator('.scene-prose')
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
 const issuesTab = (win: Page) => scenePanel(win).getByRole('tab', { name: /^Issues/ })

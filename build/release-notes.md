@@ -1,8 +1,8 @@
-<!-- version: 0.6.1 -->
-Fixes and small improvements.
+<!-- version: 0.6.5 -->
+Writing by hand.
 
-- A draft keeps writing when you open another scene, and still shows Stop when you go back.
-- Auto length is the new default: the AI picks how long a scene needs. You can still set a word count.
-- The AI fills in how a character sounds when read aloud, and keeps what you typed.
-- Settings says what the read-aloud voices need before they download.
-- Reading aloud shows which chapter and scene is playing.
+- Bold and Italic on the bar over selected words, and a Format menu (block quote, scene break, paste as plain text).
+- Ctrl+F finds and replaces in a scene; Ctrl+Shift+F across the story, with one Undo. It can rename a character in memory too.
+- Spell check in UK or US English, knowing your world's names, with offline synonyms on right-click.
+- Curly quotes and dashes as you type, word counts with pages and reading time, and a daily word target with a streak.
+- Settings › Editor holds the new switches.

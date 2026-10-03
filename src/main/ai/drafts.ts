@@ -201,6 +201,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
         top_p: params.top_p,
         max_tokens: params.max_tokens
       },
+      // A set's variants are sent side by side, so only the first can leave the briefing in the cache.
+      cache: (req.partOf?.variant?.index ?? 1) === 1,
       signal: job.controller.signal,
       onText: (t) => {
         job.text += t
@@ -224,6 +226,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       error: `Something went wrong while writing: ${(e as Error)?.message ?? e}. The text that arrived is kept.`,
       failure: null,
       promptTokens: null,
+      cachedTokens: null,
       completionTokens: null,
       cost: null,
       finishReason: null,
@@ -263,6 +266,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
         error: status === 'error' ? outcome.error : null,
         response: outcome.text,
         promptTokens: outcome.promptTokens,
+        cachedTokens: outcome.cachedTokens,
         completionTokens: outcome.completionTokens,
         cost,
         finishedAt: now(),

@@ -6,7 +6,7 @@ import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { api } from './api'
 
-export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'backups' | 'trash' | 'usage' | 'about'
+export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =
@@ -36,8 +36,11 @@ export type View =
   | { kind: 'history'; sceneId: ID; snapshotId?: ID | null }
   /** Variants: 2 or 3 drafts of a scene side by side, to pick one or take paragraphs from each. */
   | { kind: 'variants'; sceneId: ID }
-  /** The outline helper: acts, chapters and scene cards suggested from a premise. */
-  | { kind: 'outline'; storyId: ID }
+  /**
+   * The outline helper: acts, chapters and scene cards suggested from a premise. With `chapterId`, one
+   * chapter planned from its interview (its goal and scene cards).
+   */
+  | { kind: 'outline'; storyId: ID; chapterId?: ID }
   /** Build the world from a summary (the World builder): lays out everything a summary names, and lists what it made. */
   | { kind: 'worldBuilder' }
   // ----- Milestone 5 -----

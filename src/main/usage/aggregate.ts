@@ -20,6 +20,8 @@ export interface Bucket {
   calls: number
   cost: number
   promptTokens: number
+  /** Of the prompt tokens, those the provider read from its cache (missing in a tally kept before 0.6). */
+  cachedTokens?: number
   completionTokens: number
   /** Calls with no price at all. */
   unpriced: number
@@ -37,7 +39,7 @@ export interface WorldTally {
 }
 
 export const emptyTally = (): WorldTally => ({ seen: { count: 0, top: 0, topId: null }, pending: [], buckets: {} })
-export const emptyBucket = (): Bucket => ({ calls: 0, cost: 0, promptTokens: 0, completionTokens: 0, unpriced: 0, estimated: 0 })
+export const emptyBucket = (): Bucket => ({ calls: 0, cost: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, unpriced: 0, estimated: 0 })
 
 const SEP = '\t'
 export const bucketKey = (day: string, job: string, model: string, provider: string): string => [day, job, model, provider].join(SEP)
@@ -60,6 +62,7 @@ interface Row {
   provider_name: string | null
   status: string
   pt: number | null
+  cached: number | null
   ct: number | null
   cost: number | null
   created_at: string
@@ -67,7 +70,7 @@ interface Row {
 }
 
 const COLUMNS = `rowid AS r, job, model_id, provider_name, status, prompt_tokens AS pt, completion_tokens AS ct, cost, created_at,
-  (response <> '') AS said`
+  (response <> '') AS said, CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cachedTokens') END AS cached`
 
 /**
  * Adds a finished row to the buckets. A request turned down before anything was sent (no tokens, no cost, no
@@ -82,6 +85,7 @@ function add(buckets: Record<string, Bucket>, row: Row, dayOf: (iso: string) => 
   const b = (buckets[key] ??= emptyBucket())
   b.calls++
   b.promptTokens += row.pt ?? 0
+  b.cachedTokens = (b.cachedTokens ?? 0) + (typeof row.cached === 'number' ? row.cached : 0)
   b.completionTokens += row.ct ?? 0
   if (cost == null) b.unpriced++
   else {
@@ -156,6 +160,7 @@ export function addUp(buckets: Iterable<Bucket>): Bucket {
     t.calls += b.calls
     t.cost += b.cost
     t.promptTokens += b.promptTokens
+    t.cachedTokens = (t.cachedTokens ?? 0) + (b.cachedTokens ?? 0)
     t.completionTokens += b.completionTokens
     t.unpriced += b.unpriced
     t.estimated += b.estimated
