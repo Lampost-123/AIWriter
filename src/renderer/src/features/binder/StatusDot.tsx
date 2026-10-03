@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { SceneStatus } from '@shared/types'
 import { cn } from '@/lib/cn'
 
@@ -15,11 +16,23 @@ export const STATUSES: SceneStatus[] = ['planned', 'drafted', 'revised', 'done']
  * fill as the scene goes on: empty, half, three quarters (in the accent), then full and green.
  */
 export function StatusDot({ status, className }: { status: SceneStatus; className?: string }): React.JSX.Element {
+  // The New look: a ring pulses out from the dot once, as the scene is marked done (not when it shows done already).
+  const before = useRef(status)
+  const [pulse, setPulse] = useState(false)
+  useEffect(() => {
+    const was = before.current
+    before.current = status
+    if (status !== 'done' || was === 'done') return
+    setPulse(true)
+    const t = setTimeout(() => setPulse(false), 700)
+    return () => clearTimeout(t)
+  }, [status])
   return (
     <span
       aria-hidden
       data-status={status}
       className={cn(
+        pulse && 'status-pulse look-new:relative',
         'inline-block h-[7px] w-[7px] shrink-0 rounded-full',
         status === 'planned' && 'border-[1.5px] border-faint',
         status === 'drafted' && 'bg-faint/70',

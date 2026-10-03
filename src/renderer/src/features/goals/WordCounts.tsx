@@ -12,6 +12,7 @@ import { useOutline } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
 import { dayOf, sizeNote, streakNote, streakOf, wordsLabel } from './goalLogic'
 import { useGoals } from './goalStore'
+import { useNewLook } from '@/features/look/look'
 
 /** Words selected in the page now (0 with nothing selected), kept current while the panel is open. */
 function useSelectedWords(open: boolean): number {
@@ -97,6 +98,44 @@ function Today(): React.JSX.Element {
   )
 }
 
+/**
+ * The New look: a small ring round today's writing, filling as the words typed today near the daily target, and
+ * green with a quiet glow once it is reached. Only with a target set.
+ */
+function GoalRing(): React.JSX.Element | null {
+  const daily = useApp((s) => s.settings?.goals?.daily ?? null)
+  const days = useGoals((s) => s.days) ?? []
+  const today = useGoals((s) => s.today)
+  if (!daily) return null
+  const typed = Math.max(0, dayOf(days, today).typed)
+  const share = Math.min(1, typed / daily)
+  const met = typed >= daily
+  const r = 7
+  const around = 2 * Math.PI * r
+  return (
+    <svg
+      viewBox="0 0 18 18"
+      width={18}
+      height={18}
+      aria-hidden
+      className={cn('-rotate-90 shrink-0', met && 'drop-shadow-[0_0_4px_color-mix(in_srgb,var(--success)_55%,transparent)]')}
+    >
+      <circle cx={9} cy={9} r={r} fill="none" strokeWidth={2.4} className="stroke-line-strong" />
+      <circle
+        cx={9}
+        cy={9}
+        r={r}
+        fill="none"
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeDasharray={around}
+        strokeDashoffset={around * (1 - share)}
+        className={cn('transition-[stroke-dashoffset] duration-500 ease-glide', met ? 'stroke-success' : 'stroke-accent')}
+      />
+    </svg>
+  )
+}
+
 const openers = new Set<() => void>()
 
 /** Opens the word counts (the command palette's "Word counts and today's writing"). */
@@ -107,6 +146,7 @@ export function openWordCounts(): void {
 /** The scene's word count in the top bar; click for the counts and today's writing. */
 export function WordCountButton(): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
+  const isNew = useNewLook()
   const sceneId = useApp((s) => s.sceneId)
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -128,8 +168,9 @@ export function WordCountButton(): React.JSX.Element {
         title="Word counts and today’s writing"
         // A click leaves the caret (and any selection) in the page.
         onMouseDown={(e) => e.preventDefault()}
-        className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg"
+        className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg look-new:flex look-new:h-8 look-new:items-center look-new:gap-2 look-new:rounded-full look-new:px-2 look-new:text-[12.5px] look-new:text-muted look-new:hover:bg-surface-2"
       >
+        {isNew ? <GoalRing /> : null}
         {words.toLocaleString()} words
       </P.Trigger>
       <PopoverPanel

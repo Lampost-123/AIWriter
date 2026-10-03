@@ -4,6 +4,8 @@ import { Check, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { Spinner, toast } from '@/components/ui'
+import { DrawnTick } from '@/components/ui/DrawnTick'
+import { useNewLook } from '@/features/look/look'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -16,6 +18,16 @@ const layerOpen = (): boolean => !!document.querySelector('[data-radix-popper-co
 
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'
+  const isNew = useNewLook()
+  // The New look: the tick draws itself when the scene is marked done (not when it opens done).
+  const [justDone, setJustDone] = useState(false)
+  const wasDone = useRef(done)
+  useEffect(() => {
+    const was = wasDone.current
+    wasDone.current = done
+    if (!done || was) return setJustDone(false)
+    setJustDone(true)
+  }, [done])
   const [pending, setPending] = useState(false)
   // It takes a moment at most; the spinner only shows if it takes longer than that.
   const slow = useDelayed(pending, 250)
@@ -69,16 +81,22 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         'transition-[background-color,border-color,color] duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
         // Room for the words only when the header is wide enough (see SceneHeader); the width then stays put in either state.
         '@min-[860px]:w-[112px] @min-[860px]:px-2.5',
+        // The New look: a raised pill that presses in.
+        'look-new:h-[30px] look-new:rounded-full look-new:transition-[background-color,border-color,color,transform] look-new:duration-(--dur-base) look-new:active:scale-[0.96]',
         done
           ? 'border-success/35 bg-success-soft text-success hover:border-success/70'
-          : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2'
+          : 'border-line bg-surface text-fg hover:border-line-strong hover:bg-surface-2 look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)] look-new:hover:bg-raise'
       )}
     >
       {slow ? (
         <Spinner size={14} />
       ) : done ? (
         <>
-          <Check size={14} className="group-hover:hidden group-focus-visible:hidden" aria-hidden />
+          {isNew ? (
+            <DrawnTick size={15} draw={justDone} className="group-hover:hidden group-focus-visible:hidden" />
+          ) : (
+            <Check size={14} className="group-hover:hidden group-focus-visible:hidden" aria-hidden />
+          )}
           <RotateCcw size={13} className="hidden group-hover:block group-focus-visible:block" aria-hidden />
         </>
       ) : (

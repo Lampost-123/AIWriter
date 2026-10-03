@@ -2,7 +2,7 @@
 // Settings at its foot), the side list of the area showing, the trail of where Adam is, the sample world as a chip,
 // and two-tone icons. Opening a screen from anywhere (the palette, the trail) lights its area on the rail.
 import type { Page } from '@playwright/test'
-import { expect, invoke, test } from './helpers'
+import { createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
 
 const rail = (win: Page) => win.getByRole('navigation', { name: 'Areas' })
 const area = (win: Page, name: string) => rail(win).getByRole('button', { name, exact: true })
@@ -92,4 +92,60 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await expect.poll(async () => (await invoke(win, 'getSettings')).layout.binderOpen).toBe(false)
   await win.getByRole('button', { name: 'Show or hide the binder' }).click()
   await expect.poll(async () => (await invoke(win, 'getSettings')).layout.binderOpen).toBe(true)
+})
+
+test('the New look while writing: the page as a sheet, its title, the save tick, Generate, Done and focus mode', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 40 })
+  try {
+    const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake, 'fake/slow')
+    const header = win.locator('main header')
+
+    // The page is a sheet of paper on the frame, with the scene's title at its head.
+    const sheet = win.locator('.scene-sheet')
+    expect(await win.evaluate<string>("getComputedStyle(document.querySelector('.scene-sheet')).boxShadow")).not.toBe('none')
+    const title = win.locator('[data-page-title]')
+    await expect(title).toContainText('Chapter 1 · Scene 1')
+    // Renamed from there.
+    await title.getByRole('button').click()
+    await win.keyboard.press('Control+A')
+    await win.keyboard.type('The Harbour Wall')
+    await win.keyboard.press('Enter')
+    await expect(title.getByRole('heading', { level: 1 })).toHaveText('The Harbour Wall')
+    await expect(list(win).getByRole('treeitem', { name: /The Harbour Wall/ })).toBeVisible()
+
+    // Typing: "Saved" comes with a small tick that draws itself.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.type('The tide was out. ')
+    await expect(win.locator('header').first().locator('svg.drawn-tick')).toBeVisible()
+
+    // Generate: Stop glows amber with its shimmer while the draft is written, counting the words as they come.
+    await header.getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: /^Add below/ }).click()
+    await expect(header.locator('.gen-running')).toBeVisible()
+    await expect(header.getByRole('status')).toContainText(/\d+ words/)
+    await header.getByRole('button', { name: 'Stop' }).click()
+    await expect(header.locator('.gen-running')).toHaveCount(0)
+
+    // Done: the tick draws itself, and the scene's ring fills green in the list.
+    await header.getByRole('button', { name: /^Mark scene done/ }).click()
+    // (Hovered, the button offers Reopen instead.)
+    await win.mouse.move(5, 500)
+    await expect(header.locator('svg.drawn-tick-draw')).toBeVisible()
+    await expect(list(win).getByRole('treeitem', { name: /The Harbour Wall/ }).locator('[data-status="done"]')).toBeVisible()
+
+    // Focus mode: the rail fades with the rest, and the sheet becomes the whole window.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('F11')
+    // (Out of the keyboard's reach too, so found by its place rather than its role.)
+    const railBox = win.locator('nav[aria-label="Areas"]')
+    await expect(railBox).toHaveCSS('visibility', 'hidden')
+    await expect(sheet).toHaveCSS('border-top-left-radius', '0px')
+    await win.keyboard.press('Escape')
+    await expect(railBox).toHaveCSS('visibility', 'visible')
+  } finally {
+    await fake.close()
+  }
 })

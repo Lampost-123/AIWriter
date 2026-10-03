@@ -36,6 +36,7 @@ import { toggleFloatingBinder, useFloatingBinder } from './ResizablePane'
 import { saveNote } from './saveNote'
 import { openRecipes } from '@/features/recipes/recipeStore'
 import { UpdateBanner } from './UpdateBanner'
+import { DrawnTick } from '@/components/ui/DrawnTick'
 import { Trail } from './Trail'
 import { useNewLook } from '@/features/look/look'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
@@ -45,6 +46,20 @@ function SaveIndicator(): React.JSX.Element {
   const state = useApp((s) => s.saveState)
   const writing = useApp((s) => s.view.kind === 'write')
   const label = saveNote(state, writing)
+  const isNew = useNewLook()
+  // The New look: "Saved" is a small green tick that draws itself each time.
+  const [saves, setSaves] = useState(0)
+  useEffect(() => {
+    if (state === 'saved') setSaves((n) => n + 1)
+  }, [state])
+  if (isNew && label === 'Saved') {
+    return (
+      <span aria-live="polite" className="flex min-w-[64px] shrink-0 items-center justify-end gap-1 whitespace-nowrap text-[12px] text-faint">
+        <DrawnTick key={saves} size={14} draw className="text-success" />
+        Saved
+      </span>
+    )
+  }
   return (
     <span
       aria-live="polite"

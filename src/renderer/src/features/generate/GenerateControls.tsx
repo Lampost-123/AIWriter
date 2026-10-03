@@ -28,6 +28,7 @@ import { withPolish } from './polish'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
 import { costLabel } from '@/features/variants/cost'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
+import { useNewLook } from '@/features/look/look'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
 type DraftMode = 'replace' | 'add'
@@ -335,6 +336,16 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   // ---------- View ----------
 
   const busy = phase !== 'idle'
+  // The New look: while the draft streams, a live count of the words it has written so far (the words themselves never
+  // animate), from the scene's count when it began (a draft that replaces the text starts again from nothing).
+  const isNew = useNewLook()
+  const sceneWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords : null))
+  const [base, setBase] = useState<number | null>(null)
+  useEffect(() => {
+    if (phase !== 'streaming') return setBase(null)
+    setBase((b) => b ?? useApp.getState().sceneWords)
+  }, [phase])
+  const written = isNew && phase === 'streaming' && base !== null && sceneWords !== null ? (sceneWords >= base ? sceneWords - base : sceneWords) : null
   // Before a draft starts, the memory first reads any earlier scenes it hasn't caught up with, which
   // can take a little while; the status then says why, and Stop (or Esc) calls the draft off before
   // anything is sent. A quick start shows no status at all.
@@ -412,6 +423,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
             >
               <span className="h-2 w-2 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
               <span className="truncate">{status}</span>
+              {written !== null && written > 0 ? (
+                <span className="shrink-0 font-normal tabular-nums opacity-80">· {written.toLocaleString()} words</span>
+              ) : null}
             </span>
           ) : null}
         </div>
@@ -424,7 +438,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               // Also while the draft is starting (perhaps waiting for the memory to catch up first).
               <Button
                 variant="secondary"
-                className="w-full"
+                // The New look: amber, with a slow shimmer while the draft is written (styles.css, .gen-running).
+                className="gen-running w-full"
                 icon={<Square size={11} fill="currentColor" />}
                 onClick={stop}
                 disabled={phase === 'stopping'}
