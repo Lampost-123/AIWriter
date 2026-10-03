@@ -4,12 +4,17 @@ import {
   checkScene,
   closestName,
   countFlags,
+  draftNoteWords,
   editDistance,
+  isSlopKey,
   findAvoided,
   LiveCache,
   liveKey,
   phraseRe,
   prepareLiveWords,
+  rewriteDirection,
+  slopKey,
+  storedKind,
   tokenize,
   type LiveFlag,
   type LiveParagraph
@@ -202,7 +207,7 @@ describe('repetition nearby', () => {
 describe('the whole scene', () => {
   it('keeps ignored keys out: a spelling anywhere, a phrase in its paragraph, a repetition in the scene', () => {
     const texts = ['Suddenly Marra saw the dark, dark, dark sky.', 'Suddenly it rained.']
-    expect(countFlags(check(texts))).toEqual({ phrase: 2, repetition: 2, spelling: 1 })
+    expect(countFlags(check(texts))).toEqual({ phrase: 2, repetition: 2, spelling: 1, ai: 0 })
     const ignored = [liveKey('spelling', 'Marra'), liveKey('phrase', 'suddenly', 'p1'), liveKey('repetition', 'dark')]
     const flags = check(texts, ignored)
     expect(flags.map((f) => [f.kind, f.para])).toEqual([['phrase', 1]])
@@ -210,7 +215,7 @@ describe('the whole scene', () => {
 
   it('leaves a repeat inside a phrase to avoid to that flag', () => {
     const flags = check(['It was very very very cold.'])
-    expect(countFlags(flags)).toEqual({ phrase: 3, repetition: 0, spelling: 0 })
+    expect(countFlags(flags)).toEqual({ phrase: 3, repetition: 0, spelling: 0, ai: 0 })
   })
 
   it('reads again only the paragraphs whose text changed', () => {
@@ -250,5 +255,76 @@ describe('the whole scene', () => {
     // The typical run (one slowed by the machine being busy with other tests doesn't count).
     times.sort((a, b) => a - b)
     expect(times[Math.floor(times.length / 2)]).toBeLessThan(16)
+  })
+})
+
+describe('common AI phrases', () => {
+  const plain = prepareLiveWords({ names: WORDS.names, avoid: [] })
+
+  it('underlines them as their own kind, saying what kind of phrase it is', () => {
+    const flags = check(['Her breath hitched. The bridge was a testament to their stubbornness.', 'And somehow, that was enough.'], [], plain)
+    expect(flags.map((f) => [f.kind, f.para, f.word, f.group])).toEqual([
+      ['ai', 0, 'breath hitched', 'body'],
+      ['ai', 0, 'a testament to', 'grand'],
+      ['ai', 1, 'And somehow, that was enough', 'closer']
+    ])
+    expect(flags[0]).toMatchObject({ key: slopKey('breath-hitch', 'p1'), message: '“breath hitched” is a stock way to show a feeling.', from: 4, to: 18 })
+    expect(countFlags(flags)).toEqual({ phrase: 0, repetition: 0, spelling: 0, ai: 3 })
+  })
+
+  it('underlines nothing when Adam has turned the preference off', () => {
+    const off = prepareLiveWords({ names: WORDS.names, avoid: [], aiPhrases: false })
+    expect(check(['Her breath hitched.'], [], off)).toEqual([])
+    expect(off.key).not.toBe(plain.key)
+    // Absent means on.
+    expect(plain.aiPhrases).toBe(true)
+  })
+
+  it('leaves a phrase on Adam’s own list to his underline', () => {
+    const flags = check(['He couldn’t help but laugh. She couldn’t help but stare.'], [], prepareLiveWords({ names: [], avoid: ['help but laugh'] }))
+    expect(flags.map((f) => [f.kind, f.word])).toEqual([
+      ['phrase', 'help but laugh'],
+      ['ai', 'couldn’t help but']
+    ])
+  })
+
+  it('is ignored per paragraph, stored as a phrase, under a key that never meets one of Adam’s phrases', () => {
+    const texts = ['Her breath hitched.', 'Her breath hitched again.']
+    const flags = check(texts, [slopKey('breath-hitch', 'p1')], plain)
+    expect(flags.map((f) => [f.kind, f.para])).toEqual([['ai', 1]])
+    expect(slopKey('breath-hitch', 'p1')).not.toBe(liveKey('phrase', 'breath hitched', 'p1'))
+    expect(isSlopKey(slopKey('breath-hitch', 'p1'))).toBe(true)
+    expect(isSlopKey(slopKey('breath-hitch'))).toBe(true)
+    expect(isSlopKey(liveKey('phrase', 'breath hitched', 'p1'))).toBe(false)
+    expect(isSlopKey('repetition:ai-phrase:x')).toBe(false)
+    expect(storedKind('ai')).toBe('phrase')
+    expect(storedKind('spelling')).toBe('spelling')
+  })
+
+  it('leaves a repeat inside a common AI phrase to that flag', () => {
+    const flags = check(['Her breath hitched. Her breath hitched. Her breath hitched.'], [], plain)
+    expect(countFlags(flags)).toEqual({ phrase: 0, repetition: 0, spelling: 0, ai: 3 })
+  })
+
+  it('reads them again only for paragraphs whose text changed', () => {
+    const cache = new LiveCache()
+    const ps = paras('A shiver ran down her spine.', 'Rain.')
+    expect(checkScene(ps, plain, new Set(), cache).map((f) => f.kind)).toEqual(['ai'])
+    ps[0] = { ...ps[0], text: 'Cold rain ran down her neck.' }
+    expect(checkScene(ps, plain, new Set(), cache)).toEqual([])
+  })
+
+  it('asks Rewrite to drop a common AI phrase as written, and a phrase to avoid as the list has it', () => {
+    expect(rewriteDirection({ kind: 'ai', key: slopKey('breath-hitch', 'p1'), word: 'breath hitched' })).toBe(
+      'Rewrite this without the stock phrase “breath hitched”, keeping its meaning and the scene’s voice.'
+    )
+    expect(rewriteDirection({ kind: 'phrase', key: 'phrase:p1:suddenly', word: 'Suddenly' })).toBe(
+      'Rewrite this without “suddenly”, keeping its meaning and the scene’s voice.'
+    )
+  })
+
+  it('counts the ones a draft brought in plain words', () => {
+    expect(draftNoteWords(1)).toBe('1 common AI phrase underlined in the new draft.')
+    expect(draftNoteWords(3)).toBe('3 common AI phrases underlined in the new draft.')
   })
 })

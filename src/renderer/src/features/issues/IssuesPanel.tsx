@@ -15,7 +15,7 @@ import { checkThisScene, fixTheText, ignore, openSource, reopen, showWords, stop
 import { KIND_WORDS, SEVERITY_WORDS, memoryFixWords, openCount, runFor, splitIssues } from './issuesLogic'
 import { useIssuesStore, useSceneIssues } from './issuesStore'
 import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFlags'
-import type { LiveKind } from '@shared/liveChecks'
+import type { LiveFlagKind } from '@shared/liveChecks'
 
 export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const { issues, error, retry } = useSceneIssues(sceneId)
@@ -94,15 +94,16 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
 }
 
 /** What each kind of underline in the page is called here, one and many. */
-const LIVE_WORDS: Record<LiveKind, [string, string]> = {
+const LIVE_WORDS: Record<LiveFlagKind, [string, string]> = {
   spelling: ['possible misspelt name', 'possible misspelt names'],
   phrase: ['phrase to avoid', 'phrases to avoid'],
+  ai: ['common AI phrase', 'common AI phrases'],
   repetition: ['repeated word', 'repeated words']
 }
-const LIVE_ORDER: LiveKind[] = ['spelling', 'phrase', 'repetition']
+const LIVE_ORDER: LiveFlagKind[] = ['spelling', 'phrase', 'ai', 'repetition']
 
 /**
- * The live checks' underlines in the page now (phrases to avoid, repeated words, names that look misspelt),
+ * The live checks' underlines in the page now (phrases to avoid, common AI phrases, repeated words, names that look misspelt),
  * each a link to the next one. Nothing when there are none.
  */
 function OnThisPage(): React.JSX.Element | null {

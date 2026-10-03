@@ -17,7 +17,7 @@ const KINDS: LiveIgnore['kind'][] = ['phrase', 'repetition', 'spelling']
 /**
  * Every name and alias in the world (the glossary's terms are entries too), and the phrases to avoid for
  * the scene's story: Adam's writing preferences, then the world's and the story's style guides, combined
- * as the briefing combines them.
+ * as the briefing combines them; and whether common AI phrases are underlined (Adam's preference).
  */
 export function checkWords(db: DB, sceneId: ID, prefs: WritingPrefs): CheckWords {
   const { story } = repo.sceneLocation(db, sceneId)
@@ -31,7 +31,8 @@ export function checkWords(db: DB, sceneId: ID, prefs: WritingPrefs): CheckWords
       names.push({ entryId: e.id, name, kind: e.kind })
     }
   }
-  return { names, avoid: effectiveStyle(prefs, repo.getWorldStyle(db), story.style).avoidPhrases }
+  const style = effectiveStyle(prefs, repo.getWorldStyle(db), story.style)
+  return { names, avoid: style.avoidPhrases, aiPhrases: style.avoidAiPhrases }
 }
 
 export function listLiveIgnores(db: DB, sceneId: ID): LiveIgnore[] {

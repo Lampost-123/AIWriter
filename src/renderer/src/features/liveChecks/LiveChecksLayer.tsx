@@ -12,9 +12,9 @@ import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
 import { HoverIntent, OPEN_DELAY, type HoverTarget } from '@/features/editor/names/hoverIntent'
 import { closesCard, LiveCard, liveCardPosition, movesIntoCard } from './LiveCard'
-import { changeSpelling, ignoreFlag, rewritePhrase } from './liveActions'
+import { changeSpelling, ignoreFlag, noteDraft, rewritePhrase } from './liveActions'
 import { LIVE_CLASS, liveFlagAt, liveHidden, type PlacedFlag } from './liveDecorations'
-import { onLiveCardRequest } from './liveStore'
+import { onDraftPhrases, onLiveCardRequest } from './liveStore'
 import { useLiveWords } from './liveWords'
 import './liveChecks.css'
 
@@ -171,6 +171,9 @@ export function LiveChecksLayer({ editor, sceneId }: { editor: Editor; sceneId: 
       window.removeEventListener('blur', onBlur)
     }
   }, [editor])
+
+  // A draft that landed with common AI phrases in it: a quiet note says how many.
+  useEffect(() => onDraftPhrases(noteDraft), [])
 
   // Another scene, or another page over this one: the card goes.
   useEffect(() => {

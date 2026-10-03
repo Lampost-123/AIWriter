@@ -1,7 +1,7 @@
 // What the open scene is checked against: the world's names and the phrases to avoid for its story
 // (getCheckWords), and the flags Adam ignored there (listLiveIgnores). Loaded when a scene opens and
-// again when entries, a style guide or the story change, or the writing page shows again (Adam's
-// writing preferences may have changed in Settings). The last few scenes are kept, so switching back to
+// again when entries, a style guide or the story change, Adam's preference for common AI phrases
+// changes, or the writing page shows again (his writing preferences may have changed in Settings). The last few scenes are kept, so switching back to
 // one underlines it at once.
 //
 // Ignoring is instant: the flag goes from the page straight away, then the ignore is stored. Until a
@@ -14,6 +14,7 @@ import { EMPTY_WORDS, prepareLiveWords, type LiveWords } from '@shared/liveCheck
 import { api, onEvent } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { usePrefs } from '@/features/style/prefsStore'
 import { liveInputs, setLiveInputs } from './liveDecorations'
 
 interface Loaded {
@@ -106,6 +107,8 @@ async function load(sceneId: ID, rev: string): Promise<Loaded | null> {
  */
 export function useLiveWords(sceneId: ID | null, active: boolean): void {
   const rev = useApp(revision)
+  // "Avoid common AI phrases" switched on or off while this page shows: the scene is checked again.
+  const aiPhrases = usePrefs((s) => s.prefs?.avoidAiPhrases !== false)
   const [visit, setVisit] = useState(0)
   const [issues, setIssues] = useState(issuesRev)
   useEffect(() => {
@@ -123,7 +126,7 @@ export function useLiveWords(sceneId: ID | null, active: boolean): void {
       return
     }
     if (!active) return
-    const key = `${rev}:${visit}:${issues}`
+    const key = `${rev}:${visit}:${issues}:${aiPhrases}`
     const cached = loaded.get(sceneId)
     if (cached) use(sceneId, cached)
     if (cached?.rev === key) return
@@ -142,7 +145,7 @@ export function useLiveWords(sceneId: ID | null, active: boolean): void {
       cancelled = true
       clearTimeout(t)
     }
-  }, [sceneId, active, rev, visit, issues])
+  }, [sceneId, active, rev, visit, issues, aiPhrases])
 }
 
 /** Applies an ignore or its Undo in the page now, and stores it. Throws (plain words) if it couldn't be stored. */

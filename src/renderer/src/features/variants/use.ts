@@ -13,6 +13,7 @@ import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { requestPutBack } from '@/features/editor/putBack'
 import { snapshotBefore } from '@/features/history/snapshot'
+import { markDraftLanded } from '@/features/liveChecks/liveDecorations'
 import { sceneWith, type UseMode, type VariantBlock } from './merge'
 
 /** Why the scene can't take a variant right now, in plain words; null when it can. */
@@ -93,6 +94,8 @@ export async function putInScene(
     return false
   }
   const added = how === 'add' && filled
+  // The live checks then say how many common AI phrases the new text brought.
+  if (bridge.editor) markDraftLanded(bridge.editor.view, added ? next.doc.content.length - blocks.length : 0)
   if (added && bridge.editor) showAdded(bridge.editor, next.doc.content.length - blocks.length)
   requestEditorFocus(sceneId)
   useApp.getState().navigate({ kind: 'write' })

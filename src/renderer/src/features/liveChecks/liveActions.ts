@@ -1,14 +1,18 @@
 // What Adam can do about a live flag: put the name right (Change to Mara), have the AI rewrite the
-// sentence with a phrase to avoid in it (the AI tools' Rewrite, as a tracked change), or mark it as
-// intended (Ignore, with Undo in a toast that gathers ignores made while it shows).
+// sentence with a phrase to avoid or a common AI phrase in it (the AI tools' Rewrite, as a tracked
+// change), or mark it as intended (Ignore, with Undo in a toast that gathers ignores made while it shows).
+// And the quiet note after a draft lands with common AI phrases in it.
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
 import type { ID } from '@shared/types'
+import { draftNoteWords, rewriteDirection, storedKind } from '@shared/liveChecks'
 import { toast, useToasts } from '@/components/ui'
 import { editorBridge } from '@/lib/editorBridge'
+import { useApp } from '@/lib/store'
 import { startTool } from '@/features/edits/session'
 import type { PlacedFlag } from './liveDecorations'
+import { revealLiveFlag } from './liveFlags'
 import { ignoreLiveFlag, unignoreLiveFlag } from './liveWords'
 
 /** True while the flag's words are still in the page where it says. */
@@ -57,19 +61,14 @@ export function sentenceAround(doc: PMNode, from: number, to: number): { from: n
   return { from: start + s, to: start + e }
 }
 
-/** Asks the AI tools' Rewrite for the sentence with a phrase to avoid in it, as a change to accept or reject. */
+/** Asks the AI tools' Rewrite for the sentence with a phrase to avoid (or a common AI phrase) in it, as a change to accept or reject. */
 export function rewritePhrase(editor: Editor, flag: PlacedFlag): void {
   if (editor.isDestroyed) return
   if (!stillThere(editor.state.doc, flag)) {
     toast('Those words have changed. Have another look.')
     return
   }
-  // The phrase as the list has it (the key is phrase:<paragraph>:<phrase>).
-  const phrase = flag.key.split(':').slice(2).join(':') || flag.word
-  void startTool('rewrite', {
-    direction: `Rewrite this without “${phrase}”, keeping its meaning and the scene’s voice.`,
-    range: sentenceAround(editor.state.doc, flag.from, flag.to)
-  })
+  void startTool('rewrite', { direction: rewriteDirection(flag), range: sentenceAround(editor.state.doc, flag.from, flag.to) })
 }
 
 // ---------- Ignore ----------
@@ -90,6 +89,7 @@ function liveBatch(): typeof batch {
 const WHERE: Record<PlacedFlag['kind'], string> = {
   spelling: 'It won’t be flagged again anywhere in this world.',
   phrase: 'It won’t be flagged again in this paragraph.',
+  ai: 'It won’t be flagged again in this paragraph.',
   repetition: 'It won’t be flagged again in this scene.'
 }
 
@@ -109,7 +109,7 @@ async function undoAll(items: Ignored[]): Promise<void> {
 /** Marks a flag as intended: it goes from the page at once, and the toast offers Undo. */
 export function ignoreFlag(sceneId: ID, flag: PlacedFlag): void {
   const item: Ignored = { sceneId, flag }
-  void ignoreLiveFlag(sceneId, { kind: flag.kind, key: flag.key, quote: flag.word, message: flag.message }).catch((e: Error) => {
+  void ignoreLiveFlag(sceneId, { kind: storedKind(flag.kind), key: flag.key, quote: flag.word, message: flag.message }).catch((e: Error) => {
     toast(e.message, { tone: 'danger' })
   })
   const b = liveBatch()
@@ -129,4 +129,25 @@ export function ignoreFlag(sceneId: ID, flag: PlacedFlag): void {
     }
   })
   batch = next
+}
+
+// ---------- After a draft ----------
+
+let draftNote: { id: number; count: number } | null = null
+
+/**
+ * Says quietly how many common AI phrases a draft that just landed brought, with Show (the first one and
+ * its card). Drafts in a row (Beat by beat) add to the same note while it shows, rather than adding more
+ * notes. Only on the writing page, where Show can show them; the Issues tab counts them too.
+ */
+export function noteDraft(count: number): void {
+  if (count < 1 || useApp.getState().view.kind !== 'write') return
+  const toasts = useToasts.getState()
+  if (draftNote && toasts.items.some((t) => t.id === draftNote!.id)) {
+    draftNote.count += count
+    toasts.update(draftNote.id, { message: draftNoteWords(draftNote.count) })
+    return
+  }
+  const id = toast(draftNoteWords(count), { secondary: { label: 'Show', run: () => void revealLiveFlag('ai') } })
+  draftNote = { id, count }
 }

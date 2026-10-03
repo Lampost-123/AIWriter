@@ -36,6 +36,13 @@ describe('the words the live checks need', () => {
     repo.updateStory(db, story.id, { style: { avoidPhrases: ['very', 'suddenly'] } })
     expect(checkWords(db, sceneId, prefs(['delve'])).avoid).toEqual(['delve', 'Suddenly', 'all of a sudden', 'very'])
   })
+
+  it('says whether to underline common AI phrases: on unless Adam turned it off', () => {
+    const { db, sceneId } = world()
+    expect(checkWords(db, sceneId, prefs()).aiPhrases).toBe(true)
+    expect(checkWords(db, sceneId, { ...prefs(), avoidAiPhrases: undefined }).aiPhrases).toBe(true)
+    expect(checkWords(db, sceneId, { ...prefs(), avoidAiPhrases: false }).aiPhrases).toBe(false)
+  })
 })
 
 describe('ignored flags', () => {

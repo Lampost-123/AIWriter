@@ -2,11 +2,11 @@
 // page after each check; nothing here re-renders while Adam types.
 import { create } from 'zustand'
 import type { ID } from '@shared/types'
-import type { LiveKind } from '@shared/liveChecks'
+import type { LiveFlagKind } from '@shared/liveChecks'
 
-export type LiveCounts = Record<LiveKind, number>
+export type LiveCounts = Record<LiveFlagKind, number>
 
-export const NO_FLAGS: LiveCounts = { phrase: 0, repetition: 0, spelling: 0 }
+export const NO_FLAGS: LiveCounts = { phrase: 0, repetition: 0, spelling: 0, ai: 0 }
 
 interface LiveStore {
   sceneId: ID | null
@@ -18,8 +18,8 @@ export const useLiveStore = create<LiveStore>(() => ({ sceneId: null, counts: NO
 /** The page's latest counts (only stored when they differ, so the store moves rarely). */
 export function setLiveCounts(sceneId: ID | null, counts: LiveCounts): void {
   const cur = useLiveStore.getState()
-  if (cur.sceneId === sceneId && cur.counts.phrase === counts.phrase && cur.counts.repetition === counts.repetition && cur.counts.spelling === counts.spelling)
-    return
+  const same = (Object.keys(NO_FLAGS) as (keyof LiveCounts)[]).every((k) => cur.counts[k] === counts[k])
+  if (cur.sceneId === sceneId && same) return
   useLiveStore.setState({ sceneId, counts })
 }
 
@@ -33,4 +33,17 @@ export function requestLiveCard(pos: number): void {
 export function onLiveCardRequest(fn: (pos: number) => void): () => void {
   cardListeners.add(fn)
   return () => cardListeners.delete(fn)
+}
+
+// A draft (Generate, Beat by beat, a picked version) has landed and been checked: how many common AI
+// phrases are underlined in it. The page's layer says so in a quiet toast.
+const draftListeners = new Set<(count: number) => void>()
+
+export function noteDraftPhrases(count: number): void {
+  draftListeners.forEach((l) => l(count))
+}
+
+export function onDraftPhrases(fn: (count: number) => void): () => void {
+  draftListeners.add(fn)
+  return () => draftListeners.delete(fn)
 }

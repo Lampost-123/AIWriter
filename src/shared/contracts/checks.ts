@@ -151,6 +151,8 @@ export interface CheckWords {
   names: { entryId: ID; name: string; kind: string }[]
   /** Phrases to avoid, from Adam's writing preferences and the world's and story's style guides. */
   avoid: string[]
+  /** Underline common AI phrases (src/shared/slop.ts): Adam's preference "avoidAiPhrases". Absent means on. */
+  aiPhrases?: boolean
 }
 
 /** A live flag Adam ignored: by its key ("spelling:marra", "phrase:<paragraph id>:suddenly"). */

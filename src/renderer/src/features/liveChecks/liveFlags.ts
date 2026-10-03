@@ -1,7 +1,7 @@
 // The live checks for the Issues tab: how many flags of each kind the open scene has, and a way to go
 // to the next one. A small, stable API; the tab itself is built by the AI checks part.
 import { TextSelection } from '@tiptap/pm/state'
-import type { LiveKind } from '@shared/liveChecks'
+import type { LiveFlagKind } from '@shared/liveChecks'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { REVEALED } from '@/features/editor/reveal'
@@ -10,7 +10,7 @@ import { NO_FLAGS, requestLiveCard, useLiveStore, type LiveCounts } from './live
 
 export type { LiveCounts }
 
-/** How many phrases to avoid, repetitions and misspelt names the open scene has now. */
+/** How many phrases to avoid, common AI phrases, repetitions and misspelt names the open scene has now. */
 export function useLiveFlagCounts(): LiveCounts {
   const sceneId = useApp((s) => s.sceneId)
   const counts = useLiveStore((s) => (s.sceneId && s.sceneId === sceneId ? s.counts : NO_FLAGS))
@@ -31,7 +31,7 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
  * into view a third of the way down the page and shows its card. Returns false when there is none (or
  * no scene is open on the writing page).
  */
-export function revealLiveFlag(kind: LiveKind): boolean {
+export function revealLiveFlag(kind: LiveFlagKind): boolean {
   const editor = editorBridge()?.editor
   if (!editor || editor.isDestroyed || useApp.getState().view.kind !== 'write') return false
   const view = editor.view
