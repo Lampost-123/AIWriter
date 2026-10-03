@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Check, ChevronsUpDown, FileDown, LibraryBig, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
+import { BookOpen, Brain, Check, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -10,6 +10,7 @@ import { openStory, openStorySettings } from '@/features/stories/storyActions'
 import { openOutlineHelper } from '@/features/outline/open'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
+import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/importing/importStore'
 import * as actions from './actions'
 import { InlineTitle } from './InlineTitle'
 
@@ -27,6 +28,8 @@ export function StorySwitcher(): React.JSX.Element {
   const order = useStoryLabels((s) => s.order)
   const shelf = useMemo(() => inShelfOrder(stories, order), [stories, order])
   const [renaming, setRenaming] = useState(false)
+  // Milestone 6: the story has scenes the memory hasn't read since they were imported.
+  const unread = useImport((s) => canBuildMemory(s.catchUp, storyId))
   useStoryLabelsLoader()
   // The story flows report how they are doing from the background; listen from the start.
   useEffect(() => installFlowEvents(), [])
@@ -132,6 +135,14 @@ export function StorySwitcher(): React.JSX.Element {
                     </span>
                     Export series bible…
                   </M.Item>
+                  {unread ? (
+                    <M.Item onSelect={() => offerMemory(story.id)} className={cn(item, 'shrink-0')}>
+                      <span className="flex w-4 justify-center text-muted">
+                        <Brain size={14} />
+                      </span>
+                      Build the memory from this story
+                    </M.Item>
+                  ) : null}
                 </>
               ) : null}
               <M.Item onSelect={() => useApp.getState().setNewStoryOpen(true)} className={cn(item, 'shrink-0')}>
@@ -139,6 +150,12 @@ export function StorySwitcher(): React.JSX.Element {
                   <Plus size={14} />
                 </span>
                 New story…
+              </M.Item>
+              <M.Item onSelect={() => startImport()} className={cn(item, 'shrink-0')}>
+                <span className="flex w-4 justify-center text-muted">
+                  <FileUp size={14} />
+                </span>
+                Import a manuscript…
               </M.Item>
             </M.Content>
           </M.Portal>

@@ -185,6 +185,20 @@ export class Keeper {
     await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
   }
 
+  /**
+   * Milestone 6, the import catch-up's Stop: these scenes' queued reads are dropped and one being read now is
+   * stopped (its run ends as stopped, nothing applied). Anyone waiting for them is let go.
+   */
+  forget(ids: ID[]): void {
+    if (this.closed || !ids.length) return
+    const drop = new Set(ids)
+    this.queue = this.queue.filter((x) => !drop.has(x))
+    this.urgent = this.urgent.filter((x) => !drop.has(x))
+    if (this.current && drop.has(this.current.sceneId)) this.current.controller.abort()
+    for (const id of ids) this.settle(id)
+    this.emitStatus()
+  }
+
   /** The world is closing: stop now and write nothing more. Finishes the open records first (synchronously). */
   stop(): void {
     if (this.closed) return

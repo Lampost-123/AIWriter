@@ -725,6 +725,52 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   waiting; the top bar's note gives the reason; a run under way stops before its next call), checks after Mark
   done wait in `runOrWait`, and both go again on carry on, a new limit or the month turning. Other automatic work
   (an import catch-up) should check `pausedNote()`/`heldAt()` in `usage/gate.ts` or go through the keeper.
+### How manuscript import works
+
+**Reading** (`src/main/importing/`: `docx.ts`, `markdown.ts`, `text.ts`, `lines.ts`, `xml.ts`, `read.ts`)
+- Every reader turns the file into `ManuscriptBlock`s (contract `importing.ts`): paragraphs with bold and italic
+  runs, headings (`level` from the file, `hint` from the words or a Word style's name), break marks, the title.
+  `lines.ts` recognises chapter and part lines by their words and break marks, for every format, and
+  `finishBlocks` counts bare numbers ("12") only when there are several and joins "CHAPTER ONE" with a title on
+  the next line.
+- Word: fflate unzips `word/document.xml`, `styles.xml` and `docProps/core.xml`; `xml.ts` walks tags without a
+  tree. Headings come from heading styles, outline levels (the paragraph's own or its style chain's), and style
+  names ("Chapter Title"). Deletions, comments, footnotes, field codes, hidden text, text boxes and the table of
+  contents are skipped; insertions are kept. Page breaks are noted (`pageBreak`).
+- Text files are read as blank-line paragraphs (hard-wrapped lines joined), a paragraph a line, or indented
+  paragraphs; bytes decode as UTF-8, UTF-16 with its mark, else Windows-1252.
+
+**The split** (`features/importing/split.ts`, pure). Every heading, break mark, and paragraph Adam split at is a
+boundary with a role (act, chapter, scene, ordinary text). `proposeRoles` picks the chapter level (where the
+"Chapter ..." headings are; else the top level, or the second when the top holds a few sections of 15,000+ words),
+acts above, scenes below, deeper headings as text; with no chapters at all, page breaks start them. Adam's
+changes are `SplitEdits` kept apart from the proposal; merging a chapter makes it a scene, merging a scene makes its
+heading text (a break mark becomes a line across the page). Text before the first chapter is the "Opening" chapter.
+`toPlan` makes the `ImportPlan` the main process imports.
+
+**Importing** (`importing/save.ts`, `importing/doc.ts`, `db/importing.ts`): one transaction through `repo`
+(story after the last on the shelf, chapters, scenes, then acts holding their chapters). Each scene is saved as the
+editor saves it: paragraphs with fresh 8-character `pid`s, bold and italic marks, hard breaks, horizontal rules, and
+the editor's own text form. From the Welcome screen (`importManuscriptFromWelcome`, no world open) the import makes a
+world named after the book and its empty "Book 1" gives way (`newWorld`). Undo is the toast's: it deletes the story
+(into Recently deleted) and brings back the split to change.
+
+**Unread scenes.** An imported scene is left with `memory_status 'current'`, `memory_version = text_version = 1`
+and `memory_paragraphs_json '[]'`: the keeper sees nothing to do, so nothing is read or paid for until Adam asks.
+That state means "imported, not read" (`db/importing.ts`); an edit makes it `pending` as any scene, and the keeper
+then reads it whole.
+
+**The import catch-up** (`importing/catchUp.ts`) drives the memory keeper rather than reading anything itself: each
+unread scene, in reading order, is marked `pending` and handed to the keeper's queue (`updateNow`), two at a time so
+Adam's own scenes are read in between and the roll-ups wait for the end, then waited for (`whenRead`). So it runs on
+the memory model with the memory's Thinking, writes What changed and summaries, and leaves Generate's catch-up as it
+was. The stories still to read are in the world's meta key `import_catchup`; the keeper reads scenes left pending at
+app start and the catch-up carries on when the world opens. It pauses with the reason when there is no memory model
+or two scenes in a row fail ("Try again"). Stop calls the keeper's `forget` (added for this: drops queued reads and
+aborts the one running) and puts the handed scenes back to unread. Progress ("Reading chapter 3 of 24") is the
+binder's `ImportLine` under the Check line; the cost estimate (`importing/estimate.ts`) is shown before it starts.
+Ways in: the story menu ("Import a manuscript…", "Build the memory from this story" while it has unread scenes) and
+the palette (`import-manuscript`, `build-memory`).
 
 ### Who builds what (parallel build, milestone 6)
 

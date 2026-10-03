@@ -32,6 +32,7 @@ import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
+import { offerMemory, startImport } from '@/features/importing/importStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -292,6 +293,12 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'import-world':
         await importWorld()
+        return
+      case 'import-manuscript':
+        startImport()
+        return
+      case 'build-memory':
+        if (a.storyId) offerMemory(a.storyId)
         return
       default: {
         const unknown: never = fixed

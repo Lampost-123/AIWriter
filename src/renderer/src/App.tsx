@@ -37,6 +37,7 @@ import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
 import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { SpendWatch } from '@/features/usage/SpendWatch'
+import { ImportView } from '@/features/importing/ImportView'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -85,6 +86,17 @@ function NoWorld(): React.JSX.Element {
         <TopBar />
         <div className="min-h-0 flex-1">
           <SettingsView tab={view.tab} />
+        </div>
+      </>
+    )
+  }
+  // Milestone 6: importing a manuscript from the Welcome screen (the import makes a world named after the book).
+  if (view.kind === 'import') {
+    return (
+      <>
+        <TopBar />
+        <div className="min-h-0 flex-1">
+          <ImportView />
         </div>
       </>
     )
@@ -195,6 +207,7 @@ function Workspace(): React.JSX.Element {
               {view.kind === 'outline' && <OutlineHelper key={view.storyId} storyId={view.storyId} />}
               {view.kind === 'worldBuilder' && <WorldBuilderView />}
               {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
+              {view.kind === 'import' && <ImportView />}
             </div>
           ) : null}
         </main>

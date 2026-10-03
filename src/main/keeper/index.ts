@@ -158,8 +158,19 @@ export function entryEditedByHand(db: Database.Database, before: Entry, after: E
 }
 
 /** Settings changed (a memory model was chosen, a key added): try again now. */
+const settingsListeners: (() => void)[] = []
+/** Runs when the memory's model, its Thinking or the spending limit changes (the import catch-up carries on). */
+export const onMemorySettingsChanged = (fn: () => void): void => void settingsListeners.push(fn)
+
 export function memorySettingsChanged(): void {
   currentKeeper()?.updateNow()
+  for (const fn of settingsListeners) {
+    try {
+      fn()
+    } catch (e) {
+      console.error('memory settings listener failed', e)
+    }
+  }
 }
 
 export function memoryStatus(): MemoryStatus {

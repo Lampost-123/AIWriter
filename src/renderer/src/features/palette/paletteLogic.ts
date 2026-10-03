@@ -85,6 +85,8 @@ export type FixedActionId =
   | 'copy-world'
   | 'import-world'
   | 'settings-usage'
+  | 'import-manuscript'
+  | 'build-memory'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -105,6 +107,8 @@ export interface ActionContext {
   reading?: boolean
   /** "Show speakers and tone" is on. */
   speakers?: boolean
+  /** Milestone 6: the open story has scenes the memory hasn't read since they were imported. */
+  unreadStory?: boolean
 }
 
 export interface ActionDef {
@@ -309,7 +313,20 @@ export const ACTIONS: ActionDef[] = [
   { id: 'export-bible', label: 'Export series bible', keywords: 'entries characters places lore timeline plot threads pdf markdown bible save print', when: hasStory },
   { id: 'export-world', label: 'Export world', keywords: 'aiwrite file move computer save share whole' },
   { id: 'copy-world', label: 'Make a copy of this world', keywords: 'duplicate world copy' },
-  { id: 'import-world', label: 'Import a world file', keywords: 'aiwrite open file move computer bring in' }
+  { id: 'import-world', label: 'Import a world file', keywords: 'aiwrite open file move computer bring in' },
+  {
+    id: 'import-manuscript',
+    label: 'Import a manuscript',
+    keywords: 'word docx markdown text txt file book novel bring open existing chapters scenes',
+    away: true
+  },
+  {
+    id: 'build-memory',
+    label: 'Build the memory from this story',
+    keywords: 'imported read catch up learn characters ai',
+    away: true,
+    when: (c) => !!c.unreadStory
+  }
 ]
 
 /** For opening each kind's list and making a new entry: which, and of what kind. Null for the other actions. */

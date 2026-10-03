@@ -55,7 +55,8 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'fillTimeGap',
   'draftStartingCast',
   'sortStartChanges',
-  'updateMemoryNow'
+  'updateMemoryNow',
+  'startCatchUp'
 ])
 
 let library: UsageLibrary | null = null
