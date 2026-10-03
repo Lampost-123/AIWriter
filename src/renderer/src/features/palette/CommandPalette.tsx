@@ -296,9 +296,10 @@ function useActionContext(): ActionContext {
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
   const unreadStory = useImport((s) => canBuildMemory(s.catchUp, storyId))
   const focus = useFocusMode((s) => s.on)
+  const soundEffects = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus]
+    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, soundEffects }),
+    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, soundEffects]
   )
 }
 

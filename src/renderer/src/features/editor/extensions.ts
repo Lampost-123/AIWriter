@@ -10,6 +10,7 @@ import { Suggestions } from '@/features/edits/suggestions'
 import { ReadAloudHighlight } from '@/features/readAloud/highlight'
 import { SpeakerLabels } from '@/features/readAloud/speakerLabels'
 import { LiveChecks } from '@/features/liveChecks/liveDecorations'
+import { SoundMarks } from '@/features/sounds/soundMarks'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -45,7 +46,8 @@ const MarkDoneShortcut = Extension.create({
  * entries get a faint underline (names/underlines.ts). Milestone 4 adds tracked changes for AI edits
  * (features/edits/suggestions.ts), the sentence being read aloud (features/readAloud/highlight.ts) and, with
  * "Show speakers and tone", who says each paragraph and how (features/readAloud/speakerLabels.ts);
- * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts).
+ * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts); sound effects mark the words each
+ * sound plays on while the Sounds view shows (features/sounds/soundMarks.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -70,6 +72,7 @@ export function sceneExtensions(): AnyExtension[] {
     Suggestions,
     ReadAloudHighlight,
     SpeakerLabels,
-    LiveChecks
+    LiveChecks,
+    SoundMarks
   ]
 }

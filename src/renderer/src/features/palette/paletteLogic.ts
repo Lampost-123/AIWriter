@@ -90,6 +90,8 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  // Sound effects under Read aloud
+  | 'sounds'
 
 export type ActionId = FixedActionId | `go-${EntryKind}` | `new-${EntryKind}`
 
@@ -114,6 +116,8 @@ export interface ActionContext {
   unreadStory?: boolean
   /** Focus mode is on (milestone 6). */
   focus?: boolean
+  /** Sound effects are on (with read aloud): the scene panel has its Sounds tab. */
+  soundEffects?: boolean
 }
 
 export interface ActionDef {
@@ -287,6 +291,13 @@ export const ACTIONS: ActionDef[] = [
     label: 'Hide speakers and tone',
     keywords: 'who says speaking voice emotion tone mood dialogue labels read aloud',
     when: (c) => !!c.speakers
+  },
+  {
+    id: 'sounds',
+    label: 'Sounds in this scene',
+    keywords: 'sound effects ambience audio noises background read aloud listen add remove find',
+    away: toWriting,
+    when: (c) => hasScene(c) && !!c.soundEffects
   },
   {
     id: 'settings-speech',
