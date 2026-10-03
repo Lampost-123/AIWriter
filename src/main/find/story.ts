@@ -3,7 +3,6 @@
 // on an in-memory world; src/main/ipc/find.ts connects it to the open world, History, saving and the memory.
 
 import type Database from 'better-sqlite3'
-import { comparableDoc } from '@shared/contracts/history'
 import {
   MAX_LISTED,
   type PageChange,
@@ -205,8 +204,14 @@ function replaced(scene: SceneNow, picks: FoundMatch[], replacement: string): { 
   return { doc: null, text, ranges }
 }
 
-const sameWords = (a: { doc: unknown | null; text: string }, b: { doc: unknown | null; text: string }): boolean =>
-  a.text === b.text && (a.doc && b.doc ? comparableDoc(tidyDoc(a.doc)) === comparableDoc(tidyDoc(b.doc)) : !a.doc === !b.doc)
+/**
+ * True when a scene is exactly as the replace left it: the same words, paragraphs (empty ones too, which move
+ * every position after them), formatting and paragraph ids. Only the way the document is written down may differ
+ * (key order, text split in two with the same formatting). Anything else is a change Adam made since, which an
+ * Undo must never take away.
+ */
+const sameAsLeft = (a: { doc: unknown | null; text: string }, b: { doc: unknown | null; text: string }): boolean =>
+  a.text === b.text && (a.doc && b.doc ? JSON.stringify(tidyDoc(a.doc)) === JSON.stringify(tidyDoc(b.doc)) : !a.doc === !b.doc)
 
 const sameNames = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
@@ -278,7 +283,7 @@ export function undoReplaceInStory(db: DB, token: ID, page: PageForFind | null, 
   for (const r of record.scenes) {
     if (page && page.sceneId === r.sceneId) {
       // The open scene goes back through the editor, while it shows what the replace left.
-      if (r.before.doc && sameWords({ doc: page.doc, text: page.text }, r.after)) {
+      if (r.before.doc && sameAsLeft({ doc: page.doc, text: page.text }, r.after)) {
         result.page = { sceneId: r.sceneId, doc: r.before.doc, ranges: inverse(r) } satisfies PageChange
         result.scenes++
       } else result.skipped.push({ sceneId: r.sceneId, title: r.title })
@@ -292,7 +297,7 @@ export function undoReplaceInStory(db: DB, token: ID, page: PageForFind | null, 
       result.skipped.push({ sceneId: r.sceneId, title: r.title } satisfies SkippedScene)
       continue
     }
-    if (deps.drafting(r.sceneId) || !sameWords(now, r.after)) {
+    if (deps.drafting(r.sceneId) || !sameAsLeft(now, r.after)) {
       result.skipped.push({ sceneId: r.sceneId, title: now.title })
       continue
     }

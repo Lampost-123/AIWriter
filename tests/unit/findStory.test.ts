@@ -176,12 +176,39 @@ describe('replacing across the story, and Undo', () => {
       doc: doc(p('a1', t('Maren crossed the ford, typing not yet saved.'))),
       ranges: [{ from: 1, to: 5, newFrom: 1, newTo: 6 }]
     })
-    // The page now shows the change (with its ids, which don't count): Undo hands back the way to put it back.
-    const after: PageForFind = { sceneId: w.scenes[0], doc: doc(p('zz', t('Maren crossed the ford, '), t('typing not yet saved.'))), text: 'Maren crossed the ford, typing not yet saved.' }
+    // The page now shows the change (written down a little differently): Undo hands back the way to put it back.
+    const after: PageForFind = { sceneId: w.scenes[0], doc: doc(p('a1', t('Maren crossed the ford, '), t('typing not yet saved.'))), text: 'Maren crossed the ford, typing not yet saved.' }
     const undone = undoReplaceInStory(w.db, res.token!, after, w.deps)
     expect(undone.scenes).toBe(2)
     expect(undone.page).toEqual({ sceneId: w.scenes[0], doc: shown, ranges: [{ from: 1, to: 6, newFrom: 1, newTo: 5 }] })
     expect(repo.getScene(w.db, w.scenes[1]).text).toContain('Mara’s')
+  })
+
+  it('Undo leaves the open scene when an empty paragraph went in since, so no words land in the wrong place', () => {
+    const shown = doc(p('a1', t('Mara walked.')))
+    const page: PageForFind = { sceneId: w.scenes[0], doc: shown, text: 'Mara walked.' }
+    const input = find(w, 'mara', { page })
+    const res = replaceInStory(w.db, { ...input, replacement: 'Kell', picks: allPicks(w, input), rename: null }, w.deps)
+    expect(res.page?.ranges).toEqual([{ from: 1, to: 5, newFrom: 1, newTo: 5 }])
+    // Enter at the very start of the scene: the same words, one empty paragraph ahead of them.
+    const moved: PageForFind = { sceneId: w.scenes[0], doc: doc(p('n1'), p('a1', t('Kell walked.'))), text: 'Kell walked.' }
+    const undone = undoReplaceInStory(w.db, res.token!, moved, w.deps)
+    expect(undone.page).toBeNull()
+    expect(undone.skipped).toEqual([{ sceneId: w.scenes[0], title: 'The ford' }])
+    expect(undone.scenes).toBe(1)
+  })
+
+  it('Undo never takes away an empty paragraph added to a stored scene since', () => {
+    const input = find(w, 'mara')
+    const res = replaceInStory(w.db, { ...input, replacement: 'Maren', picks: allPicks(w, input), rename: null }, w.deps)
+    const s2 = repo.getScene(w.db, w.scenes[1])
+    const withGap = { ...(s2.doc as DocNode), content: [p('gap'), ...((s2.doc as DocNode).content ?? [])] }
+    repo.saveSceneText(w.db, w.scenes[1], withGap, s2.text)
+    const undone = undoReplaceInStory(w.db, res.token!, null, w.deps)
+    expect(undone.skipped).toEqual([{ sceneId: w.scenes[1], title: 'Night camp' }])
+    expect(repo.getScene(w.db, w.scenes[1]).doc).toEqual(withGap)
+    // The scene left alone goes back.
+    expect(repo.getScene(w.db, w.scenes[0]).text.startsWith('Mara crossed')).toBe(true)
   })
 
   it('renames the entry, keeping the old name as another name, and Undo puts the name and other names back', () => {
