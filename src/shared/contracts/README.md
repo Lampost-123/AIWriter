@@ -42,3 +42,5 @@ Milestone 6:
 | usage.ts | The usage and cost page, the monthly limit |
 | setup.ts | First-run setup and the sample world |
 | look.ts | Themes finished (accent colour, reduced motion) and focus mode |
+
+After milestone 6: recipes.ts (Story recipes: the recipe library, making a recipe, a new story from one).

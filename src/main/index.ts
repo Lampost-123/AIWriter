@@ -10,6 +10,7 @@ import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
 import { initAi } from './ai'
 import { initKeeper } from './keeper'
+import { closeRecipes, initRecipes } from './recipes'
 import { activeDraftIds, stopDraft } from './ai/drafts'
 import { stopAllTasks } from './ai/tasks'
 import { registerPortraitScheme, servePortraits } from './portraits'
@@ -234,6 +235,7 @@ function main(): void {
       initBackups()
       initAi()
       initKeeper()
+      initRecipes()
       initHistory()
       initSpeech()
       // Reopen the last world straight away, so the page is ready as soon as the window shows.
@@ -264,6 +266,7 @@ function main(): void {
   })
 
   app.on('window-all-closed', () => {
+    closeRecipes()
     closeWorld()
     stopSpeech()
     app.quit()

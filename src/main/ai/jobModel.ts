@@ -9,6 +9,8 @@
 //           Adam picks one).
 //   check   "Consistency check" (milestone 5's AI checks): its own model, or the memory model while left as
 //           "Same as the memory model" (which is the writer model until Adam picks one).
+//   recipe  "Recipe maker" (Story recipes: reading a whole story to make a recipe of it): its own model, or the
+//           memory model while left as "Same as the memory model" (which is the writer model until Adam picks one).
 // Each job asks its model to think as that job's own Thinking says (Off unless Adam changes it).
 // No Electron imports: the caller passes the settings and the providers.
 
@@ -25,7 +27,7 @@ import {
 } from './errors'
 import { UserError } from '../util'
 
-export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check'
+export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check' | 'recipe'
 
 /** A job's model and how to reach it. */
 export interface JobModel {
@@ -50,7 +52,8 @@ export const MODEL_NAMES: Record<Job, string> = {
   builder: 'character builder model',
   speech: 'read aloud model',
   world: 'world builder model',
-  check: 'consistency check model'
+  check: 'consistency check model',
+  recipe: 'recipe maker model'
 }
 
 /** Where each job's model comes from while Adam hasn't picked one of its own, nearest first. */
@@ -59,7 +62,8 @@ const FALLBACKS: Record<ModelJob, Job[]> = {
   chat: ['chat', 'writer'],
   speech: ['speech', 'memory', 'writer'],
   world: ['world', 'builder', 'writer'],
-  check: ['check', 'memory', 'writer']
+  check: ['check', 'memory', 'writer'],
+  recipe: ['recipe', 'memory', 'writer']
 }
 
 /** The job's model, or a plain-words UserError saying what to set up in Settings › Models. */
