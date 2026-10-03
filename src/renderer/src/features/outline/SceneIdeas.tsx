@@ -6,7 +6,7 @@
 // stream in, each a short title, a line on what happens and its beats, with Use this. Stop keeps what
 // has arrived; the list stays until one is used or it is closed, even if Adam starts filling the card.
 import { Lightbulb, Square, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ID, SceneCard } from '@shared/types'
 import { Button, IconButton, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -32,11 +32,14 @@ import { parseIdeas, type SceneIdea } from './parse'
 export function SceneIdeas({
   sceneId,
   card,
-  onUse
+  onUse,
+  beside
 }: {
   sceneId: ID
   card: SceneCard
   onUse: (patch: Partial<SceneCard>) => void
+  /** Shown in the same row as the quiet button (the scene's "Interview me"), or above the ideas. */
+  beside?: ReactNode
 }): React.JSX.Element | null {
   const worldId = useApp((s) => s.world?.id)
   const session = useSceneIdeas((st) => st.sessions[ideasKey(worldId, sceneId)])
@@ -68,7 +71,7 @@ export function SceneIdeas({
     setOffer({ phase, show })
   }
 
-  if (phase !== 'showing' && !show) return null
+  if (phase !== 'showing' && !show) return beside ? <div className="flex items-center gap-4">{beside}</div> : null
   const ask = (): void => {
     void askIdeas(sceneId)
     showTop()
@@ -76,17 +79,23 @@ export function SceneIdeas({
   return (
     <div ref={root} className="scroll-mt-4">
       {session && phase === 'showing' ? (
-        <Ideas sceneId={sceneId} s={session} card={card} onAsk={ask} />
+        <>
+          {beside ? <div className="mb-2 flex items-center gap-4">{beside}</div> : null}
+          <Ideas sceneId={sceneId} s={session} card={card} onAsk={ask} />
+        </>
       ) : (
-        <button
-          type="button"
-          onClick={() => void askIdeas(sceneId)}
-          title="Three possible directions for this scene, from the outline, open plot threads and the story so far"
-          className="-mx-1.5 inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-        >
-          <Lightbulb size={14} className="shrink-0 text-ai" aria-hidden />
-          Ideas for this scene
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => void askIdeas(sceneId)}
+            title="Three possible directions for this scene, from the outline, open plot threads and the story so far"
+            className="-mx-1.5 inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          >
+            <Lightbulb size={14} className="shrink-0 text-ai" aria-hidden />
+            Ideas for this scene
+          </button>
+          {beside}
+        </div>
       )}
     </div>
   )

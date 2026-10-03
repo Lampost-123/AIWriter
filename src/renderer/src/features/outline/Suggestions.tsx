@@ -2,7 +2,8 @@
 // one still waiting for a decision is amber, with Keep, Edit and Discard; a kept one turns plain with a
 // tick. Keep on an act or chapter keeps what is inside it too, and keeping a scene keeps the chapter
 // and act it needs. While the answer arrives, suggestions appear in order and the buttons keep their
-// room; the one being written has the caret.
+// room; the one being written has the caret. A chapter's plan (`chapterId`) shows only that chapter's
+// scene cards: the chapter itself is already in the story.
 import { Check } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Chapter, ID } from '@shared/types'
@@ -22,6 +23,8 @@ const TITLE_SIZES: Record<NodeKind, string> = { act: 'text-[18px]', chapter: 'te
 
 interface TreeProps {
   storyId: ID
+  /** A chapter's plan: its session, and the chapter its scene cards go into. */
+  chapterId?: ID | null
   run: HelperRun
   /** While the answer arrives: the suggestion being written now. */
   current: string | null
@@ -31,12 +34,14 @@ interface TreeProps {
 
 export function Suggestions({
   storyId,
+  chapterId = null,
   run,
   tree,
   open,
   starter
 }: {
   storyId: ID
+  chapterId?: ID | null
   run: HelperRun
   tree: TreeNode[]
   /** How many suggestions are still waiting for a decision. */
@@ -45,11 +50,13 @@ export function Suggestions({
   starter: Chapter | null
 }): React.JSX.Element {
   const running = run.status === 'running'
-  const waiting = useDelayed(running && tree.length === 0, 250)
+  // A chapter's plan lists the chapter's scene cards, not the chapter.
+  const top = chapterId ? (tree[0]?.children ?? []) : tree
+  const waiting = useDelayed(running && top.length === 0, 250)
   const [editing, setEditing] = useState<string | null>(null)
-  const kept = totalOf(countNodes(tree, run.decisions, 'kept'))
-  const shown = tree.filter((n) => run.decisions[n.key]?.status !== 'discarded')
-  const decided = !running && open === 0 && tree.length > 0
+  const kept = totalOf(countNodes(top, run.decisions, 'kept'))
+  const shown = top.filter((n) => run.decisions[n.key]?.status !== 'discarded')
+  const decided = !running && open === 0 && top.length > 0
   const current = running ? lastNodeKey(tree) : null
   const starterTitle = starter?.title.trim() || 'Chapter 1'
 
@@ -80,15 +87,15 @@ export function Suggestions({
             size="sm"
             icon={<Check size={13} />}
             className="ml-auto"
-            onClick={() => void keepSuggestions(storyId, 'all')}
-            title="Add every suggestion you haven't discarded to the story"
+            onClick={() => void keepSuggestions(storyId, 'all', chapterId)}
+            title={`Add every suggestion you haven't discarded to the ${chapterId ? 'chapter' : 'story'}`}
           >
             Keep all that’s left
           </Button>
         ) : null}
       </div>
 
-      {tree.length === 0 ? (
+      {top.length === 0 ? (
         <div aria-hidden className={cn('flex flex-col gap-3 transition-opacity duration-200', waiting ? 'opacity-100' : 'opacity-0')}>
           <Skeleton className="h-[74px] w-full rounded-lg" />
           <Skeleton className="ml-7 h-[62px] w-[calc(100%-1.75rem)] rounded-lg" />
@@ -97,12 +104,21 @@ export function Suggestions({
       ) : (
         <div className="flex flex-col gap-3" data-suggestions>
           {shown.map((n) => (
-            <NodeView key={n.key} node={n} storyId={storyId} run={run} current={current} editing={editing} setEditing={setEditing} />
+            <NodeView
+              key={n.key}
+              node={n}
+              storyId={storyId}
+              chapterId={chapterId}
+              run={run}
+              current={current}
+              editing={editing}
+              setEditing={setEditing}
+            />
           ))}
         </div>
       )}
 
-      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} /> : null}
+      {decided ? <AllDecided run={run} tree={tree} storyId={storyId} kept={kept} chapter={!!chapterId} /> : null}
     </section>
   )
 }
@@ -130,7 +146,7 @@ function NodeView({ node, ...props }: TreeProps & { node: TreeNode }): React.JSX
   )
 }
 
-function NodeBox({ node, storyId, run, current, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
+function NodeBox({ node, storyId, chapterId, run, current, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   const decision = run.decisions[node.key]
   const kept = decision?.status === 'kept'
@@ -145,11 +161,11 @@ function NodeBox({ node, storyId, run, current, setEditing }: TreeProps & { node
   const focused = (): boolean => !!box.current?.contains(document.activeElement)
   const keep = (): void => {
     const from = focused() ? box.current : null
-    void keepSuggestions(storyId, [node.key]).then(() => focusNext(from))
+    void keepSuggestions(storyId, [node.key], chapterId).then(() => focusNext(from))
   }
   const discard = (): void => {
     if (focused()) focusNext(box.current, true)
-    discardSuggestion(storyId, node.key)
+    discardSuggestion(storyId, node.key, chapterId)
   }
 
   return (
@@ -274,7 +290,7 @@ function focusNext(from: HTMLElement | null, leaving = false): void {
   } else requestAnimationFrame(() => pick()?.focus())
 }
 
-function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
+function EditForm({ node, storyId, chapterId, run, setEditing }: TreeProps & { node: TreeNode }): React.JSX.Element {
   const words = run.edits[node.key] ?? node
   const [title, setTitle] = useState(words.title)
   const [text, setText] = useState(words.text)
@@ -299,7 +315,7 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
         .filter(Boolean)
     }
     if (node.kind === 'scene') edit.when = when.replace(/\s+/g, ' ').trim()
-    saveEdit(storyId, node.key, edit)
+    saveEdit(storyId, node.key, edit, chapterId)
     close()
   }
 
@@ -385,7 +401,19 @@ function EditForm({ node, storyId, run, setEditing }: TreeProps & { node: TreeNo
 }
 
 /** Every suggestion is decided: what was kept is in the binder, and one click starts writing it. */
-function AllDecided({ run, tree, storyId, kept }: { run: HelperRun; tree: TreeNode[]; storyId: ID; kept: number }): React.JSX.Element {
+function AllDecided({
+  run,
+  tree,
+  storyId,
+  kept,
+  chapter
+}: {
+  run: HelperRun
+  tree: TreeNode[]
+  storyId: ID
+  kept: number
+  chapter: boolean
+}): React.JSX.Element {
   const firstScene = (nodes: TreeNode[]): ID | null => {
     for (const n of nodes) {
       const d = run.decisions[n.key]
@@ -399,7 +427,9 @@ function AllDecided({ run, tree, storyId, kept }: { run: HelperRun; tree: TreeNo
   if (!kept) {
     return (
       <p className="mt-4 text-[13px] text-muted animate-fade-in">
-        You discarded every suggestion. Change the premise or how much to suggest, then suggest again for new ones.
+        {chapter
+          ? 'You discarded every scene card. Interview again or suggest again for new ones.'
+          : 'You discarded every suggestion. Change the premise or how much to suggest, then suggest again for new ones.'}
       </p>
     )
   }

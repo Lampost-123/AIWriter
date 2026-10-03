@@ -884,6 +884,34 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
 are each wired in with one line.
 
+## Interview me on scenes and chapters
+
+The world builder's "Interview me", on a scene card and on a chapter (spec, Writing workflow › Planning). It is the
+outline helper's job: `'outline'` generation records with the chat and brainstorm model and its Thinking (no new
+job), prompt markers `[AIWRITE-OUTLINE v1] interview scene|chapter`, `fill scene` and `plan chapter`
+(`src/main/outline/interview.ts`; the fake provider answers them in `tests/fake-provider/m4/outline.mjs`). Nothing
+about an interview is stored: the answers live in the window (`features/outline/planInterviewStore.ts`, one per
+scene and chapter while the app is open) and are sent with each request.
+
+- **Questions.** One request per question (`askPlanQuestion`), with what next scene ideas are told (a scene: the
+  card as it is on screen and which parts are empty) or the chapter with the outline around it
+  (`chapterAroundText`), plus the interview so far. The AI says `{"done": true}` when it has enough; after
+  `MOST_QUESTIONS` (8) it is done without asking. Adam answers (typed or dictated), skips, or presses Done (Stop
+  while nothing is answered); an answer typed but not sent is used too.
+- **A scene** (`PlanInterview` at the top of the scene card, beside "Ideas for this scene"; the palette's "Interview
+  me about this scene"): `fillSceneCard` asks for the card's empty parts as JSON; names are matched to the world's
+  characters and places (`matchEntry`), unknown ones left out. The window puts in only parts still empty on the card
+  on screen (`planInterviewLogic.fillOnCard`), so nothing Adam wrote changes; Undo empties only what is still as it
+  was put in.
+- **A chapter** (the binder's chapter menu "Interview me about this chapter", and the palette): the outline view with
+  a `chapterId` (`ChapterPlanner.tsx`), showing the chapter's goal (editable, saved to the chapter) and the
+  interview. When it ends, `startChapterPlan` streams the outline helper's form with no chapter heading; it is a
+  helper session of its own (`helperStore.suggestChapter`, key `<story>#<chapter>`) whose `lead` is the chapter's
+  heading and whose chapter node starts out kept, so `Suggestions` (with `chapterId`) lists the scene cards and Keep,
+  Edit, Discard and their Undo work as on the outline helper's page. A goal in the reply goes to the chapter only
+  while it has none, with Undo. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
+  becomes that scene (`keepOutline`), and its Undo puts it back.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

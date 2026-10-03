@@ -57,6 +57,26 @@ function whensBefore(db: DB, storyId: ID, sceneId: ID): string[] {
   return order.slice(0, at < 0 ? order.length : at).map((id) => cards.get(id)?.when ?? '')
 }
 
+/** The chapter's only scene, while it is an untouched "Scene 1": no words, an empty card. Else null. */
+function loneScene(db: DB, storyId: ID, chapterId: ID): ID | null {
+  const scenes = repo.getOutline(db, storyId).scenes.filter((s) => s.chapterId === chapterId)
+  if (scenes.length !== 1) return null
+  const [only] = scenes
+  if (only.wordCount > 0 || !/^\s*scene\s*1\s*$/i.test(only.title)) return null
+  const scene = repo.getScene(db, only.id)
+  // Anything pointing at it (an AI call made for it, a pin...) would stop its Undo putting it back.
+  if (scene.text.trim() || acts.sceneReferenced(db, only.id)) return null
+  const c = { ...emptySceneCard(), ...scene.card }
+  const empty =
+    !c.povId &&
+    !c.locationId &&
+    !c.presentIds.length &&
+    !c.setsUpIds.length &&
+    !c.paysOffIds.length &&
+    ![c.goal, c.conflict, c.outcome, c.mood, c.notes, c.when, ...c.beats].some((v) => v.trim())
+  return empty ? only.id : null
+}
+
 /** A new chapter, straight into an act (or among the chapters with no act): see ChapterPlace for where. */
 export function createChapterAt(db: DB, storyId: ID, place: ChapterPlace & { title?: string }): Chapter {
   return db.transaction(() => {
@@ -75,7 +95,9 @@ export function createChapterAt(db: DB, storyId: ID, place: ChapterPlace & { tit
  *
  * A story with nothing in it yet but the empty "Chapter 1" and "Scene 1" it was made with (no words, no
  * card): the first chapter kept becomes that chapter, and the first scene kept into it that scene, so
- * they don't stay behind above the outline. Anything with words or a card in it is never touched.
+ * they don't stay behind above the outline. Anything with words or a card in it is never touched. So too
+ * for a chapter planned from its interview whose only scene is such an empty "Scene 1": the first scene
+ * kept into it becomes that scene.
  */
 export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] {
   if (!Array.isArray(items) || !items.length) return []
@@ -86,6 +108,8 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
     let spareChapter: ID | null = blank ? (start.chapters[0]?.id ?? null) : null
     let spareScene: ID | null = blank && spareChapter ? (start.scenes.find((sc) => sc.chapterId === spareChapter)?.id ?? null) : null
     const made = new Map<string, KeptItem>()
+    // Chapters a scene has gone into already: their lone "Scene 1" is never taken after that.
+    const lonesUsed = new Set<ID>()
     const resolve = (ref: KeepRef | undefined, kind: KeptItem['kind']): ID | null => {
       if (!ref) return null
       if (ref.key) {
@@ -136,8 +160,15 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
             .getOutline(db, storyId)
             .scenes.filter((s) => s.chapterId === chapterId && s.id !== except)
             .map((s) => s.id)
-        // The story's untouched first scene, when this goes into the chapter it is in, takes this one's place.
-        const reuse = spareScene && repo.getSceneMeta(db, spareScene).chapterId === chapterId ? spareScene : null
+        // The story's untouched first scene, when this goes into the chapter it is in, takes this one's place,
+        // as does a chapter's lone untouched "Scene 1".
+        const reuse =
+          spareScene && repo.getSceneMeta(db, spareScene).chapterId === chapterId
+            ? spareScene
+            : !blank && !lonesUsed.has(chapterId)
+              ? loneScene(db, storyId, chapterId)
+              : null
+        lonesUsed.add(chapterId)
         let scene: { id: ID }
         if (reuse) {
           if (title) repo.updateScene(db, reuse, { title })
