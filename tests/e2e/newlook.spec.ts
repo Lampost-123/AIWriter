@@ -141,6 +141,19 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     await win.mouse.move(5, 500)
     await expect(header.locator('svg.drawn-tick-draw')).toBeVisible()
     await expect(list(win).getByRole('treeitem', { name: /The Harbour Wall/ }).locator('[data-status="done"]')).toBeVisible()
+    // Opening a scene that is done already doesn't play it again.
+    const [story] = await invoke(win, 'listStories')
+    const { chapters } = await invoke(win, 'getOutline', story.id)
+    await invoke(win, 'createScene', chapters[0].id, { title: 'Low Water' })
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+    await list(win).getByRole('treeitem', { name: /Low Water/ }).click()
+    await expect(win.locator('[data-page-title]')).toContainText('Low Water')
+    await list(win).getByRole('treeitem', { name: /The Harbour Wall/ }).click()
+    await expect(win.locator('[data-page-title]')).toContainText('The Harbour Wall')
+    await win.mouse.move(5, 500)
+    await expect(header.locator('svg.drawn-tick')).toBeVisible()
+    await expect(header.locator('svg.drawn-tick-draw')).toHaveCount(0)
 
     // Focus mode: the rail fades with the rest, and the sheet becomes the whole window.
     await win.locator('.scene-prose').click()

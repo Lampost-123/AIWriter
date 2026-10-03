@@ -20,12 +20,18 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
       <M.Trigger
         aria-label={`Scene status: ${STATUS_LABELS[status]}`}
         title="Scene status"
-        className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg @min-[660px]:px-2.5 look-new:h-[30px] look-new:border-transparent look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)]"
+        className={cn(
+          'flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg @min-[660px]:px-2.5 look-new:h-[30px] look-new:border-transparent look-new:px-2.5',
+          // The New look: a soft pill, green for a done scene.
+          status === 'done'
+            ? 'look-new:bg-success-soft look-new:text-success look-new:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--success)_30%,transparent)]'
+            : 'look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)]'
+        )}
       >
         <StatusDot status={status} />
         {/* In a narrow header (a small window) the status shows as its dot alone, leaving the room to the scene's title. */}
-        <span className="hidden w-[52px] text-left @min-[660px]:inline-block">{STATUS_LABELS[status]}</span>
-        <ChevronDown size={12} className="hidden text-faint @min-[660px]:block" />
+        <span className="hidden w-[52px] text-left @min-[660px]:inline-block look-new:inline-block! look-new:w-auto">{STATUS_LABELS[status]}</span>
+        <ChevronDown size={12} className="hidden text-faint @min-[660px]:block look-new:hidden!" />
       </M.Trigger>
       <M.Portal>
         <M.Content
@@ -78,7 +84,8 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
     // The New look: the scene's title is at the head of the page (PageTitle) and where it sits is in the top bar's trail,
     // so the bar is the scene's tools alone.
     <header data-focus-chrome className="@container flex h-12 shrink-0 items-center gap-3 border-b border-line/70 bg-page pl-5 pr-3 look-new:h-[54px] look-new:gap-2.5 look-new:pl-4">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+      {/* The New look: the status, Done and the tools on the left; this room between them and Generate. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] look-new:order-1">
         {story ? (
           <>
             <span className="hidden min-w-0 max-w-[40%] shrink-[16] truncate text-faint @min-[1040px]:inline look-new:hidden!">{story.title}</span>
@@ -116,7 +123,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
       <StatusMenu sceneId={sceneId} status={status} />
       <DoneButton sceneId={sceneId} status={status} />
       <SceneTools sceneId={sceneId} />
-      <div className={cn('flex shrink-0 items-center')}>
+      <div className={cn('flex shrink-0 items-center look-new:order-2')}>
         <GenerateControls sceneId={sceneId} />
       </div>
     </header>

@@ -136,6 +136,16 @@ function GoalRing(): React.JSX.Element | null {
   )
 }
 
+/** The New look: today's share of the daily target beside the count (" · 58%"), with a target set. */
+function GoalShare(): React.JSX.Element | null {
+  const daily = useApp((s) => s.settings?.goals?.daily ?? null)
+  const days = useGoals((s) => s.days) ?? []
+  const today = useGoals((s) => s.today)
+  if (!daily) return null
+  const share = Math.min(999, Math.round((Math.max(0, dayOf(days, today).typed) / daily) * 100))
+  return <span className="-ml-1 text-faint">· {share}%</span>
+}
+
 const openers = new Set<() => void>()
 
 /** Opens the word counts (the command palette's "Word counts and today's writing"). */
@@ -172,6 +182,7 @@ export function WordCountButton(): React.JSX.Element {
       >
         {isNew ? <GoalRing /> : null}
         {words.toLocaleString()} words
+        {isNew ? <GoalShare /> : null}
       </P.Trigger>
       <PopoverPanel
         className="w-[300px]"

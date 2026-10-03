@@ -15,18 +15,27 @@ export const STATUSES: SceneStatus[] = ['planned', 'drafted', 'revised', 'done']
  * Planned = hollow ring, drafted = faint dot, revised = accent, done = green. The New look draws them as rings that
  * fill as the scene goes on: empty, half, three quarters (in the accent), then full and green.
  */
-export function StatusDot({ status, className }: { status: SceneStatus; className?: string }): React.JSX.Element {
+export function StatusDot({
+  status,
+  className,
+  pulse: pulses = false
+}: {
+  status: SceneStatus
+  className?: string
+  /** One scene's own dot (a binder row): it pulses as that scene is marked done. Not a dot that follows the open scene. */
+  pulse?: boolean
+}): React.JSX.Element {
   // The New look: a ring pulses out from the dot once, as the scene is marked done (not when it shows done already).
   const before = useRef(status)
   const [pulse, setPulse] = useState(false)
   useEffect(() => {
     const was = before.current
     before.current = status
-    if (status !== 'done' || was === 'done') return
+    if (!pulses || status !== 'done' || was === 'done') return
     setPulse(true)
     const t = setTimeout(() => setPulse(false), 700)
     return () => clearTimeout(t)
-  }, [status])
+  }, [status, pulses])
   return (
     <span
       aria-hidden

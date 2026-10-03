@@ -23,8 +23,8 @@ export function SceneStatusMark({ sceneId, status, statusLabel }: { sceneId: ID;
   const label = useSceneLabel(sceneId)
   return (
     <>
-      <span className="relative mr-2 flex h-[7px] w-[7px] shrink-0">
-        <StatusDot status={status} className={cn(label && 'invisible')} />
+      <span className="relative mr-2 flex h-[7px] w-[7px] shrink-0 look-new:h-[11px] look-new:w-[11px]">
+        <StatusDot status={status} pulse className={cn(label && 'invisible')} />
         {label ? (
           <span
             data-playing

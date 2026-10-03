@@ -107,6 +107,7 @@ const ICONS = {
   LayoutGrid: [L.LayoutGrid, 'SquaresFour'],
   LibraryBig: [L.LibraryBig, 'Books'],
   Lightbulb: [L.Lightbulb, 'Lightbulb'],
+  List: [L.List, 'ListBullets'],
   Link2: [L.Link2, 'LinkSimple'],
   ListChecks: [L.ListChecks, 'ListChecks'],
   ListOrdered: [L.ListOrdered, 'ListNumbers'],
@@ -316,6 +317,7 @@ export const Layers = BY_NAME.Layers
 export const LayoutGrid = BY_NAME.LayoutGrid
 export const LibraryBig = BY_NAME.LibraryBig
 export const Lightbulb = BY_NAME.Lightbulb
+export const List = BY_NAME.List
 export const Link2 = BY_NAME.Link2
 export const ListChecks = BY_NAME.ListChecks
 export const ListOrdered = BY_NAME.ListOrdered

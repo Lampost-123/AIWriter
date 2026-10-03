@@ -22,13 +22,13 @@ export function AsOfSlider({
   label?: string
   className?: string
 }): React.JSX.Element | null {
+  const isNew = useNewLook()
   if (!stops.length) return null
   const found = stopIndex(stops, value)
   const index = found >= 0 ? found : stops.length - 1
   const current = stops[index]
   const longest = longestLabel(stops)
   const marks = stops.map((s, i) => (s.changes > 0 ? i : -1)).filter((i) => i >= 0)
-  const isNew = useNewLook()
   const prev = nextChange(stops, index, -1)
   const next = nextChange(stops, index, 1)
   const at = (i: number): string => (stops.length > 1 ? `${(i / (stops.length - 1)) * 100}%` : '50%')

@@ -12,6 +12,8 @@ import { currentChapterId, openExportBible, openExportStory } from '@/features/t
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/importing/importStore'
 import * as actions from './actions'
+import { useOutline } from './outlineStore'
+import { useNewLook } from '@/features/look/look'
 import { InlineTitle } from './InlineTitle'
 
 const item = 'flex h-8 items-center gap-2 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
@@ -28,6 +30,9 @@ export function StorySwitcher(): React.JSX.Element {
   const order = useStoryLabels((s) => s.order)
   const shelf = useMemo(() => inShelfOrder(stories, order), [stories, order])
   const [renaming, setRenaming] = useState(false)
+  const isNew = useNewLook()
+  const { outline } = useOutline()
+  const holds = outline && outline.story.id === storyId ? holdsLine(outline.chapters.length, outline.scenes.length) : ''
   // Milestone 6: the story has scenes the memory hasn't read since they were imported.
   const unread = useImport((s) => canBuildMemory(s.catchUp, storyId))
   useStoryLabelsLoader()
@@ -41,7 +46,8 @@ export function StorySwitcher(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
+    // The New look: the story is a raised card, its cover beside its title and how much it holds.
+    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 look-new:h-auto look-new:border-transparent look-new:px-1.5 look-new:pb-2 look-new:pt-1">
       {renaming && story ? (
         <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2">
           <BookOpen size={14} className="shrink-0 text-muted" />
@@ -57,11 +63,27 @@ export function StorySwitcher(): React.JSX.Element {
         <M.Root modal={false}>
           <M.Trigger
             data-story-menu
-            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2"
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 data-[state=open]:bg-surface-2 look-new:h-auto look-new:gap-2.5 look-new:rounded-[10px] look-new:bg-surface look-new:p-2 look-new:shadow-e1 look-new:hover:bg-raise look-new:data-[state=open]:bg-raise"
           >
-            <BookOpen size={14} className="shrink-0 text-muted" />
-            <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-semibold', story ? 'text-fg' : 'text-faint')}>
-              {story?.title ?? 'No story yet'}
+            <BookOpen size={14} className="shrink-0 text-muted look-new:hidden" />
+            {isNew ? (
+              <span
+                aria-hidden
+                className="grid h-[38px] w-[30px] shrink-0 place-items-center rounded-[4px_6px_6px_4px] bg-[linear-gradient(160deg,#2f4e78,#1d304c)] text-[#f3d9a4] shadow-[inset_3px_0_0_rgb(0_0_0/0.25),var(--elev-1)]"
+              >
+                <BookOpen size={14} />
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1">
+              <span
+                className={cn(
+                  'block truncate text-[13.5px] font-semibold look-new:font-heading look-new:text-[14.5px]',
+                  story ? 'text-fg' : 'text-faint'
+                )}
+              >
+                {story?.title ?? 'No story yet'}
+              </span>
+              {isNew && holds ? <span className="block truncate text-[11.5px] text-faint">{holds}</span> : null}
             </span>
             <ChevronsUpDown size={13} className="shrink-0 text-faint" />
           </M.Trigger>
@@ -164,3 +186,7 @@ export function StorySwitcher(): React.JSX.Element {
     </div>
   )
 }
+
+/** "2 chapters · 4 scenes" under the story's title (the New look). */
+const holdsLine = (chapters: number, scenes: number): string =>
+  `${chapters} ${chapters === 1 ? 'chapter' : 'chapters'} · ${scenes} ${scenes === 1 ? 'scene' : 'scenes'}`

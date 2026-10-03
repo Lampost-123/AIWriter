@@ -25,7 +25,7 @@ export function StepFrame({
 }): React.JSX.Element {
   return (
     <section aria-labelledby="setup-step-title">
-      <h2 id="setup-step-title" className="text-[18px] font-semibold text-fg">
+      <h2 id="setup-step-title" className="text-[18px] font-semibold text-fg look-new:font-heading look-new:text-[34px] look-new:leading-[1.1] look-new:tracking-[-0.015em]">
         {title}
       </h2>
       <div className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">{intro}</div>

@@ -1,11 +1,7 @@
 <!-- version: 0.6.10 -->
-What's new since 0.6.1:
+What's new:
 
-- Story feel in the Style guide: genre tiles, how far romance, violence and language go, and a sample written in that style.
-- Common AI phrases are avoided and underlined, with one-click Fix. An optional polish pass after a draft.
-- Story recipes: distil a story you love, then start a new one from it.
-- A start screen with every world and story.
-- Writing by hand: formatting, find and replace, spelling, word counts and goals.
-- Sound effects under Read aloud.
-- Interview me on scenes and chapters.
-- Fewer false memory clashes, cheaper Claude drafts, Whisper fixed.
+- A new look: warm paper pages, a colour for each kind of thing in your world, book-style headings and two-tone icons.
+- Four areas down the left (Write, Plan, World, Check), each with its own list, and a trail at the top showing where you are.
+- Small, quick touches when you mark a scene done, save or generate. They stop when Windows animation effects are off.
+- Prefer how it was? Settings › Appearance › Style switches back to Classic at any time.

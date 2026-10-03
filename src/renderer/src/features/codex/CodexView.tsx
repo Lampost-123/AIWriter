@@ -11,7 +11,7 @@ import { Badge, Button, EmptyState, IconButton, Input, Notice, Select, toast } f
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useNewLook } from '@/features/look/look'
-import { KIND_INK } from '@/features/world/kindIcons'
+import { KIND_INK, KIND_ICONS } from '@/features/world/kindIcons'
 import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
@@ -99,6 +99,8 @@ export function CodexView(): React.JSX.Element {
   const [creating, setCreating] = useState(false)
 
   const all = useMemo(() => (cards ?? []).filter((c) => CODEX_KINDS.includes(c.kind)), [cards])
+  // The New look's kind pills: the kinds the world has.
+  const kindsHere = useMemo(() => CODEX_KINDS.filter((k) => all.some((c) => c.kind === k)), [all])
   const tags = useMemo(() => tagChoices(all), [all])
   const roles = useMemo(() => roleChoices(all), [all])
   const storyChoices = useMemo(
@@ -227,9 +229,9 @@ export function CodexView(): React.JSX.Element {
   } else {
     body = (
       <>
-        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} />
+        <Toolbar tags={tags} roles={roles} stories={storyChoices} search={search} onClear={clear} kinds={kindsHere} />
         {shown ? (
-          groups.map((g) => <Group key={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
+          groups.map((g) => <Group key={g.kind} kind={g.kind} label={g.label} cards={g.cards} onOpen={open} />)
         ) : (
           <EmptyState
             icon={<Search size={20} />}
@@ -340,8 +342,11 @@ function Toolbar({
   roles,
   stories,
   search,
-  onClear
+  onClear,
+  kinds
 }: {
+  /** The kinds this world has, for the New look's pills. */
+  kinds: (typeof CODEX_KINDS)[number][]
   tags: Choice[]
   roles: Choice[]
   stories: Choice[]
@@ -351,6 +356,7 @@ function Toolbar({
 }): React.JSX.Element {
   const filters = useCodex((s) => s.filters)
   const setFilters = useCodex((s) => s.setFilters)
+  const isNew = useNewLook()
   return (
     <div data-codex-toolbar className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 bg-bg px-2 pb-3 pt-4">
       <div className="relative w-[220px]">
@@ -380,14 +386,40 @@ function Toolbar({
           </IconButton>
         ) : null}
       </div>
-      <FilterSelect
-        label="Kind"
-        value={filters.kind}
-        onChange={(kind) => setFilters({ kind: kind as typeof filters.kind })}
-        options={KIND_CHOICES}
-        none="All kinds"
-        width={140}
-      />
+      {isNew ? (
+        // The New look: the kinds as a row of pills, the chosen one filled.
+        <div role="group" aria-label="Kind" className="order-first flex w-full flex-wrap gap-1.5">
+          {[null, ...kinds].map((k) => {
+            const on = filters.kind === k
+            const Icon = k ? KIND_ICONS[k] : null
+            return (
+              <button
+                key={k ?? 'all'}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFilters({ kind: k as typeof filters.kind })}
+                className={cn(
+                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform] duration-(--dur-quick) active:scale-[0.96]',
+                  Icon && 'pl-2.5',
+                  on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+                )}
+              >
+                {Icon ? <Icon size={15} selected={on} /> : null}
+                {k ? KIND_LABELS[k].many : 'All'}
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <FilterSelect
+          label="Kind"
+          value={filters.kind}
+          onChange={(kind) => setFilters({ kind: kind as typeof filters.kind })}
+          options={KIND_CHOICES}
+          none="All kinds"
+          width={140}
+        />
+      )}
       {tags.length ? (
         <FilterSelect label="Tag" value={filters.tag} onChange={(tag) => setFilters({ tag })} options={tags} none="Any tag" />
       ) : null}
@@ -422,21 +454,30 @@ function Toolbar({
 }
 
 const Group = memo(function Group({
+  kind,
   label,
   cards,
   onOpen
 }: {
+  kind: CodexCard['kind']
   label: string
   cards: CodexCard[]
   onOpen: (c: CodexCard) => void
 }): React.JSX.Element {
   const id = useId()
+  const isNew = useNewLook()
+  const Icon = KIND_ICONS[kind]
   return (
     <section aria-labelledby={id} className="mt-4">
       <h2
         id={id}
         className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint look-new:mb-3 look-new:mt-6 look-new:items-center look-new:font-heading look-new:text-[17px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg"
       >
+        {isNew ? (
+          <span aria-hidden className={cn('grid h-7 w-7 place-items-center rounded-lg', KIND_INK[kind].tile)}>
+            <Icon size={16} />
+          </span>
+        ) : null}
         {label}
         <span className="font-normal tabular-nums look-new:font-sans look-new:text-[12.5px] look-new:text-faint">{cards.length}</span>
         {/* The New look: a quiet rule runs on from the heading. */}
@@ -521,7 +562,17 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
               {more > 0 ? <span className="self-center text-[11.5px] text-faint">+{more}</span> : null}
             </span>
           ) : null}
-          <span className="mt-1.5 line-clamp-2 text-[11.5px] text-faint">{appearsLine(card)}</span>
+          {isNew && card.scenes && card.last ? (
+            // The New look: where it appears, as small chips.
+            <span className="mt-2 flex flex-wrap gap-1.5">
+              <span className="rounded-md bg-surface px-1.5 py-px text-[11px] tabular-nums text-faint">
+                {card.scenes} {card.scenes === 1 ? 'scene' : 'scenes'}
+              </span>
+              <span className="max-w-full truncate rounded-md bg-surface px-1.5 py-px text-[11px] tabular-nums text-faint">last {card.last.label.replace(/^.*?(?=Ch \d)/, '')}</span>
+            </span>
+          ) : (
+            <span className="mt-1.5 line-clamp-2 text-[11.5px] text-faint">{appearsLine(card)}</span>
+          )}
         </span>
       </span>
     </button>

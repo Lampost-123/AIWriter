@@ -10,7 +10,7 @@ import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { LitWindow } from '@/components/ui/LitWindow'
+import { Lighthouse } from '@/components/ui/Lighthouse'
 import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
@@ -27,15 +27,9 @@ export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
   const isNew = useNewLook()
   if (!step) return null
-  return (
-    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges]">
+  const steps = (
+    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges] look-new:bg-transparent">
       <div className="w-full max-w-[600px]">
-        {/* The New look: a lit window over the water, above the welcome. */}
-        {isNew ? (
-          <div className="-mx-2 mb-5 h-[130px] overflow-hidden rounded-card">
-            <LitWindow />
-          </div>
-        ) : null}
         <div className="mb-7 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
             <BookOpen size={20} />
@@ -54,6 +48,16 @@ export function FirstRun(): React.JSX.Element | null {
           {step === 'style' && <StyleStepFrame />}
           {step === 'builder' && <BuilderStep />}
         </div>
+      </div>
+    </div>
+  )
+  if (!isNew) return steps
+  // The New look: the steps on the left, and a lighthouse over the sea beside them (in a wide enough window).
+  return (
+    <div className="flex h-full">
+      <div className="min-w-0 flex-1">{steps}</div>
+      <div aria-hidden className="hidden w-[42%] max-w-[760px] shrink-0 overflow-hidden min-[1000px]:block">
+        <Lighthouse />
       </div>
     </div>
   )

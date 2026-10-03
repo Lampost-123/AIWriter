@@ -3,7 +3,7 @@
 // screen is in which), so opening a screen from anywhere lights its area here. Choosing an area opens its main
 // screen: the page, the outline helper, the codex, the story's consistency.
 import { GlidePill } from '@/components/ui/GlidePill'
-import { BookOpen, LayoutGrid, ListTree, MessagesSquare, SearchCheck, Settings as SettingsIcon, type IconType } from '@/components/ui/icons'
+import { Eye, Globe2, List, MessagesSquare, Pencil, Settings as SettingsIcon, type IconType } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
@@ -12,7 +12,7 @@ import { openConsistency } from '@/features/consistency/checkStore'
 import { openOutlineHelper } from '@/features/outline/open'
 import { AREAS, areaOf, type Area } from './areas'
 
-const ICONS: Record<Area, IconType> = { write: BookOpen, plan: ListTree, world: LayoutGrid, check: SearchCheck }
+const ICONS: Record<Area, IconType> = { write: Pencil, plan: List, world: Globe2, check: Eye }
 
 /** Opens an area's main screen. */
 export function openArea(area: Area): void {

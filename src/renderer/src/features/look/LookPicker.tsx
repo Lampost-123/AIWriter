@@ -10,8 +10,8 @@ import { usePaintedTheme } from './AccentPicker'
 import { applyLook } from './look'
 
 const CHOICES: { look: Look; label: string; hint: string }[] = [
-  { look: 'new', label: 'New look', hint: 'Warm paper, a colour for each kind of thing, and four areas down the side' },
-  { look: 'classic', label: 'Classic', hint: 'How AI Write looked before, with everything in one list' }
+  { look: 'new', label: 'New look', hint: 'Depth, colour and motion' },
+  { look: 'classic', label: 'Classic', hint: 'The look you know, flat and quiet' }
 ]
 
 /** Picks a look: painted at once, then saved (and the one-time note about the New look is done with). */
