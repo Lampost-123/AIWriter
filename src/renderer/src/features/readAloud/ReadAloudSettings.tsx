@@ -4,20 +4,24 @@
 //
 // Settings › Read aloud and dictation, reading aloud's parts: turning it on, the narrator's voice, speed
 // and Sample (everyday); the dialogue voice, cast voices, How to read, who says each line, Keep reading,
-// Follow along and the audio cache (More). Owned by the Read aloud part. Every change saves at once. Mark who says
+// Follow along, sound effects and the audio cache (More). Owned by the Read aloud part. Every change saves at once. Mark who says
 // what and Perform written sounds say plainly whether Emotion and tone, and sighs and laughs, are on (tone.ts), as the
 // reading bar does.
-import { Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
+import { AudioLines, Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AudioCacheStats, ReadAloudVoice } from '@shared/contracts/readAloud'
+import type { SoundsStatus } from '@shared/contracts/sounds'
 import type { SpeechSettings } from '@shared/types'
 import { defaultSpeechSettings } from '@shared/defaults'
 import { Badge, Button, Field, Input, Notice, Select, SettingsSection, Spinner, Textarea, toast } from '@/components/ui'
-import { api, ApiError } from '@/lib/api'
+import { api, ApiError, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { Switch } from '@/features/world/parts/Switch'
+import { useSpeechStatus } from '@/features/speech/useSpeechStatus'
+import { SoundsDownload } from '@/features/speech/SoundsDownload'
+import { mixer } from '@/features/sounds/mixer'
 import { HOW_IT_READS, onOff, SOUNDS_OFF, SOUNDS_ON, TONE_ON } from './tone'
 import { clearSampleError, playSample, useSample } from './useSample'
 import { loadVoices, useVoices } from './useVoices'
@@ -528,8 +532,150 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
         </div>
       </SettingsSection>
 
+      <SoundEffects speech={speech} />
+
       <SavedAudio limitGb={speech.cacheLimitGb} />
     </>
+  )
+}
+
+// ---------- Sound effects ----------
+
+/**
+ * Sound effects and ambience under the reading (features/sounds): the switch, the sound model's download while it
+ * isn't done, how loud they are, and the sounds kept so far with Clear (undoable from its toast).
+ */
+function SoundEffects({ speech }: { speech: SpeechSettings }): React.JSX.Element {
+  const status = useSpeechStatus()
+  const on = speech.soundEffects
+  // Known and not downloaded: the download's own card (it names who made the sound model).
+  const download = on && !!status && !status.installed.sounds
+  return (
+    <SettingsSection title="Sound effects">
+      <div className="flex max-w-xl flex-col gap-5">
+        <SwitchRow
+          label="Sound effects and ambience"
+          checked={on}
+          onChange={(soundEffects) => void save({ soundEffects })}
+          description="The AI adds quiet sounds under the reading: a door on the word it slams, rain while it falls. Made on this computer."
+        />
+        {on ? (
+          <>
+            {download ? <SoundsDownload /> : null}
+            <SoundVolume volume={speech.soundVolume} />
+            <SoundLibrary />
+            {!download && status ? <p className="-mt-2 text-[12px] text-faint">Powered by Stability AI</p> : null}
+          </>
+        ) : null}
+      </div>
+    </SettingsSection>
+  )
+}
+
+/** How loud the sounds are under the voice: heard at once while it moves, saved when it is let go. */
+function SoundVolume({ volume }: { volume: number }): React.JSX.Element {
+  const [value, setValue] = useState(volume)
+  useEffect(() => setValue(volume), [volume])
+  const commit = (v: number): void => {
+    if (v !== volume) void save({ soundVolume: v })
+  }
+  return (
+    <Field label="Sounds volume" hint="How loud the sounds are under the voice. They dip a little while a line is spoken.">
+      {(id) => (
+        <div className="flex max-w-[360px] items-center gap-3">
+          <span aria-hidden className="text-[12px] text-faint">
+            Quieter
+          </span>
+          <input
+            id={id}
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={value}
+            aria-valuetext={`${Math.round(value * 100)}%`}
+            onChange={(e) => {
+              const v = Number(e.target.value)
+              setValue(v)
+              mixer.setVolume(v)
+            }}
+            onPointerUp={(e) => commit(Number(e.currentTarget.value))}
+            onKeyUp={(e) => commit(Number(e.currentTarget.value))}
+            onBlur={(e) => commit(Number(e.currentTarget.value))}
+            className="min-w-0 flex-1 accent-[var(--accent)]"
+          />
+          <span aria-hidden className="text-[12px] text-faint">
+            Louder
+          </span>
+        </div>
+      )}
+    </Field>
+  )
+}
+
+/** "42 sounds kept · 120 MB", what is being made, and Clear sounds (Undo in its toast). */
+function SoundLibrary(): React.JSX.Element {
+  const [status, setStatus] = useState<SoundsStatus | null>(null)
+  const [clearing, setClearing] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    api
+      .getSoundsStatus()
+      .then((s) => live && setStatus(s))
+      .catch(() => undefined)
+    const off = onEvent('sounds:status', (s) => setStatus(s))
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+
+  const clear = async (): Promise<void> => {
+    setClearing(true)
+    try {
+      setStatus(await api.clearSoundLibrary())
+      toast('Sounds cleared.', {
+        action: {
+          label: 'Undo',
+          run: () =>
+            void api
+              .undoClearSoundLibrary()
+              .then(setStatus)
+              .catch((e: unknown) => toast((e as Error).message || 'The sounds couldn’t be put back.', { tone: 'danger' }))
+        }
+      })
+    } catch (e) {
+      toast((e as Error).message || 'The sounds couldn’t be cleared. Try again in a moment.', { tone: 'danger' })
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const count = status?.library.count ?? 0
+  const doing = status?.making
+    ? `Making “${status.making}”…`
+    : status?.waiting
+      ? `${status.waiting} waiting to be made`
+      : 'Kept on this computer for every world, so a sound is only made once.'
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-muted">
+          <AudioLines size={16} aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-medium tabular-nums text-fg">
+            {status ? `${count.toLocaleString('en-GB')} ${count === 1 ? 'sound' : 'sounds'} kept` : '…'}
+            {status && count ? <span className="font-normal text-muted"> · {sizeText(status.library.bytes)}</span> : null}
+          </p>
+          <p className="truncate text-[12px] text-muted">{status ? doing : ' '}</p>
+        </div>
+      </div>
+      <Button variant="secondary" icon={<Trash2 size={14} />} loading={clearing} disabled={!count} onClick={() => void clear()}>
+        Clear sounds
+      </Button>
+    </div>
   )
 }
 

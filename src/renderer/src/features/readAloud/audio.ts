@@ -99,6 +99,11 @@ export class ClipPlayer {
     })
   }
 
+  /** The audio element playing now (sound effects time their words by its clock); null between clips. */
+  get media(): HTMLAudioElement | null {
+    return this.el
+  }
+
   pause(): void {
     this.el?.pause()
   }

@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { openScene } from '@/features/memory/openScene'
+import { mixer } from '@/features/sounds/mixer'
 import { playRate } from './audio'
 import { FollowAlong } from './follow'
 import { barRoom, readingPlace } from './highlight'
@@ -173,6 +174,8 @@ export function stopReading(): void {
   if (!session?.active) {
     // Keep reading was opening the next scene: that ends too.
     if (useReading.getState().bar?.phase === 'starting') setBar({ phase: 'stopped', who: '', how: '', note: 'Stopped.', fix: null })
+    // Sound effects: an ambience kept for the next scene goes too.
+    mixer.stop()
     return
   }
   session.stop(true, { phase: 'stopped', note: 'Stopped.', fix: null })
@@ -183,6 +186,8 @@ export function closeReading(): void {
   clearCarryOn()
   session?.stop(false)
   session = null
+  // Sound effects: an ambience kept for the next scene goes too.
+  mixer.stop()
   setBar(null)
   useReading.setState({ sceneId: null })
 }
@@ -267,7 +272,11 @@ function clearCarryOn(): void {
   carryOnTimer = null
 }
 
-const finished = (note: string): void => setBar({ phase: 'finished', who: '', how: '', note, fix: null })
+const finished = (note: string): void => {
+  // Sound effects: no scene to carry on into, so the ambience fades out.
+  mixer.endBed()
+  setBar({ phase: 'finished', who: '', how: '', note, fix: null })
+}
 
 /** The scene's words have all been read: on into the next scene (Keep reading), or the bar says it is done. */
 async function carryOn(s: Session): Promise<void> {
@@ -350,7 +359,10 @@ function watch(): void {
     if (
       speech &&
       was &&
-      (speech.markSpeakers !== was.markSpeakers || speech.sounds !== was.sounds || speech.steadyNarrator !== was.steadyNarrator)
+      (speech.markSpeakers !== was.markSpeakers ||
+        speech.sounds !== was.sounds ||
+        speech.steadyNarrator !== was.steadyNarrator ||
+        speech.soundEffects !== was.soundEffects)
     )
       session?.settingsChanged()
   })

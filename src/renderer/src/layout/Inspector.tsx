@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { AudioLines } from 'lucide-react'
 import type { ID } from '@shared/types'
 import { Tabs, TabsContent, TabsList } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -10,9 +11,19 @@ import { GenerationsPanel } from '@/features/generate/GenerationsPanel'
 import { PeekPanel } from '@/features/peek/PeekPanel'
 import { AskPanel } from '@/features/ask/AskPanel'
 import { IssuesPanel, IssuesTabCount } from '@/features/issues/IssuesPanel'
+import { SoundsPanel } from '@/features/sounds/SoundsPanel'
 
-const TAB_LABELS: Record<InspectorTab, string> = { card: 'Scene card', context: 'Context', cast: 'Cast', issues: 'Issues', drafts: 'Drafts' }
+const TAB_LABELS: Record<InspectorTab, string> = {
+  card: 'Scene card',
+  context: 'Context',
+  cast: 'Cast',
+  issues: 'Issues',
+  drafts: 'Drafts',
+  sounds: 'Sounds'
+}
 const TABS: InspectorTab[] = ['card', 'context', 'cast', 'issues', 'drafts']
+/** With sound effects on, the Sounds tab comes last. */
+const TABS_WITH_SOUNDS: InspectorTab[] = [...TABS, 'sounds']
 
 /** "Scene card", or "Card" when the panel is narrow (a screen reader still hears "Scene card"). */
 function CardLabel(): React.JSX.Element {
@@ -26,6 +37,18 @@ function CardLabel(): React.JSX.Element {
   )
 }
 
+/** "Sounds", or a speaker when the panel is narrow (a screen reader still hears "Sounds"). */
+function SoundsLabel(): React.JSX.Element {
+  return (
+    <>
+      <span className="@max-[395px]:sr-only">Sounds</span>
+      <span aria-hidden title="Sounds" className="@min-[396px]:hidden">
+        <AudioLines size={15} />
+      </span>
+    </>
+  )
+}
+
 /**
  * The right-hand panel beside a scene: its card, the briefing a draft would get, who is in it, and
  * its drafts. An entry shown beside the page (Ctrl+click on a name, or the Cast tab) takes the
@@ -34,7 +57,11 @@ function CardLabel(): React.JSX.Element {
  */
 export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // Kept in the store, so coming back from "What the AI saw" shows the Drafts tab again.
-  const tab = useApp((s) => s.inspectorTab)
+  const stored = useApp((s) => s.inspectorTab)
+  // The Sounds tab shows while sound effects are on (they play under Read aloud); off, its place falls back to the card.
+  const sounds = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
+  const tab: InspectorTab = stored === 'sounds' && !sounds ? 'card' : stored
+  const tabs = sounds ? TABS_WITH_SOUNDS : TABS
   const setTab = useApp((s) => s.setInspectorTab)
   const peekId = useApp((s) => s.peekEntryId)
   const askOpen = useApp((s) => s.askOpen)
@@ -68,11 +95,17 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <TabsList
           tall
           // Five tabs fit the panel at its narrowest (260 px): a little less room around each, and "Card" for
-          // "Scene card" (still read out in full) below 330 px. The Issues tab's count sits over its corner.
-          className="px-1! *:px-1 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5"
-          items={TABS.map((value) => ({
+          // "Scene card" (still read out in full) below 330 px. The Issues tab's count sits over its corner. With the
+          // Sounds tab (six), a speaker stands for "Sounds" below 396 px, and the tabs sit a little closer: below
+          // 300 px with no gap, and from 380 px with less room around each until 440 px.
+          className={
+            sounds
+              ? 'px-1! *:px-1 @max-[299px]:gap-0! @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2 @min-[440px]:*:px-2.5'
+              : 'px-1! *:px-1 @min-[300px]:*:px-1.5 @min-[380px]:px-2! @min-[380px]:*:px-2.5'
+          }
+          items={tabs.map((value) => ({
             value,
-            label: value === 'card' ? <CardLabel /> : TAB_LABELS[value],
+            label: value === 'card' ? <CardLabel /> : value === 'sounds' ? <SoundsLabel /> : TAB_LABELS[value],
             badge: value === 'issues' ? <IssuesTabCount sceneId={sceneId} /> : undefined
           }))}
         />
@@ -91,6 +124,11 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <TabsContent value="drafts" className="overflow-auto">
           <GenerationsPanel key={sceneId} sceneId={sceneId} />
         </TabsContent>
+        {sounds ? (
+          <TabsContent value="sounds" className="overflow-auto">
+            <SoundsPanel key={sceneId} sceneId={sceneId} />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   )

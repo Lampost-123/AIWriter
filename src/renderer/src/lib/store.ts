@@ -124,7 +124,8 @@ interface AppState {
   setAskOpen(open: boolean): void
 }
 
-export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast' | 'issues'
+/** 'sounds': the Sounds tab, shown while sound effects are on (features/sounds/SoundsPanel.tsx). */
+export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast' | 'issues' | 'sounds'
 
 /**
  * Opens the story and scene Adam was last in. The last place anywhere (lastStoryId, lastSceneId)
