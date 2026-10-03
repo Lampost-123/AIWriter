@@ -9,7 +9,9 @@ MCreader's routes, with the same requests and replies:
 * `/v1/warmup`, `/v1/unload`, `/shutdown` — load an engine now, give the memory back, stop.
 
 Poor Man's Holodeck's dictation: `/v1/audio/transcriptions` takes a WAV clip and answers `{"text": ...}`.
-AI Write's own: `/v1/dictation` says which dictation engine is chosen and loaded, and picks another.
+AI Write's own: `/v1/dictation` says which dictation engine is chosen and loaded, and picks another;
+`/v1/sounds/generate` makes one sound effect (Stable Audio Open, app/engines/sound_engine.py); `/v1/align` says
+when each word of a spoken clip is heard (with a dictation model), so a sound fires on its word.
 
 Everything is bound to this computer and holds no credentials, so requests are not authenticated;
 nothing here should ever be exposed to a network. A web page open in a browser on this computer can't
@@ -18,6 +20,7 @@ something only from a program that means to send it (AI Write's header, or a JSO
 """
 
 import asyncio
+import io
 import os
 import tempfile
 import threading
@@ -34,7 +37,8 @@ from . import config
 from . import engines as engine_pool
 from . import stt
 from .audio import SAMPLE_RATE, tail_silence, to_wav
-from .engines import EngineError
+from .engines import EngineBusy, EngineError
+from .engines.sound_engine import KINDS as SOUND_KINDS, clamp_seconds, clamp_takes
 from .guard import Guard
 from .lifeline import end_with
 
@@ -49,11 +53,15 @@ DICTATION_FAILED = (
 LOAD_FAILED = (
     "That dictation model couldn’t be loaded. Download it again in Settings › Read aloud and dictation, or pick the other one."
 )
+# The longest description a sound is made from.
+MAX_SOUND_PROMPT = 300
+SOUND_FAILED = "The sound couldn’t be made. Try again; if it keeps happening, restart the speech engine."
+ALIGN_FAILED = "The words in that clip couldn’t be timed."
 
 
 def _unload_everything() -> list[str]:
     done = []
-    for engine in engine_pool.all_engines():
+    for engine in engine_pool.every_engine():
         if engine.loaded:
             try:
                 engine.unload()
@@ -206,6 +214,11 @@ def health() -> dict:
         "engines": engines,
         "ready": any(e["ready"] for e in engines),
         "dictation": _dictation(),
+        # The sound effects (not a voice engine): {ready, loaded, detail, loadError, beside}. `beside`: they can sit
+        # beside the voices on the graphics card now (both loaded, or the one that isn't would fit).
+        "sounds": engine_pool.sounds_status(),
+        # The dictation model that times the words of a spoken clip (/v1/align), or None when none is downloaded.
+        "aligner": stt.aligner(),
     }
 
 
@@ -276,6 +289,104 @@ async def transcribe(request: Request) -> dict:
         traceback.print_exc()
         raise HTTPException(503, DICTATION_FAILED) from exc
     return {"text": text}
+
+
+class SoundBody(BaseModel):
+    """One sound: what it is, an effect or ambience, how long (clamped), how many takes CLAP picks from, the seed."""
+
+    prompt: str = ""
+    kind: str = "effect"
+    seconds: float | None = None
+    takes: int | None = None
+    seed: int | None = None
+
+
+def _sound_wav(samples, sr: int) -> bytes:
+    import soundfile as sf
+
+    buf = io.BytesIO()
+    sf.write(buf, samples, sr, format="WAV", subtype="PCM_16")
+    return buf.getvalue()
+
+
+@app.post("/v1/sounds/generate")
+async def make_sound(body: SoundBody) -> Response:
+    """One sound effect or ambience as a 44.1 kHz stereo WAV; one at a time (the others wait).
+
+    400 for a request it can't make sense of. 503 with plain words when the sound effects aren't downloaded, can't
+    load, or can't run now; `x-sound-retry: 1` on a 503 means it will likely work later (the voices had the graphics
+    card), so AI Write tries again then.
+    """
+    prompt = (body.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Say what the sound is.")
+    if len(prompt) > MAX_SOUND_PROMPT:
+        raise HTTPException(400, f"That description is {len(prompt)} characters; keep it to {MAX_SOUND_PROMPT} or fewer.")
+    kind = (body.kind or "effect").strip().lower()
+    if kind not in SOUND_KINDS:
+        raise HTTPException(400, "A sound is an effect or ambience.")
+    seconds = clamp_seconds(kind, body.seconds)
+    takes = clamp_takes(body.takes)
+    seed = None if body.seed is None else int(body.seed) % 2**32
+    engine = engine_pool.sound()
+    ok, why = engine.available()
+    if not ok:
+        raise HTTPException(503, why)
+    try:
+        made = await asyncio.to_thread(engine.make, prompt, kind, seconds, takes, seed)
+    except EngineBusy as exc:
+        raise HTTPException(503, str(exc), headers={"x-sound-retry": "1"}) from exc
+    except EngineError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — plain words for AI Write, the details in the log
+        print("Sound effects failed:", flush=True)
+        traceback.print_exc()
+        raise HTTPException(503, SOUND_FAILED) from exc
+    return Response(
+        content=_sound_wav(made["samples"], made["sr"]),
+        media_type="audio/wav",
+        headers={
+            "x-sound-score": f"{made['score']:.4f}",
+            "x-sound-seconds": f"{made['seconds']:.3f}",
+            "cache-control": "no-store",
+        },
+    )
+
+
+@app.post("/v1/align")
+async def align(request: Request) -> dict:
+    """A spoken clip (WAV) → when each word is heard: {"words": [{"word", "start", "end"}], "engine"}. The clip is
+    deleted as soon as it is heard. 503 "no-aligner" when no dictation model is downloaded; 503 "busy" (with
+    `x-align-retry: 1`) while dictation is using the model, which always goes first."""
+    data = await request.body()
+    if len(data) < 44:
+        raise HTTPException(400, "No audio.")
+    if len(data) > MAX_CLIP_BYTES:
+        raise HTTPException(413, "That clip is too long to time its words.")
+    if stt.aligner() is None:
+        raise HTTPException(503, "no-aligner")
+
+    def run() -> tuple[list[dict], str]:
+        handle = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        handle.write(data)
+        handle.close()
+        try:
+            return stt.align(handle.name)
+        finally:
+            os.remove(handle.name)
+
+    try:
+        words, engine = await asyncio.to_thread(run)
+    except stt.AlignBusy as exc:
+        # Dictation goes first; AI Write places the sounds by an estimate meanwhile.
+        raise HTTPException(503, "busy", headers={"x-align-retry": "1"}) from exc
+    except stt.DictationError as exc:
+        raise HTTPException(503, "no-aligner") from exc
+    except Exception as exc:  # noqa: BLE001 — the details in the log
+        print("Timing the words failed:", flush=True)
+        traceback.print_exc()
+        raise HTTPException(503, ALIGN_FAILED) from exc
+    return {"words": words, "engine": engine}
 
 
 @app.get("/v1/dictation")

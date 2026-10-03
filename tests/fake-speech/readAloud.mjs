@@ -7,6 +7,8 @@
 //                                  gets the 503 the real server sends when Breeze can't load.
 //   GET  /__spoken                 every speech request's body so far (input, voice, voice_design, delivery...), so
 //                                  tests can see which voice read which line
+// Each clip made is remembered with its words, so /v1/align (sounds.mjs) can say when each word is heard in it.
+import { rememberSpoken } from './sounds.mjs'
 
 const PRESETS = [
   ['narrator', 'Narrator', '', 'warm, clear, unhurried', true],
@@ -69,6 +71,13 @@ function silence(seconds) {
   return wav
 }
 
+/** A small number from the words (inaudible as one sample), so different lines make different clips. */
+function textMark(text) {
+  let h = 0
+  for (const c of text) h = (h * 31 + c.codePointAt(0)) % 997
+  return h + 1
+}
+
 export const routes = {
   'GET /v1/voices': (req) => {
     const engine = new URL(req.url ?? '/', 'http://localhost').searchParams.get('engine')
@@ -90,7 +99,11 @@ export const routes = {
     if (!input.trim()) return { status: 400, body: { detail: 'Nothing to say.' } }
     if (input.includes('FAIL-SPEECH')) return { status: 500, body: { detail: 'Breeze failed on this text.' } }
     const seconds = Math.min(3, Math.max(0.3, input.length * 0.02))
-    return { headers: { 'Content-Type': 'audio/wav' }, body: silence(seconds) }
+    const wav = silence(seconds)
+    // Clips of the same length are the same silence: told apart by a last sample that depends on the words.
+    if (wav.length > 46) wav.writeInt16LE(textMark(input), wav.length - 2)
+    rememberSpoken(state, wav, input)
+    return { headers: { 'Content-Type': 'audio/wav' }, body: wav }
   },
 
   'GET /__spoken': (_req, _body, state) => ({ body: state.spoken ?? [] })

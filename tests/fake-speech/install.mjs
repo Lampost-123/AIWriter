@@ -10,8 +10,10 @@
 //                  downloaded (only 'check' leaves it; 'weights' removes it, as the real steps do)
 //   Parakeet       unpacked aside (models/parakeet/.unpack) and moved into place once all four files are there
 //   Whisper        its snapshot, with a half-downloaded file until the step ends
+//   sound effects  their environment ('venv', made afresh), Stable Audio Open's and CLAP's snapshots ('weights': one
+//                  file first, the rest last), and their mark (only 'check' leaves it; 'weights' removes it)
 //
-//   node install.mjs <kind> <step>      kind: server, voices, parakeet, whisper or python
+//   node install.mjs <kind> <step>      kind: server, voices, parakeet, whisper, sounds or python
 //
 // What a step does comes from the JSON file AIWRITE_FAKE_SPEECH_CONTROL names (read each time, so a test
 // can change it between clicks): { "<kind>:<step>": mode } or { "<kind>": mode }, where mode is
@@ -52,15 +54,49 @@ const MARK = ['models', 'breeze', '.ready']
 const PARAKEET = 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8'
 const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
 const WHISPER = ['models', 'whisper', 'models--Systran--faster-whisper-base.en']
+const SOUND_SNAPSHOT = ['models', 'hf', 'hub', 'models--stabilityai--stable-audio-open-1.0', 'snapshots', 'fake']
+const SOUND_FILES = [
+  'model_index.json',
+  'transformer/config.json',
+  'transformer/diffusion_pytorch_model.safetensors',
+  'vae/config.json',
+  'vae/diffusion_pytorch_model.safetensors',
+  'text_encoder/config.json',
+  'text_encoder/model.safetensors',
+  'tokenizer/tokenizer_config.json',
+  'tokenizer/spiece.model',
+  'projection_model/config.json',
+  'projection_model/diffusion_pytorch_model.safetensors',
+  'scheduler/scheduler_config.json'
+]
+const CLAP_SNAPSHOT = ['models', 'hf', 'hub', 'models--laion--larger_clap_general', 'snapshots', 'fake']
+const CLAP_FILES = [
+  'config.json',
+  'preprocessor_config.json',
+  'tokenizer.json',
+  'tokenizer_config.json',
+  'special_tokens_map.json',
+  'vocab.json',
+  'merges.txt',
+  'model.safetensors'
+]
+const SOUND_MARK = ['models', 'sound', '.ready']
+// Each download's environment, emptied by its 'venv' step as `python -m venv --clear` empties it.
+const VENVS = { server: ['venv'], voices: ['venvs', 'breeze'], sounds: ['venvs', 'sound'] }
 
 /** What a step leaves as it starts (what the real one fetches first). */
 function begin() {
   // As `python -m venv --clear`: whatever was in the environment goes.
-  if (step === 'venv') rmSync(join(home, ...(kind === 'voices' ? ['venvs', 'breeze'] : ['venv'])), { recursive: true, force: true })
+  if (step === 'venv') rmSync(join(home, ...(VENVS[kind] ?? ['venv'])), { recursive: true, force: true })
   if (kind === 'voices' && step === 'weights') {
     // The voices may change from here on: they count as downloaded again only once checked.
     rmSync(join(home, ...MARK), { force: true })
     for (const f of ['config.json', 'tokenizer.json', 'tokenizer_config.json']) touch(...BREEZE_SNAPSHOT, f)
+  }
+  if (kind === 'sounds' && step === 'weights') {
+    // The sound effects may change from here on: they count as downloaded again only once checked.
+    rmSync(join(home, ...SOUND_MARK), { force: true })
+    touch(...SOUND_SNAPSHOT, 'model_index.json')
   }
   if (kind === 'parakeet' && step === 'model') touch('models', 'parakeet', '.unpack', PARAKEET, 'encoder.int8.onnx')
   if (kind === 'whisper' && step === 'model') {
@@ -81,6 +117,12 @@ function end() {
     writeFileSync(index, JSON.stringify({ weight_map: { 'talker.embed': 'model-00001-of-00001.safetensors' } }))
   }
   if (kind === 'voices' && step === 'check') touch(...MARK)
+  if (kind === 'sounds' && step === 'venv') touch('venvs', 'sound', ...python)
+  if (kind === 'sounds' && step === 'weights') {
+    for (const f of SOUND_FILES) touch(...SOUND_SNAPSHOT, ...f.split('/'))
+    for (const f of CLAP_FILES) touch(...CLAP_SNAPSHOT, f)
+  }
+  if (kind === 'sounds' && step === 'check') touch(...SOUND_MARK)
   if (kind === 'parakeet' && step === 'model') {
     const aside = join(home, 'models', 'parakeet', '.unpack')
     for (const f of PARAKEET_FILES) touch('models', 'parakeet', '.unpack', PARAKEET, f)
@@ -95,15 +137,23 @@ function end() {
   }
 }
 
-const NAMES = { server: 'The speech engine', voices: 'The voices', parakeet: 'Parakeet', whisper: 'Whisper', python: 'Python' }
+const NAMES = {
+  server: 'The speech engine',
+  voices: 'The voices',
+  parakeet: 'Parakeet',
+  whisper: 'Whisper',
+  sounds: 'The sound effects',
+  python: 'Python'
+}
 const pipStep = ['packages', 'torch', 'pip', 'torch-check'].includes(step)
-const total = kind === 'voices' ? 3_200_000_000 : kind === 'whisper' ? 145_000_000 : kind === 'parakeet' ? 482_000_000 : 24_000_000
+const TOTALS = { voices: 3_200_000_000, sounds: 3_300_000_000, whisper: 145_000_000, parakeet: 482_000_000 }
+const total = TOTALS[kind] ?? 24_000_000
 const ticks = mode === 'slow' ? 120 : 4
 
-// The Hugging Face key goes to the voices' weights step only. Any other step that gets it fails loudly, and
-// the weights step prints it (as a careless tool might), so the tests can see AI Write hides it.
+// The Hugging Face key goes to the voices' and the sound effects' weights steps only. Any other step that gets it
+// fails loudly, and the weights steps print it (as a careless tool might), so the tests can see AI Write hides it.
 const key = process.env.HF_TOKEN
-if (key && !(kind === 'voices' && step === 'weights')) {
+if (key && !((kind === 'voices' || kind === 'sounds') && step === 'weights')) {
   say(`@@error The Hugging Face key reached ${kind}:${step}, which must never have it.`)
   process.exit(1)
 }
@@ -112,16 +162,20 @@ if (key) {
   touch('models', 'hf', 'key-was-given')
 }
 
+// What Hugging Face asks to be accepted: the voices' page, or the sound effects' model's.
+const page = kind === 'sounds' ? 'https://huggingface.co/stabilityai/stable-audio-open-1.0' : 'https://huggingface.co/BreezeBlue/breeze-tts-2'
+const fetching = kind === 'sounds' ? `Downloading Stable Audio Open from ${page}` : `Downloading Breeze TTS 2’s voices from ${page}`
+
 if (mode === 'refused' && key) {
-  say('Downloading Breeze TTS 2’s voices from https://huggingface.co/BreezeBlue/breeze-tts-2')
+  say(fetching)
   say('huggingface_hub.errors.HfHubHTTPError: 401 Client Error: Unauthorized for url: https://huggingface.co/api/models/BreezeBlue')
   say('@@key')
   say('@@error Hugging Face didn’t accept the saved key. Make a new key with read access, save it, then Try again.')
   process.exit(3)
 }
 if (mode === 'gated' || ((mode === 'licence' || mode === 'refused') && !key)) {
-  say('Downloading Breeze TTS 2’s voices from https://huggingface.co/BreezeBlue/breeze-tts-2')
-  say('@@licence https://huggingface.co/BreezeBlue/breeze-tts-2')
+  say(fetching)
+  say(`@@licence ${page}`)
   process.exit(3)
 }
 
@@ -150,6 +204,13 @@ for (let i = 1; i <= ticks; i++) {
 }
 
 if (pipStep) say(`Successfully installed fake-${kind}-1.0`)
+if (step === 'check' && kind === 'sounds') {
+  say(`@@gpu ${process.env.AIWRITE_FAKE_SPEECH_GPU || 'none'}`)
+  if (!existsSync(join(home, ...CLAP_SNAPSHOT, 'model.safetensors'))) {
+    say('@@error The sound effects didn’t finish downloading. Try again; what is already downloaded is kept.')
+    process.exit(1)
+  }
+}
 if (step === 'check' && kind === 'voices') {
   say(`@@gpu ${process.env.AIWRITE_FAKE_SPEECH_GPU || 'none'}`)
   // As the real check: the mark only when what came before is all there.

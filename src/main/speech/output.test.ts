@@ -121,6 +121,21 @@ describe('what went wrong, in plain words', () => {
     expect(f.need).toBe('licence')
     expect(f.link).toBe('https://huggingface.co/BreezeBlue/breeze-tts-2')
     expect(f.error).toMatch(/licence to be accepted/)
+    // The sound effects' model has its own licence, and says so by name.
+    const sounds = explainFailure(['@@licence https://huggingface.co/stabilityai/stable-audio-open-1.0'], fallback)
+    expect(sounds).toEqual({
+      error: 'Stable Audio Open asks you to accept its licence on Hugging Face before the sound effects can download.',
+      need: 'licence',
+      link: 'https://huggingface.co/stabilityai/stable-audio-open-1.0'
+    })
+  })
+
+  it('says when a check failed on missing files rather than its environment, so Try again keeps the environment', () => {
+    expect(parseLine('@@keep-environment')).toEqual({ kind: 'keep' })
+    const lines = ['Checking the sound effects…', '@@keep-environment', '@@error The sound effects didn’t finish downloading.']
+    const missing = explainFailure(lines, fallback)
+    expect(missing).toMatchObject({ error: 'The sound effects didn’t finish downloading.', keepEnvironment: true })
+    expect(explainFailure(['@@error Part of the sound effects didn’t install.'], fallback).keepEnvironment).toBeUndefined()
   })
 
   it('asks for a new key when Hugging Face turned the saved one down, not for the licence again', () => {

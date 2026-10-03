@@ -105,6 +105,27 @@ export interface PlannedClip {
   /** The AI is marking who says this or how, and will be done soon: wait a little for 'readAloud:marked' before speaking it. */
   waits: boolean
   clip: ClipRequest
+  /**
+   * Sound effects (contracts/sounds.ts), when they are on: the ambience playing as this clip starts (a library sound id,
+   * or null for none), so stepping back or ahead puts the right one on.
+   */
+  bed?: string | null
+  /** How loud that ambience is (its sound's own volume, 1 when missing). */
+  bedVolume?: number
+  /** Sound effects: the sounds heard during this clip, in order. */
+  sounds?: ClipSound[]
+}
+
+/** A sound heard during a clip: an effect firing, or an ambience starting or ending, as the word at `at` is spoken. */
+export interface ClipSound {
+  cueId: string
+  /** The library sound ('' when it hasn't one yet: nothing plays). */
+  soundId: string
+  edge: 'fire' | 'start' | 'end'
+  /** How loud it is (its sound's own volume, 1 when missing). Muted sounds and muted scenes aren't in a plan at all. */
+  volume?: number
+  /** Where in the clip's paragraph's text, [from, to) of the clip. */
+  at: number
 }
 
 export interface ReadingPlan {

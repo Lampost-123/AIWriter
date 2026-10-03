@@ -338,6 +338,13 @@ export interface ModelChoice {
  */
 export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
 
+/**
+ * The jobs with a Thinking level of their own: every job, and those with no model choice of their own: 'sounds', the AI
+ * marking of sound effects under Read aloud (the Read aloud model); 'sample', a sample passage for the style guide
+ * ("Write a sample for me"), and 'polish', the polish pass after a draft (both the writer model).
+ */
+export type ThinkingJob = Job | 'sounds' | 'sample' | 'polish'
+
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
 /** The page's look (Settings › Appearance) and the writing-by-hand switches (Settings › Editor). */
@@ -372,20 +379,14 @@ export interface WritingGoals {
 /** How much a model thinks before it answers, set for each job: 'auto' leaves it to the model. */
 export type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
 
-/**
- * Jobs with their own Thinking but no model of their own: 'sample' writes a sample passage for the style guide
- * ("Write a sample for me") and 'polish' is the polish pass after a draft. Both use the writer model.
- */
-export type ThinkingJob = Job | 'sample' | 'polish'
-
 export type ThemeName = 'system' | 'light' | 'dark' | 'sepia'
 
 export interface Settings {
   libraryPath: string
   providers: ProviderConfig[]
   models: Record<Job, ModelChoice | null>
-  /** How much each job's model thinks before it answers. */
-  thinking: Record<Job, ThinkingLevel> & Partial<Record<Exclude<ThinkingJob, Job>, ThinkingLevel>>
+  /** How much each job's model thinks before it answers ('sounds': marking sound effects, with the Read aloud model). */
+  thinking: Record<ThinkingJob, ThinkingLevel>
   creativity: Creativity
   theme: ThemeName
   editor: EditorSettings
@@ -493,6 +494,13 @@ export interface SpeechSettings {
   keepReading: boolean
   /** "Follow along": keeps the sentence being read a third of the way down the page. */
   followAlong: boolean
+  /**
+   * "Sound effects and ambience" (contracts/sounds.ts): the AI marks the sounds of what is read, and they play under the
+   * voice. Off until Adam turns it on; it needs its own download.
+   */
+  soundEffects: boolean
+  /** How loud the sounds are under the voice, 0 to 1 (the default is low). */
+  soundVolume: number
   /** Spoken audio kept on disk, in GB (oldest first past it). */
   cacheLimitGb: number
   /** Dictation: which speech-to-text model the server loads at start ('none' until Adam picks one). */
@@ -697,6 +705,8 @@ export interface GenerationRecord extends GenerationSummary {
     min_p?: number
     /** The polish pass: the record of the draft it revised. */
     polishOf?: ID
+    /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
+    sounds?: boolean
   }
   direction: string
   blocks: ContextBlock[]

@@ -872,6 +872,7 @@ function HelperModel({
         </Card>
       )}
       {providers.length ? <ThinkingChoice job={job} about={words.thinking} /> : null}
+      {providers.length && job === 'speech' ? <SoundsThinking /> : null}
     </SettingsSection>
   )
 }
@@ -1215,8 +1216,17 @@ const THINKING_NAMES: Record<ThinkingJob, string> = {
   recipe: 'Recipe maker thinking',
   speech: 'Read aloud model thinking',
   sample: 'Thinking for sample passages',
-  polish: 'Thinking for the polish pass'
+  polish: 'Thinking for the polish pass',
+  sounds: 'Sound effects thinking'
 }
+
+/** Sound effects' own Thinking (marking the sounds uses the Read aloud model), shown while they are on. */
+function SoundsThinking(): React.JSX.Element | null {
+  const on = useApp((s) => !!s.settings?.speech?.soundEffects)
+  if (!on) return null
+  return <ThinkingChoice job="sounds" title="Thinking for sound effects" about="Choosing sounds doesn't need the model to think: Off is quickest." />
+}
+
 
 /**
  * How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model

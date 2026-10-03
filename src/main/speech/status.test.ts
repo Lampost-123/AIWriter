@@ -11,6 +11,7 @@ import {
   deviceName,
   dictationLoadProblem,
   readHealth,
+  soundsLoadProblem,
   startProblem,
   voicesLoadProblem,
   type Health,
@@ -32,7 +33,7 @@ function parts(over: Partial<StatusParts> = {}): StatusParts {
     problem: '',
     repair: false,
     picked: 'none',
-    installed: { server: false, voices: null, parakeet: false, whisper: false },
+    installed: { server: false, voices: null, parakeet: false, whisper: false, sounds: false },
     nvidia: null,
     download: null,
     queued: [],
@@ -51,7 +52,29 @@ describe('what the server says about itself', () => {
       service: 'aiwrite-speech',
       device: 'CUDA · NVIDIA GeForce RTX 4090',
       voices: { ready: true, loaded: false, loadError: '' },
-      dictation: { engine: 'whisper', loaded: null, parakeet: true, whisper: true, loadErrors: { parakeet: '', whisper: '' } }
+      dictation: { engine: 'whisper', loaded: null, parakeet: true, whisper: true, loadErrors: { parakeet: '', whisper: '' } },
+      sounds: { ready: true, loaded: false, loadError: '', beside: true },
+      aligner: 'whisper'
+    })
+  })
+
+  it('reads the sound effects and the model that times words', async () => {
+    const options: FakeSpeechOptions = { beside: false, aligner: 'parakeet' }
+    const f = await start(options)
+    expect(await fetchHealth(f.url)).toMatchObject({
+      sounds: { ready: true, loaded: false, loadError: '', beside: false },
+      aligner: 'parakeet'
+    })
+    options.sounds = false
+    options.aligner = null
+    expect(await fetchHealth(f.url)).toMatchObject({ sounds: { ready: false }, aligner: null })
+    options.sounds = true
+    options.soundsLoadError = 'OutOfMemoryError: CUDA out of memory.'
+    expect((await fetchHealth(f.url))?.sounds).toEqual({
+      ready: true,
+      loaded: false,
+      loadError: 'OutOfMemoryError: CUDA out of memory.',
+      beside: false
     })
   })
 
@@ -101,6 +124,34 @@ describe('what the server says about itself', () => {
     }
   })
 
+  it('makes sounds and times words in the real server’s shapes (the fake, for the app’s tests)', async () => {
+    const options: FakeSpeechOptions = { guard: true }
+    const f = await start(options)
+    const post = (path: string, body: RequestInit['body'], type: string): Promise<Response> =>
+      fetch(`${f.url}${path}`, { method: 'POST', headers: { 'content-type': type }, body })
+    const made = await post('/sounds/generate', JSON.stringify({ prompt: 'a door slams', kind: 'ambience', seconds: 45 }), 'application/json')
+    expect(made.status).toBe(200)
+    expect(made.headers.get('content-type')).toBe('audio/wav')
+    // Clamped as the real server clamps it: ambience is 30 seconds at most.
+    expect(made.headers.get('x-sound-seconds')).toBe('30.000')
+    expect(Number(made.headers.get('x-sound-score'))).toBeGreaterThan(0)
+    const wav = Buffer.from(await made.arrayBuffer())
+    expect([wav.readUInt16LE(22), wav.readUInt32LE(24)]).toEqual([2, 44100])
+    expect((await post('/sounds/generate', JSON.stringify({ prompt: '' }), 'application/json')).status).toBe(400)
+    options.soundsBusy = true
+    const busy = await post('/sounds/generate', JSON.stringify({ prompt: 'a bell' }), 'application/json')
+    expect([busy.status, busy.headers.get('x-sound-retry')]).toEqual([503, '1'])
+    // A clip it spoke has its words, spread over the clip.
+    const spoken = await post('/audio/speech', JSON.stringify({ input: 'The door slammed shut.' }), 'application/json')
+    const clip = Buffer.from(await spoken.arrayBuffer())
+    const aligned = (await (await post('/align', clip, 'audio/wav')).json()) as { words: { word: string }[]; engine: string }
+    expect(aligned.engine).toBe('whisper')
+    expect(aligned.words.map((w) => w.word)).toEqual(['The', 'door', 'slammed', 'shut.'])
+    options.aligner = null
+    const none = await post('/align', clip, 'audio/wav')
+    expect([none.status, await none.json()]).toEqual([503, { detail: 'no-aligner' }])
+  })
+
   it('is nothing when nothing answers, or something else does', async () => {
     const port = await freePort('127.0.0.1', 18766, 18866)
     expect(await fetchHealth(`http://127.0.0.1:${port}/v1`, 500)).toBeNull()
@@ -111,7 +162,9 @@ describe('what the server says about itself', () => {
       service: '',
       device: 'CPU',
       voices: { ready: true, loaded: true, loadError: '' },
-      dictation: null
+      dictation: null,
+      sounds: null,
+      aligner: null
     })
   })
 
@@ -235,7 +288,52 @@ describe('the status Settings shows', () => {
     // Loaded since, or not the model picked: nothing to say.
     expect(buildStatus(parts({ picked: 'parakeet', installed, health: health('MemoryError', '', true) })).loadProblems.voices).toBeNull()
     expect(buildStatus(parts({ picked: 'whisper', installed, health: health('', 'RuntimeError: x') })).loadProblems.dictation).toBeNull()
-    expect(buildStatus(parts({ installed, health: null })).loadProblems).toEqual({ voices: null, dictation: null })
+    expect(buildStatus(parts({ installed, health: null })).loadProblems).toEqual({ voices: null, dictation: null, sounds: null })
+  })
+
+  it('counts the sound effects ready only when downloaded here and the server says it can make them', () => {
+    const health = (sounds: Health['sounds']): Health => ({
+      service: 'aiwrite-speech',
+      device: 'CUDA · NVIDIA GeForce RTX 5070 Ti',
+      voices: { ready: true, loaded: false, loadError: '' },
+      dictation: null,
+      sounds,
+      aligner: 'whisper'
+    })
+    const installed = { server: true, voices: 'own' as const, parakeet: false, whisper: true, sounds: true }
+    const ready = { ready: true, loaded: true, loadError: '', beside: true }
+    expect(buildStatus(parts({ installed, health: health(ready) }))).toMatchObject({
+      soundsReady: true,
+      loaded: { sounds: true },
+      loadProblems: { sounds: null }
+    })
+    // Not downloaded here (another server has them), not answering, or the server can't make them.
+    expect(buildStatus(parts({ installed: { ...installed, sounds: false }, health: health(ready) })).soundsReady).toBe(false)
+    expect(buildStatus(parts({ installed, health: null }))).toMatchObject({ soundsReady: false, loaded: { sounds: false } })
+    expect(buildStatus(parts({ installed, health: health({ ...ready, ready: false }) })).soundsReady).toBe(false)
+    expect(buildStatus(parts({ installed, health: health(null) })).soundsReady).toBe(false)
+    // Couldn't load the last time: still ready (the next sound tries again), with why and the fix.
+    const missing = "ModuleNotFoundError: No module named 'diffusers'"
+    const broken = buildStatus(parts({ installed, health: health({ ...ready, loaded: false, loadError: missing }) }))
+    expect(broken.soundsReady).toBe(true)
+    expect(broken.loadProblems.sounds).toEqual({
+      text: 'The sound effects couldn’t be loaded. Download them again below to set them up afresh (about 3 GB); the sound effects model already downloaded is kept.',
+      repair: true
+    })
+  })
+
+  it('says why the sound effects couldn’t be loaded, in plain words, and offers downloading again only where it repairs them', () => {
+    expect(soundsLoadProblem('torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.2 GiB', true).repair).toBe(false)
+    expect(soundsLoadProblem('CUDA error: no kernel image is available for execution on the device', true).text).toMatch(/too old/)
+    expect(soundsLoadProblem('RuntimeError: CUDA driver version is insufficient', true).text).toMatch(/NVIDIA driver/)
+    expect(soundsLoadProblem('it stopped while loading.', true)).toMatchObject({ repair: true })
+    expect(soundsLoadProblem('it stopped while loading.', false)).toEqual({
+      text: 'The speech server couldn’t load the sound effects. Restart it, then try again.',
+      repair: false
+    })
+    for (const text of [true, false].map((d) => soundsLoadProblem('x', d).text)) {
+      expect(text).not.toMatch(/\b(torch|CUDA|diffusers|venv|pip|model\.safetensors)\b/i)
+    }
   })
 
   it('offers downloading again only where it repairs what couldn’t be loaded', () => {

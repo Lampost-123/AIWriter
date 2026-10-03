@@ -40,6 +40,7 @@ import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
 import { goToStartScreen } from '@/features/start/home'
 import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
+import { showSounds } from '@/features/sounds/soundsStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -339,6 +340,10 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'make-recipe':
         startMaking()
+        return
+      // ----- Sound effects -----
+      case 'sounds':
+        if (a.sceneId) await showSounds(a.sceneId)
         return
       // ----- Writing by hand -----
       case 'bold':

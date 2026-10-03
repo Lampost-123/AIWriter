@@ -38,7 +38,9 @@ export interface PlanInput {
   serverVenv: boolean
   /** Breeze's environment is there, in AI Write's own copy (false also sets it up afresh). */
   breezeVenv: boolean
-  /** The Hugging Face key, when one is saved. Only the voices' weights step gets it. */
+  /** The sound effects' environment is there (false also sets it up afresh). */
+  soundVenv?: boolean
+  /** The Hugging Face key, when one is saved. Only the voices' and the sound effects' weights steps get it. */
   hfKey: string | null
   /** The dictation models downloaded: their engines live in the server's environment, so setting it up afresh puts them back. */
   dictation?: DictationModel[]
@@ -49,6 +51,24 @@ export const TORCH = ['torch==2.9.1', 'torchaudio==2.9.1']
 export const TORCH_INDEX = 'https://download.pytorch.org/whl/cu128'
 /** Breeze's own requirements, less its test tools (MCreader's list). */
 export const BREEZE_PACKAGES = ['qwen-tts==0.1.1', 'transformers==4.57.3', 'numpy>=2.0', 'soundfile>=0.13', 'librosa', 'huggingface_hub']
+/** The sound effects' PyTorch: the voices' own, with the torchvision built for it (diffusers imports it). */
+export const SOUND_TORCH = [...TORCH, 'torchvision==0.24.1']
+/**
+ * What runs Stable Audio Open and CLAP, at the versions tested together on Python 3.13 with that PyTorch. Not
+ * stable-audio-tools: its own pins would replace the CUDA build of PyTorch with the plain one.
+ */
+export const SOUND_PACKAGES = [
+  'diffusers==0.40.0',
+  'transformers==5.18.0',
+  'accelerate==1.15.0',
+  'huggingface_hub==1.33.0',
+  'safetensors==0.8.0',
+  'sentencepiece==0.2.2',
+  'einops==0.8.2',
+  'soundfile==0.14.0',
+  // Stable Audio Open's scheduler (diffusers' CosineDPMSolverMultistepScheduler) exists only with it.
+  'torchsde==0.2.6'
+]
 /** The dictation engines, as Poor Man's Holodeck installs them. */
 export const DICTATION_PACKAGES: Record<'parakeet' | 'whisper', string[]> = {
   parakeet: ['sherpa-onnx>=1.10'],
@@ -235,6 +255,65 @@ function voicesPlan(i: PlanInput): Step[] {
   return steps
 }
 
+/**
+ * The sound effects (Stable Audio Open, with CLAP to pick the best take) in their own environment: about 9 GB to
+ * download, about 12 GB on disk. Always into AI Write's own speech folder.
+ */
+function soundsPlan(i: PlanInput): Step[] {
+  const { paths } = i
+  const root = paths.home
+  const venv = join(root, 'venvs', 'sound')
+  const python = venvPython(venv, i.platform)
+  const steps: Step[] = []
+  if (!i.soundVenv) steps.push(venvStep('venv', 'Setting up Python for the sound effects', i.basePython, venv))
+  steps.push(pipUpgrade(python))
+  steps.push({
+    id: 'torch',
+    label: 'Downloading the sound effects’ graphics card part',
+    command: python,
+    args: [...PIP, '--progress-bar', 'raw', ...SOUND_TORCH, ...(i.platform === 'darwin' ? [] : ['--index-url', TORCH_INDEX])],
+    progress: 'files',
+    expect: 3.3e9,
+    fails: `The sound effects’ graphics card part didn’t finish downloading. ${TRY_AGAIN}`
+  })
+  steps.push({
+    id: 'packages',
+    label: 'Downloading the rest of the sound effects engine',
+    command: python,
+    args: [...PIP, '--progress-bar', 'raw', ...SOUND_PACKAGES],
+    progress: 'files',
+    expect: 130e6,
+    fails: `The sound effects engine didn’t finish downloading. ${TRY_AGAIN}`
+  })
+  if (i.platform !== 'darwin') {
+    steps.push({
+      id: 'torch-check',
+      label: 'Checking the graphics card part',
+      ...tool(paths, python, 'sound-torch'),
+      progress: 'files',
+      fails: `The sound effects’ graphics card part couldn’t be put in place. ${TRY_AGAIN}`
+    })
+  }
+  steps.push({
+    id: 'weights',
+    label: 'Downloading the sound effects model',
+    ...tool(paths, python, 'sound-weights', ['--root', root]),
+    env: { HF_HOME: join(root, 'models', 'hf'), ...(i.hfKey ? { HF_TOKEN: i.hfKey } : {}) },
+    progress: 'whole',
+    fails: 'The sound effects didn’t finish downloading. Check the internet connection and that there’s about 12 GB free, then Try again.'
+  })
+  steps.push({
+    id: 'check',
+    label: 'Checking the sound effects',
+    // Leaves the mark that says they are complete (models/sound/.ready).
+    ...tool(paths, python, 'sound-check', ['--root', root]),
+    progress: 'whole',
+    // Try again after this step fails sets their environment up afresh (index.ts).
+    fails: 'The sound effects didn’t install properly. Try again to set them up afresh; what is already downloaded is kept.'
+  })
+  return steps
+}
+
 /** Parakeet or Whisper: its engine in the server's environment, then its English model. */
 function dictationPlan(kind: 'parakeet' | 'whisper', i: PlanInput): Step[] {
   const { paths } = i
@@ -270,6 +349,7 @@ function dictationPlan(kind: 'parakeet' | 'whisper', i: PlanInput): Step[] {
 export function planFor(kind: SpeechDownloadKind, input: PlanInput): Step[] {
   if (kind === 'server') return serverPlan(input)
   if (kind === 'voices') return voicesPlan(input)
+  if (kind === 'sounds') return soundsPlan(input)
   return dictationPlan(kind, input)
 }
 
@@ -291,5 +371,6 @@ export const DOWNLOAD_NAMES: Record<SpeechDownloadKind, string> = {
   server: 'the speech engine',
   voices: 'the voices',
   parakeet: 'Parakeet',
-  whisper: 'Whisper'
+  whisper: 'Whisper',
+  sounds: 'the sound effects'
 }

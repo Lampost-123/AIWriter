@@ -1,6 +1,7 @@
 // Settings › Read aloud and dictation, the speech engine's parts: the status badge, "Start with AI Write",
 // the one-click downloads with their progress (everyday), and the server address, Check, the Hugging
-// Face key, where things are kept and removing them (More). Owned by the Speech engine part.
+// Face key, where things are kept and removing them (More). Owned by the Speech engine part. The sound
+// effects' download card (SoundsDownload.tsx) is made of the same pieces, exported below.
 import { AudioLines, CircleAlert, CircleCheck, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import type {
@@ -22,20 +23,21 @@ import { setSpeechStatus, useKnownSpeechStatus, useSpeechStatus } from './useSpe
 import { VOICES_NEEDS, voicesChecks } from './voiceNeeds'
 
 /** What each download is called in Settings, and its size. */
-const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
+export const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
   server: { name: 'the speech engine', size: 'about 150 MB' },
   voices: { name: 'the voices', size: 'about 12 GB' },
   parakeet: { name: 'Parakeet', size: 'about 1 GB' },
-  whisper: { name: 'Whisper', size: 'about 300 MB' }
+  whisper: { name: 'Whisper', size: 'about 300 MB' },
+  sounds: { name: 'the sound effects', size: 'about 12 GB' }
 }
 
 const HF_KEYS_PAGE = 'https://huggingface.co/settings/tokens'
 
-const linkClass =
+export const linkClass =
   'text-accent underline decoration-accent/50 underline-offset-2 transition-colors duration-150 hover:text-accent-hover hover:decoration-accent'
 
 /** Runs an action that answers with the status, and shows a problem as a toast. */
-async function act(run: () => Promise<SpeechStatus>, after?: () => Promise<void>): Promise<boolean> {
+export async function act(run: () => Promise<SpeechStatus>, after?: () => Promise<void>): Promise<boolean> {
   try {
     setSpeechStatus(await run())
     if (after) await after()
@@ -57,7 +59,7 @@ async function change(run: () => Promise<SpeechStatus>): Promise<void> {
 }
 
 /** Starts a download, or tries one again. The voices or a dictation model download the engine first, which turns “Start with AI Write” on. */
-const download = (kind: SpeechDownloadKind): Promise<boolean> => act(() => api.downloadSpeech(kind), refreshSettings)
+export const download = (kind: SpeechDownloadKind): Promise<boolean> => act(() => api.downloadSpeech(kind), refreshSettings)
 
 export function SpeechEngineSettings({ section }: { section: 'everyday' | 'more' }): React.JSX.Element | null {
   const status = useSpeechStatus({ poll: true })
@@ -65,7 +67,7 @@ export function SpeechEngineSettings({ section }: { section: 'everyday' | 'more'
 }
 
 /** What the rows are drawn with, hidden, until the status is known (it usually is already), so nothing below them jumps. */
-function standIn(runServer: boolean): SpeechStatus {
+export function standIn(runServer: boolean): SpeechStatus {
   return {
     server: 'not-running',
     voicesReady: false,
@@ -254,7 +256,7 @@ function StatusLine({ status }: { status: SpeechStatus }): React.JSX.Element | n
 }
 
 /** Why the voices or a dictation model couldn't be loaded, in plain words, and the download that repairs it. */
-function LoadProblem({ problem, repair }: { problem: SpeechLoadProblem; repair: ReactNode }): React.JSX.Element {
+export function LoadProblem({ problem, repair }: { problem: SpeechLoadProblem; repair: ReactNode }): React.JSX.Element {
   return (
     <div className="mt-3">
       <p className="text-[12.5px] leading-5 text-danger">{problem.text}</p>
@@ -263,7 +265,7 @@ function LoadProblem({ problem, repair }: { problem: SpeechLoadProblem; repair: 
   )
 }
 
-function Row({
+export function Row({
   icon,
   title,
   badge,
@@ -434,7 +436,7 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   )
 }
 
-const isPending = (s: SpeechStatus, kind: SpeechDownloadKind): boolean =>
+export const isPending = (s: SpeechStatus, kind: SpeechDownloadKind): boolean =>
   (s.download?.kind === kind && s.download.state === 'running') || !!s.queued?.includes(kind)
 
 // ---------- Downloads ----------
@@ -444,11 +446,11 @@ function comesNext(kind: SpeechDownloadKind, queued: SpeechDownloadKind[]): stri
   const name = KINDS[kind].name
   const at = queued.indexOf(kind)
   const when = at > 0 ? `after ${KINDS[queued[at - 1]].name}` : 'next'
-  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind === 'voices' ? 'download' : 'downloads'} ${when}.`
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind === 'voices' || kind === 'sounds' ? 'download' : 'downloads'} ${when}.`
 }
 
 /** The download card for `kind`: running, waiting, stopped by Cancel or failed. One that finished says so in a toast (useSpeechStatus). */
-function DownloadFor({ kind, status }: { kind: SpeechDownloadKind; status: SpeechStatus }): React.JSX.Element | null {
+export function DownloadFor({ kind, status }: { kind: SpeechDownloadKind; status: SpeechStatus }): React.JSX.Element | null {
   const d = status.download
   if (d?.kind === kind) return <DownloadCard download={d} />
   if (status.queued.includes(kind)) {
@@ -599,7 +601,7 @@ function Problem({ download: d }: { download: SpeechDownload }): React.JSX.Eleme
 }
 
 /** Where a Hugging Face key is made, as a link. */
-function KeysPageLink({ children }: { children: ReactNode }): React.JSX.Element {
+export function KeysPageLink({ children }: { children: ReactNode }): React.JSX.Element {
   return (
     <a href={HF_KEYS_PAGE} target="_blank" rel="noreferrer" className={cn('inline-flex items-center gap-1', linkClass)}>
       {children}
@@ -609,11 +611,12 @@ function KeysPageLink({ children }: { children: ReactNode }): React.JSX.Element 
 }
 
 /**
- * Hugging Face wants the voices' licence accepted: the page to do it, and the key box ("Save key and try
- * again"). A separate Try again only once a key is saved (without one it would stop the same way).
+ * Hugging Face wants the voices' (or the sound effects') licence accepted: the page to do it, and the key box
+ * ("Save key and try again"). A separate Try again only once a key is saved (without one it would stop the same way).
  */
 function Licence({ download: d, retry, dismiss }: { download: SpeechDownload; retry: ReactNode; dismiss: ReactNode }): React.JSX.Element {
   const saved = !!useKnownSpeechStatus()?.hfKey
+  const sounds = d.kind === 'sounds'
   return (
     <div className="mt-3 rounded-lg border border-line bg-surface-2/60 p-3 text-[13px] leading-relaxed animate-fade-in">
       <p className="font-medium text-fg">{d.error}</p>
@@ -626,10 +629,10 @@ function Licence({ download: d, retry, dismiss }: { download: SpeechDownload; re
             rel="noreferrer"
             className={cn('inline-flex items-center gap-1', linkClass)}
           >
-            the voices’ page on Hugging Face
+            {sounds ? 'Stable Audio Open’s page on Hugging Face' : 'the voices’ page on Hugging Face'}
             <ExternalLink size={12} />
           </a>
-          , sign in, and accept the licence.
+          {sounds ? ', sign in, and click Agree.' : ', sign in, and accept the licence.'}
         </li>
         {saved ? (
           <li>Then Try again. The key saved below has to be from the account that accepted the licence.</li>
@@ -671,14 +674,17 @@ function KeyRefused({ download: d, dismiss }: { download: SpeechDownload; dismis
  * The Hugging Face key: saved like the AI keys, never shown again. In a download's card (`compact`), saving it
  * tries the download again; `replace` asks for a new one in place of the one saved.
  */
-function HuggingFaceKey({
+export function HuggingFaceKey({
   compact = false,
   replace = false,
-  onSaved
+  onSaved,
+  action
 }: {
   compact?: boolean
   replace?: boolean
   onSaved?: () => void
+  /** The save button's words, when saving does something more than save ("Save key and download"). */
+  action?: string
 }): React.JSX.Element {
   const saved = !!useKnownSpeechStatus()?.hfKey
   const [key, setKey] = useState('')
@@ -751,7 +757,7 @@ function HuggingFaceKey({
   const buttons = (
     <div className={cn('flex shrink-0 gap-2', compact && 'mt-[21px]')}>
       <Button type="submit" variant={compact ? 'primary' : 'secondary'} loading={saving}>
-        {onSaved ? 'Save key and try again' : 'Save key'}
+        {action ?? (onSaved ? 'Save key and try again' : 'Save key')}
       </Button>
       {replacing ? (
         <Button
@@ -802,8 +808,8 @@ function More({ status }: { status: SpeechStatus | null }): React.JSX.Element {
         <div className="p-4">
           <MoreTitle icon={<KeyRound size={14} />} title="Hugging Face key" />
           <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
-            Only needed if Hugging Face asks for the voices’ licence to be accepted before they download. It is kept on this computer,
-            encrypted, like your AI keys, and used for that download only.
+            Needed for the sound effects, and for the voices if Hugging Face asks for their licence to be accepted before they download.
+            It is kept on this computer, encrypted, like your AI keys, and used for those downloads only.
           </p>
           <HuggingFaceKey />
         </div>
@@ -891,7 +897,8 @@ const PART_NAMES: Record<SpeechDownloadKind, string> = {
   server: 'Speech engine',
   voices: 'Voices',
   parakeet: 'Parakeet',
-  whisper: 'Whisper'
+  whisper: 'Whisper',
+  sounds: 'Sound effects'
 }
 
 /** Undo for Remove downloads. If some files are still held for a moment, it says so and can be tried again. */
