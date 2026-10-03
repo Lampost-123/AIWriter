@@ -64,6 +64,16 @@ const tally = (db: Database.Database, before: WorldTally | null = null): WorldTa
 const total = (t: WorldTally) => addUp(Object.values(t.buckets))
 
 describe('adding up one world', () => {
+  it("leaves out a copy's records from before it was copied (the original counts them)", () => {
+    const db = memoryDb()
+    addRow(db, { cost: 0.5, at: '2026-10-01T09:00:00.000Z' })
+    addRow(db, { cost: 0.25, at: '2026-10-01T10:00:00.000Z' })
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('usage_from_rowid', '2')").run()
+    expect(total(tally(db)).calls).toBe(0)
+    addRow(db, { cost: 0.1, at: '2026-10-02T10:00:00.000Z' })
+    expect(total(tally(db)).cost).toBeCloseTo(0.1)
+  })
+
   it('counts every call with its tokens and cost, by day, job, model and provider', () => {
     const db = memoryDb()
     addRow(db, { job: 'draft', cost: 0.02, at: '2026-10-01T09:00:00.000Z' })

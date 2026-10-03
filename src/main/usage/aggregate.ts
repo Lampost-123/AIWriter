@@ -105,6 +105,8 @@ const clone = (t: WorldTally): WorldTally => ({
 export function tallyWorld(db: DB, before: WorldTally | null, dayOf: (iso: string) => string = localDay): WorldTally {
   const head = db.prepare('SELECT count(*) AS n, max(rowid) AS top FROM generations').get() as { n: number; top: number | null }
   const top = head.top ?? 0
+  // A copy of a world made on this computer leaves out the records it was copied with (the original counts them).
+  const from = Number((db.prepare("SELECT value FROM meta WHERE key = 'usage_from_rowid'").get() as { value: string } | undefined)?.value) || 0
   const idAt = (rowid: number): string | null =>
     (db.prepare('SELECT id FROM generations WHERE rowid = ?').get(rowid) as { id: string } | undefined)?.id ?? null
 
@@ -121,7 +123,7 @@ export function tallyWorld(db: DB, before: WorldTally | null, dayOf: (iso: strin
     if (before.seen.count + added === head.n) {
       const next = clone(before)
       const still = new Set<number>()
-      for (const row of rows) if (!add(next.buckets, row, dayOf)) still.add(row.r)
+      for (const row of rows) if (row.r > from && !add(next.buckets, row, dayOf)) still.add(row.r)
       // A row still pending that has gone (deleted while being written) is simply forgotten.
       next.pending = [...still]
       next.seen = { count: head.n, top, topId: top ? idAt(top) : null }
@@ -133,7 +135,7 @@ export function tallyWorld(db: DB, before: WorldTally | null, dayOf: (iso: strin
   const fresh = emptyTally()
   const pending: number[] = []
   for (const row of db.prepare(`SELECT ${COLUMNS} FROM generations ORDER BY rowid`).iterate() as IterableIterator<Row>) {
-    if (!add(fresh.buckets, row, dayOf)) pending.push(row.r)
+    if (row.r > from && !add(fresh.buckets, row, dayOf)) pending.push(row.r)
   }
   fresh.pending = pending
   fresh.seen = { count: head.n, top, topId: top ? idAt(top) : null }

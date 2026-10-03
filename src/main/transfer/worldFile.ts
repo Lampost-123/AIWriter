@@ -223,14 +223,22 @@ export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   }
 }
 
-/** Gives a world database its own id (and a name), as a plain single file. */
-function makeOwnWorld(file: string, name: string): ID {
+/**
+ * Gives a world database its own id (and a name), as a plain single file. A copy made on this computer
+ * notes how far its AI records go (`usage_from_rowid`), so the usage page doesn't count the original's
+ * spending twice; an imported world keeps all of its spending, as it usually comes from another computer.
+ */
+function makeOwnWorld(file: string, name: string, copy = false): ID {
   const d = new Database(file)
   try {
     const id = newId()
     d.transaction(() => {
       repo.setMeta(d, 'id', id)
       repo.setMeta(d, 'name', name)
+      if (copy) {
+        const top = (d.prepare('SELECT max(rowid) AS top FROM generations').get() as { top: number | null }).top ?? 0
+        repo.setMeta(d, 'usage_from_rowid', String(top))
+      }
     })()
     d.pragma('journal_mode = DELETE')
     return id
@@ -560,7 +568,7 @@ export async function copyWorld(opts: CopyWorldOptions): Promise<{ folder: strin
       progress('Copying its pictures', null)
       await cp(images, join(staging, 'images'), { recursive: true, errorOnExist: false, force: true })
     }
-    const id = makeOwnWorld(incoming, opts.name)
+    const id = makeOwnWorld(incoming, opts.name, true)
     await renameRetry(incoming, join(staging, 'world.db'))
     const folder = await settle(staging, opts.library, opts.name)
     return { folder, id, history }

@@ -242,6 +242,8 @@ describe('Make a copy', () => {
     expect(metaOf(made.folder, 'id')).toBe(made.id)
     expect(made.id).not.toBe(w.id)
     expect(metaOf(made.folder, 'name')).toBe('Northern Reaches (copy)')
+    // Its spending up to now is the original's, so the usage page counts it once.
+    expect(metaOf(made.folder, 'usage_from_rowid')).toMatch(/^\d+$/)
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
     expect(existsSync(join(made.folder, 'images', 'maps', 'reach.png'))).toBe(true)
