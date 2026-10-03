@@ -430,3 +430,16 @@ describe('prompt caching', () => {
     expect(cachedOf({ prompt_tokens: 900 })).toBeNull()
   })
 })
+
+describe('prompt caching: requests sent side by side', () => {
+  it('marks nothing when asked not to cache', () => {
+    const messages = [
+      { role: 'system' as const, content: 'The instructions.' },
+      { role: 'user' as const, content: 'World rules. The rest.', cacheUpTo: 12 }
+    ]
+    expect(sentMessages({ kind: 'openrouter' }, 'anthropic/claude-sonnet-4.5', messages, false)).toEqual([
+      { role: 'system', content: 'The instructions.' },
+      { role: 'user', content: 'World rules. The rest.' }
+    ])
+  })
+})

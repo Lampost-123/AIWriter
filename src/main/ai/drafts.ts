@@ -200,6 +200,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
         top_p: params.top_p,
         max_tokens: params.max_tokens
       },
+      // A set's variants are sent side by side, so only the first can leave the briefing in the cache.
+      cache: (req.partOf?.variant?.index ?? 1) === 1,
       signal: job.controller.signal,
       onText: (t) => {
         job.text += t

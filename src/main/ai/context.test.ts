@@ -1077,12 +1077,13 @@ describe('fitting the briefing to the model', () => {
     expect(p.blocks.find((b) => b.id === 'relationships')).toMatchObject({ hasShort: false, short: false })
   })
 
-  it('says where the part a redraft sends again unchanged ends: right before the story so far', () => {
+  it('says where the part a redraft sends again unchanged ends: right before the entries named in the card or direction', () => {
     for (const p of [fit(prepared, total, c), fit(prepared, total - 5 * 990, c)]) {
       const user = p.messages[1]
-      const story = p.blocks.find((b) => b.id === 'story-so-far')!
+      const mentioned = p.blocks.find((b) => b.id === 'mentioned')!
+      expect(mentioned.dropped).toBe(false)
       expect(user.cacheUpTo).toBeGreaterThan(0)
-      expect(user.content.slice(user.cacheUpTo! + 2).startsWith(blockAsSent(story))).toBe(true)
+      expect(user.content.slice(user.cacheUpTo! + 2).startsWith(blockAsSent(mentioned))).toBe(true)
       expect(user.content.slice(0, user.cacheUpTo)).toContain('## World rules (never break these)')
       expect(p.messages[0].cacheUpTo).toBeUndefined()
     }

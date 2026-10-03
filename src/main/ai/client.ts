@@ -106,6 +106,11 @@ export interface StreamChatOptions {
    * A model that turns the level down is asked the next way, or not at all (see THINKING_EFFORTS).
    */
   thinking?: ThinkingLevel
+  /**
+   * False: nothing is marked for caching (sentMessages), for a request sent alongside another with the same
+   * prompt, which couldn't read what that one leaves in the cache yet but would pay to write it again.
+   */
+  cache?: boolean
 }
 
 /** How the request had to be worded for this model (some models reject max_tokens, temperature or top_p). */
@@ -239,8 +244,8 @@ export const marksCache = (t: Pick<ChatTarget, 'kind'>, model: string): boolean 
  * used). A cached part costs a tenth to read again within five minutes, and a quarter more the first
  * time, so only what is likely to be sent again is marked. `cacheUpTo` itself is never sent.
  */
-export function sentMessages(t: Pick<ChatTarget, 'kind'>, model: string, messages: ChatMessage[]): unknown[] {
-  const mark = marksCache(t, model)
+export function sentMessages(t: Pick<ChatTarget, 'kind'>, model: string, messages: ChatMessage[], cache = true): unknown[] {
+  const mark = cache && marksCache(t, model)
   return messages.map(({ cacheUpTo, ...m }) => {
     if (!mark || !m.content) return m
     const cut = m.role === 'system' ? m.content.length : Math.min(cacheUpTo ?? 0, m.content.length)
@@ -378,7 +383,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     arm(headersTimeout)
     try {
       const { max_tokens: _limit, temperature, top_p, ...rest } = o.body
-      const payload: Record<string, unknown> = { ...rest, messages: sentMessages(o.target, rest.model, rest.messages), stream: true }
+      const payload: Record<string, unknown> = { ...rest, messages: sentMessages(o.target, rest.model, rest.messages, o.cache !== false), stream: true }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
       // OpenRouter's own way of asking every model; other servers take OpenAI's.

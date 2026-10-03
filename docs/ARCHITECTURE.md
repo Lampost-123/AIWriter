@@ -728,8 +728,10 @@ full pass against the no-jank checks and the speed budgets. The data model stays
 - **Prompt caching** (`ai/client.ts`): the briefing goes out with what stays the same first (`SEND_ORDER` in
   `context.ts`), so models that cache a repeated prompt on their own (OpenAI, DeepSeek, Grok, Gemini 2.5 and
   later) reuse it. Claude through OpenRouter caches only where asked, so `sentMessages` marks the system
-  message and, in a draft's briefing, everything before the story so far (`ChatMessage.cacheUpTo`, never sent
-  as such): a redraft of the scene within five minutes reads that part at a tenth of the price. Gemini's own
+  message and, in a draft's briefing, everything before the entries named in the card or direction
+  (`ChatMessage.cacheUpTo`, never sent as such; a cached part is reused only when sent again exactly): a
+  redraft of the scene within five minutes reads that part at a tenth of the price. Variants after the first
+  in a set are sent unmarked (`cache: false`), since they go side by side and couldn't read it yet. Gemini's own
   marks aren't sent, since they add a storage charge and Gemini 2.5 caches anyway. The tokens a provider read
   from its cache (`prompt_tokens_details.cached_tokens`, or DeepSeek's `prompt_cache_hit_tokens`) are kept in
   the record's `params_json` as `cachedTokens` (no migration; the data model stays frozen) and shown on the
