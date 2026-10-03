@@ -158,3 +158,29 @@ test('the card opens from the keyboard and takes Tab, and no underline shows whi
   for (let i = 0; i < 5; i++) await win.keyboard.press('ArrowLeft')
   await expect(flags(win, 'spelling')).toHaveText(['Maar'])
 })
+
+test('a draft that uses a phrase to avoid says so when it lands, and Show goes to it', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(QUIET)
+    await createWorldFromWelcome(win, 'Alpha')
+    const world = (await invoke(win, 'getWorld'))!
+    await invoke(win, 'updateWorld', { style: { ...world.style, avoidPhrases: ['steady as a drum'] } })
+    const p = await invoke(win, 'saveProvider', { name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: '' })
+    await invoke(win, 'updateSettings', {
+      models: { writer: { providerId: p.id, modelId: 'fake/writer', label: 'fake/writer', contextLength: 32000, promptPrice: null, completionPrice: null } }
+    })
+    await win.reload()
+
+    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    // The model was told, at the end of its briefing too.
+    await expect.poll(() => JSON.stringify(fake.lastRequest()?.body ?? '')).toContain('Never use “steady as a drum”, or any close variation of it.')
+    const note = toasts(win).getByText(/^\d+ phrases? to avoid( and \d+ common AI phrases?)? underlined in the new draft\.$/)
+    await expect(note).toBeVisible({ timeout: 30_000 })
+    await expect(flags(win, 'phrase').first()).toHaveText('steady as a drum')
+    await toasts(win).getByRole('button', { name: 'Show' }).click()
+    await expect(card(win)).toContainText('“steady as a drum” is on your list of phrases to avoid.')
+  } finally {
+    await fake.close()
+  }
+})

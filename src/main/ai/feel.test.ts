@@ -6,7 +6,7 @@ import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
 import { effectiveStyle } from '@shared/style'
 import type { StyleGuide, WritingPrefs } from '@shared/types'
 import { getEncoding } from 'js-tiktoken'
-import { aiPhrasesText, contentText, feelLine, finalInstruction, genreText, instructionsText } from './prompts'
+import { aiPhrasesText, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText } from './prompts'
 
 const prefs = (p: Partial<WritingPrefs> = {}): WritingPrefs => ({ spelling: 'UK', pov: 'Close third person', tense: 'Past tense', voiceNotes: '', avoidWords: [], ...p })
 const guide = (g: Partial<StyleGuide> = {}): StyleGuide => ({ ...defaultStyleGuide(), ...g })
@@ -145,5 +145,25 @@ describe('the closing reminder of the genre and tone', () => {
       tone: 'Tense'
     })
     expect(text).toContain("- Keep the relentless momentum of thriller, and the story's tone: Tense.")
+  })
+})
+
+describe('the closing reminder of the phrases to avoid', () => {
+  it('gives a short list again, points to a long one, and says nothing without one', () => {
+    expect(avoidLine(guide({ avoidPhrases: ['the shape of her'] }))).toBe('- Never use “the shape of her”, or any close variation of it.')
+    expect(avoidLine(guide({ avoidPhrases: ['the shape of her', ' a  beat '] }))).toBe(
+      '- Never use “the shape of her”, “a beat”, or any close variation of them.'
+    )
+    const many = Array.from({ length: 40 }, (_, i) => `worn-out phrase number ${i}`)
+    expect(avoidLine(guide({ avoidPhrases: many }))).toBe(
+      "- Never use any of the author's words and phrases to avoid, given above, or any close variation of them."
+    )
+    expect(avoidLine(guide({ avoidPhrases: [] }))).toBeNull()
+    expect(avoidLine(guide({ avoidPhrases: ['  '] }))).toBeNull()
+  })
+
+  it('goes in the closing instruction', () => {
+    const text = finalInstruction({ targetWords: 1000, style: guide({ avoidPhrases: ['the shape of her'] }), hasBeats: true, hasPrevious: false, hasDirection: false })
+    expect(text).toContain('- Never use “the shape of her”, or any close variation of it.')
   })
 })

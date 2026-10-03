@@ -10,7 +10,7 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import { SUGGESTED_SAY, SUGGESTED_VOICE } from '../../../tests/fake-provider/m4/readAloud.mjs'
 import * as repo from '../db/repo'
 import type { JobModel } from '../ai/jobModel'
-import { giveVoices, keepVoice, needsVoice, voiceLater, voicesSettled } from './autoVoice'
+import { VOICE_TRIES, giveVoices, keepVoice, needsVoice, voiceLater, voicesSettled } from './autoVoice'
 import { cleanSay, readVoiceReply, voicePrompt } from './suggest'
 import { getEntryReadAloud, setEntryReadAloud } from './voiceStore'
 
@@ -216,6 +216,28 @@ describe('in the background', () => {
     await until(() => voiceOf(db, mara.id).voice.design !== '')
     await voicesSettled()
     expect(f.asked).toEqual(['Mara'])
+  })
+
+  it('asks again a little later when a request failed, a few times in all', async () => {
+    const db = memoryWorld()
+    const mara = character(db, 'Mara')
+    const tobin = character(db, 'Tobin')
+    // Mara's first request fails (each of the client's quick retries inside it too): her service is down until
+    // Tobin, after her in line, is asked about. Tobin's always fail.
+    let maraDown = true
+    const f = watching((who) => {
+      if (who === 'Tobin') maraDown = false
+      if (who === 'Tobin' || maraDown) throw new TypeError('fetch failed')
+    })
+    voiceLater([mara.id, tobin.id], { db, model: model, fetchImpl: f, retryDelays: [1, 1, 1], againAfterMs: 20 })
+    await until(() => voiceOf(db, mara.id).voice.design !== '')
+    expect(voiceOf(db, mara.id).voice.design).toBe(SUGGESTED_VOICE)
+    // One record a request (the client's own quick retries are inside it): Mara twice, Tobin three times, then no more.
+    await until(() => speechRecords(db) === 2 + VOICE_TRIES)
+    await new Promise((r) => setTimeout(r, 100))
+    await voicesSettled()
+    expect(speechRecords(db)).toBe(2 + VOICE_TRIES)
+    expect(voiceOf(db, tobin.id).voice.design).toBe('')
   })
 
   it('does nothing without a Read aloud model, or once the world has closed', async () => {

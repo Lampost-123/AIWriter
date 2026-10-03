@@ -10,6 +10,7 @@ import { getSettings, getWritingPrefs } from '../settings'
 import { emit } from '../events'
 import { jobModel } from '../ai/jobModel'
 import { memoryStatus } from '../keeper'
+import { voiceLater } from '../readAloud'
 import { UserError } from '../util'
 import { entryNames } from '../db/worldBuilder'
 import { buildState, cancelBuild, closeBuildsFor, startBuild } from '../worldBuilder/run'
@@ -77,6 +78,7 @@ export const worldBuilderHandlers: Handlers<keyof WorldBuilderApi> = {
         worldId: w.id,
         model,
         voiceModel: voiceModel(),
+        voiceLater: (entryIds) => voiceLater(w.db, entryIds),
         prefs: getWritingPrefs(),
         emit,
         onSaved: (entryIds) => {

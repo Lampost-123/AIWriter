@@ -324,7 +324,9 @@ describe('common AI phrases', () => {
   })
 
   it('counts the ones a draft brought in plain words', () => {
-    expect(draftNoteWords(1)).toBe('1 common AI phrase underlined in the new draft.')
-    expect(draftNoteWords(3)).toBe('3 common AI phrases underlined in the new draft.')
+    expect(draftNoteWords({ phrase: 0, ai: 1 })).toBe('1 common AI phrase underlined in the new draft.')
+    expect(draftNoteWords({ phrase: 0, ai: 3 })).toBe('3 common AI phrases underlined in the new draft.')
+    expect(draftNoteWords({ phrase: 1, ai: 0 })).toBe('1 phrase to avoid underlined in the new draft.')
+    expect(draftNoteWords({ phrase: 2, ai: 1 })).toBe('2 phrases to avoid and 1 common AI phrase underlined in the new draft.')
   })
 })

@@ -13,7 +13,7 @@ import { useApp } from '@/lib/store'
 import { startTool } from '@/features/edits/session'
 import type { PlacedFlag } from './liveDecorations'
 import { revealLiveFlag } from './liveFlags'
-import type { DraftFirst } from './liveStore'
+import type { DraftCounts, DraftFirst } from './liveStore'
 import { ignoreLiveFlag, unignoreLiveFlag } from './liveWords'
 
 /** True while the flag's words are still in the page where it says. */
@@ -134,22 +134,22 @@ export function ignoreFlag(sceneId: ID, flag: PlacedFlag): void {
 
 // ---------- After a draft ----------
 
-let draftNote: { id: number; count: number } | null = null
+let draftNote: { id: number; counts: DraftCounts } | null = null
 
 /**
- * Says quietly how many common AI phrases a draft that just landed brought, with Show (the first one and
- * its card). Drafts in a row (Beat by beat) add to the same note while it shows, rather than adding more
- * notes. Only on the writing page, where Show can show them; the Issues tab counts them too.
+ * Says quietly how many phrases to avoid and common AI phrases a draft that just landed brought, with Show (the
+ * first one and its card). Drafts in a row (Beat by beat) add to the same note while it shows, rather than adding
+ * more notes. Only on the writing page, where Show can show them; the Issues tab counts them too.
  */
-export function noteDraft(count: number, first: DraftFirst): void {
-  if (count < 1 || useApp.getState().view.kind !== 'write') return
+export function noteDraft(counts: DraftCounts, first: DraftFirst): void {
+  if (counts.phrase + counts.ai < 1 || useApp.getState().view.kind !== 'write') return
   const toasts = useToasts.getState()
   if (draftNote && toasts.items.some((t) => t.id === draftNote!.id)) {
-    draftNote.count += count
-    toasts.update(draftNote.id, { message: draftNoteWords(draftNote.count) })
+    draftNote.counts = { phrase: draftNote.counts.phrase + counts.phrase, ai: draftNote.counts.ai + counts.ai }
+    toasts.update(draftNote.id, { message: draftNoteWords(draftNote.counts) })
     return
   }
   // Show goes to the draft's first one (not the next one after the caret, which may be in older text).
-  const id = toast(draftNoteWords(count), { secondary: { label: 'Show', run: () => void revealLiveFlag('ai', first) } })
-  draftNote = { id, count }
+  const id = toast(draftNoteWords(counts), { secondary: { label: 'Show', run: () => void revealLiveFlag(first.kind, first) } })
+  draftNote = { id, counts }
 }
