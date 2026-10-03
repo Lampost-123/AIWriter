@@ -4,16 +4,19 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
   breezeComplete,
+  CLAP_FILES,
   installedNow,
   PARAKEET_FILES,
   parakeetFiles,
   readManifest,
   snapshotWith,
+  SOUND_FILES,
+  soundsComplete,
   WHISPER_FILES,
   whisperFiles,
   writeManifest
 } from './installed'
-import { breezeCodeDir, breezeMark, breezeWeightsDir, speechPaths, venvPython } from './paths'
+import { breezeCodeDir, breezeMark, breezeWeightsDir, clapWeightsDir, soundMark, soundWeightsDir, speechPaths, venvPython } from './paths'
 
 let dir = ''
 beforeEach(() => {
@@ -48,6 +51,14 @@ function voicesIn(root: string): void {
   touch(breezeMark(root))
 }
 
+/** What a finished sound effects download leaves under `root`: its environment, both models, and its mark. */
+function soundsIn(root: string, weights = 'model.safetensors'): void {
+  touch(venvPython(join(root, 'venvs', 'sound')))
+  for (const f of SOUND_FILES) touch(join(soundWeightsDir(root), 'snapshots', 'r1', ...f.split('/')))
+  for (const f of [...CLAP_FILES, weights]) touch(join(clapWeightsDir(root), 'snapshots', 'r2', f))
+  touch(soundMark(root))
+}
+
 /** All of a dictation model's files: Parakeet unpacked into its folder, Whisper in its snapshot. */
 function parakeetIn(dir: string): void {
   for (const f of PARAKEET_FILES) touch(join(dir, 'sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8', f))
@@ -63,6 +74,11 @@ describe('the speech folder', () => {
     expect(p.python).toBe(join(p.home, 'venv', 'bin', 'python'))
     expect(p.serve).toBe(p.python)
     expect(p.breezePython).toBe(join(p.home, 'venvs', 'breeze', 'bin', 'python'))
+    expect(p.soundPython).toBe(join(p.home, 'venvs', 'sound', 'bin', 'python'))
+    // The sound effects' models share the voices' Hugging Face cache.
+    expect(soundWeightsDir(p.home)).toBe(join(p.home, 'models', 'hf', 'hub', 'models--stabilityai--stable-audio-open-1.0'))
+    expect(clapWeightsDir(p.home)).toBe(join(p.home, 'models', 'hf', 'hub', 'models--laion--larger_clap_general'))
+    expect(soundMark(p.home)).toBe(join(p.home, 'models', 'sound', '.ready'))
     expect(p.logs).toBe(join(p.home, 'logs'))
     expect(p.manifest).toBe(join(p.home, 'installed.json'))
     expect(p.parakeet).toBe(join(p.home, 'models', 'parakeet'))
@@ -79,7 +95,7 @@ describe('the speech folder', () => {
 describe('what is downloaded', () => {
   it('is nothing at first', () => {
     const p = speechPaths(dir, '/src')
-    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: false, voices: null, parakeet: false, whisper: false })
+    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false })
   })
 
   it('is each download that finished and whose files are still there', () => {
@@ -88,16 +104,18 @@ describe('what is downloaded', () => {
     voicesIn(p.home)
     parakeetIn(p.parakeet)
     whisperIn(p.whisper)
+    soundsIn(p.home)
     // Files without a finished download (one stopped part way) don't count.
-    expect(installedNow(p, {})).toEqual({ server: false, voices: null, parakeet: false, whisper: false })
+    expect(installedNow(p, {})).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false })
     const at = new Date().toISOString()
     writeManifest(p.manifest, {
       server: { at, python: '/usr/bin/python3.13' },
       voices: { at, from: 'own', root: p.home, gpu: 'RTX' },
       parakeet: { at },
-      whisper: { at }
+      whisper: { at },
+      sounds: { at }
     })
-    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: true, voices: 'own', parakeet: true, whisper: true })
+    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: true, voices: 'own', parakeet: true, whisper: true, sounds: true })
   })
 
   it('is not what was deleted by hand', () => {
@@ -179,6 +197,33 @@ describe('what is downloaded', () => {
     expect(whisperFiles(w)).toBe(true)
     touch(join(cache, 'blobs', 'abc.incomplete'))
     expect(whisperFiles(w)).toBe(false)
+  })
+
+  it('needs all of the sound effects: their environment, both models whole, and their last step’s mark', () => {
+    const root = join(dir, 'speech')
+    expect(soundsComplete(root)).toBe(false)
+    soundsIn(root)
+    expect(soundsComplete(root)).toBe(true)
+    // Either copy of CLAP's weights does (the converted one, or the original when that's gone).
+    rmSync(join(clapWeightsDir(root), 'snapshots', 'r2', 'model.safetensors'))
+    expect(soundsComplete(root)).toBe(false)
+    touch(join(clapWeightsDir(root), 'snapshots', 'r2', 'pytorch_model.bin'))
+    expect(soundsComplete(root)).toBe(true)
+    // A download started again removes the mark: until its check, they aren't done.
+    rmSync(soundMark(root))
+    expect(soundsComplete(root)).toBe(false)
+    touch(soundMark(root))
+    // A part of Stable Audio Open missing, or a file half-fetched, isn't whole.
+    rmSync(join(soundWeightsDir(root), 'snapshots', 'r1', 'vae', 'diffusion_pytorch_model.safetensors'))
+    expect(soundsComplete(root)).toBe(false)
+    touch(join(soundWeightsDir(root), 'snapshots', 'r1', 'vae', 'diffusion_pytorch_model.safetensors'))
+    touch(join(soundWeightsDir(root), 'blobs', 'abc.incomplete'))
+    expect(soundsComplete(root)).toBe(false)
+    rmSync(join(soundWeightsDir(root), 'blobs'), { recursive: true })
+    expect(soundsComplete(root)).toBe(true)
+    // Nor without their environment.
+    rmSync(join(root, 'venvs', 'sound'), { recursive: true })
+    expect(soundsComplete(root)).toBe(false)
   })
 
   it('reads a missing or broken record as nothing', () => {

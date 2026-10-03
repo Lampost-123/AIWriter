@@ -1,23 +1,27 @@
 # Adapted from mcreader-v2, tts/app/engines/__init__.py (Adam's rule, 2 October 2026: only speech code is reused).
-"""The voice engines this server knows about: Breeze TTS 2 only (dictation is in app/stt.py)."""
+"""The voice engines this server knows about: Breeze TTS 2 only (dictation is in app/stt.py).
 
-import os
-import shutil
-import subprocess
+AI Write's addition: the sound effects (Stable Audio Open, `sound()`), which share the graphics card with the
+voices but are not a voice: they are kept out of every list of engines and voices here.
+"""
+
 import threading
 import time
-from pathlib import Path
 
 from .. import config
-from .base import Engine, EngineError
-from . import base
+from .base import Engine, EngineBusy, EngineError
+from . import base, gpu
 from .breeze_engine import BreezeEngine
+from .sound_engine import SoundEngine
 
 DEFAULT_ENGINE = "breeze"
 
 _ORDER: tuple[type[Engine], ...] = (BreezeEngine,)
 _ENGINES: dict[str, Engine] = {cls.id: cls() for cls in _ORDER}
 base.REGISTRY.extend(_ENGINES.values())
+# Registered for sharing the graphics card, never listed as a voice engine.
+_SOUND = SoundEngine()
+base.REGISTRY.append(_SOUND)
 
 
 def get(engine_id: str | None) -> Engine:
@@ -34,6 +38,37 @@ def get(engine_id: str | None) -> Engine:
 
 def all_engines() -> list[Engine]:
     return [_ENGINES[cls.id] for cls in _ORDER]
+
+
+def sound() -> SoundEngine:
+    """The sound effects engine."""
+    return _SOUND
+
+
+def every_engine() -> list[Engine]:
+    """The voice engines and the sound effects: everything that holds a model, for letting go of them all."""
+    return [*all_engines(), _SOUND]
+
+
+def sounds_beside() -> bool:
+    """The sound effects can sit beside the voices on the graphics card now: both are loaded, or the one that
+    isn't would fit in the memory free. False when that can't be told (no NVIDIA card, or nvidia-smi failed)."""
+    voices = _ENGINES[DEFAULT_ENGINE]
+    if voices.loaded and _SOUND.loaded:
+        return True
+    free = gpu.free_mb()
+    if free is None:
+        return False
+    if voices.loaded:
+        return free >= _SOUND.needs_mb + gpu.MARGIN_MB
+    if _SOUND.loaded:
+        return free >= voices.needs_mb + gpu.MARGIN_MB
+    return free >= voices.needs_mb + _SOUND.needs_mb + gpu.MARGIN_MB
+
+
+def sounds_status() -> dict:
+    """What /v1/health says about the sound effects."""
+    return _SOUND.sound_status(sounds_beside())
 
 
 def default_engine() -> Engine:
@@ -92,19 +127,21 @@ def _idle_watch() -> None:
     """Free a model that has not been asked for anything in a while.
 
     Breeze holds gigabytes of the graphics card while loaded, and a writing session can
-    go hours without reading aloud.
+    go hours without reading aloud. The sound effects have a shorter limit of their own.
     """
     while True:
-        time.sleep(30)
-        limit = config.idle_unload_seconds()
+        time.sleep(15)
         now = time.time()
-        for engine in all_engines():
+        for engine in every_engine():
+            limit = config.sound_idle_unload_seconds() if engine is _SOUND else config.idle_unload_seconds()
+            if limit <= 0 or engine.busy:
+                continue
             if engine.loaded and engine.last_used and now - engine.last_used > limit:
                 engine.unload()
 
 
 def start_idle_watch() -> None:
-    if config.idle_unload_seconds() <= 0:
+    if config.idle_unload_seconds() <= 0 and config.sound_idle_unload_seconds() <= 0:
         return
     threading.Thread(target=_idle_watch, name="idle-unload", daemon=True).start()
 
@@ -114,27 +151,9 @@ _card: list[str] = []
 
 def _nvidia_card() -> str:
     """The NVIDIA graphics card's name from nvidia-smi (which comes with its driver), asked once; "" when there is none."""
-    if _card:
-        return _card[0]
-    name = ""
-    found = shutil.which("nvidia-smi")
-    if not found and config.WINDOWS:
-        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-        older = Path(program_files) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe"
-        found = str(older) if older.is_file() else None
-    if found:
-        try:
-            out = subprocess.run(
-                [found, "--query-gpu=name", "--format=csv,noheader"],
-                capture_output=True, text=True, timeout=10,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if out.returncode == 0:
-                name = next((line.strip() for line in out.stdout.splitlines() if line.strip()), "")
-        except (OSError, subprocess.SubprocessError):
-            name = ""
-    _card.append(name)
-    return name
+    if not _card:
+        _card.append(gpu.ask("name"))
+    return _card[0]
 
 
 def device_label() -> str:
@@ -148,7 +167,8 @@ def device_label() -> str:
 
 
 __all__ = [
-    "Engine", "EngineError", "DEFAULT_ENGINE",
+    "Engine", "EngineError", "EngineBusy", "DEFAULT_ENGINE",
     "get", "all_engines", "default_engine", "statuses", "voices",
+    "sound", "every_engine", "sounds_beside", "sounds_status",
     "warmup", "start_idle_watch", "device_label",
 ]

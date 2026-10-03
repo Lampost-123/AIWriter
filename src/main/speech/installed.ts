@@ -6,7 +6,16 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SpeechStatus } from '@shared/contracts/speech'
 import { readJson, writeFileAtomic } from '../util'
-import { breezeCodeDir, breezeMark, breezeWeightsDir, venvPython, type SpeechPaths } from './paths'
+import {
+  breezeCodeDir,
+  breezeMark,
+  breezeWeightsDir,
+  clapWeightsDir,
+  soundMark,
+  soundWeightsDir,
+  venvPython,
+  type SpeechPaths
+} from './paths'
 
 export interface SpeechManifest {
   /** The server's environment, made with this Python. */
@@ -15,6 +24,8 @@ export interface SpeechManifest {
   voices?: { at: string; from: 'own'; root: string; gpu: string }
   parakeet?: { at: string }
   whisper?: { at: string }
+  /** The sound effects (Stable Audio Open and CLAP, in their own environment). */
+  sounds?: { at: string }
 }
 
 export const readManifest = (file: string): SpeechManifest => readJson<SpeechManifest>(file, {})
@@ -40,6 +51,32 @@ const isFile = (path: string): boolean => {
 /** Whisper's English model (Systran/faster-whisper-base.en): every file faster-whisper reads. */
 export const WHISPER_FILES = ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']
 export const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
+/** What diffusers loads of Stable Audio Open (speech-server/app/downloaded.py, SOUND_FILES). */
+export const SOUND_FILES = [
+  'model_index.json',
+  'transformer/config.json',
+  'transformer/diffusion_pytorch_model.safetensors',
+  'vae/config.json',
+  'vae/diffusion_pytorch_model.safetensors',
+  'text_encoder/config.json',
+  'text_encoder/model.safetensors',
+  'tokenizer/tokenizer_config.json',
+  'tokenizer/spiece.model',
+  'projection_model/config.json',
+  'projection_model/diffusion_pytorch_model.safetensors',
+  'scheduler/scheduler_config.json'
+]
+/** What ClapModel and ClapProcessor read besides the weights (CLAP_FILES), and the weights, either copy (CLAP_WEIGHTS). */
+export const CLAP_FILES = [
+  'config.json',
+  'preprocessor_config.json',
+  'tokenizer.json',
+  'tokenizer_config.json',
+  'special_tokens_map.json',
+  'vocab.json',
+  'merges.txt'
+]
+export const CLAP_WEIGHTS = ['model.safetensors', 'pytorch_model.bin']
 /** Where Parakeet's archive is unpacked before it is moved into place: never counted as downloaded. */
 const UNPACKING = '.unpack'
 
@@ -83,6 +120,19 @@ export function breezeComplete(root: string, platform: NodeJS.Platform = process
   return isFile(breezeMark(root)) && snapshotWith(breezeWeightsDir(root), ['config.json']) !== null
 }
 
+/**
+ * The sound effects can run from `root`: their environment is there, both models are whole (nothing half-fetched),
+ * and their last download step checked it all and left its mark.
+ */
+export function soundsComplete(root: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (!existsSync(venvPython(join(root, 'venvs', 'sound'), platform))) return false
+  if (!isFile(soundMark(root))) return false
+  const sound = soundWeightsDir(root)
+  if (halfDownloaded(sound) || snapshotWith(sound, SOUND_FILES.map((f) => join(...f.split('/')))) === null) return false
+  const clap = clapWeightsDir(root)
+  return !halfDownloaded(clap) && CLAP_WEIGHTS.some((w) => snapshotWith(clap, [...CLAP_FILES, w]) !== null)
+}
+
 /** All four of Parakeet's files are in one folder under `dir` (itself, or one folder down as its archive unpacks). */
 export function parakeetFiles(dir: string): boolean {
   let folders: string[]
@@ -115,6 +165,7 @@ export function installedNow(
     server,
     voices,
     parakeet: !!manifest.parakeet && parakeetFiles(paths.parakeet),
-    whisper: !!manifest.whisper && whisperFiles(paths.whisper)
+    whisper: !!manifest.whisper && whisperFiles(paths.whisper),
+    sounds: !!manifest.sounds && soundsComplete(paths.home, platform)
   }
 }

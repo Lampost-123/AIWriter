@@ -9,6 +9,11 @@ graphics card. A model left unused for five minutes is let go, and loads again w
 
 Both write what was said. `clean` then drops fillers ("um", "uh") and stutters ("the the"),
 keeping real doubles such as "had had".
+
+AI Write's addition: `align` says when each word of a spoken clip is heard, so a sound effect fires on its
+word. It uses the chosen dictation model (loading it, as dictating would), and with none chosen, whichever is
+downloaded (Whisper first) in a slot of its own that never changes the choice and is let go like the other.
+Nothing is cleaned for it: every word said counts.
 """
 
 import gc
@@ -26,6 +31,8 @@ _choice = "none"
 _whisper = None
 _parakeet = None
 _last_used = 0.0
+# The model `align` loaded because no dictation model is chosen: (engine, model), or None.
+_aligner = None
 # Why each model couldn't be loaded the last time it was asked for (gone once it loads): /v1/health says
 # so, and AI Write's Settings explains it in plain words, with the fix.
 _load_errors: dict[str, str] = {}
@@ -179,9 +186,10 @@ def _load(engine: str):
 
 
 def _drop() -> None:
-    global _whisper, _parakeet
+    global _whisper, _parakeet, _aligner
     _whisper = None
     _parakeet = None
+    _aligner = None
     gc.collect()
 
 
@@ -216,14 +224,45 @@ def pick(engine: str) -> None:
 def unload() -> bool:
     """Give the memory back; the chosen model loads again when next asked. True if one was loaded."""
     with _lock:
-        was = loaded() is not None
+        was = loaded() is not None or _aligner is not None
         _drop()
     return was
 
 
+WHISPER_RATE = 16000
+
+
+def resample(samples, rate: int, target: int):
+    """Mono float32 at `target` Hz, band-limited (through the spectrum), so nothing above the new rate folds back in."""
+    import numpy as np
+
+    x = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if rate == target or x.size == 0:
+        return x
+    n = max(1, int(round(x.size * target / rate)))
+    spectrum = np.fft.rfft(x)
+    keep = n // 2 + 1
+    if spectrum.size >= keep:
+        spectrum = spectrum[:keep]
+    else:
+        spectrum = np.concatenate([spectrum, np.zeros(keep - spectrum.size, dtype=spectrum.dtype)])
+    return (np.fft.irfft(spectrum, n) * (n / x.size)).astype(np.float32)
+
+
+def whisper_audio(path: Path):
+    """The clip as Whisper hears it: mono at 16 kHz. Read here, not by faster-whisper: its own reader (PyAV) changes
+    from one version to the next (19 no longer opens files the way faster-whisper 1.2 asks)."""
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=1)
+    return resample(audio, int(sample_rate), WHISPER_RATE)
+
+
 def _hear_whisper(path: Path) -> str:
     # These clips are already one push of the key. The silence trimmer was eating the first word.
-    segments, _info = _whisper.transcribe(str(path), vad_filter=False, language="en", condition_on_previous_text=False)
+    segments, _info = _whisper.transcribe(whisper_audio(path), vad_filter=False, language="en", condition_on_previous_text=False)
     return " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
 
 
@@ -262,7 +301,7 @@ def _idle_watch() -> None:
     while True:
         time.sleep(30)
         limit = config.idle_unload_seconds()
-        if loaded() is not None and _last_used and time.time() - _last_used > limit:
+        if (loaded() is not None or _aligner is not None) and _last_used and time.time() - _last_used > limit:
             with _lock:
                 if time.time() - _last_used > limit:
                     _drop()
@@ -276,3 +315,117 @@ def start_idle_watch() -> None:
 
 def parakeet_url() -> str:
     return PARAKEET_URL
+
+
+# --- when each word is heard ------------------------------------------------
+
+# Parakeet marks the first piece of each word with this.
+WORD_START = "▁"
+# How long the last word lasts after its last piece starts, when Parakeet doesn't say (nothing comes after it).
+LAST_WORD_SECONDS = 0.4
+
+
+def aligner() -> str | None:
+    """The dictation model `align` would use: the one chosen when it is downloaded, else Whisper, else Parakeet,
+    else None (nothing to time the words with)."""
+    if _choice in ("whisper", "parakeet") and ready(_choice):
+        return _choice
+    if _whisper_ready():
+        return "whisper"
+    if _parakeet_ready():
+        return "parakeet"
+    return None
+
+
+def group_pieces(
+    tokens: list[str], starts: list[float], durations: list[float] | None = None, end: float | None = None
+) -> list[dict]:
+    """Parakeet's pieces ("▁sl", "am", "med", ".") and when each starts, as words with their start and end.
+
+    A new word starts at a piece marked "▁" (or a space); punctuation on its own stays with the word before. A word
+    ends after its last piece: by that piece's duration when Parakeet gives one, else where the next word starts (at
+    most LAST_WORD_SECONDS later, so a pause isn't counted as part of the word). Nothing ends after `end`.
+    """
+    words: list[list] = []  # [text, start, last piece's start, last piece's duration or None]
+    for i, (piece, at) in enumerate(zip(tokens, starts)):
+        text = str(piece)
+        bare = text.replace(WORD_START, " ").strip()
+        duration = float(durations[i]) if durations and i < len(durations) and durations[i] > 0 else None
+        opens = text.startswith((WORD_START, " ")) and any(c.isalnum() for c in bare)
+        if opens or not words:
+            words.append([bare, float(at), float(at), duration])
+        else:
+            words[-1][0] += bare
+            words[-1][2] = float(at)
+            words[-1][3] = duration
+    out: list[dict] = []
+    for n, (text, start, last, duration) in enumerate(words):
+        if not text:
+            continue
+        following = words[n + 1][1] if n + 1 < len(words) else None
+        if duration is not None:
+            stop = last + duration
+        elif following is not None:
+            stop = min(following, last + LAST_WORD_SECONDS)
+        else:
+            stop = last + LAST_WORD_SECONDS
+        if following is not None:
+            stop = min(stop, following)
+        if end is not None:
+            stop = min(stop, end)
+        out.append({"word": text, "start": round(start, 3), "end": round(max(stop, start), 3)})
+    return out
+
+
+def _align_whisper(model, path: Path) -> list[dict]:
+    segments, _info = model.transcribe(
+        whisper_audio(path), vad_filter=False, language="en", condition_on_previous_text=False, word_timestamps=True,
+    )
+    words: list[dict] = []
+    for segment in segments:
+        for w in segment.words or []:
+            text = (w.word or "").strip()
+            if text:
+                words.append({"word": text, "start": round(float(w.start), 3), "end": round(float(w.end), 3)})
+    return words
+
+
+def _align_parakeet(model, path: Path) -> list[dict]:
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    if getattr(audio, "ndim", 1) > 1:
+        audio = audio.mean(axis=1)
+    stream = model.create_stream()
+    stream.accept_waveform(int(sample_rate), audio)
+    model.decode_stream(stream)
+    result = stream.result
+    durations = list(getattr(result, "durations", None) or []) or None
+    return group_pieces(list(result.tokens), list(result.timestamps), durations, len(audio) / float(sample_rate))
+
+
+def align(path: str | Path) -> tuple[list[dict], str]:
+    """When each word of a spoken clip is heard: ([{"word", "start", "end"}], the engine used), in seconds from its
+    start. Raises DictationError when no dictation model is downloaded."""
+    global _whisper, _parakeet, _aligner, _last_used
+    path = Path(path)
+    with _lock:
+        engine = aligner()
+        if engine is None:
+            raise DictationError("No dictation model is downloaded, so the words can't be timed.")
+        if engine == _choice:
+            # The chosen model, loaded as dictating would load it.
+            if engine == "whisper" and _whisper is None:
+                _whisper = _load("whisper")
+            elif engine == "parakeet" and _parakeet is None:
+                _parakeet = _load("parakeet")
+            model = _whisper if engine == "whisper" else _parakeet
+        else:
+            # None chosen (or the one chosen isn't downloaded): a slot of its own, which never changes the choice.
+            if _aligner is None or _aligner[0] != engine:
+                _aligner = None
+                _aligner = (engine, _load(engine))
+            model = _aligner[1]
+        _last_used = time.time()
+        words = _align_whisper(model, path) if engine == "whisper" else _align_parakeet(model, path)
+    return words, engine

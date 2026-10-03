@@ -1,7 +1,7 @@
-// The Hugging Face key, for the voices' download when Hugging Face asks for their licence to be accepted.
-// It is kept by secrets.ts like the AI keys (encrypted, never in settings.json), the status only says
-// whether there is one, and only the voices' weights step gets it (plan.ts), with every line it prints
-// scrubbed (output.ts). Pure.
+// The Hugging Face key, for the voices' download when Hugging Face asks for their licence to be accepted, and
+// the sound effects' (Stable Audio Open always asks). It is kept by secrets.ts like the AI keys (encrypted, never
+// in settings.json), the status only says whether there is one, and only the voices' and the sound effects'
+// weights steps get it (plan.ts), with every line they print scrubbed (output.ts). Pure.
 import { UserError } from '../util'
 
 /** Its name in secrets.ts. */

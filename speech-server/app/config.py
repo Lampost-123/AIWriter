@@ -7,7 +7,9 @@ AIWRITE_SPEECH_HOME):
 
     HOME/venv            the server's own Python environment
     HOME/venvs/breeze    Breeze's environment (its pinned transformers can't share the server's)
-    HOME/models          downloaded weights: hf/ (Breeze), breeze/code, parakeet/, whisper/
+    HOME/venvs/sound     the sound effects' environment (Stable Audio Open and CLAP, through diffusers)
+    HOME/models          downloaded weights: hf/ (Breeze, Stable Audio Open, CLAP), breeze/code, sound/.ready,
+                         parakeet/, whisper/
     HOME/voices          voice clips, and voices/breeze/ for the voices Breeze designs from a description
     HOME/logs            server.log and install.log
 
@@ -59,6 +61,10 @@ def breeze_python() -> Path:
     return venv_python(BREEZE_ROOT / "venvs" / "breeze")
 
 
+def sound_python() -> Path:
+    return venv_python(VENVS / "sound")
+
+
 def _env(name: str, fallback: str) -> str:
     value = os.environ.get(name)
     return fallback if value is None or not value.strip() else value.strip()
@@ -105,6 +111,15 @@ def idle_unload_seconds() -> int:
         return int(_env("AIWRITE_SPEECH_IDLE_UNLOAD", "300"))
     except ValueError:
         return 300
+
+
+def sound_idle_unload_seconds() -> int:
+    """Free the sound effects model after this long unused. Sounds are made in batches (a scene's worth at a time), so
+    it goes sooner than the voices: its graphics card memory is better given back to them between batches."""
+    try:
+        return int(_env("AIWRITE_SOUND_IDLE_UNLOAD", "90"))
+    except ValueError:
+        return 90
 
 
 def parent_pid() -> int:
