@@ -51,7 +51,8 @@ const END = '(?![\\p{L}\\p{N}])'
  */
 function nameGroups(names: string[]): { any: string; flags: string }[] {
   const exact = names.filter((n) => !/\s/.test(n) && /^\p{Lu}/u.test(n))
-  const folded = names.filter((n) => !exact.includes(n))
+  // "the ring" is the character Ring, in any case (a character who is a thing or an animal is written so).
+  const folded = [...names.filter((n) => !exact.includes(n)), ...exact.map((n) => `the ${n}`)]
   return [
     { list: exact, flags: 'u' },
     { list: folded, flags: 'iu' }

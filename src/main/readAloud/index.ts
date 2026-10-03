@@ -34,6 +34,7 @@ import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
 import { everyone, memberNamed, type CastMember } from './cast'
 import { DraftMarks } from './draftMarks'
+import { asSpoken } from './italicSpeech'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
 import { labelOf, markedEnough } from './labels'
 import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
@@ -189,9 +190,11 @@ function marksWanted(): boolean {
  * what, who says each line and how; otherwise who says the quotes the rules can't place. Paragraphs already being
  * marked for the same words are left to that call (a reading's, or an earlier draft's). Failures are only logged.
  */
-function markInBackground(sceneId: ID, paragraphs: { pid: string; text: string }[], pids: string[]): void {
+function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[]): void {
   const w = world.maybeCurrentWorld()
   if (!w) return
+  // Speech in italics is read as dialogue, as a reading reads it (italicSpeech.ts).
+  const paragraphs = onPage.map((p) => asSpoken(p).para)
   const s = speech()
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, sceneId, sceneText)
@@ -264,6 +267,7 @@ export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
     .slice(0, 5000)
     .map(paragraphOf)
     .filter((p) => p.pid && /[\p{L}\p{N}]/u.test(p.text))
+    .map((p) => asSpoken(p).para)
   if (!paragraphs.length) return []
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, req.sceneId, sceneText)
@@ -305,16 +309,33 @@ function pidsOf(v: unknown): Set<string> | undefined {
 export function planReading(req: ReadingRequest): ReadingPlan {
   const w = world.currentWorld()
   const s = speech()
-  const paragraphs = (req.paragraphs ?? []).map(paragraphOf).filter((p) => p.pid)
-  const before = (req.before ?? []).map(paragraphOf).filter((p) => p.pid)
+  const pageParagraphs = (req.paragraphs ?? []).map(paragraphOf).filter((p) => p.pid)
+  const pageBefore = (req.before ?? []).map(paragraphOf).filter((p) => p.pid)
+  // Speech in italics is read as dialogue (italicSpeech.ts): the plan is made from the paragraphs with it in quote
+  // marks, and its places are put back where they are on the page.
+  const spoken = new Map([...pageBefore, ...pageParagraphs].map((p) => [p.pid, asSpoken(p)]))
+  const paragraphs = pageParagraphs.map((p) => spoken.get(p.pid)!.para)
+  const before = pageBefore.map((p) => spoken.get(p.pid)!.para)
   const scene = [...before, ...paragraphs]
+  const backOf = (pid: string, n: number): number => spoken.get(pid)?.back(n) ?? n
+  const toPage = (plan: ReadingPlan): ReadingPlan => ({
+    ...plan,
+    clips: plan.clips.map((c) => ({
+      ...c,
+      from: backOf(c.pid, c.from),
+      to: backOf(c.pid, c.to),
+      sentences: c.sentences.map(([a, b]): [number, number] => [backOf(c.pid, a), backOf(c.pid, b)])
+    })),
+    ...(plan.markAhead ? { markAhead: { ...plan.markAhead, at: backOf(plan.markAhead.pid, plan.markAhead.at) } } : {})
+  })
+  const startAt = req.offset ?? 0
   const sceneText = scene.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, req.sceneId, sceneText)
   const kept = writerMarks(w.id, req.sceneId, scene, rc.cast.all, s.markSpeakers)
   const base = {
     paragraphs,
     before,
-    offset: req.offset ?? 0,
+    offset: pageParagraphs[0] ? spoken.get(pageParagraphs[0].pid)!.forward(startAt) : startAt,
     quick: !!req.quick,
     settings: s,
     cast: rc.cast,
@@ -324,8 +345,16 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   const first = planClips(base)
   // Sound effects (src/main/sounds): their marking starts beside the speakers', and each clip gets its sounds. They
   // never make a clip wait.
-  const sfx = soundsForReading({ worldId: w.id, db: w.db, sceneId: req.sceneId, before, paragraphs, offset: base.offset, pids: pidsOf(req.pids) })
-  const done = (plan: ReadingPlan): ReadingPlan => (sfx ? sfx.finish(plan) : plan)
+  const sfx = soundsForReading({
+    worldId: w.id,
+    db: w.db,
+    sceneId: req.sceneId,
+    before: pageBefore,
+    paragraphs: pageParagraphs,
+    offset: startAt,
+    pids: pidsOf(req.pids)
+  })
+  const done = (plan: ReadingPlan): ReadingPlan => (sfx ? sfx.finish(toPage(plan)) : toPage(plan))
   const m = theMarker()
   const marking: MarkingScene = {
     worldId: w.id,

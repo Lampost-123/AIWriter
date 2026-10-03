@@ -9,6 +9,8 @@ import { QUOTE, quoteKey } from '../readAloud/speakers'
 
 /** The longest a tag may be; a brace with no close within it is ordinary text. */
 const MAX_TAG = 200
+/** Speech in italics, as the writer writes it: between asterisks, within a line. */
+const ITALIC_SPEECH = /\*[^*\n]+\*/.source
 const TAG = /^\{([^{}|\n]{1,60})(?:\|([^{}\n]*))?\}$/
 
 /** A tag as found: where it was in the text as the page has it, who it names, and how the line is said. */
@@ -91,7 +93,8 @@ export class SpeakerTagFilter {
     for (const t of this.tags) {
       if (!t.who) continue
       const from = t.at + (/^\s{0,3}/.exec(text.slice(t.at))?.[0].length ?? 0)
-      const m = new RegExp(QUOTE.source, 'y')
+      // A quote, or speech in italics (between asterisks), as a ring that talks might have it.
+      const m = new RegExp(`${QUOTE.source}|${ITALIC_SPEECH}`, 'y')
       m.lastIndex = from
       const q = m.exec(text)
       const key = q ? quoteKey(q[0]) : ''
@@ -103,4 +106,4 @@ export class SpeakerTagFilter {
 
 /** The closing instruction's line asking the writer to tag each line of dialogue with its speaker. */
 export const SPEAKER_TAG_LINE =
-  "- Just before the opening quote mark of every line of dialogue, put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."
+  "- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."

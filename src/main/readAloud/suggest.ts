@@ -14,19 +14,28 @@ import { MARKER, QUOTE, quoteKey } from './speakers'
 type DB = Database.Database
 
 /** A scene's paragraphs from its saved document: each with its id and words (a line break as "\n"). */
-export function paragraphsOfDoc(doc: unknown): { pid: string; text: string }[] {
-  const out: { pid: string; text: string }[] = []
+export function paragraphsOfDoc(doc: unknown): { pid: string; text: string; italics?: [number, number][] }[] {
+  const out: { pid: string; text: string; italics?: [number, number][] }[] = []
   const visit = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
     const n = node as { type?: string; attrs?: { pid?: unknown }; content?: unknown[]; text?: string }
     if (n.type === 'paragraph') {
       let text = ''
+      // The stretches in italics, as the page gives them to reading aloud (italic speech, italicSpeech.ts).
+      const italics: [number, number][] = []
       for (const child of n.content ?? []) {
-        const c = child as { type?: string; text?: string }
-        if (c.type === 'text') text += c.text ?? ''
-        else if (c.type === 'hardBreak') text += '\n'
+        const c = child as { type?: string; text?: string; marks?: { type?: string }[] }
+        if (c.type === 'text') {
+          const at = text.length
+          text += c.text ?? ''
+          if (c.marks?.some((m) => m.type === 'italic')) {
+            const last = italics[italics.length - 1]
+            if (last && last[1] === at) last[1] = text.length
+            else italics.push([at, text.length])
+          }
+        } else if (c.type === 'hardBreak') text += '\n'
       }
-      if (text.trim()) out.push({ pid: typeof n.attrs?.pid === 'string' ? n.attrs.pid : '', text })
+      if (text.trim()) out.push({ pid: typeof n.attrs?.pid === 'string' ? n.attrs.pid : '', text, ...(italics.length ? { italics } : {}) })
       return
     }
     for (const child of n.content ?? []) visit(child)

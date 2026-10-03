@@ -29,6 +29,15 @@ describe('the writer’s speaker tags', () => {
     }
   })
 
+  it('names speech in italics too', () => {
+    const { out, speakers } = stream('{Ring|sly}*Go on,* said the ring. {Ring}*Take the floor, boy.*', 5)
+    expect(out).toBe('*Go on,* said the ring. *Take the floor, boy.*')
+    expect(speakers).toEqual([
+      { key: 'go on', who: 'Ring', tone: 'sly' },
+      { key: 'take the floor boy', who: 'Ring', tone: '' }
+    ])
+  })
+
   it('leaves braces that aren’t tags, and drops a tag cut off at the end', () => {
     expect(stream('A {note across\nlines} stays.', 4).out).toBe('A {note across\nlines} stays.')
     expect(stream('She waited. {Mara|cold', 3).out).toBe('She waited. ')

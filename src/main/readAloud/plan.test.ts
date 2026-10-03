@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { castOf, everyone } from './cast'
 import { planClips, type PlanInput, type PlanSettings } from './plan'
+import { asSpoken } from './italicSpeech'
 import { lexiconOf } from './say'
 import type { ParagraphMarks } from './types'
 
@@ -221,5 +222,23 @@ describe('a speaker the rules only guess', () => {
     const { unplaced, clips } = planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast, lexicon: [], marks, labelling: new Set(['p1']) })
     expect(unplaced.size).toBe(0)
     expect(clips.find((c) => c.clip.input === 'We should go.')).toMatchObject({ who: 'Mara Quill', waits: false })
+  })
+})
+
+describe('a character who speaks in italics', () => {
+  it('is read in their own voice: “said the ring” is the character Ring', () => {
+    const ringCast = everyone(castOf([{ id: 'ring', name: 'Ring', aliases: [], about: '', voice: { design: 'An old, dry, amused voice.', voice: '' } }]))
+    const text = 'Go on, said the ring. Take the floor, boy. You won’t get a better view.'
+    const italics: [number, number][] = [
+      [0, 6],
+      [21, text.length]
+    ]
+    const { para } = asSpoken({ pid: 'p1', text, italics })
+    const clips = planClips({ paragraphs: [para], settings, cast: ringCast, lexicon: [], marks: new Map() }).clips
+    expect(clips.map((c) => [c.who, c.clip.input, c.clip.voiceDesign])).toEqual([
+      ['Ring', 'Go on,', 'An old, dry, amused voice.'],
+      ['Narrator', 'said the ring.', ''],
+      ['Ring', 'Take the floor, boy. You won’t get a better view.', 'An old, dry, amused voice.']
+    ])
   })
 })
