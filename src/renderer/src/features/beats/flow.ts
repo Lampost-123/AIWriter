@@ -23,6 +23,7 @@ import { ReplaceStep } from '@tiptap/pm/transform'
 import type { AppEvents } from '@shared/api'
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { ID } from '@shared/types'
+import { cardLength } from '@shared/defaults'
 import { toast, useToasts } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
 import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
@@ -31,6 +32,7 @@ import { isShortcut, shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { activeStream, streamKey } from '@/features/editor/streamDoc'
 import { resolveDraftOptions } from '@/features/generate/draftOptions'
+import { busyElsewhere } from '@/features/generate/draftRun'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { revealCardPart } from '@/features/palette/cardReveal'
 import { focusBar, patchSession, useBeats, type BeatQuestion, type BeatSession } from './session'
@@ -159,6 +161,8 @@ export async function openBeats(sceneId: ID, byKey: boolean): Promise<void> {
   const bridge = editorBridge()
   if (!bridge || bridge.sceneId !== sceneId) return void toast(NOT_OPEN)
   if (bridge.busy() || app.activeGeneration?.sceneId === sceneId) return void toast(BUSY)
+  // Generate's draft still writing into another scene: one draft at a time, and it says where that one is.
+  if (busyElsewhere(sceneId)) return
   if (opening === sceneId) return
   opening = sceneId
   let beats: string[]
@@ -354,6 +358,7 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
   const ed = bridge?.editor
   if (!bridge || !ed || bridge.sceneId !== s.sceneId) return void toast(NOT_OPEN)
   if (bridge.busy() || useApp.getState().activeGeneration?.sceneId === s.sceneId) return void toast(BUSY)
+  if (busyElsewhere(s.sceneId)) return
   const again = !!how.again
   const doc = ed.state.doc
   const old = again ? (s.paragraphs[index] ?? []) : []
@@ -413,7 +418,7 @@ async function writeBeat(index: number, how: { again?: boolean; replace?: boolea
     await flushAll()
     const card = (await api.getScene(s.sceneId)).card
     const app = useApp.getState()
-    const options = resolveDraftOptions(app.draftOptions[s.sceneId], card.targetWords, app.settings?.creativity ?? 'balanced')
+    const options = resolveDraftOptions(app.draftOptions[s.sceneId], cardLength(card), app.settings?.creativity ?? 'balanced')
     if (r.cancelled) return giveUp()
     const { generationId, of } = await api.startBeat({ sceneId: s.sceneId, sessionId: s.id, index, options, steer, soFar, soFarEnds })
     if (r.cancelled || run !== r) {

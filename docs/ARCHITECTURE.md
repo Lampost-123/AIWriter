@@ -203,6 +203,21 @@ approval step and no Review inbox.
   text again makes them afresh (new ids) rather than bringing those back. The same happens when a
   paragraph is deleted by hand and undone after a read.
 
+### Generate keeps writing when another scene opens (fix release)
+
+- Generate's draft lives in `features/generate/draftRun.ts`, not in the Generate button, and its
+  stream is marked `keepWriting`. Opening another scene keeps the scene being left for it
+  (`controller.ts`, `Away`): its editor state stays off screen, the draft goes on landing in it
+  (the same `streamDoc` steps as on screen), and its `SceneSession` saves it and writes its
+  recovery file as usual. A draft still getting ready is kept the same way (`expectDraft`).
+- Coming back picks that editor up again: still writing, with Stop, undo history and all. A draft
+  that finished away keeps its editor until Adam is back (if the stored text still matches), so
+  one Ctrl+Z still takes the whole draft out. A message says when it is done, with **Show**.
+- One Generate draft at a time; the binder marks the scene being written into and the top bar's
+  **Writing…** goes back to it. Beat by beat still stops on another scene; switching worlds or
+  deleting the scene stops any draft (a kept scene deleted elsewhere stops its draft when its save
+  finds the scene gone).
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |
@@ -454,7 +469,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   use `ToolButton`. Each part's piece of a shared screen is a component in the part's own folder, already
   placed: `SceneTools` (Variants, Beat by beat, History, Listen), `SceneView` (ReadAloudBar, SuggestionLayer,
   BeatBar), the selection bar (ListenFromHere), the scene card (SceneIdeas), the top bar (AskButton), entry
-  pages (EntryVoice), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
+  pages (EntryVoice), the binder's rows (`readAloud/PlayingMark.tsx`: a speaker on the scene being read and its
+  chapter), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
   dictation (`features/settings/SpeechSettings.tsx`: each part's `section="everyday"` and `"more"`), and
   the palette's actions and shortcuts (Listen Ctrl+L, Stop reading Ctrl+Shift+Space).
 - **Speech.** Adam's rule (2 October 2026): from mcreader-v2 and Poor-Mans-Holodeck, only their
@@ -511,6 +527,14 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
   is set; it is saved even when read aloud isn't set up.
+- **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
+  description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
+  only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
+  or "Say it as" Adam set is never replaced, even one set while the AI was writing. Callers: the World builder
+  (what it made and what it filled in), the memory keeper after `fillFound` (`voiceLater`), and the character
+  builder (Quick start when it completes; AI suggestions Adam keeps, after a 20 second pause). The background queue
+  runs one character at a time and asks about each once a session; a failure leaves the box empty. The entry
+  page's voice box shows a voice that arrives while it is open (`memory:changed`), in any box Adam hasn't changed.
 - **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
   (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
   `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.

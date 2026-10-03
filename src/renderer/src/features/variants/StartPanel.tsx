@@ -5,12 +5,13 @@ import { Columns3, Sparkles } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import type { VariantCount } from '@shared/contracts/variants'
-import { CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button, Card, Field, Input, Notice, Textarea } from '@/components/ui'
+import { AUTO_LENGTH, cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
+import { Button, Card, Field, Notice, Textarea } from '@/components/ui'
 import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
-import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftLength, resolveDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
+import { LengthField } from '@/features/generate/LengthField'
 import { CREATIVITY_HINTS, estimateDraftCost, shortModelName } from '@/features/generate/format'
 import { Segmented } from '@/features/generate/parts'
 import { costLabel } from './cost'
@@ -69,9 +70,9 @@ export function StartPanel({
   const navigate = useApp((s) => s.navigate)
 
   const [count, setCount] = useState<VariantCount>(lastCount)
-  const [cardWords, setCardWords] = useState<number | null>(null)
+  /** The scene card's length: a word count, null for Auto, undefined until loaded. */
+  const [cardWords, setCardWords] = useState<number | null | undefined>(undefined)
   const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
-  const [lengthText, setLengthText] = useState('')
   const [estimate, setEstimate] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
   /** Shown here before anything is sent: there is no writer model to write with. */
@@ -80,7 +81,8 @@ export function StartPanel({
   const directionRef = useRef<HTMLTextAreaElement>(null)
 
   const creativity = opts.creativity ?? defaultCreativity
-  const targetWords = opts.targetWords ?? cardWords
+  /** The length each variant will aim for; null is Auto. */
+  const targetWords = draftLength(opts, cardWords ?? null)
   const updateOpts = (patch: Partial<SceneDraftOptions>): void => {
     useApp.getState().setDraftOptions(sceneId, patch)
     clearProblem(sceneId)
@@ -93,7 +95,7 @@ export function StartPanel({
       .then((s) => {
         if (!live) return
         const c = s.card
-        setCardWords(c.targetWords)
+        setCardWords(cardLength(c))
         setCardPlanned(c.beats.some((b) => b.trim() !== '') || [c.goal, c.outcome, c.notes].some((t) => t.trim() !== ''))
       })
       .catch(() => undefined)
@@ -101,10 +103,6 @@ export function StartPanel({
       live = false
     }
   }, [sceneId])
-
-  useEffect(() => {
-    setLengthText(targetWords != null ? String(targetWords) : '')
-  }, [targetWords])
 
   useEffect(() => {
     if (writer) setNeedModel(false)
@@ -124,10 +122,10 @@ export function StartPanel({
     else directionRef.current?.focus({ preventScroll: true })
   }, [focus])
   useLayoutEffect(() => {
-    if (!selectLength.current || !lengthText) return
+    if (!selectLength.current || targetWords == null) return
     selectLength.current = false
     if (document.activeElement === lengthRef.current) lengthRef.current?.select()
-  }, [lengthText])
+  }, [targetWords])
 
   // A problem shows below the buttons, so nothing Adam is looking at moves; the panel scrolls just
   // enough to show it when it is out of sight (in a small window, say).
@@ -142,7 +140,7 @@ export function StartPanel({
   const completionPrice = writer?.completionPrice ?? null
   const writerKey = writer ? `${writer.providerId}/${writer.modelId}/${writer.contextLength ?? ''}` : null
   useEffect(() => {
-    if (!writerKey || promptPrice == null || completionPrice == null || targetWords == null) {
+    if (!writerKey || promptPrice == null || completionPrice == null || cardWords === undefined) {
       setEstimate(null)
       return
     }
@@ -150,14 +148,15 @@ export function StartPanel({
     const t = setTimeout(() => {
       api
         .previewContext(sceneId, { direction: opts.direction, targetWords, creativity })
-        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords, { promptPrice, completionPrice })))
+        // Auto is estimated at a typical scene's length.
+        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords ?? AUTO_LENGTH.typical, { promptPrice, completionPrice })))
         .catch(() => live && setEstimate(null))
     }, 400)
     return () => {
       live = false
       clearTimeout(t)
     }
-  }, [sceneId, writerKey, promptPrice, completionPrice, targetWords, opts.direction, creativity])
+  }, [sceneId, writerKey, promptPrice, completionPrice, cardWords, targetWords, opts.direction, creativity])
 
   const start = async (): Promise<void> => {
     if (starting || generating) return
@@ -173,7 +172,7 @@ export function StartPanel({
       const card = (await api.getScene(sceneId)).card
       const options = resolveDraftOptions(
         useApp.getState().draftOptions[sceneId],
-        card.targetWords,
+        cardLength(card),
         useApp.getState().settings?.creativity ?? 'balanced'
       )
       rememberCount(count)
@@ -248,40 +247,15 @@ export function StartPanel({
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-end gap-x-5 gap-y-4">
-            <div className="flex items-end gap-3">
-              <Field label="Length of each" className="w-[132px]">
-                {(id) => (
-                  <div className="relative">
-                    <Input
-                      id={id}
-                      ref={lengthRef}
-                      inputMode="numeric"
-                      value={lengthText}
-                      onChange={(e) => {
-                        selectLength.current = false
-                        const v = e.target.value.replace(/[^\d]/g, '').slice(0, 5)
-                        setLengthText(v)
-                        const n = parseInt(v, 10)
-                        if (n >= 100) updateOpts({ targetWords: Math.min(n, 12000) })
-                      }}
-                      onBlur={() => setLengthText(targetWords != null ? String(targetWords) : '')}
-                      className="pr-12 tabular-nums"
-                    />
-                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-faint">words</span>
-                  </div>
-                )}
-              </Field>
-              <div className="mb-[7px] min-w-0 text-[12px]">
-                {opts.targetWords == null || opts.targetWords === cardWords ? (
-                  <span className="text-faint">From the scene card</span>
-                ) : cardWords != null ? (
-                  <button type="button" className="text-accent hover:underline" onClick={() => updateOpts({ targetWords: null })}>
-                    Use the card's {cardWords.toLocaleString()}
-                  </button>
-                ) : null}
-              </div>
-            </div>
+          <div className="flex flex-wrap items-start gap-x-5 gap-y-4">
+            <LengthField
+              label="Length of each"
+              value={opts.targetWords}
+              cardWords={cardWords}
+              onChange={(targetWords) => updateOpts({ targetWords })}
+              inputRef={lengthRef}
+              onTyped={() => (selectLength.current = false)}
+            />
             <div className="flex min-w-[240px] flex-1 flex-col gap-1.5">
               <span className="text-[12px] font-medium text-muted">Creativity</span>
               {fixedCreativity ? (

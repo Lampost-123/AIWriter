@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BLANK_DRAFT_OPTIONS, patchDraftOptions, resolveDraftOptions } from './draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftLength, patchDraftOptions, resolveDraftOptions } from './draftOptions'
 
 describe('resolveDraftOptions', () => {
   it('uses the card length and the default creativity when Adam chose nothing', () => {
@@ -15,6 +15,17 @@ describe('resolveDraftOptions', () => {
       targetWords: 2500,
       creativity: 'adventurous'
     })
+  })
+})
+
+describe('Auto length', () => {
+  it("follows the card's Auto, and Auto for this draft wins over the card's word count", () => {
+    expect(resolveDraftOptions(undefined, null, 'balanced').targetWords).toBeNull()
+    expect(resolveDraftOptions({ direction: '', targetWords: 'auto', creativity: null }, 2500, 'balanced').targetWords).toBeNull()
+    expect(resolveDraftOptions({ direction: '', targetWords: 900, creativity: null }, null, 'balanced').targetWords).toBe(900)
+    expect(draftLength(undefined, 2500)).toBe(2500)
+    expect(draftLength({ direction: '', targetWords: 'auto', creativity: null }, 2500)).toBeNull()
+    expect(draftLength({ direction: '', targetWords: 1200, creativity: null }, null)).toBe(1200)
   })
 })
 
