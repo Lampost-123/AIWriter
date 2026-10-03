@@ -418,7 +418,9 @@ export function restoreSoundEdits(sceneId: ID, edits: unknown, given: unknown): 
   const w = world.currentWorld()
   const id = checkScene(sceneId)
   const before = sceneEdits(w.db, id)
-  const next = cleanEdits(edits)
+  // Undo puts the sounds back as they were; the scene's mute has its own button, so it stays as it is now.
+  const { muted: _wasMuted, ...owned } = cleanEdits(edits)
+  const next: SoundEdits = { ...owned, ...(before.muted ? { muted: true } : {}) }
   saveSceneEdits(w.db, id, next)
   emit('sounds:marked', { sceneId: id, pids: changedPids(before, next) })
   return getSceneSounds(id, given)

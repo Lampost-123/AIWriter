@@ -89,6 +89,8 @@ class Mixer {
   private listenSeq = 0
   /** Bumped by forget(): a sound fetched before it is never kept. */
   private generation = 0
+  /** Bumped for one sound by forgetSound() (a new take): its copy fetched before then is never kept. */
+  private readonly takes = new Map<string, number>()
 
   /** The audio clock, made on first use. Null where the window has no Web Audio (never in the app). */
   private ensure(): AudioContext | null {
@@ -111,9 +113,13 @@ class Mixer {
     // A sound made since reading wanted it: an ambience still wanted starts now; anything else is fetched next time.
     onEvent('sounds:ready', ({ soundId, ok }) => {
       if (!ok) return
-      // Made again under the same id: the copy kept here is out of date.
-      if (this.bed?.soundId !== soundId) this.buffers.delete(soundId)
+      // Made again under the same id (a new take): the copy kept here is out of date, even for the ambience playing,
+      // which keeps the buffer it has until it next starts. One that was in use is fetched again at once, so its next
+      // play isn't missed.
+      const had = this.buffers.has(soundId)
+      this.forgetSound(soundId)
       if (this.wantedBed === soundId && this.bed?.soundId !== soundId) this.setBed(soundId, 0, this.wantedVolume)
+      else if (had) void this.load(soundId)
     })
     return ctx
   }
@@ -132,6 +138,7 @@ class Mixer {
     let got = this.pending.get(soundId)
     if (!got) {
       const generation = this.generation
+      const take = this.takes.get(soundId) ?? 0
       got = api
         .soundAudio(soundId)
         .then(async (bytes) => {
@@ -139,8 +146,8 @@ class Mixer {
           // decodeAudioData takes the bytes over, so it gets a copy of its own.
           const copy = new Uint8Array(bytes).buffer
           const buffer = await ctx.decodeAudioData(copy)
-          // Cleared meanwhile (Clear sounds): not kept, and not played.
-          if (generation !== this.generation) return null
+          // Cleared meanwhile (Clear sounds), or made again (a new take): not kept, and not played.
+          if (generation !== this.generation || take !== (this.takes.get(soundId) ?? 0)) return null
           this.buffers.set(soundId, buffer)
           return buffer
         })
@@ -359,6 +366,7 @@ class Mixer {
    */
   /** One sound made again (a new take, or back to the earlier one): its copy here is out of date. */
   forgetSound(soundId: string): void {
+    this.takes.set(soundId, (this.takes.get(soundId) ?? 0) + 1)
     this.buffers.delete(soundId)
     this.pending.delete(soundId)
   }

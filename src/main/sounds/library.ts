@@ -358,14 +358,25 @@ export class SoundLibrary {
       await fs.rm(temp, { force: true }).catch(() => undefined)
       return false
     }
+    if (e.state === 'ready' && e.retake !== 'making') {
+      // A new take that Adam went back from before it was made: it isn't kept, and the take playing stays.
+      await fs.rm(temp, { force: true }).catch(() => undefined)
+      return false
+    }
     if (e.retake === 'making' && e.state === 'ready') {
-      // A new take: the one before goes aside (one only), for going back.
-      const kept = await fs.rename(file, this.prevOf(id)).then(
-        () => true,
-        () => false
-      )
-      e.prev = kept ? { seconds: e.seconds, bytes: e.bytes, score: e.score ?? null, made: e.made } : undefined
-      e.retake = kept ? 'ready' : undefined
+      if (e.prev) {
+        // Another new take before Adam chose: the take aside stays the last one he had (the one being replaced was
+        // never kept), so Go back still goes back to it.
+        e.retake = 'ready'
+      } else {
+        // A new take: the one before goes aside (one only), for going back.
+        const kept = await fs.rename(file, this.prevOf(id)).then(
+          () => true,
+          () => false
+        )
+        e.prev = kept ? { seconds: e.seconds, bytes: e.bytes, score: e.score ?? null, made: e.made } : undefined
+        e.retake = kept ? 'ready' : undefined
+      }
     } else if (e.retake === 'making') e.retake = undefined
     await fs.rename(temp, file)
     e.state = 'ready'

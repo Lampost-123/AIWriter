@@ -258,7 +258,7 @@ describe('a new take of a sound', () => {
     expect(new SoundLibrary(dir).get(id)).toMatchObject({ seconds: 1 })
   })
 
-  it('keeps only one take aside', async () => {
+  it('keeps only one take aside: the last one Adam had, through more new takes before he chooses', async () => {
     const lib = new SoundLibrary(dir)
     const id = await made(lib, 'a door slamming', 1)
     lib.startRetake(id)
@@ -266,8 +266,18 @@ describe('a new take of a sound', () => {
     lib.startRetake(id)
     expect(lib.get(id)!.retake).toBe('making')
     await lib.saveClip(id, silentWav(3), 3)
-    expect(lib.get(id)).toMatchObject({ seconds: 3, retake: 'ready', prev: { seconds: 2 } })
+    expect(lib.get(id)).toMatchObject({ seconds: 3, retake: 'ready', prev: { seconds: 1 } })
     expect(readdirSync(join(dir, 'clips')).sort()).toEqual([`${id}.prev.wav`, `${id}.wav`])
+  })
+
+  it('drops a new take that lands after Adam went back from it', async () => {
+    const lib = new SoundLibrary(dir)
+    const id = await made(lib, 'a door slamming', 1)
+    lib.startRetake(id)
+    expect(await lib.keepTake(id, false)).toBe(false)
+    expect(await lib.saveClip(id, silentWav(2), 2)).toBe(false)
+    expect(wavSeconds((await lib.audio(id))!)).toBeCloseTo(1)
+    expect(readdirSync(join(dir, 'clips'))).toEqual([`${id}.wav`])
   })
 
   it('leaves the sound as it was when the new take is given up on or called off', async () => {
