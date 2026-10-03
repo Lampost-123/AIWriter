@@ -967,6 +967,85 @@ scene and chapter while the app is open) and are sent with each request.
   Edit, Discard and their Undo work as on the outline helper's page. A goal in the reply goes to the chapter only
   while it has none, with Undo. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
   becomes that scene (`keepOutline`), and its Undo puts it back.
+## Story recipes
+
+What it adds (spec, "Story recipes", its own update after milestone 6): Adam brings in a whole story (Word, Markdown,
+plain text, or pasted) and the AI distils it into a **recipe**: the story's themes, writing style and structure,
+without its words. Recipes are kept in a recipe library on his computer, can be read, edited, renamed, copied and
+deleted, and a new story can be planned from one. The data model stays frozen: world.db is unchanged.
+
+- **Where it lives.** `<library>/Recipes` (`recipes/paths.ts`; "Story recipes" only if a world already uses a
+  folder called Recipes), beside the worlds and never one of them: it holds no world.db, so the world list, the usage
+  page's worlds and world files never see it; `listWorlds` skips it by name too, and `slugify` never names a world's
+  folder "Recipes". Backups, world exports and the installer only ever take world folders or the app, so they never
+  include it; `.gitignore` ignores a stray `/Recipes/` at the repository root. Each recipe is a folder named by id
+  (never by the story's title): `recipe.json`, `source.json` (the story's text) and, while it is made, `making.json`
+  (each chapter's notes). Deleting or cancelling moves the folder to `.removed/` for its Undo toast; it is deleted for
+  good after 10 minutes or when the app quits.
+- **The story's text** goes only to the Recipe maker's model, and only while a recipe is made (or read again). It is
+  kept with the recipe after it is made, as the spec says ("so it can be read again"), until Adam presses **Forget
+  the story's text** (Undo in its toast). A copy of a recipe doesn't copy the text. The notes on each chapter go once
+  the recipe is made.
+- **The Recipe maker** is its own job, `recipe`: "Recipe maker" in Settings › Models (`settings.models.recipe`, the
+  memory model until Adam picks one, then the writer model), with its own Thinking (`settings.thinking.recipe`, Off).
+  Prompts start with `[AIWRITE-RECIPE v1] <step>` (`chapter`, `combine`, `fix`, `story`); the fake provider answers
+  them in `tests/fake-provider/recipes.mjs`.
+- **What it costs is counted, without the words.** Recipe calls go through the task runner (`ai/tasks.ts`) like any
+  AI call, so the monthly limit holds them before anything is sent, but their records are written to the recipe
+  library's own `Recipes/spending.db` (same `generations` table, `recipes/spending.ts`), never to a world. As each
+  call ends its words are wiped from its record (what was sent, the reply, the error), leaving job `recipe`, the
+  model, tokens and cost. `usage/index.ts` adds that file's tally to the library's spending (and so to the monthly
+  limit) as the job group "Story recipes"; it is not counted as a world and never shows in one world's figures.
+  `startRecipe`, `carryOnRecipe`, `readRecipeAgain` and `startRecipeStory` are in `ASKS_FIRST`.
+
+### How a recipe is made
+
+- **In.** The make page uses the manuscript import's readers (`chooseManuscript`; pasted text through
+  `readPastedStory`, read as a .txt file is) and its split (`features/importing/split.ts`): the chapters with their
+  words, scenes and opening words, and merging one with the one before. Before anything is sent the page shows the
+  estimate (`recipes/estimate.ts`: one request per chapter, or per piece of a long chapter cut to fit the model, plus
+  the recipe and a possible fix) and says the story goes only to the recipe maker model.
+- **The maker** (`recipes/maker.ts`, wired in `recipes/index.ts`) works like the import catch-up: in the background,
+  one recipe at a time in the order asked, chapter by chapter ("Reading chapter 3 of 24", Cancel), each chapter's notes
+  saved as they come so it carries on after a restart. It pauses with the reason when there is no model or the monthly
+  limit holds AI calls (and carries on by itself when the models or the limit change), or after two failed calls in a
+  row (Try again). Its calls aren't stopped by a window reload (`outlivesWindow` in the task runner), so they are
+  never paid for twice. The notes file is written before a recipe says it is being made, and a recipe left "being
+  made" without one is paused at start; something unexpected breaking pauses the recipe with Try again. Cancel on a
+  finished recipe being read again puts it back as it was (`wasReady`); only a new recipe leaves the library. Then it writes the recipe from the notes and the pacing figures code counted (`recipes/source.ts`:
+  words, scenes, share of dialogue, where each chapter falls), and checks it.
+- **No names, places or sentences** (`recipes/leaks.ts`). The prompts forbid them; then the recipe is checked against
+  the story: names (words capitalised mid-sentence twice, or once and never in lower case, even ordinary words such as
+  "Will" or "Rose"; words only ever at sentence starts that aren't ordinary English words; the title's words) and any
+  run of 8 or more words copied from the story, judged as the whole matching run (only a run under 12 words made
+  entirely of little words passes). Parts that leak are asked for once more (`fix`); whatever still leaks is taken out a
+  sentence at a time. A suggested name that gives the story away becomes "A story in N chapters".
+- **A recipe holds** (`contracts/recipes.ts`): themes (with each act's tone and mood), tone, point of view, tense,
+  writing style in plain words, a sample passage written fresh, shape and turning points, beats as general moves, cast
+  roles, pacing and devices. Every part is editable on its page (saved as he types); a part he changed is his
+  (`edited`) and **Read the story again** never overwrites it. A neutral name the AI suggests, or his own.
+
+### A new story from a recipe
+
+- The New story dialog shows "From a recipe" once the library has a finished recipe (a recipe's page opens the dialog
+  with it picked): his own guidance, and "Write it in the recipe's style, with its themes and tone" (on by default).
+- On Create, `applyRecipeToStory` puts the recipe's point of view, tense, writing style and sample passage into the
+  story's style guide (`Story.style`) and its themes and tone into the story's (Undo in the toast,
+  `unapplyRecipe`). From then on drafting reads the story's style guide, not the recipe.
+- The plan page (View `recipePlan`) asks `startRecipeStory`: the **chat and brainstorm model** (the outline helper's),
+  an `outline` record in the world holding the recipe and the guidance (never the source text), with the world's
+  characters, places and threads, the guidance first ("it wins wherever it differs"). The answer is a `Premise:` line
+  and then the outline helper's own form, so `features/outline/helperStore.ts` (`suggestOutlineWith`, added for this)
+  reads it and its `Suggestions` keep, edit and discard acts, chapters and scene cards exactly as the outline helper
+  does. The premise is kept as the story's premise, with Undo.
+- Ways in: the palette (`go-recipes`, `make-recipe`), the top bar's world menu and the Welcome screen ("Story
+  recipes"); the library works with no world open, but a story needs one.
+- Not yet: "Interview me" for a recipe, and matching each cast role to one of Adam's characters (or building a new one
+  as Quick start does).
+
+| Part | Owns |
+|---|---|
+| Story recipes | `contracts/recipes.ts`, `ipc/recipes.ts`, `src/main/recipes/`, `features/recipes/`, the `recipe` job (types, defaults, `jobModel`, providers, Settings › Models), `tests/fake-provider/recipes.mjs`, `tests/e2e/recipes.spec.ts` |
 
 ## Milestone 1 scope
 

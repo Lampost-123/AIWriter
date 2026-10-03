@@ -8,6 +8,7 @@ import * as repo from './db/repo'
 import { getSettings, updateSettings } from './settings'
 import { newId, now, slugify, UserError } from './util'
 import { backupBeforeMigration } from './services/backups'
+import { recipesDir } from './recipes/paths'
 
 // The open world: one folder in the library holding world.db, images/ and backups/.
 
@@ -75,6 +76,8 @@ export function listWorlds(): WorldSummary[] {
     if (!name.isDirectory()) continue
     // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/).
     if (name.name.startsWith('.aiwrite-')) continue
+    // Story recipes live beside the worlds, in a folder that is never one (src/main/recipes/paths.ts).
+    if (join(lib, name.name) === recipesDir(lib)) continue
     if (current && join(lib, name.name) === current.folder) {
       out.push(toSummary(getWorld()!))
       continue

@@ -92,6 +92,8 @@ export type FixedActionId =
   | 'focus-mode'
   | 'leave-focus-mode'
   | 'sample-world'
+  | 'go-recipes'
+  | 'make-recipe'
   // Writing by hand
   | 'bold'
   | 'italic'
@@ -377,6 +379,9 @@ export const ACTIONS: ActionDef[] = [
     when: (c) => !!c.focus
   },
   { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
+  // Story recipes
+  { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },
+  { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book style structure distil', away: true },
   // Writing by hand
   { id: 'bold', label: 'Bold', keywords: 'format strong heavy text style', shortcut: 'bold', when: seesScene },
   { id: 'italic', label: 'Italic', keywords: 'format emphasis slanted text style', shortcut: 'italic', when: seesScene },
