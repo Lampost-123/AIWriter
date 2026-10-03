@@ -1,7 +1,7 @@
 {
   "name": "ai-write",
   "productName": "AI Write",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Write long, consistent stories with AI and a memory of your world.",
   "author": "Adam (Lampost-123)",
   "private": true,
