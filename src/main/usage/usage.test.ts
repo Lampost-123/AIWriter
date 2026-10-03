@@ -510,7 +510,7 @@ describe('every world in the library', () => {
     const elsewhere = new UsageLibrary({ cacheFile, zone: 'elsewhere' })
     elsewhere.refreshAll(join(dir, 'library'), { folder: openFolder, db: openDb, name: 'Gamma' })
     expect(elsewhere.monthSpend('2026-10')).toBeCloseTo(31)
-  })
+  }, 30_000) // Opens several worlds on disk: slow on a busy Windows runner
 
   it('counts a world it cannot read, and never fails because of it', () => {
     const folder = join(dir, 'broken-lib', 'Broken')
