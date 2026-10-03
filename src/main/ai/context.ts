@@ -66,12 +66,13 @@ import type {
   ThreadState
 } from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
+import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { finalInstruction, indentMore, instructionsText, SHORT_SAMPLE_WORDS, type FinalOptions } from './prompts'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
-/** Room for the reply: the target length plus 40%. */
+/** Room for the reply: the target length (with Auto, the longest Auto allows) plus 40%. */
 export const REPLY_HEADROOM = 1.4
 export const SAFETY_MARGIN = 0.1
 /** Tokens for the chat format around each message. */
@@ -94,6 +95,8 @@ export interface ContextInput {
   options: DraftOptions
   /** From the model choice; null when unknown. */
   contextLength: number | null
+  /** The model's own reply limit in tokens, from the model choice; null or left out when unknown. Lowers Auto's ceiling. */
+  maxOutput?: number | null
 }
 
 export interface BlockDraft {
@@ -127,16 +130,33 @@ export interface PreparedContext {
    */
   texts: string[]
   contextLength: number
-  targetWords: number
+  /** The length asked for, or null for Auto (room is kept for autoMax words). */
+  targetWords: number | null
+  /** With Auto: the longest scene Auto allows this model (AUTO_LENGTH.max, or less for a model with a small reply limit). */
+  autoMax?: number
+  /** With Auto: both closing instructions again for a lower ceiling, when the window can't fit autoMax beside the briefing. */
+  autoFinals?: (maxWords: number) => { withPrevious: string; withoutPrevious: string }
   knows: string
   entries: ContextEntry[]
 }
 
 // ---------- Budget ----------
 
-export const replyTokens = (targetWords: number): number => Math.ceil(Math.max(0, targetWords) * TOKENS_PER_WORD * REPLY_HEADROOM)
+/** Room for a reply of `targetWords` words (null is Auto: the longest Auto allows) plus 40%. */
+export const replyTokens = (targetWords: number | null): number =>
+  Math.ceil(Math.max(0, targetWords ?? AUTO_LENGTH.max) * TOKENS_PER_WORD * REPLY_HEADROOM)
 
-export function computeBudget(contextLength: number | null, targetWords: number): Omit<ContextBudget, 'used'> {
+/**
+ * The longest scene Auto may ask this model for: AUTO_LENGTH.max, lowered (in hundreds, never under
+ * AUTO_LENGTH.min) for a model whose own reply limit is smaller than that.
+ */
+export function autoCeiling(maxOutput?: number | null): number {
+  if (!maxOutput || maxOutput <= 0) return AUTO_LENGTH.max
+  const words = Math.floor(maxOutput / TOKENS_PER_WORD / 100) * 100
+  return Math.max(AUTO_LENGTH.min, Math.min(AUTO_LENGTH.max, words))
+}
+
+export function computeBudget(contextLength: number | null, targetWords: number | null): Omit<ContextBudget, 'used'> {
   const length = contextLength && contextLength > 0 ? contextLength : DEFAULT_CONTEXT_LENGTH
   const reserved = replyTokens(targetWords)
   const available = Math.max(0, length - reserved - Math.ceil(length * SAFETY_MARGIN))
@@ -795,7 +815,8 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   if (clean(card.conflict)) shape.push(`Conflict: ${indentMore(card.conflict)}`)
   if (clean(card.outcome)) shape.push(`Outcome: ${indentMore(card.outcome)}`)
   if (clean(card.mood)) shape.push(`Mood: ${indentMore(card.mood)}`)
-  shape.push(`Length: about ${input.options.targetWords.toLocaleString('en-GB')} words`)
+  const words = input.options.targetWords
+  shape.push(words == null ? 'Length: as long as the scene needs' : `Length: about ${words.toLocaleString('en-GB')} words`)
   parts.push(shape.join('\n'))
   const aims = bringAboutLines(input, sel)
   if (aims.length) {
@@ -1373,9 +1394,12 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
   const targetWords = input.options.targetWords
+  // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
+  const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined
   const card = input.scene.card
   const base = {
     targetWords,
+    autoMax,
     style: input.style,
     hasBeats: card.beats.some((b) => b.trim()),
     hasGoal: !!clean(card.goal),
@@ -1386,10 +1410,11 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     previousStory: previousStory(input)
   }
   const final = extras.final ?? finalInstruction
-  const finals = {
-    withPrevious: final({ ...base, hasPrevious: true }),
-    withoutPrevious: final({ ...base, hasPrevious: false })
-  }
+  const finalsFor = (max: number | undefined): PreparedContext['finals'] => ({
+    withPrevious: final({ ...base, autoMax: max, hasPrevious: true }),
+    withoutPrevious: final({ ...base, autoMax: max, hasPrevious: false })
+  })
+  const finals = finalsFor(autoMax)
   return {
     blocks,
     modes: input.blockModes ?? {},
@@ -1397,6 +1422,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), finals.withPrevious, finals.withoutPrevious],
     contextLength: computeBudget(input.contextLength, targetWords).contextLength,
     targetWords,
+    ...(autoMax != null ? { autoMax, autoFinals: (max: number) => finalsFor(max) } : {}),
     knows: input.memory.knows ?? '',
     entries: contextEntries(sel, blocks)
   }
@@ -1426,8 +1452,11 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     withPrevious: withAllowance(rawCounts[at] ?? 0),
     withoutPrevious: withAllowance(rawCounts[at + 1] ?? 0)
   }
-  const budget = computeBudget(prepared.contextLength, prepared.targetWords)
+  // With Auto, room is kept for the longest scene Auto allows (autoMax).
+  let budget = computeBudget(prepared.contextLength, prepared.targetWords ?? prepared.autoMax ?? null)
   const fits = (): boolean => measure() <= budget.available
+  const auto = prepared.targetWords == null && prepared.autoMax != null
+  let ceiling = prepared.autoMax ?? AUTO_LENGTH.max
 
   function measure(): number {
     const hasPrev = state.some((s) => s.b.id === 'previous-scene' && !s.dropped)
@@ -1440,65 +1469,98 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
   const shortenable = [...droppable, ...state.filter((x) => x.b.priority === 1)]
 
-  // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
-  for (const s of shortenable) {
-    if (fits()) break
-    if (s.level === 0 && s.max >= 1) s.level = 1
-  }
-  // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
-  //     than its short form, so a small model keeps what happened just before rather than a list of names.
-  const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
-  for (const s of droppable) {
-    if (fits()) break
-    if (lowest(s)) s.dropped = true
-  }
-  // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
-  //    down to its most recent parts, the point-of-view character down to the core of the profile),
-  //    a step at a time, from the bottom up.
-  for (let more = true; more && !fits(); ) {
-    more = false
+  /** Fits the briefing to the budget, starting again from every block as Adam set it. */
+  function fit(): void {
+    for (const s of state) {
+      s.level = s.min
+      s.dropped = false
+    }
+    // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
     for (const s of shortenable) {
       if (fits()) break
-      if (s.level >= 1 && s.level < s.max) {
-        s.level++
-        more = true
+      if (s.level === 0 && s.max >= 1) s.level = 1
+    }
+    // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
+    //     than its short form, so a small model keeps what happened just before rather than a list of names.
+    const lowest = (s: State): boolean => s.b.priority >= TIES_PRIORITY && s.mode !== 'full'
+    for (const s of droppable) {
+      if (fits()) break
+      if (lowest(s)) s.dropped = true
+    }
+    // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
+    //    down to its most recent parts, the point-of-view character down to the core of the profile),
+    //    a step at a time, from the bottom up.
+    for (let more = true; more && !fits(); ) {
+      more = false
+      for (const s of shortenable) {
+        if (fits()) break
+        if (s.level >= 1 && s.level < s.max) {
+          s.level++
+          more = true
+        }
+      }
+    }
+    // 3. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
+    for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
+      if (fits()) break
+      s.dropped = true
+    }
+    // 4. Dropping one big block (often the previous scene) can free room for smaller, less
+    //    important ones dropped before it. Put those back, most important first, while it fits.
+    for (const s of [...droppable].reverse()) {
+      if (!s.dropped || lowest(s)) continue
+      s.dropped = false
+      if (!fits()) s.dropped = true
+    }
+    // 5. Then give back the longest form that fits again to each block, most important first.
+    for (const s of [...leastFirst].reverse()) {
+      if (s.dropped) continue
+      const was = s.level
+      for (let l = s.min; l < was; l++) {
+        s.level = l
+        if (fits()) break
+        s.level = was
+      }
+    }
+
+    // 6. Block 11 back, if it fits once everything more important has its room.
+    for (const s of droppable) {
+      if (!s.dropped || !lowest(s)) continue
+      s.dropped = false
+      if (fits()) continue
+      const was = s.level
+      for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
+      if (s.level > s.max || !fits()) {
+        s.level = was
+        s.dropped = true
       }
     }
   }
-  // 3. Then whole blocks, from 10 up to 3. Blocks Adam wants in full go only as a last resort.
-  for (const s of [...droppable.filter((x) => x.mode !== 'full'), ...droppable.filter((x) => x.mode === 'full')]) {
-    if (fits()) break
-    s.dropped = true
-  }
-  // 4. Dropping one big block (often the previous scene) can free room for smaller, less
-  //    important ones dropped before it. Put those back, most important first, while it fits.
-  for (const s of [...droppable].reverse()) {
-    if (!s.dropped || lowest(s)) continue
-    s.dropped = false
-    if (!fits()) s.dropped = true
-  }
-  // 5. Then give back the longest form that fits again to each block, most important first.
-  for (const s of [...leastFirst].reverse()) {
-    if (s.dropped) continue
-    const was = s.level
-    for (let l = s.min; l < was; l++) {
-      s.level = l
-      if (fits()) break
-      s.level = was
+  // Auto, when the briefing as Adam set it leaves too little room for autoMax words: the briefing comes
+  // first, so Auto's ceiling comes down to what fits beside it (to no less than a typical scene) before
+  // any block is shortened.
+  if (auto) {
+    const over = lengthTooLong({ ...budget, used: measure() })
+    if (over) {
+      ceiling = Math.max(Math.min(AUTO_LENGTH.typical, ceiling), Math.min(ceiling, over.maxWords))
+      budget = computeBudget(prepared.contextLength, ceiling)
     }
   }
+  fit()
 
-  // 6. Block 11 back, if it fits once everything more important has its room.
-  for (const s of droppable) {
-    if (!s.dropped || !lowest(s)) continue
-    s.dropped = false
-    if (fits()) continue
-    const was = s.level
-    for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
-    if (s.level > s.max || !fits()) {
-      s.level = was
-      s.dropped = true
+  // Auto, when even the shortest briefing leaves too little room for autoMax words: Auto's ceiling comes
+  // down to what fits (never under AUTO_LENGTH.min; below that the draft says "too long", as for a set
+  // length), and the briefing is fitted again to the smaller reply room. The closing instruction says the
+  // new ceiling; its tokens were counted with the old one (the same number of digits, near enough).
+  let finals = prepared.finals
+  if (auto) {
+    const over = lengthTooLong({ ...budget, used: measure() })
+    if (over) {
+      ceiling = Math.max(AUTO_LENGTH.min, Math.min(ceiling, over.maxWords))
+      budget = computeBudget(prepared.contextLength, ceiling)
+      fit()
     }
+    if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
   const blocks: ContextBlock[] = state.map((s) => ({
@@ -1517,7 +1579,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''
   const parts = sent.filter((b) => b.priority > 1).map((b) => ({ id: b.id, text: blockAsSent(b) }))
-  const user = [...parts.map((p) => p.text), hasPrev ? prepared.finals.withPrevious : prepared.finals.withoutPrevious].join('\n\n')
+  const user = [...parts.map((p) => p.text), hasPrev ? finals.withPrevious : finals.withoutPrevious].join('\n\n')
   // What a redraft sends again unchanged ends before the entries named in the card or direction (STEADY_UNTIL).
   const steady = parts.filter((p) => sendRank(p) < STEADY_UNTIL).map((p) => p.text)
   const cacheUpTo = steady.length ? steady.join('\n\n').length : 0

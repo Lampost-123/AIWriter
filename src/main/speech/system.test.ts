@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { win32 } from 'node:path'
+import { join as nativeJoin, win32 } from 'node:path'
 import {
+  findCard,
   findNvidia,
+  freeSpace,
+  parseCards,
   findPythons,
   findWinget,
   onPath,
@@ -137,5 +140,68 @@ describe('the graphics card', () => {
     expect(await findNvidia(computer('linux', { PATH: '/usr/bin' }, []))).toBe('')
     expect(await findNvidia(computer('linux', { PATH: '/usr/bin' }, ['/usr/bin/nvidia-smi']))).toBe('')
     expect(await findNvidia(computer('darwin', { PATH: '/usr/bin' }, ['/usr/bin/nvidia-smi'], { '/usr/bin/nvidia-smi': 'x' }))).toBe('')
+  })
+})
+
+describe('the graphics card’s memory and age', () => {
+  const smi = '/usr/bin/nvidia-smi'
+  /** A computer whose nvidia-smi answers each query (by its fields), or turns it down (an older driver). */
+  function withCard(answers: Record<string, string>): SystemEnv & { ran: string[][] } {
+    const ran: string[][] = []
+    const run: Runner = async (command, args) => {
+      ran.push([command, ...args])
+      const out = answers[args[0].replace('--query-gpu=', '')]
+      return out === undefined ? { code: 6, stdout: '' } : { code: 0, stdout: out }
+    }
+    return { platform: 'linux', env: { PATH: '/usr/bin' }, exists: (p) => p === smi, run, ran }
+  }
+
+  it('reads nvidia-smi’s lines, leaving what it can’t say unknown', () => {
+    expect(parseCards('NVIDIA GeForce RTX 5070 Ti, 16303, 12.0\r\n')).toEqual([
+      { name: 'NVIDIA GeForce RTX 5070 Ti', memoryMb: 16303, computeCap: 12 }
+    ])
+    expect(parseCards('NVIDIA GeForce RTX 2080, [N/A], [N/A]\n\n')).toEqual([{ name: 'NVIDIA GeForce RTX 2080', memoryMb: null, computeCap: null }])
+    expect(parseCards('NVIDIA GeForce RTX 3060 Laptop GPU')).toEqual([
+      { name: 'NVIDIA GeForce RTX 3060 Laptop GPU', memoryMb: null, computeCap: null }
+    ])
+    expect(parseCards('')).toEqual([])
+  })
+
+  it('asks for the name, memory and age at once, and picks the card with the most memory', async () => {
+    const sys = withCard({ 'name,memory.total,compute_cap': 'NVIDIA T400, 2048, 7.5\nNVIDIA GeForce RTX 4090, 24564, 8.9\n' })
+    expect(await findCard(sys)).toEqual({ name: 'NVIDIA GeForce RTX 4090', memoryMb: 24564, computeCap: 8.9 })
+    expect(sys.ran).toEqual([[smi, '--query-gpu=name,memory.total,compute_cap', '--format=csv,noheader,nounits']])
+  })
+
+  it('asks for less from an older driver that doesn’t know the card’s age', async () => {
+    const sys = withCard({ 'name,memory.total': 'NVIDIA GeForce GTX 1080, 8192\n' })
+    expect(await findCard(sys)).toEqual({ name: 'NVIDIA GeForce GTX 1080', memoryMb: 8192, computeCap: null })
+    expect(await findNvidia(sys)).toBe('NVIDIA GeForce GTX 1080')
+  })
+
+  it('is no card when nvidia-smi says nothing', async () => {
+    expect(await findCard(withCard({}))).toEqual({ name: '', memoryMb: null, computeCap: null })
+    expect(await findCard(withCard({ 'name,memory.total,compute_cap': '\n' }))).toEqual({ name: '', memoryMb: null, computeCap: null })
+  })
+})
+
+describe('free disk space', () => {
+  it('measures the disk the speech folder is on, from its nearest folder that exists', async () => {
+    const asked: string[] = []
+    const statfs = async (p: string) => {
+      asked.push(p)
+      return { bavail: 1000n, bsize: 4096n }
+    }
+    const home = nativeJoin(process.cwd(), 'nowhere-yet', 'speech')
+    expect(await freeSpace(home, statfs, (p) => p === process.cwd())).toBe(4_096_000)
+    expect(asked).toEqual([process.cwd()])
+  })
+
+  it('is unknown when it can’t be measured', async () => {
+    const fails = async (): Promise<{ bavail: number; bsize: number }> => {
+      throw new Error('EPERM')
+    }
+    expect(await freeSpace(process.cwd(), fails, () => true)).toBeNull()
+    expect(await freeSpace(process.cwd(), fails, () => false)).toBeNull()
   })
 })

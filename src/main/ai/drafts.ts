@@ -137,7 +137,8 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
       top_p: preset.top_p,
       max_tokens: reply.limit,
       creativity: req.options.creativity,
-      targetWords: req.options.targetWords,
+      // Auto leaves the length out and says so.
+      ...(req.options.targetWords == null ? { autoLength: true } : { targetWords: req.options.targetWords }),
       ...(req.partOf ?? {})
     },
     sent,

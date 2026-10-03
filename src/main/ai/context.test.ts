@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide } from '@shared/types'
-import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
+import { AUTO_LENGTH, cardLength, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import {
   assembleContext,
+  autoCeiling,
   blockAsSent,
   buildBlocks,
   cachedCounter,
@@ -30,7 +31,7 @@ import {
   type ContextInput,
   type PreparedContext
 } from './context'
-import { trimPassage } from './prompts'
+import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { countRaw } from './tokens'
 
 // ---------- Fixtures ----------
@@ -262,6 +263,58 @@ describe('budget', () => {
   it('uses 16,000 when the context length is unknown', () => {
     expect(computeBudget(null, 1000).contextLength).toBe(DEFAULT_CONTEXT_LENGTH)
     expect(computeBudget(0, 1000).contextLength).toBe(DEFAULT_CONTEXT_LENGTH)
+  })
+
+  it('with Auto, keeps room for the longest scene Auto allows plus 40%', () => {
+    expect(replyTokens(null)).toBe(Math.ceil(AUTO_LENGTH.max * 1.35 * 1.4))
+    expect(computeBudget(32000, null).reserved).toBe(replyTokens(AUTO_LENGTH.max))
+  })
+})
+
+describe('Auto length', () => {
+  it("reads the scene card's length: a word count Adam set, else Auto", () => {
+    expect(cardLength(emptySceneCard())).toBeNull()
+    // Cards from before Auto: the old default is Auto, any other length was Adam's.
+    expect(cardLength({ targetWords: 1500 })).toBeNull()
+    expect(cardLength({ targetWords: 2500 })).toBe(2500)
+    expect(cardLength({ targetWords: 1500, lengthSet: true })).toBe(1500)
+    expect(cardLength({ targetWords: 2500, lengthSet: false })).toBeNull()
+    expect(cardLength({ targetWords: 0, lengthSet: true })).toBeNull()
+    expect(cardLength(null)).toBeNull()
+  })
+
+  it("lowers Auto's ceiling for a model with a small reply limit, never under Auto's least", () => {
+    expect(autoCeiling(null)).toBe(AUTO_LENGTH.max)
+    expect(autoCeiling(100_000)).toBe(AUTO_LENGTH.max)
+    expect(autoCeiling(4096)).toBe(3000)
+    expect(autoCeiling(500)).toBe(AUTO_LENGTH.min)
+  })
+
+  it('asks the model to choose the length the scene needs, within the range', () => {
+    expect(lengthLine({ targetWords: 1200 })).toBe('- Aim for about 1,200 words.')
+    expect(lengthLine({ targetWords: null })).toBe(
+      "- Make the scene as long as it needs to be, between 800 and 4,000 words: play out every beat in full, and don't pad it."
+    )
+    expect(lengthLine({ targetWords: null, autoMax: 2300 })).toContain('between 800 and 2,300 words')
+    const final = finalInstruction({ targetWords: null, style: defaultStyleGuide(), hasBeats: true, hasPrevious: false, hasDirection: false })
+    expect(final).toContain('as long as it needs to be')
+    expect(final).not.toContain('Aim for about')
+  })
+
+  it("says so on the scene card and in the closing instruction, and keeps the model's reply limit in mind", () => {
+    const auto = assembleContext(input({ options: { direction: '', targetWords: null, creativity: 'balanced' } }), countRaw)
+    const user = auto.messages[1].content
+    expect(user).toContain('Length: as long as the scene needs')
+    expect(user).not.toContain('Length: about')
+    expect(user).toContain('between 800 and 4,000 words')
+    expect(auto.budget.reserved).toBe(replyTokens(AUTO_LENGTH.max))
+    const small = assembleContext(input({ maxOutput: 4096, options: { direction: '', targetWords: null, creativity: 'balanced' } }), countRaw)
+    expect(small.messages[1].content).toContain('between 800 and 3,000 words')
+    expect(small.budget.reserved).toBe(replyTokens(3000))
+    // A set length is unchanged.
+    const set = assembleContext(input(), countRaw)
+    expect(set.messages[1].content).toContain('Length: about 1,200 words')
+    expect(set.messages[1].content).toContain('- Aim for about 1,200 words.')
   })
 })
 
@@ -1045,7 +1098,7 @@ function counts(
 }
 
 /** A context length that leaves exactly `available` tokens for the briefing. */
-function lengthFor(available: number, targetWords: number): number {
+function lengthFor(available: number, targetWords: number | null): number {
   let length = Math.floor((available + replyTokens(targetWords)) / 0.9) - 5
   while (computeBudget(length, targetWords).available < available) length++
   expect(computeBudget(length, targetWords).available).toBe(available)
@@ -1336,7 +1389,7 @@ describe('a small-context model and a large-context model both get a sensible br
    * summaries, four earlier scenes in this chapter, a 2,600-word previous scene, a 350-word sample
    * passage, three full profiles, a location inside two places, two hard rules, a plot thread and a pin.
    */
-  function bookThree(contextLength: number, targetWords: number, card: 'full' | 'typical' = 'full'): ContextInput {
+  function bookThree(contextLength: number, targetWords: number | null, card: 'full' | 'typical' = 'full'): ContextInput {
     next = 0
     const mara = filled('Mara Venn')
     const tobin = filled('Tobin')
@@ -1395,7 +1448,7 @@ describe('a small-context model and a large-context model both get a sensible br
           conflict: prose(typical ? 15 : 25),
           outcome: prose(typical ? 15 : 25),
           mood: 'Tense, close, wet',
-          targetWords,
+          targetWords: targetWords ?? 1500,
           notes: typical ? '' : prose(60),
           paysOffIds: [crown.id]
         }
@@ -1435,7 +1488,7 @@ describe('a small-context model and a large-context model both get a sensible br
     }
   }
 
-  const briefing = (contextLength: number, targetWords: number, card: 'full' | 'typical' = 'full') => {
+  const briefing = (contextLength: number, targetWords: number | null, card: 'full' | 'typical' = 'full') => {
     const p = assembleContext(bookThree(contextLength, targetWords, card), countRaw)
     const block = (id: string) => p.blocks.find((b) => b.id === id)!
     const sent = (id: string): boolean => !!p.blocks.find((b) => b.id === id && !b.dropped)
@@ -1547,6 +1600,30 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
     expect(big.messages[1].content).not.toContain('left out here to save space')
     expect(big.messages[1].content.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+  })
+
+  it("Auto on a big model: room for Auto's longest scene, and the briefing in full", () => {
+    const b = briefing(128000, null)
+    sensible(b)
+    expect(b.p.budget.reserved).toBe(replyTokens(AUTO_LENGTH.max))
+    expect(b.user).toContain('between 800 and 4,000 words')
+    expect(lengthTooLong(b.p.budget)).toBeNull()
+  })
+
+  it("Auto on a model too small for Auto's longest scene: the ceiling comes down to what fits, instead of a refusal", () => {
+    const b = briefing(6000, null)
+    const ceiling = Number(/between 800 and ([\d,]+) words/.exec(b.user)![1].replace(',', ''))
+    expect(ceiling).toBeLessThan(AUTO_LENGTH.max)
+    expect(ceiling).toBeGreaterThanOrEqual(AUTO_LENGTH.min)
+    expect(b.p.budget.reserved).toBe(replyTokens(ceiling))
+    expect(lengthTooLong(b.p.budget)).toBeNull()
+    for (const id of ['instructions', 'scene-card']) expect(b.sent(id), id).toBe(true)
+  })
+
+  it("Auto on a model too small even for Auto's shortest scene: refused with a length that fits", () => {
+    const b = briefing(2600, null)
+    expect(b.p.budget.reserved).toBe(replyTokens(AUTO_LENGTH.min))
+    expect(lengthTooLong(b.p.budget)!.maxWords).toBeLessThan(AUTO_LENGTH.min)
   })
 
   it('a model too small for the length asked: only the instructions and the scene card, and the draft is refused with a length that fits', () => {

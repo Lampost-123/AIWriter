@@ -6,24 +6,28 @@ import type { Creativity, DraftOptions } from '@shared/types'
 
 export interface SceneDraftOptions {
   direction: string
-  /** Null: use the scene card's target length. */
-  targetWords: number | null
+  /** Null: use the scene card's length (which may be Auto). 'auto': Auto for this draft, even if the card has a word count. */
+  targetWords: number | 'auto' | null
   /** Null: use the default from Settings. */
   creativity: Creativity | null
 }
 
 export const BLANK_DRAFT_OPTIONS: SceneDraftOptions = { direction: '', targetWords: null, creativity: null }
 
-/** The options a draft of this scene is built with: Adam's choices, else the card's length and the default creativity. */
+/**
+ * The options a draft of this scene is built with: Adam's choices, else the card's length and the
+ * default creativity. `cardWords` is the card's length (cardLength: null when it is Auto); a length of
+ * null in the result is Auto.
+ */
 export function resolveDraftOptions(
   opts: SceneDraftOptions | undefined,
-  cardTargetWords: number,
+  cardWords: number | null,
   defaultCreativity: Creativity
 ): DraftOptions {
   const o = opts ?? BLANK_DRAFT_OPTIONS
   return {
     direction: o.direction.trim(),
-    targetWords: o.targetWords ?? cardTargetWords,
+    targetWords: o.targetWords === 'auto' ? null : (o.targetWords ?? cardWords),
     creativity: o.creativity ?? defaultCreativity
   }
 }
@@ -36,3 +40,7 @@ export function patchDraftOptions(
 ): Record<string, SceneDraftOptions> {
   return { ...all, [sceneId]: { ...(all[sceneId] ?? BLANK_DRAFT_OPTIONS), ...patch } }
 }
+
+/** The length a draft of this scene will aim for (null: Auto), from the options and the card's length (cardLength). */
+export const draftLength = (opts: SceneDraftOptions | undefined, cardWords: number | null): number | null =>
+  opts?.targetWords === 'auto' ? null : (opts?.targetWords ?? cardWords)

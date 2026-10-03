@@ -1,5 +1,6 @@
 // The player bar above the page while reading: Back one line, Play or Pause (the big coloured button), Next line and
-// Stop; who is speaking and how ("Mara · quiet and wary") with the paragraph it is in; the speed; whether Emotion and
+// Stop; who is speaking and how ("Mara · quiet and wary"), with the chapter and scene it is reading ("Chapter 3 · The
+// Ferry", which brings the line being read into view) and the paragraph it is in; the speed; whether Emotion and
 // tone is on; Close; and a thin line along its foot showing how far through the scene reading is. Rendered by
 // SceneView between the scene header and the page. Owned by the Read aloud part.
 //
@@ -18,6 +19,7 @@ import { Button, Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { useOutlineStore } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
 import { Switch } from '@/features/world/parts/Switch'
 import {
@@ -31,6 +33,7 @@ import {
   saveSpeech,
   sceneShown,
   setSpeed,
+  showReading,
   skipLine,
   SPEEDS,
   speedText,
@@ -41,6 +44,7 @@ import {
   type ReadingBar
 } from './control'
 import { setBarRoom } from './highlight'
+import { playingPlace } from './playing'
 import { onOff, SOUNDS_OFF, SOUNDS_ON, TONE_OFF, TONE_ON, toneTooltip } from './tone'
 import { stopSample } from './useSample'
 import './readAloud.css'
@@ -269,8 +273,46 @@ function Words({ bar }: { bar: ReadingBar }): React.JSX.Element {
             <span className={bar.phase === 'problem' ? 'text-fg' : 'text-muted'}>{bar.note}</span>
           )}
         </p>
-        {where ? <p className="mt-0.5 truncate text-[11.5px] leading-tight tabular-nums text-muted">{where}</p> : null}
+        {isPlayer(bar) ? <Where paragraph={where} /> : null}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Under who is speaking: the chapter and scene being read ("Chapter 3 · The Ferry"; the chapter's own title is in the
+ * tooltip), which brings the line being read into view, and the paragraph ("Paragraph 2 of 5") when the bar has room
+ * for both (the tooltip says it always). The line keeps its height while the names load, so nothing moves. A long scene
+ * title is cut short.
+ */
+function Where({ paragraph }: { paragraph: string | null }): React.JSX.Element {
+  const sceneId = useReading((s) => s.sceneId)
+  const outline = useOutlineStore((s) => s.outline)
+  const place = playingPlace(outline, sceneId)
+  return (
+    <div className="mt-0.5 flex h-[15px] min-w-0 items-center whitespace-nowrap text-[11.5px] leading-tight text-muted">
+      {place ? (
+        <button
+          type="button"
+          aria-label={`${place.chapter} · ${place.scene}`}
+          title={`${place.chapterName} · ${place.scene}${paragraph ? `, ${paragraph.toLowerCase()}` : ''}. Click to show the line being read.`}
+          onClick={showReading}
+          className={cn(
+            'flex min-w-0 items-center rounded-sm outline-none transition-colors duration-150',
+            'hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/50'
+          )}
+        >
+          <span className="shrink-0">{place.chapter}</span>
+          <span className="shrink-0 px-1">·</span>
+          <span className="min-w-[2.5em] truncate font-medium text-fg/80">{place.scene}</span>
+        </button>
+      ) : null}
+      {paragraph ? (
+        <span className="hidden shrink-0 tabular-nums @min-[720px]:inline">
+          {place ? <span className="px-1">·</span> : null}
+          {paragraph}
+        </span>
+      ) : null}
     </div>
   )
 }

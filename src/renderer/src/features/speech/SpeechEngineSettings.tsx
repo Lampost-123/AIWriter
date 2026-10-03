@@ -1,7 +1,7 @@
 // Settings › Read aloud and dictation, the speech engine's parts: the status badge, "Start with AI Write",
 // the one-click downloads with their progress (everyday), and the server address, Check, the Hugging
 // Face key, where things are kept and removing them (More). Owned by the Speech engine part.
-import { AudioLines, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from 'lucide-react'
+import { AudioLines, CircleAlert, CircleCheck, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import type {
   DictationModel,
@@ -19,6 +19,7 @@ import { cn } from '@/lib/cn'
 import { Switch } from '@/features/world/parts/Switch'
 import { Segmented } from '@/features/generate/parts'
 import { setSpeechStatus, useKnownSpeechStatus, useSpeechStatus } from './useSpeechStatus'
+import { VOICES_NEEDS, voicesChecks } from './voiceNeeds'
 
 /** What each download is called in Settings, and its size. */
 const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
@@ -326,19 +327,30 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
   const pending = isPending(status, 'voices')
   // A download that stopped has its own Try again.
   const stopped = status.download?.kind === 'voices' && status.download.state !== 'done'
-  const noCard = status.nvidia === ''
+  // What this computer has, said before the download starts (during one, the disk fills as it goes).
+  const checks = installed || pending || stopped ? [] : voicesChecks(status)
+  const fallsShort = checks.some((c) => !c.ok)
   const problem = pending || stopped ? null : status.loadProblems.voices
   return (
     <Row icon={<AudioLines size={16} />} title="Voices" badge={installed === 'own' ? <Badge tone="success">Downloaded</Badge> : null}>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
         Breeze TTS 2 gives the narrator and each character a voice of their own, made from a description, with sighs and laughs performed.
-        {installed ? null : ' About 12 GB. It needs an NVIDIA graphics card: on the processor it is far too slow.'} Its licence is for
-        personal, non-commercial use.
+        Its licence is for personal, non-commercial use.
       </p>
-      {!installed && noCard ? (
-        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-          No NVIDIA graphics card was found on this computer, so the voices would be far too slow here.
-        </p>
+      {installed ? null : <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{VOICES_NEEDS}</p>}
+      {checks.length ? (
+        <ul className="mt-2 space-y-1" aria-label="This computer">
+          {checks.map((c) => (
+            <li key={c.text} className={cn('flex items-start gap-1.5 text-[12.5px] leading-5', c.ok ? 'text-muted' : 'text-fg')}>
+              {c.ok ? (
+                <CircleCheck size={13} aria-hidden className="mt-[3px] shrink-0 text-success" />
+              ) : (
+                <CircleAlert size={13} aria-hidden className="mt-[3px] shrink-0 text-danger" />
+              )}
+              <span>{c.text}</span>
+            </li>
+          ))}
+        </ul>
       ) : null}
       {problem ? (
         <LoadProblem
@@ -354,7 +366,7 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
             size="sm"
-            variant={noCard ? 'secondary' : 'primary'}
+            variant={fallsShort ? 'secondary' : 'primary'}
             icon={<Download size={13} />}
             onClick={() => void download('voices')}
           >

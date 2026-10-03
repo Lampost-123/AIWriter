@@ -32,12 +32,13 @@ function failed(e: unknown): void {
 
 /**
  * Saves the open scene first if it's about to disappear, so no typing is lost. A draft being written
- * into it stops first and its last words are saved too, so nothing is ever written into a deleted scene.
+ * into any of them (open, or kept for its draft while Adam is elsewhere) stops first and its last words
+ * are saved too, so nothing is ever written into a deleted scene.
  */
 async function saveIfOpen(sceneIds: ID[]): Promise<void> {
   const bridge = editorBridge()
-  if (!bridge?.sceneId || !sceneIds.includes(bridge.sceneId)) return
-  await bridge.stopDraft('deleted')
+  if (!bridge) return
+  await bridge.stopDraft('deleted', sceneIds)
   await bridge.flush()
 }
 

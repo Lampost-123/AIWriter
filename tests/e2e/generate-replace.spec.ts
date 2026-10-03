@@ -400,7 +400,7 @@ test('Ctrl+Z while a replacing draft writes undoes Adam’s own edits first, the
   }
 })
 
-test('opening another scene during a Replace says where the replaced text is kept, and it can be put back from that scene’s Drafts tab', async ({
+test('opening another scene during a Replace keeps the draft writing into its own scene; back there it is still writing, with Stop, and then Ctrl+Z puts the old text back', async ({
   launch
 }) => {
   const fake = await fakeProvider({ slowWords: 3000, slowDelayMs: 25 })
@@ -410,7 +410,7 @@ test('opening another scene during a Replace says where the replaced text is kep
     const sceneId = await firstScene(win)
     const [story] = await invoke(win, 'listStories')
     const { chapters } = await invoke(win, 'getOutline', story.id)
-    await invoke(win, 'createScene', chapters[0].id, { title: 'Scene 2' })
+    const other = await invoke(win, 'createScene', chapters[0].id, { title: 'Scene 2' })
     await useWriter(win, fake, 'fake/slow')
     await writeOldText(win, sceneId)
 
@@ -418,28 +418,35 @@ test('opening another scene during a Replace says where the replaced text is kep
     await replaceIt(win).click()
     await expect(prose(win)).toContainText('The rain')
     await row(win, 'Scene 2').click()
-    await expect(
-      toasts(win).getByText(
-        "Drafting stopped because you opened another scene. The text so far is kept, and the text it replaced can be put back from that scene's Drafts tab."
-      )
-    ).toBeVisible()
+    await expect(win.locator('main header').getByRole('button', { name: 'Scene 2' })).toBeVisible()
+    // Scene 2 is free to write in; the draft goes on in Scene 1, which the binder marks.
+    await expect(generateButton(win)).toBeVisible()
+    await expect(prose(win)).not.toContainText('The rain')
+    await expect(row(win, 'Scene 1').getByText('A draft is being written into this scene')).toBeAttached()
+    await expect(toasts(win).getByText(/Drafting stopped/)).toHaveCount(0)
+    // Its words keep reaching Scene 1, and are saved as they come; nothing lands in Scene 2.
+    const before = (await savedText(win, sceneId)).length
+    await expect.poll(async () => (await savedText(win, sceneId)).length).toBeGreaterThan(before)
+    expect(await savedText(win, sceneId)).not.toContain(OLD[0])
+    expect(await savedText(win, other.id)).toBe('')
 
-    // Back in the first scene, Ctrl+Z can't reach the old text any more; its Drafts tab can.
+    // Back in Scene 1, it is still writing, with Stop.
     await row(win, 'Scene 1').click()
+    await expect(stopButton(win)).toBeVisible()
     await expect(prose(win)).toContainText('The rain')
-    await win.getByRole('tab', { name: 'Drafts' }).click()
-    const draft = win.getByRole('button', { name: /What the AI saw/ }).first()
-    await expect(draft).toContainText('Replaced')
-    await draft.click()
-    await expect(win.getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
-    await win.getByRole('button', { name: 'Put it back', exact: true }).click()
-    await expect(prose(win).locator('p')).toHaveText(OLD)
-    await expect(toasts(win).getByText('The text this draft replaced is back in the scene. Ctrl+Z takes it out again.')).toBeVisible()
-    await expect.poll(() => savedText(win, sceneId)).toBe(OLD.join('\n\n'))
-    await expect(prose(win)).toBeFocused()
+    expect(await lastStatus(win, sceneId)).toBe('streaming')
+    await stopButton(win).click()
+    await expect.poll(() => lastStatus(win, sceneId)).toBe('stopped')
+    await expect(generateButton(win)).toBeVisible()
+    await expect(row(win, 'Scene 1').getByText('A draft is being written into this scene')).toHaveCount(0)
+    const rec = await lastRecord(win, sceneId)
+    expect(rec.replacedText?.text).toBe(OLD.join('\n\n'))
+    await expect.poll(async () => (await savedText(win, sceneId)).trim()).toBe(rec.response.trim())
+    // The whole draft is one step, as if Adam had never left: Ctrl+Z puts the old text back exactly.
+    await prose(win).click()
     await win.keyboard.press('Control+z')
-    await expect(prose(win)).toContainText('The rain')
-    await expect(prose(win)).not.toContainText(OLD[0])
+    await expect(prose(win).locator('p')).toHaveText(OLD)
+    await expect.poll(() => savedText(win, sceneId)).toBe(OLD.join('\n\n'))
   } finally {
     await fake.close()
   }

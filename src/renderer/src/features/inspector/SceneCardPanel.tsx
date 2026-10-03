@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { emptySceneCard } from '@shared/defaults'
+import { cardLength, emptySceneCard } from '@shared/defaults'
 import type { Entry, ID, SceneCard } from '@shared/types'
 import { Button, Field, Input, Notice, Select, Spinner, toast } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -294,7 +294,15 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         <Field label="Mood or tone">
           {(id) => <Input id={id} value={card.mood} placeholder="Quiet and tense, with a bitter edge" onChange={(e) => update({ mood: e.target.value })} />}
         </Field>
-        <Field label="Target length">{(id) => <TargetLength id={id} value={card.targetWords} onChange={(targetWords) => update({ targetWords })} />}</Field>
+        <Field label="Length" hint="Auto lets the AI pick the length the scene needs.">
+          {(id) => (
+            <TargetLength
+              id={id}
+              value={cardLength(card)}
+              onChange={(n) => update(n == null ? { lengthSet: false } : { targetWords: n, lengthSet: true })}
+            />
+          )}
+        </Field>
         <Field label="Notes for the AI" hint="Names you mention in the beats and notes are looked up in your world too.">
           {(id) => (
             <AutoTextarea
@@ -353,12 +361,19 @@ function Group({ title, action, children }: { title: string; action?: ReactNode;
   )
 }
 
-function TargetLength({ id, value, onChange }: { id: string; value: number; onChange: (n: number) => void }): React.JSX.Element {
-  const [text, setText] = useState(String(value))
-  const set = (n: number): void => {
-    setText(String(n))
+/** The scene's length: Auto (the AI picks the length the scene needs) unless Adam sets a word count. */
+function TargetLength({ id, value, onChange }: { id: string; value: number | null; onChange: (n: number | null) => void }): React.JSX.Element {
+  const [text, setText] = useState(value != null ? String(value) : '')
+  useEffect(() => setText(value != null ? String(value) : ''), [value])
+  const set = (n: number | null): void => {
+    setText(n != null ? String(n) : '')
     onChange(n)
   }
+  const chip = (on: boolean): string =>
+    cn(
+      'h-6 rounded-full border px-2 text-[12px] tabular-nums transition-colors duration-150',
+      on ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg'
+    )
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <div className="flex items-center gap-1.5">
@@ -370,28 +385,28 @@ function TargetLength({ id, value, onChange }: { id: string; value: number; onCh
           max={20000}
           step={100}
           value={text}
+          placeholder="Auto"
           onChange={(e) => {
             setText(e.target.value)
+            // An empty box is Auto.
+            if (e.target.value.trim() === '') return onChange(null)
             const n = Math.round(Number(e.target.value))
             if (Number.isFinite(n) && n >= 100 && n <= 20000) onChange(n)
           }}
-          onBlur={() => setText(String(value))}
+          onBlur={() => setText(value != null ? String(value) : '')}
           className="w-[76px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span className="text-[13px] text-muted">words</span>
+        {/* Kept in its place with Auto, so the quick lengths don't move. */}
+        <span className={cn('text-[13px] text-muted', value == null && 'invisible')} aria-hidden={value == null}>
+          words
+        </span>
       </div>
       <div className="flex gap-1" role="group" aria-label="Quick lengths">
+        <button type="button" aria-pressed={value == null} onClick={() => set(null)} className={chip(value == null)}>
+          Auto
+        </button>
         {LENGTH_PRESETS.map((p) => (
-          <button
-            key={p}
-            type="button"
-            aria-pressed={value === p}
-            onClick={() => set(p)}
-            className={cn(
-              'h-6 rounded-full border px-2 text-[12px] tabular-nums transition-colors duration-150',
-              value === p ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg'
-            )}
-          >
+          <button key={p} type="button" aria-pressed={value === p} onClick={() => set(p)} className={chip(value === p)}>
             {p.toLocaleString('en-GB')}
           </button>
         ))}

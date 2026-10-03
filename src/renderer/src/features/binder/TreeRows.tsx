@@ -5,10 +5,12 @@ import type { Act, Chapter, ID, SceneMeta } from '@shared/types'
 import { Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { registerFlusher } from '@/lib/flush'
+import { useApp } from '@/lib/store'
 import { ChapterIssueBadge, SceneIssueBadge } from '@/features/consistency/IssueBadge'
+import { ChapterPlayingMark, SceneStatusMark } from '@/features/readAloud/PlayingMark'
 import { InlineTitle } from './InlineTitle'
 import { formatWords } from './outlineModel'
-import { STATUS_LABELS, StatusDot } from './StatusDot'
+import { STATUS_LABELS } from './StatusDot'
 
 export const sceneDndId = (id: ID): string => `s:${id}`
 export const chapterDndId = (id: ID): string => `c:${id}`
@@ -112,6 +114,18 @@ export interface SceneRowProps {
   h: RowHandlers
 }
 
+/** A draft is being written into this scene, perhaps while Adam is in another one. */
+function DraftingDot({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
+  const drafting = useApp((s) => s.activeGeneration?.sceneId === sceneId)
+  if (!drafting) return null
+  return (
+    <span className="ml-1.5 flex h-4 w-2 shrink-0 items-center justify-center" title="A draft is being written into this scene">
+      <span className="h-1.5 w-1.5 rounded-full bg-ai animate-pulse" aria-hidden />
+      <span className="sr-only">A draft is being written into this scene</span>
+    </span>
+  )
+}
+
 export function SceneRowContent({
   scene,
   selected,
@@ -121,8 +135,8 @@ export function SceneRowContent({
 }: Pick<SceneRowProps, 'scene' | 'selected' | 'renaming'> & { h?: RowHandlers; forceButtons?: boolean }): React.JSX.Element {
   return (
     <>
-      <StatusDot status={scene.status} className="mr-2" />
-      <span className="sr-only">{STATUS_LABELS[scene.status]}: </span>
+      {/* The status dot, or a speaker while the scene is read aloud. */}
+      <SceneStatusMark sceneId={scene.id} status={scene.status} statusLabel={STATUS_LABELS[scene.status]} />
       {renaming && h ? (
         <InlineTitle
           label="Scene title"
@@ -135,6 +149,7 @@ export function SceneRowContent({
         <span className={cn('min-w-0 flex-1 truncate', selected ? 'font-medium text-fg' : 'text-fg/90')}>{scene.title || 'Untitled scene'}</span>
       )}
       {/* Milestone 5: open issues, after the title so nothing moves when they load. */}
+      {renaming ? null : <DraftingDot sceneId={scene.id} />}
       {renaming ? null : <SceneIssueBadge sceneId={scene.id} />}
       {scene.memoryState === 'failed' && !renaming ? (
         // The scene header says why and offers Try again.
@@ -273,6 +288,7 @@ function ChapterRowContent({
       ) : (
         <span className="min-w-0 flex-1 truncate font-semibold text-fg">{chapter.title || 'Untitled chapter'}</span>
       )}
+      {renaming ? null : <ChapterPlayingMark chapterId={chapter.id} />}
       {collapsed && !renaming ? <ChapterIssueBadge chapterId={chapter.id} /> : null}
       <RowEnd words={formatWords(words)} forceButtons={forceButtons}>
         {h ? (

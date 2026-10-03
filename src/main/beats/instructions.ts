@@ -9,7 +9,7 @@
 
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
-import { indentMore } from '../ai/prompts'
+import { indentMore, lengthLine } from '../ai/prompts'
 import { DEFAULT_CONTEXT_LENGTH, sceneTail, TOKENS_PER_WORD } from '../ai/context'
 import { MIN_TARGET_WORDS } from '../ai/gather'
 
@@ -140,7 +140,7 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
   lines.push(
     '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no beat numbers, no notes or comments before or after.'
   )
-  lines.push(`- Aim for about ${o.targetWords.toLocaleString('en-GB')} words.`)
+  lines.push(lengthLine(o))
   const keep: string[] = []
   if (o.style.pov) keep.push(lowerFirst(o.style.pov))
   if (o.style.tense) keep.push(lowerFirst(o.style.tense))
