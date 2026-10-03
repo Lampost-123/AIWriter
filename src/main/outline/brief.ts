@@ -250,6 +250,40 @@ export function aroundText(plan: PlanAct[], sceneId: ID, level: number): string 
   return lines.join('\n')
 }
 
+/**
+ * A chapter to plan and the outline around it. Level 0: the chapter before (its summary or last scenes),
+ * this chapter with its scenes and their cards, and the next chapter with its scenes; 1: this chapter and
+ * the headings either side; 2: only this chapter. Empty when the plan doesn't have it.
+ */
+export function chapterAroundText(plan: PlanAct[], chapterId: ID, storyTitle: string, level: number): string {
+  const chapters = plan.flatMap((act) => act.chapters.map((chapter) => ({ act, chapter })))
+  const ci = chapters.findIndex((c) => c.chapter.id === chapterId)
+  if (ci < 0) return ''
+  const { act, chapter } = chapters[ci]
+  const lines = [`Story: ${titleOf(storyTitle, 'Untitled story')}`]
+  if (act.id) lines.push(actHeading(act))
+  const prev = chapters[ci - 1]?.chapter
+  if (prev && level <= 1) {
+    lines.push(`The chapter before: ${chapterHeading(prev)}`)
+    if (level === 0) {
+      if (clean(prev.summary)) lines.push(`  Summary: ${clean(prev.summary)}`)
+      else for (const sc of prev.scenes.slice(-3)) lines.push(`  ${sceneLine(sc, false)}`)
+    }
+  }
+  lines.push(`THE CHAPTER TO PLAN (chapter ${ci + 1} of ${chapters.length}): ${chapterHeading(chapter)}`)
+  if (clean(chapter.summary)) lines.push(`  Summary so far: ${clean(chapter.summary)}`)
+  if (chapter.scenes.length) {
+    lines.push(`  Its scenes so far (${chapter.scenes.length}):`)
+    for (const sc of chapter.scenes) lines.push(`  ${sceneLine(sc, true)}`)
+  } else lines.push('  It has no scenes yet.')
+  const next = chapters[ci + 1]?.chapter
+  if (next && level <= 1) {
+    lines.push(`The chapter after: ${chapterHeading(next)}`)
+    if (level === 0) for (const sc of next.scenes.slice(0, 4)) lines.push(`  ${sceneLine(sc, false)}`)
+  }
+  return lines.join('\n')
+}
+
 // ---------- Earlier stories, threads, people and places ----------
 
 export interface EarlierStory {

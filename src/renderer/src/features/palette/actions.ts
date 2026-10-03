@@ -24,8 +24,8 @@ import { openVariants } from '@/features/variants/open'
 import { startBeatByBeat } from '@/features/beats/start'
 import { continueFromCursor } from '@/features/edits/continue'
 import { openAsk } from '@/features/ask/open'
-import { openOutlineHelper } from '@/features/outline/open'
-import { showSceneIdeas } from '@/features/outline/ideas'
+import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
+import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { stopReading, toggleListen } from '@/features/readAloud/control'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { insertSceneBreak, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic } from '@/features/typing/format'
@@ -252,6 +252,17 @@ export async function runAction(id: ActionId): Promise<void> {
         backToWriting()
         showSceneIdeas(a.sceneId)
         return
+      case 'scene-interview':
+        if (!a.sceneId) return
+        backToWriting()
+        showSceneInterview(a.sceneId)
+        return
+      case 'chapter-interview': {
+        const o = useOutlineStore.getState().outline
+        const chapterId = o?.scenes.find((sc) => sc.id === a.sceneId)?.chapterId
+        if (o && chapterId) openChapterInterview(o.story.id, chapterId)
+        return
+      }
       case 'listen':
         backToWriting()
         toggleListen()
