@@ -15,6 +15,7 @@ import { scenesDeleted, scenesRestored } from '../keeper'
 import { actDeleteNotes, createChapterAt, keepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
 import { isBlankPlan, storyPlan } from '../outline/context'
+import { askPlanQuestion, fillSceneCard, startChapterPlan } from '../outline/interview'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {
@@ -66,5 +67,9 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
     return { sceneIds: out.sceneIds }
   },
 
-  startSceneIdeas: (input) => startIdeasJob(jobDeps(), input)
+  startSceneIdeas: (input) => startIdeasJob(jobDeps(), input),
+
+  askPlanQuestion: (input) => askPlanQuestion(jobDeps(), input),
+  fillSceneCard: (input) => fillSceneCard(jobDeps(), input),
+  startChapterPlan: (input) => startChapterPlan(jobDeps(), input)
 }

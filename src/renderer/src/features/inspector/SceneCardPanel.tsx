@@ -17,6 +17,8 @@ import { BeatsEditor } from './BeatsEditor'
 import { CastPicker } from './CastPicker'
 import { BringAbout, SceneSummary } from './SceneMemory'
 import { SceneIdeas } from '@/features/outline/SceneIdeas'
+import { InterviewButton, PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
+import { registerInterviewCard } from '@/features/outline/planInterviewStore'
 
 const LENGTH_PRESETS = [800, 1500, 2500, 4000]
 
@@ -115,6 +117,10 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
     },
     [update]
   )
+  // Interview me: what it puts in the card shows here at once, and the card it reads is the one on screen.
+  const interviewTarget = useMemo(() => ({ kind: 'scene' as const, sceneId }), [sceneId])
+  const interview = usePlanSession(interviewTarget)
+  useEffect(() => registerInterviewCard(sceneId, { current: () => cardRef.current, patch: fillFromIdea }), [sceneId, fillFromIdea])
   const setPov = useCallback((povId: ID | null) => update({ povId }), [update])
   const setLocation = useCallback((locationId: ID | null) => update({ locationId }), [update])
   const setPresent = useCallback((presentIds: ID[]) => update({ presentIds }), [update])
@@ -199,7 +205,13 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div className="flex animate-fade-in flex-col gap-5 px-4 pb-12 pt-4" onBlur={() => void autosave.flush()}>
-      <SceneIdeas sceneId={sceneId} card={card} onUse={fillFromIdea} />
+      <PlanInterview target={interviewTarget} />
+      <SceneIdeas
+        sceneId={sceneId}
+        card={card}
+        onUse={fillFromIdea}
+        beside={interview ? null : <InterviewButton target={interviewTarget} />}
+      />
       <Group title="Who and where" action={<SaveNote status={autosave.status} error={autosave.error} />}>
         <Field label="Point of view" hint={characters.length ? 'The scene is told through their eyes.' : 'No characters yet. Type a name under Characters present to add one.'}>
           {(id) => <OptionSelect id={id} value={povValue} onChange={setPov} options={povOptions} />}
