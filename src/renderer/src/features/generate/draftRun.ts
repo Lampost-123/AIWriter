@@ -125,7 +125,7 @@ function finish(p: AppEvents['generation:done']): void {
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
   const showRecord = { label: 'What the AI saw', run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId }) }
   // The draft took the place of the scene's text: how to have the old text back.
-  const oldText = replaced ? ` ${modKey()}+Z${away ? ' in that scene' : ''} puts its old text back.` : ''
+  const oldText = replaced ? (away ? ` ${modKey()}+Z in that scene puts its old text back.` : ` ${modKey()}+Z puts the scene's old text back.`) : ''
   // Written while Adam was in another scene: which scene the message is about.
   const name = away ? (titled(r.sceneId) ?? 'the scene') : null
   if (p.status === 'error' && p.error) {

@@ -203,6 +203,21 @@ approval step and no Review inbox.
   text again makes them afresh (new ids) rather than bringing those back. The same happens when a
   paragraph is deleted by hand and undone after a read.
 
+### Generate keeps writing when another scene opens (fix release)
+
+- Generate's draft lives in `features/generate/draftRun.ts`, not in the Generate button, and its
+  stream is marked `keepWriting`. Opening another scene keeps the scene being left for it
+  (`controller.ts`, `Away`): its editor state stays off screen, the draft goes on landing in it
+  (the same `streamDoc` steps as on screen), and its `SceneSession` saves it and writes its
+  recovery file as usual. A draft still getting ready is kept the same way (`expectDraft`).
+- Coming back picks that editor up again: still writing, with Stop, undo history and all. A draft
+  that finished away keeps its editor until Adam is back (if the stored text still matches), so
+  one Ctrl+Z still takes the whole draft out. A message says when it is done, with **Show**.
+- One Generate draft at a time; the binder marks the scene being written into and the top bar's
+  **Writing…** goes back to it. Beat by beat still stops on another scene; switching worlds or
+  deleting the scene stops any draft (a kept scene deleted elsewhere stops its draft when its save
+  finds the scene gone).
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |

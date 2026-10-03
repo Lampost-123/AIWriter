@@ -66,6 +66,55 @@ test('a draft keeps writing while another page is open, and every word reaches t
   }
 })
 
+test('a draft keeps writing into its own scene while another scene is open, says when it is done, and one Ctrl+Z there takes it out', async ({
+  launch
+}) => {
+  const fake = await fakeProvider({ slowWords: 300, slowDelayMs: 20 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const sceneId = await firstScene(win)
+    const [story] = await invoke(win, 'listStories')
+    const { chapters } = await invoke(win, 'getOutline', story.id)
+    const other = await invoke(win, 'createScene', chapters[0].id, { title: 'The Ferry' })
+    await useWriter(win, fake, 'fake/slow')
+    const row = (title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
+
+    await generateButton(win).click()
+    await expect(prose(win)).toContainText('The rain')
+    await row('The Ferry').click()
+    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    await expect(prose(win)).not.toContainText('The rain')
+    // The top bar can take Adam back to it from here.
+    await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeVisible()
+
+    // One Generate draft at a time: this one says where the other is being written.
+    await generateButton(win).click()
+    await expect(toasts(win).getByText('A draft of “Scene 1” is still being written. Stop it there first, or wait for it to finish.')).toBeVisible()
+    expect(await invoke(win, 'listGenerations', other.id)).toEqual([])
+
+    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
+    const done = toasts(win).getByText('The draft of “Scene 1” is finished.')
+    await expect(done).toBeVisible()
+    await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeHidden()
+    const [gen] = await invoke(win, 'listGenerations', sceneId)
+    const rec = await invoke(win, 'getGeneration', gen.id)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text.trim()).toBe(rec.response.trim())
+    expect((await invoke(win, 'getScene', other.id)).text).toBe('')
+
+    // Show goes to it; the whole draft is one step there, as if Adam had stayed.
+    await toasts(win).locator(':scope > div').filter({ hasText: 'The draft of “Scene 1” is finished.' }).getByRole('button', { name: 'Show' }).click()
+    await expect(win.locator('main header').getByRole('button', { name: 'Scene 1' })).toBeVisible()
+    await expect(prose(win)).toContainText('The rain')
+    await prose(win).click()
+    await win.keyboard.press('Control+z')
+    await expect(prose(win)).not.toContainText('The rain')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('')
+  } finally {
+    await fake.close()
+  }
+})
+
 test('switching worlds mid-draft stops it with every word kept, and no false "Recovered" message', async ({ launch }) => {
   const fake = await fakeProvider({ slowWords: 3000, slowDelayMs: 25 })
   try {
