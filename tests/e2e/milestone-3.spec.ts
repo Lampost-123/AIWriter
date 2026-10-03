@@ -188,9 +188,8 @@ test('milestone 3, check 1: a full character is built from a few lines of notes 
       await expect(main(win).getByRole('status').filter({ hasText: 'is built and saved' })).toHaveText(
         `${TOBIN} is built and saved. Your words are kept as you wrote them; the rest is drafted by AI.`
       )
-      // One click, one request, to the writer model.
-      expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
-      expect(fake.lastRequest()?.body.messages.find((m) => m.role === 'system')?.content).toMatch(/^\[AIWRITE-BUILDER v1\] quick-start/)
+      // One click, one request to the writer model to build it; then one more, on its own, for the voice it is read aloud in.
+      await expect.poll(() => fake.requestCounts()).toEqual({ 'fake/writer': 2 })
 
       // The finished profile says whose words each field holds.
       const profile = main(win).getByRole('region', { name: 'The profile so far' })

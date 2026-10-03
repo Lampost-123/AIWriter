@@ -140,8 +140,13 @@ export interface SceneCard {
   conflict: string
   outcome: string
   mood: string
-  /** Target length in words. */
+  /** Target length in words. Used only when Adam set it (lengthSet); otherwise the length is Auto (cardLength). */
   targetWords: number
+  /**
+   * True once Adam sets a word count on the card, false when he picks Auto. Cards saved before Auto
+   * existed don't have it: the old default (1500) reads as Auto, any other length as set (cardLength).
+   */
+  lengthSet?: boolean
   /** Notes for the AI. */
   notes: string
   /** Sortable number for the in-world date (for the timeline; never decides what the AI sees). */
@@ -511,7 +516,8 @@ export interface ChatMessage {
 export interface DraftOptions {
   /** Adam's direction for this draft ("make it tense, end on the knock at the door"). */
   direction: string
-  targetWords: number
+  /** The length to aim for, in words; null for Auto (the AI picks the length the scene needs, within AUTO_LENGTH). */
+  targetWords: number | null
   creativity: Creativity
 }
 
@@ -588,6 +594,8 @@ export interface GenerationRecord extends GenerationSummary {
     max_tokens: number
     creativity?: Creativity
     targetWords?: number
+    /** The length was Auto (the AI picked it): targetWords is left out. */
+    autoLength?: boolean
     /** Set when the model wanted the reply limit sent as max_completion_tokens. */
     tokenParam?: 'max_tokens' | 'max_completion_tokens'
     /** False when the model sets its own creativity, so temperature and top_p weren't sent. */

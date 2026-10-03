@@ -12,7 +12,7 @@ const WAIT_AT_MOST_MS = 1500
 
 /**
  * Keeps the scene as the page shows it now (Adam's unsaved typing included). Does nothing when the page
- * isn't showing that scene. Resolves with the snapshot (the latest one when it already has this text), or
+ * isn't showing that scene (or keeping it for a draft that is getting ready while Adam is elsewhere). Resolves with the snapshot (the latest one when it already has this text), or
  * null when nothing was kept (an empty page, history out of reach) or keeping it is taking too long.
  */
 export async function snapshotBefore(
@@ -20,7 +20,7 @@ export async function snapshotBefore(
   label: string,
   o: { kind?: TakeSnapshotInput['kind']; generationId?: ID | null } = {}
 ): Promise<SnapshotInfo | null> {
-  const now = editorBridge()?.current()
+  const now = editorBridge()?.current(sceneId)
   if (!now || now.sceneId !== sceneId) return null
   const kept = api
     .takeSnapshot({ sceneId, kind: o.kind ?? 'ai', label, generationId: o.generationId ?? null, doc: now.doc, text: now.text })

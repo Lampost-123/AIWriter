@@ -631,6 +631,9 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       await card.getByRole('textbox', { name: 'Outcome', exact: true }).fill(S4.outcome)
       await card.getByRole('textbox', { name: 'Mood or tone', exact: true }).fill(S4.mood)
       await card.getByRole('textbox', { name: 'Notes for the AI', exact: true }).fill(S4.notes)
+      // A set length (rather than Auto), so each model's briefing is measured against the same reply.
+      await card.getByRole('group', { name: 'Quick lengths' }).getByRole('button', { name: '1,500' }).click()
+      await expect(card.getByRole('group', { name: 'Quick lengths' }).getByRole('button', { name: '1,500' })).toHaveAttribute('aria-pressed', 'true')
       await expect(card.getByRole('textbox', { name: `Beat ${S4.beats.length}`, exact: true })).toHaveValue(S4.beats[S4.beats.length - 1])
       await generate(win)
 

@@ -13,6 +13,13 @@ import { builderTarget } from '../builder/model'
 import { gatherWorld } from '../builder/context'
 import { startFleshOut, startInterview, startOptions, startQuickStart, stopJob, stopJobsFor, type JobContext } from '../builder/jobs'
 import { createBuilt, isBuilderKind, keepSuggestions, restoreField } from '../builder/save'
+import { voiceLater } from '../readAloud'
+
+/**
+ * How long a character the AI is helping to build step by step waits for its read-aloud voice after the last AI
+ * words Adam kept, so the voice is written from the fuller profile rather than the first step's.
+ */
+const VOICE_AFTER_KEEP_MS = 20_000
 
 // Closing a world stops its builder jobs first, saving what Quick start has while the database is still open.
 world.onWorldClosing((w) => stopJobsFor(w.db))
@@ -35,6 +42,10 @@ function jobContext(): JobContext {
       if (!db.open) return
       repo.touchWorld(db)
       emit('memory:changed', { sceneId: null, entryIds: [entryId] })
+    },
+    // A character Quick start made (or finished) gets its read-aloud voice, as Suggest would write it.
+    onDone: (done) => {
+      if (done.job === 'quick-start' && done.status === 'complete' && done.entryId && db.open) voiceLater(db, [done.entryId])
     },
     onKeyRejected: () => providers.markCheck(model.target.id, false)
   }
@@ -68,12 +79,16 @@ export const builderHandlers: Handlers<keyof BuilderApi> = {
     const db = world.db()
     const e = createBuilt(db, kindOf(input.kind), input.values, input.aiKeys ?? [], input.storyId ?? null)
     repo.touchWorld(db)
+    // Made with AI words in it: a character gets its read-aloud voice once Adam pauses.
+    if (e.kind === 'character' && input.aiKeys?.length) voiceLater(db, [e.id], { delayMs: VOICE_AFTER_KEEP_MS })
     return e
   },
   keepSuggestions: (entryId, values, opts) => {
     const db = world.db()
     const e = keepSuggestions(db, entryId, values, !!opts?.replace)
     repo.touchWorld(db)
+    // The AI filled in a character: it gets its read-aloud voice once Adam pauses.
+    if (e.kind === 'character') voiceLater(db, [e.id], { delayMs: VOICE_AFTER_KEEP_MS })
     return e
   },
   restoreBuilderField: (entryId, key, value, origin) => {

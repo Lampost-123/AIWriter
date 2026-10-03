@@ -5,6 +5,7 @@
 // drafts cheaper and faster.
 
 import type { StyleGuide } from '@shared/types'
+import { AUTO_LENGTH } from '@shared/defaults'
 
 const INTRO = `You are a skilled novelist drafting one scene of a longer work of fiction. The author plans each scene on a scene card and will edit your draft afterwards, so write a complete, polished scene that follows the plan closely and reads like a finished page of the book.
 
@@ -103,8 +104,22 @@ const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerC
 /** What the closing instruction of a draft's briefing is made from (milestone 4's own closings take it too). */
 export type FinalOptions = Parameters<typeof finalInstruction>[0]
 
+/**
+ * The closing instruction's line about length: the words asked for, or with Auto (targetWords null),
+ * the length the scene needs within Auto's range (autoMax: the ceiling for this model).
+ */
+export function lengthLine(o: { targetWords: number | null; autoMax?: number }): string {
+  if (o.targetWords != null) return `- Aim for about ${o.targetWords.toLocaleString('en-GB')} words.`
+  const min = AUTO_LENGTH.min.toLocaleString('en-GB')
+  const max = Math.max(AUTO_LENGTH.min, o.autoMax ?? AUTO_LENGTH.max).toLocaleString('en-GB')
+  return `- Make the scene as long as it needs to be, between ${min} and ${max} words: play out every beat in full, and don't pad it.`
+}
+
 export function finalInstruction(o: {
-  targetWords: number
+  /** The length to aim for; null for Auto. */
+  targetWords: number | null
+  /** With Auto: the longest scene this model may be asked for. */
+  autoMax?: number
   style: StyleGuide
   hasBeats: boolean
   hasGoal?: boolean
@@ -122,7 +137,7 @@ export function finalInstruction(o: {
   ]
   const plan = planLine(o)
   if (plan) lines.push(plan)
-  lines.push(`- Aim for about ${o.targetWords.toLocaleString('en-GB')} words.`)
+  lines.push(lengthLine(o))
   const keep: string[] = []
   if (o.style.pov) keep.push(lowerFirst(o.style.pov))
   if (o.style.tense) keep.push(lowerFirst(o.style.tense))

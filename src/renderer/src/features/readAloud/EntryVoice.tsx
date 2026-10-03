@@ -39,6 +39,8 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
   const [value, setValue] = useState<EntryReadAloud | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const current = useRef<EntryReadAloud>(EMPTY)
+  // As last read or saved: what the box and the world agree on, so a change from elsewhere can be told from Adam's.
+  const synced = useRef<EntryReadAloud>(EMPTY)
   const { voices } = useVoices(character)
   const ids = { design: useId(), say: useId(), title: useId() }
   const owns = useCallback((label: string) => label.endsWith(`:${entry.id}`) && label.startsWith('entry:'), [entry.id])
@@ -51,6 +53,7 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
       .then((v) => {
         if (!live) return
         current.current = v
+        synced.current = v
         setValue(v)
       })
       .catch((e: Error) => live && setLoadError(e.message))
@@ -59,10 +62,44 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
     }
   }, [entry.id])
 
+  // The AI gave them a voice in the background (it made or filled in this character): it shows here, in any box
+  // Adam hasn't changed since it was last saved.
+  useEffect(
+    () =>
+      onEvent('memory:changed', (change) => {
+        if (!change.entryIds.includes(entry.id)) return
+        void api
+          .getEntryReadAloud(entry.id)
+          .then((now) => {
+            const was = synced.current
+            const mine = current.current
+            const pick = (here: string, before: string, there: string): string => (here === before ? there : here)
+            const next: EntryReadAloud = {
+              voice: {
+                design: pick(mine.voice.design, was.voice.design, now.voice.design),
+                voice: pick(mine.voice.voice, was.voice.voice, now.voice.voice)
+              },
+              say: pick(mine.say, was.say, now.say)
+            }
+            synced.current = now
+            if (next.voice.design === mine.voice.design && next.voice.voice === mine.voice.voice && next.say === mine.say) return
+            current.current = next
+            setValue(next)
+          })
+          .catch(() => undefined)
+      }),
+    [entry.id]
+  )
+
   const name = entry.name.trim() || 'this entry'
-  const autosave = useAutosave<EntryReadAloud>((v) => api.setEntryReadAloud(entry.id, v), {
-    what: character ? `${name}'s read-aloud voice` : `how ${name} is said`
-  })
+  const autosave = useAutosave<EntryReadAloud>(
+    (v) =>
+      api.setEntryReadAloud(entry.id, v).then((saved) => {
+        synced.current = saved
+        return saved
+      }),
+    { what: character ? `${name}'s read-aloud voice` : `how ${name} is said` }
+  )
   const update = (patch: { design?: string; voice?: string; say?: string }): void => {
     const was = current.current
     const next: EntryReadAloud = {

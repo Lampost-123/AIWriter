@@ -161,6 +161,16 @@ describe('starting a beat', () => {
     expect(gens.listGenerations(db, sceneId)).toEqual([expect.objectContaining({ id: generationId, job: 'beat', status: 'complete' })])
   })
 
+  it("with Auto, shares a typical scene's length out between the beats", async () => {
+    const { sceneId } = setup()
+    const r = recorder()
+    const { generationId } = await startBeat(input(sceneId, { options: { direction: '', targetWords: null, creativity: 'balanced' } }), { emit: r.emit })
+    expect((await r.done(generationId)).status).toBe('complete')
+    const user = fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content
+    // A third of 2,000 words, to the nearest ten.
+    expect(user).toContain('- Aim for about 670 words.')
+  })
+
   it("says when the scene so far ends part-way through the beat before, or with the author's own words", async () => {
     const { sceneId } = setup()
     const r = recorder()

@@ -271,6 +271,13 @@ describe('the status Settings shows', () => {
     expect(buildStatus(parts({ problem: 'Another program is using port 8766.' })).repair).toBe(false)
   })
 
+  it('carries what is known of the graphics card and the free disk space, for what the voices need', () => {
+    const s = buildStatus(parts({ nvidia: 'NVIDIA GeForce RTX 4090', card: { memoryMb: 24564, computeCap: 8.9 }, freeSpace: 5e11 }))
+    expect([s.nvidia, s.nvidiaMemoryMb, s.nvidiaComputeCap, s.freeSpace]).toEqual(['NVIDIA GeForce RTX 4090', 24564, 8.9, 5e11])
+    const unknown = buildStatus(parts())
+    expect([unknown.nvidiaMemoryMb, unknown.nvidiaComputeCap, unknown.freeSpace]).toEqual([null, null, null])
+  })
+
   it('names the device in plain words', () => {
     expect(deviceName('CPU')).toBe('Processor')
     expect(deviceName('CUDA · NVIDIA GeForce RTX 3060')).toBe('NVIDIA GeForce RTX 3060')
