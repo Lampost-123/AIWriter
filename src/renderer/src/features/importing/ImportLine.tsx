@@ -2,7 +2,7 @@
 // chapter 3 of 24", how far it has got, and Stop; when it has paused, why, with Try again. It shows whichever
 // page is open, and nothing shows otherwise. Clicking the words opens the page with its progress. Owned by
 // the Manuscript import part.
-import { CircleAlert } from 'lucide-react'
+import { CircleAlert } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import { Spinner } from '@/components/ui'
 import { buildMemory, listenForCatchUp, offerMemory, stopBuildingMemory, useImport } from './importStore'

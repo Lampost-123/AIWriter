@@ -1,4 +1,4 @@
-import { CalendarRange, History, LayoutGrid, Network, Palette, SearchCheck, Spool, WandSparkles } from 'lucide-react'
+import { CalendarRange, History, LayoutGrid, Network, Palette, SearchCheck, Spool, WandSparkles } from '@/components/ui/icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ENTRY_KINDS, KIND_LABELS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'

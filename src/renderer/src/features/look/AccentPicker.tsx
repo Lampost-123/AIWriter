@@ -1,7 +1,7 @@
 // Settings › Appearance: the accent colour, picked as swatches (milestone 6). A pick shows at once, everywhere,
 // and is kept for next time (the window then opens in it). The swatches are a radio group: the arrow keys move
 // through them and pick, as in any list of choices.
-import { Check } from 'lucide-react'
+import { Check } from '@/components/ui/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { PaintedTheme } from '@shared/api'
 import { accentIdOf, type AccentId } from '@shared/contracts/look'
@@ -10,7 +10,7 @@ import { useApp } from '@/lib/store'
 import { ACCENTS, THEME_COLOUR_HINT, applyAccent } from './accents'
 
 /** The theme the window shows now (the system's when set to follow it), following any change. */
-function usePaintedTheme(): PaintedTheme {
+export function usePaintedTheme(): PaintedTheme {
   const read = (): PaintedTheme => {
     const t = document.documentElement.dataset.theme
     return t === 'dark' || t === 'sepia' ? t : 'light'

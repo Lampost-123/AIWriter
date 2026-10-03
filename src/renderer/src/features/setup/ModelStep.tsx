@@ -1,7 +1,7 @@
 // The first run's third step (milestone 6): pick the writer model, with Settings › Models' own picker and
 // "chosen model" card. A recommended model is shown with a "Use this" button; it is never chosen silently.
 
-import { PenLine, Sparkles } from 'lucide-react'
+import { PenLine, Sparkles } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import type { ModelChoice, ModelInfo, ProviderConfig } from '@shared/types'
 import { Badge, Button, Card, Notice, toast } from '@/components/ui'

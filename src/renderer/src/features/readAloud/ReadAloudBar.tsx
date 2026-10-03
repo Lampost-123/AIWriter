@@ -12,7 +12,7 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
-import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, SkipBack, SkipForward, Square, X } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Spinner } from '@/components/ui'

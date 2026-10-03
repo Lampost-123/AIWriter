@@ -3,7 +3,7 @@
 // It shows only when dictation can be used, and says what it is doing: the button turns to a stop
 // button while listening, with "Listening" and the microphone's level beside it, then "Writing it down".
 // It is small and sits in a line of text without making the line taller. Owned by the Dictation part.
-import { Mic, Square } from 'lucide-react'
+import { Mic, Square } from '@/components/ui/icons'
 import { useEffect, useId, useRef } from 'react'
 import { Spinner } from '@/components/ui'
 import { cn } from '@/lib/cn'

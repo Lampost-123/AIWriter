@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Brain, Check, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
+import { BookOpen, Brain, Check, ChevronsUpDown, FileDown, FileUp, LibraryBig, ListTree, PenLine, Plus, Settings2 } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'

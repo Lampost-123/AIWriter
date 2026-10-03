@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import type { PaintedTheme } from '@shared/api'
-import { accentIdOf } from '@shared/contracts/look'
+import { accentIdOf, lookOf, type Look } from '@shared/contracts/look'
 import { registerIpc } from './ipc'
 import { closeWorld, openWorld } from './world'
 import { getSettings } from './settings'
@@ -56,8 +56,20 @@ function startAccent(): string[] {
   }
 }
 
-/** Each theme's --bg colour in styles.css. */
-const BACKGROUND: Record<PaintedTheme, string> = { light: '#f6f4f0', dark: '#161514', sepia: '#ece3cf' }
+/** The look the window opens in (the New look), as the theme. */
+function startLook(): Look {
+  try {
+    return lookOf(getSettings().look)
+  } catch {
+    return 'new'
+  }
+}
+
+/** Each theme's --bg colour in styles.css, in each look. */
+const BACKGROUND: Record<Look, Record<PaintedTheme, string>> = {
+  classic: { light: '#f6f4f0', dark: '#161514', sepia: '#ece3cf' },
+  new: { light: '#ebe5da', dark: '#12110f', sepia: '#e5d9c0' }
+}
 
 /** Shows the window if it is still hidden (the fallback when the interface never asks). */
 function showMainWindow(): void {
@@ -80,6 +92,7 @@ function stopRunningDrafts(): void {
 
 function createWindow(): void {
   const theme = startTheme()
+  const look = startLook()
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -87,7 +100,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     title: 'AI Write',
-    backgroundColor: BACKGROUND[theme],
+    backgroundColor: BACKGROUND[look][theme],
     icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -95,7 +108,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
-      additionalArguments: [`--aiwrite-theme=${theme}`, ...startAccent()]
+      additionalArguments: [`--aiwrite-theme=${theme}`, `--aiwrite-look=${look}`, ...startAccent()]
     }
   })
   mainWindow = win

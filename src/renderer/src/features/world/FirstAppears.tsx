@@ -3,7 +3,7 @@
 // or a scene, or remove one. Every change applies straight away and can be undone from its toast.
 
 import * as P from '@radix-ui/react-popover'
-import { ChevronDown, Plus, X } from 'lucide-react'
+import { ChevronDown, Plus, X } from '@/components/ui/icons'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FirstExists } from '@shared/contracts/entryViews'
 import type { EntryKind, ID } from '@shared/types'

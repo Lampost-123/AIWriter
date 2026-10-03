@@ -1,5 +1,5 @@
 import { useSortable } from '@dnd-kit/sortable'
-import { ChevronRight, CircleAlert, MoreHorizontal, Plus } from 'lucide-react'
+import { ChevronRight, CircleAlert, MoreHorizontal, Plus } from '@/components/ui/icons'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Act, Chapter, ID, SceneMeta } from '@shared/types'
 import { Textarea } from '@/components/ui'

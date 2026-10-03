@@ -1,5 +1,5 @@
 // Review: the whole profile on one page, then Save (which opens the entry's page).
-import { Pencil } from 'lucide-react'
+import { Pencil } from '@/components/ui/icons'
 import type { BuilderKind, BuilderValues } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
 import { Button } from '@/components/ui'

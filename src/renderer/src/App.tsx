@@ -40,6 +40,8 @@ import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
+import { useLookSetting } from '@/features/look/look'
+import { LookNote } from '@/features/look/LookNote'
 import { useFocusMode } from '@/features/look/focusMode'
 import { FocusLayer } from '@/features/look/FocusLayer'
 import { FindLayer } from '@/features/find/FindLayer'
@@ -68,6 +70,7 @@ export function App(): React.JSX.Element | null {
 
   useTheme(settings?.theme)
   useAccent(settings ? settings.accent : undefined)
+  useLookSetting(settings?.look)
   useEffect(() => {
     // Where the first run stands is known first (it may open the world a setup was making), so the start
     // screen never flashes before the setup (and never shows once the setup is done).
@@ -117,6 +120,8 @@ export function App(): React.JSX.Element | null {
         <NoWorld />
       ) : null}
       {showStart ? <StartScreen /> : null}
+      {/* The New look: the one-time note offering Classic, after updating. */}
+      {setupStep ? null : <LookNote />}
       <Toaster />
       {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}
       <SpendWatch />

@@ -3,7 +3,7 @@
 // last appearance; a card opens the entry's page, and the codex keeps its filters and scroll while
 // Adam goes back and forth. Plot threads live on their own board, so they aren't here.
 
-import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from 'lucide-react'
+import { LayoutGrid, Plus, Search, ShieldCheck, Sparkles, WandSparkles, X } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { CodexCard } from '@shared/contracts/entryViews'

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AudioLines } from 'lucide-react'
+import { AudioLines } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { Tabs, TabsContent, TabsList } from '@/components/ui'
 import { cn } from '@/lib/cn'

@@ -2,7 +2,7 @@
 // first, then the others the scene card says are present, where it happens, then (quieter) anyone
 // else the text names; each with its one-liner, how it stands as of this scene and, for a character,
 // how they speak. Clicking one shows it in this panel, and the scene stays as it is.
-import { Users } from 'lucide-react'
+import { Users } from '@/components/ui/icons'
 import { useMemo } from 'react'
 import type { ID } from '@shared/types'
 import type { NamedEntry } from '@shared/contracts/manuscript'

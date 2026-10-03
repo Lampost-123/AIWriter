@@ -1,6 +1,6 @@
 // One step of the first-run setup (milestone 6): its heading and words, what it asks, and Back, Skip and Continue.
 
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft } from '@/components/ui/icons'
 import type { ReactNode } from 'react'
 import type { SetupStep } from '@shared/contracts/setup'
 import { Button } from '@/components/ui'

@@ -1,7 +1,7 @@
 // Guided: Adam walks the steps himself, with AI help only where he wants it. A rail of steps on the
 // left (each empty, partly done or complete), the step's fields in the middle, and the AI's actions
 // in a slim bar under them. The entry is made once it has a name and then saves itself as he types.
-import { ArrowLeft, ArrowRight, MessageCircle, Sparkles, Square } from 'lucide-react'
+import { ArrowLeft, ArrowRight, MessageCircle, Sparkles, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderDone, BuilderKind, BuilderProgress, BuilderValues, InterviewTurn } from '@shared/contracts/builder'

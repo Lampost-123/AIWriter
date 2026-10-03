@@ -3,7 +3,7 @@
 // matches). Replace changes the ticked ones (storyReplace.ts); clicking a match's words opens its scene there,
 // with the find bar. When the words are an entry's name, a box offers to rename it in memory too.
 import * as D from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_LISTED, type StoryFindResult, type StorySceneMatches } from '@shared/contracts/find'
 import { hasQuery } from '@shared/findReplace'

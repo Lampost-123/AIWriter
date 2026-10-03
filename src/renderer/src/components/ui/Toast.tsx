@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { create } from 'zustand'
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { addToast, type ToastInput, type ToastItem } from './toastQueue'
 

@@ -1,6 +1,6 @@
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, type Modifier } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { GripVertical, Plus, X } from 'lucide-react'
+import { GripVertical, Plus, X } from '@/components/ui/icons'
 import { forwardRef, memo, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { useFitHeight } from '@/features/world/parts/AutoTextarea'

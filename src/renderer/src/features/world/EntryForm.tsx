@@ -1,4 +1,4 @@
-import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from 'lucide-react'
+import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from '@/components/ui/icons'
 import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'

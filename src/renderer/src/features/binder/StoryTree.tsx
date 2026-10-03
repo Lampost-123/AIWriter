@@ -29,7 +29,7 @@ import {
   SearchCheck,
   Target as TargetIcon,
   Trash2
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID, Outline } from '@shared/types'
 import { Button } from '@/components/ui'

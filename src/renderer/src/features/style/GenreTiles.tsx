@@ -15,15 +15,15 @@ import {
   Swords,
   Timer,
   WandSparkles,
-  type LucideIcon
-} from 'lucide-react'
+  type IconType
+} from '@/components/ui/icons'
 import type { CSSProperties } from 'react'
 import { GENRES, genresOf } from '@shared/genres'
 import { cn } from '@/lib/cn'
 import { genreRole, type GenresShown } from './feelLogic'
 
 /** The presets' icon names (src/shared/genres.ts) and their icons. */
-const ICONS: Record<string, LucideIcon> = {
+const ICONS: Record<string, IconType> = {
   WandSparkles,
   Moon,
   Swords,

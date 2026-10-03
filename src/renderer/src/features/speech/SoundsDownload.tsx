@@ -4,7 +4,7 @@
 // it looks and behaves the same: Download, progress, Cancel, Try again, the licence and the Hugging Face key.
 //
 // Stable Audio Open's licence (Stability AI Community License) asks for a visible credit: the card always shows it.
-import { CircleAlert, CircleCheck, Download, ExternalLink, Waves } from 'lucide-react'
+import { CircleAlert, CircleCheck, Download, ExternalLink, Waves } from '@/components/ui/icons'
 import type { SpeechStatus } from '@shared/contracts/speech'
 import { Badge, Button, Card } from '@/components/ui'
 import { useApp } from '@/lib/store'

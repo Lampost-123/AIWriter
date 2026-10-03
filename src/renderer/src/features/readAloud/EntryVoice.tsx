@@ -5,7 +5,7 @@
 // On an entry's page: a character's "Read-aloud voice" (Suggest, Hear) and, for any entry, "Say it as"
 // with Listen. Kept in the world's meta key read_aloud. Shown in features/world/EntryForm.tsx only once
 // read aloud is turned on. Owned by the Read aloud part. Changes save as Adam types.
-import { AudioLines, Check, Play, Sparkles, Square, Volume2, X } from 'lucide-react'
+import { AudioLines, Check, Play, Sparkles, Square, Volume2, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { EntryReadAloud } from '@shared/contracts/readAloud'
 import type { Entry } from '@shared/types'

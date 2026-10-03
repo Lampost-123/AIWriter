@@ -1,6 +1,6 @@
 // Mark done (Ctrl+Enter) in the scene header. A scene marked done shows as Done, in green, and the
 // same button reopens it. Its width never changes with its state, so nothing in the header moves.
-import { Check, RotateCcw } from 'lucide-react'
+import { Check, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { Spinner, toast } from '@/components/ui'

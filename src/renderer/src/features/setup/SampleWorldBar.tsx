@@ -1,7 +1,7 @@
 // A slim line across the top of the workspace while the sample world is open (milestone 6): says it is the sample,
 // and offers the way to start Adam's own world (the first-run setup, or the New world dialog once he has worlds).
 
-import { ArrowRight, BookOpen } from 'lucide-react'
+import { ArrowRight, BookOpen } from '@/components/ui/icons'
 import { useState } from 'react'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'

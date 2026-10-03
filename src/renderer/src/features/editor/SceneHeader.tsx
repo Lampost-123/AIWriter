@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { cn } from '@/lib/cn'

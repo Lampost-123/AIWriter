@@ -7,7 +7,7 @@
 // story" opens. Long books stay quick: cards off screen aren't drawn, and a scene's paragraphs show a page at
 // a time. Owned by the Manuscript import part.
 
-import { ArrowLeft, Brain, CircleCheck, FileText, FileUp, Merge, RotateCcw, Scissors, Square } from 'lucide-react'
+import { ArrowLeft, Brain, CircleCheck, FileText, FileUp, Merge, RotateCcw, Scissors, Square } from '@/components/ui/icons'
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { CatchUpEstimate, Manuscript } from '@shared/contracts/importing'
 import type { ID } from '@shared/types'

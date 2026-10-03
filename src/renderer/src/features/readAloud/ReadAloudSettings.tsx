@@ -7,7 +7,7 @@
 // Follow along, sound effects and the audio cache (More). Owned by the Read aloud part. Every change saves at once. Mark who says
 // what and Perform written sounds say plainly whether Emotion and tone, and sighs and laughs, are on (tone.ts), as the
 // reading bar does.
-import { AudioLines, Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from 'lucide-react'
+import { AudioLines, Check, CircleCheck, HardDrive, Play, Search, Square, Trash2 } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { AudioCacheStats, ReadAloudVoice } from '@shared/contracts/readAloud'
 import type { SoundsStatus } from '@shared/contracts/sounds'

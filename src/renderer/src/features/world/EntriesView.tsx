@@ -1,4 +1,4 @@
-import { ArrowLeft, Plus, Search, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { ArrowLeft, Plus, Search, ShieldCheck, Sparkles, X } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { Entry, EntryKind, ID } from '@shared/types'

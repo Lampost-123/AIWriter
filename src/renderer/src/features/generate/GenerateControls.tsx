@@ -9,7 +9,7 @@
 // With "Polish after drafting" on (in the draft options), a finished draft is then
 // polished: the button shows Stop and "Polishing…" until the revision is ready.
 import * as P from '@radix-ui/react-popover'
-import { ArrowDownToLine, ChevronDown, RefreshCw, Sparkles, Square } from 'lucide-react'
+import { ArrowDownToLine, ChevronDown, RefreshCw, Sparkles, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import { AUTO_LENGTH, cardLength, CREATIVITY_PRESETS } from '@shared/defaults'

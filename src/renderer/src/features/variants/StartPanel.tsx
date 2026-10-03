@@ -1,7 +1,7 @@
 // Before a set of variants starts: how many (two or three, remembered), the scene's draft options (the
 // same ones Generate and the Context tab use, so a direction typed here is there too), the writer model
 // and what the set should cost. Problems starting show here in plain words, with the way to fix them.
-import { Columns3, Sparkles } from 'lucide-react'
+import { Columns3, Sparkles } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import type { VariantCount } from '@shared/contracts/variants'

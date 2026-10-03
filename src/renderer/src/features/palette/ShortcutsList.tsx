@@ -3,7 +3,7 @@
 // computer (⌘ on a Mac). Esc closes it and the caret goes back where it was.
 
 import * as D from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import { Fragment, useEffect } from 'react'
 import { IconButton, Kbd } from '@/components/ui'
 import { watchMoreBelow } from '@/lib/moreBelow'

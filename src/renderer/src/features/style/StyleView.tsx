@@ -1,4 +1,4 @@
-import { BookOpen } from 'lucide-react'
+import { BookOpen } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defaultStyleGuide } from '@shared/defaults'
 import { cleanGenres } from '@shared/genres'

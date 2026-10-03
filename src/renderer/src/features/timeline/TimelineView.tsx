@@ -6,7 +6,7 @@
 // Each row reads When, then the scene, then the lanes, so the scene stays on screen however many lanes
 // Adam picks (more than fit scroll sideways); until he picks, only as many as fit are shown.
 import * as P from '@radix-ui/react-popover'
-import { CalendarRange, CircleAlert, MapPin, Plus, Rows3, Search } from 'lucide-react'
+import { CalendarRange, CircleAlert, MapPin, Plus, Rows3, Search } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import type { Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'

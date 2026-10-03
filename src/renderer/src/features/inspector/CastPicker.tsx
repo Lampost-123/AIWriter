@@ -1,5 +1,5 @@
 import * as P from '@radix-ui/react-popover'
-import { Eye, Plus, X } from 'lucide-react'
+import { Eye, Plus, X } from '@/components/ui/icons'
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID } from '@shared/types'
 import { cn } from '@/lib/cn'

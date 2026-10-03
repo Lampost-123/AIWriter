@@ -2,7 +2,7 @@
 // a speaker while the scene's sounds play and a crossed-out speaker once they are muted. Pressed, the ambience fades
 // out at once and the reading plans its next lines without sounds; pressed again, they come back from the next line.
 // Kept with the world (muteSceneSounds); what it shows comes from the scene's sounds (SceneSounds.muted).
-import { Volume2, VolumeX } from 'lucide-react'
+import { Volume2, VolumeX } from '@/components/ui/icons'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { onEvent } from '@/lib/api'

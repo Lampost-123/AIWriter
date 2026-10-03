@@ -1,7 +1,7 @@
 // "Listen from here" in the bar over selected words (features/editor/selection/SelectionLayer.tsx), when
 // read aloud is on. Owned by the Read aloud part. Reading starts at the first selected word.
 import type { Editor } from '@tiptap/core'
-import { Headphones } from 'lucide-react'
+import { Headphones } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
 import { BarButton } from '@/features/editor/selection/SelectionLayer'

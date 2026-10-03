@@ -2,7 +2,7 @@
 // it was given. This is how Adam finds out why the AI got something wrong:
 // whether a fact was missing, out of date, or ignored.
 import * as S from '@radix-ui/react-switch'
-import { ArrowLeft, ChevronRight, Copy, Undo2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Copy, Undo2 } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
 import type { ContextBlock, GenerationRecord, ID } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'

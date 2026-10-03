@@ -1136,6 +1136,32 @@ deleted, and a new story can be planned from one. The data model stays frozen: w
 |---|---|
 | Story recipes | `contracts/recipes.ts`, `ipc/recipes.ts`, `src/main/recipes/`, `features/recipes/`, the `recipe` job (types, defaults, `jobModel`, providers, Settings › Models), `tests/fake-provider/recipes.mjs`, `tests/e2e/recipes.spec.ts` |
 
+## The two looks: the New look and Classic
+
+Settings › Appearance › Style chooses between the **New look** ("Lamplight", the default) and **Classic** (the app
+exactly as it was before it). It is the setting `look` in settings.json; the window opens in it (`--aiwrite-look=…`,
+as the theme and accent, `window.aiwrite.initialLook`) and `<html data-look>` paints it (`features/look/look.ts`).
+Someone updating from before the New look (a settings.json with no `look`) gets the one-time note offering Classic
+(`lookNote`, `lookNoteDue` in `contracts/look.ts`, `features/look/LookNote.tsx`); a fresh install doesn't. App tests
+start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`); a test asks for the New look with
+`env: { AIWRITE_LOOK: 'new' }`, or `''` for what Adam gets.
+
+- **Not a fork of screens.** The same components read the same tokens. `styles.css` adds the New look's tokens with
+  Classic's values (exactly what each place used before): `--raise`, elevation (`--elev-1..3`, `--elev-page`; Tailwind
+  `shadow-e1..3`, `shadow-sheet`), the kind inks (`--k-char`, `--k-place` ..., with `-soft` tints; `KIND_INK` in
+  `features/world/kindIcons.ts`), `--heading-font` (`font-heading`), `--r-card` (`rounded-card`) and motion
+  (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`; `ease-glide`, `ease-spring`). The New look sets its own
+  per theme under `[data-look='new']`. Where a shape differs, a class says so with the `look-new:` variant (or
+  `look-classic:`). Less motion sets every duration to 0.
+- **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
+  Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
+  `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
+- **Fonts.** Classic's prose is the static Literata it always had (`--serif-font`); the New look uses Literata's
+  variable font, whose optical sizes give the headings their display cut. Each look loads only its own.
+- **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
+  sample world, with screenshots taken before the New look began (one set per platform).
+- Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

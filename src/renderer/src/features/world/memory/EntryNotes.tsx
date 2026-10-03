@@ -1,4 +1,4 @@
-import { Check, PenLine, Sparkles } from 'lucide-react'
+import { Check, PenLine, Sparkles } from '@/components/ui/icons'
 import type { Entry } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { MADE_YOURS, YOU_MADE, YOU_WROTE, madeByNote } from '../memoryLogic'

@@ -1,5 +1,5 @@
 import * as D from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { X } from '@/components/ui/icons'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 

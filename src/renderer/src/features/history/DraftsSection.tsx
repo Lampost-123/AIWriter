@@ -1,6 +1,6 @@
 // The scene's drafts at the top of the Drafts tab: the current one (the text in the page) and the others
 // kept beside it, to switch to, rename or delete, and New draft. Owned by the History part.
-import { History, Pencil, Plus, Trash2 } from 'lucide-react'
+import { History, Pencil, Plus, Trash2 } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import type { DraftInfo, SceneDrafts } from '@shared/contracts/history'

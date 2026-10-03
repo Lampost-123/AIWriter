@@ -1,7 +1,7 @@
 // The History page for one scene (View 'history'): its earlier versions on a list, newest first, each
 // compared side by side with the scene now (the words that differ marked), and restored in one click.
 // Owned by the History part.
-import { ArrowLeft, CheckCircle2, ChevronRight, Copy, History, PenLine, RotateCcw, Sparkles } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, Copy, History, PenLine, RotateCcw, Sparkles } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { comparableDoc, type SceneHistory, type Snapshot, type SnapshotInfo, type SnapshotKind } from '@shared/contracts/history'

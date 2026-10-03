@@ -1,4 +1,4 @@
-import { Plus, RotateCcw } from 'lucide-react'
+import { Plus, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'

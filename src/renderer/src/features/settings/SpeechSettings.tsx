@@ -2,7 +2,7 @@
 // reading aloud with the narrator's voice and speed, the dictation key) and the rest under More. Each
 // part fills its own sections (features/speech, features/readAloud, features/dictation). Opened from the reading
 // bar's Emotion and tone, More is open and the page shows How it reads.
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/cn'
 import { SpeechEngineSettings } from '@/features/speech/SpeechEngineSettings'

@@ -42,8 +42,8 @@ import {
   Sun,
   Trash2,
   WandSparkles,
-  type LucideIcon
-} from 'lucide-react'
+  type IconType
+} from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SearchGroupId, SearchHit, SearchResults, TextPart } from '@shared/contracts/search'
 import { Kbd, Spinner } from '@/components/ui'
@@ -112,7 +112,7 @@ const searchedGroups = (expanded: ReadonlySet<string>): string =>
 
 // ---------- Icons ----------
 
-const ACTION_ICONS: Partial<Record<ActionId, LucideIcon>> = {
+const ACTION_ICONS: Partial<Record<ActionId, IconType>> = {
   generate: Sparkles,
   stop: Square,
   'mark-done': Check,
@@ -143,7 +143,7 @@ const ACTION_ICONS: Partial<Record<ActionId, LucideIcon>> = {
   shortcuts: Keyboard
 }
 
-function actionIcon(a: ActionDef): LucideIcon {
+function actionIcon(a: ActionDef): IconType {
   const entry = entryAction(a.id)
   if (entry) return entry.verb === 'new' ? Plus : KIND_ICONS[entry.kind]
   if (a.id.startsWith('settings-')) return Settings
@@ -151,7 +151,7 @@ function actionIcon(a: ActionDef): LucideIcon {
 }
 
 /** A result's icon: what it is, from the start of its key ('summary:…', 'chapter:…'), or its kind of entry. */
-function hitIcon(hit: SearchHit): LucideIcon {
+function hitIcon(hit: SearchHit): IconType {
   switch (hit.key.split(':')[0]) {
     case 'summary':
       return AlignLeft

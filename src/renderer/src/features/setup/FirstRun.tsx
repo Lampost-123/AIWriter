@@ -4,7 +4,7 @@
 // opens with a small guide (FirstSceneGuide.tsx). Back goes to the step before; quitting midway resumes at the
 // same step next time (setupStore.ts).
 
-import { BookOpen, Feather, WandSparkles } from 'lucide-react'
+import { BookOpen, Feather, WandSparkles } from '@/components/ui/icons'
 import { useRef, useState, type ReactNode } from 'react'
 import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'

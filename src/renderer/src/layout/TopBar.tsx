@@ -12,7 +12,7 @@ import {
   Plus,
   Search as SearchIcon,
   Settings as SettingsIcon
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { WorldSummary } from '@shared/types'
 import { IconButton, Kbd, toast } from '@/components/ui'

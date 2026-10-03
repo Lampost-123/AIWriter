@@ -1,7 +1,7 @@
 // The Consistency page's reports: Repetition (pet phrases across chapters, then each chapter's words and
 // phrases used too often, each opening the first place it is used) and Plot threads (open too long, and
 // payoffs with no setup, each linking to the thread's page and the scene).
-import { Hourglass, Repeat2, Spool, Unlink } from 'lucide-react'
+import { Hourglass, Repeat2, Spool, Unlink } from '@/components/ui/icons'
 import type { ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import type { RepetitionItem, RepetitionReport, ThreadsReport } from '@shared/contracts/checks'

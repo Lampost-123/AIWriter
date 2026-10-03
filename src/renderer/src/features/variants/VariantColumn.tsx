@@ -5,7 +5,7 @@
 //
 // The column never scrolls by itself while Adam reads: new words go on at the end, and a small pointer
 // says when they are out of sight below. Once he scrolls to the end, it follows the words as they come.
-import { ArrowDown, FileSearch, Plus, Square } from 'lucide-react'
+import { ArrowDown, FileSearch, Plus, Square } from '@/components/ui/icons'
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Notice } from '@/components/ui'

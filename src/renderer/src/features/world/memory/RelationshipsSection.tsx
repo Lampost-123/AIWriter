@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { Trash2 } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { ChangeView, Entry, EntryKind, ID } from '@shared/types'

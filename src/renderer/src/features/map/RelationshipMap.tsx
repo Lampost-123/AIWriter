@@ -7,7 +7,7 @@
 // Names and the words on the lines are drawn at the same size at every zoom, so they can always be
 // read; where they would cover each other or a portrait, only the best-connected characters' show
 // (mapLogic.labelsAt), and pointing at a character or a line shows its own.
-import { Maximize, Network, Plus, ZoomIn, ZoomOut } from 'lucide-react'
+import { Maximize, Network, Plus, ZoomIn, ZoomOut } from '@/components/ui/icons'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
 import type { MapGroup, MapNode, MapPlace, RelationshipMap as MapData } from '@shared/contracts/worldViews'

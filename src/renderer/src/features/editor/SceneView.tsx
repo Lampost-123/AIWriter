@@ -1,5 +1,5 @@
 import { EditorContent, useEditor } from '@tiptap/react'
-import { ArrowDown, FilePlus2, Feather, RotateCcw } from 'lucide-react'
+import { ArrowDown, FilePlus2, Feather, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { ID, SceneStatus } from '@shared/types'

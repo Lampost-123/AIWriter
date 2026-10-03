@@ -1,6 +1,6 @@
 // The binder's mark on what is being read aloud: a small speaker in place of the scene's status dot, and a fainter one
 // on its chapter's row, from any page of the app (and as Keep reading moves on). Owned by the Read aloud part.
-import { Volume2 } from 'lucide-react'
+import { Volume2 } from '@/components/ui/icons'
 import type { ID, SceneStatus } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useOutlineStore } from '@/features/binder/outlineStore'

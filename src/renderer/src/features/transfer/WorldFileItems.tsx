@@ -2,7 +2,7 @@
 // export): Export world…, Make a copy and Import a world file….
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { Copy, FileDown, FileUp, MoreHorizontal } from 'lucide-react'
+import { Copy, FileDown, FileUp, MoreHorizontal } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'

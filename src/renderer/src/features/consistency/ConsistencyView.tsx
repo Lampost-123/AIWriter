@@ -3,7 +3,7 @@
 // threads left open too long or paid off with no setup. Reached from the binder's World section, the
 // palette and the "Show" on a finished check's toast.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { ChevronDown, SearchCheck, Square } from 'lucide-react'
+import { ChevronDown, SearchCheck, Square } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ALL_CHECKS, DONE_CHECKS, type Issue, type RepetitionReport, type ThreadsReport } from '@shared/contracts/checks'
 import type { ID, Outline } from '@shared/types'

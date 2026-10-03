@@ -5,7 +5,7 @@
 // draft keeps writing and Continue is instant. App.tsx decides when it shows (useApp.home).
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type LucideIcon } from 'lucide-react'
+import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type IconType } from '@/components/ui/icons'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { LastPlace, LibraryWorld } from '@shared/contracts/library'
 import { Button, Card, Field, IconButton, Input, Kbd, Notice, toast } from '@/components/ui'
@@ -267,7 +267,7 @@ function Tile({
   disabled,
   ...rest
 }: {
-  icon: LucideIcon
+  icon: IconType
   label: string
   hint: string
   onClick?: () => void

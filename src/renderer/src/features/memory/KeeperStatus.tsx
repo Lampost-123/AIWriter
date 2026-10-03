@@ -3,7 +3,7 @@
 // note when it can't run at all, with the reason and what to do. It sits in a slot of fixed width
 // that is always there, so nothing in the bar moves when it comes and goes. Nothing in it nags.
 import * as P from '@radix-ui/react-popover'
-import { Check, CircleAlert } from 'lucide-react'
+import { Check, CircleAlert } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'

@@ -3,7 +3,7 @@
 // again never overwrites it). While it is being made, how far it has got. Its actions: start a new story from it,
 // make a copy, read the story again, forget the story's text, delete. Owned by the Story recipes part.
 
-import { BookPlus, CookingPot, Copy, FileX2, RefreshCw, Trash2 } from 'lucide-react'
+import { BookPlus, CookingPot, Copy, FileX2, RefreshCw, Trash2 } from '@/components/ui/icons'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { Recipe, RecipePartId, RecipeParts } from '@shared/contracts/recipes'
 import { Button, EmptyState, Input, toast } from '@/components/ui'

@@ -1,4 +1,4 @@
-import { Sparkles, X } from 'lucide-react'
+import { Sparkles, X } from '@/components/ui/icons'
 import { memo } from 'react'
 import type { ChangeView, EntryKind, ID } from '@shared/types'
 import { IconButton, toast } from '@/components/ui'

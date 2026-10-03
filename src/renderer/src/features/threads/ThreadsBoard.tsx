@@ -2,7 +2,7 @@
 // Resolved and (when there are any) Planned, with where each was set up and paid off linked to those
 // scenes. A thread open for many chapters gets a calm amber note, so nothing is forgotten. Clicking a
 // thread opens its page.
-import { Hourglass, Spool, Plus } from 'lucide-react'
+import { Hourglass, Spool, Plus } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import type { BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'

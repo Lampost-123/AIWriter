@@ -1,7 +1,7 @@
 // The as-of slider: drag through a story's line (every story it follows on from, then its own
 // scenes) to see the memory at any point. Small marks show where the entry changes; the buttons
 // jump between them. Keyboard: arrows move one scene, Home and End go to the ends.
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from '@/components/ui/icons'
 import type { AsOf, AsOfStop } from '@shared/types'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'

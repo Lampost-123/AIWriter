@@ -1,4 +1,4 @@
-import { Archive, Clock, DoorOpen, Folder, FolderOpen, Hand, History, RotateCcw, CircleArrowUp, CloudUpload } from 'lucide-react'
+import { Archive, Clock, DoorOpen, Folder, FolderOpen, Hand, History, RotateCcw, CircleArrowUp, CloudUpload } from '@/components/ui/icons'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import type { BackupFolderStatus, BackupInfo } from '@shared/types'

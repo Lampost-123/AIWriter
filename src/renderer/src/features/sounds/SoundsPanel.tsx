@@ -24,7 +24,7 @@ import {
   VolumeX,
   Waves,
   Zap
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CueInput, SceneCue, SoundKind } from '@shared/contracts/sounds'
 import type { ID } from '@shared/types'

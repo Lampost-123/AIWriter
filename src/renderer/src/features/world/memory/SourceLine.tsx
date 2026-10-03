@@ -1,4 +1,4 @@
-import { Check, PenLine, Sparkles } from 'lucide-react'
+import { Check, PenLine, Sparkles } from '@/components/ui/icons'
 import type { ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
