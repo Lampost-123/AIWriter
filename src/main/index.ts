@@ -10,6 +10,7 @@ import { initBackups } from './services/backups'
 import { initUpdater } from './services/updater'
 import { initAi } from './ai'
 import { initKeeper } from './keeper'
+import { closeRecipes, initRecipes } from './recipes'
 import { activeDraftIds, stopDraft } from './ai/drafts'
 import { stopAllTasks } from './ai/tasks'
 import { registerPortraitScheme, servePortraits } from './portraits'
@@ -217,6 +218,7 @@ function main(): void {
       initBackups()
       initAi()
       initKeeper()
+      initRecipes()
       initHistory()
       initSpeech()
       initSpelling()
@@ -250,6 +252,7 @@ function main(): void {
   })
 
   app.on('window-all-closed', () => {
+    closeRecipes()
     closeWorld()
     stopSpeech()
     app.quit()

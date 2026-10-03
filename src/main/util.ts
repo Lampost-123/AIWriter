@@ -146,5 +146,7 @@ export function slugify(name: string): string {
     .slice(0, 60)
     .replace(/\s+$/, '') // Windows and OneDrive reject a name ending in a space
   if (WINDOWS_RESERVED.test(s)) s += ' world'
+  // Story recipes: the library's Recipes folder sits beside the worlds and is never one of them.
+  if (/^recipes$/i.test(s)) s += ' world'
   return s || 'World'
 }
