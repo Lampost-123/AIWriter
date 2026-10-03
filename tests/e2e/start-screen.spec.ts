@@ -319,7 +319,9 @@ test('"Where I left off" skips the start screen at launch', async ({ launch }) =
 
 test('a draft keeps writing while the start screen is open, and Continue shows it still writing', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
-  const slow = await startFakeProvider({ delayMs: 5, slowWords: 600, slowDelayMs: 20 })
+  // Long enough (about 30 seconds) that it is still writing however slowly a test machine saves the page.
+  test.setTimeout(180_000)
+  const slow = await startFakeProvider({ delayMs: 5, slowWords: 1500, slowDelayMs: 20 })
   try {
     const { win } = await launch()
     await createWorldFromWelcome(win, 'Alpha')
@@ -345,7 +347,7 @@ test('a draft keeps writing while the start screen is open, and Continue shows i
 
     await continueCard(win).click()
     await expect(startScreen(win)).toHaveCount(0)
-    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 60_000 }).toBe('complete')
+    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 120_000 }).toBe('complete')
     const rec = await invoke(win, 'getGeneration', gen.id)
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text.trim()).toBe(rec.response.trim())
   } finally {
