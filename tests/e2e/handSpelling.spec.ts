@@ -167,6 +167,25 @@ test('a synonym picked on right-click replaces the word, keeping its capitals, a
   await win.keyboard.press('Control+z')
   await expect(prose(win)).toHaveText('Happy, she said. She was happy.')
 
+  // Two quick right-clicks: the menu is for the second word, never the first.
+  await app.evaluate(() => {
+    ;(globalThis as unknown as { lastMenu: unknown }).lastMenu = null
+  })
+  const said = await wordBox(win, 'said')
+  const happy = await wordBox(win, 'Happy')
+  await win.mouse.click(said.x, said.y, { button: 'right' })
+  await win.mouse.click(happy.x, happy.y, { button: 'right' })
+  await win.waitForTimeout(500)
+  const second = (await lastMenu(app))!.find((i) => i.label === 'Synonyms')!.submenu!.find((i) => i.enabled && i.type === 'normal')!
+  expect(second.label).toBe(pick.label)
+  await app.evaluate((_e, label) => {
+    const m = (globalThis as unknown as { lastMenu: Electron.Menu }).lastMenu
+    m.items.find((i) => i.label === 'Synonyms')!.submenu!.items.find((i) => i.label === label)!.click()
+  }, second.label)
+  await expect(prose(win)).toHaveText(`${pick.label}, she said. She was happy.`)
+  await win.keyboard.press('Control+z')
+  await expect(prose(win)).toHaveText('Happy, she said. She was happy.')
+
   // The same list the menu shows, in the spelling that applies.
   const senses = await invoke(win, 'synonymsOf', 'colour')
   expect(senses.flatMap((s) => s.words).some((w) => w.includes('color'))).toBe(false)

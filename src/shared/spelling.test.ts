@@ -7,6 +7,7 @@ import {
   isKnownWord,
   isOneWord,
   knownWordRanges,
+  noteAt,
   languageFor,
   matchCase,
   MAX_SYNONYMS,
@@ -157,5 +158,23 @@ describe('the word under the pointer', () => {
     expect(isOneWord('well-worn')).toBe(true)
     expect(isOneWord('two words')).toBe(false)
     expect(isOneWord('word.')).toBe(false)
+  })
+})
+
+describe('the right-click a menu is for', () => {
+  const now = 10_000
+  it('uses only the note made where this right-click was', () => {
+    const notes = [
+      { x: 100, y: 200, at: now - 300 },
+      { x: 400, y: 200, at: now - 100 }
+    ]
+    expect(noteAt(notes, 400, 200, 1, now)).toBe(1)
+    expect(noteAt(notes, 101, 199, 1, now)).toBe(0)
+    // A second quick right-click elsewhere, whose note hasn't come yet: no note is taken for it.
+    expect(noteAt(notes, 700, 300, 1, now)).toBe(-1)
+  })
+  it('allows for the page’s zoom, and forgets old notes', () => {
+    expect(noteAt([{ x: 100, y: 50, at: now }], 125, 62.5, 1.25, now)).toBe(0)
+    expect(noteAt([{ x: 100, y: 50, at: now - 6000 }], 100, 50, 1, now)).toBe(-1)
   })
 })

@@ -74,7 +74,7 @@ export function installSpelling(): () => void {
   // A right-click anywhere but the page: the menu needn't wait to hear which word it is on (the page says itself).
   const onContextMenu = (e: MouseEvent): void => {
     const target = e.target as Element | null
-    if (!target?.closest?.('.ProseMirror.scene-prose')) void api.noteContextWord(null).catch(() => undefined)
+    if (!target?.closest?.('.ProseMirror.scene-prose')) void api.noteContextWord({ x: e.clientX, y: e.clientY, word: null }).catch(() => undefined)
   }
   window.addEventListener('contextmenu', onContextMenu, true)
   return () => {

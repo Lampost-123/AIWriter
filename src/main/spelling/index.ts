@@ -11,9 +11,9 @@
 import { session } from 'electron'
 import { join } from 'node:path'
 import type { ID, Spelling } from '@shared/types'
-import type { ContextWord, SpellingState, SynonymSense } from '@shared/contracts/spelling'
+import type { ContextNote, ContextWord, SpellingState, SynonymSense } from '@shared/contracts/spelling'
 import { effectiveStyle } from '@shared/style'
-import { isKnownWord, languageFor, synonymsFor, worldWordsOf } from '@shared/spelling'
+import { isKnownWord, languageFor, NOTE_KEPT_MS, noteAt, synonymsFor, worldWordsOf } from '@shared/spelling'
 import * as repo from '../db/repo'
 import { liveEntryNames } from '../db/checksLive'
 import { emit } from '../events'
@@ -142,31 +142,44 @@ export async function addToPersonalDictionary(word: string): Promise<void> {
 
 // ---------- The word right-clicked in the page ----------
 
-let note: { value: ContextWord | null; at: number } = { value: null, at: 0 }
+/** What the window said about each right-click lately: where it was, and the word there. */
+let notes: (ContextNote & { at: number })[] = []
 let waiting: (() => void)[] = []
 
-/** The window says which word is under the pointer, as a right-click starts. */
-export function noteContextWord(value: ContextWord | null): void {
-  note = { value: value && typeof value.word === 'string' ? value : null, at: Date.now() }
+/** The window says which word (if any) is under the pointer, and where, as a right-click starts. */
+export function noteContextWord(n: ContextNote): void {
+  if (!n || !Number.isFinite(n.x) || !Number.isFinite(n.y)) return
+  const word = n.word && typeof n.word.word === 'string' ? n.word : null
+  const now = Date.now()
+  notes = [...notes.filter((x) => now - x.at < NOTE_KEPT_MS), { x: n.x, y: n.y, word, at: now }].slice(-8)
   const w = waiting
   waiting = []
   w.forEach((fn) => fn())
 }
 
 /**
- * The word noted for the right-click that just happened. The window's note usually arrives first; if not, it is
- * waited for a moment. Null when the click wasn't on a word in the page.
+ * The word noted for this right-click (at x, y in the window, as Electron gives them), never one noted for another:
+ * the window's note usually arrives first; if not, it is waited for a moment. Null when the click wasn't on a word
+ * in the page, or no note for it came.
  */
-export async function contextWord(): Promise<ContextWord | null> {
-  const fresh = (): boolean => Date.now() - note.at < 500
-  if (!fresh()) await new Promise<void>((r) => {
-    const t = setTimeout(r, 150)
-    waiting.push(() => {
-      clearTimeout(t)
-      r()
+export async function contextWord(x: number, y: number, zoom: number): Promise<ContextWord | null> {
+  const deadline = Date.now() + 300
+  let i = noteAt(notes, x, y, zoom, Date.now())
+  while (i < 0 && Date.now() < deadline) {
+    await new Promise<void>((r) => {
+      const t = setTimeout(r, Math.max(0, deadline - Date.now()))
+      waiting.push(() => {
+        clearTimeout(t)
+        r()
+      })
     })
-  })
-  return fresh() ? note.value : null
+    i = noteAt(notes, x, y, zoom, Date.now())
+  }
+  if (i < 0) return null
+  const found = notes[i]
+  // Used once: it (and any older one) can never answer another right-click.
+  notes = notes.slice(i + 1)
+  return found.word
 }
 
 // ---------- Start-up ----------

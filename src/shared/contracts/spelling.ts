@@ -28,6 +28,13 @@ export interface ContextWord {
   sceneId: ID
 }
 
+/** What the window says about a right-click as it starts: where it was (in the page), and the word there, if any. */
+export interface ContextNote {
+  x: number
+  y: number
+  word: ContextWord | null
+}
+
 /** How spell check stands after a sync. */
 export interface SpellingState {
   enabled: boolean
@@ -46,8 +53,11 @@ export interface SpellingApi {
    * language, and the world's names counting as correct. The window calls it when any of those change.
    */
   syncSpelling(storyId: ID | null): Promise<SpellingState>
-  /** The word under the pointer at a right-click in the page, or null for a right-click elsewhere. */
-  noteContextWord(note: ContextWord | null): Promise<void>
+  /**
+   * A right-click is starting at (x, y): the word under the pointer in the page, or null for a right-click elsewhere.
+   * The menu for that right-click uses this note and no other (it is matched by where the click was).
+   */
+  noteContextWord(note: ContextNote): Promise<void>
   /** Synonyms for a word, in the spelling that applies (as the right-click menu shows them). */
   synonymsOf(word: string): Promise<SynonymSense[]>
 }

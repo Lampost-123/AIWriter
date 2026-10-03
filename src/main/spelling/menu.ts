@@ -26,7 +26,8 @@ export async function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): 
   const wc = win.webContents
   const items: MenuItemConstructorOptions[] = []
   const spelling = spellingState()
-  const noted = p.isEditable ? await contextWord() : null
+  // The window's note for this very right-click (matched by where it was), never one for an earlier click.
+  const noted = p.isEditable ? await contextWord(p.x, p.y, wc.getZoomFactor()) : null
 
   // A world's name or one of Adam's own words counts as correct: no suggestions for it.
   if (p.misspelledWord && spelling.enabled && !knownWord(p.misspelledWord)) {

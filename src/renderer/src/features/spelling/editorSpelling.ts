@@ -69,11 +69,11 @@ function noteRightClick(view: EditorView, e: MouseEvent): void {
   const found = sceneId && view.editable ? wordUnder(view, e.clientX, e.clientY) : null
   if (!found || !sceneId) {
     noted = null
-    void api.noteContextWord(null).catch(() => undefined)
+    void api.noteContextWord({ x: e.clientX, y: e.clientY, word: null }).catch(() => undefined)
     return
   }
   noted = { token: ++tokens, word: found.word, sceneId, from: found.from, to: found.to, view }
-  void api.noteContextWord({ token: noted.token, word: found.word, sceneId }).catch(() => undefined)
+  void api.noteContextWord({ x: e.clientX, y: e.clientY, word: { token: noted.token, word: found.word, sceneId } }).catch(() => undefined)
 }
 
 /** Puts a synonym picked in the right-click menu in place of the word it was for. */

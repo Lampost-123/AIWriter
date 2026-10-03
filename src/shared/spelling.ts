@@ -190,3 +190,22 @@ export function wordAt(text: string, at: number): { from: number; to: number; wo
 
 /** True when a selection is one word (for the synonyms menu): letters, with inner apostrophes or hyphens. */
 export const isOneWord = (text: string): boolean => /^\p{L}[\p{L}\p{M}'’-]*$/u.test(text) && !/['’-]$/.test(text)
+
+// ---------- The right-click's word ----------
+
+/** How long the window's note about a right-click is kept for its menu. */
+export const NOTE_KEPT_MS = 5000
+
+/**
+ * Which note is about the right-click at (x, y) (Electron's menu position, which is the page's position times its
+ * zoom): the newest one within a couple of pixels of it and a few seconds old at most, or -1 for none.
+ */
+export function noteAt(notes: { x: number; y: number; at: number }[], x: number, y: number, zoom: number, now: number): number {
+  const z = zoom > 0 ? zoom : 1
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const n = notes[i]
+    if (now - n.at > NOTE_KEPT_MS) continue
+    if (Math.abs(n.x * z - x) <= 2 && Math.abs(n.y * z - y) <= 2) return i
+  }
+  return -1
+}
