@@ -58,24 +58,28 @@ const shownName = (label: string | undefined): string =>
 const paced = (h: LineDelivery): string =>
   [h.tone, h.pace === 'slow' ? 'slowly' : h.pace === 'fast' ? 'quickly' : ''].filter(Boolean).join(', ')
 
-/** Words in a note that slow the voice right down. */
-const SLOWING = /^(?:(?:very |quite )?slow(?:ly|er)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing)$/i
+/** Words in a note that slow the voice right down, or hurry it. */
+const PACING =
+  /^(?:(?:very |quite |a little )?(?:slow(?:ly|er)?|fast(?:er)?|quick(?:ly|er)?|rapid(?:ly)?|brisk(?:ly)?|hurried(?:ly)?|rushed|racing|breathless(?:ly)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?)|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing|picking up (?:speed|pace)|gathering (?:speed|pace)|speeding up|slowing(?: down)?)$/i
+
+/** Said with every narration note, so the speech model keeps the pace even while it changes the feeling. */
+export const EVEN_PACE = 'Keep an even, steady pace throughout.'
 
 /**
- * The narrator never slows down (Adam, 2026-10-03: slowed narration is hard to listen to): a narration mark keeps its
- * feeling and tone, but not "slow" or the words in its note that would slow the voice. A quickening is kept, and the
- * characters' own lines keep their pace (a slow, halting line of dialogue says something about the speaker).
+ * The narrator keeps one pace (Adam, 2026-10-03: narration that slows down or speeds up is hard to listen to): a
+ * narration mark keeps its feeling and tone, but not its pace or the words in its note that would slow or hurry the
+ * voice. The characters' own lines keep their pace (a slow, halting line of dialogue says something about the speaker).
  */
 export function narratorPace(how: LineDelivery | undefined): LineDelivery | undefined {
   if (!how) return how
   const tone = how.tone
     ?.split(/\s*,\s*/)
-    .filter((w) => w && !SLOWING.test(w.replace(/[.]+$/, '').trim()))
+    .filter((w) => w && !PACING.test(w.replace(/[.]+$/, '').trim()))
     .join(', ')
   const out: LineDelivery = { ...how }
   if (tone) out.tone = tone
   else delete out.tone
-  if (out.pace === 'slow') delete out.pace
+  delete out.pace
   return out
 }
 
@@ -217,7 +221,8 @@ function prepare(
   const clip: ClipRequest = {
     input: sayAs(text, input.lexicon),
     ...voice,
-    delivery: direction?.delivery ?? '',
+    // Narration with a note keeps the pace even while its feeling changes.
+    delivery: !quote && direction?.delivery ? `${direction.delivery.replace(/[.\s]+$/, '')}. ${EVEN_PACE}` : (direction?.delivery ?? ''),
     pace: direction?.pace ?? '',
     gentle: !!direction?.gentle,
     sounds: s.sounds

@@ -65,13 +65,27 @@ export const PLAY_FAILED =
 export class ClipPlayer {
   private el: HTMLAudioElement | null = null
   private finish: ((end: PlayEnd) => void) | null = null
+  /** This clip's own speed-up or slow-down on top of Adam's speed (the narrator's even pace, evenPace.ts). */
+  private factor = 1
 
-  play(url: string, rate: number, onTime: (progress: number) => void): Promise<PlayEnd> {
+  /**
+   * `pace`, given the clip's length in seconds once it is known (before it is heard), says how much faster or slower
+   * to play it on top of `rate`.
+   */
+  play(url: string, rate: number, onTime: (progress: number) => void, pace?: (seconds: number) => number): Promise<PlayEnd> {
     this.stop()
     const el = new Audio(url)
     el.preservesPitch = true
     el.playbackRate = rate
     el.defaultPlaybackRate = rate
+    this.factor = 1
+    if (pace) {
+      el.onloadedmetadata = () => {
+        if (this.el !== el) return
+        this.factor = pace(el.duration)
+        el.playbackRate = el.defaultPlaybackRate = rate * this.factor
+      }
+    }
     this.el = el
     inUse = url
     return new Promise<PlayEnd>((resolve) => {
@@ -79,7 +93,7 @@ export class ClipPlayer {
       const finish = (end: PlayEnd): void => {
         if (done) return
         done = true
-        el.onended = el.ontimeupdate = el.onerror = null
+        el.onended = el.ontimeupdate = el.onerror = el.onloadedmetadata = null
         if (this.finish === finish) this.finish = null
         resolve(end)
       }
@@ -113,7 +127,7 @@ export class ClipPlayer {
   }
 
   setRate(rate: number): void {
-    if (this.el) this.el.playbackRate = rate
+    if (this.el) this.el.playbackRate = rate * this.factor
   }
 
   /** Stops the clip playing now (its `play` resolves 'stopped'). */

@@ -540,6 +540,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
   is set; it is saved even when read aloud isn't set up.
+- **The narrator at one pace.** A narration mark keeps its feeling but not its pace (`narratorPace` in
+  `readAloud/plan.ts` drops "slow", "fast" and the words that slow or hurry the voice), and a narration note ends with
+  `EVEN_PACE`. The player then evens out what the speech model still varies: it measures each narration clip's words
+  a second and plays it toward the narrator's usual pace, between 0.8× and 1.3×, pitch kept
+  (`features/readAloud/evenPace.ts`). Characters' lines keep their own pace.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
