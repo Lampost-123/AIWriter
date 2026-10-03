@@ -1,5 +1,6 @@
-<!-- version: 0.6.3 -->
-Interview me, on scenes and chapters.
+<!-- version: 0.6.4 -->
+Story recipes.
 
-- On a scene card, Interview me asks a few short questions about what the card doesn't say yet. Answer, skip or press Done, and it fills in only the card's empty parts. Undo takes them back out.
-- On a chapter (its menu in the binder), Interview me gives the chapter a goal and suggests scene cards to keep, change or discard one by one.
+- Import a whole story (Word, Markdown or text) or paste it in, and the AI makes a recipe of it: its themes, writing style and structure, without its words, names or places. You see the cost first.
+- Recipes stay in your Recipes folder on this computer, never in a world, a backup or the app.
+- In New story, pick a recipe and add your own ideas. The AI lays out a premise, chapters and scene cards to keep, change or discard, in the recipe's style. Your ideas win.
