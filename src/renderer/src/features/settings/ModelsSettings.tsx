@@ -781,7 +781,7 @@ const HELPERS: Record<
   },
   speech: {
     title: 'Read aloud model',
-    description: 'Works out who says each line, and how, when reading a scene aloud, and suggests voices for characters. A fast, cheaper model is fine.',
+    description: 'Suggests voices for characters and how their names are said. (Who says each line, and how, comes from the writer model.) A fast, cheaper model is fine.',
     icon: <AudioLines size={16} />,
     waiting: 'Once a provider is connected above, read aloud uses the memory model, or one you choose here.',
     noWriter: 'Choose a writer model above, or a model just for reading aloud here.',

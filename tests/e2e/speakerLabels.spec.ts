@@ -76,8 +76,8 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     await expect(speakersButton(win)).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(async () => (await labels(win)).length, { timeout: 30_000 }).toBe(await prose(win).locator('p').count())
     const shown = await labels(win)
-    // The narration keeps its feeling but never slows down (the fake marks it slow).
-    expect(shown[0]).toBe('Narrator · hushed and steady')
+    // The narration's mood came from the writer too (no second model was asked about it).
+    expect(shown[0]).toBe('Narrator · low and watchful')
     // Who says each line, and how, came from the writer itself as it wrote (its tags never reach the page).
     expect(shown.some((l) => l.includes('Tobin · dry, a little amused') && l.includes('Mara · flat and certain'))).toBe(true)
     expect(words).not.toContain('{')

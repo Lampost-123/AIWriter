@@ -439,7 +439,7 @@ function ToneChip(): React.JSX.Element | null {
         </div>
         <p className="mt-3 text-[12px] leading-relaxed text-faint">
           A change is heard from the next lines. In Settings › Read aloud and dictation, under More › How it reads, these are Mark who says
-          what (it uses the Read aloud model) and Perform written sounds.
+          what (marked by the writer) and Perform written sounds.
         </p>
         <div className="mt-3 flex justify-end">
           <Button

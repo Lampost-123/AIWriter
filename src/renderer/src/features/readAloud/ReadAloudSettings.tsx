@@ -494,8 +494,8 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
               status={`Emotion and tone: ${onOff(speech.markSpeakers)}`}
               description={
                 speech.markSpeakers
-                  ? `${TONE_ON} It uses the Read aloud model in Settings › Models.`
-                  : 'Turn this on for emotion and tone: the AI notes how each line is said, its tone and pace, a little ahead of the reading. Off, lines are read evenly, with a tone only where the words say how (“she snapped”), and the AI only marks who says a line when the rules can’t tell. It uses the Read aloud model in Settings › Models.'
+                  ? `${TONE_ON} New drafts come marked by the writer as it writes; other text is marked by the writer model.`
+                  : 'Turn this on for emotion and tone: the AI notes how each line is said, its tone and pace, a little ahead of the reading. Off, lines are read evenly, with a tone only where the words say how (“she snapped”), and the AI only marks who says a line when the rules can’t tell. New drafts come marked by the writer as it writes; other text is marked by the writer model.'
               }
             />
             <SwitchRow

@@ -5,10 +5,12 @@
 // reading aloud (readAloud/index.ts, noteWriterSpeakers). Works across chunk boundaries: a tag split between two
 // chunks is held back until it is complete. No Electron imports.
 
-import { QUOTE, quoteKey } from '../readAloud/speakers'
+import { NARRATION, QUOTE, quoteKey, SENTENCE } from '../readAloud/speakers'
 
 /** The longest a tag may be; a brace with no close within it is ordinary text. */
 const MAX_TAG = 200
+/** Speech in italics, as the writer writes it: between asterisks, within a line. */
+const ITALIC_SPEECH = /\*[^*\n]+\*/.source
 const TAG = /^\{([^{}|\n]{1,60})(?:\|([^{}\n]*))?\}$/
 
 /** A tag as found: where it was in the text as the page has it, who it names, and how the line is said. */
@@ -18,9 +20,12 @@ interface FoundTag {
   tone: string
 }
 
-/** A line of dialogue in a draft, the speaker the writer gave it, and how it is said ('' when not said). */
+/**
+ * A line of dialogue in a draft, the speaker the writer gave it, and how it is said ('' when not said); or a sentence
+ * of narration and how the narrator reads it (its key starts with NARRATION, and `who` is '').
+ */
 export interface WriterSpeaker {
-  /** The quote's key, as read aloud keeps its marks (speakers.ts quoteKey). */
+  /** The quote's key, or the narration sentence's, as read aloud keeps its marks (speakers.ts quoteKey). */
   key: string
   who: string
   tone: string
@@ -91,7 +96,17 @@ export class SpeakerTagFilter {
     for (const t of this.tags) {
       if (!t.who) continue
       const from = t.at + (/^\s{0,3}/.exec(text.slice(t.at))?.[0].length ?? 0)
-      const m = new RegExp(QUOTE.source, 'y')
+      // {~hushed, dread building}: how the narrator reads the sentence it starts (up to any quote in it).
+      if (t.who.startsWith('~')) {
+        const tone = [t.who.slice(1).trim(), t.tone].filter(Boolean).join(', ')
+        const rest = text.slice(from).split(/["“\n]/)[0]
+        const sentence = new RegExp(SENTENCE.source, 'y').exec(rest)?.[0] ?? ''
+        const key = quoteKey(sentence)
+        if (key && tone) out.push({ key: NARRATION + key, who: '', tone })
+        continue
+      }
+      // A quote, or speech in italics (between asterisks), as a ring that talks might have it.
+      const m = new RegExp(`${QUOTE.source}|${ITALIC_SPEECH}`, 'y')
       m.lastIndex = from
       const q = m.exec(text)
       const key = q ? quoteKey(q[0]) : ''
@@ -101,6 +116,10 @@ export class SpeakerTagFilter {
   }
 }
 
+/** The closing instruction's line asking the writer to note how the narration is read too (Mark who says what). */
+export const NARRATION_TAG_LINE =
+  '- At the start of each paragraph of narration, and where its mood turns, put how the narrator reads it in curly braces after a tilde: {~hushed, dread building}The stairs went on. A few words, for an audiobook narrator: the feeling and how it sounds.'
+
 /** The closing instruction's line asking the writer to tag each line of dialogue with its speaker. */
 export const SPEAKER_TAG_LINE =
-  "- Just before the opening quote mark of every line of dialogue, put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."
+  "- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."
