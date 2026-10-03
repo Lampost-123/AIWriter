@@ -8,12 +8,13 @@
 // `run` is called with nothing open in front of it (the Welcome screen, or the setup's first step); any error it
 // throws is shown in a toast.
 
-import { FileArchive, FileText, type LucideIcon } from 'lucide-react'
+import { CookingPot, FileArchive, FileText, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Button, toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { importManuscriptFromWelcome } from '@/features/importing/importStore'
 import { importWorld } from '@/features/transfer/worldFiles'
+import { openRecipes } from '@/features/recipes/recipeStore'
 
 export interface WelcomeAction {
   id: 'import-manuscript' | 'import-world' | (string & {})
@@ -28,7 +29,8 @@ export interface WelcomeAction {
 /** The other ways to start. */
 export const WELCOME_ACTIONS: WelcomeAction[] = [
   { id: 'import-manuscript', label: 'Import a manuscript…', icon: FileText, hint: 'A book in Word, Markdown or plain text', run: importManuscriptFromWelcome },
-  { id: 'import-world', label: 'Import a world file…', icon: FileArchive, hint: 'A world exported from AI Write (an .aiwrite file), here or on another computer', run: importWorld }
+  { id: 'import-world', label: 'Import a world file…', icon: FileArchive, hint: 'A world exported from AI Write (an .aiwrite file), here or on another computer', run: importWorld },
+  { id: 'recipes', label: 'Story recipes', icon: CookingPot, hint: 'The themes, writing style and structure of a story you admire, without its words', run: openRecipes }
 ]
 
 /** The welcome actions as a row of buttons; nothing at all while there are none. */

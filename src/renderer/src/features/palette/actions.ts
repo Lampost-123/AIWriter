@@ -38,6 +38,7 @@ import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFi
 import { offerMemory, startImport } from '@/features/importing/importStore'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
+import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
 import { revealCardPart } from './cardReveal'
 import { revealEntryPart } from './entryReveal'
 import { entryAction, type ActionId, type FixedActionId } from './paletteLogic'
@@ -326,6 +327,12 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'sample-world':
         await openSampleWorld()
+        return
+      case 'go-recipes':
+        openRecipes()
+        return
+      case 'make-recipe':
+        startMaking()
         return
       // ----- Writing by hand -----
       case 'bold':

@@ -32,6 +32,7 @@ import { usageHandlers } from './usage'
 import { askFirst } from '../usage'
 import { setupHandlers } from './setup'
 import { lookHandlers } from './look'
+import { recipesHandlers } from './recipes'
 import { findHandlers } from './find'
 import { spellingHandlers } from './spelling'
 
@@ -72,6 +73,8 @@ const all: Handlers<ApiMethod> = {
   ...usageHandlers,
   ...setupHandlers,
   ...lookHandlers,
+  // Story recipes
+  ...recipesHandlers,
   // Writing by hand
   ...findHandlers,
   ...spellingHandlers

@@ -10,3 +10,6 @@ playwright-report/
 .claude/worktrees/
 *.tsbuildinfo
 __pycache__/
+# Story recipes live in the library folder, never in the repository
+/Recipes/
+/Story recipes/

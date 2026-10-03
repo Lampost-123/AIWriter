@@ -260,13 +260,24 @@ const dropReplaced = (): void => {
  * planned from its premise alone, so that needs a word or two first (a hint, not a failure: 'no-premise').
  */
 export async function suggestOutline(storyId: ID, premise: string, size: OutlineSize): Promise<void> {
+  const s = get(keyOf(storyId))
+  if (s.run?.status === 'running') return
+  if (!premise.trim() && s.blank !== false) {
+    put(keyOf(storyId), { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.', code: 'no-premise' } })
+    return
+  }
+  await suggestOutlineWith(storyId, size, (taskId) => api.startOutline({ taskId, storyId, premise, size }))
+}
+
+/**
+ * The same, with another way of asking (Story recipes: a new story planned from a recipe). `start` begins the
+ * request with the task id given; its answer is read, kept, edited and discarded as the outline helper's is.
+ */
+export async function suggestOutlineWith(storyId: ID, size: OutlineSize, start: (taskId: ID) => Promise<{ generationId: ID }>): Promise<void> {
+  listen()
   const key = keyOf(storyId)
   const s = get(key)
   if (s.run?.status === 'running') return
-  if (!premise.trim() && s.blank !== false) {
-    put(key, { problem: { message: 'Write the premise first: a line or two on what the story is about is enough.', code: 'no-premise' } })
-    return
-  }
   const taskId = crypto.randomUUID()
   const previous = s.run
   const wasOpen = !!previous && hasOpen(previous, s.gone)
@@ -278,7 +289,7 @@ export async function suggestOutline(storyId: ID, premise: string, size: Outline
     run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions: {}, edits: {} }
   })
   try {
-    const { generationId } = await api.startOutline({ taskId, storyId, premise, size })
+    const { generationId } = await start(taskId)
     patchRun(key, taskId, (r) => ({ generationId: r.generationId ?? generationId }))
   } catch (e) {
     if (get(key).run?.taskId !== taskId) return

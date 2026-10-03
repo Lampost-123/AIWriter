@@ -48,6 +48,10 @@ export type View =
   | { kind: 'consistency'; storyId: ID }
   // Milestone 6: importing a manuscript (the split preview, then the import catch-up's progress)
   | { kind: 'import' }
+  // Story recipes: the recipe library ('list'), making one from a story ('make'), one recipe ('recipe')
+  | { kind: 'recipes'; page?: 'list' | 'make' | 'recipe'; recipeId?: ID | null }
+  /** A new story from a recipe: its premise, chapters and scene cards suggested, to keep, edit or discard. */
+  | { kind: 'recipePlan'; storyId: ID; recipeId: ID }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words
