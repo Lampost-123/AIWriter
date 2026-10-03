@@ -103,7 +103,9 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(win.getByText(/sounds? kept/)).toBeVisible()
 
     // Settings › Models: its own Thinking under the Read aloud model, Off at first.
-    await openSettings(win, 'Models')
+    // Settings is open already: its own list goes to Models.
+    await win.getByRole('navigation').getByRole('button', { name: 'Models' }).click()
+    await expect(win.getByRole('heading', { level: 1, name: 'Models' })).toBeVisible()
     await expect(win.getByRole('heading', { name: 'Thinking for sound effects' })).toBeVisible()
     await expect(win.getByRole('radiogroup', { name: 'Sound effects thinking' }).getByRole('radio', { name: 'Off' })).toHaveAttribute('aria-checked', 'true')
 
