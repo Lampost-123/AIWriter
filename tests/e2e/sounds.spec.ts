@@ -16,6 +16,8 @@
 // Needs the whole feature: the sounds core (src/main/sounds, ipc/sounds.ts, the read-aloud plan's sounds) and the
 // speech engine's sound model and fake (tests/fake-speech), besides this window's part.
 import type { Page } from '@playwright/test'
+import type { SceneSounds } from '@shared/contracts/sounds'
+import type { Outline, Story } from '@shared/types'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -264,12 +266,17 @@ test('sound effects: the switch, the Sounds tab with Add, Remove and Undo, and a
     await expect(mute).toHaveAttribute('aria-pressed', 'false')
     await mute.click()
     await expect(mute).toHaveAttribute('aria-pressed', 'true')
-    const [story] = await invoke(win, 'listStories')
-    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
-    await expect.poll(async () => (await invoke(win, 'getSceneSounds', sceneId, [])).muted).toBe(true)
+    const stories: Story[] = await invoke(win, 'listStories')
+    const outline: Outline = await invoke(win, 'getOutline', stories[0].id)
+    const sceneId: string = outline.scenes[0].id
+    const sceneMuted = async (): Promise<boolean> => {
+      const sounds: SceneSounds = await invoke(win, 'getSceneSounds', sceneId, [])
+      return sounds.muted
+    }
+    await expect.poll(sceneMuted).toBe(true)
     await mute.click()
     await expect(mute).toHaveAttribute('aria-pressed', 'false')
-    await expect.poll(async () => (await invoke(win, 'getSceneSounds', sceneId, [])).muted).toBe(false)
+    await expect.poll(sceneMuted).toBe(false)
     await win.keyboard.press('Control+l')
 
     await expect
