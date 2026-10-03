@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import type { WritingPrefs } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { Switch } from '@/features/world/parts/Switch'
@@ -33,18 +34,29 @@ export function AiPhrasesRow({ checked, onChange }: { checked: boolean; onChange
 export function AiPhrasesSwitch(): React.JSX.Element | null {
   const prefs = usePrefs((s) => s.prefs)
   if (!prefs) return null
-  const set = async (on: boolean): Promise<void> => {
-    const before = usePrefs.getState().prefs
-    if (!before) return
-    const next = { ...before, avoidAiPhrases: on }
-    usePrefs.getState().saved(next)
-    try {
-      await api.setWritingPrefs(next)
-    } catch (e) {
-      // Put the switch back unless something else changed the preferences meanwhile.
-      if (usePrefs.getState().prefs === next) usePrefs.getState().saved(before)
-      toast(`Couldn't save that. ${(e as Error).message}`, { tone: 'danger' })
-    }
+  return <AiPhrasesRow checked={prefs.avoidAiPhrases !== false} onChange={(on) => void setAvoidAiPhrases(on)} />
+}
+
+// The preferences last known to be saved, and how many saves from this switch are on their way, so a failed
+// save puts back what is really saved, not an earlier toggle that hasn't been (or never will be).
+let confirmed: WritingPrefs | null = null
+let pending = 0
+
+async function setAvoidAiPhrases(on: boolean): Promise<void> {
+  const now = usePrefs.getState().prefs
+  if (!now) return
+  if (!pending || !confirmed) confirmed = now
+  const next = { ...now, avoidAiPhrases: on }
+  usePrefs.getState().saved(next)
+  pending++
+  try {
+    await api.setWritingPrefs(next)
+    confirmed = next
+  } catch (e) {
+    // Put the switch back unless something else changed the preferences meanwhile.
+    if (usePrefs.getState().prefs === next) usePrefs.getState().saved(confirmed ?? now)
+    toast(`Couldn't save that. ${(e as Error).message}`, { tone: 'danger' })
+  } finally {
+    pending--
   }
-  return <AiPhrasesRow checked={prefs.avoidAiPhrases !== false} onChange={(on) => void set(on)} />
 }

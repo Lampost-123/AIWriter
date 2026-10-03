@@ -4,7 +4,7 @@ import type { ID, StyleGuide } from '@shared/types'
 import { Button, IconButton, Spinner, toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { keepSample } from './feelLogic'
-import { clearSample, sampleKey, stopSample, useSamples, writeSample } from './sampleStore'
+import { clearSample, putSampleText, registerSampleField, sampleKey, stopSample, useSamples, writeSample } from './sampleStore'
 
 /**
  * "Write a sample for me", under the Sample passage field: writes about 200 words in the style on screen and
@@ -32,6 +32,8 @@ export function SampleWriter({
   const body = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
 
+  useEffect(() => registerSampleField(key, onUse), [key, onUse])
+
   // While it writes, keep the newest words in view, unless Adam has scrolled up to read.
   useEffect(() => {
     const el = body.current
@@ -50,7 +52,15 @@ export function SampleWriter({
     if (!kept) return
     onUse(kept.next)
     clearSample(key)
-    toast(kept.message, { action: { label: 'Undo', run: () => onUse(kept.previous) } })
+    // Undo goes to the form on screen then, and changes only the sample passage.
+    toast(kept.message, {
+      action: {
+        label: 'Undo',
+        run: () => {
+          if (!putSampleText(key, kept.previous)) toast('Open the style guide again to change the sample passage back.')
+        }
+      }
+    })
   }
 
   const failedEmpty = run?.status === 'error' && !run.text.trim()
@@ -64,17 +74,7 @@ export function SampleWriter({
         <p className="min-w-0 text-[12px] text-faint">Writes about 200 words from the genre, prose style, point of view and tense.</p>
       </div>
 
-      {run && failedEmpty ? (
-        <div className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2.5 text-[13px] leading-relaxed text-fg animate-fade-in">
-          <p className="flex-1">{run.problem}</p>
-          <Button size="sm" onClick={start}>
-            Try again
-          </Button>
-          <IconButton label="Close" size="sm" onClick={() => clearSample(key)}>
-            <X size={14} />
-          </IconButton>
-        </div>
-      ) : run ? (
+      {run ? (
         <div className="overflow-hidden rounded-lg border border-ai/30 bg-ai-soft animate-fade-in">
           <div
             ref={body}
@@ -87,6 +87,8 @@ export function SampleWriter({
           >
             {run.text ? (
               run.text
+            ) : failedEmpty ? (
+              <span className="flex h-full items-center justify-center px-4 text-center font-sans text-[13px] leading-relaxed text-danger">{run.problem}</span>
             ) : (
               <span className="flex h-full items-center justify-center gap-2 font-sans text-[13px] text-muted">
                 <Spinner size={14} /> Writing a sample…
@@ -95,7 +97,7 @@ export function SampleWriter({
           </div>
           <div className="flex h-11 items-center gap-2 border-t border-ai/20 px-3">
             <p className={cn('min-w-0 flex-1 truncate text-[12px]', run.status === 'error' ? 'text-danger' : 'text-muted')}>
-              {statusLine(run.status, run.retrying, run.cutOff, run.problem)}
+              {failedEmpty ? '' : statusLine(run.status, run.retrying, run.cutOff, run.problem)}
             </p>
             {running ? (
               <Button size="sm" icon={<Square size={12} />} onClick={() => stopSample(key)}>

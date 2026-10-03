@@ -65,7 +65,7 @@ function ScaleRow({
                 key={step.level}
                 type="button"
                 aria-pressed={on}
-                title={on ? `${step.hint} Click again to leave it to the genre.` : step.hint}
+                title={on ? `${step.hint} Click again to ${shown.clearTo}.` : step.hint}
                 onClick={() => onChange(toggleLevel(value, scale, step.level))}
                 className={cn(
                   'h-7 min-w-0 flex-1 truncate rounded-md border px-2 text-[12.5px] font-medium transition-[background-color,color,border-color,box-shadow] duration-150',

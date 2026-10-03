@@ -81,3 +81,25 @@ export function clearSample(key: string): void {
     return { runs }
   })
 }
+
+// The Sample passage field of each guide's form while it is on screen, so Undo after "Use this" goes to the form
+// showing now (a form left behind by switching tabs would write back its old copy of the whole guide).
+const fields = new Map<string, ((text: string) => void)[]>()
+
+/** Keeps this form's Sample passage field reachable while it is on screen. Returns the way to let it go. */
+export function registerSampleField(key: string, put: (text: string) => void): () => void {
+  fields.set(key, [...(fields.get(key) ?? []), put])
+  return () => {
+    const left = (fields.get(key) ?? []).filter((f) => f !== put)
+    if (left.length) fields.set(key, left)
+    else fields.delete(key)
+  }
+}
+
+/** Sets the Sample passage field of the guide's form on screen. False when none is showing. */
+export function putSampleText(key: string, text: string): boolean {
+  const list = fields.get(key)
+  if (!list?.length) return false
+  list[list.length - 1](text)
+  return true
+}

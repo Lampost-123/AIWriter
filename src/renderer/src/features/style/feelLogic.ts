@@ -64,6 +64,8 @@ export interface ScaleShown {
   picked: IntensityLevel | null
   /** The world's step, shown on a story that picked none on this scale. */
   inherited: IntensityLevel | null
+  /** What clicking the picked step again does, in words: "use the world's" or "leave it to the genre". */
+  clearTo: string
   /** The line under the control. */
   hint: string
   /** Every line that can show under this control, so the room they take is the longest one's and never jumps. */
@@ -79,7 +81,17 @@ export function scaleShown(own: ContentIntensity, below: ContentIntensity, scale
   const inheritedLine = worlds ? `Uses the world's: ${info.steps[worlds - 1].label}. ${info.steps[worlds - 1].hint}` : null
   const hint = picked ? info.steps[picked - 1].hint : inherited ? inheritedLine! : LEFT_TO_GENRE
   const hints = [...info.steps.map((s) => s.hint), LEFT_TO_GENRE, ...(inheritedLine ? [inheritedLine] : [])]
-  return { picked, inherited, hint, hints }
+  const clearTo = worlds ? "use the world's" : 'leave it to the genre'
+  return { picked, inherited, hint, hints, clearTo }
+}
+
+/** The line under "How far it goes": what clicking a picked level again does, as it is on this tab. */
+export function intensityIntro(mode: FeelMode, below: ContentIntensity): string {
+  if (mode === 'world') return 'Pick a level, or leave it to the genre. Click a picked level again to clear it.'
+  const set = INTENSITY.filter(({ scale }) => cleanIntensity(below)[scale] != null).length
+  if (set === INTENSITY.length) return "Pick a level to change it for this story. Click it again to use the world's."
+  if (!set) return 'Pick a level to change it for this story, or leave it to the genre. Click a picked level again to clear it.'
+  return "Pick a level to change it for this story. Click it again to use the world's, or the genre where the world hasn't set one."
 }
 
 /** The step's words, for a screen reader: "Romance: Fade to black". */

@@ -8,7 +8,7 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { AiPhrasesSwitch } from './AiPhrasesSwitch'
 import { GenreBlurbs, GenreTiles } from './GenreTiles'
 import { IntensityControls } from './IntensityControls'
-import { genreHint, pickGenre, shownGenres, type FeelMode } from './feelLogic'
+import { genreHint, intensityIntro, pickGenre, shownGenres, type FeelMode } from './feelLogic'
 import { Group, short } from './StyleFields'
 
 const NOTES_PLACEHOLDER = 'Folk horror more than gothic. Magic is rare and frightening.'
@@ -90,7 +90,7 @@ export const StoryFeel = memo(function StoryFeel({
             How far it goes
           </span>
           <p className="text-[12px] leading-[17px] text-faint">
-            {mode === 'story' ? "Pick a level to change it for this story. Click it again to use the world's." : 'Pick a level, or leave it to the genre. Click a picked level again to clear it.'}
+            {intensityIntro(mode, below.intensity)}
           </p>
         </div>
         <div role="group" aria-labelledby={ids.intensity}>

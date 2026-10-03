@@ -3,6 +3,7 @@ import { defaultStyleGuide } from '@shared/defaults'
 import {
   GENRE_RULE,
   genreHint,
+  intensityIntro,
   genreRole,
   keepSample,
   LEFT_TO_GENRE,
@@ -82,6 +83,14 @@ describe('intensity', () => {
     expect(own.hints).toContain(own.hint)
     // The world's line keeps its room while the story has its own.
     expect(own.hints).toEqual(inherited.hints)
+  })
+  it("says what clicking a picked step again does", () => {
+    expect(scaleShown({ violence: 3 }, { violence: 2 }, 'violence', 'story').clearTo).toBe("use the world's")
+    expect(scaleShown({ violence: 3 }, {}, 'violence', 'story').clearTo).toBe('leave it to the genre')
+    expect(scaleShown({ violence: 3 }, { violence: 2 }, 'violence', 'world').clearTo).toBe('leave it to the genre')
+    expect(intensityIntro('story', { romance: 1, violence: 2, language: 3 })).toMatch(/use the world's\.$/)
+    expect(intensityIntro('story', {})).toMatch(/leave it to the genre/)
+    expect(intensityIntro('story', { romance: 1 })).toMatch(/or the genre where the world hasn't set one/)
   })
   it('keeps room for every hint', () => {
     expect(scaleShown({}, {}, 'romance', 'world').hints).toHaveLength(5)
