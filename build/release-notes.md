@@ -1,8 +1,6 @@
-<!-- version: 0.6.1 -->
-Fixes and small improvements.
+<!-- version: 0.6.2 -->
+Fewer false issues.
 
-- A draft keeps writing when you open another scene, and still shows Stop when you go back.
-- Auto length is the new default: the AI picks how long a scene needs. You can still set a word count.
-- The AI fills in how a character sounds when read aloud, and keeps what you typed.
-- Settings says what the read-aloud voices need before they download.
-- Reading aloud shows which chapter and scene is playing.
+- The memory now flags only real contradictions, like blue eyes in one place and green in another. A scene that says the same thing in other words, or adds a detail, isn't an issue any more.
+- Issues raised before for that reason are moved to Ignored, where you can reopen any of them.
+- Facts you typed yourself are never changed.
