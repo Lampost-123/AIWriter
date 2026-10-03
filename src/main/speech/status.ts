@@ -1,6 +1,6 @@
 // What Settings shows about the speech engine, worked out from what the server says about itself
-// (GET /v1/health: its engines, the device, the dictation models) and what AI Write knows (downloads,
-// whether it starts the server). Pure.
+// (GET /v1/health: its engines, the device, the dictation models, the sound effects) and what AI Write knows
+// (downloads, whether it starts the server). Pure.
 import type { DictationModel, SpeechDownload, SpeechDownloadKind, SpeechLoadProblem, SpeechStatus } from '@shared/contracts/speech'
 
 /** The parts of the server's /v1/health answer AI Write uses. */
@@ -19,6 +19,13 @@ export interface Health {
     whisper: boolean
     loadErrors?: Partial<Record<DictationModel, string>>
   } | null
+  /**
+   * The sound effects, as the server says (null from a server without them). `beside`: they can sit beside the voices
+   * on the graphics card now (both loaded, or the one that isn't would fit in what is free).
+   */
+  sounds?: { ready: boolean; loaded: boolean; loadError: string; beside: boolean } | null
+  /** The dictation model that times the words of a spoken clip (/v1/align); null when none is downloaded there. */
+  aligner?: DictationModel | null
 }
 
 const isModel = (v: unknown): v is DictationModel => v === 'parakeet' || v === 'whisper'
@@ -46,11 +53,18 @@ export function readHealth(json: unknown): Health | null {
       loadErrors: { parakeet: loadError('parakeet'), whisper: loadError('whisper') }
     }
   }
+  let sounds: Health['sounds'] = null
+  if (h.sounds && typeof h.sounds === 'object') {
+    const s = h.sounds as Record<string, unknown>
+    sounds = { ready: s.ready === true, loaded: s.loaded === true, loadError: text(s.loadError), beside: s.beside === true }
+  }
   return {
     service: typeof h.service === 'string' ? h.service : '',
     device: typeof h.device === 'string' ? h.device : '',
     voices: { ready: breeze?.ready === true, loaded: breeze?.loaded === true, loadError: text(breeze?.loadError) },
-    dictation
+    dictation,
+    sounds,
+    aligner: isModel(h.aligner) ? h.aligner : null
   }
 }
 
@@ -99,20 +113,25 @@ export function buildStatus(p: StatusParts): SpeechStatus {
     chosen && dictation && dictation.engine === chosen && dictation[chosen] && dictation.loaded !== chosen
       ? (dictation.loadErrors?.[chosen] ?? '')
       : ''
+  const sounds = h?.sounds ?? null
+  const soundsError = sounds?.ready && !sounds.loaded ? sounds.loadError : ''
   return {
     server: h ? 'connected' : p.starting ? 'starting' : 'not-running',
     voicesReady: !!h?.voices.ready,
     // The server runs that model and has it downloaded: dictating works now (it loads on first use). Another
     // model it still holds (Adam picked a new one that is downloading) doesn't count.
     dictationReady: !!(chosen && dictation && dictation.engine === chosen && dictation[chosen]),
+    // Downloaded here, and the server says it can make them (it loads them on the first sound asked for).
+    soundsReady: !!(p.installed.sounds && sounds?.ready),
     managed: p.managed,
     problem,
     repair: !!problem && p.repair,
     installed: p.installed,
-    loaded: { voices: !!h?.voices.loaded, dictation: dictation?.loaded ?? null },
+    loaded: { voices: !!h?.voices.loaded, dictation: dictation?.loaded ?? null, sounds: !!sounds?.loaded },
     loadProblems: {
       voices: voicesError ? voicesLoadProblem(voicesError, p.installed.voices) : null,
-      dictation: chosen && dictationError ? dictationLoadProblem(dictationError, chosen, p.installed[chosen]) : null
+      dictation: chosen && dictationError ? dictationLoadProblem(dictationError, chosen, p.installed[chosen]) : null,
+      sounds: soundsError ? soundsLoadProblem(soundsError, !!p.installed.sounds) : null
     },
     device: h ? deviceName(h.device) : '',
     nvidia: p.nvidia,
@@ -185,6 +204,35 @@ export function voicesLoadProblem(reason: string, copy: 'own' | null): SpeechLoa
     }
   }
   return { text: 'The speech server couldn’t load the voices. Restart it, then try again.', repair: false }
+}
+
+/**
+ * Plain words for the sound effects failing to load, from the server's reason, with the fix: downloading them again
+ * sets their environment up afresh (the models themselves are kept).
+ */
+export function soundsLoadProblem(reason: string, downloaded: boolean): SpeechLoadProblem {
+  if (OUT_OF_MEMORY.test(reason)) {
+    return {
+      text: 'The graphics card ran out of memory loading the sound effects. Close other programs that use it (games or other AI apps), then try again.',
+      repair: false
+    }
+  }
+  if (CARD_TOO_OLD.test(reason)) {
+    return { text: 'This graphics card is too old for the sound effects: they need an NVIDIA RTX card (the 20 series or newer).', repair: false }
+  }
+  if (CARD_DRIVER.test(reason)) {
+    return {
+      text: 'The sound effects couldn’t use the graphics card. Update its NVIDIA driver and restart the computer, then try again.',
+      repair: false
+    }
+  }
+  if (downloaded) {
+    return {
+      text: 'The sound effects couldn’t be loaded. Download them again below to set them up afresh (about 3 GB); the sound effects model already downloaded is kept.',
+      repair: true
+    }
+  }
+  return { text: 'The speech server couldn’t load the sound effects. Restart it, then try again.', repair: false }
 }
 
 /** Plain words for a dictation model failing to load, with the fix: downloading it again, or the other model. */

@@ -190,10 +190,14 @@ export function explainFailure(recent: readonly string[], fallback: string, plat
   const own = [...recent].reverse().find((l) => l.startsWith('@@error '))
   const licence = recent.find((l) => l.startsWith('@@licence '))
   if (licence) {
+    const link = licence.slice('@@licence '.length).trim()
     return {
-      error: 'Hugging Face asks for the voices’ licence to be accepted before they can download.',
+      // The sound effects' model has a licence of its own (speech-server/tools/install.py, sound-weights).
+      error: /stable-audio/i.test(link)
+        ? 'Stable Audio Open asks you to accept its licence on Hugging Face before the sound effects can download.'
+        : 'Hugging Face asks for the voices’ licence to be accepted before they can download.',
       need: 'licence',
-      link: licence.slice('@@licence '.length).trim()
+      link
     }
   }
   if (recent.includes('@@key')) return { error: 'Hugging Face didn’t accept the saved key.', need: 'key', link: HF_KEYS_PAGE }

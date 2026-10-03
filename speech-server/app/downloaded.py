@@ -8,6 +8,8 @@ can't load. So:
   AI Write's own copy, in its speech folder, is ever used.
 * Parakeet counts when all four of its files are in one folder (it is unpacked aside, then moved into
   place); Whisper when all of its files are in one snapshot.
+* The sound effects (Stable Audio Open, ranked by CLAP) count the way Breeze does: once their last download
+  step has checked them and left a mark (models/sound/.ready), with both models' files in place.
 
 AI Write's main process makes the same checks (src/main/speech/installed.ts). Standard library only:
 the download steps run this before anything else is installed.
@@ -23,6 +25,29 @@ UNPACKING = ".unpack"
 
 WHISPER_REPO = "Systran/faster-whisper-base.en"
 WHISPER_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
+
+# The sound effects: Stable Audio Open makes them, CLAP picks the best of a few takes.
+SOUND_REPO = "stabilityai/stable-audio-open-1.0"
+# Only the parts diffusers loads (about 5.3 GB), not the original checkpoints beside them.
+SOUND_PATTERNS = (
+    "model_index.json", "transformer/*", "vae/*", "text_encoder/*", "tokenizer/*", "projection_model/*", "scheduler/*",
+)
+SOUND_FILES = (
+    "model_index.json",
+    "transformer/config.json", "transformer/diffusion_pytorch_model.safetensors",
+    "vae/config.json", "vae/diffusion_pytorch_model.safetensors",
+    "text_encoder/config.json", "text_encoder/model.safetensors",
+    "tokenizer/tokenizer_config.json", "tokenizer/spiece.model",
+    "projection_model/config.json", "projection_model/diffusion_pytorch_model.safetensors",
+    "scheduler/scheduler_config.json",
+)
+CLAP_REPO = "laion/larger_clap_general"
+# What ClapModel and ClapProcessor read, besides the weights (one of CLAP_WEIGHTS).
+CLAP_FILES = (
+    "config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json",
+    "special_tokens_map.json", "vocab.json", "merges.txt",
+)
+CLAP_WEIGHTS = ("model.safetensors", "pytorch_model.bin")
 
 
 def hub_folder(repo: str) -> str:
@@ -89,3 +114,41 @@ def whisper_dir(root: Path) -> Path | None:
     if _half_downloaded(weights):
         return None
     return snapshot_dir(weights, WHISPER_FILES)
+
+
+def sound_weights_dir(root: Path) -> Path:
+    return Path(root) / "models" / "hf" / "hub" / hub_folder(SOUND_REPO)
+
+
+def clap_weights_dir(root: Path) -> Path:
+    return Path(root) / "models" / "hf" / "hub" / hub_folder(CLAP_REPO)
+
+
+def sound_mark(root: Path) -> Path:
+    """Left by the sound effects' last download step once everything checked out."""
+    return Path(root) / "models" / "sound" / ".ready"
+
+
+def sound_dir(root: Path) -> Path | None:
+    """Stable Audio Open's snapshot, with every part diffusers loads, or None."""
+    weights = sound_weights_dir(root)
+    if _half_downloaded(weights):
+        return None
+    return snapshot_dir(weights, SOUND_FILES)
+
+
+def clap_dir(root: Path) -> Path | None:
+    """CLAP's snapshot, with its tokenizer, its settings and one copy of its weights, or None."""
+    weights = clap_weights_dir(root)
+    if _half_downloaded(weights):
+        return None
+    for name in CLAP_WEIGHTS:
+        found = snapshot_dir(weights, CLAP_FILES + (name,))
+        if found is not None:
+            return found
+    return None
+
+
+def sound_complete(root: Path) -> bool:
+    """The sound effects at `root` can be loaded: their last download step left its mark, and both models are whole."""
+    return sound_mark(root).is_file() and sound_dir(root) is not None and clap_dir(root) is not None

@@ -16,7 +16,8 @@ const DONE: Record<SpeechDownloadKind, string> = {
   server: 'The speech engine is downloaded.',
   voices: 'The voices are downloaded.',
   parakeet: 'Parakeet is downloaded.',
-  whisper: 'Whisper is downloaded.'
+  whisper: 'Whisper is downloaded.',
+  sounds: 'The sound effects are downloaded.'
 }
 
 /** Keeps the newest status, and says when a download has just finished. */

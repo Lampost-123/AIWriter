@@ -5,7 +5,8 @@ Breeze pins a transformers the server's own environment does not carry, so it ge
 venvs/breeze and a worker process that this class talks to over stdin/stdout, one JSON
 line per request. The audio comes back as base64 float32 at the worker's sample rate.
 
-Only one GPU engine is kept in memory at a time (see `Engine.load`).
+The GPU engines share the graphics card: one that won't fit beside the others has them let go first (see
+`Engine.load`). AI Write's sound effects worker (app/workers/sound.py) is one too, in venvs/sound.
 """
 
 import base64
@@ -34,6 +35,14 @@ class WorkerEngine(Engine):
     def _python(self):
         return config.breeze_python()
 
+    def _env(self) -> dict:
+        """What the worker is told, on top of the offline environment every child process gets."""
+        return {
+            "HF_HOME": str(config.BREEZE_HF_HOME),
+            "AIWRITE_BREEZE_CODE": str(config.BREEZE_CODE),
+            "AIWRITE_SPEECH_VOICES": str(config.VOICES),
+        }
+
     def _available(self) -> tuple[bool, str]:
         if not self._python().is_file():
             return False, "Not downloaded yet. Download the voices in AI Write's Settings, Read aloud and dictation."
@@ -44,9 +53,7 @@ class WorkerEngine(Engine):
         if not ok:
             raise RuntimeError(why)
         env = config.child_env({
-            "HF_HOME": str(config.BREEZE_HF_HOME),
-            "AIWRITE_BREEZE_CODE": str(config.BREEZE_CODE),
-            "AIWRITE_SPEECH_VOICES": str(config.VOICES),
+            **self._env(),
             # The worker watches this process and ends with it, even in the middle of a sentence.
             "AIWRITE_SPEECH_PARENT": str(os.getpid()),
         })

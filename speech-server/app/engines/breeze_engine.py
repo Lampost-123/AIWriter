@@ -39,6 +39,11 @@ class BreezeEngine(WorkerEngine):
     name = "Breeze TTS 2"
     blurb = "Makes a voice from a description, clones clips, and performs tags like (laugh) and (sigh). Graphics card, about 8 GB. Non-commercial licence."
     worker = "breeze"
+    # About 8 GB while loaded, and a little more as it speaks.
+    needs_mb = 8500
+    # The voices come first: the sound effects wait for them, and are let go when the voices need the room.
+    priority = 1
+    wait_reason = "is reading aloud now. The sound is made once it has finished."
 
     def _available(self) -> tuple[bool, str]:
         ok, why = super()._available()

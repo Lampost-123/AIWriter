@@ -24,7 +24,7 @@ import { speechFetch } from './client'
 import { Downloads } from './downloads'
 import { installedNow, readManifest, writeManifest } from './installed'
 import { PYTHON_PAGE, type Failure } from './output'
-import { breezeMark, speechPaths, venvPython, type SpeechPaths } from './paths'
+import { breezeMark, clapWeightsDir, soundMark, soundWeightsDir, speechPaths, venvPython, type SpeechPaths } from './paths'
 import { DROP_ENV, planFor, pythonStep, stepEnv, type Step } from './plan'
 import { childEnv } from './processes'
 import { StepRunner } from './runner'
@@ -99,7 +99,7 @@ let lookingForCard: Promise<void> | null = null
 let space: number | null = null
 let poll: ReturnType<typeof setInterval> | null = null
 /** Environments to set up afresh at their next download: the speech engine asked for again (the repair), or a check step that failed. */
-const rebuild = new Set<'server' | 'voices'>()
+const rebuild = new Set<'server' | 'voices' | 'sounds'>()
 let removed: { dir: string; runServer: boolean; timer: ReturnType<typeof setTimeout> } | null = null
 /** The Hugging Face key just removed, for Undo: only ever in the main process's memory, never shown or logged. */
 let removedKey: { key: string; timer: ReturnType<typeof setTimeout> } | null = null
@@ -262,7 +262,7 @@ let usedPython = ''
 async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { failure: Failure }> {
   const manifest = readManifest(manifestFile())
   const p = paths()
-  const fresh = (kind === 'server' || kind === 'voices') && rebuild.has(kind)
+  const fresh = (kind === 'server' || kind === 'voices' || kind === 'sounds') && rebuild.has(kind)
   // The server runs from its environment, so it stops while that is set up afresh (it starts again after).
   if (kind === 'server' && fresh) await stopServer()
   if (kind === 'voices') {
@@ -273,17 +273,26 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
       await speechFetch('/unload', { method: 'POST', timeoutMs: 15_000 }).catch(() => undefined)
     }
   }
+  if (kind === 'sounds') {
+    // The same for the sound effects: they count again once this download's last step has checked them, and the
+    // server lets go of their worker before its environment is set up afresh.
+    rmSync(soundMark(p.home), { force: true })
+    if (fresh && health) {
+      await speechFetch('/unload', { method: 'POST', timeoutMs: 15_000 }).catch(() => undefined)
+    }
+  }
   const breezePython = venvPython(join(p.home, 'venvs', 'breeze'))
   const serverVenv = kind === 'server' && fresh ? false : await venvWorks(p.python)
   const breezeVenv = kind === 'voices' && !fresh ? await venvWorks(breezePython) : false
+  const soundVenv = kind === 'sounds' && !fresh ? await venvWorks(p.soundPython) : false
   let basePython: string | null = null
-  if ((kind === 'server' && !serverVenv) || (kind === 'voices' && !breezeVenv)) {
-    const found = pickPython(await detectPythons(), PREFER[kind === 'server' ? 'server' : 'voices'])
+  if ((kind === 'server' && !serverVenv) || (kind === 'voices' && !breezeVenv) || (kind === 'sounds' && !soundVenv)) {
+    const found = pickPython(await detectPythons(), PREFER[kind === 'server' ? 'server' : kind === 'voices' ? 'voices' : 'sounds'])
     if (!found) return { failure: pythonMissing() }
     basePython = found.path
     if (kind === 'server') usedPython = found.path
   }
-  if (kind !== 'server' && kind !== 'voices' && !serverVenv) {
+  if (kind !== 'server' && kind !== 'voices' && kind !== 'sounds' && !serverVenv) {
     return {
       failure: {
         error: 'The speech engine itself isn’t downloaded yet. Turn on “Start with AI Write” to download it, then try this again.',
@@ -305,13 +314,15 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
     }
   }
   const installed = installedNow(p, manifest)
-  const hfKey = kind === 'voices' ? getSecret(HF_KEY) : null
+  // Only the downloads with a weights step from Hugging Face get the key (and only that step is given it, plan.ts).
+  const hfKey = kind === 'voices' || kind === 'sounds' ? getSecret(HF_KEY) : null
   const steps = planFor(kind, {
     paths: p,
     platform: process.platform,
     basePython,
     serverVenv,
     breezeVenv,
+    soundVenv,
     hfKey,
     // Set up afresh, the server's environment gets the dictation engines back too.
     dictation: (['parakeet', 'whisper'] as const).filter((m) => installed[m])
@@ -356,7 +367,7 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   else manifest[kind] = { at }
   writeManifest(file, manifest)
   // Set up afresh: the repair, or Try again after its check failed.
-  const afresh = (kind === 'server' || kind === 'voices') && rebuild.delete(kind)
+  const afresh = (kind === 'server' || kind === 'voices' || kind === 'sounds') && rebuild.delete(kind)
   if (kind === 'voices' && result.gpu !== null && !nvidia) nvidia = result.gpu
   // pip's and Hugging Face's downloads and the steps' leftovers aren't needed once it worked.
   for (const dir of ['pip', 'hf', 'tmp']) void rm(join(before.cache, dir), { recursive: true, force: true }).catch(() => undefined)
@@ -369,7 +380,7 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
   }
   // Their environment was set up afresh: the server starts afresh too, rather than going on saying why the old
   // one couldn't load them.
-  else if (kind === 'voices' && afresh) void restart()
+  else if ((kind === 'voices' || kind === 'sounds') && afresh) void restart()
   else if ((kind === 'parakeet' || kind === 'whisper') && s.dictationEngine === kind && health) void useDictation(kind)
   // The server sees new files as they arrive: ask it again now rather than at the next check.
   else void refresh()
@@ -377,7 +388,7 @@ async function finished(kind: SpeechDownloadKind, result: { gpu: string | null }
 
 /** A download stopped on a problem. Its environment didn't check out: Try again sets it up afresh. */
 function failed(kind: SpeechDownloadKind, stepId: string): void {
-  if (stepId === 'check' && (kind === 'server' || kind === 'voices')) rebuild.add(kind)
+  if (stepId === 'check' && (kind === 'server' || kind === 'voices' || kind === 'sounds')) rebuild.add(kind)
 }
 
 const downloads = new Downloads({ plan, runner, finished, failed, changed })
@@ -615,6 +626,38 @@ export function voicesInstalled(): boolean {
   }
 }
 
+/** The sound effects are downloaded on this computer, whether or not the server runs now. Never throws. */
+export function soundsInstalled(): boolean {
+  try {
+    return !!installedNow(paths(), readManifest(manifestFile())).sounds
+  } catch {
+    return false
+  }
+}
+
+/** What the speech server last said about making sounds and timing words (it is asked every 10 seconds). */
+export interface SoundsServerState {
+  /** It can make sounds now (the sound effects are downloaded there; they load with the first one asked for). */
+  ready: boolean
+  /** The sound effects model is in memory now. */
+  loaded: boolean
+  /**
+   * The sound effects can sit beside the voices on the graphics card now: both are loaded, or the one that isn't
+   * would fit. When false, a sound asked for while the voices are reading waits (the server answers 503 with
+   * `x-sound-retry: 1` rather than push them out), so sounds are best made before the reading reaches them.
+   */
+  beside: boolean
+  /** The dictation model that times the words of a spoken clip (POST /v1/align), or null when there is none. */
+  aligner: DictationModel | null
+}
+
+/** The speech server's latest word on sounds and word timing; null while it isn't answering. */
+export function soundsServerState(): SoundsServerState | null {
+  const h = health
+  if (!h) return null
+  return { ready: !!h.sounds?.ready, loaded: !!h.sounds?.loaded, beside: !!h.sounds?.beside, aligner: h.aligner ?? null }
+}
+
 export async function getSpeechStatus(): Promise<SpeechStatus> {
   const first = nvidia === null
   const looking = Promise.all([lookForCard(), lookForSpace()])
@@ -690,7 +733,7 @@ export async function setDictationEngine(engine: 'none' | DictationModel): Promi
 }
 
 export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechStatus> {
-  if (!['server', 'voices', 'parakeet', 'whisper'].includes(kind)) throw new UserError('That isn’t something to download.')
+  if (!['server', 'voices', 'parakeet', 'whisper', 'sounds'].includes(kind)) throw new UserError('That isn’t something to download.')
   const p = paths()
   const installed = installedNow(p, readManifest(p.manifest))
   if (kind === 'server') {
@@ -707,6 +750,8 @@ export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechSt
     // up afresh (the voices themselves are kept). A dictation model's engine comes back with the speech engine's
     // environment set up afresh (the server stops meanwhile), then the model is fetched again (plan()).
     if (kind === 'voices' && installed.voices === 'own') rebuild.add('voices')
+    // The same for the sound effects: their environment set up afresh, their models kept.
+    if (kind === 'sounds' && installed.sounds) rebuild.add('sounds')
     if ((kind === 'parakeet' || kind === 'whisper') && installed[kind] && !downloads.pending('server')) {
       rebuild.add('server')
       downloads.start('server')
@@ -796,22 +841,29 @@ async function folderBytes(dir: string): Promise<number> {
 
 export async function getSpeechStorage(): Promise<SpeechStorage> {
   const p = paths()
-  const [all, breezeEnv, breezeModels, hf, parakeet, whisper] = await Promise.all([
+  const [all, breezeEnv, breezeModels, hf, parakeet, whisper, soundEnv, soundModels, soundWeights, clapWeights] = await Promise.all([
     folderBytes(p.home),
     folderBytes(join(p.home, 'venvs', 'breeze')),
     folderBytes(join(p.home, 'models', 'breeze')),
     folderBytes(join(p.home, 'models', 'hf')),
     folderBytes(p.parakeet),
-    folderBytes(p.whisper)
+    folderBytes(p.whisper),
+    folderBytes(join(p.home, 'venvs', 'sound')),
+    folderBytes(join(p.home, 'models', 'sound')),
+    folderBytes(soundWeightsDir(p.home)),
+    folderBytes(clapWeightsDir(p.home))
   ])
-  const voices = breezeEnv + breezeModels + hf
+  // The sound effects' models share the Hugging Face cache (models/hf) with the voices.
+  const sounds = soundEnv + soundModels + soundWeights + clapWeights
+  const voices = breezeEnv + breezeModels + Math.max(0, hf - soundWeights - clapWeights)
   return {
     folder: p.home,
     parts: [
-      { kind: 'server', bytes: Math.max(0, all - voices - parakeet - whisper) },
+      { kind: 'server', bytes: Math.max(0, all - voices - sounds - parakeet - whisper) },
       { kind: 'voices', bytes: voices },
       { kind: 'parakeet', bytes: parakeet },
-      { kind: 'whisper', bytes: whisper }
+      { kind: 'whisper', bytes: whisper },
+      { kind: 'sounds', bytes: sounds }
     ],
     total: all
   }

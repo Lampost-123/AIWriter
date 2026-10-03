@@ -17,12 +17,32 @@
 //                     in AI Write's speech folder (home), the words in venvs/breeze/damaged.txt say the same, until
 //                     a download sets that environment up afresh
 //   dictationLoadError { parakeet?, whisper? }: the same for a dictation model; in home, models/<model>/damaged.txt
+//   sounds            the sound effects are downloaded there (default true; in home, read from the files the fake
+//                     download leaves, with the mark its last step leaves); soundsLoadError says why they fail to load
+//   beside            the sound effects fit beside the voices on the graphics card now (default true)
+//   aligner           the dictation model that times words ('whisper' | 'parakeet' | null); by default the first one
+//                     downloaded, Whisper first (sounds.mjs answers /v1/align with it)
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DICTATION = ['none', 'parakeet', 'whisper']
 const PARAKEET_FILES = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt']
 const WHISPER_FILES = ['config.json', 'model.bin', 'tokenizer.json', 'vocabulary.txt']
+const SOUND_FILES = [
+  'model_index.json',
+  'transformer/config.json',
+  'transformer/diffusion_pytorch_model.safetensors',
+  'vae/config.json',
+  'vae/diffusion_pytorch_model.safetensors',
+  'text_encoder/config.json',
+  'text_encoder/model.safetensors',
+  'tokenizer/tokenizer_config.json',
+  'tokenizer/spiece.model',
+  'projection_model/config.json',
+  'projection_model/diffusion_pytorch_model.safetensors',
+  'scheduler/scheduler_config.json'
+]
+const CLAP_FILES = ['config.json', 'preprocessor_config.json', 'tokenizer.json', 'tokenizer_config.json', 'model.safetensors']
 
 const folders = (dir) => {
   try {
@@ -58,6 +78,16 @@ function breezeWeights(home) {
 /** What is downloaded in AI Write's speech folder, with the rules AI Write and the real server use. */
 function onDisk(options, id) {
   const home = options.home
+  if (id === 'sounds') {
+    const hub = join(home, 'models', 'hf', 'hub')
+    const python = process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python']
+    return (
+      existsSync(join(home, 'venvs', 'sound', ...python)) &&
+      existsSync(join(home, 'models', 'sound', '.ready')) &&
+      !!snapshotWith(join(hub, 'models--stabilityai--stable-audio-open-1.0'), SOUND_FILES) &&
+      !!snapshotWith(join(hub, 'models--laion--larger_clap_general'), CLAP_FILES)
+    )
+  }
   if (id === 'voices') {
     return existsSync(join(home, 'models', 'breeze', 'code', 'breeze_infer')) && breezeWeights(home)
   }
@@ -79,7 +109,7 @@ function engineOf(state) {
   return state.dictationEngine
 }
 
-function ready(state, id) {
+export function ready(state, id) {
   const options = state.options ?? {}
   if (id === 'voices' && options.voicesNotReady) return false
   if (options[id] !== undefined) return options[id] !== false
@@ -98,6 +128,13 @@ function loadError(state, id) {
   } catch {
     return ''
   }
+}
+
+/** The dictation model that times words: the option, else the first downloaded (Whisper first), else null. */
+export function alignerOf(state) {
+  const given = state.options?.aligner
+  if (given !== undefined) return given === 'whisper' || given === 'parakeet' ? given : null
+  return ready(state, 'whisper') ? 'whisper' : ready(state, 'parakeet') ? 'parakeet' : null
 }
 
 function health(state) {
@@ -145,7 +182,22 @@ function health(state) {
       engine,
       loaded: engine !== 'none' && state.loaded.has(engine) && !loadError(state, engine) ? engine : null,
       models: [model('parakeet', 'Parakeet'), model('whisper', 'Whisper')]
-    }
+    },
+    sounds: soundsHealth(state),
+    aligner: alignerOf(state)
+  }
+}
+
+function soundsHealth(state) {
+  const options = state.options ?? {}
+  const downloaded = ready(state, 'sounds')
+  const error = downloaded ? String(options.soundsLoadError ?? '') : ''
+  return {
+    ready: downloaded,
+    loaded: downloaded && !error && state.loaded.has('sounds'),
+    detail: downloaded ? error : 'Not downloaded yet. Download the sound effects in AI Write’s Settings, Read aloud and dictation.',
+    loadError: error,
+    beside: options.beside !== false
   }
 }
 
@@ -190,7 +242,7 @@ const warmup = (_req, body, state) => {
 
 const unload = (_req, _body, state) => {
   engineOf(state)
-  const unloaded = [...state.loaded].map((id) => (id === 'breeze' ? 'breeze' : 'dictation'))
+  const unloaded = [...state.loaded].map((id) => (id === 'breeze' ? 'breeze' : id === 'sounds' ? 'sound' : 'dictation'))
   state.loaded.clear()
   return json({ ok: true, unloaded })
 }
