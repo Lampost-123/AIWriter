@@ -6,9 +6,10 @@ import { Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { registerFlusher } from '@/lib/flush'
 import { ChapterIssueBadge, SceneIssueBadge } from '@/features/consistency/IssueBadge'
+import { ChapterPlayingMark, SceneStatusMark } from '@/features/readAloud/PlayingMark'
 import { InlineTitle } from './InlineTitle'
 import { formatWords } from './outlineModel'
-import { STATUS_LABELS, StatusDot } from './StatusDot'
+import { STATUS_LABELS } from './StatusDot'
 
 export const sceneDndId = (id: ID): string => `s:${id}`
 export const chapterDndId = (id: ID): string => `c:${id}`
@@ -121,8 +122,8 @@ export function SceneRowContent({
 }: Pick<SceneRowProps, 'scene' | 'selected' | 'renaming'> & { h?: RowHandlers; forceButtons?: boolean }): React.JSX.Element {
   return (
     <>
-      <StatusDot status={scene.status} className="mr-2" />
-      <span className="sr-only">{STATUS_LABELS[scene.status]}: </span>
+      {/* The status dot, or a speaker while the scene is read aloud. */}
+      <SceneStatusMark sceneId={scene.id} status={scene.status} statusLabel={STATUS_LABELS[scene.status]} />
       {renaming && h ? (
         <InlineTitle
           label="Scene title"
@@ -273,6 +274,7 @@ function ChapterRowContent({
       ) : (
         <span className="min-w-0 flex-1 truncate font-semibold text-fg">{chapter.title || 'Untitled chapter'}</span>
       )}
+      {renaming ? null : <ChapterPlayingMark chapterId={chapter.id} />}
       {collapsed && !renaming ? <ChapterIssueBadge chapterId={chapter.id} /> : null}
       <RowEnd words={formatWords(words)} forceButtons={forceButtons}>
         {h ? (

@@ -454,7 +454,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   use `ToolButton`. Each part's piece of a shared screen is a component in the part's own folder, already
   placed: `SceneTools` (Variants, Beat by beat, History, Listen), `SceneView` (ReadAloudBar, SuggestionLayer,
   BeatBar), the selection bar (ListenFromHere), the scene card (SceneIdeas), the top bar (AskButton), entry
-  pages (EntryVoice), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
+  pages (EntryVoice), the binder's rows (`readAloud/PlayingMark.tsx`: a speaker on the scene being read and its
+  chapter), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
   dictation (`features/settings/SpeechSettings.tsx`: each part's `section="everyday"` and `"more"`), and
   the palette's actions and shortcuts (Listen Ctrl+L, Stop reading Ctrl+Shift+Space).
 - **Speech.** Adam's rule (2 October 2026): from mcreader-v2 and Poor-Mans-Holodeck, only their
