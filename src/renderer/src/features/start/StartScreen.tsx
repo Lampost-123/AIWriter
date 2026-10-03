@@ -5,7 +5,7 @@
 // draft keeps writing and Continue is instant. App.tsx decides when it shows (useApp.home).
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, BookPlus, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type LucideIcon } from 'lucide-react'
+import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { LastPlace, LibraryWorld } from '@shared/contracts/library'
 import { Button, Card, Field, IconButton, Input, Kbd, Notice, toast } from '@/components/ui'
@@ -25,6 +25,8 @@ import { DriftingTexture, InkMark, rise, useOpening } from './Opening'
 import { continueWriting, newStoryIn } from './startActions'
 import { continueText, filterWorlds, orderWorlds, SEARCH_FROM } from './startLogic'
 import { WorldCard } from './WorldCard'
+import { listenForRecipes, useRecipes } from '@/features/recipes/recipeStore'
+import { recipeName } from '@/features/recipes/recipeLogic'
 
 /**
  * Puts the keyboard on an element of the start screen unless something on it has it already, now and once more on
@@ -330,11 +332,6 @@ function OtherWays({ busy, setBusy }: { busy: string | null; setBusy: (id: strin
       {WELCOME_ACTIONS.map((a) => (
         <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a)} />
       ))}
-      {/*
-        Story recipes (spec, "New story from a recipe"; PR #16, not merged yet) wire in here: a tile
-        "New story from a recipe…" that asks for the world (as New story does) and then opens the recipe picker.
-        Nothing shows until then.
-      */}
     </>
   )
 }
@@ -376,9 +373,66 @@ function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null
             </M.Content>
           </M.Portal>
         </M.Root>
+        <RecipeTile worlds={choices} disabled={!!busy || worldBusy} />
         <OtherWays busy={busy} setBusy={setBusy} />
       </div>
     </section>
+  )
+}
+
+const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2 data-[state=open]:bg-surface-2'
+const menuBox =
+  'z-50 max-h-[min(360px,var(--radix-dropdown-menu-content-available-height))] min-w-[240px] max-w-[360px] overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in'
+
+/**
+ * Story recipes: "New story from a recipe…" picks the recipe, then the world; the New story dialog then opens in
+ * that world with the recipe already chosen (as a recipe's own "Start a story from it" does). Only once there is a
+ * finished recipe and a world to put the story in.
+ */
+function RecipeTile({ worlds, disabled }: { worlds: LibraryWorld[]; disabled: boolean }): React.JSX.Element | null {
+  const list = useRecipes((s) => s.list)
+  useEffect(() => listenForRecipes(), [])
+  const ready = (list ?? []).filter((r) => r.status === 'ready')
+  if (!ready.length || !worlds.length) return null
+  const start = (recipeId: string, worldId: string): void => {
+    useRecipes.setState({ forStory: recipeId })
+    void newStoryIn(worldId)
+  }
+  return (
+    <M.Root modal={false}>
+      <M.Trigger asChild disabled={disabled}>
+        <Tile icon={CookingPot} label="New story from a recipe…" hint="The shape and style of a story you admire, told your way" />
+      </M.Trigger>
+      <M.Portal>
+        <M.Content align="start" sideOffset={4} className={menuBox}>
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Which recipe?</M.Label>
+          {ready.map((r) =>
+            worlds.length === 1 ? (
+              <M.Item key={r.id} onSelect={() => start(r.id, worlds[0].id)} className={menuItem}>
+                <span className="truncate">{recipeName(r)}</span>
+              </M.Item>
+            ) : (
+              <M.Sub key={r.id}>
+                <M.SubTrigger className={menuItem}>
+                  <span className="flex-1 truncate">{recipeName(r)}</span>
+                  <ChevronRight size={14} className="shrink-0 text-muted" />
+                </M.SubTrigger>
+                <M.Portal>
+                  <M.SubContent sideOffset={4} className={menuBox}>
+                    <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">In which world?</M.Label>
+                    {worlds.map((w) => (
+                      <M.Item key={w.id} onSelect={() => start(r.id, w.id)} className={menuItem}>
+                        <span className="truncate">{w.name}</span>
+                      </M.Item>
+                    ))}
+                  </M.SubContent>
+                </M.Portal>
+              </M.Sub>
+            )
+          )}
+        </M.Content>
+      </M.Portal>
+    </M.Root>
   )
 }
 

@@ -354,3 +354,22 @@ test('a draft keeps writing while the start screen is open, and Continue shows i
     await slow.close()
   }
 })
+
+test('New story from a recipe picks the recipe, then the world, and opens New story with that recipe chosen', async ({ launch }) => {
+  const s = await seed(launch)
+  const { win } = await launch({ dataDir: s.dataDir, env: START })
+  await expect(startScreen(win)).toBeVisible()
+  const recipe = await invoke(win, 'newRecipe')
+  await invoke(win, 'updateRecipe', recipe.id, { name: 'The Long Road Home' })
+  const tile = startScreen(win).getByRole('button', { name: 'New story from a recipe…' })
+  await expect(tile).toBeVisible()
+  await tile.click()
+  await win.getByRole('menuitem', { name: 'The Long Road Home' }).click()
+  await win.getByRole('menuitem', { name: 'Ashgrove' }).click()
+  const dialog = win.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('From a recipe')).toContainText('The Long Road Home')
+  // The world opened behind the start screen, which stays up under the dialog.
+  await expect.poll(async () => (await invoke(win, 'getWorld'))?.id).toBe(s.ash)
+  await expect(startScreen(win)).toBeVisible()
+})
