@@ -10,6 +10,8 @@ import { Suggestions } from '@/features/edits/suggestions'
 import { ReadAloudHighlight } from '@/features/readAloud/highlight'
 import { SpeakerLabels } from '@/features/readAloud/speakerLabels'
 import { LiveChecks } from '@/features/liveChecks/liveDecorations'
+import { PageSpelling } from '@/features/spelling/editorSpelling'
+import { WordTally } from '@/features/goals/wordTally'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -45,7 +47,8 @@ const MarkDoneShortcut = Extension.create({
  * entries get a faint underline (names/underlines.ts). Milestone 4 adds tracked changes for AI edits
  * (features/edits/suggestions.ts), the sentence being read aloud (features/readAloud/highlight.ts) and, with
  * "Show speakers and tone", who says each paragraph and how (features/readAloud/speakerLabels.ts);
- * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts).
+ * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts). Writing by hand adds spell check
+ * and synonyms (features/spelling/editorSpelling.ts) and the daily word count (features/goals/wordTally.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -70,6 +73,8 @@ export function sceneExtensions(): AnyExtension[] {
     Suggestions,
     ReadAloudHighlight,
     SpeakerLabels,
-    LiveChecks
+    LiveChecks,
+    PageSpelling,
+    WordTally
   ]
 }

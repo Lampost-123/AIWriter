@@ -44,6 +44,8 @@ import { FocusLayer } from '@/features/look/FocusLayer'
 import { FirstRun } from '@/features/setup/FirstRun'
 import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
+import { installSpelling } from '@/features/spelling/install'
+import { installGoals } from '@/features/goals/goalStore'
 
 export function App(): React.JSX.Element | null {
   const ready = useApp((s) => s.ready)
@@ -64,9 +66,14 @@ export function App(): React.JSX.Element | null {
     void useSetup.getState().load().then(init)
     const offFlush = installFlushOnClose()
     const offMemory = installMemoryEvents()
+    // Writing by hand: spell check in step with the world and story, and the words written each day.
+    const offSpelling = installSpelling()
+    const offGoals = installGoals()
     return () => {
       offFlush()
       offMemory()
+      offSpelling()
+      offGoals()
     }
   }, [init])
 
