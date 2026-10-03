@@ -73,6 +73,8 @@ export interface Issue {
   memoryFix: { entryId: ID; field: string; value: string } | null
   /** Which of the quote's appearances in the scene it is (0 for the first), when known: Fix the text works on that one. */
   occurrence?: number
+  /** A common AI phrase the live checks underlined (stored as a phrase when ignored): set only then. */
+  aiPhrase?: true
   createdAt: string
   updatedAt: string
 }
@@ -151,6 +153,8 @@ export interface CheckWords {
   names: { entryId: ID; name: string; kind: string }[]
   /** Phrases to avoid, from Adam's writing preferences and the world's and story's style guides. */
   avoid: string[]
+  /** Underline common AI phrases (src/shared/slop.ts): Adam's preference "avoidAiPhrases". Absent means on. */
+  aiPhrases?: boolean
 }
 
 /** A live flag Adam ignored: by its key ("spelling:marra", "phrase:<paragraph id>:suddenly"). */

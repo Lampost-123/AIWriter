@@ -3,7 +3,8 @@
 //   chapter  Notes on the chapter. On purpose, its Roles line names the first name in the chapter ("the lead (Mara)"),
 //            as a careless model would, so the check against the story has something to find.
 //   combine  "Name: A quiet coastal mystery", then every part under its "## <Part>" heading. Cast roles repeat the
-//            names the notes let slip ("- The lead, Mara: ..."); the sample passage is new words.
+//            names the notes let slip ("- The lead, Mara: ..."); the sample passage is new words; genre and
+//            content come as "Genres: mystery, Cosy. Violence: restrained. ..." (read back as Mystery and Cosy).
 //   fix      The parts it was given, with every name listed in "Leave out these names: ..." replaced by "the lead".
 //   story    "Premise: ..." (it carries the guidance under "## My guidance"), then the plan in the outline helper's
 //            form: "Plan the new story: the premise, then 2 acts with 4 chapters in all ... and 2 scenes in each chapter"
@@ -30,7 +31,9 @@ const PARTS = {
     'The kettle had boiled twice before anyone thought to pour it. Outside, the gulls argued over a crust, and the woman by the window pretended not to listen to the argument inside. She had come for a week. It had been a month.',
   Shape: '- Act one (0%–30%): the outsider arrives and is tested.\n- Turning point at 30%: the offer.\n- Act three (70%–100%): the choice.',
   Pacing: 'Short chapters of about the same length, with more dialogue as it goes on.',
-  Devices: '- A set-up in the first chapter pays off in the last.\n- A recurring motif: the tide.'
+  Devices: '- A set-up in the first chapter pays off in the last.\n- A recurring motif: the tide.',
+  // Mixed case and a word the app doesn't know, as a model might write it: the recipe keeps it in the app's labels.
+  'Genre and content': 'Genres: mystery, Cosy. Violence: restrained. Language: Mild. Romance: smouldering.'
 }
 
 function chapterNotes(user) {

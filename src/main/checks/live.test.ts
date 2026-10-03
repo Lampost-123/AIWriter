@@ -3,6 +3,8 @@ import type { WritingPrefs } from '@shared/types'
 import { defaultStyleGuide, defaultWritingPrefs } from '@shared/defaults'
 import * as repo from '../db/repo'
 import { liveIgnores } from '../db/checksLive'
+import { readIssue, sceneIssueRows, type IssueNames } from '../db/checks'
+import { slopKey } from '@shared/liveChecks'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { checkWords, ignoreLive, listLiveIgnores, unignoreLive } from './live'
 
@@ -36,6 +38,13 @@ describe('the words the live checks need', () => {
     repo.updateStory(db, story.id, { style: { avoidPhrases: ['very', 'suddenly'] } })
     expect(checkWords(db, sceneId, prefs(['delve'])).avoid).toEqual(['delve', 'Suddenly', 'all of a sudden', 'very'])
   })
+
+  it('says whether to underline common AI phrases: on unless Adam turned it off', () => {
+    const { db, sceneId } = world()
+    expect(checkWords(db, sceneId, prefs()).aiPhrases).toBe(true)
+    expect(checkWords(db, sceneId, { ...prefs(), avoidAiPhrases: undefined }).aiPhrases).toBe(true)
+    expect(checkWords(db, sceneId, { ...prefs(), avoidAiPhrases: false }).aiPhrases).toBe(false)
+  })
 })
 
 describe('ignored flags', () => {
@@ -56,6 +65,21 @@ describe('ignored flags', () => {
     expect(row).toHaveLength(1)
     expect(row[0]).toMatchObject({ scene_id: sceneId, story_id: story.id, status: 'ignored', severity: 'minor', quote: 'Marra' })
     expect(JSON.parse(row[0].payload_json as string)).toEqual({ key: 'spelling:marra' })
+  })
+
+  it('marks an ignored common AI phrase as one, and none of Adam’s own phrases', () => {
+    const { db, sceneId } = world()
+    ignoreLive(db, sceneId, { kind: 'phrase', key: slopKey('breath-hitch', 'p1'), quote: 'breath hitched', message: 'x' })
+    ignoreLive(db, sceneId, { kind: 'phrase', key: 'phrase:p1:suddenly', quote: 'Suddenly', message: 'x' })
+    const names: IssueNames = { entry: () => null, sceneLabel: () => null, storyTitle: () => null }
+    const issues = sceneIssueRows(db, sceneId).map((r) => readIssue(r, names))
+    expect(issues.map((i) => [i.quote, i.aiPhrase ?? false])).toEqual(
+      expect.arrayContaining([
+        ['breath hitched', true],
+        ['Suddenly', false]
+      ])
+    )
+    expect(issues).toHaveLength(2)
   })
 
   it('takes an ignore back (Undo), a spelling from any scene', () => {

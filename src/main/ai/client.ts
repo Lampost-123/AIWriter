@@ -9,6 +9,7 @@ import {
   describeFailure,
   extractProviderMessage,
   looksLikeContextTooLong,
+  looksLikeMinPRejected,
   looksLikeReplyLimitRejected,
   looksLikeSamplingRejected,
   looksLikeTokenParamRejected,
@@ -34,6 +35,11 @@ export interface ChatBody {
   temperature: number
   top_p: number
   max_tokens: number
+  /**
+   * Trims the least likely words (the Balanced and Adventurous creativity). Sent only to OpenRouter, since
+   * other servers may turn down a field they don't know; left out with the other creativity settings.
+   */
+  min_p?: number | null
 }
 
 export const APP_REFERER = 'https://github.com/lampost-123/aiwriter'
@@ -119,6 +125,8 @@ export interface SentParams {
   tokenParam: 'max_tokens' | 'max_completion_tokens'
   /** False when the model doesn't take temperature / top_p, so they were left out. */
   sampling: boolean
+  /** False when the model turned min_p down, so it is left out. */
+  minP?: boolean
 }
 
 const DEFAULT_PARAMS: SentParams = { tokenParam: 'max_tokens', sampling: true }
@@ -193,6 +201,8 @@ type Attempt =
       retryAfterMs: number | null
       rejectedUsageOption?: boolean
       rejectedThinkingOption?: boolean
+      /** min_p was sent and the provider named it, or turned the request down without saying why. */
+      rejectedMinP?: 'named' | 'maybe'
     }
 
 type UsageMode = 'openrouter' | 'stream_options' | 'none'
@@ -382,10 +392,12 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     }
     arm(headersTimeout)
     try {
-      const { max_tokens: _limit, temperature, top_p, ...rest } = o.body
+      const { max_tokens: _limit, temperature, top_p, min_p, ...rest } = o.body
       const payload: Record<string, unknown> = { ...rest, messages: sentMessages(o.target, rest.model, rest.messages, o.cache !== false), stream: true }
       payload[sent.tokenParam] = maxTokens
       if (sent.sampling) Object.assign(payload, { temperature, top_p })
+      const minPSent = sent.sampling && sent.minP !== false && min_p != null && o.target.kind === 'openrouter'
+      if (minPSent) payload.min_p = min_p
       // OpenRouter's own way of asking every model; other servers take OpenAI's.
       if (effort && o.target.kind === 'openrouter') payload.reasoning = { effort }
       else if (effort) payload.reasoning_effort = effort
@@ -412,8 +424,10 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         }
         if (o.signal.aborted) return { kind: 'stopped' }
         const message = extractProviderMessage(bodyText)
+        const minPNamed = minPSent && looksLikeMinPRejected(res.status, message)
         const unexplained =
           (res.status === 400 || res.status === 422) &&
+          !minPNamed &&
           !looksLikeContextTooLong(message) &&
           !looksLikeReplyLimitRejected(res.status, message) &&
           !looksLikeTokenParamRejected(res.status, message) &&
@@ -424,7 +438,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
           retry: { kind: 'status', status: res.status },
           retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
           rejectedUsageOption: unexplained && usageMode === 'stream_options',
-          rejectedThinkingOption: unexplained && effort != null
+          rejectedThinkingOption: unexplained && effort != null,
+          ...(minPNamed ? { rejectedMinP: 'named' as const } : unexplained && minPSent ? { rejectedMinP: 'maybe' as const } : {})
         }
       }
 
@@ -494,6 +509,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
   let triedSmallerReply = false
   let triedTokenParam = false
   let triedNoSampling = false
+  let triedNoMinP = false
   for (;;) {
     if (o.signal.aborted) return finish('stopped', null)
     const r = await attemptOnce()
@@ -523,6 +539,15 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         return finish('error', thinking ? { type: 'empty', thinking: true } : { type: 'empty' })
       }
       return finish('complete', null)
+    }
+    // A model (or the service behind OpenRouter) that doesn't take min_p: ask once more without it, and
+    // remember that when it said so. It is the newest setting AI Write sends, so a request turned down
+    // without a reason is asked without it before anything else is changed.
+    if (!triedNoMinP && r.rejectedMinP) {
+      triedNoMinP = true
+      sent = { ...sent, minP: false }
+      if (r.rejectedMinP === 'named') rememberParams(o.target, o.body.model, sent)
+      continue
     }
     // A model that can't take the thinking level the way it was asked: ask the next way (for Off,
     // 'none' then 'low'), or not at all, and remember it for this model. A server that may be turning

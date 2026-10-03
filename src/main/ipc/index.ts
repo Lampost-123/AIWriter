@@ -34,6 +34,8 @@ import { setupHandlers } from './setup'
 import { lookHandlers } from './look'
 import { libraryHandlers } from './library'
 import { recipesHandlers } from './recipes'
+import { styleHandlers } from './style'
+import { polishHandlers } from './polish'
 import { findHandlers } from './find'
 import { spellingHandlers } from './spelling'
 import { soundsHandlers } from './sounds'
@@ -79,6 +81,9 @@ const all: Handlers<ApiMethod> = {
   ...libraryHandlers,
   // Story recipes
   ...recipesHandlers,
+  // Genres and writing styles
+  ...styleHandlers,
+  ...polishHandlers,
   // Writing by hand
   ...findHandlers,
   ...spellingHandlers,

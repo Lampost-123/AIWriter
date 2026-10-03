@@ -36,6 +36,25 @@ export interface StyleGuide {
   spelling: Spelling | ''
   contentLimits: string
   notes: string
+  /**
+   * The story's feel: up to two genre presets (ids from src/shared/genres.ts). With two, the first leads
+   * and the second adds its feel. Empty: none picked. A story's non-empty list replaces the world's.
+   */
+  genres: string[]
+  /** Adam's own twist on the genre, in his words. */
+  genreNotes: string
+  /** How far romance, violence and language go on the page. A level left out: judge by the genre. */
+  intensity: ContentIntensity
+}
+
+/** One step of a content intensity scale, from 1 (the mildest) to 4 (the most). See src/shared/intensity.ts. */
+export type IntensityLevel = 1 | 2 | 3 | 4
+
+/** The content intensity scales. A story's level for a scale replaces the world's. */
+export interface ContentIntensity {
+  romance?: IntensityLevel
+  violence?: IntensityLevel
+  language?: IntensityLevel
 }
 
 /** Adam's own preferences, shared by every world. Stored in the library folder. */
@@ -45,6 +64,8 @@ export interface WritingPrefs {
   tense: string
   voiceNotes: string
   avoidWords: string[]
+  /** Steer the AI clear of common AI phrases (src/shared/slop.ts), and underline them in drafts. On unless Adam turns it off. */
+  avoidAiPhrases?: boolean
 }
 
 // ---------- Story structure ----------
@@ -318,10 +339,11 @@ export interface ModelChoice {
 export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe'
 
 /**
- * The jobs with a Thinking level of their own: every job, and 'sounds', the AI marking of sound effects under Read aloud
- * (it uses the Read aloud model, so it has no model choice of its own).
+ * The jobs with a Thinking level of their own: every job, and those with no model choice of their own: 'sounds', the AI
+ * marking of sound effects under Read aloud (the Read aloud model); 'sample', a sample passage for the style guide
+ * ("Write a sample for me"), and 'polish', the polish pass after a draft (both the writer model).
  */
-export type ThinkingJob = Job | 'sounds'
+export type ThinkingJob = Job | 'sounds' | 'sample' | 'polish'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
@@ -575,6 +597,11 @@ export interface DraftOptions {
   /** The length to aim for, in words; null for Auto (the AI picks the length the scene needs, within AUTO_LENGTH). */
   targetWords: number | null
   creativity: Creativity
+  /**
+   * Polish after drafting: once a Generate draft is finished, a second call revises it, and the revision
+   * waits in the page to be accepted or rejected. Left out: off.
+   */
+  polish?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
@@ -592,6 +619,8 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * Milestone 5 adds 'check': one AI consistency check of a scene.
  * Story recipes add 'recipe': one call of the Recipe maker. Those records are kept in the recipe library's own
  * spending file (`Recipes/spending.db`), never in a world, and without the words sent or received.
+ * The style guide's helpers add 'sample' (a sample passage written from the style guide, "Write a sample for
+ * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  */
 export type GenerationJob =
   | 'draft'
@@ -608,6 +637,8 @@ export type GenerationJob =
   | 'world'
   | 'check'
   | 'recipe'
+  | 'sample'
+  | 'polish'
 
 /** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
 export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
@@ -669,6 +700,11 @@ export interface GenerationRecord extends GenerationSummary {
     tool?: EditTool
     /** A turn of an Ask the world conversation. */
     chatId?: ID
+    // ----- The style guide's helpers -----
+    /** min_p as sent (OpenRouter only, with the Balanced and Adventurous creativity); left out when it wasn't sent. */
+    min_p?: number
+    /** The polish pass: the record of the draft it revised. */
+    polishOf?: ID
     /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
     sounds?: boolean
   }

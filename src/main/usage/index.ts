@@ -66,7 +66,9 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startRecipe',
   'carryOnRecipe',
   'readRecipeAgain',
-  'startRecipeStory'
+  'startRecipeStory',
+  'writeStyleSample',
+  'startPolish'
 ])
 
 let library: UsageLibrary | null = null

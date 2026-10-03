@@ -22,13 +22,16 @@ export const BLANK_DRAFT_OPTIONS: SceneDraftOptions = { direction: '', targetWor
 export function resolveDraftOptions(
   opts: SceneDraftOptions | undefined,
   cardWords: number | null,
-  defaultCreativity: Creativity
+  defaultCreativity: Creativity,
+  /** "Polish after drafting" is on (Adam's last choice, for every scene: see polishRun.ts). */
+  polish = false
 ): DraftOptions {
   const o = opts ?? BLANK_DRAFT_OPTIONS
   return {
     direction: o.direction.trim(),
     targetWords: o.targetWords === 'auto' ? null : (o.targetWords ?? cardWords),
-    creativity: o.creativity ?? defaultCreativity
+    creativity: o.creativity ?? defaultCreativity,
+    ...(polish ? { polish: true } : {})
   }
 }
 

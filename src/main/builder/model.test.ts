@@ -27,7 +27,7 @@ function sources(
   return {
     settings: {
       models: { writer: o.writer === undefined ? choice : o.writer, memory: null, chat: null, builder: o.builder ?? null, speech: null, world: null, check: null, recipe: null },
-      ...(o.thinking ? { thinking: { writer: 'off', memory: 'off', chat: 'off', builder: o.thinking, speech: 'off', world: 'off', check: 'off', recipe: 'off', sounds: 'off' } } : {})
+      ...(o.thinking ? { thinking: { writer: 'off', memory: 'off', chat: 'off', builder: o.thinking, speech: 'off', world: 'off', check: 'off', recipe: 'off', sounds: 'off', sample: 'off', polish: 'off' } } : {})
     },
     getProvider: (id) => (p && p.id === id ? p : null),
     providerTarget: (c) => ({ id: c.id, name: c.name, kind: c.kind, baseUrl: c.baseUrl, apiKey: o.key === undefined ? 'sk-test' : o.key })

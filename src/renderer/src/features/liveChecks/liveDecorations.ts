@@ -1,5 +1,5 @@
-// The live checks' underlines in the page (milestone 5): phrases to avoid, repetition nearby and name
-// spelling, worked out by src/shared/liveChecks.ts. A TipTap extension, in the editor's list
+// The live checks' underlines in the page (milestone 5): phrases to avoid, repetition nearby, name
+// spelling and common AI phrases, worked out by src/shared/liveChecks.ts. A TipTap extension, in the editor's list
 // (features/editor/extensions.ts).
 //
 // How it works:
@@ -14,6 +14,9 @@
 //    name being typed ("Mar…") is never flagged half-way.
 //  - Nothing is underlined while a draft streams into the page or text is held for replacing, nor
 //    inside a change an AI tool is suggesting.
+//  - When a draft has landed, the first check after it says how many common AI phrases it brought
+//    (noteDraftPhrases, a quiet toast). Where the draft began is kept in this plugin's state, mapped
+//    through every change, and from the first of several drafts in a row (Beat by beat) until checked.
 //  - The words to check against (names, phrases to avoid, ignored flags) are read from this module
 //    (setLiveInputs), never captured when the extension is made: the scene controller swaps scenes by
 //    building a new state from the same plugins.
@@ -23,11 +26,12 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { ID } from '@shared/types'
-import { checkScene, countFlags, EMPTY_WORDS, LiveCache, type LiveFlag, type LiveKind, type LiveParagraph, type LiveWords } from '@shared/liveChecks'
+import { checkScene, countFlags, EMPTY_WORDS, LiveCache, type LiveFlag, type LiveFlagKind, type LiveParagraph, type LiveWords } from '@shared/liveChecks'
+import type { SlopGroup } from '@shared/slop'
 import { editorBridge } from '@/lib/editorBridge'
-import { activeStream } from '@/features/editor/streamDoc'
+import { activeStream, landedIn } from '@/features/editor/streamDoc'
 import { activeSuggestion } from '@/features/edits/suggestions'
-import { NO_FLAGS, setLiveCounts } from './liveStore'
+import { NO_FLAGS, noteDraftPhrases, setLiveCounts } from './liveStore'
 
 export const LIVE_EXTENSION = 'aiwriteLiveChecks'
 /** The class on every live underline; each kind adds `aw-live-<kind>`. */
@@ -37,13 +41,15 @@ export const CHECK_DELAY = 300
 
 /** A flag as it stands in the page: positions in the document, mapped through every change. */
 export interface PlacedFlag {
-  kind: LiveKind
+  kind: LiveFlagKind
   from: number
   to: number
   word: string
   key: string
   message: string
   suggestion: string | null
+  /** A common AI phrase: its group. */
+  group: SlopGroup | null
   /** The paragraph's id. */
   pid: string | null
 }
@@ -76,7 +82,21 @@ interface LiveState {
   set: DecorationSet
   /** Checked at least once since this state was made (a scene opened builds a new one). */
   ran: boolean
+  /** Where the drafts that landed since the last check begin, or null. */
+  draftFrom: number | null
 }
+
+/**
+ * What a check sets: the underlines, and whether it has counted the drafts that landed before it. Or
+ * where a draft put in whole begins (markDraftLanded).
+ */
+interface LiveMeta {
+  set?: DecorationSet
+  draftSeen?: boolean
+  draftFrom?: number
+}
+
+
 
 export const liveChecksKey = new PluginKey<LiveState>(LIVE_EXTENSION)
 
@@ -127,7 +147,7 @@ function decoration(f: LiveFlag, start: number, pid: string | null): Decoration 
   const to = start + f.to
   // Only plain values in the spec, and no positions, so an underline that stays the same (or only moved)
   // compares equal and isn't redrawn.
-  const spec: FlagSpec = { kind: f.kind, word: f.word, key: f.key, message: f.message, suggestion: f.suggestion, pid }
+  const spec: FlagSpec = { kind: f.kind, word: f.word, key: f.key, message: f.message, suggestion: f.suggestion, group: f.group ?? null, pid }
   return Decoration.inline(from, to, { class: `${LIVE_CLASS} ${LIVE_CLASS}-${f.kind}`, 'data-live': f.kind }, spec)
 }
 
@@ -183,6 +203,19 @@ function visible(state: EditorState): DecorationSet | null {
   const out = set.remove(set.find(s.from, s.to).filter((d) => overlaps(d, s)))
   shown = { set, from: s.from, to: s.to, out }
   return out
+}
+
+/**
+ * A draft put into the page whole rather than written in (a picked variant), from the page's `fromBlock`th
+ * block on: the next check says how many common AI phrases it brought, as after a draft written in.
+ */
+export function markDraftLanded(view: EditorView, fromBlock = 0): void {
+  if (view.isDestroyed) return
+  const doc = view.state.doc
+  let pos = 0
+  for (let i = 0; i < Math.min(fromBlock, doc.childCount); i++) pos += doc.child(i).nodeSize
+  const meta: LiveMeta = { draftFrom: pos }
+  view.dispatch(view.state.tr.setMeta(liveChecksKey, meta).setMeta('addToHistory', false))
 }
 
 // ---------- Checking after a pause ----------
@@ -256,6 +289,7 @@ class LiveRunner {
       if (liveChecksKey.getState(state)?.set.find().length) this.dispatch(DecorationSet.empty, sceneId)
       return
     }
+    const draftFrom = liveChecksKey.getState(state)?.draftFrom ?? null
     const { paras, starts } = paragraphsOf(state.doc)
     const flags = checkScene(paras, inputs.words, inputs.ignored, cache)
     const sel = state.selection
@@ -271,12 +305,17 @@ class LiveRunner {
     }
     this.held = held
     this.edited = false
-    this.dispatch(DecorationSet.create(state.doc, decos), sceneId)
+    this.dispatch(DecorationSet.create(state.doc, decos), sceneId, draftFrom !== null)
+    if (draftFrom === null) return
+    // The common AI phrases a draft brought (none inside an AI tool's waiting change).
+    const brought = liveFlagsOf(view.state).filter((f) => f.kind === 'ai' && f.from >= draftFrom)
+    if (brought.length) noteDraftPhrases(brought.length, { key: brought[0].key, from: brought[0].from })
   }
 
-  private dispatch(set: DecorationSet, sceneId: ID | null): void {
+  private dispatch(set: DecorationSet, sceneId: ID | null, draftSeen = false): void {
     const view = this.view
-    view.dispatch(view.state.tr.setMeta(liveChecksKey, set).setMeta('addToHistory', false))
+    const meta: LiveMeta = { set, draftSeen }
+    view.dispatch(view.state.tr.setMeta(liveChecksKey, meta).setMeta('addToHistory', false))
     this.publish(sceneId)
   }
 
@@ -286,15 +325,21 @@ class LiveRunner {
   }
 }
 
-const livePlugin = new Plugin<LiveState>({
+export const livePlugin = new Plugin<LiveState>({
   key: liveChecksKey,
   state: {
-    init: () => ({ set: DecorationSet.empty, ran: false }),
+    init: () => ({ set: DecorationSet.empty, ran: false, draftFrom: null }),
     apply(tr, value) {
-      const set = tr.getMeta(liveChecksKey) as DecorationSet | undefined
-      if (set) return { set, ran: true }
-      if (!tr.docChanged) return value
-      return { set: mapThrough(value.set, tr), ran: value.ran }
+      const meta = tr.getMeta(liveChecksKey) as LiveMeta | undefined
+      let draftFrom = value.draftFrom !== null && tr.docChanged ? tr.mapping.map(value.draftFrom, -1) : value.draftFrom
+      // A draft that has just finished landing (the step that ends it says where it begins: the whole
+      // scene when it replaced the text), or one put in whole (markDraftLanded).
+      const ended = meta?.draftFrom ?? landedIn(tr)
+      if (ended !== null) draftFrom = Math.min(draftFrom ?? ended, ended)
+      if (meta?.draftSeen) draftFrom = null
+      if (meta?.set) return { set: meta.set, ran: true, draftFrom }
+      if (!tr.docChanged && draftFrom === value.draftFrom) return value
+      return { set: tr.docChanged ? mapThrough(value.set, tr) : value.set, ran: value.ran, draftFrom }
     }
   },
   view: (view) => new LiveRunner(view),

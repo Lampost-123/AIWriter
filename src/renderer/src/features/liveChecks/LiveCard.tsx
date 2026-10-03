@@ -1,11 +1,12 @@
 // The small card over a live underline: what the check found, in a plain sentence, and what Adam can do
-// about it (Change to Mara, Rewrite, Ignore). Like the card over a name (features/editor/names/
+// about it (Change to Mara, Rewrite, Fix, Ignore). Like the card over a name (features/editor/names/
 // HoverCard.tsx): always the same size, so nothing in it moves; in a portal, so the page never shifts;
 // pressing on it never moves the caret. It takes the keyboard only when Adam asks (Tab from the page);
 // Esc then gives it back.
 import { forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import { WandSparkles } from 'lucide-react'
+import { SLOP_GROUPS } from '@shared/slop'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import type { PlacedFlag } from './liveDecorations'
@@ -19,8 +20,13 @@ const MARGIN = 8
 const KIND_WORDS: Record<PlacedFlag['kind'], string> = {
   spelling: 'Name spelling',
   phrase: 'Phrase to avoid',
+  ai: 'Common AI phrase',
   repetition: 'Repeated nearby'
 }
+
+/** The card's heading: the kind, and for a common AI phrase its group ("Common AI phrase · Stock body reaction"). */
+export const liveCardHeading = (flag: Pick<PlacedFlag, 'kind' | 'group'>): string =>
+  flag.kind === 'ai' && flag.group ? `${KIND_WORDS.ai} · ${SLOP_GROUPS[flag.group]}` : KIND_WORDS[flag.kind]
 
 /** Where the card goes for a word: just below it, or above when there's no room below, kept inside the window. */
 export function liveCardPosition(word: DOMRect, view: { width: number; height: number }): { left: number; top: number } {
@@ -56,7 +62,7 @@ export const LiveCard = forwardRef<HTMLDivElement, Props>(function LiveCard(
     <div
       ref={ref}
       role="group"
-      aria-label={KIND_WORDS[flag.kind]}
+      aria-label={liveCardHeading(flag)}
       data-hover-card=""
       data-live-card={flag.kind}
       onMouseEnter={onEnter}
@@ -86,7 +92,7 @@ export const LiveCard = forwardRef<HTMLDivElement, Props>(function LiveCard(
     >
       <p className="flex h-4 shrink-0 items-center gap-1.5 text-[12px] leading-4 text-faint">
         <span aria-hidden className={cn('aw-live-swatch', `aw-live-swatch-${flag.kind}`)} />
-        {KIND_WORDS[flag.kind]}
+        <span className="min-w-0 truncate">{liveCardHeading(flag)}</span>
       </p>
       <p className="mt-1.5 line-clamp-2 h-10 shrink-0 text-[13.5px] leading-5 text-fg">{flag.message}</p>
       <div className="mt-auto flex items-center gap-1.5">
@@ -103,6 +109,16 @@ export const LiveCard = forwardRef<HTMLDivElement, Props>(function LiveCard(
             title="The AI rewrites the sentence without it, as a change to accept or reject"
           >
             Rewrite
+          </Button>
+        ) : null}
+        {flag.kind === 'ai' ? (
+          <Button
+            size="sm"
+            icon={<WandSparkles size={14} className="text-ai" aria-hidden />}
+            onClick={onRewrite}
+            title="The AI rewrites the sentence without the stock phrase, as a change to accept or reject"
+          >
+            Fix
           </Button>
         ) : null}
         <Button

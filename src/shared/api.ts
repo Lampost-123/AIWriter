@@ -79,6 +79,8 @@ import type { SetupApi, SetupEvents } from './contracts/setup'
 import type { LookApi, LookEvents } from './contracts/look'
 import type { LibraryApi, LibraryEvents } from './contracts/library'
 import type { RecipesApi, RecipesEvents } from './contracts/recipes'
+import type { StyleApi, StyleEvents } from './contracts/style'
+import type { PolishApi, PolishEvents } from './contracts/polish'
 import type { FindApi, FindEvents } from './contracts/find'
 import type { SpellingApi, SpellingEvents } from './contracts/spelling'
 import type { SoundsApi, SoundsEvents } from './contracts/sounds'
@@ -111,6 +113,8 @@ export interface AppApi
     LookApi,
     LibraryApi,
     RecipesApi,
+    StyleApi,
+    PolishApi,
     FindApi,
     SpellingApi,
     SoundsApi {
@@ -338,6 +342,8 @@ export interface AppEvents
     LookEvents,
     LibraryEvents,
     RecipesEvents,
+    StyleEvents,
+    PolishEvents,
     FindEvents,
     SpellingEvents,
     SoundsEvents {

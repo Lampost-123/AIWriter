@@ -162,6 +162,18 @@ describe('making a recipe', () => {
     expect(states[states.length - 1].finished).toMatchObject({ recipeId: id, name: 'A crossing story', removed: 0 })
   })
 
+  it('writes genre and content in the app’s own labels, leaving out what it doesn’t know', async () => {
+    fake.reply = (req) =>
+      stepOf(req) === 'combine' ? ok(`${RECIPE}
+
+## Genre and content
+genres: mystery, Western. romance: FADE TO BLACK. Violence: gory.`) : defaultReply(req)
+    const id = newRecipe()
+    maker.start(id)
+    await maker.whenIdle()
+    expect(files.read(id)!.parts.feel).toBe('Genre: Mystery. Romance: Fade to black.')
+  })
+
   it('takes out what still leaks when the fix doesn’t help, and never keeps a name that gives the story away', async () => {
     fake.reply = (req) => (stepOf(req) === 'fix' ? ok('Sorry, I can’t.') : stepOf(req) === 'combine' ? ok(RECIPE.replace('A crossing story', 'The Ferry at Varn, retold')) : defaultReply(req))
     const id = newRecipe()

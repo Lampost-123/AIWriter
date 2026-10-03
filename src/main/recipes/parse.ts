@@ -17,7 +17,10 @@ const HEADING_TO_PART = new Map<string, RecipePartId>([
   ['cast', 'cast'],
   ['roles', 'cast'],
   ['story beats', 'beats'],
-  ['devices and motifs', 'devices']
+  ['devices and motifs', 'devices'],
+  ['genre', 'feel'],
+  ['genres', 'feel'],
+  ['genre and content levels', 'feel']
 ])
 
 /** "## Writing style", "**Writing style:**", "### Themes" → its part; null for any other line. */
@@ -78,5 +81,6 @@ export const emptyParts = (): RecipeParts => ({
   beats: '',
   cast: '',
   pacing: '',
-  devices: ''
+  devices: '',
+  feel: ''
 })

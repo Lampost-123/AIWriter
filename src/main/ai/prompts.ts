@@ -6,6 +6,9 @@
 
 import type { StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
+import { genresOf } from '@shared/genres'
+import { intensityLines } from '@shared/intensity'
+import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
 
 const INTRO = `You are a skilled novelist drafting one scene of a longer work of fiction. The author plans each scene on a scene card and will edit your draft afterwards, so write a complete, polished scene that follows the plan closely and reads like a finished page of the book.
 
@@ -64,15 +67,19 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
 }
 
 /**
- * Block 1: the writer instructions, the style guide, one sample passage and the phrases to avoid.
- * The short form (`trimSample`) keeps only the opening of the sample passage.
+ * Block 1: the writer instructions, the style guide, the genre and feel, how far content goes, one sample
+ * passage, the phrases to avoid and the rules against common AI phrasing.
+ * `intro` takes the place of the drafting introduction for jobs that aren't writing a whole scene
+ * (milestone 4's AI edits, say); '' leaves the introduction out (the style guide alone).
+ * The short form (`trimSample`) keeps only the opening of the sample passage, the leading genre without its
+ * worn-out moves, and the rules without the list of phrases. `proseRules: false` leaves out the rules against
+ * AI phrasing (for jobs that don't write prose, such as Ask the world).
  */
-/**
- * The instructions block: what the model is doing, then the style guide, the sample passage and the
- * words to avoid. `intro` takes the place of the drafting introduction for jobs that aren't writing a
- * whole scene (milestone 4's AI edits, say); '' leaves the introduction out (the style guide alone).
- */
-export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean; intro?: string } = {}): string {
+export function instructionsText(
+  style: StyleGuide & { avoidAiPhrases?: boolean },
+  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean } = {}
+): string {
+  const short = !!opts.trimSample
   const intro = opts.intro ?? writerInstructions(style.pov)
   const parts: string[] = intro ? [intro] : []
 
@@ -85,8 +92,13 @@ export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean
   if (style.notes) rules.push(`- Other notes from the author: ${indentMore(style.notes)}`)
   if (rules.length) parts.push(`Style guide\n${rules.join('\n')}`)
 
+  const feel = genreText(style, short)
+  if (feel) parts.push(feel)
+  const content = contentText(style)
+  if (content) parts.push(content)
+
   if (style.samplePassage.trim()) {
-    const sample = opts.trimSample ? trimPassage(style.samplePassage) : style.samplePassage.trim()
+    const sample = short ? trimPassage(style.samplePassage) : style.samplePassage.trim()
     parts.push(
       `Sample passage\nThis passage is by the author. Match its voice, rhythm, sentence length and level of detail. It shows how the book should sound: don't copy its sentences or replay its events.\n\n"""\n${sample}\n"""`
     )
@@ -95,7 +107,57 @@ export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
+  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText(short))
   return parts.join('\n\n')
+}
+
+/**
+ * "Genre and feel": what the genre picks mean for the prose, with the author's own take. A blend leads with
+ * the first pick and brings in the feel of the second. The short form keeps the leading genre and the
+ * author's take only. Empty when no genre is picked and there is no take.
+ */
+export function genreText(style: Pick<StyleGuide, 'genres' | 'genreNotes'>, short = false): string {
+  const picks = genresOf(style.genres ?? [])
+  const notes = (style.genreNotes ?? '').trim()
+  if (!picks.length && !notes) return ''
+  const lines: string[] = []
+  const [lead, blend] = picks
+  if (lead && blend && !short) {
+    lines.push(`This story is mostly ${lead.label.toLocaleLowerCase()}, with the feel of ${blend.label.toLocaleLowerCase()}.`)
+    lines.push(lead.guidance)
+    lines.push(`From ${blend.label.toLocaleLowerCase()}, bring in its ${blend.feel}: ${lowerFirst(firstSentences(blend.guidance, 1))}`)
+  } else if (lead) {
+    lines.push(`This story is ${lead.label.toLocaleLowerCase()}.${blend ? ` It also has the feel of ${blend.label.toLocaleLowerCase()}.` : ''}`)
+    lines.push(lead.guidance)
+  }
+  if (notes) lines.push(`The author's own take on it: ${indentMore(notes, '')}`)
+  // The leading genre's worst four and the blend's worst two keep block 1 small.
+  const cliches = short ? [] : [...(lead?.cliches.slice(0, 4) ?? []), ...(blend?.cliches.slice(0, 2) ?? [])]
+  if (cliches.length) lines.push(`Steer clear of worn-out moves such as ${cliches.join('; ')}.`)
+  return `Genre and feel\n${lines.join('\n')}`
+}
+
+/** The first `n` sentences of a passage. */
+function firstSentences(text: string, n: number): string {
+  const ends = [...text.matchAll(/[.!?](?=\s|$)/g)]
+  return ends.length > n ? text.slice(0, (ends[n - 1].index ?? 0) + 1) : text
+}
+
+/** "Content": one sentence for each intensity scale Adam set; the content limits still win. Empty when none is set. */
+export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits'>): string {
+  const lines = intensityLines(style.intensity ?? {})
+  if (!lines.length) return ''
+  const unset = lines.length < 3 ? ' For anything not covered here, judge by the genre.' : ''
+  const limits = style.contentLimits?.trim() ? ' Where the content limits above say otherwise, follow the content limits.' : ''
+  const after = (unset + limits).trim()
+  return `Content\n${lines.map((l) => `- ${l}`).join('\n')}${after ? `\n${after}` : ''}`
+}
+
+/** The rules against common AI phrasing, with the worst offenders named (left out of the short form). */
+export function aiPhrasesText(short = false): string {
+  const rules = SLOP_RULES.map((r) => `- ${r}`)
+  if (!short) rules.push(`- Never use stock phrases like these, or variants: ${PROMPT_SLOP.map((p) => `"${p}"`).join(', ')}.`)
+  return `Write like a person, not like an AI\n${rules.join('\n')}`
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
@@ -131,6 +193,8 @@ export function finalInstruction(o: {
   hasDirection: boolean
   /** On a redraft: the scene card lists what this scene should bring about. */
   hasBringAbout?: boolean
+  /** The tone in effect (the story's, else the series', else the world's), for the closing reminder. */
+  tone?: string
 }): string {
   const lines: string[] = [
     '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.'
@@ -143,6 +207,8 @@ export function finalInstruction(o: {
   if (o.style.tense) keep.push(lowerFirst(o.style.tense))
   if (o.style.spelling) keep.push(`${o.style.spelling} spelling`)
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
+  const feel = feelLine(o.style, o.tone)
+  if (feel) lines.push(feel)
   const other = o.previousStory
   if (o.hasPrevious && other) {
     const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
@@ -155,6 +221,21 @@ export function finalInstruction(o: {
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
   return `Write the scene now.\n${lines.join('\n')}`
+}
+
+/**
+ * The closing reminder of the genre and tone, since models follow what comes last most closely:
+ * "Keep the slow-building dread of horror, and the story's tone: bleak and quiet." Null when neither is set.
+ */
+export function feelLine(style: Pick<StyleGuide, 'genres'>, tone?: string): string | null {
+  const [lead, blend] = genresOf(style.genres ?? [])
+  const t = (tone ?? '').replace(/\s+/g, ' ').trim().replace(/[.!]+$/, '')
+  const genre = lead
+    ? `the ${lead.feel} of ${lead.label.toLocaleLowerCase()}${blend ? `, with the ${blend.feel} of ${blend.label.toLocaleLowerCase()}` : ''}`
+    : ''
+  const toneText = t ? `the story's tone: ${t.length > 160 ? `${t.slice(0, 159).trimEnd()}…` : t}` : ''
+  if (!genre && !toneText) return null
+  return `- Keep ${[genre, toneText].filter(Boolean).join(', and ')}.`
 }
 
 /** What to aim the scene at, from whatever the scene card holds. */

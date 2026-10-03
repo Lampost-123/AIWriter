@@ -29,7 +29,7 @@ How to answer
  */
 export function askInstructions(style: StyleGuide, short = false): string {
   const shown = short ? { ...style, samplePassage: '' } : style
-  return instructionsText(shown, { intro: INTRO, trimSample: true })
+  return instructionsText(shown, { intro: INTRO, trimSample: true, proseRules: false })
 }
 
 /** One earlier question and the answer that came back. */

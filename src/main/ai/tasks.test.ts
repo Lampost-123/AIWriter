@@ -53,6 +53,28 @@ function request(db: Database.Database, events: Ev[], over: Partial<TaskRequest>
 }
 
 describe('the task runner', () => {
+  it('records a sample passage with no scene, sending min_p only to OpenRouter, and a polish pass with its draft', async () => {
+    const db = world()
+    const events: Ev[] = []
+    const openRouter = { id: 'p1', name: 'OpenRouter', kind: 'openrouter' as const, baseUrl: fake.url, apiKey: 'k' }
+    const sample = await runTask(
+      request(db, events, { job: 'sample', model: { job: 'writer', target: openRouter, choice: choice(), thinking: 'low' }, minP: 0.05 })
+    )
+    expect(sample.status).toBe('complete')
+    expect(fake.lastRequest()!.body.min_p).toBe(0.05)
+    const rec = gens.getGeneration(db, sample.generationId)
+    expect(rec.job).toBe('sample')
+    expect(rec.sceneId).toBe('')
+    expect(rec.params).toMatchObject({ min_p: 0.05, thinking: 'low' })
+
+    const polish = await runTask(request(db, events, { job: 'polish', minP: 0.05, extra: { polishOf: 'draft-1' } }))
+    expect('min_p' in fake.lastRequest()!.body).toBe(false)
+    const polished = gens.getGeneration(db, polish.generationId)
+    expect(polished.job).toBe('polish')
+    expect(polished.params.polishOf).toBe('draft-1')
+    expect(polished.params.min_p).toBeUndefined()
+  })
+
   it('records the call with its job, streams it and resolves with the whole reply', async () => {
     const db = world()
     const events: Ev[] = []
@@ -117,7 +139,7 @@ describe('the model for each job', () => {
   const src = (models: Partial<Record<'writer' | 'memory' | 'chat' | 'builder' | 'speech', ModelChoice | null>>): ModelSources => ({
     settings: {
       models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null, check: null, recipe: null, ...models },
-      thinking: { writer: 'off', memory: 'low', chat: 'off', builder: 'off', speech: 'high', world: 'off', check: 'off', recipe: 'off', sounds: 'off' }
+      thinking: { writer: 'off', memory: 'low', chat: 'off', builder: 'off', speech: 'high', world: 'off', check: 'off', recipe: 'off', sounds: 'off', sample: 'off', polish: 'off' }
     },
     getProvider: (id) => (id === 'p1' ? provider : null),
     providerTarget: (p) => ({ id: p.id, name: p.name, kind: p.kind, baseUrl: p.baseUrl, apiKey: 'k' })

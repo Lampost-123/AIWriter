@@ -327,7 +327,7 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
             <span className="min-w-0 flex-1 truncate pl-1 text-[12px] text-faint">
               {s.versions && s.chosen !== null && s.versions.length > 1
                 ? `Version ${s.chosen + 1} of ${s.versions.length}`
-                : TOOL_NAMES[s.tool]}
+                : (s.label ?? TOOL_NAMES[s.tool])}
             </span>
           </>
         )}

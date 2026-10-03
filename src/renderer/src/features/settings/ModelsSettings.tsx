@@ -695,7 +695,24 @@ function WriterModel({
           onCancel={writer && writerProvider ? () => setPicking(false) : undefined}
         />
       )}
-      {providers.length ? <ThinkingChoice job="writer" about="Thinking can help a model plan a scene, but drafts take longer. Models that don't think aren't affected." /> : null}
+      {providers.length ? (
+        <>
+          <ThinkingChoice job="writer" about="Thinking can help a model plan a scene, but drafts take longer. Models that don't think aren't affected." />
+          {/* The writer model's other jobs, each with its own Thinking: shorter, with the hints shown once above. */}
+          <ThinkingChoice
+            job="sample"
+            title="Thinking for sample passages"
+            about="When the writer model writes a sample passage for the style guide. Off is quickest."
+            hints={false}
+          />
+          <ThinkingChoice
+            job="polish"
+            title="Thinking for the polish pass"
+            about="When the writer model polishes a finished draft. Thinking may catch more, but the polish takes longer and costs more."
+            hints={false}
+          />
+        </>
+      ) : null}
     </SettingsSection>
   )
 }
@@ -1198,6 +1215,8 @@ const THINKING_NAMES: Record<ThinkingJob, string> = {
   check: 'Consistency check model thinking',
   recipe: 'Recipe maker thinking',
   speech: 'Read aloud model thinking',
+  sample: 'Thinking for sample passages',
+  polish: 'Thinking for the polish pass',
   sounds: 'Sound effects thinking'
 }
 
@@ -1208,8 +1227,23 @@ function SoundsThinking(): React.JSX.Element | null {
   return <ThinkingChoice job="sounds" title="Thinking for sound effects" about="Choosing sounds doesn't need the model to think: Off is quickest." />
 }
 
-/** How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model does the job. */
-function ThinkingChoice({ job, about, title = 'Thinking' }: { job: ThinkingJob; about: string; title?: string }): React.JSX.Element {
+
+/**
+ * How much a job's model thinks before it answers. It belongs to the job, so it stays the same whichever model
+ * does the job. `hints: false` leaves out the line under the choice (for the writer model's other jobs, shown
+ * just below the writer's own choice, which has it).
+ */
+function ThinkingChoice({
+  job,
+  about,
+  title = 'Thinking',
+  hints = true
+}: {
+  job: ThinkingJob
+  about: string
+  title?: string
+  hints?: boolean
+}): React.JSX.Element {
   const level = useApp((s) => s.settings?.thinking?.[job] ?? 'off')
   const update = useApp((s) => s.updateSettings)
   const choose = (l: ThinkingLevel): void => void update({ thinking: { [job]: l } }).catch((e: Error) => toast(e.message, { tone: 'danger' }))
@@ -1226,13 +1260,15 @@ function ThinkingChoice({ job, about, title = 'Thinking' }: { job: ThinkingJob; 
         className="mt-2.5 *:min-w-[72px] *:flex-none *:px-2.5"
       />
       {/* Every hint sits in the same cell, so the space under the choice is the longest hint's and never jumps. */}
-      <div className="mt-2 grid text-[12.5px] text-faint">
-        {THINKING_OPTIONS.map((o) => (
-          <p key={o.value} className={cn('col-start-1 row-start-1', o.value !== level && 'invisible')}>
-            {THINKING_HINTS[o.value]}
-          </p>
-        ))}
-      </div>
+      {hints ? (
+        <div className="mt-2 grid text-[12.5px] text-faint">
+          {THINKING_OPTIONS.map((o) => (
+            <p key={o.value} className={cn('col-start-1 row-start-1', o.value !== level && 'invisible')}>
+              {THINKING_HINTS[o.value]}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

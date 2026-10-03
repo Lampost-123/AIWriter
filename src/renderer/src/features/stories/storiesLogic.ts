@@ -3,6 +3,8 @@
 // gets for a story with where each rule comes from. No React, so it is unit-tested.
 import type { StoryPlacement } from '@shared/api'
 import type { StoryFlowStatus } from '@shared/contracts/storyFlows'
+import { genreLabel } from '@shared/genres'
+import { INTENSITY, intensityStep } from '@shared/intensity'
 import { effectiveStyle, STYLE_TEXT_KEYS, type StyleSource } from '@shared/style'
 import type { ID, Outline, StartAt, Story, StoryKind, StyleGuide, WritingPrefs } from '@shared/types'
 
@@ -222,7 +224,8 @@ const LABELS: Record<(typeof STYLE_TEXT_KEYS)[number], string> = {
   proseStyle: 'Prose style',
   samplePassage: 'Sample passage',
   contentLimits: 'Content limits',
-  notes: 'Notes'
+  notes: 'Notes',
+  genreNotes: 'Genre notes'
 }
 
 /**
@@ -239,14 +242,21 @@ export function styleRules(prefs: WritingPrefs, world: StyleGuide, story: Partia
   push('pov', LABELS.pov, s.pov, s.sources.pov)
   push('tense', LABELS.tense, s.tense, s.sources.tense)
   push('spelling', 'Spelling', s.spelling ? `${s.spelling} spelling` : '', s.sources.spelling)
+  push('genres', s.genres.length > 1 ? 'Genres' : 'Genre', genreLabel(s.genres), s.sources.genres)
+  push('genreNotes', LABELS.genreNotes, s.genreNotes, s.sources.genreNotes)
+  const levels = INTENSITY.flatMap(({ scale, label }) => {
+    const step = intensityStep(s.intensity, scale)
+    return step ? [`${label}: ${step.label}`] : []
+  })
+  push('intensity', 'Content', levels.join(' · '), s.sources.intensity)
   for (const key of ['proseStyle', 'samplePassage', 'contentLimits', 'notes'] as const) push(key, LABELS[key], s[key], s.sources[key])
   const seen = new Set<string>()
-  const levels: [string[] | undefined, StyleSource][] = [
+  const phraseLevels: [string[] | undefined, StyleSource][] = [
     [prefs?.avoidWords, 'prefs'],
     [world?.avoidPhrases, 'world'],
     [story?.avoidPhrases, 'story']
   ]
-  for (const [list, source] of levels) {
+  for (const [list, source] of phraseLevels) {
     const added: string[] = []
     for (const raw of Array.isArray(list) ? list : []) {
       const phrase = typeof raw === 'string' ? raw.trim() : ''

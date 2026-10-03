@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppEvents } from '@shared/api'
-import type { DraftOptions, ModelChoice, ThinkingLevel } from '@shared/types'
+import type { ContentIntensity, DraftOptions, ModelChoice, ThinkingLevel } from '@shared/types'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
@@ -79,7 +79,8 @@ function start(
   onKeyRejected?: () => void,
   modelOver: Partial<ModelChoice> = {},
   onWorked?: () => void,
-  thinking?: ThinkingLevel
+  thinking?: ThinkingLevel,
+  intensity?: ContentIntensity
 ) {
   const input = gatherContextInput(w.db, w.second.id, { direction: 'End on the knock.', ...options }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
   const preview = assembleContext(input, countRaw)
@@ -94,6 +95,7 @@ function start(
       provider: { id: 'p1', name: 'Fake', kind, baseUrl: fake.url, apiKey: 'k' },
       model: model({ modelId, ...modelOver }),
       thinking,
+      intensity,
       entryVersions: sentEntryVersions(input.memory, preview.blocks),
       emit,
       onKeyRejected,
@@ -449,6 +451,37 @@ describe('drafting', () => {
     expect(fake.requestCounts()['fake/writer']).toBe(1)
     expect('temperature' in fake.lastRequest()!.body).toBe(false)
     expect(gens.getGeneration(w.db, own.generationId).params.sampling).toBe(false)
+  })
+
+  it('sends min_p with Balanced and Adventurous to OpenRouter only, and records it', async () => {
+    const { emit, done } = recorder()
+    fake.reset()
+    const balanced = start(w, emit, 'fake/writer', 'openrouter', { creativity: 'balanced' })
+    expect((await done(balanced.generationId)).status).toBe('complete')
+    expect(fake.lastRequest()!.body.min_p).toBe(0.05)
+    expect(gens.getGeneration(w.db, balanced.generationId).params.min_p).toBe(0.05)
+    const steady = start(w, emit, 'fake/writer', 'openrouter', { creativity: 'steady' })
+    await done(steady.generationId)
+    expect('min_p' in fake.lastRequest()!.body).toBe(false)
+    expect(gens.getGeneration(w.db, steady.generationId).params.min_p).toBeUndefined()
+    const other = start(w, emit, 'fake/writer', 'custom', { creativity: 'adventurous' })
+    await done(other.generationId)
+    expect('min_p' in fake.lastRequest()!.body).toBe(false)
+    expect(gens.getGeneration(w.db, other.generationId).params.min_p).toBeUndefined()
+  })
+
+  it('suggests another writer model when a draft is refused at strong content levels', async () => {
+    const { emit, done } = recorder()
+    const strong = start(w, emit, 'fake/refuse', 'custom', {}, undefined, {}, undefined, undefined, { violence: 4 })
+    const d = await done(strong.generationId)
+    expect(d.status).toBe('error')
+    expect(d.error).toBe(
+      "The writer model refused this scene. Some models won't write violence at the level your style guide sets, so pick a different writer model in Settings › Models."
+    )
+    expect(gens.getGeneration(w.db, strong.generationId).error).toBe(d.error)
+    // At milder levels the usual words stand.
+    const mild = start(w, emit, 'fake/refuse', 'custom', {}, undefined, {}, undefined, undefined, { violence: 2 })
+    expect((await done(mild.generationId)).error).toBe('This model refused the scene. Try another model in Settings › Models.')
   })
 
   it("asks with the writer's thinking level, with room for it, and records how it was sent", async () => {

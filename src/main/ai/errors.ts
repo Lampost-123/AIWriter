@@ -1,7 +1,9 @@
 // Turns what went wrong talking to a provider into plain words with a next
 // step. Pure: every message Adam can see from the model connection is here.
 
-import type { ProviderKind } from '@shared/types'
+import type { ContentIntensity, ProviderKind } from '@shared/types'
+import { looksLikeRefusalReply } from '@shared/refusal'
+import { INTENSITY, intensityHigh, type IntensityScale } from '@shared/intensity'
 import { isLocalUrl } from '@shared/urls'
 
 export interface ProviderRef {
@@ -80,6 +82,15 @@ export function looksLikeTokenParamRejected(status: number, msg: string): boolea
 export function looksLikeSamplingRejected(status: number, msg: string): boolean {
   if (status !== 400 && status !== 422) return false
   return /\b(temperature|top_p)\b/i.test(msg) && /unsupported|not supported|does not support|doesn't support|deprecated|cannot both|can't both|only one|only the default|not allowed|not permitted|invalid/i.test(msg)
+}
+
+/**
+ * The model (or the service OpenRouter sends it to) doesn't take `min_p`, which AI Write sends with the
+ * Balanced and Adventurous creativity. Asking again without it fixes it.
+ */
+export function looksLikeMinPRejected(status: number, msg: string): boolean {
+  if (status !== 400 && status !== 422) return false
+  return /\bmin[_-]p\b/i.test(msg)
 }
 
 /** The provider is complaining about the name or value of a setting, not about lengths. */
@@ -221,7 +232,7 @@ function describeStatus(
       ? `${who} didn't answer in time. If the model is still loading, wait a moment and try again.`
       : `${who} didn't answer in time. Try again in a moment.`
   }
-  if (looksLikeTokenParamRejected(status, msg) || looksLikeSamplingRejected(status, msg)) {
+  if (looksLikeTokenParamRejected(status, msg) || looksLikeSamplingRejected(status, msg) || looksLikeMinPRejected(status, msg)) {
     return `This model doesn't accept one of the settings AI Write sent. ${otherModel}`
   }
   if (!onPage && (status === 400 || status === 422) && mentionsReplyLimit(msg) && !/context (length|window|size)|maximum context/i.test(msg)) {
@@ -265,6 +276,58 @@ export function networkCode(err: unknown): string | null {
     const code = (e as { code?: unknown }).code
     if (typeof code === 'string' && code) return code
     e = (e as { cause?: unknown }).cause
+  }
+  return null
+}
+
+// ---------- Refusals at strong content levels (the style guide's Content intensity) ----------
+
+export { looksLikeRefusalReply }
+
+/** What each content scale is called in the refusal note. */
+const SCALE_WORDS: Record<IntensityScale, string> = { romance: 'romance', violence: 'violence', language: 'swearing' }
+
+/** The scales set above their second step, in words ("romance and violence"); null when none is (see intensityHigh). */
+export function strongScaleWords(intensity: ContentIntensity): string | null {
+  if (!intensityHigh(intensity)) return null
+  const words = INTENSITY.filter(({ scale }) => (intensity[scale] ?? 0) > 2).map(({ scale }) => SCALE_WORDS[scale])
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words[0]
+}
+
+/**
+ * The words for a draft the writer model wouldn't write, or cut short with its content filter, while the style
+ * guide sets content above its second step: some models won't write at that level, so the next step is another
+ * writer model. Null when that isn't what happened, or the content levels are mild (the usual message stands).
+ * A reply that is plainly a refusal counts too, even though it "finished".
+ */
+export function strongContentRefusal(o: {
+  status: 'complete' | 'stopped' | 'error'
+  failure: Failure | null
+  finishReason: string | null
+  text: string
+  intensity: ContentIntensity | null | undefined
+}): string | null {
+  const scales = o.intensity ? strongScaleWords(o.intensity) : null
+  if (!scales) return null
+  const plural = scales.includes(' and ')
+  const tip = `Some models won't write ${scales} at the ${plural ? 'levels' : 'level'} your style guide sets, so pick a different writer model in ${SETTINGS}.`
+  const kept = o.text.trim() ? ' The text that arrived is kept.' : ''
+  const f = o.failure
+  if (o.status === 'error' && f?.type === 'refused') {
+    if (o.finishReason === 'content_filter' && o.text.trim()) return `The writer model's content filter cut this scene short. ${tip}${kept}`
+    return `The writer model refused this scene. ${tip}${kept}`
+  }
+  if (
+    o.status === 'error' &&
+    f?.type === 'http' &&
+    (f.status === 400 || f.status === 403 || f.status === 422) &&
+    looksLikeRefusal(f.message) &&
+    !looksLikeContextTooLong(f.message)
+  ) {
+    return `The writer model refused this scene. ${tip}${kept}`
+  }
+  if (o.status === 'complete' && looksLikeRefusalReply(o.text)) {
+    return `The writer model wouldn't write this scene and sent back a refusal instead. ${tip}`
   }
   return null
 }

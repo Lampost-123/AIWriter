@@ -5,13 +5,13 @@
 
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
-import type { ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice, ThinkingLevel } from '@shared/types'
+import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
-import { isKeyFailure } from './errors'
+import { isKeyFailure, strongContentRefusal } from './errors'
 
 type DB = Database.Database
 type GenerationParams = GenerationRecord['params']
@@ -81,6 +81,11 @@ export interface DraftRequest {
   model: ModelChoice
   /** How much the writer model is asked to think (Settings › Models). */
   thinking?: ThinkingLevel
+  /**
+   * The content levels of the style guide in effect. Set above their second step, a draft the model refuses
+   * (or its content filter cuts short) says some models won't write at that level, and to pick another.
+   */
+  intensity?: ContentIntensity
   /** Each live entry's updatedAt, recorded as the version that was sent. */
   entryVersions: Map<ID, string>
   emit: Emit
@@ -114,8 +119,10 @@ function startParams(req: DraftRequest): SentParams {
 
 /** The params with how they were actually sent (only noted when it differs from the usual), and the thinking asked for. */
 function withSent(p: GenerationParams, sent: SentParams, effort: string | null): GenerationParams {
-  const { tokenParam: _t, sampling: _s, cutOff: _c, thinking: _k, ...rest } = p
+  const { tokenParam: _t, sampling: _s, cutOff: _c, thinking: _k, min_p, ...rest } = p
   const out: GenerationParams = { ...rest }
+  // min_p goes with the other creativity settings, and not to a model that turned it down.
+  if (min_p != null && sent.sampling && sent.minP !== false) out.min_p = min_p
   if (sent.tokenParam !== 'max_tokens') out.tokenParam = sent.tokenParam
   if (!sent.sampling) out.sampling = false
   const thinking = levelOfEffort(effort)
@@ -131,10 +138,13 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   const preset = CREATIVITY_PRESETS[req.options.creativity] ?? CREATIVITY_PRESETS.balanced
   const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput, req.thinking)
   const sent = startParams(req)
+  // min_p is sent only to OpenRouter (ai/client.ts), so only then is it noted.
+  const minP = req.provider.kind === 'openrouter' ? preset.min_p : null
   const params: GenerationParams = withSent(
     {
       temperature: preset.temperature,
       top_p: preset.top_p,
+      ...(minP != null ? { min_p: minP } : {}),
       max_tokens: reply.limit,
       creativity: req.options.creativity,
       // Auto leaves the length out and says so.
@@ -199,7 +209,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
         messages: req.preview.messages,
         temperature: params.temperature,
         top_p: params.top_p,
-        max_tokens: params.max_tokens
+        max_tokens: params.max_tokens,
+        min_p: params.min_p ?? null
       },
       // A set's variants are sent side by side, so only the first can leave the briefing in the cache.
       cache: (req.partOf?.variant?.index ?? 1) === 1,
@@ -242,7 +253,17 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   if (saveTimer) clearTimeout(saveTimer)
   sendChunk()
 
-  const status = job.closed ? 'stopped' : outcome.status
+  let status: StreamOutcome['status'] = job.closed ? 'stopped' : outcome.status
+  let error = status === 'error' ? outcome.error : null
+  // At strong content levels, a refusal (or a content filter cutting the scene short, or a reply that is
+  // plainly a refusal) says that some models won't write at that level.
+  const refused = job.closed
+    ? null
+    : strongContentRefusal({ status, failure: outcome.failure, finishReason: outcome.finishReason, text: outcome.text, intensity: req.intensity })
+  if (refused) {
+    status = 'error'
+    error = refused
+  }
   // A request the provider turned down (or never answered) costs nothing: don't make up a price for it.
   const f = outcome.failure?.type
   const neverRan =
@@ -263,7 +284,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     try {
       gens.finishGeneration(db, job.id, {
         status,
-        error: status === 'error' ? outcome.error : null,
+        error,
         response: outcome.text,
         promptTokens: outcome.promptTokens,
         cachedTokens: outcome.cachedTokens,
@@ -288,7 +309,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     generationId: job.id,
     sceneId: job.sceneId,
     status,
-    error: status === 'error' ? outcome.error : null,
+    error,
     promptTokens: outcome.promptTokens,
     completionTokens: outcome.completionTokens,
     cost,

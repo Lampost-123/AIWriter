@@ -11,7 +11,7 @@
 //   timeline   the scenes just before on the line: when and where each was, and who was there; the end of
 //              the scene before; this scene's own When and place
 //   voice      each speaking character's voice notes and sample lines (in their profile)
-//   style      the style guide's point of view and tense, and the scene card's mood
+//   style      the style guide's point of view and tense, the genre and content levels, and the scene card's mood
 // Entries and earlier scenes get short ids (E1, S1) that the reply refers to. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -19,6 +19,8 @@ import type { CheckKind } from '@shared/contracts/checks'
 import type { ContextBlock, EntryState, ID, SceneCard, WritingPrefs } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { effectiveStyle } from '@shared/style'
+import { genreLabel, genresOf } from '@shared/genres'
+import { intensityLines } from '@shared/intensity'
 import type { SceneMemory } from '../memory/types'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
 import { loadShape, sceneMemory } from '../memory/scene'
@@ -69,7 +71,7 @@ export interface SceneCheckContext {
   memory: SceneMemory
   entries: CheckEntry[]
   earlier: CheckScene[]
-  style: { pov: string; tense: string; proseStyle: string; tone: string }
+  style: { pov: string; tense: string; proseStyle: string; tone: string; genre?: string; content?: string[] }
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').trim()
@@ -143,7 +145,14 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
     memory,
     entries,
     earlier,
-    style: { pov: clean(style.pov), tense: clean(style.tense), proseStyle: clean(style.proseStyle), tone: clean(story.tone) }
+    style: {
+      pov: clean(style.pov),
+      tense: clean(style.tense),
+      proseStyle: clean(style.proseStyle),
+      tone: clean(story.tone),
+      genre: genreText(style.genres),
+      content: intensityLines(style.intensity)
+    }
   }
 }
 
@@ -210,7 +219,9 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       s.pov ? `Point of view: ${s.pov}` : '',
       s.tense ? `Tense: ${s.tense}` : '',
       s.proseStyle ? `Prose style: ${s.proseStyle}` : '',
-      s.tone ? `The story's tone: ${s.tone}` : ''
+      s.tone ? `The story's tone: ${s.tone}` : '',
+      s.genre ? `Genre: ${s.genre}` : '',
+      ...(s.content ?? [])
     ].filter(Boolean)
     if (lines.length) out.push({ id: 'style', title: 'The style guide', text: lines.join('\n'), entryIds: [] })
   }
@@ -360,4 +371,10 @@ function splitLongPara(p: string, tokens: number): string[] {
   }
   if (cur.trim()) out.push(cur.trim())
   return out
+}
+
+/** The genre picks for the style check: "Horror (slow-building dread)", or "" when none is picked. */
+function genreText(ids: string[]): string {
+  const label = genreLabel(ids)
+  return label ? `${label} (${genresOf(ids).map((g) => g.feel).join('; ')})` : ''
 }

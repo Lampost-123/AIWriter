@@ -96,6 +96,7 @@ export async function startBeat(
       provider: b.target,
       model: b.choice,
       thinking: b.thinking,
+      intensity: b.input.style.intensity,
       entryVersions: b.entryVersions,
       emit: o.emit,
       ...providerNotes(b.target.id)

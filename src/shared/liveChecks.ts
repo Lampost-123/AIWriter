@@ -9,14 +9,21 @@
 //   two-word one only nearby). The repeats after the first are flagged.
 // - Name spelling: a capitalised word that isn't a name, an alias or a common English word, and is a
 //   letter away from a name (two for names of 7 letters or more), starting with the same letter.
+// - Common AI phrases (while Adam's preference "Avoid common AI phrases" is on): the stock wording in
+//   src/shared/slop.ts. Their own kind on the page ('ai'), but stored as a phrase when ignored, per
+//   paragraph, keyed by the phrase's id (slopKey), so they never share a key with Adam's own phrases.
 //
 // Fast enough to run after every pause in the typing: each paragraph's words, phrase matches and
 // spellings are kept by its text (LiveCache), so only the paragraphs that changed are read again;
 // repetition looks across paragraphs, but over words already split up.
 
 import type { CheckWords, LiveIgnore } from './contracts/checks'
+import { findSlop, type SlopGroup, type SlopMatch } from './slop'
 
+/** The kinds stored when a flag is ignored (issue kinds). */
 export type LiveKind = LiveIgnore['kind']
+/** The kinds of underline in the page: the stored ones, and common AI phrases ('ai', stored as a phrase). */
+export type LiveFlagKind = LiveKind | 'ai'
 
 /** How many words "nearby" spans. */
 export const NEAR_WORDS = 150
@@ -35,7 +42,7 @@ export interface LiveParagraph {
 }
 
 export interface LiveFlag {
-  kind: LiveKind
+  kind: LiveFlagKind
   /** Which paragraph (index in the list checked). */
   para: number
   /** Character range in that paragraph's text. */
@@ -49,6 +56,8 @@ export interface LiveFlag {
   message: string
   /** Spelling: the name it is closest to, as the name is written. */
   suggestion: string | null
+  /** A common AI phrase: its group (SLOP_GROUPS names it). */
+  group?: SlopGroup
 }
 
 /** The words the checks use, worked out once for each CheckWords. */
@@ -64,6 +73,8 @@ export interface LiveWords {
   /** Names to match spellings against, by their first letter. */
   byFirst: Map<string, { name: string; lower: string }[]>
   avoid: { phrase: string; lower: string; re: RegExp }[]
+  /** Underline common AI phrases (Adam's preference; on unless he turned it off). */
+  aiPhrases: boolean
 }
 
 // ---------- Words ----------
@@ -194,7 +205,8 @@ export function prepareLiveWords(words: CheckWords): LiveWords {
   }
   const namesKey = [...known].sort().join('|') + '#' + [...byFirst.values()].flat().map((c) => c.name).sort().join('|')
   const avoidKey = avoid.map((a) => a.lower).join('|')
-  return { key: `${namesKey}##${avoidKey}`, namesKey, avoidKey, known, nameWords, byFirst, avoid }
+  const aiPhrases = words.aiPhrases !== false
+  return { key: `${namesKey}##${avoidKey}##${aiPhrases ? 'ai' : ''}`, namesKey, avoidKey, known, nameWords, byFirst, avoid, aiPhrases }
 }
 
 export const EMPTY_WORDS: LiveWords = prepareLiveWords({ names: [], avoid: [] })
@@ -207,6 +219,42 @@ export function liveKey(kind: LiveKind, words: string, pid: string | null = null
   if (kind === 'phrase') return `phrase:${pid ?? ''}:${w}`
   return `${kind}:${w}`
 }
+
+/** Where a common AI phrase's ignore is kept: as a phrase in its paragraph, by the phrase's id. */
+const SLOP_MARK = 'ai-phrase:'
+
+/** What Ignore stores for a common AI phrase in a paragraph. Never the same as a phrase of Adam's (liveKey). */
+export const slopKey = (id: string, pid: string | null = null): string => `phrase:${pid ?? ''}:${SLOP_MARK}${id}`
+
+/** True for the key of a common AI phrase (slopKey). */
+export const isSlopKey = (key: string): boolean => /^phrase:[^:]*:/.test(key) && key.slice(key.indexOf(':', 'phrase:'.length) + 1).startsWith(SLOP_MARK)
+
+/** The kind a flag is stored as when ignored. */
+export const storedKind = (kind: LiveFlagKind): LiveKind => (kind === 'ai' ? 'phrase' : kind)
+
+/** What each group of common AI phrases does, for the card: "“her breath hitched” is a stock way to show a feeling." */
+export const SLOP_HINTS: Record<SlopGroup, string> = {
+  body: 'a stock way to show a feeling',
+  grand: 'grand words where a detail would do',
+  pattern: 'a sentence shape AI writing leans on',
+  closer: 'a line that sums up instead of showing',
+  word: 'a word AI writing overuses'
+}
+
+/** The card's sentence for a common AI phrase. */
+export const slopMessage = (words: string, group: SlopGroup): string => `“${words}” is ${SLOP_HINTS[group]}.`
+
+/** The direction Rewrite is given for a flag's sentence: without the phrase, keeping the meaning and the voice. */
+export function rewriteDirection(flag: { kind: LiveFlagKind; key: string; word: string }): string {
+  // A common AI phrase as written; a phrase to avoid as the list has it (the key is phrase:<paragraph>:<phrase>).
+  if (flag.kind === 'ai') return `Rewrite this without the stock phrase “${flag.word}”, keeping its meaning and the scene’s voice.`
+  const phrase = flag.key.split(':').slice(2).join(':') || flag.word
+  return `Rewrite this without “${phrase}”, keeping its meaning and the scene’s voice.`
+}
+
+/** The quiet note after a draft lands: "3 common AI phrases underlined in the new draft." */
+export const draftNoteWords = (count: number): string =>
+  `${count === 1 ? '1 common AI phrase' : `${count} common AI phrases`} underlined in the new draft.`
 
 const times = (n: number): string => (n === 2 ? 'twice' : `${n} times`)
 
@@ -290,6 +338,8 @@ interface ParaInfo {
   tokens: Token[]
   avoided: { key: string; spots: Spot[] } | null
   misspelt: { key: string; spots: Spot[] } | null
+  /** Common AI phrases (the list never changes, so no key). */
+  slop: SlopMatch[] | null
 }
 
 /** Each paragraph's words and per-paragraph findings, by its text. Keeps only the paragraphs of the last check. */
@@ -303,7 +353,7 @@ export class LiveCache {
 
   get(text: string): ParaInfo {
     let p = this.map.get(text) ?? this.next?.get(text)
-    if (!p) p = { tokens: tokenize(text), avoided: null, misspelt: null }
+    if (!p) p = { tokens: tokenize(text), avoided: null, misspelt: null, slop: null }
     this.next?.set(text, p)
     return p
   }
@@ -491,19 +541,29 @@ export function checkScene(paras: LiveParagraph[], words: LiveWords, ignored: Re
   paras.forEach((p, para) => {
     const info = cache.get(p.text)
     tokens.push(info.tokens)
+    let avoided: Spot[] = []
     if (words.avoid.length) {
       if (info.avoided?.key !== words.avoidKey) info.avoided = { key: words.avoidKey, spots: findAvoided(p.text, words.avoid) }
-      for (const s of info.avoided.spots) {
-        flags.push({
-          kind: 'phrase',
-          para,
-          from: s.from,
-          to: s.to,
-          word: s.word,
-          key: liveKey('phrase', s.lower, p.pid),
-          message: `“${s.lower}” is on your list of phrases to avoid.`,
-          suggestion: null
-        })
+      avoided = info.avoided.spots
+    }
+    for (const s of avoided) {
+      flags.push({
+        kind: 'phrase',
+        para,
+        from: s.from,
+        to: s.to,
+        word: s.word,
+        key: liveKey('phrase', s.lower, p.pid),
+        message: `“${s.lower}” is on your list of phrases to avoid.`,
+        suggestion: null
+      })
+    }
+    if (words.aiPhrases) {
+      info.slop ??= findSlop(p.text)
+      for (const m of info.slop) {
+        // A phrase on Adam's own list wins: his underline, his message.
+        if (avoided.some((s) => s.from < m.to && m.from < s.to)) continue
+        flags.push({ kind: 'ai', para, from: m.from, to: m.to, word: m.text, key: slopKey(m.id, p.pid), message: slopMessage(m.text, m.group), suggestion: null, group: m.group })
       }
     }
     if (info.misspelt?.key !== words.namesKey) info.misspelt = { key: words.namesKey, spots: findMisspelt(info.tokens, p.text, words) }
@@ -536,8 +596,8 @@ export function checkScene(paras: LiveParagraph[], words: LiveWords, ignored: Re
 }
 
 /** How many flags of each kind. */
-export function countFlags(flags: { kind: LiveKind }[]): Record<LiveKind, number> {
-  const out: Record<LiveKind, number> = { phrase: 0, repetition: 0, spelling: 0 }
+export function countFlags(flags: { kind: LiveFlagKind }[]): Record<LiveFlagKind, number> {
+  const out: Record<LiveFlagKind, number> = { phrase: 0, repetition: 0, spelling: 0, ai: 0 }
   for (const f of flags) out[f.kind]++
   return out
 }

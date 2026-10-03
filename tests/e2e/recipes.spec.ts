@@ -134,6 +134,8 @@ test('a pasted story becomes a recipe with none of its names, and a new story is
     expect(story.style.samplePassage).toContain('The kettle had boiled twice')
     expect(story.tone).toBe('Quiet, wry and hopeful')
     expect(story.themes).toContain('Belonging')
+    expect(story.style.genres).toEqual(['mystery', 'cosy'])
+    expect(story.style.intensity).toEqual({ violence: 2, language: 2 })
     const outline = await invoke(win, 'getOutline', story.id)
     expect(outline.chapters.map((c) => c.title)).toContain('Grey Water')
     expect(outline.scenes.length).toBeGreaterThan(3)

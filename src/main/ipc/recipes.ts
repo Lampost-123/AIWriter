@@ -2,7 +2,6 @@
 // connects it to the settings, the open world (for a new story from a recipe) and the window.
 import type { Handlers } from './index'
 import type { RecipesApi } from '@shared/contracts/recipes'
-import type { Story } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as providers from '../ai/providers'
@@ -14,6 +13,7 @@ import { readText } from '../importing/text'
 import { libraryChanged, maker, recipeFiles, recipeModel } from '../recipes'
 import { guessRecipe, recipeCost } from '../recipes/estimate'
 import { emptyParts } from '../recipes/parse'
+import { recipeIntoStory, storyBeforeRecipe } from '../recipes/apply'
 import { chapterText, sourceFromPlan, sourceWords } from '../recipes/source'
 import { startRecipeStoryJob } from '../recipes/story'
 import type { StoredRecipe } from '../recipes/store'
@@ -213,37 +213,14 @@ export const recipesHandlers: Handlers<keyof RecipesApi> = {
   applyRecipeToStory: (storyId, recipeId) => {
     const db = world.db()
     const r = stored(recipeId)
-    const story = repo.getStory(db, storyId)
-    const before = {
-      storyId,
-      themes: story.themes,
-      tone: story.tone,
-      style: { pov: story.style.pov, tense: story.style.tense, proseStyle: story.style.proseStyle, samplePassage: story.style.samplePassage }
-    }
-    const p = r.parts
-    const style: Story['style'] = { ...story.style }
-    if (p.pov.trim()) style.pov = p.pov.trim()
-    if (p.tense.trim()) style.tense = p.tense.trim()
-    if (p.style.trim()) style.proseStyle = p.style.trim()
-    if (p.sample.trim()) style.samplePassage = p.sample.trim()
-    repo.updateStory(db, storyId, {
-      style,
-      ...(p.themes.trim() ? { themes: p.themes.trim() } : {}),
-      ...(p.tone.trim() ? { tone: p.tone.trim() } : {})
-    })
+    const { before, patch } = recipeIntoStory(repo.getStory(db, storyId), r.parts)
+    repo.updateStory(db, storyId, patch)
     repo.touchWorld(db)
     return before
   },
   unapplyRecipe: (before) => {
     const db = world.db()
-    const story = repo.getStory(db, before.storyId)
-    const style: Story['style'] = { ...story.style }
-    for (const k of ['pov', 'tense', 'proseStyle', 'samplePassage'] as const) {
-      const v = before.style[k]
-      if (v) style[k] = v
-      else delete style[k]
-    }
-    repo.updateStory(db, before.storyId, { themes: before.themes ?? '', tone: before.tone ?? '', style })
+    repo.updateStory(db, before.storyId, storyBeforeRecipe(repo.getStory(db, before.storyId), before))
     repo.touchWorld(db)
   }
 }

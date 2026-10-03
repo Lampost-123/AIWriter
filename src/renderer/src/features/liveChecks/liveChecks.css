@@ -1,7 +1,8 @@
 /* The live checks in the page (features/liveChecks/): a quiet underline under a misspelt name (wavy), a
-   phrase to avoid (solid) or a word used too often nearby (dashed), below the letters and taking no
-   room. Colours come from the theme tokens; amber is for AI suggestions and red for must-fix problems,
-   so neither is used here. A name's own underline is dotted and grey, so the two never look alike. */
+   phrase to avoid (solid), a word used too often nearby (dashed) or a common AI phrase (dotted amber),
+   below the letters and taking no room. Colours come from the theme tokens; red is for must-fix problems,
+   so it is never used here, and amber only for the common AI phrases, which the AI can fix. A name's own
+   underline is dotted too, but thin and grey; the AI phrase's dots are heavier and amber. */
 
 .scene-prose .aw-live {
   text-decoration-line: underline;
@@ -19,6 +20,17 @@
 .scene-prose .aw-live.aw-live-phrase {
   text-decoration-style: solid;
   text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* Dotted, heavier and amber: never mistaken for a phrase to avoid (solid, in the accent colour) or a name (thin grey dots). */
+.scene-prose .aw-live.aw-live-ai {
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: color-mix(in srgb, var(--ai) 60%, transparent);
+}
+
+.scene-prose .aw-live.aw-live-ai:hover {
+  text-decoration-color: var(--ai);
 }
 
 .scene-prose .aw-live.aw-live-repetition {
@@ -63,4 +75,10 @@
 .aw-live-swatch-repetition::before {
   text-decoration-style: dashed;
   text-decoration-color: var(--muted);
+}
+
+.aw-live-swatch-ai::before {
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--ai);
 }

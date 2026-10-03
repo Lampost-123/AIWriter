@@ -18,6 +18,7 @@ import { estimateTokens } from '../keeper/text'
 import { DEFAULT_RECIPE_CONTEXT, FIX_REPLY, NOTES_REPLY, RECIPE_REPLY, pieceChars } from './estimate'
 import { buildCheck, findLeaks, scrubText, type SourceCheck } from './leaks'
 import { emptyParts, parseRecipe } from './parse'
+import { feelText, parseFeel } from './feel'
 import { chapterAsk, chapterSystem, combineAsk, combineSystem, fixAsk, fixSystem } from './prompts'
 import { chapterSpans, chapterStats, chapterText, pacingTable, piecesOf, sourceWords, type RecipeSource } from './source'
 import type { MakingFile, RecipeFiles, StoredRecipe } from './store'
@@ -310,6 +311,9 @@ export class RecipeMaker {
       )
       const parts = { ...emptyParts(), ...parsed.parts }
       if (!parts.pacing.trim()) parts.pacing = pacingTable(src)
+      // Genre and content is rewritten in AI Write's own labels, so it holds none of the story's words to check.
+      const feel = feelText(parseFeel(parts.feel))
+      parts.feel = ''
       const fixed = await this.fixLeaks(r.id, parts, check, controller.signal)
       let removed = 0
       for (const k of Object.keys(fixed) as RecipePartId[]) {
@@ -317,6 +321,7 @@ export class RecipeMaker {
         fixed[k] = s.text
         removed += s.removed
       }
+      fixed.feel = feel
       let name = parsed.name.trim()
       if (!name || findLeaks(name, check).length || (src.title && name.toLowerCase().includes(src.title.toLowerCase()))) name = fallbackName(src.chapters.length)
       this.finish(files, r.id, src, fixed, name, removed)

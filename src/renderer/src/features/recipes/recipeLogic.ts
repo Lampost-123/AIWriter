@@ -8,6 +8,7 @@ import { dollars } from '@/features/importing/importLogic'
 export const PART_WORDS: Record<RecipePartId, { label: string; hint: string; short?: boolean }> = {
   themes: { label: 'Themes', hint: 'What the story is about underneath, how each theme surfaces and where it is tested, and each act’s tone and mood.' },
   tone: { label: 'Tone', hint: 'The story’s tone in a few words.', short: true },
+  feel: { label: 'Genre and content', hint: 'Such as: Genres: Horror, Mystery. Romance: Fade to black. Violence: Vivid. Language: Mild.' },
   style: { label: 'Writing style', hint: 'The voice, sentence rhythm, vocabulary, the balance of description, inner thought and dialogue, and how scenes open and close.' },
   pov: { label: 'Point of view', hint: 'Such as close third person, one character at a time.', short: true },
   tense: { label: 'Tense', hint: 'Past or present.', short: true },
@@ -21,7 +22,7 @@ export const PART_WORDS: Record<RecipePartId, { label: string; hint: string; sho
 
 /** The groups the recipe page shows its parts in. */
 export const PART_GROUPS: { title: string; parts: RecipePartId[] }[] = [
-  { title: 'What it is about', parts: ['themes', 'tone'] },
+  { title: 'What it is about', parts: ['themes', 'tone', 'feel'] },
   { title: 'How it is written', parts: ['style', 'pov', 'tense', 'sample'] },
   { title: 'How it is built', parts: ['shape', 'beats', 'cast', 'pacing', 'devices'] }
 ]
