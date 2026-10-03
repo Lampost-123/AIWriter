@@ -1,5 +1,5 @@
-<!-- version: 0.6.10 -->
-What's new:
+<!-- version: 0.6.11 -->
+What's new in 0.6.11:
 
 - A new look: warm paper pages, a colour for each kind of thing in your world, book-style headings and two-tone icons.
 - Four areas down the left (Write, Plan, World, Check), each with its own list, and a trail at the top showing where you are.
