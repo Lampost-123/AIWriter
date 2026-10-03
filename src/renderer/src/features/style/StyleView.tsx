@@ -1,6 +1,8 @@
 import { BookOpen } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defaultStyleGuide } from '@shared/defaults'
+import { cleanGenres } from '@shared/genres'
+import { cleanIntensity } from '@shared/intensity'
 import { effectiveStyle, STYLE_TEXT_KEYS } from '@shared/style'
 import type { Story, StyleGuide, World, WritingPrefs } from '@shared/types'
 import { Button, EmptyState, Field, Input, Notice, Spinner, Tabs, TabsContent, TabsList } from '@/components/ui'
@@ -13,6 +15,8 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
 import { usePrefs } from './prefsStore'
+import { SampleWriter } from './SampleWriter'
+import { StoryFeel } from './StoryFeel'
 import { Group, short, StyleFields } from './StyleFields'
 
 type Tab = 'world' | 'story'
@@ -28,7 +32,12 @@ const fullStyle = (s: Partial<StyleGuide> | undefined): StyleGuide => {
   const v: StyleGuide = { ...defaultStyleGuide(), ...(s ?? {}) }
   for (const k of STYLE_TEXT_KEYS) if (typeof v[k] !== 'string') v[k] = ''
   if (v.spelling !== 'UK' && v.spelling !== 'US') v.spelling = ''
-  return { ...v, avoidPhrases: Array.isArray(v.avoidPhrases) ? v.avoidPhrases.filter((x) => typeof x === 'string') : [] }
+  return {
+    ...v,
+    avoidPhrases: Array.isArray(v.avoidPhrases) ? v.avoidPhrases.filter((x) => typeof x === 'string') : [],
+    genres: cleanGenres(v.genres),
+    intensity: cleanIntensity(v.intensity)
+  }
 }
 
 /** The world's style guide and themes, and the open story's premise and overrides. */
@@ -151,6 +160,9 @@ function WorldStyleForm({ world, prefs }: { world: World; prefs: WritingPrefs })
 
   // Underneath the world sit only Adam's own preferences.
   const below = useMemo(() => effectiveStyle(prefs, defaultStyleGuide(), {}), [prefs])
+  // The style a sample is written in: the world's guide as on screen, over Adam's preferences.
+  const sampleStyle = useCallback(() => effectiveStyle(prefs, ref.current.style, {}), [prefs])
+  const putSample = useCallback((samplePassage: string) => onStyle({ samplePassage }), [onStyle])
 
   return (
     <div className="flex flex-col gap-8" onBlur={() => void autosave.flush()}>
@@ -158,7 +170,15 @@ function WorldStyleForm({ world, prefs }: { world: World; prefs: WritingPrefs })
         <p className="text-[12.5px] text-muted">Applies to every story in {world.name}.</p>
         <SaveNote status={autosave.status} error={autosave.error} />
       </div>
-      <StyleFields value={draft.style} onChange={onStyle} below={below} prefsPhrases={prefs.avoidWords} mode="world" />
+      <StoryFeel value={draft.style} onChange={onStyle} below={below} mode="world" />
+      <StyleFields
+        value={draft.style}
+        onChange={onStyle}
+        below={below}
+        prefsPhrases={prefs.avoidWords}
+        mode="world"
+        afterSample={<SampleWriter worldId={world.id} storyId={null} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />}
+      />
       <Group title="Themes and tone">
         <Field label="World themes" hint="What the world is about underneath, and how it should surface.">
           {(id) => (
@@ -228,6 +248,9 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
 
   // Underneath a story: the world's guide, then Adam's preferences.
   const below = useMemo(() => effectiveStyle(prefs, fullStyle(world.style), {}), [prefs, world.style])
+  // The style a sample is written in: the story's guide as on screen, over the world's and Adam's preferences.
+  const sampleStyle = useCallback(() => effectiveStyle(prefs, fullStyle(world.style), ref.current.style), [prefs, world.style])
+  const putSample = useCallback((samplePassage: string) => onStyle({ samplePassage }), [onStyle])
 
   return (
     <div className="flex flex-col gap-8" onBlur={() => void autosave.flush()}>
@@ -237,6 +260,7 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
         </p>
         <SaveNote status={autosave.status} error={autosave.error} />
       </div>
+      <StoryFeel value={draft.style} onChange={onStyle} below={below} mode="story" />
       <Group title="About this story">
         <Field label="Premise" hint="What this story is about, in a few sentences. The AI keeps it in mind for every scene.">
           {(id) => (
@@ -273,7 +297,14 @@ function StoryStyleForm({ story, world, prefs }: { story: Story; world: World; p
           )}
         </Field>
       </Group>
-      <StyleFields value={draft.style} onChange={onStyle} below={below} prefsPhrases={prefs.avoidWords} mode="story" />
+      <StyleFields
+        value={draft.style}
+        onChange={onStyle}
+        below={below}
+        prefsPhrases={prefs.avoidWords}
+        mode="story"
+        afterSample={<SampleWriter worldId={world.id} storyId={story.id} style={sampleStyle} current={draft.style.samplePassage} onUse={putSample} />}
+      />
     </div>
   )
 }

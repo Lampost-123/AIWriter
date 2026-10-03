@@ -337,3 +337,81 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* genre-tiles
+  The genre tiles in Style guide › Story feel (features/style/GenreTiles.tsx). Each tile sets --hue from its
+  preset (src/shared/genres.ts); each theme sets how light and how strong the colours are, as OKLCH lightness
+  (0 to 1) and chroma. Labels use --fg; the icon, ring and Main/Blend mark use the tile's ink.
+  features/style/genreColours.test.ts checks every hue stays readable in every theme.
+*/
+:root,
+[data-theme='light'] {
+  --genre-tile-l: 0.962;
+  --genre-tile-c: 0.018;
+  --genre-hover-l: 0.945;
+  --genre-hover-c: 0.026;
+  --genre-on-l: 0.915;
+  --genre-on-c: 0.042;
+  --genre-line-l: 0.89;
+  --genre-line-c: 0.03;
+  --genre-ink-l: 0.48;
+  --genre-ink-c: 0.085;
+  --genre-badge-l: 0.975;
+  --genre-badge-c: 0.008;
+}
+[data-theme='dark'] {
+  --genre-tile-l: 0.25;
+  --genre-tile-c: 0.022;
+  --genre-hover-l: 0.28;
+  --genre-hover-c: 0.032;
+  --genre-on-l: 0.315;
+  --genre-on-c: 0.05;
+  --genre-line-l: 0.34;
+  --genre-line-c: 0.03;
+  --genre-ink-l: 0.8;
+  --genre-ink-c: 0.1;
+  --genre-badge-l: 0.2;
+  --genre-badge-c: 0.02;
+}
+[data-theme='sepia'] {
+  --genre-tile-l: 0.935;
+  --genre-tile-c: 0.025;
+  --genre-hover-l: 0.915;
+  --genre-hover-c: 0.035;
+  --genre-on-l: 0.89;
+  --genre-on-c: 0.055;
+  --genre-line-l: 0.86;
+  --genre-line-c: 0.035;
+  --genre-ink-l: 0.48;
+  --genre-ink-c: 0.085;
+  --genre-badge-l: 0.97;
+  --genre-badge-c: 0.015;
+}
+.genre-tile {
+  --tile-ink: oklch(var(--genre-ink-l) var(--genre-ink-c) var(--hue));
+  background-color: oklch(var(--genre-tile-l) var(--genre-tile-c) var(--hue));
+  border: 1px solid oklch(var(--genre-line-l) var(--genre-line-c) var(--hue));
+  transition:
+    background-color 150ms ease-out,
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+.genre-tile:hover {
+  background-color: oklch(var(--genre-hover-l) var(--genre-hover-c) var(--hue));
+}
+.genre-tile[data-inherited] {
+  border-style: dashed;
+  border-color: var(--tile-ink);
+}
+.genre-tile[aria-pressed='true'] {
+  background-color: oklch(var(--genre-on-l) var(--genre-on-c) var(--hue));
+  border-color: var(--tile-ink);
+  box-shadow: inset 0 0 0 1px var(--tile-ink);
+}
+.genre-ink {
+  color: oklch(var(--genre-ink-l) var(--genre-ink-c) var(--hue));
+}
+.genre-badge {
+  background-color: oklch(var(--genre-ink-l) var(--genre-ink-c) var(--hue));
+  color: oklch(var(--genre-badge-l) var(--genre-badge-c) var(--hue));
+}

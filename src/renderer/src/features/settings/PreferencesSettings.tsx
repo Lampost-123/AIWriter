@@ -3,6 +3,7 @@ import type { Spelling, WritingPrefs } from '@shared/types'
 import { Button, Field, Notice, Select, Spinner } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
+import { AiPhrasesRow } from '@/features/style/AiPhrasesSwitch'
 import { usePrefs } from '@/features/style/prefsStore'
 import { ChipListInput } from '@/features/world/parts/ChipListInput'
 import { createDraftCache } from '@/features/world/parts/draftCache'
@@ -143,6 +144,7 @@ function PrefsForm({ initial }: { initial: WritingPrefs }): React.JSX.Element {
           The AI is told never to use these, in every world.
         </p>
       </div>
+      <AiPhrasesRow checked={prefs.avoidAiPhrases !== false} onChange={(avoidAiPhrases) => update({ avoidAiPhrases })} />
       <div className="flex items-center gap-3 border-t border-line pt-4 text-[12px] text-faint">
         <span className="flex-1">Changes save as you type. A world's style guide can choose its own point of view, tense, spelling and notes. Words to avoid here apply in every world.</span>
         <SaveNote status={autosave.status} error={autosave.error} />

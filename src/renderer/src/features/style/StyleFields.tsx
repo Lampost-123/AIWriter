@@ -12,7 +12,8 @@ export const short = (s: string, max = 120): string => {
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one
 }
 
-const TEXT: Record<Exclude<StyleTextKey, 'pov' | 'tense'>, { label: string; placeholder: string; hint?: string; rows: number }> = {
+// "Your own take" (genreNotes) is in Story feel (StoryFeel.tsx).
+const TEXT: Record<Exclude<StyleTextKey, 'pov' | 'tense' | 'genreNotes'>, { label: string; placeholder: string; hint?: string; rows: number }> = {
   proseStyle: {
     label: 'Prose style',
     placeholder: 'Plain and spare. Short paragraphs. Concrete detail over adjectives.',
@@ -33,11 +34,6 @@ const TEXT: Record<Exclude<StyleTextKey, 'pov' | 'tense'>, { label: string; plac
     label: 'Notes',
     placeholder: 'Anything else about how the writing should read',
     rows: 2
-  },
-  genreNotes: {
-    label: 'Your own take',
-    placeholder: 'Folk horror more than gothic. Magic is rare and frightening.',
-    rows: 2
   }
 }
 
@@ -57,7 +53,8 @@ export const StyleFields = memo(function StyleFields({
   onChange,
   below,
   prefsPhrases,
-  mode
+  mode,
+  afterSample
 }: {
   value: StyleGuide
   onChange: (patch: Partial<StyleGuide>) => void
@@ -65,6 +62,8 @@ export const StyleFields = memo(function StyleFields({
   /** Adam's own words to avoid, to say where inherited phrases come from. */
   prefsPhrases: string[]
   mode: 'world' | 'story'
+  /** Shown under the Sample passage field ("Write a sample for me"). */
+  afterSample?: ReactNode
 }): React.JSX.Element {
   /** What applies when this field is left empty, in words. */
   const inherited = (key: keyof StyleGuide, text: string): string | null => {
@@ -134,7 +133,7 @@ export const StyleFields = memo(function StyleFields({
         {(['proseStyle', 'samplePassage'] as const).map((key) => {
           const def = TEXT[key]
           const p = textProps(key, def.placeholder)
-          return (
+          const field = (
             <Field key={key} label={def.label} hint={p.hint ?? def.hint}>
               {(id) => (
                 <AutoTextarea
@@ -148,6 +147,14 @@ export const StyleFields = memo(function StyleFields({
                 />
               )}
             </Field>
+          )
+          return key === 'samplePassage' && afterSample ? (
+            <div key={key} className="flex flex-col gap-3">
+              {field}
+              {afterSample}
+            </div>
+          ) : (
+            field
           )
         })}
         <div className="flex flex-col gap-1">
