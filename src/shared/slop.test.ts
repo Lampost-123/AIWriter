@@ -32,6 +32,8 @@ describe('common AI phrases', () => {
   it('finds stock sentence patterns', () => {
     expect(ids('It wasn’t fear. It was something colder.')).toEqual(['not-x-but-y'])
     expect(ids('It wasn’t anger — it was grief.')).toEqual(['not-x-but-y'])
+    expect(ids('It wasn’t the cold, but something in his voice.')).toEqual(['not-x-but-y'])
+    expect(ids('This wasn’t a game; it was something worse.')).toEqual(['not-x-but-y'])
     expect(ids('She felt a strange mix of dread and excitement.')).toEqual(['mix-of'])
     expect(ids('He couldn’t help but laugh.')).toEqual(['help-but'])
     expect(ids('Something shifted between them.')).toEqual(['something-shifted'])
@@ -77,6 +79,12 @@ describe('common AI phrases', () => {
       'Something shifted in the undergrowth.',
       'It wasn’t late, but the streets were already empty.',
       'The lamp was dim, but it was enough to read by.',
+      '“That isn’t mine, it’s his,” she said.',
+      'This isn’t the road. It’s the river path.',
+      'It wasn’t far. It was just over the hill.',
+      'It wasn’t late, but the shops had shut.',
+      'He counted the coins. It was enough.',
+      '“That was enough!”',
       'His heart was in the right place.',
       'She kept her breath steady and her voice low.',
       'The steel blade caught the light.',

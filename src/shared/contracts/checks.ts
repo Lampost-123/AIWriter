@@ -73,6 +73,8 @@ export interface Issue {
   memoryFix: { entryId: ID; field: string; value: string } | null
   /** Which of the quote's appearances in the scene it is (0 for the first), when known: Fix the text works on that one. */
   occurrence?: number
+  /** A common AI phrase the live checks underlined (stored as a phrase when ignored): set only then. */
+  aiPhrase?: true
   createdAt: string
   updatedAt: string
 }

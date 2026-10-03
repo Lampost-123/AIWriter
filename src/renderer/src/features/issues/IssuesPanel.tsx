@@ -224,7 +224,7 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
     >
       <div className="flex items-center gap-2">
         <SeverityMark issue={issue} />
-        <span className="min-w-0 truncate text-[11.5px] text-faint">{KIND_WORDS[issue.kind]}</span>
+        <span className="min-w-0 truncate text-[11.5px] text-faint">{issue.aiPhrase ? 'Common AI phrase' : KIND_WORDS[issue.kind]}</span>
       </div>
       {issue.quote.trim() ? (
         <button

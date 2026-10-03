@@ -37,13 +37,19 @@ export function onLiveCardRequest(fn: (pos: number) => void): () => void {
 
 // A draft (Generate, Beat by beat, a picked version) has landed and been checked: how many common AI
 // phrases are underlined in it. The page's layer says so in a quiet toast.
-const draftListeners = new Set<(count: number) => void>()
-
-export function noteDraftPhrases(count: number): void {
-  draftListeners.forEach((l) => l(count))
+/** The first common AI phrase a draft brought: its key, and where it was when counted. */
+export interface DraftFirst {
+  key: string
+  from: number
 }
 
-export function onDraftPhrases(fn: (count: number) => void): () => void {
+const draftListeners = new Set<(count: number, first: DraftFirst) => void>()
+
+export function noteDraftPhrases(count: number, first: DraftFirst): void {
+  draftListeners.forEach((l) => l(count, first))
+}
+
+export function onDraftPhrases(fn: (count: number, first: DraftFirst) => void): () => void {
   draftListeners.add(fn)
   return () => draftListeners.delete(fn)
 }

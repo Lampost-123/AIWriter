@@ -28,17 +28,23 @@ function scrollParent(el: HTMLElement): HTMLElement | null {
 
 /**
  * Selects the next flag of a kind after the selection (from the top again after the last), brings it
- * into view a third of the way down the page and shows its card. Returns false when there is none (or
- * no scene is open on the writing page).
+ * into view a third of the way down the page and shows its card. `first`: instead, the flag with that key
+ * (the one nearest where it was), else the first one at or after that place: a draft's first common AI
+ * phrase. Returns false when there is none (or no scene is open on the writing page).
  */
-export function revealLiveFlag(kind: LiveFlagKind): boolean {
+export function revealLiveFlag(kind: LiveFlagKind, first?: { key: string; from: number }): boolean {
   const editor = editorBridge()?.editor
   if (!editor || editor.isDestroyed || useApp.getState().view.kind !== 'write') return false
   const view = editor.view
   const flags = liveFlagsOf(view.state).filter((f) => f.kind === kind)
   if (!flags.length) return false
+  let next: (typeof flags)[number] | undefined
+  if (first) {
+    const same = flags.filter((f) => f.key === first.key)
+    next = same.sort((a, b) => Math.abs(a.from - first.from) - Math.abs(b.from - first.from))[0] ?? flags.find((f) => f.from >= first.from)
+  }
   const after = view.state.selection.to
-  const next = flags.find((f) => f.from >= after) ?? flags[0]
+  next ??= flags.find((f) => f.from >= after) ?? flags[0]
   // Marked as shown, so the "Selected words" bar doesn't offer itself for it.
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, next.from, next.to)).setMeta(REVEALED, true))
   view.focus()

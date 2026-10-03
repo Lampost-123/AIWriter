@@ -13,6 +13,7 @@ import { useApp } from '@/lib/store'
 import { startTool } from '@/features/edits/session'
 import type { PlacedFlag } from './liveDecorations'
 import { revealLiveFlag } from './liveFlags'
+import type { DraftFirst } from './liveStore'
 import { ignoreLiveFlag, unignoreLiveFlag } from './liveWords'
 
 /** True while the flag's words are still in the page where it says. */
@@ -140,7 +141,7 @@ let draftNote: { id: number; count: number } | null = null
  * its card). Drafts in a row (Beat by beat) add to the same note while it shows, rather than adding more
  * notes. Only on the writing page, where Show can show them; the Issues tab counts them too.
  */
-export function noteDraft(count: number): void {
+export function noteDraft(count: number, first: DraftFirst): void {
   if (count < 1 || useApp.getState().view.kind !== 'write') return
   const toasts = useToasts.getState()
   if (draftNote && toasts.items.some((t) => t.id === draftNote!.id)) {
@@ -148,6 +149,7 @@ export function noteDraft(count: number): void {
     toasts.update(draftNote.id, { message: draftNoteWords(draftNote.count) })
     return
   }
-  const id = toast(draftNoteWords(count), { secondary: { label: 'Show', run: () => void revealLiveFlag('ai') } })
+  // Show goes to the draft's first one (not the next one after the caret, which may be in older text).
+  const id = toast(draftNoteWords(count), { secondary: { label: 'Show', run: () => void revealLiveFlag('ai', first) } })
   draftNote = { id, count }
 }

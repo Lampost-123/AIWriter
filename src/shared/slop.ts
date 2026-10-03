@@ -31,6 +31,11 @@ export const SLOP_GROUPS: Record<SlopGroup, string> = {
 const W = String.raw`(?:\w+ )?`
 /** Words for feelings: "a mix of fear and excitement" is stock, "a mix of flour and water" isn't. */
 const FEELING = String.raw`(?:fear|excitement|dread|relief|anger|guilt|hope|longing|sadness|joy|awe|anticipation|amusement|irritation|curiosity|confusion|pride|shame|grief|love|desire|frustration|exasperation|affection|nerves|nervousness|trepidation|wonder|horror|disbelief|resignation|determination|regret|annoyance|admiration|respect|suspicion|surprise|concern|worry|anxiety|amazement|fascination|apprehension|gratitude|resentment|envy|jealousy|tenderness|sorrow|melancholy|nostalgia|unease|elation|triumph|panic|defiance|contempt|disgust|pity|sympathy|hurt|rage|fury|delight|embarrassment)`
+/**
+ * "It wasn't …" opening a contrast. It is stock only with a feeling ("It wasn't fear. It was…") or with
+ * "something" after it; "It wasn't far. It was just over the hill." is ordinary prose.
+ */
+const NOT = String.raw`(?:it|this|that) (?:wasn['’]t|was not|isn['’]t|is not) (?:just |merely |only |simply )?`
 const re = (source: string): RegExp => new RegExp(String.raw`\b(?:${source})\b`, 'giu')
 
 export const SLOP_PHRASES: readonly SlopPhrase[] = [
@@ -69,7 +74,7 @@ export const SLOP_PHRASES: readonly SlopPhrase[] = [
   { id: 'comfortable-silence', group: 'grand', phrase: 'a comfortable silence', pattern: re(String.raw`(?:comfortable|companionable) silence`) },
 
   // Stock sentence patterns
-  { id: 'not-x-but-y', group: 'pattern', phrase: "it wasn't fear, it was something else", pattern: re(String.raw`(?:it|this|that) (?:wasn['’]t|was not|isn['’]t|is not) (?:just |merely |only |simply )?(?:a |an |the )?\w+(?: \w+)? ?[,;.—–] ?(?:it was|it['’]s|this was|but (?:something|rather|more|instead))`), inPrompt: true },
+  { id: 'not-x-but-y', group: 'pattern', phrase: "it wasn't fear, it was something else", pattern: re(String.raw`${NOT}(?:a |an |the )?${FEELING} ?[,;.—–] ?(?:it was|it['’]s|this was|but)|${NOT}(?:a |an |the )?\w+(?: \w+)? ?[,;.—–] ?(?:(?:it was|it['’]s|this was|but) something|but (?:rather|instead))`), inPrompt: true },
   { id: 'mix-of', group: 'pattern', phrase: 'a mixture of fear and excitement', pattern: re(String.raw`(?:a|an) (?:strange |odd |heady |curious )?(?:mix|mixture|blend|cocktail) of ${FEELING} and \w+`) },
   { id: 'help-but', group: 'pattern', phrase: "couldn't help but", pattern: re(String.raw`(?:couldn['’]t|could not|can['’]t|cannot) help but`) },
   { id: 'something-shifted', group: 'pattern', phrase: 'something shifted between them', pattern: re(String.raw`something (?:shifted|changed|broke|cracked|stirred) (?:between (?:them|us)|inside (?:her|him|them|me)|in (?:her|his|their|my) (?:chest|heart|eyes|expression|face|gaze))`) },
@@ -78,7 +83,7 @@ export const SLOP_PHRASES: readonly SlopPhrase[] = [
   { id: 'first-time', group: 'pattern', phrase: 'for the first time in a long time', pattern: re(String.raw`for the first time in (?:a long time|years|what felt like (?:years|forever|an eternity)|forever)`) },
 
   // Summing-up lines
-  { id: 'was-enough', group: 'closer', phrase: 'and somehow, that was enough', pattern: re(String.raw`(?:and )?somehow,? (?:that|it|this) (?:was|would be) enough|(?:and )?(?:that|it|this) (?:was|would be) enough(?=[.!…])`), inPrompt: true },
+  { id: 'was-enough', group: 'closer', phrase: 'and somehow, that was enough', pattern: re(String.raw`(?:and )?somehow,? (?:that|it|this) (?:was|would be) enough`), inPrompt: true },
   { id: 'face-together', group: 'closer', phrase: 'whatever came next, they would face it together', pattern: re(String.raw`whatever (?:came|comes|happened|lay ahead|awaited)(?: next)?,? (?:they|we|she|he|I) (?:would|will|could) face`), inPrompt: true },
   { id: 'only-beginning', group: 'closer', phrase: 'this was only the beginning', pattern: re(String.raw`(?:this|it|that) was (?:only|just) the beginning`) },
 

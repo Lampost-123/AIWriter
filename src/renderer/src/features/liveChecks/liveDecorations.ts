@@ -29,7 +29,7 @@ import type { ID } from '@shared/types'
 import { checkScene, countFlags, EMPTY_WORDS, LiveCache, type LiveFlag, type LiveFlagKind, type LiveParagraph, type LiveWords } from '@shared/liveChecks'
 import type { SlopGroup } from '@shared/slop'
 import { editorBridge } from '@/lib/editorBridge'
-import { activeStream, streamKey } from '@/features/editor/streamDoc'
+import { activeStream, landedIn } from '@/features/editor/streamDoc'
 import { activeSuggestion } from '@/features/edits/suggestions'
 import { NO_FLAGS, noteDraftPhrases, setLiveCounts } from './liveStore'
 
@@ -96,13 +96,7 @@ interface LiveMeta {
   draftFrom?: number
 }
 
-/** Where a draft that has just finished landing begins (the whole scene when it replaced the text), or null. */
-function draftEnded(tr: Transaction, before: EditorState): number | null {
-  const meta = tr.getMeta(streamKey) as { type?: string } | undefined
-  const was = activeStream(before)
-  if (meta?.type !== 'end' || !was?.wrote) return null
-  return was.replace ? 0 : tr.mapping.map(was.from, -1)
-}
+
 
 export const liveChecksKey = new PluginKey<LiveState>(LIVE_EXTENSION)
 
@@ -314,8 +308,8 @@ class LiveRunner {
     this.dispatch(DecorationSet.create(state.doc, decos), sceneId, draftFrom !== null)
     if (draftFrom === null) return
     // The common AI phrases a draft brought (none inside an AI tool's waiting change).
-    const brought = liveFlagsOf(view.state).filter((f) => f.kind === 'ai' && f.from >= draftFrom).length
-    if (brought) noteDraftPhrases(brought)
+    const brought = liveFlagsOf(view.state).filter((f) => f.kind === 'ai' && f.from >= draftFrom)
+    if (brought.length) noteDraftPhrases(brought.length, { key: brought[0].key, from: brought[0].from })
   }
 
   private dispatch(set: DecorationSet, sceneId: ID | null, draftSeen = false): void {
@@ -331,14 +325,16 @@ class LiveRunner {
   }
 }
 
-const livePlugin = new Plugin<LiveState>({
+export const livePlugin = new Plugin<LiveState>({
   key: liveChecksKey,
   state: {
     init: () => ({ set: DecorationSet.empty, ran: false, draftFrom: null }),
-    apply(tr, value, before) {
+    apply(tr, value) {
       const meta = tr.getMeta(liveChecksKey) as LiveMeta | undefined
       let draftFrom = value.draftFrom !== null && tr.docChanged ? tr.mapping.map(value.draftFrom, -1) : value.draftFrom
-      const ended = meta?.draftFrom ?? draftEnded(tr, before)
+      // A draft that has just finished landing (the step that ends it says where it begins: the whole
+      // scene when it replaced the text), or one put in whole (markDraftLanded).
+      const ended = meta?.draftFrom ?? landedIn(tr)
       if (ended !== null) draftFrom = Math.min(draftFrom ?? ended, ended)
       if (meta?.draftSeen) draftFrom = null
       if (meta?.set) return { set: meta.set, ran: true, draftFrom }
