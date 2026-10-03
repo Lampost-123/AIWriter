@@ -66,8 +66,14 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
  * Block 1: the writer instructions, the style guide, one sample passage and the phrases to avoid.
  * The short form (`trimSample`) keeps only the opening of the sample passage.
  */
-export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean } = {}): string {
-  const parts: string[] = [writerInstructions(style.pov)]
+/**
+ * The instructions block: what the model is doing, then the style guide, the sample passage and the
+ * words to avoid. `intro` takes the place of the drafting introduction for jobs that aren't writing a
+ * whole scene (milestone 4's AI edits, say); '' leaves the introduction out (the style guide alone).
+ */
+export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean; intro?: string } = {}): string {
+  const intro = opts.intro ?? writerInstructions(style.pov)
+  const parts: string[] = intro ? [intro] : []
 
   const rules: string[] = []
   if (style.pov) rules.push(`- Point of view: ${style.pov}`)
@@ -94,6 +100,9 @@ export function instructionsText(style: StyleGuide, opts: { trimSample?: boolean
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
 
 /** The closing instruction at the end of the briefing. */
+/** What the closing instruction of a draft's briefing is made from (milestone 4's own closings take it too). */
+export type FinalOptions = Parameters<typeof finalInstruction>[0]
+
 export function finalInstruction(o: {
   targetWords: number
   style: StyleGuide

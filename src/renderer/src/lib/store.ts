@@ -6,7 +6,7 @@ import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { api } from './api'
 
-export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'backups' | 'trash' | 'about'
+export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'backups' | 'trash' | 'about'
 
 /** What fills the centre of the window. The binder stays on the left throughout. */
 export type View =
@@ -15,7 +15,8 @@ export type View =
   | { kind: 'entries'; entryKind: EntryKind; entryId: ID | null; from?: { generationId: ID } }
   | { kind: 'style' }
   | { kind: 'settings'; tab: SettingsTab }
-  | { kind: 'generation'; generationId: ID }
+  /** `back`: opened from somewhere other than the scene a draft was for (the outline helper, say). */
+  | { kind: 'generation'; generationId: ID; back?: RecordBack }
   /** The "What changed" list: what the memory keeper did, for the whole world or (sceneId) one scene. */
   | { kind: 'memory'; sceneId: ID | null }
   // ----- Milestone 3 -----
@@ -30,6 +31,26 @@ export type View =
   | { kind: 'threads' }
   /** A story's settings: what it is, where it starts, its time gap, the style the AI gets for it. */
   | { kind: 'story'; storyId: ID }
+  // ----- Milestone 4 -----
+  /** A scene's history: its snapshots, each compared side by side with the scene now, and restored in one click. */
+  | { kind: 'history'; sceneId: ID; snapshotId?: ID | null }
+  /** Variants: 2 or 3 drafts of a scene side by side, to pick one or take paragraphs from each. */
+  | { kind: 'variants'; sceneId: ID }
+  /** The outline helper: acts, chapters and scene cards suggested from a premise. */
+  | { kind: 'outline'; storyId: ID }
+  /** Build the world from a summary (the World builder): lays out everything a summary names, and lists what it made. */
+  | { kind: 'worldBuilder' }
+
+/**
+ * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words
+ * ("Back to the outline helper", "Back to History"), and, for an AI call that isn't a scene's draft, what the
+ * record is of ("this outline").
+ */
+export interface RecordBack {
+  view: View
+  label: string
+  what?: string
+}
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -67,6 +88,8 @@ interface AppState {
   peekEntryId: ID | null
   /** The New story dialog is open. */
   newStoryOpen: boolean
+  /** Ask the world (milestone 4) shows in the right-hand panel beside the page, in place of the scene panel's tabs. */
+  askOpen: boolean
 
   init(): Promise<void>
   updateSettings(patch: DeepPartial<Settings>): Promise<void>
@@ -92,6 +115,8 @@ interface AppState {
   /** Shows an entry in the scene panel without leaving the scene (opens the panel); null closes it. */
   peekEntry(id: ID | null): void
   setNewStoryOpen(open: boolean): void
+  /** Opens Ask the world beside the page (opening the panel), or closes it. */
+  setAskOpen(open: boolean): void
 }
 
 export type InspectorTab = 'card' | 'context' | 'drafts' | 'cast'
@@ -128,7 +153,8 @@ const NO_WORLD: Partial<AppState> = {
   activeGeneration: null,
   memoryStatus: null,
   peekEntryId: null,
-  newStoryOpen: false
+  newStoryOpen: false,
+  askOpen: false
 }
 
 /** The settings patch remembering where Adam is in this world. */
@@ -159,6 +185,7 @@ export const useApp = create<AppState>((set, get) => ({
   briefingRev: 0,
   peekEntryId: null,
   newStoryOpen: false,
+  askOpen: false,
 
   async init() {
     const settings = await api.getSettings()
@@ -241,5 +268,10 @@ export const useApp = create<AppState>((set, get) => ({
     const layout = get().settings?.layout
     if (id && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
   },
-  setNewStoryOpen: (newStoryOpen) => set({ newStoryOpen })
+  setNewStoryOpen: (newStoryOpen) => set({ newStoryOpen }),
+  setAskOpen(askOpen) {
+    set({ askOpen, ...(askOpen ? { peekEntryId: null } : {}) })
+    const layout = get().settings?.layout
+    if (askOpen && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
+  }
 }))

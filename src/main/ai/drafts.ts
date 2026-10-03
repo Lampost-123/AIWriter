@@ -38,9 +38,43 @@ const active = new Map<ID, Job>()
 export const isDrafting = (sceneId: ID): boolean => [...active.values()].some((j) => j.sceneId === sceneId)
 export const activeDraftIds = (): ID[] => [...active.keys()]
 
+/** A draft of a scene started or finished (milestone 4: reading aloud marks a draft's text as it lands). */
+export interface DraftActivity {
+  sceneId: ID
+  phase: 'start' | 'end'
+  /** One of a set of Variants: nothing goes into the scene until Adam picks one. */
+  variant: boolean
+}
+const watchers = new Set<(e: DraftActivity) => void>()
+
+/** Hears every draft start and finish. A watcher's failure never touches the draft. */
+export function onDraftActivity(fn: (e: DraftActivity) => void): () => void {
+  watchers.add(fn)
+  return () => watchers.delete(fn)
+}
+
+function tellWatchers(e: DraftActivity): void {
+  for (const fn of watchers) {
+    try {
+      fn(e)
+    } catch (err) {
+      console.warn('A draft watcher failed', err)
+    }
+  }
+}
+
 export interface DraftRequest {
   db: DB
   sceneId: ID
+  /** 'draft' (Generate and Variants) unless said: milestone 4's Beat by beat records each beat as 'beat'. */
+  job?: 'draft' | 'beat'
+  /** What the draft is part of (milestone 4): one of a set of variants, or one beat. Saved with its record. */
+  partOf?: Pick<GenerationParams, 'variant' | 'beat'>
+  /**
+   * Refuses to start while another draft of this scene is being written (the default). Variants write
+   * 2 or 3 drafts of one scene side by side, so they pass false.
+   */
+  exclusive?: boolean
   options: DraftOptions
   preview: ContextPreview
   provider: ChatTarget & { id: ID }
@@ -90,7 +124,7 @@ function withSent(p: GenerationParams, sent: SentParams, effort: string | null):
 }
 
 export function startDraftJob(req: DraftRequest): { generationId: ID } {
-  if (isDrafting(req.sceneId)) {
+  if (req.exclusive !== false && isDrafting(req.sceneId)) {
     throw new UserError('A draft is already being written for this scene. Stop it first, or wait for it to finish.')
   }
   const id = newId()
@@ -103,7 +137,8 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
       top_p: preset.top_p,
       max_tokens: reply.limit,
       creativity: req.options.creativity,
-      targetWords: req.options.targetWords
+      targetWords: req.options.targetWords,
+      ...(req.partOf ?? {})
     },
     sent,
     thinkingEffort(req.provider, req.model.modelId, req.thinking)
@@ -111,7 +146,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   gens.insertGeneration(req.db, {
     id,
     sceneId: req.sceneId,
-    job: 'draft',
+    job: req.job ?? 'draft',
     providerId: req.provider.id,
     providerName: req.provider.name,
     modelId: req.model.modelId,
@@ -126,6 +161,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 
   const job: Job = { id, sceneId: req.sceneId, db: req.db, controller: new AbortController(), text: '', closed: false, done: Promise.resolve() }
   active.set(id, job)
+  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant })
   job.done = run(job, req, params, reply.fallback)
   return { generationId: id }
 }
@@ -236,6 +272,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     }
   }
   active.delete(job.id)
+  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant })
   try {
     if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()
     else if (outcome.status === 'complete') req.onWorked?.()

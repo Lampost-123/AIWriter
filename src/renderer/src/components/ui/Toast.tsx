@@ -76,9 +76,11 @@ export const toast = (
 export function Toaster(): React.JSX.Element {
   const items = useToasts((s) => s.items)
   const lift = useToasts((s) => s.lift)
+  // A panel along the right that toasts mustn't cover (Ask the world, whose newest words and box are at
+  // the bottom) sets --toast-right to its width, and toasts show beside it instead.
   return (
     <div
-      className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[360px] flex-col gap-2 transition-[bottom] duration-200"
+      className="pointer-events-none fixed bottom-4 right-[calc(1rem_+_var(--toast-right,0px))] z-[60] flex w-[360px] flex-col gap-2 transition-[bottom] duration-200"
       style={lift ? { bottom: lift + 8 } : undefined}
       aria-live="polite"
     >

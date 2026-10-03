@@ -178,6 +178,11 @@ export interface Outline {
   story: Story
   chapters: Chapter[]
   scenes: SceneMeta[]
+  /**
+   * The story's acts in order (milestone 4); empty when it has none. Each act's chapters follow one
+   * another in `chapters`, after any chapters with no act. A chapter whose act was deleted has no act here.
+   */
+  acts?: Act[]
 }
 
 // ---------- World bible ----------
@@ -296,8 +301,14 @@ export interface ModelChoice {
   sampling?: boolean | null
 }
 
-/** The AI jobs, each with its own model and Thinking level in Settings › Models. 'builder' is the character builder (milestone 3). */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder'
+/**
+ * The AI jobs, each with its own model and Thinking level in Settings › Models. 'builder' is the character
+ * builder (milestone 3). From milestone 4: 'chat' is "Chat and brainstorm" (Ask the world, the outline helper,
+ * next scene ideas; the writer model until Adam picks one) and 'speech' is "Read aloud" (who says each line
+ * and how, voice suggestions; the memory model until Adam picks one). 'world' is the World builder (building
+ * the world from a summary; the character builder's model until Adam picks one).
+ */
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world'
 
 export type Creativity = 'steady' | 'balanced' | 'adventurous'
 
@@ -323,6 +334,62 @@ export interface Settings {
   lastPlaces: Record<ID, { storyId: ID | null; sceneId: ID | null }>
   /** Optional second backup folder (e.g. inside Dropbox, OneDrive or iCloud). Copies go to <extraFolder>/<world folder name>/. */
   backup: { extraFolder: string | null }
+  /** Read aloud and dictation (milestone 4): Settings › Read aloud and dictation. */
+  speech: SpeechSettings
+}
+
+/**
+ * Read aloud and dictation (milestone 4, spec "Read aloud and dictation"). Kept in settings.json, never in a
+ * world. Character voices and "Say it as" pronunciations belong to a world instead (its meta key
+ * `read_aloud`, see src/shared/contracts/readAloud.ts). The Hugging Face token is kept like an API key
+ * (src/main/secrets.ts), never here.
+ */
+export interface SpeechSettings {
+  /** Read aloud is on: the Listen button and the scene's read-aloud bar show. Off until Adam turns it on. */
+  readAloud: boolean
+  /** "Start with AI Write": the speech server starts hidden with the app (downloaded the first time). */
+  runServer: boolean
+  /** The speech server's address. This computer only (localhost, 127.0.0.1 or ::1). */
+  serverUrl: string
+  /** The voice engine. Only Breeze TTS 2 for now. */
+  engine: 'breeze'
+  /** The narrator: a voice from the list (Breeze's own or one of Adam's clips), or ... */
+  narratorVoice: string
+  /** ... a description in plain words, which wins over the list when filled in. */
+  narratorDescription: string
+  /** Quoted dialogue from someone without a voice of their own: a voice from the list, or '' for the narrator's. */
+  dialogueVoice: string
+  /** The sentence Sample plays (calibration). */
+  sample: string
+  /** 0.5 to 2, in steps of 0.05, without changing pitch. */
+  speed: number
+  /** "Give characters their own voices". */
+  castVoices: boolean
+  /** "How to read": a standing note for the narrator in plain words. */
+  style: string
+  /** "Keep the narrator's voice steady": narration read plainly, only dialogue acted. */
+  steadyNarrator: boolean
+  /** "Mark who says what": the AI also notes each line's tone and pace, a little ahead of the reading. */
+  markSpeakers: boolean
+  /**
+   * "Show speakers and tone": each paragraph of the scene shows, faintly above it, who says it and how, from the
+   * marks reading aloud keeps (never part of the text). Off until Adam turns it on.
+   */
+  showSpeakers: boolean
+  /** "Perform written sounds": sighs, laughs and "Ahem" become real sounds. */
+  sounds: boolean
+  /** "Keep reading": carries on into the next scene. */
+  keepReading: boolean
+  /** "Follow along": keeps the sentence being read a third of the way down the page. */
+  followAlong: boolean
+  /** Spoken audio kept on disk, in GB (oldest first past it). */
+  cacheLimitGb: number
+  /** Dictation: which speech-to-text model the server loads at start ('none' until Adam picks one). */
+  dictationEngine: 'none' | 'parakeet' | 'whisper'
+  /** The hold-to-talk key, as KeyboardEvent.code for Ctrl, Shift and Alt keys (so left and right differ) and KeyboardEvent.key for others. '' = none. */
+  dictationKey: string
+  /** The microphone's deviceId; '' for the system's default. */
+  microphone: string
 }
 
 export type DeepPartial<T> = {
@@ -414,8 +481,28 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * from milestone 3 also the character builder ('builder': Quick start, Flesh out, options, Interview)
  * and the story flows ('story': what changed in a time gap, a prequel's starting cast, "When did these
  * happen?"). Records for calls that belong to no scene have an empty sceneId, so no Drafts list shows them.
+ *
+ * Milestone 4 adds: 'beat' (one beat of a Beat by beat draft), 'edit' (an AI edit of selected words, or
+ * Continue), 'chat' (a turn of Ask the world), 'outline' (the outline helper), 'ideas' (next scene ideas)
+ * and 'speech' (Read aloud: who says each line and how, a voice suggestion). Variants are 'draft' records
+ * with `params.variant`. 'world' is one call of a build of the world from a summary (the World builder).
  */
-export type GenerationJob = 'draft' | 'memory' | 'summary' | 'builder' | 'story'
+export type GenerationJob =
+  | 'draft'
+  | 'memory'
+  | 'summary'
+  | 'builder'
+  | 'story'
+  | 'beat'
+  | 'edit'
+  | 'chat'
+  | 'outline'
+  | 'ideas'
+  | 'speech'
+  | 'world'
+
+/** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
+export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
 
 export interface GenerationSummary {
   id: ID
@@ -431,6 +518,8 @@ export interface GenerationSummary {
   createdAt: string
   /** The draft took the place of the scene's text (Adam chose "Replace it"), and its record keeps that text. */
   replaced?: boolean
+  /** Milestone 4: "Variant 2 of 3" or "Beat 1 of 4" when the draft was one of those. */
+  partOf?: string
 }
 
 /**
@@ -461,6 +550,15 @@ export interface GenerationRecord extends GenerationSummary {
     cutOff?: boolean
     /** How much the model was asked to think, as sent; left out when it was left to the model. */
     thinking?: Exclude<ThinkingLevel, 'auto'>
+    // ----- Milestone 4: what the call was part of (no migration: params_json holds them) -----
+    /** One of 2 or 3 drafts written side by side (Variants): which set, which one (from 1), of how many. */
+    variant?: { setId: ID; index: number; of: number }
+    /** One beat of a Beat by beat draft: which session, which beat (from 1), of how many. */
+    beat?: { sessionId: ID; index: number; of: number }
+    /** An AI edit of selected words, or Continue. */
+    tool?: EditTool
+    /** A turn of an Ask the world conversation. */
+    chatId?: ID
   }
   direction: string
   blocks: ContextBlock[]
@@ -535,19 +633,22 @@ export interface RecoveryItem {
 
 /** Something in the Trash (Recently deleted): kept for 30 days, then removed for good. */
 export interface DeletedItem {
-  kind: 'story' | 'chapter' | 'scene' | 'entry'
+  /** 'act' from milestone 4: an act comes back with api.restoreAct (contracts/outline.ts). */
+  kind: 'story' | 'act' | 'chapter' | 'scene' | 'entry'
   id: ID
   /** Its title or name, as it was. */
   title: string
   deletedAt: string
   /** For an entry: character, place, lore... */
   entryKind: EntryKind | null
-  /** The story a chapter or scene was in, and the chapter a scene was in. */
+  /** The story an act, chapter or scene was in, and the chapter a scene was in. */
   storyId: ID | null
   storyTitle: string | null
   chapterTitle: string | null
-  /** For a chapter: the scenes deleted along with it (they come back with it). */
+  /** For a chapter or act: the scenes deleted along with it (they come back with it). */
   sceneCount: number
+  /** For an act (milestone 4): the chapters deleted along with it (they come back with it). */
+  chapterCount?: number
 }
 
 // ---------- Memory over time (milestone 2) ----------

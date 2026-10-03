@@ -8,9 +8,11 @@ import * as world from '../world'
 import { emit } from '../events'
 import { labeler } from '../memory/line'
 import { currentKeeper, markSceneDone, memoryStatus } from '../keeper'
+import { sceneMarkedDone } from '../history'
 import { loadShapeSafe } from '../keeper/places'
 import { answerItem, undoItem, type Outcome } from '../keeper/undo'
 import type { Undo } from '../keeper/apply'
+import { isWorldLine } from '../worldBuilder/lines'
 
 type KeeperMethods =
   | 'markSceneDone'
@@ -45,6 +47,7 @@ function withWhere(rows: kdb.LogRow[]): MemoryLogItem[] {
   for (const s of shape?.stories ?? []) for (const c of s.chapters) for (const sc of c.scenes) sceneStory.set(sc.id, s.id)
   let series: Map<ID, string> | null = null
   const where = (r: kdb.LogRow): string => {
+    if (isWorldLine(r)) return 'Built from your summary' // a world build's line (milestone 4)
     if (!label) return ''
     if (r.sceneId) return label({ storyId: sceneStory.get(r.sceneId) ?? null, sceneId: r.sceneId })
     const u = r.undo as Undo | null
@@ -60,6 +63,7 @@ function withWhere(rows: kdb.LogRow[]): MemoryLogItem[] {
 export const keeperHandlers: Handlers<KeeperMethods> = {
   markSceneDone: (id) => {
     const meta = write(() => markSceneDone(id) ?? kdb.markSceneDone(world.db(), id))
+    sceneMarkedDone(id)
     emit('memory:status', memoryStatus())
     return meta
   },

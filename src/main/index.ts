@@ -10,9 +10,17 @@ import { initUpdater } from './services/updater'
 import { initAi } from './ai'
 import { initKeeper } from './keeper'
 import { activeDraftIds, stopDraft } from './ai/drafts'
+import { stopAllTasks } from './ai/tasks'
 import { registerPortraitScheme, servePortraits } from './portraits'
+import { initHistory } from './history'
+import { initSpeech, stopSpeech } from './speech'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
+// App tests of dictation: Chromium's own pretend microphone (a beep), with no permission prompt.
+if (process.env.AIWRITE_FAKE_MIC === '1') {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+}
 registerPortraitScheme()
 
 let mainWindow: BrowserWindow | null = null
@@ -76,6 +84,7 @@ function contextMenuFor(win: BrowserWindow, p: ContextMenuParams): MenuItemConst
 /** A reload or a crash starts the interface afresh with nothing listening to a draft being written: stop it (its text is kept). */
 function stopRunningDrafts(): void {
   for (const id of activeDraftIds()) void stopDraft(id).catch((e) => console.warn('Could not stop a draft', e))
+  stopAllTasks()
 }
 
 function createWindow(): void {
@@ -162,6 +171,11 @@ function flushThenQuit(): void {
     } catch (e) {
       console.error('Could not close the world cleanly', e)
     }
+    try {
+      stopSpeech()
+    } catch (e) {
+      console.error('Could not stop the speech server', e)
+    }
     if (win && !win.isDestroyed()) win.destroy()
     app.quit()
   }
@@ -209,6 +223,8 @@ function main(): void {
       initBackups()
       initAi()
       initKeeper()
+      initHistory()
+      initSpeech()
       // Reopen the last world straight away, so the page is ready as soon as the window shows.
       reopenLastWorld()
       createWindow()
@@ -238,6 +254,7 @@ function main(): void {
 
   app.on('window-all-closed', () => {
     closeWorld()
+    stopSpeech()
     app.quit()
   })
 }

@@ -1,4 +1,5 @@
-// The small bar over words Adam selects in the page: "Add to memory" and "Quick start a character".
+// The small bar over words Adam selects in the page: the AI tools ("Rewrite", milestone 4), "Add to memory"
+// and "Quick start a character".
 // It shows once the selection settles (after the mouse is let go, or a moment after the keyboard
 // stops), never while a draft is being written into the selected part, and goes on Esc, typing, or a
 // click elsewhere. It sits in the page's scrolling area, so it moves with the words, and it is not a
@@ -18,6 +19,9 @@ import { nameIndex } from '../names/underlines'
 import { useSceneNames } from '../names/sceneNames'
 import { REVEALED } from '../reveal'
 import { AddToMemoryForm } from './AddToMemoryForm'
+import { ListenFromHere } from '@/features/readAloud/ListenFromHere'
+import { AiTools } from '@/features/edits/AiTools'
+import { suggestionsOf } from '@/features/edits/suggestions'
 import { FORM_EDGE, FORM_GAP, FORM_SIZE, formPlace, prefill, tidySelection, type AddPrefill, type FormPlace } from './addToMemoryLogic'
 
 /** How long the selection must stay still before the bar shows: after the mouse is let go, and after keys. */
@@ -55,8 +59,12 @@ export function SelectionLayer({
   const barRef = useRef<HTMLDivElement>(null)
   const formOpen = useRef(false)
   formOpen.current = !!form
+  // The AI tools' menu is open (the bar stays while it is).
+  const toolsOpen = useRef(false)
   const barShown = useRef(false)
   barShown.current = !!bar
+  const barNow = useRef<Bar | null>(null)
+  barNow.current = bar
   // The selection the bar was closed for (Esc, or after adding): it stays closed until another is made.
   const closedFor = useRef<string | null>(null)
 
@@ -67,11 +75,29 @@ export function SelectionLayer({
 
     const hide = (): void => {
       clearTimeout(timer)
-      if (!formOpen.current) setBar(null)
+      if (!formOpen.current && !toolsOpen.current) setBar(null)
+    }
+
+    /** Where the bar goes over the words from `from` to `to`. */
+    const placeFor = (from: number, to: number, text: string, scroller: HTMLElement): Bar => {
+      const box = scroller.getBoundingClientRect()
+      const start = editor.view.coordsAtPos(from, 1)
+      const end = editor.view.coordsAtPos(to, -1)
+      // Above the first line when there's room in view, else below the last; and not over the buttons of the
+      // AI's change waiting in the page (milestone 4, and the room it makes for them) when the other side is clear.
+      const buttons = ['[data-ai-change]', '.aw-sugg-room'].map((q) => scroller.querySelector(q)?.getBoundingClientRect())
+      const clear = (top: number): boolean => buttons.every((r) => !r || !r.height || top + BAR_HEIGHT <= r.top || top >= r.bottom)
+      const aboveTop = start.top - BAR_HEIGHT - GAP
+      const belowTop = end.bottom + GAP
+      const above = start.top - box.top >= BAR_HEIGHT + GAP + EDGE && (clear(aboveTop) || !clear(belowTop))
+      const top = (above ? aboveTop : belowTop) - box.top + scroller.scrollTop
+      const oneLine = Math.abs(start.top - end.top) < 4
+      const x = (oneLine ? (start.left + end.right) / 2 : start.left) - box.left
+      return { from, to, text, top, x, align: oneLine ? 'centre' : 'start' }
     }
 
     const show = (): void => {
-      if (editor.isDestroyed || mouseDown || formOpen.current) return
+      if (editor.isDestroyed || mouseDown || formOpen.current || toolsOpen.current) return
       const { state, view } = editor
       const sel = state.selection
       const scroller = scrollerRef.current
@@ -82,15 +108,22 @@ export function SelectionLayer({
       if (closedFor.current === `${sel.from}:${sel.to}`) return
       const text = tidySelection(state.doc.textBetween(sel.from, sel.to, '\n\n', '\n'))
       if (!text) return hide()
-      const box = scroller.getBoundingClientRect()
-      const start = view.coordsAtPos(sel.from, 1)
-      const end = view.coordsAtPos(sel.to, -1)
-      // Above the first line when there's room in view, else below the last.
-      const above = start.top - box.top >= BAR_HEIGHT + GAP + EDGE
-      const top = (above ? start.top - BAR_HEIGHT - GAP : end.bottom + GAP) - box.top + scroller.scrollTop
-      const oneLine = Math.abs(start.top - end.top) < 4
-      const x = (oneLine ? (start.left + end.right) / 2 : start.left) - box.left
-      setBar({ from: sel.from, to: sel.to, text, top, x, align: oneLine ? 'centre' : 'start' })
+      setBar(placeFor(sel.from, sel.to, text, scroller))
+    }
+
+    // The AI's change in the page grows, goes or comes back (its words arriving, Accept, Reject): the words
+    // after it move, and the bar moves with them.
+    let lastChange = suggestionsOf(editor.state)
+    const onTransaction = (): void => {
+      const now = suggestionsOf(editor.state)
+      if (now === lastChange) return
+      lastChange = now
+      const b = barNow.current
+      const scroller = scrollerRef.current
+      const sel = editor.state.selection
+      if (!b || !scroller || editor.isDestroyed || mouseDown || formOpen.current || toolsOpen.current || sel.empty) return
+      const next = placeFor(sel.from, sel.to, b.text, scroller)
+      if (next.top !== b.top || next.x !== b.x || next.from !== b.from || next.to !== b.to) setBar(next)
     }
 
     const settle = (ms: number): void => {
@@ -110,7 +143,7 @@ export function SelectionLayer({
       settle(AFTER_MOUSE)
     }
     const onSelection = ({ transaction }: { transaction: Transaction }): void => {
-      if (mouseDown || formOpen.current) return
+      if (mouseDown || formOpen.current || toolsOpen.current) return
       const sel = editor.state.selection
       if (sel.empty) return hide()
       if (barShown.current) setBar(null)
@@ -131,12 +164,12 @@ export function SelectionLayer({
     }
     const onBlur = ({ event }: { event: FocusEvent }): void => {
       const to = event.relatedTarget as Node | null
-      if (to && (barRef.current?.contains(to) || (to instanceof Element && to.closest('[data-add-to-memory]')))) return
+      if (to && (barRef.current?.contains(to) || (to instanceof Element && to.closest('[data-add-to-memory], [data-ai-tools]')))) return
       hide()
     }
     // Esc closes the bar (and nothing else: it takes the press, so a draft being written carries on); the caret stays.
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || !barShown.current || formOpen.current || e.defaultPrevented) return
+      if (e.key !== 'Escape' || !barShown.current || formOpen.current || toolsOpen.current || e.defaultPrevented) return
       e.preventDefault()
       takeEscape(e)
       const sel = editor.state.selection
@@ -152,6 +185,7 @@ export function SelectionLayer({
     editor.on('selectionUpdate', onSelection)
     editor.on('update', onUpdate)
     editor.on('blur', onBlur)
+    editor.on('transaction', onTransaction)
     return () => {
       clearTimeout(timer)
       dom.removeEventListener('mousedown', onMouseDown)
@@ -160,6 +194,7 @@ export function SelectionLayer({
       editor.off('selectionUpdate', onSelection)
       editor.off('update', onUpdate)
       editor.off('blur', onBlur)
+      editor.off('transaction', onTransaction)
     }
   }, [editor, scrollerRef])
 
@@ -167,6 +202,7 @@ export function SelectionLayer({
   useEffect(() => {
     setForm(null)
     setBar(null)
+    toolsOpen.current = false
     closedFor.current = null
   }, [sceneId, writing])
 
@@ -225,9 +261,9 @@ export function SelectionLayer({
           // Tabbing on past it (not back to the page or into the form) closes it.
           onBlur={(e) => {
             const to = e.relatedTarget as Node | null
-            const toForm = to instanceof Element && !!to.closest('[data-add-to-memory]')
+            const toForm = to instanceof Element && !!to.closest('[data-add-to-memory], [data-ai-tools]')
             const staying = !!to && (e.currentTarget.contains(to) || editor.view.dom.contains(to) || toForm)
-            if (!staying && !form) setBar(null)
+            if (!staying && !form && !toolsOpen.current) setBar(null)
           }}
           style={{ top: bar.top, left, height: BAR_HEIGHT }}
           className={cn(
@@ -235,6 +271,17 @@ export function SelectionLayer({
             'select-none whitespace-nowrap'
           )}
         >
+          <AiTools
+            editor={editor}
+            from={bar.from}
+            to={bar.to}
+            text={bar.text}
+            onOpenChange={(open) => {
+              toolsOpen.current = open
+              if (open && form) closeForm(false)
+            }}
+          />
+          <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
           <BarButton
             icon={<BookmarkPlus size={14} />}
             pressed={!!form}
@@ -247,6 +294,7 @@ export function SelectionLayer({
           <BarButton icon={<UserPlus size={14} />} onClick={quickStart}>
             Quick start a character
           </BarButton>
+          <ListenFromHere editor={editor} sceneId={sceneId} from={bar.from} to={bar.to} />
         </div>
       </P.Anchor>
       <P.Portal>
@@ -289,7 +337,7 @@ export function SelectionLayer({
   )
 }
 
-const BarButton = ({
+export const BarButton = ({
   icon,
   children,
   pressed,

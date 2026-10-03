@@ -14,6 +14,17 @@ import { manuscriptHandlers } from './manuscript'
 import { searchHandlers } from './search'
 import { storiesHandlers } from './stories'
 import { storyFlowsHandlers } from './storyFlows'
+import { tasksHandlers } from './tasks'
+import { historyHandlers } from './history'
+import { variantsHandlers } from './variants'
+import { beatsHandlers } from './beats'
+import { editsHandlers } from './edits'
+import { askHandlers } from './ask'
+import { outlineHandlers } from './outline'
+import { speechHandlers } from './speech'
+import { readAloudHandlers } from './readAloud'
+import { dictationHandlers } from './dictation'
+import { worldBuilderHandlers } from './worldBuilder'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -31,7 +42,19 @@ const all: Handlers<ApiMethod> = {
   ...manuscriptHandlers,
   ...searchHandlers,
   ...storiesHandlers,
-  ...storyFlowsHandlers
+  ...storyFlowsHandlers,
+  // Milestone 4
+  ...tasksHandlers,
+  ...historyHandlers,
+  ...variantsHandlers,
+  ...beatsHandlers,
+  ...editsHandlers,
+  ...askHandlers,
+  ...outlineHandlers,
+  ...speechHandlers,
+  ...readAloudHandlers,
+  ...dictationHandlers,
+  ...worldBuilderHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

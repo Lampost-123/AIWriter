@@ -60,9 +60,38 @@ import type { ManuscriptApi, ManuscriptEvents } from './contracts/manuscript'
 import type { SearchApi, SearchEvents } from './contracts/search'
 import type { StoriesApi, StoriesEvents } from './contracts/stories'
 import type { StoryFlowsApi, StoryFlowsEvents } from './contracts/storyFlows'
+import type { TasksApi, TasksEvents } from './contracts/tasks'
+import type { HistoryApi, HistoryEvents } from './contracts/history'
+import type { VariantsApi, VariantsEvents } from './contracts/variants'
+import type { BeatsApi, BeatsEvents } from './contracts/beats'
+import type { EditsApi, EditsEvents } from './contracts/edits'
+import type { AskApi, AskEvents } from './contracts/ask'
+import type { OutlineApi, OutlineEvents } from './contracts/outline'
+import type { SpeechApi, SpeechEvents } from './contracts/speech'
+import type { ReadAloudApi, ReadAloudEvents } from './contracts/readAloud'
+import type { DictationApi, DictationEvents } from './contracts/dictation'
+import type { WorldBuilderApi, WorldBuilderEvents } from './contracts/worldBuilder'
 
-/** Every call the interface can make. Milestone 3's parts each add theirs in src/shared/contracts/. */
-export interface AppApi extends BuilderApi, EntryViewsApi, WorldViewsApi, ManuscriptApi, SearchApi, StoriesApi, StoryFlowsApi {
+/** Every call the interface can make. Milestone 3's and 4's parts each add theirs in src/shared/contracts/. */
+export interface AppApi
+  extends BuilderApi,
+    EntryViewsApi,
+    WorldViewsApi,
+    ManuscriptApi,
+    SearchApi,
+    StoriesApi,
+    StoryFlowsApi,
+    TasksApi,
+    HistoryApi,
+    VariantsApi,
+    BeatsApi,
+    EditsApi,
+    AskApi,
+    OutlineApi,
+    SpeechApi,
+    ReadAloudApi,
+    DictationApi,
+    WorldBuilderApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -259,8 +288,26 @@ export interface StoryPlacement {
 
 export type ApiMethod = keyof AppApi
 
-/** Events sent from the main process to the renderer. Milestone 3's parts each add theirs in src/shared/contracts/. */
-export interface AppEvents extends BuilderEvents, EntryViewsEvents, WorldViewsEvents, ManuscriptEvents, SearchEvents, StoriesEvents, StoryFlowsEvents {
+/** Events sent from the main process to the renderer. Milestone 3's and 4's parts each add theirs in src/shared/contracts/. */
+export interface AppEvents
+  extends BuilderEvents,
+    EntryViewsEvents,
+    WorldViewsEvents,
+    ManuscriptEvents,
+    SearchEvents,
+    StoriesEvents,
+    StoryFlowsEvents,
+    TasksEvents,
+    HistoryEvents,
+    VariantsEvents,
+    BeatsEvents,
+    EditsEvents,
+    AskEvents,
+    OutlineEvents,
+    SpeechEvents,
+    ReadAloudEvents,
+    DictationEvents,
+    WorldBuilderEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

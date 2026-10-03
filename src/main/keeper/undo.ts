@@ -17,6 +17,7 @@ import { suppressSummary } from './summaries'
 import { findQuote, plain, sceneParagraphs } from './text'
 import { spotIn, type Spot } from './track'
 import { answerFlowLine, isFlowLine, undoFlowLine } from '../storyFlows/lines'
+import { isWorldLine, undoWorldLine } from '../worldBuilder/lines'
 
 type DB = Database.Database
 
@@ -197,6 +198,7 @@ function restoreSummary(db: DB, level: Summary['level'], targetId: ID, version: 
 export function undoItem(db: DB, id: ID): Outcome {
   const row = line(db, id)
   if (isFlowLine(row)) return undoFlowLine(db, row) // a story flow's line (milestone 3)
+  if (isWorldLine(row)) return undoWorldLine(db, row) // a world build's line (milestone 4)
   const out: Outcome = { sceneId: row.sceneId, entryIds: row.entryId ? [row.entryId] : [] }
   if (row.undone || row.action === 'failed' || !row.u) return out
   const u = row.u

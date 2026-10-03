@@ -37,6 +37,7 @@ import { Section } from './parts/Section'
 import { Switch } from './parts/Switch'
 import { CommaListInput } from './parts/TextInputs'
 import { useAutosave } from './parts/useAutosave'
+import { EntryVoice } from '@/features/readAloud/EntryVoice'
 
 const COPY: Partial<Record<EntryKind, { summary: string; description: string; aliases: string; aliasesHint: string }>> = {
   character: {
@@ -618,6 +619,8 @@ export const EntryForm = memo(function EntryForm({
               beforeRestore={flush}
             />
           </div>
+
+          <EntryVoice entry={draft} />
 
           <div className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface px-3 pb-3 pt-2.5">
             <label htmlFor={ids.notes} className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">

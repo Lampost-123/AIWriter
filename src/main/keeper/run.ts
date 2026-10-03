@@ -44,7 +44,7 @@ export type RunOutcome =
   | { status: 'gone' }
   | { status: 'no-model' }
   | { status: 'stopped' }
-  | { status: 'done'; runId: ID | null; lines: number; entryIds: ID[]; readParagraphs: number }
+  | { status: 'done'; runId: ID | null; lines: number; entryIds: ID[]; readParagraphs: number; newEntryIds?: ID[] }
   | { status: 'failed'; runId: ID; error: string }
 
 /** Tokens and cost of a run's calls, added up (null when nothing was reported). */
@@ -236,5 +236,12 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   if (!kdb.keeperScene(db, sceneId)) return stopped()
   const result = db.transaction(() => applyRead(db, { runId, memory, shape, sideClashes: sideClashesFor(db, shape) }, plan, replies))()
   kdb.finishRun(db, runId, 'done', null, totals.of(model))
-  return { status: 'done', runId, lines: result.lines, entryIds: result.entryIds, readParagraphs: plan.toRead.length }
+  return {
+    status: 'done',
+    runId,
+    lines: result.lines,
+    entryIds: result.entryIds,
+    readParagraphs: plan.toRead.length,
+    newEntryIds: result.newEntryIds ?? []
+  }
 }

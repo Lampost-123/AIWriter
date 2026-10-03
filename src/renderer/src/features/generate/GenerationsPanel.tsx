@@ -1,11 +1,16 @@
-// The inspector's "Drafts" tab: every draft of this scene, newest first, each
-// with a link to exactly what the AI was given.
-import { ChevronRight, History } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+// The inspector's "Drafts" tab: the scene's drafts (the one in the page and the others kept beside it,
+// milestone 4), then every draft the AI wrote for it, newest first, each with a link to exactly what the
+// AI was given.
+import { ChevronRight, History, Undo2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { GenerationSummary, ID } from '@shared/types'
+import type { SceneDrafts } from '@shared/contracts/history'
 import { Badge, Button, EmptyState, Notice } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
+import { isTyping } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { undoLastDelete } from '@/lib/undoDelete'
+import { DraftsSection, EarlierVersionsButton, NewDraftButton } from '@/features/history/DraftsSection'
 import { formatCost, fullDate, relativeTime, shortModelName } from './format'
 import { Skeleton, useDelayed, useNow } from './parts'
 
@@ -14,9 +19,35 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const [error, setError] = useState<string | null>(null)
   const navigate = useApp((s) => s.navigate)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
+  // A new draft is a copy of the scene's text, so it starts once the page has words.
+  const pageHasWords = useApp((s) => s.sceneWords > 0)
   const activeId = useApp((s) => (s.activeGeneration?.sceneId === sceneId ? s.activeGeneration.id : null))
   const now = useNow()
   const ticket = useRef(0)
+  const [drafts, setDraftsState] = useState<SceneDrafts | null>(null)
+  const draftTicket = useRef(0)
+
+  // The scene's drafts. A change made here shows at once; anything older still on its way is dropped.
+  const setDrafts = useCallback((d: SceneDrafts) => {
+    ++draftTicket.current
+    setDraftsState(d)
+  }, [])
+  // `tryAgain`: Adam asked, so history.db is tried at once even if it couldn't be reached a moment ago.
+  const loadDrafts = useCallback(
+    (o: { tryAgain?: boolean } = {}): Promise<void> => {
+      const t = ++draftTicket.current
+      return api
+        .listDrafts(sceneId, { tryAgain: o.tryAgain })
+        .then((d) => {
+          if (t === draftTicket.current) setDraftsState(d)
+        })
+        .catch((e: Error) => {
+          if (t === draftTicket.current) setDraftsState({ available: false, problem: e.message, drafts: [] })
+        })
+    },
+    [sceneId]
+  )
+  const tryDraftsAgain = useCallback(() => loadDrafts({ tryAgain: true }), [loadDrafts])
 
   const load = useCallback(() => {
     const t = ++ticket.current
@@ -38,6 +69,11 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     setError(null)
     load()
   }, [load])
+  useEffect(() => {
+    setDraftsState(null)
+    void loadDrafts()
+    return onEvent('history:changed', (p) => p.sceneId === sceneId && void loadDrafts())
+  }, [sceneId, loadDrafts])
 
   // A new draft appears straight away; finished ones update when done.
   useEffect(() => {
@@ -52,10 +88,32 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     return () => clearInterval(t)
   }, [liveListed, load])
 
-  const slow = useDelayed(items === null && !error)
+  // Both lists come in together, so the tab doesn't fill in in two steps.
+  const slow = useDelayed((items === null || drafts === null) && !error)
+
+  // Ctrl+Z here brings back the draft just deleted while its message still offers Undo, as in the binder (a name
+  // being typed keeps Ctrl+Z for itself). A deleted draft's row goes, so the keyboard stays in the tab rather than
+  // nowhere, where Ctrl+Z would undo in the page instead.
+  const root = useRef<HTMLDivElement>(null)
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && !isTyping(e.target) && undoLastDelete()) {
+      e.preventDefault()
+    }
+  }
+  const keepKeyboard = useCallback(() => {
+    const el = root.current
+    const at = document.activeElement
+    // Only from the row's Delete (or nowhere): never away from the page, if Adam has gone back to writing meanwhile.
+    if (el && (!at || at === document.body || el.contains(at))) el.focus({ preventScroll: true })
+  }, [])
+  const tab = (content: ReactNode): React.JSX.Element => (
+    <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} className="outline-none">
+      {content}
+    </div>
+  )
 
   if (error && !items) {
-    return (
+    return tab(
       <div className="p-3">
         <Notice
           tone="danger"
@@ -71,40 +129,108 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     )
   }
 
-  if (!items) {
-    return (
+  if (!items || !drafts) {
+    return tab(
       <div className="flex flex-col gap-2 p-3" aria-busy>
         {slow ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-[62px] w-full rounded-lg" />) : null}
       </div>
     )
   }
 
-  if (!items.length) {
-    return (
-      <EmptyState icon={<History size={18} />} title="No drafts yet">
-        Each time you press Generate, the draft is listed here with what it cost, and a link to see exactly what the AI was given.
+  // Only the draft in the page, and nothing from the AI yet.
+  if (!items.length && drafts.available && drafts.drafts.length <= 1) {
+    return tab(
+      <EmptyState
+        icon={<History size={18} />}
+        title="No drafts yet"
+        actions={
+          <>
+            {pageHasWords ? <NewDraftButton sceneId={sceneId} onChange={setDrafts} variant="secondary" /> : null}
+            <EarlierVersionsButton sceneId={sceneId} />
+          </>
+        }
+      >
+        {pageHasWords
+          ? 'New draft keeps the text you have now as Draft\u00a01 and starts a copy, to try the scene another way.'
+          : 'Drafts start once the scene has words: New draft then keeps the text as Draft\u00a01 and starts a copy, to try the scene another way.'}{' '}
+        Each time you press Generate, the AI's draft is listed here too, with what it cost and a link to see exactly what the AI was given.
       </EmptyState>
     )
   }
 
+  return tab(
+    <div className="flex flex-col gap-4 p-2 animate-fade-in">
+      <DraftsSection
+        sceneId={sceneId}
+        drafts={drafts}
+        onChange={setDrafts}
+        reload={() => void loadDrafts()}
+        tryAgain={tryDraftsAgain}
+        onDeleted={keepKeyboard}
+      />
+      <section aria-label="Drafts the AI wrote">
+        <h3 className="flex h-8 items-center pl-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Written by the AI</h3>
+        {items.length ? (
+          <AiDrafts
+            items={items}
+            activeId={activeId}
+            writerId={writer?.modelId ?? null}
+            writerLabel={writer?.label ?? null}
+            now={now}
+            onOpen={(id) => navigate({ kind: 'generation', generationId: id })}
+          />
+        ) : (
+          <p className="px-1.5 text-[12px] leading-relaxed text-faint">
+            Each time you press Generate, the draft is listed here with what it cost, and a link to see exactly what the AI was given.
+          </p>
+        )}
+      </section>
+      <div className="border-t border-line/70 pt-2">
+        <EarlierVersionsButton sceneId={sceneId} />
+      </div>
+    </div>
+  )
+}
+
+/** The drafts the AI wrote for the scene, newest first, each opening its record ("What the AI saw"). */
+function AiDrafts({
+  items,
+  activeId,
+  writerId,
+  writerLabel,
+  now,
+  onOpen
+}: {
+  items: GenerationSummary[]
+  activeId: ID | null
+  writerId: string | null
+  writerLabel: string | null
+  now: number
+  onOpen: (id: ID) => void
+}): React.JSX.Element {
   return (
-    <ul className="flex flex-col gap-1 p-2 animate-fade-in">
+    <ul className="flex flex-col gap-1">
       {items.map((g) => {
         const streaming = g.status === 'streaming' && g.id === activeId
-        const model = writer?.modelId === g.modelId && writer.label ? shortModelName(writer.label) : shortModelName(g.modelId)
+        const model = writerId === g.modelId && writerLabel ? shortModelName(writerLabel) : shortModelName(g.modelId)
         return (
           <li key={g.id}>
             <button
               type="button"
               // A draft still being written keeps writing while its record is open.
-              onClick={() => navigate({ kind: 'generation', generationId: g.id })}
-              title="See exactly what the AI was given for this draft"
+              onClick={() => onOpen(g.id)}
+              title={
+                g.replaced
+                  ? 'See exactly what the AI was given for this draft, and the text it replaced'
+                  : 'See exactly what the AI was given for this draft'
+              }
               className="group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
             >
               <div className="flex w-full items-center gap-2">
                 <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={g.modelId}>
                   {model}
                 </span>
+                {g.partOf ? <span className="shrink-0 whitespace-nowrap text-[11.5px] text-muted">{g.partOf}</span> : null}
                 <StatusBadge status={g.status} live={streaming} />
                 {g.replaced ? (
                   <span className="shrink-0" title="This draft took the place of the scene's text. Its record keeps that text, to copy or put back.">
@@ -133,6 +259,14 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   <ChevronRight size={13} />
                 </span>
               </div>
+              {g.replaced ? (
+                // Where the old text went ("kept in the Drafts tab", the Replace message says): first on the draft's record.
+                <div className="flex w-full items-center gap-1.5 text-[12px] font-medium text-accent opacity-80 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <Undo2 size={12} className="shrink-0" />
+                  <span className="truncate">See the text it replaced</span>
+                  <ChevronRight size={13} className="-ml-1 shrink-0" />
+                </div>
+              ) : null}
             </button>
           </li>
         )

@@ -452,7 +452,8 @@ test('with a draft being written, Esc on the Selected words bar or the floating 
 /** Sets the size of the window's inside (the page Adam sees) and waits for the panels to settle. */
 async function resize(app: ElectronApplication, win: Page, width: number, height: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height])
-  await expect.poll(() => win.evaluate('window.innerWidth')).toBe(width)
+  // Within a pixel: Windows' display scaling can round the window's size either way.
+  await expect.poll(async () => Math.abs(((await win.evaluate('window.innerWidth')) as number) - width)).toBeLessThanOrEqual(1)
   // The panels follow the window straight away while it is resized, then settle.
   await win.waitForTimeout(400)
 }

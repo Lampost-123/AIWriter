@@ -10,7 +10,16 @@ import { editorBridge } from '@/lib/editorBridge'
 import type { Noun } from '@/lib/deleteWords'
 import { announceDelete, type Deletion } from '@/lib/undoDelete'
 import { useApp } from '@/lib/store'
-import { neighbourAfterRemoval, readingOrder } from './outlineModel'
+import {
+  actOf,
+  chapterRuns,
+  moveToActPlace,
+  neighbourAfterRemoval,
+  placeChapterIn,
+  readingOrder,
+  shownOrder,
+  withActStartedAt
+} from './outlineModel'
 import { useOutlineStore } from './outlineStore'
 
 const app = useApp.getState
@@ -163,13 +172,25 @@ function removeFromOutline(sceneIds: ID[], chapterId?: ID): void {
   }))
 }
 
-/** Picks a neighbour when the open scene is going away. Returns whether the open scene was affected. */
-function moveSelectionAway(sceneIds: ID[]): boolean {
+/** Opens a scene without leaving the page Adam is on (the outline helper, say). */
+function openWithoutLeaving(id: ID | null, storyId?: ID): void {
+  const view = app().view
+  app().selectScene(id, storyId)
+  app().navigate(view)
+}
+
+/**
+ * Picks a neighbour when the open scene is going away. Returns whether the open scene was affected.
+ * `stay`: on the page Adam is on, rather than going to the scene.
+ */
+function moveSelectionAway(sceneIds: ID[], stay = false): boolean {
   const o = outlineStore().outline
   const openId = app().sceneId
   if (!o || !openId || !sceneIds.includes(openId)) return false
   const next = neighbourAfterRemoval(readingOrder(o), sceneIds, openId)
-  app().selectScene(next, o.story.id)
+  // On the outline helper, Adam stays there: the scene it kept into the story's first place may be the one going.
+  if (stay || app().view.kind === 'outline') openWithoutLeaving(next, o.story.id)
+  else app().selectScene(next, o.story.id)
   return true
 }
 
@@ -201,7 +222,8 @@ export async function deleteScene(id: ID): Promise<void> {
   )
 }
 
-export async function deleteChapter(id: ID): Promise<void> {
+/** Deletes a chapter with its scenes. `stay`: from a page other than the binder (the outline helper), which it doesn't leave. */
+export async function deleteChapter(id: ID, opts: { stay?: boolean } = {}): Promise<void> {
   const o = outlineStore().outline
   const chapter = o?.chapters.find((c) => c.id === id)
   const sceneIds = o?.scenes.filter((s) => s.chapterId === id).map((s) => s.id) ?? []
@@ -215,7 +237,7 @@ export async function deleteChapter(id: ID): Promise<void> {
     failed(e)
     return
   }
-  const wasOpen = moveSelectionAway(sceneIds)
+  const wasOpen = moveSelectionAway(sceneIds, opts.stay)
   removeFromOutline(sceneIds, id)
   app().bumpOutline()
   const count = sceneIds.length
@@ -226,7 +248,10 @@ export async function deleteChapter(id: ID): Promise<void> {
         .restoreDeleted('chapter', id)
         .then(() => {
           app().bumpOutline()
-          if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
+          if (wasOpen && openBefore && storyId && app().storyId === storyId) {
+            if (opts.stay) openWithoutLeaving(openBefore, storyId)
+            else app().selectScene(openBefore, storyId)
+          }
         })
         .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
     )
@@ -258,4 +283,170 @@ export async function moveChapter(id: ID, index: number): Promise<void> {
   }
   app().bumpOutline()
   if (preview) tellMoved(preview.notes, () => api.moveChapter(id, preview!.from.index))
+}
+
+// ---------- Acts (milestone 4) ----------
+
+/** A new act just after `afterId` (else after every act); resolves with its id. */
+export async function addAct(storyId: ID, afterId?: ID | null): Promise<ID | null> {
+  try {
+    const act = await api.createAct(storyId, { afterId: afterId ?? null })
+    outlineStore().patch((o) => {
+      if (o.story.id !== storyId) return o
+      const acts = (o.acts ?? []).slice()
+      const at = afterId ? acts.findIndex((a) => a.id === afterId) + 1 : acts.length
+      acts.splice(at > 0 ? at : acts.length, 0, act)
+      return { ...o, acts: acts.map((a, position) => ({ ...a, position })) }
+    })
+    app().bumpOutline()
+    return act.id
+  } catch (e) {
+    failed(e)
+    return null
+  }
+}
+
+export async function renameAct(id: ID, title: string): Promise<void> {
+  const clean = title.trim()
+  if (!clean) return
+  outlineStore().patch((o) => ({ ...o, acts: o.acts?.map((a) => (a.id === id ? { ...a, title: clean } : a)) }))
+  try {
+    await api.updateAct(id, { title: clean })
+    app().bumpOutline()
+  } catch (e) {
+    failed(e)
+  }
+}
+
+/** What the act does for the story (the outline helper's "purpose"). */
+export async function setActPurpose(id: ID, purpose: string): Promise<void> {
+  const clean = purpose.replace(/\s+/g, ' ').trim()
+  outlineStore().patch((o) => ({ ...o, acts: o.acts?.map((a) => (a.id === id ? { ...a, purpose: clean } : a)) }))
+  try {
+    await api.updateAct(id, { purpose: clean })
+    app().bumpOutline()
+  } catch (e) {
+    failed(e)
+  }
+}
+
+/** A new chapter at the end of an act; resolves with its id. */
+export async function addChapterToAct(storyId: ID, actId: ID): Promise<ID | null> {
+  try {
+    const chapter = await api.createChapterAt(storyId, { actId })
+    outlineStore().patch((o) => (o.story.id === storyId ? placeChapterIn({ ...o, chapters: [...o.chapters, chapter] }, chapter.id, { actId }) : o))
+    app().bumpOutline()
+    return chapter.id
+  } catch (e) {
+    failed(e)
+    return null
+  }
+}
+
+/**
+ * Moves a chapter into another act (the start of a later act, the end of an earlier one). Says where
+ * it went, with what that changes for other stories, and offers Undo.
+ */
+export async function moveChapterToAct(chapterId: ID, actId: ID): Promise<void> {
+  const o = outlineStore().outline
+  const place = o ? moveToActPlace(o, chapterId, actId) : null
+  if (!o || !place) return
+  const chapter = o.chapters.find((c) => c.id === chapterId)
+  const act = o.acts?.find((a) => a.id === actId)
+  const fromAct = actOf(o, chapterId)
+  // Where it is now among its act's chapters, for Undo.
+  const fromIndex = Math.max(0, chapterRuns(o, shownOrder(o, o.chapters.map((c) => c.id))).find((r) => (r.act?.id ?? null) === fromAct)?.chapters.indexOf(chapterId) ?? 0)
+  const moved = placeChapterIn(o, chapterId, place)
+  const index = moved.chapters.findIndex((c) => c.id === chapterId)
+  const notes = await notesFor(() => api.previewMove({ kind: 'chapter', id: chapterId, index }).then((p) => p.notes))
+  outlineStore().patch((now) => (now.story.id === o.story.id ? placeChapterIn(now, chapterId, place) : now))
+  try {
+    await api.placeChapter(chapterId, place)
+  } catch (e) {
+    failed(e)
+    return
+  }
+  app().bumpOutline()
+  const actName = act?.title.trim() ? `“${act.title.trim()}”` : 'the act'
+  const message = `Moved “${chapter?.title || 'Untitled chapter'}” to ${actName}.`
+  toast([message, ...notes].join(' '), {
+    action: {
+      label: 'Undo',
+      run: () =>
+        void api
+          .placeChapter(chapterId, { actId: fromAct, index: fromIndex })
+          .then(() => app().bumpOutline())
+          .catch(failed)
+    }
+  })
+}
+
+/**
+ * A new act starting at this chapter, with the chapters after it in its act (or those after it with no
+ * act, so a story written without acts can be given them): the story reads in the same order. Undo in
+ * the toast joins it back. Resolves with the act's id.
+ */
+export async function startActAt(chapterId: ID): Promise<ID | null> {
+  const title = outlineStore().outline?.chapters.find((c) => c.id === chapterId)?.title || 'Untitled chapter'
+  let made: Awaited<ReturnType<typeof api.startActAt>>
+  try {
+    made = await api.startActAt(chapterId)
+  } catch (e) {
+    failed(e)
+    return null
+  }
+  outlineStore().patch((o) => (o.story.id === made.act.storyId ? withActStartedAt(o, made.act, made.chapterIds) : o))
+  app().bumpOutline()
+  toast(`Started a new act at “${title}”.`, {
+    action: {
+      label: 'Undo',
+      run: () =>
+        void api
+          .joinActBack(made.act.id)
+          .then(() => app().bumpOutline())
+          .catch(failed)
+    }
+  })
+  return made.act.id
+}
+
+/** Deletes an act with its chapters and their scenes; Undo in the toast brings them all back. */
+export async function deleteAct(id: ID): Promise<void> {
+  const o = outlineStore().outline
+  const act = o?.acts?.find((a) => a.id === id)
+  const chapterIds = o?.chapters.filter((c) => c.actId === id).map((c) => c.id) ?? []
+  const gone = new Set(chapterIds)
+  const sceneIds = o?.scenes.filter((s) => gone.has(s.chapterId)).map((s) => s.id) ?? []
+  const storyId = o?.story.id
+  const openBefore = app().sceneId
+  const notes = await notesFor(() => api.actDeleteNotes(id))
+  try {
+    await saveIfOpen(sceneIds)
+    await api.deleteAct(id)
+  } catch (e) {
+    failed(e)
+    return
+  }
+  const wasOpen = moveSelectionAway(sceneIds)
+  const scenesGone = new Set(sceneIds)
+  outlineStore().patch((now) => ({
+    ...now,
+    acts: now.acts?.filter((a) => a.id !== id),
+    chapters: now.chapters.filter((c) => !gone.has(c.id)),
+    scenes: now.scenes.filter((s) => !scenesGone.has(s.id))
+  }))
+  app().bumpOutline()
+  const count = chapterIds.length
+  const what = count === 0 ? '' : count === 1 ? ' and its chapter' : ` and its ${count} chapters`
+  announceDelete(
+    deletion(`“${act?.title || 'Untitled act'}”${what} deleted.`, notes, ['act', 'acts'], () =>
+      api
+        .restoreAct(id)
+        .then(() => {
+          app().bumpOutline()
+          if (wasOpen && openBefore && storyId && app().storyId === storyId) app().selectScene(openBefore, storyId)
+        })
+        .catch((e: Error) => void toast(e.message, { tone: 'danger' }))
+    )
+  )
 }

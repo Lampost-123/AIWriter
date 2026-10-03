@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Folder, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
+import { BookOpen, FileText, Folder, Layers, RotateCcw, ScrollText, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { DeletedItem } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
@@ -13,6 +13,7 @@ import { formatBackupDate, inSentence } from './backupText'
 
 const OUTLINE_ICONS: Record<Exclude<DeletedItem['kind'], 'entry'>, ReactNode> = {
   story: <BookOpen size={15} />,
+  act: <Layers size={15} />,
   chapter: <Folder size={15} />,
   scene: <FileText size={15} />
 }
@@ -25,7 +26,15 @@ function iconFor(d: DeletedItem): ReactNode {
 }
 
 const fallbackTitle = (d: DeletedItem): string =>
-  d.kind === 'entry' ? 'Unnamed' : d.kind === 'scene' ? 'Untitled scene' : d.kind === 'chapter' ? 'Untitled chapter' : 'Untitled story'
+  d.kind === 'entry'
+    ? 'Unnamed'
+    : d.kind === 'scene'
+      ? 'Untitled scene'
+      : d.kind === 'chapter'
+        ? 'Untitled chapter'
+        : d.kind === 'act'
+          ? 'Untitled act'
+          : 'Untitled story'
 
 /** "Scene in Book 1 › Chapter 2", "Chapter in Book 1, with its 3 scenes", "Character". */
 function whereItWas(d: DeletedItem): string {
@@ -35,6 +44,13 @@ function whereItWas(d: DeletedItem): string {
       return `Scene in ${story} › ${d.chapterTitle || 'Untitled chapter'}`
     case 'chapter':
       return `Chapter in ${story}${d.sceneCount === 0 ? '' : d.sceneCount === 1 ? ', with its scene' : `, with its ${d.sceneCount} scenes`}`
+    case 'act': {
+      // Milestone 4: "Act in Book 1, with its 2 chapters and 6 scenes".
+      const chapters = d.chapterCount ?? 0
+      if (chapters === 0) return `Act in ${story}`
+      const scenes = d.sceneCount === 0 ? '' : d.sceneCount === 1 ? ' and 1 scene' : ` and ${d.sceneCount} scenes`
+      return `Act in ${story}, with its ${chapters === 1 ? 'chapter' : `${chapters} chapters`}${scenes}`
+    }
     case 'entry':
       return d.entryKind ? KIND_LABELS[d.entryKind].one : 'World entry'
     default:
@@ -44,7 +60,8 @@ function whereItWas(d: DeletedItem): string {
 
 /** Puts the screen right after something is brought back, and offers to open it. */
 async function restore(d: DeletedItem): Promise<void> {
-  await api.restoreDeleted(d.kind, d.id)
+  if (d.kind === 'act') await api.restoreAct(d.id)
+  else await api.restoreDeleted(d.kind, d.id)
   const app = useApp.getState()
   if (d.kind === 'entry') app.bumpEntries()
   else {

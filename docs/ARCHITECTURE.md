@@ -410,6 +410,155 @@ Each part also owns its own tests (`*.test.ts` beside its modules, `tests/e2e/<p
 files (`src/shared/types.ts`, `api.ts`, `fields.ts`, `defaults.ts`, `lib/store.ts`, `App.tsx`,
 `migrations.ts`, this file) change only additively, and only at integration.
 
+## Milestone 4: better drafting
+
+What it adds (spec, Build plan 4): Variants; Beat by beat; the AI tools for selected words (Rewrite,
+Expand, Condense, More vivid, Change tone, Fix voice, Alternatives) and Continue, as tracked changes with
+Accept and Reject; drafts and history with compare and restore; Ask the world; the outline helper and
+next scene ideas; reading aloud with its voice setup and calibration, and dictation (spec, "Read aloud
+and dictation"). The data model stays frozen (migrations 1 and 2): world.db is unchanged.
+
+- **history.db.** Scene snapshots (and the drafts a scene holds besides its current one) live in a file
+  of their own in each world folder, `history.db`, beside `world.db`, opened by `src/main/history/`.
+  A missing, locked or damaged history.db never stops a world from opening: History starts afresh (the
+  damaged file is moved aside, never deleted). Backups copy world.db only, so restoring a backup leaves
+  history alone. **Milestone 6:** import, export and world copy must carry history.db with world.db.
+- **Generation records.** New `job` values: `beat`, `edit`, `chat`, `outline`, `ideas`, `speech`
+  (Variants stay `draft`). The extras go in `params` (`variant`, `beat`, `tool`, `chatId`), so no
+  migration. Only the scene's current draft counts for the memory; a variant or draft Adam hasn't
+  chosen never reaches it.
+- **AI calls.** Drafts (Generate, Variants, Beat by beat) go through `ai/draftFlow.ts`
+  (`draftBriefing`: the memory catches up first, the briefing is fitted to the writer model, "too long"
+  is said in plain words) and `ai/drafts.ts` (`startDraftJob`, with `job`, `partOf` and `exclusive`).
+  `prepareContext(input, extras)` takes a part's own closing instruction (`final`) and extra blocks
+  (sent last, never shortened). Every other AI call (edits, Ask the world, the outline helper, ideas,
+  who says each line) goes through the task runner, `ai/tasks.ts`: it records the call, streams it, saves
+  as it goes, and sends `task:progress` (the whole text so far), `task:retrying` and `task:done`; Stop is
+  `stopTask(taskId)`. The interface makes the `taskId`, so it hears every event.
+- **Models.** `ai/jobModel.ts` picks the model for a job and says in plain words what to set up when
+  there is none. New jobs in Settings › Models, each with its own Thinking choice (default Off): "Chat
+  and brainstorm model" (`chat`: Ask the world, the outline helper, next scene ideas; the writer model
+  until Adam picks one) and "Read aloud model" (`speech`, shown once read aloud is on; the memory model
+  until Adam picks one). Beat by beat, Variants and the AI edits use the writer model.
+- **Snapshots before AI changes.** Every part that changes the page with AI calls
+  `snapshotBefore(sceneId, label)` (`features/history/snapshot.ts`) just before the change goes in;
+  Mark done and writing (every 10 minutes) take theirs in the main process (`history/index.ts`:
+  `sceneMarkedDone`, `sceneTextSaved`).
+- **The page.** The editor bridge (`lib/editorBridge.ts`) adds `editor`, `busy()`, `current()` (the
+  page as it would be saved) and `replaceScene()` (other text in place of the whole scene, one Ctrl+Z
+  step), and `beginStream(..., { noBreak })` for a beat that carries on without a scene break. AI
+  edits and reading aloud add TipTap extensions (`features/edits/suggestions.ts`,
+  `features/readAloud/highlight.ts`), listed in `features/editor/extensions.ts`.
+- **Screens.** New views: `history`, `variants`, `outline`. `askOpen` shows Ask the world in the right
+  panel in place of the scene panel's tabs. The scene toolbar's new buttons (`features/editor/SceneTools.tsx`)
+  use `ToolButton`. Each part's piece of a shared screen is a component in the part's own folder, already
+  placed: `SceneTools` (Variants, Beat by beat, History, Listen), `SceneView` (ReadAloudBar, SuggestionLayer,
+  BeatBar), the selection bar (ListenFromHere), the scene card (SceneIdeas), the top bar (AskButton), entry
+  pages (EntryVoice), the Quick start box (MicButton), App (DictationLayer), Settings › Read aloud and
+  dictation (`features/settings/SpeechSettings.tsx`: each part's `section="everyday"` and `"more"`), and
+  the palette's actions and shortcuts (Listen Ctrl+L, Stop reading Ctrl+Shift+Space).
+- **Speech.** Adam's rule (2 October 2026): from mcreader-v2 and Poor-Mans-Holodeck, only their
+  text-to-speech and voice-to-text code may be reused (each such file says where it came from); nothing
+  else from either repo, and never keys, tokens or voice clips. Helpers they lean on are written fresh.
+  One local speech server (Python) speaks and listens: its source ships with the app; its Python
+  environments and models download into the user data folder (`speech/`), never into the app, git, a world
+  folder or a backup. AI Write always installs and uses its own copy there, never another app's (Adam,
+  2 October 2026: no MCreader install is looked for or reused). It listens on 127.0.0.1:8766; Settings may point at another server on this
+  computer, loopback only (`speech/url.ts`). It starts hidden with the app when "Start with AI Write" is
+  on and stops as the app quits. Its routes are reached through IPC (the window never calls it directly).
+  The Hugging Face token is kept like API keys (`secrets.ts`). Character voices and "Say it as" are in the
+  world's `meta` key `read_aloud`, by entry id; speaker marks and spoken audio are a cache in the user data
+  folder (audio up to the limit Adam picks, oldest removed first). Dictated audio is never saved.
+  AI-written text (Generate, Beat by beat, a picked variant, an accepted AI edit or Continue) has its new or changed
+  paragraphs marked in the background as it lands (`readAloud/draftMarks.ts`, from History's snapshot before the change,
+  draft starts and ends, and the scene's saves; `Marker.noteAll`, failures only logged), when read aloud is on or set up
+  or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
+  tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
+  speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
+  Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
+- **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
+  reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
+  places first, then groups, items, lore and rules, events, plot threads, the glossary, relationships, and
+  the world's themes and tone when they are empty), saving each thing as it is made. Characters get full
+  profiles from the character builder (`src/main/builder/`). The summary's own sentences go in as Adam's
+  (`origin 'adam'`); what the AI fills in is `'ai'`. Anything already in the world (by name, alias or a
+  near match) is left as it is, and where the summary disagrees with it, that is a consistency issue. A
+  build is one memory run with no scene (`db/worldBuilder.ts`): its lines undo one by one in What changed,
+  or all at once on the page; the page's last build is read back from those lines. The summary is kept in
+  the world's `meta` key `world_summary`. Its job is `world` ("World builder model", the character builder
+  model until Adam picks one, Thinking Off).
+- **World builder: Interview me** (`src/main/worldBuilder/interview.ts`, `features/worldBuilder/WorldInterview.tsx`,
+  `interviewStore.ts`). The AI asks one short question at a time about what the summary is missing or thin on:
+  one `world` record per question (`askWorldQuestion`, prompt marker `[AIWRITE-WORLD v1] interview`, the World
+  builder model and Thinking), reading the summary as it stands and the questions asked so far. Answers never go
+  through the AI: each is added to the end of the summary in Adam's words under the question's topic
+  ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
+  stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
+- **Story days on the timeline.** The outline helper and the World builder date things in the story's own
+  count of days, which `when.ts` reads: "Day 1" is the day the story opens ("Day 3, dusk"). The outline
+  helper asks for a `When:` line on each scene (carrying on from the story's last scene with a When, from
+  Day 1 when none has one), shows it on each suggestion (Edit changes it), and keeps it on the card;
+  one the AI left out takes the day of the nearest scene before it with a When, else "Day 1"
+  (`fallbackWhen`). A finished build puts the story's opening scene on "Day 1" while none of its scenes
+  has a When (`worldBuilder/timeline.ts`), and asks for events during the story on that count. A When
+  already on a card is never replaced.
+- **Filling in the gaps.** `builder/fill.ts` fills the empty fields of thin characters, places, groups and
+  items (summary or description empty, or a third of the fields empty) with the AI, from the world and
+  what the story says about them, as `'ai'` ("Drafted by AI"). A field with words in it, a name and other
+  names are never changed. Two callers: a World build's last steps ("Filling in missing details": what it
+  made, and pages Adam didn't make himself, such as a character the memory found), and the memory keeper,
+  which hands the entries a run made from scene text (`newEntryIds`) to `fillFound` on the memory model
+  after the run, so it never slows or breaks the memory. Then the build gives each character it made a
+  read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
+  is set; it is saved even when read aloud isn't set up.
+- **Tests.** The fake provider answers each part's AI calls by the marker its system prompt starts with
+  (`tests/fake-provider/m4/`). The speech engine has its own fake server (`tests/fake-speech/`). Setting
+  `AIWRITE_FAKE_MIC=1` gives the window Chromium's fake microphone for dictation tests.
+
+### How the milestone 4 parts work together
+
+- **History.** history.db keeps every snapshot from the last 14 days; older ones thin to the last of
+  each day, and a "Mark done" snapshot and a scene's newest are always kept. Writing takes one at most
+  every 10 minutes. A scene emptied from the Trash has its history forgotten after 60 days. A
+  history.db that can't be opened is tried again every 30 seconds, and the History page says it
+  started afresh for 30 days after. The scene toolbar's History button (accessible name "History of
+  this scene") hides under 600 px of scene width, and the status pill shows only its dot under 660 px;
+  History stays in the palette and the Drafts tab.
+- **One draft job per scene at a time.** Generate, Variants and Beat by beat refuse each other on the
+  same scene, both in the main process (`ipc/ai.ts`, `ipc/variants.ts`, `ipc/beats.ts`, using
+  `isStartingDraft`, `isStartingBeat`, `variantsBusy`) and in the window before anything is asked
+  (Generate checks for variants being written before "Replace it or Add below").
+- **Drafts tab.** Lists `draft` and `beat` records; a variant or beat says which one it was
+  ("Variant 2 of 3", read from `params_json`). "What the AI saw" goes back where it was opened from:
+  the Variants page, Ask the world, or a version in History (the view's `from.history`).
+- **Ask the world records.** A chat turn is a generation record with `job` `chat`, `sceneId` ''
+  (it belongs to no scene) and `params.chatId` starting with the story's id ('world:' when none was
+  open), so a story's chats can be
+  found without a new column.
+- **Toasts.** A panel along the right edge (Ask the world) sets the CSS variable `--toast-right` so
+  toasts sit clear of it; a bar along the foot of the window lifts them with `useToastsAbove`.
+- **Read aloud audio.** Spoken audio plays from blob URLs, so the window's CSP allows
+  `media-src 'self' blob:` (`src/renderer/index.html`).
+
+### Who builds what (parallel build, milestone 4)
+
+| Part | Owns |
+|---|---|
+| History | `contracts/history.ts`, `ipc/history.ts`, `src/main/history/`, `features/history/`, the Drafts tab (`features/generate/GenerationsPanel.tsx`), the snapshot calls in `GenerateControls.tsx` |
+| Variants | `contracts/variants.ts`, `ipc/variants.ts`, `src/main/variants/`, `features/variants/` |
+| Beat by beat | `contracts/beats.ts`, `ipc/beats.ts`, `src/main/beats/`, `features/beats/` |
+| AI edits | `contracts/edits.ts`, `ipc/edits.ts`, `src/main/edits/`, `features/edits/`, the AI tools in `features/editor/selection/SelectionLayer.tsx`, `tests/fake-provider/m4/edits.mjs` |
+| Ask the world | `contracts/ask.ts`, `ipc/ask.ts`, `src/main/ask/`, `features/ask/`, `tests/fake-provider/m4/ask.mjs` |
+| Outline | `contracts/outline.ts`, `ipc/outline.ts`, `src/main/outline/`, `features/outline/`, acts in the binder (`features/binder/`), `tests/fake-provider/m4/outline.mjs` |
+| Speech engine | `contracts/speech.ts`, `ipc/speech.ts`, `src/main/speech/`, the speech server's source, `features/speech/`, `tests/fake-speech/` |
+| Read aloud | `contracts/readAloud.ts`, `ipc/readAloud.ts`, `src/main/readAloud/`, `features/readAloud/`, `tests/fake-provider/m4/readAloud.mjs` |
+| Dictation | `contracts/dictation.ts`, `ipc/dictation.ts`, `src/main/dictation/`, `features/dictation/`, the hold-to-talk line in the shortcuts list |
+| World builder | `contracts/worldBuilder.ts`, `ipc/worldBuilder.ts`, `src/main/worldBuilder/`, `db/worldBuilder.ts`, `features/worldBuilder/`, `tests/fake-provider/m4/world.mjs` |
+
+The groundwork (shared before the parts start): the task runner, `jobModel`, `draftFlow`, the contracts'
+first lines, the new Settings › Models entries, the views, the slots and the editor bridge additions above.
+Each part also owns its tests. Shared files change only additively, and only at integration.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

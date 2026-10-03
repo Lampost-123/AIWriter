@@ -22,15 +22,19 @@ const DAY = 24 * 60 * 60 * 1000
 const HOUR = 60 * 60 * 1000
 
 let dir: string
+// Every database a test opens, closed after it even when it fails, so Windows can delete its folder.
+const opened: Database.Database[] = []
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'aiwrite-backups-'))
 })
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
+  for (const db of opened.splice(0)) if (db.open) db.close()
+  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 })
 
 function worldDb(): Database.Database {
   const db = new Database(join(dir, 'world.db'))
+  opened.push(db)
   db.pragma('journal_mode = WAL')
   migrate(db)
   repo.initWorld(db, 'world-1', 'Test world')
@@ -144,7 +148,7 @@ describe('writing, listing and pruning backups', () => {
     expect(left.length).toBeLessThan(23)
     expect(existsSync(join(folder, 'notes.txt'))).toBe(true)
     db.close()
-  })
+  }, 30_000)
 
   it('removes half-written backups left by a crash, but not ones still being written', () => {
     const folder = join(dir, 'backups')

@@ -21,6 +21,7 @@ import { newId, now, UserError } from '../util'
 import { addExistsPoint, defaultExistsPoint, loadShape } from './memory'
 import { buildLine, previousSceneStep } from '../memory/line'
 import { getVersion, recordVersion } from './history'
+import { chapterCreated, chapterMoved, chapterRestored, deletedActs, listActs } from './acts'
 
 // All reads and writes of a world database. Pure functions over a better-sqlite3
 // handle, with no Electron imports, so they can be unit-tested in plain Node.
@@ -200,6 +201,8 @@ export function createChapter(db: DB, storyId: ID, input: { title?: string; afte
     )
     ids.splice(at, 0, id)
     renumber(db, 'chapters', ids)
+    // Milestone 4: in a story with acts, it goes in an act (see acts.ts).
+    chapterCreated(db, id, input.afterId)
     return getChapter(db, id)
   })()
 }
@@ -249,6 +252,8 @@ export function restoreDeleted(db: DB, kind: Restorable, id: ID): void {
       if (kind === 'chapter' || chapterBack) {
         const storyId = (db.prepare('SELECT story_id FROM chapters WHERE id = ?').get(chapterId) as Row).story_id as string
         renumber(db, 'chapters', chapterIds(db, storyId))
+        // Milestone 4: its act comes back with it, and each act's chapters stay together.
+        chapterRestored(db, chapterId)
       }
     }
   })()
@@ -281,9 +286,12 @@ export function listDeleted(db: DB): DeletedItem[] {
      WHERE s.deleted_at IS NOT NULL AND (c.deleted_at IS NULL OR c.deleted_at <> s.deleted_at)`
   )
   const entries = all('SELECT id, name AS title, kind AS entry_kind, deleted_at FROM entries WHERE deleted_at IS NOT NULL')
+  // Milestone 4: deleted acts, holding the chapters deleted along with them.
+  const acted = deletedActs(db)
   return [
     ...stories.map((r) => item(r, 'story')),
-    ...chapters.map((r) => item(r, 'chapter')),
+    ...acted.items,
+    ...chapters.filter((r) => !acted.chapterIds.has(r.id as string)).map((r) => item(r, 'chapter')),
     ...scenes.map((r) => item(r, 'scene')),
     ...entries.map((r) => item(r, 'entry'))
   ].sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : a.deletedAt > b.deletedAt ? -1 : 0))
@@ -295,6 +303,8 @@ export function moveChapter(db: DB, id: ID, index: number): void {
     const ids = chapterIds(db, c.storyId).filter((x) => x !== id)
     ids.splice(Math.max(0, Math.min(index, ids.length)), 0, id)
     renumber(db, 'chapters', ids)
+    // Milestone 4: it stays in its act, and each act's chapters stay together.
+    chapterMoved(db, id)
   })()
 }
 
@@ -429,7 +439,11 @@ export function getOutline(db: DB, storyId: ID): Outline {
       )
       .all(storyId) as Row[]
   ).map(toSceneMeta)
-  return { story, chapters, scenes }
+  // Milestone 4: the story's acts. A chapter whose act is deleted has none.
+  const acts = listActs(db, storyId)
+  const live = new Set(acts.map((a) => a.id))
+  for (const c of chapters) if (c.actId && !live.has(c.actId)) c.actId = null
+  return { story, chapters, scenes, acts }
 }
 
 /** Where a scene sits: its chapter and story. */

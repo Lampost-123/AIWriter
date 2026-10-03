@@ -6,6 +6,9 @@ import { Extension } from '@tiptap/core'
 import { requestMarkDone } from './doneShortcut'
 import { ParagraphIds } from './paragraphIds'
 import { NameUnderlines } from './names/underlines'
+import { Suggestions } from '@/features/edits/suggestions'
+import { ReadAloudHighlight } from '@/features/readAloud/highlight'
+import { SpeakerLabels } from '@/features/readAloud/speakerLabels'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -38,7 +41,9 @@ const MarkDoneShortcut = Extension.create({
  * The manuscript editor's extensions: paragraphs, bold, italic, blockquote and a
  * horizontal rule used as a scene break. No headings, lists, links or code:
  * a scene is prose. Every paragraph carries a stable id (paragraphIds.ts), and the names of known
- * entries get a faint underline (names/underlines.ts).
+ * entries get a faint underline (names/underlines.ts). Milestone 4 adds tracked changes for AI edits
+ * (features/edits/suggestions.ts), the sentence being read aloud (features/readAloud/highlight.ts) and, with
+ * "Show speakers and tone", who says each paragraph and how (features/readAloud/speakerLabels.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -59,6 +64,9 @@ export function sceneExtensions(): AnyExtension[] {
     StreamTracking,
     MarkDoneShortcut,
     ParagraphIds,
-    NameUnderlines
+    NameUnderlines,
+    Suggestions,
+    ReadAloudHighlight,
+    SpeakerLabels
   ]
 }

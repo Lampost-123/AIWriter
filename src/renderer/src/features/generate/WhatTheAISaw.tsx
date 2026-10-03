@@ -12,10 +12,19 @@ import { api, modKey, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
+import { variantsBackTo } from '@/features/variants/back'
+import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
 
 type Entry = GenerationRecord['entries'][number]
+
+/** The messages of an answer in Ask the world (milestone 4): its briefing, then the chat's earlier turns and the question. */
+const CHAT_ROLES: Record<GenerationRecord['messages'][number]['role'], string> = {
+  system: 'Instructions and briefing',
+  user: 'Question',
+  assistant: 'Earlier answer'
+}
 
 /** The parts Adam had open in each record this session, so coming back from an entry shows them open again. */
 const openParts = new Map<ID, Set<string>>()
@@ -28,6 +37,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   const [sceneGone, setSceneGone] = useState(false)
   const selectScene = useApp((s) => s.selectScene)
   const writer = useApp((s) => s.settings?.models.writer ?? null)
+  // Opened from a page other than the draft's scene (milestone 4: the outline helper, say).
+  const from = useApp((s) => (s.view.kind === 'generation' ? s.view.back : undefined))
 
   useEffect(() => {
     let live = true
@@ -39,6 +50,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
       .then((r) => {
         if (!live) return
         setRec(r)
+        // A record for the whole story (an outline) has no scene.
+        if (!r.sceneId) return
         api
           .getScene(r.sceneId)
           .then((s) => live && setSceneTitle(s.title || 'Untitled scene'))
@@ -78,8 +91,19 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
 
   const slow = useDelayed(!rec && !error)
 
+  // A variant's record (milestone 4) opened from the Variants page goes back there.
+  const toVariants = variantsBackTo(generationId)
   const back = (): void => {
-    if (rec) selectScene(rec.sceneId)
+    // Opened from another page (the outline helper, or a version in History): back there.
+    if (from) useApp.getState().navigate(from.view)
+    else if (toVariants) {
+      selectScene(toVariants)
+      useApp.getState().navigate({ kind: 'variants', sceneId: toVariants })
+    } else if (rec?.job === 'chat') {
+      // An answer in Ask the world (milestone 4) goes back to its chat, beside the page.
+      useApp.getState().navigate({ kind: 'write' })
+      useApp.getState().setAskOpen(true)
+    } else if (rec) selectScene(rec.sceneId)
     else useApp.getState().navigate({ kind: 'write' })
   }
 
@@ -87,7 +111,15 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
-          {rec && sceneTitle ? `Back to “${sceneTitle}”` : 'Back to the scene'}
+          {from
+            ? from.label
+            : toVariants
+              ? 'Back to the variants'
+              : rec?.job === 'chat'
+                ? 'Back to Ask the world'
+                : rec && sceneTitle
+                  ? `Back to “${sceneTitle}”`
+                  : 'Back to the scene'}
         </Button>
 
         {error ? (
@@ -109,6 +141,7 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
             sceneTitle={sceneTitle}
             sceneGone={sceneGone}
             modelLabel={writer?.modelId === rec.modelId ? writer.label : null}
+            what={from?.what}
           />
         )}
       </div>
@@ -120,12 +153,15 @@ function DraftRecord({
   rec,
   sceneTitle,
   sceneGone,
-  modelLabel
+  modelLabel,
+  what
 }: {
   rec: GenerationRecord
   sceneTitle: string | null
   sceneGone: boolean
   modelLabel: string | null
+  /** What the record is of, when it isn't a draft ("this outline"). */
+  what?: string
 }): React.JSX.Element {
   const [open, setOpenState] = useState<Set<string>>(() => openParts.get(rec.id) ?? new Set(['scene-card']))
   const setOpen = (next: Set<string> | ((s: Set<string>) => Set<string>)): void =>
@@ -143,6 +179,11 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // An answer in Ask the world (milestone 4) is called one here.
+  const answer = rec.job === 'chat'
+  // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
+  // A record that isn't a scene's draft at all (an outline, say) is named for what it is.
+  const edit = what ? otherRecordWords(what) : editRecordWords(rec, sceneTitle)
 
   const toggle = (id: string): void =>
     setOpen((s) => {
@@ -156,22 +197,56 @@ function DraftRecord({
     <div className="animate-fade-in">
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
       <p className="mt-1 text-[13px] text-muted">
-        The exact briefing for this draft{sceneTitle ? ` of “${sceneTitle}”` : ''}, written {fullDate(rec.createdAt)}.
+        {answer ? (
+          <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
+        ) : (
+          <>
+            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
+            {fullDate(rec.createdAt)}.
+          </>
+        )}
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
-        {rec.status === 'streaming' ? <Notice tone="ai">This draft is still being written. Its text appears below as it arrives.</Notice> : null}
-        {rec.status === 'stopped' ? <Notice>This draft was stopped before it finished. The text that arrived is kept in the scene.</Notice> : null}
-        {rec.status === 'complete' && rec.params.cutOff ? (
-          <Notice>
-            The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the draft
-            stops part-way. Try a shorter length, or a writer model that can write more in one go.
+        {rec.status === 'streaming' ? (
+          <Notice tone="ai">
+            {edit?.streaming ?? `This ${answer ? 'answer' : 'draft'} is still being written. Its text appears below as it arrives.`}
           </Notice>
         ) : null}
-        {rec.status === 'error' ? <Notice tone="danger">{rec.error ?? 'Something went wrong while this draft was written.'}</Notice> : null}
+        {rec.status === 'stopped' ? (
+          <Notice>
+            {edit?.stopped ??
+              (answer
+                ? 'This answer was stopped before it finished. The words that arrived are kept in the chat.'
+                : rec.params.variant
+                  ? 'This variant was stopped before it finished. The text that arrived is kept with it.'
+                  : 'This draft was stopped before it finished. The text that arrived is kept in the scene.')}
+          </Notice>
+        ) : null}
+        {rec.status === 'complete' && rec.params.cutOff && answer ? (
+          <Notice>
+            The answer reached the most the model can write in one go, so it stops part-way. Ask it to go on, or for a shorter answer.
+          </Notice>
+        ) : null}
+        {rec.status === 'complete' && rec.params.cutOff && !answer ? (
+          <Notice>
+            {edit?.cutOff ?? (
+              <>
+                The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the
+                draft stops part-way. Try a shorter length, or a writer model that can write more in one go.
+              </>
+            )}
+          </Notice>
+        ) : null}
+        {rec.status === 'error' ? (
+          <Notice tone="danger">
+            {rec.error ?? edit?.error ?? `Something went wrong while this ${answer ? 'answer' : 'draft'} was written.`}
+          </Notice>
+        ) : null}
         {changed ? (
           <Notice tone="ai">
-            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since this draft, so the AI saw an older version. They're marked below.
+            {changed === 1 ? 'One entry has' : `${changed} entries have`} been edited since{' '}
+            {edit?.since ?? `this ${answer ? 'answer' : 'draft'}`}, so the AI saw an older version. They're marked below.
           </Notice>
         ) : null}
       </div>
@@ -225,7 +300,7 @@ function DraftRecord({
 
       {rec.direction ? (
         <section className="mt-6">
-          <SectionTitle>Your direction for this draft</SectionTitle>
+          <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
           <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
         </section>
       ) : null}
@@ -270,6 +345,7 @@ function DraftRecord({
                   onToggle={() => toggle(b.id)}
                   entries={entries}
                   generationId={rec.id}
+                  since={edit?.since}
                 />
               ))}
             </div>
@@ -279,7 +355,15 @@ function DraftRecord({
             {rec.messages.map((m, i) => (
               <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
                 <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                  <span>{m.role === 'system' ? 'Instructions message' : m.role === 'user' ? 'Briefing message' : 'Reply'}</span>
+                  <span>
+                    {answer
+                      ? CHAT_ROLES[m.role]
+                      : m.role === 'system'
+                        ? 'Instructions message'
+                        : m.role === 'user'
+                          ? 'Briefing message'
+                          : 'Reply'}
+                  </span>
                   <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
                 </div>
                 <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
@@ -444,7 +528,8 @@ function BlockRow({
   open,
   onToggle,
   entries,
-  generationId
+  generationId,
+  since = 'this draft'
 }: {
   block: ContextBlock
   /** Its place in the order sent; null when it was left out. */
@@ -453,6 +538,8 @@ function BlockRow({
   onToggle: () => void
   entries: Map<ID, Entry>
   generationId: ID
+  /** What the record is, after "since": "this draft", or "this change" for an AI edit. */
+  since?: string
 }): React.JSX.Element {
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
@@ -490,6 +577,7 @@ function BlockRow({
                 <EntryChip
                   key={e.entryId}
                   entry={e}
+                  since={since}
                   onOpen={() => navigate({ kind: 'entries', entryKind: e.kind, entryId: e.entryId, from: { generationId } })}
                 />
               ))}
@@ -502,11 +590,11 @@ function BlockRow({
   )
 }
 
-function EntryChip({ entry, onOpen }: { entry: Entry; onOpen: () => void }): React.JSX.Element {
+function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void; since: string }): React.JSX.Element {
   const kind = KIND_LABELS[entry.kind]?.one.toLowerCase() ?? 'entry'
   if (entry.deleted) {
     return (
-      <span className="inline-flex h-6 items-center rounded-full border border-line px-2 text-[12px] text-faint line-through" title="Deleted since this draft">
+      <span className="inline-flex h-6 items-center rounded-full border border-line px-2 text-[12px] text-faint line-through" title={`Deleted since ${since}`}>
         {entry.name}
       </span>
     )
@@ -515,7 +603,7 @@ function EntryChip({ entry, onOpen }: { entry: Entry; onOpen: () => void }): Rea
     <button
       type="button"
       onClick={onOpen}
-      title={entry.changedSince ? `Open ${entry.name}. Edited since this draft: the AI saw an older version.` : `Open ${entry.name}`}
+      title={entry.changedSince ? `Open ${entry.name}. Edited since ${since}: the AI saw an older version.` : `Open ${entry.name}`}
       className={cn(
         'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[12px] transition-colors duration-150',
         entry.changedSince ? 'border-ai/40 bg-ai-soft text-fg hover:border-ai' : 'border-line bg-page text-fg hover:border-accent hover:text-accent'
@@ -526,4 +614,23 @@ function EntryChip({ entry, onOpen }: { entry: Entry; onOpen: () => void }): Rea
       {entry.changedSince ? <span className="text-[11px] font-medium text-ai">edited since</span> : null}
     </button>
   )
+}
+
+/** " (variant 2 of 3)" or " (beat 1 of 4)" for a draft that was one of those (milestone 4), else nothing. */
+function partWords(params: GenerationRecord['params']): string {
+  const part = params.variant ? { name: 'variant', ...params.variant } : params.beat ? { name: 'beat', ...params.beat } : null
+  return part ? ` (${part.name} ${part.index} of ${part.of})` : ''
+}
+
+/** The words for a record that isn't a scene's draft (the outline helper's, say), named by `what`. */
+function otherRecordWords(what: string): EditRecordWords {
+  return {
+    intro: `The exact briefing for ${what}`,
+    streaming: 'This is still being written. Its text appears below as it arrives.',
+    stopped: 'This was stopped before it finished. The text that arrived is below.',
+    cutOff: 'The model ran out of room before the end: it reached its reply limit, so the answer stops part-way.',
+    error: 'Something went wrong while this was written.',
+    since: 'then',
+    direction: 'Your direction'
+  }
 }

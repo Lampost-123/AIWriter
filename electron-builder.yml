@@ -24,6 +24,18 @@ directories:
 asarUnpack:
   - node_modules/better-sqlite3/**/*.node
 
+# The speech server's Python source (Settings, Read aloud and dictation), shipped as plain files
+# beside the app (resources/speech-server) so the Python that AI Write sets up can run it. What it
+# downloads (its environments, packages and models) goes into the speech folder in AI Write's user
+# data, never in here.
+extraResources:
+  - from: speech-server
+    to: speech-server
+    filter:
+      - '**/*'
+      - '!**/__pycache__/**'
+      - '!**/*.pyc'
+
 # The N-API prebuilds already work in Electron, so nothing is compiled while packaging.
 npmRebuild: false
 nodeGypRebuild: false

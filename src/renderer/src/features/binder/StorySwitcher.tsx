@@ -1,5 +1,5 @@
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookOpen, Check, ChevronsUpDown, PenLine, Plus, Settings2 } from 'lucide-react'
+import { BookOpen, Check, ChevronsUpDown, ListTree, PenLine, Plus, Settings2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -7,6 +7,7 @@ import { useApp } from '@/lib/store'
 import { installFlowEvents } from '@/features/stories/flows'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { openStory, openStorySettings } from '@/features/stories/storyActions'
+import { openOutlineHelper } from '@/features/outline/open'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import * as actions from './actions'
 import { InlineTitle } from './InlineTitle'
@@ -111,6 +112,12 @@ export function StorySwitcher(): React.JSX.Element {
                       <PenLine size={14} />
                     </span>
                     Rename this story
+                  </M.Item>
+                  <M.Item onSelect={() => openOutlineHelper(story.id)} className={cn(item, 'shrink-0')}>
+                    <span className="flex w-4 justify-center text-muted">
+                      <ListTree size={14} />
+                    </span>
+                    Outline helper
                   </M.Item>
                 </>
               ) : null}

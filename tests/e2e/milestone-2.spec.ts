@@ -607,7 +607,10 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       const card = sceneCard(win)
       await card.getByRole('combobox', { name: 'Point of view' }).click()
       await win.getByRole('option', { name: MARA.name, exact: true }).click()
+      // The point-of-view list gives the keyboard back to its box as it closes: only then type in the next one.
+      await expect(win.getByRole('listbox')).toHaveCount(0)
       const cast = card.getByRole('combobox', { name: 'Characters present' })
+      await cast.click()
       await cast.fill('Tob')
       await win
         .getByRole('listbox', { name: 'Characters' })

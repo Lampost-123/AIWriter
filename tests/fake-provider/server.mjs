@@ -46,11 +46,15 @@
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
 //   A reply longer than max_tokens (at about 4 characters a token) is cut off there, with finish_reason "length".
 //
+// Milestone 4's AI calls (AI edits, Ask the world, the outline helper, read aloud) are answered by
+// the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with.
+//
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
 
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
+import { m4Reply } from './m4/index.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -296,6 +300,7 @@ export async function startFakeProvider(options = {}) {
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
     memory ??= fakeBuilderReply(system, messages, model)
+    memory ??= m4Reply(system, messages, model)
     const full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4
@@ -526,6 +531,8 @@ export function fakeStoryFlowReply(system, user) {
 //                prompt lists is under "drafted", as "<Label> of <name>, drafted to fit the world."
 //                Fields listed as saved already (finishing a profile) are left out.
 //   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
+//   fill-gaps    "<Label> of <name>, filled in from the story." for each empty field it is asked about ("minor"
+//                for the role).
 //   options      Three options: "<Label>, first option: ...", "second", "third".
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
 //                and I pay my debts." The model fake/empty sends back nothing for any of these.
@@ -570,6 +577,13 @@ export function fakeBuilderReply(system, messages, model = '') {
     const name = nameIn(user)
     const wanted = [...(user.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
     return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], `Suggested ${m[2].trim().toLowerCase()} for ${name}.`])), null, 1)
+  }
+  if (job === 'fill-gaps') {
+    const profile = user.split("'s profile so far:")[1] ?? ''
+    const name = nameIn(profile)
+    const wanted = [...(profile.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
+    const value = (key, label) => (key === 'role' ? 'minor' : `${label} of ${name}, filled in from the story.`)
+    return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], value(m[1], m[2].trim())])), null, 1)
   }
   if (job === 'options') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'

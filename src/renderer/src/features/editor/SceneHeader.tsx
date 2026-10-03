@@ -12,6 +12,7 @@ import { STATUS_LABELS, STATUSES, StatusDot } from '@/features/binder/StatusDot'
 import { changeStatus } from './markDone'
 import { DoneButton } from './DoneButton'
 import { MemoryNote } from './MemoryNote'
+import { SceneTools } from './SceneTools'
 
 function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   return (
@@ -19,12 +20,12 @@ function StatusMenu({ sceneId, status }: { sceneId: ID; status: SceneStatus }): 
       <M.Trigger
         aria-label={`Scene status: ${STATUS_LABELS[status]}`}
         title="Scene status"
-        className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg"
+        className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line px-2 text-[12px] font-medium text-muted outline-none transition-colors duration-150 hover:border-line-strong hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:border-line-strong data-[state=open]:text-fg @min-[660px]:px-2.5"
       >
         <StatusDot status={status} />
         {/* In a narrow header (a small window) the status shows as its dot alone, leaving the room to the scene's title. */}
-        <span className="hidden w-[52px] text-left @min-[620px]:inline-block">{STATUS_LABELS[status]}</span>
-        <ChevronDown size={12} className="text-faint" />
+        <span className="hidden w-[52px] text-left @min-[660px]:inline-block">{STATUS_LABELS[status]}</span>
+        <ChevronDown size={12} className="hidden text-faint @min-[660px]:block" />
       </M.Trigger>
       <M.Portal>
         <M.Content
@@ -110,6 +111,7 @@ export function SceneHeader({ sceneId, fallbackTitle, fallbackStatus }: { sceneI
       </div>
       <StatusMenu sceneId={sceneId} status={status} />
       <DoneButton sceneId={sceneId} status={status} />
+      <SceneTools sceneId={sceneId} />
       <div className={cn('flex shrink-0 items-center')}>
         <GenerateControls sceneId={sceneId} />
       </div>

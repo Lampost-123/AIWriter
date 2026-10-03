@@ -8,6 +8,7 @@ import { ContextPanel } from '@/features/context/ContextPanel'
 import { CastPanel } from '@/features/cast/CastPanel'
 import { GenerationsPanel } from '@/features/generate/GenerationsPanel'
 import { PeekPanel } from '@/features/peek/PeekPanel'
+import { AskPanel } from '@/features/ask/AskPanel'
 
 const TAB_LABELS: Record<InspectorTab, string> = { card: 'Scene card', context: 'Context', cast: 'Cast', drafts: 'Drafts' }
 const TABS: InspectorTab[] = ['card', 'context', 'cast', 'drafts']
@@ -15,13 +16,15 @@ const TABS: InspectorTab[] = ['card', 'context', 'cast', 'drafts']
 /**
  * The right-hand panel beside a scene: its card, the briefing a draft would get, who is in it, and
  * its drafts. An entry shown beside the page (Ctrl+click on a name, or the Cast tab) takes the
- * panel's place until Back; the tabs stay as they were underneath.
+ * panel's place until Back; the tabs stay as they were underneath. Ask the world (milestone 4) takes it
+ * the same way while it is open.
  */
 export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
   // Kept in the store, so coming back from "What the AI saw" shows the Drafts tab again.
   const tab = useApp((s) => s.inspectorTab)
   const setTab = useApp((s) => s.setInspectorTab)
   const peekId = useApp((s) => s.peekEntryId)
+  const askOpen = useApp((s) => s.askOpen)
   const rootRef = useRef<HTMLDivElement>(null)
 
   const back = (): void => {
@@ -41,12 +44,13 @@ export function Inspector({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   return (
     <div ref={rootRef} className="@container h-full min-h-0">
-      {peekId ? <PeekPanel sceneId={sceneId} entryId={peekId} backLabel={TAB_LABELS[tab]} onBack={back} /> : null}
+      {askOpen ? <AskPanel sceneId={sceneId} onClose={() => useApp.getState().setAskOpen(false)} /> : null}
+      {peekId && !askOpen ? <PeekPanel sceneId={sceneId} entryId={peekId} backLabel={TAB_LABELS[tab]} onBack={back} /> : null}
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as InspectorTab)}
         // Hidden, not unmounted, while an entry shows, so Back finds the tab as it was.
-        className={cn('h-full min-h-0 flex-col', peekId ? 'hidden' : 'flex')}
+        className={cn('h-full min-h-0 flex-col', peekId || askOpen ? 'hidden' : 'flex')}
       >
         <TabsList
           tall

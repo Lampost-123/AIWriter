@@ -1,0 +1,463 @@
+// Reading aloud in the main process (milestone 4): planning a stretch of a scene into clips, the AI's marks on who
+// says what, the spoken audio kept on disk, the voices, samples, the warm-up and voice suggestions. The window
+// plays the clips (features/readAloud). Owned by the Read aloud part; see src/shared/contracts/readAloud.ts.
+//
+// Both caches live in the app's user data folder (`speech-cache/`), never in a world folder or a backup: the
+// spoken audio up to the limit Adam picks, and the AI's marks, one file per scene.
+import { join } from 'node:path'
+import type {
+  AudioCacheStats,
+  ClipRequest,
+  EntryReadAloud,
+  PlannedClip,
+  ReadingPlan,
+  ReadingRequest,
+  ReadParagraph,
+  SampleRequest,
+  SpeakerLabel,
+  SpeakerLabelsRequest
+} from '@shared/contracts/readAloud'
+import { defaultSpeechSettings } from '@shared/defaults'
+import type { ID, SpeechSettings } from '@shared/types'
+import * as repo from '../db/repo'
+import { emit } from '../events'
+import { userDataDir } from '../paths'
+import { getSettings } from '../settings'
+import * as world from '../world'
+import { newId, UserError } from '../util'
+import * as providers from '../ai/providers'
+import { jobModel, type JobModel } from '../ai/jobModel'
+import { runTask, stopTask } from '../ai/tasks'
+import { isDrafting, type DraftActivity } from '../ai/drafts'
+import { voicesInstalled } from '../speech'
+import { speechFetch } from '../speech/client'
+import { AudioCache, GB } from './audioCache'
+import { everyone } from './cast'
+import { DraftMarks } from './draftMarks'
+import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
+import { labelOf, markedEnough } from './labels'
+import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
+import { hasOwnVoice, planClips, type PlanSettings } from './plan'
+import { speak, VOICES_NOT_READY } from './speak'
+import { quoteKey } from './speakers'
+import { cleanDesign, linesSpokenBy, paragraphsOfDoc, voicePrompt } from './suggest'
+import { listVoices } from './voices'
+
+/** Where reading aloud keeps its caches. */
+export const speechCacheDir = (): string => join(userDataDir(), 'speech-cache')
+
+let audio: AudioCache | null = null
+/** The spoken audio kept on disk, up to Adam's limit (Settings › Read aloud and dictation). */
+export function audioCache(): AudioCache {
+  audio ??= new AudioCache(join(speechCacheDir(), 'audio'), () => Math.max(0.5, getSettings().speech.cacheLimitGb || 5) * GB)
+  return audio
+}
+
+let marks: MarkStore | null = null
+const markStore = (): MarkStore => (marks ??= new MarkStore(join(speechCacheDir(), 'marks')))
+
+const modelSources = (): Parameters<typeof jobModel>[1] => ({
+  settings: getSettings(),
+  getProvider: providers.getProvider,
+  providerTarget: providers.providerTarget
+})
+
+/** A way to ask the Read aloud model, through the task runner, for the open world; or why it can't be asked. */
+function askFor(sceneId: ID): { call: Ask; stop: () => void } | { error: string } {
+  const open = world.maybeCurrentWorld()
+  if (!open) return { error: 'No world is open.' }
+  let model: JobModel
+  try {
+    model = jobModel('speech', modelSources())
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+  const running = new Set<ID>()
+  return {
+    call: async ({ system, user, reply, temperature }) => {
+      const taskId = newId()
+      running.add(taskId)
+      try {
+        const done = await runTask({
+          db: open.db,
+          taskId,
+          job: 'speech',
+          sceneId,
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ],
+          reply,
+          temperature,
+          emit,
+          onKeyRejected: () => providers.markCheck(model.target.id, false)
+        })
+        return done.status === 'complete'
+          ? { text: done.text, error: null }
+          : { text: null, error: done.status === 'error' ? done.error : null }
+      } catch (e) {
+        return { text: null, error: e instanceof UserError ? e.message : 'Something went wrong asking the AI. Try again.' }
+      } finally {
+        running.delete(taskId)
+      }
+    },
+    stop: () => {
+      for (const id of running) void stopTask(id).catch(() => undefined)
+    }
+  }
+}
+
+let marker: Marker | null = null
+const theMarker = (): Marker =>
+  (marker ??= new Marker(markStore(), askFor, (sceneId, pids, error) => emit('readAloud:marked', { sceneId, pids, error })))
+
+/** The world closed: its marking stops (the task runner stops the calls themselves). */
+export function readAloudWorldClosing(): void {
+  marker?.forgetAll()
+  draftMarks?.forget()
+}
+
+const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettings().speech })
+
+// ---------- Marking a draft as it lands ----------
+
+/** Marks are worth making: read aloud is on or set up (its voices are downloaded), or "Show speakers and tone" is on. */
+function marksWanted(): boolean {
+  const s = speech()
+  return s.readAloud || s.showSpeakers || voicesInstalled()
+}
+
+/**
+ * Starts the AI marking these paragraphs of a scene in the background, with the Read aloud model: with Mark who says
+ * what, who says each line and how; otherwise who says the quotes the rules can't place. Paragraphs already being
+ * marked for the same words are left to that call (a reading's, or an earlier draft's). Failures are only logged.
+ */
+function markInBackground(sceneId: ID, paragraphs: { pid: string; text: string }[], pids: string[]): void {
+  const w = world.maybeCurrentWorld()
+  if (!w) return
+  const s = speech()
+  const sceneText = paragraphs.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, sceneId, sceneText)
+  const kept = markStore().current(w.id, sceneId, paragraphs)
+  const marking: MarkingScene = {
+    worldId: w.id,
+    sceneId,
+    blocks: paragraphs.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
+    run: paragraphs.map((p) => p.pid),
+    cast: rc.forAi(sceneText),
+    pov: rc.narrator,
+    pids: new Set(paragraphs.map((p) => p.pid))
+  }
+  const want = new Set(pids)
+  if (s.markSpeakers) {
+    theMarker().noteAll(marking, want)
+    return
+  }
+  const { unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
+  const mine = new Map([...unplaced].filter(([pid]) => want.has(pid)))
+  if (mine.size) theMarker().label(marking, mine, { quiet: true })
+}
+
+let draftMarks: DraftMarks | null = null
+const theDraftMarks = (): DraftMarks =>
+  (draftMarks ??= new DraftMarks({
+    wanted: marksWanted,
+    drafting: isDrafting,
+    savedDoc: (sceneId) => {
+      const w = world.maybeCurrentWorld()
+      if (!w) return null
+      try {
+        return repo.getScene(w.db, sceneId).doc
+      } catch {
+        return null
+      }
+    },
+    mark: markInBackground
+  }))
+
+/** AI-written text is about to go into a scene (History's snapshot before it, with the page as it is). Never throws. */
+export function aiChangeComing(sceneId: ID, before?: unknown): void {
+  if (typeof sceneId === 'string') theDraftMarks().aiChange(sceneId, before)
+}
+
+/** A scene's text was saved (src/main/ipc/core.ts). Never throws, and returns at once. */
+export function sceneSavedForMarks(sceneId: ID, doc: unknown): void {
+  theDraftMarks().saved(sceneId, doc)
+}
+
+/** A draft started or finished (ai/drafts.ts): a variant goes into the scene only when picked (its snapshot says so). */
+export function draftActivity(e: DraftActivity): void {
+  if (e.variant) return
+  if (e.phase === 'start') theDraftMarks().aiChange(e.sceneId)
+  else theDraftMarks().draftEnded(e.sceneId)
+}
+
+/**
+ * "Show speakers and tone": a few words for each paragraph whose marks are in (who says it, and how when that is
+ * known), from the paragraphs as the page shows them. Paragraphs being marked now, or not marked yet, get none.
+ */
+export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
+  const w = world.maybeCurrentWorld()
+  if (!w || typeof req?.sceneId !== 'string' || !Array.isArray(req.paragraphs)) return []
+  const s = speech()
+  const paragraphs = req.paragraphs
+    .slice(0, 5000)
+    .map(paragraphOf)
+    .filter((p) => p.pid && /[\p{L}\p{N}]/u.test(p.text))
+  if (!paragraphs.length) return []
+  const sceneText = paragraphs.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, req.sceneId, sceneText)
+  const kept = markStore().current(w.id, req.sceneId, paragraphs)
+  const { clips, unplaced } = planClips({ paragraphs, settings: s, cast: rc.cast, lexicon: rc.lexicon, marks: kept })
+  const busy = marker?.busyIn(w.id, req.sceneId) ?? new Set<string>()
+  const byPid = new Map<string, PlannedClip[]>()
+  for (const c of clips) (byPid.get(c.pid) ?? byPid.set(c.pid, []).get(c.pid)!).push(c)
+  return paragraphs.flatMap((p) => {
+    if (busy.has(p.pid) || !markedEnough(p.text, kept.get(p.pid), { tone: s.markSpeakers, unplaced: unplaced.has(p.pid) })) return []
+    const label = labelOf(byPid.get(p.pid) ?? [])
+    return label ? [{ pid: p.pid, label }] : []
+  })
+}
+
+/** A paragraph from the window, checked and cut to size. */
+function paragraphOf(p: ReadParagraph): ReadParagraph {
+  const text = typeof p?.text === 'string' ? p.text.slice(0, 20_000) : ''
+  const italics = Array.isArray(p?.italics)
+    ? p.italics
+        .filter((r): r is [number, number] => Array.isArray(r) && Number.isFinite(r[0]) && Number.isFinite(r[1]) && r[1] > r[0])
+        .slice(0, 200)
+    : undefined
+  return { pid: typeof p?.pid === 'string' ? p.pid.slice(0, 40) : '', text, ...(italics?.length ? { italics } : {}) }
+}
+
+/** Every paragraph id the scene has, from the window, when it is a list it could be. */
+function pidsOf(v: unknown): Set<string> | undefined {
+  if (!Array.isArray(v) || v.length > 20_000 || !v.every((p) => typeof p === 'string')) return undefined
+  return new Set((v as string[]).map((p) => p.slice(0, 40)))
+}
+
+/**
+ * The clips for a stretch of a scene, as the rules and the marks kept so far decide them, and the AI started on
+ * what they can't tell: with Mark who says what, who says each line and how, a little ahead of the reading (and
+ * `markAhead` says where the reading asks again, so the notes keep ahead of it); otherwise the speakers of the quotes
+ * the rules can't place.
+ */
+export function planReading(req: ReadingRequest): ReadingPlan {
+  const w = world.currentWorld()
+  const s = speech()
+  const paragraphs = (req.paragraphs ?? []).map(paragraphOf).filter((p) => p.pid)
+  const before = (req.before ?? []).map(paragraphOf).filter((p) => p.pid)
+  const scene = [...before, ...paragraphs]
+  const sceneText = scene.map((p) => p.text).join('\n\n')
+  const rc = readingCast(w.db, req.sceneId, sceneText)
+  const kept = markStore().current(w.id, req.sceneId, scene)
+  const base = {
+    paragraphs,
+    before,
+    offset: req.offset ?? 0,
+    quick: !!req.quick,
+    settings: s,
+    cast: rc.cast,
+    lexicon: rc.lexicon,
+    marks: kept
+  }
+  const first = planClips(base)
+  const m = theMarker()
+  const marking: MarkingScene = {
+    worldId: w.id,
+    sceneId: req.sceneId,
+    blocks: scene.map((p) => ({ id: p.pid, text: p.text, ...kept.get(p.pid) })),
+    run: paragraphs.map((p) => p.pid),
+    offset: base.offset,
+    cast: rc.forAi(sceneText),
+    pov: rc.narrator,
+    pids: pidsOf(req.pids)
+  }
+  let markAhead: ReadingPlan['markAhead']
+  if (s.markSpeakers) markAhead = m.note(marking).again
+  // Where the rules can't tell who says a line, the AI marks the speakers for the scene.
+  else if (first.unplaced.size) m.label(marking, first.unplaced)
+  const ahead = markAhead ? { markAhead } : {}
+  const busy = m.busyIn(w.id, req.sceneId)
+  if (!busy.size) return { clips: first.clips, marking: [], ...ahead }
+  // A line waits for its speaker only when that changes its voice: with nobody's own voice, only the bar's name does.
+  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return { clips: first.clips, marking: [...busy], ...ahead }
+  const again = planClips({ ...base, ...(s.markSpeakers ? { marking: busy } : { labelling: busy }) })
+  return { clips: again.clips, marking: [...busy], ...ahead }
+}
+
+/** Stops the AI marking a scene (its reading stopped). */
+export function stopMarks(sceneId: ID): void {
+  const w = world.maybeCurrentWorld()
+  if (w) marker?.stop(w.id, sceneId)
+}
+
+/** A clip from the window, checked and cut to size, so only what reading aloud would ask for is sent. */
+export function clipOf(c: ClipRequest): ClipRequest {
+  const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '')
+  return {
+    input: str(c?.input, 4000),
+    voice: str(c?.voice, 200),
+    voiceDesign: str(c?.voiceDesign, 2000),
+    instruct: str(c?.instruct, 2000),
+    delivery: str(c?.delivery, 600),
+    pace: c?.pace === 'slow' || c?.pace === 'fast' ? c.pace : '',
+    gentle: c?.gentle === true,
+    sounds: c?.sounds === true
+  }
+}
+
+/** One clip's audio (WAV), from the disk cache when it was heard before. */
+export async function speakClip(clip: ClipRequest): Promise<Uint8Array> {
+  const audio = await speak(clipOf(clip), audioCache(), speech().engine)
+  return new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength)
+}
+
+/** The voices the speech server offers. */
+export const readAloudVoices = (): ReturnType<typeof listVoices> => listVoices(speech().engine)
+
+/** One paragraph read as reading reads it, with these settings. */
+function sampleOf(
+  text: string,
+  settings: PlanSettings,
+  opts: { speaker?: { id: ID; name: string; voice: EntryReadAloud['voice'] } } = {}
+): PlannedClip[] {
+  const w = world.maybeCurrentWorld()
+  const lexicon = w ? readingCast(w.db, null).lexicon : []
+  if (opts.speaker) {
+    // A line of theirs, marked as theirs, in their own voice (whatever "Give characters their own voices" says).
+    const line = `“${text.replace(/["“”]/g, '')}”`
+    const me = { id: opts.speaker.id, name: opts.speaker.name, names: [opts.speaker.name], voice: opts.speaker.voice }
+    return planClips({
+      paragraphs: [{ pid: 'sample', text: line }],
+      settings: { ...settings, castVoices: true },
+      cast: everyone([me]),
+      lexicon,
+      marks: new Map([['sample', { speakers: { [quoteKey(line)]: opts.speaker.name } }]])
+    }).clips
+  }
+  return planClips({ paragraphs: [{ pid: 'sample', text }], settings, cast: everyone([]), lexicon, marks: new Map() }).clips
+}
+
+/** The clips a Sample, Hear or Listen button plays, exactly as reading will sound. */
+export function sampleReading(req: SampleRequest): PlannedClip[] {
+  const s = speech()
+  const sample = s.sample.trim() || defaultSpeechSettings().sample
+  switch (req?.kind) {
+    case 'narrator':
+      return sampleOf((typeof req.text === 'string' && req.text.trim().slice(0, 500)) || sample, s)
+    case 'voice':
+      return sampleOf(sample, { ...s, narratorVoice: String(req.voice ?? '').slice(0, 200), narratorDescription: '' })
+    case 'ready':
+      return sampleOf('Ready when you are.', s)
+    case 'say': {
+      const db = world.db()
+      const entry = repo.getEntry(db, req.entryId)
+      return sampleOf(`${entry.name}.`, s)
+    }
+    case 'character': {
+      const db = world.db()
+      const entry = repo.getEntry(db, req.entryId)
+      const voice = getEntryReadAloud(db, entry.id).voice
+      if (!voice.voice && !voice.design) throw new UserError('Describe how they sound, or pick a voice, first.')
+      const line = linesFor(db, entry)[0] ?? sample
+      return sampleOf(line, s, { speaker: { id: entry.id, name: entry.name, voice } })
+    }
+    default:
+      throw new UserError('Nothing to play.')
+  }
+}
+
+/** Some of a character's own lines from the stories (the last story Adam had open first). */
+function linesFor(db: ReturnType<typeof world.db>, entry: ReturnType<typeof repo.getEntry>): string[] {
+  const w = world.currentWorld()
+  const last = getSettings().lastStoryId
+  const stories = repo.listStories(db).map((st) => st.id)
+  const storyIds = last && stories.includes(last) ? [last, ...stories.filter((id) => id !== last)] : stories
+  const names = new Set([entry.name, ...entry.aliases].map((n) => n.trim().toLowerCase()).filter(Boolean))
+  return linesSpokenBy(db, entry, {
+    storyIds,
+    marked: (sceneId) => {
+      const out = new Map<string, Set<string>>()
+      let paragraphs: { pid: string; text: string }[]
+      try {
+        paragraphs = paragraphsOfDoc(repo.getScene(db, sceneId).doc)
+      } catch {
+        return out
+      }
+      for (const [pid, m] of markStore().current(w.id, sceneId, paragraphs)) {
+        const keys = Object.entries(m.speakers ?? {})
+          .filter(([, who]) => names.has(who.trim().toLowerCase()))
+          .map(([key]) => key)
+        if (keys.length) out.set(pid, new Set(keys))
+      }
+      return out
+    }
+  })
+}
+
+/**
+ * Loads the voices so the first Listen is quick: the speech server loads its engine and says "Ready when you are."
+ * to itself (on its first load on the graphics card it also tests itself, and falls back to its safe mode).
+ */
+export async function warmUpVoices(): Promise<void> {
+  const engine = speech().engine
+  const res = await speechFetch('/warmup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engines: [engine] }),
+    timeoutMs: 600_000
+  })
+  // A server without a warm-up loads the voices with the first clip instead.
+  if (res.status === 404 || res.status === 405) return
+  if (!res.ok) throw new UserError(VOICES_NOT_READY, 'voices-not-ready')
+  const body = (await res.json().catch(() => ({}))) as { engines?: Record<string, unknown> }
+  const state = body.engines?.[engine]
+  if (state !== undefined && state !== 'ready') {
+    console.warn(`[read aloud] warm-up: ${String(state).slice(0, 300)}`)
+    throw new UserError(VOICES_NOT_READY, 'voices-not-ready')
+  }
+}
+
+export const getEntryVoice = (entryId: ID): EntryReadAloud => getEntryReadAloud(world.db(), entryId)
+export const setEntryVoice = (entryId: ID, value: EntryReadAloud): EntryReadAloud => setEntryReadAloud(world.db(), entryId, value)
+
+/** Suggest: the AI describes how a character sounds. Streams as 'task:progress' for `taskId`; nothing is kept. */
+export async function suggestCharacterVoice(
+  entryId: ID,
+  taskId: ID
+): Promise<{ design: string; status: 'complete' | 'stopped' | 'error'; error: string | null }> {
+  const db = world.db()
+  const entry = repo.getEntry(db, entryId)
+  if (entry.kind !== 'character') throw new UserError('Only characters have a voice of their own.')
+  const model = jobModel('speech', modelSources())
+  const current = getEntryReadAloud(db, entryId).voice.design
+  const done = await runTask({
+    db,
+    taskId,
+    job: 'speech',
+    sceneId: null,
+    model,
+    messages: voicePrompt(entry, linesFor(db, entry), current),
+    reply: 200,
+    temperature: 0.5,
+    direction: `A voice for ${entry.name}`,
+    emit,
+    onKeyRejected: () => providers.markCheck(model.target.id, false)
+  })
+  return { design: done.status === 'error' ? '' : cleanDesign(done.text), status: done.status, error: done.error }
+}
+
+export async function cacheStats(): Promise<AudioCacheStats> {
+  const cache = audioCache()
+  // A lower limit takes effect at once (a clip in use stays until next time).
+  await cache.prune().catch((e) => console.warn('[read aloud] could not trim the saved audio', e))
+  return cache.stats()
+}
+
+export async function clearCache(): Promise<AudioCacheStats> {
+  const cache = audioCache()
+  await cache.clear()
+  return cache.stats()
+}

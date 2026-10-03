@@ -17,8 +17,11 @@ import { escapeTaken } from '@/lib/escape'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
+import { snapshotBefore } from '@/features/history/snapshot'
+import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { BLANK_DRAFT_OPTIONS, resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { CREATIVITY_HINTS, estimateDraftCost, formatCost, shortModelName } from './format'
+import { costLabel } from '@/features/variants/cost'
 import { PopoverPanel, Segmented, useDelayed } from './parts'
 
 interface Session {
@@ -38,8 +41,11 @@ type DraftMode = 'replace' | 'add'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
 
-/** Below this header width the writer model's name is left out, so Generate always fits. */
-const COMPACT_BELOW = 600
+/**
+ * Below this header width the writer model's name is left out, so Generate always fits and the scene's
+ * title stays whole beside the scene's tools (Variants, Beat by beat, History, Listen).
+ */
+const COMPACT_BELOW = 640
 
 /** True when the header around `ref` is too narrow for the model name next to Generate. */
 function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
@@ -323,6 +329,11 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
       toast('Open this scene in the editor to draft into it.')
       return
     }
+    // Milestone 4: while the scene's variants are being written, say so before asking anything.
+    if (isWriting(setOf(useVariants.getState(), sceneId))) {
+      toast('Variants of this scene are being written. Stop them on the Variants page, or wait for them to finish.')
+      return
+    }
     const filled = bridge.hasText()
     if (!mode && filled) {
       setHasText(true)
@@ -367,6 +378,8 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         return
       }
       const { generationId } = await api.startDraft(sceneId, options)
+      // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
+      await snapshotBefore(sceneId, 'Before a new draft', { generationId })
       if (s.cancelled || session.current !== s) {
         void api.stopGeneration(generationId).catch(() => undefined)
         giveUp()
@@ -752,7 +765,9 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     {modelName ?? 'none chosen'}
                   </button>
                 </span>
-                {estimate != null ? <span className="shrink-0 tabular-nums">About {formatCost(estimate)} a draft</span> : null}
+                {estimate != null ? (
+                  <span className="shrink-0 tabular-nums">{estimate === 0 ? 'Free' : `${costLabel(estimate, true)} a draft`}</span>
+                ) : null}
               </div>
               <Button variant="primary" className="w-full" icon={<Sparkles size={14} />} onClick={() => void generate()}>
                 Generate draft

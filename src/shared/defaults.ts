@@ -1,4 +1,4 @@
-import type { SceneCard, Settings, StyleGuide, WritingPrefs } from './types'
+import type { SceneCard, Settings, SpeechSettings, StyleGuide, WritingPrefs } from './types'
 
 export const emptySceneCard = (): SceneCard => ({
   povId: null,
@@ -51,9 +51,9 @@ export const AUTO_UPDATES = true
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
-  models: { writer: null, memory: null, chat: null, builder: null },
+  models: { writer: null, memory: null, chat: null, builder: null, speech: null, world: null },
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
-  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off' },
+  thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off' },
   creativity: 'balanced',
   theme: 'system',
   editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70 },
@@ -62,7 +62,36 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   lastStoryId: null,
   lastSceneId: null,
   lastPlaces: {},
-  backup: { extraFolder: null }
+  backup: { extraFolder: null },
+  speech: defaultSpeechSettings()
+})
+
+/** The speech server's own address: port 8766, so it never clashes with MCreader or Poor Man's Holodeck (8765). */
+export const SPEECH_SERVER_URL = 'http://127.0.0.1:8766/v1'
+
+/** Read aloud and dictation as they start (spec, "Read aloud and dictation"). */
+export const defaultSpeechSettings = (): SpeechSettings => ({
+  readAloud: false,
+  runServer: false,
+  serverUrl: SPEECH_SERVER_URL,
+  engine: 'breeze',
+  narratorVoice: 'narrator',
+  narratorDescription: '',
+  dialogueVoice: '',
+  sample: 'The rain had not stopped for three days, and the river was beginning to remember its old shape.',
+  speed: 1,
+  castVoices: true,
+  style: 'A seasoned audiobook narrator: warm, unhurried, with natural pauses. Give dialogue life without overacting.',
+  steadyNarrator: true,
+  markSpeakers: false,
+  showSpeakers: false,
+  sounds: false,
+  keepReading: true,
+  followAlong: true,
+  cacheLimitGb: 5,
+  dictationEngine: 'none',
+  dictationKey: '',
+  microphone: ''
 })
 
 /** Sampling settings for each creativity preset. */

@@ -1,0 +1,66 @@
+/* Reading aloud. Colours come from the theme tokens in styles.css. */
+
+/*
+ * The sentence being read: a soft wash behind the words that takes no room, so nothing moves. Only a background (a
+ * little taller than the letters), so where the highlight is in pieces (around a name's underline) they meet with
+ * no seam.
+ */
+.scene-prose .aw-reading {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding-block: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: aw-reading-in 160ms ease-out;
+}
+
+@keyframes aw-reading-in {
+  from {
+    background-color: transparent;
+  }
+}
+
+/*
+ * The player bar over the top of the page: a wash of the accent over the page's own colour (opaque, so the words it
+ * lies over don't show through), in every theme.
+ */
+.aw-bar {
+  background-color: color-mix(in srgb, var(--accent-soft) 70%, var(--page));
+}
+
+/* The little bars in the reading bar that move while a voice speaks. */
+.aw-speaking > span {
+  transform-origin: bottom;
+  transform: scaleY(0.4);
+}
+
+.aw-speaking[data-live='true'] > span {
+  animation: aw-speak 900ms ease-in-out infinite;
+}
+
+.aw-speaking[data-live='true'] > span:nth-child(2) {
+  animation-delay: -300ms;
+}
+
+.aw-speaking[data-live='true'] > span:nth-child(3) {
+  animation-delay: -600ms;
+}
+
+@keyframes aw-speak {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-prose .aw-reading {
+    animation: none;
+  }
+  .aw-speaking[data-live='true'] > span {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+}

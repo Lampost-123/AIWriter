@@ -8,6 +8,9 @@ import { isMac } from './api'
 export type ShortcutId =
   | 'generate'
   | 'stop'
+  | 'stopAnswer'
+  | 'acceptChange'
+  | 'rejectChange'
   | 'markDone'
   | 'save'
   | 'bold'
@@ -27,6 +30,10 @@ export type ShortcutId =
   | 'binderRename'
   | 'binderDelete'
   | 'binderUndo'
+  // Milestone 4
+  | 'listen'
+  | 'stopReading'
+  | 'buildWorld'
 
 export type ShortcutGroup = 'Writing' | 'Moving around'
 
@@ -48,6 +55,15 @@ export interface Shortcut {
 export const SHORTCUTS: Shortcut[] = [
   { id: 'generate', name: 'Generate a draft of the scene', group: 'Writing', keys: ['Mod', 'G'] },
   { id: 'stop', name: 'Stop the draft', group: 'Writing', keys: ['Esc'] },
+  { id: 'stopAnswer', name: 'Stop the answer', where: 'in Ask the world', group: 'Writing', keys: ['Esc'] },
+  { id: 'acceptChange', name: 'Accept the AI’s change to the words', where: 'in the page', group: 'Writing', keys: ['Tab'] },
+  {
+    id: 'rejectChange',
+    name: 'Reject the AI’s change, or stop it while it’s being written',
+    where: 'in the page',
+    group: 'Writing',
+    keys: ['Esc']
+  },
   { id: 'markDone', name: 'Mark scene done', group: 'Writing', keys: ['Mod', 'Enter'] },
   { id: 'save', name: 'Save now (AI Write also saves as you type)', group: 'Writing', keys: ['Mod', 'S'] },
   { id: 'bold', name: 'Bold', group: 'Writing', keys: ['Mod', 'B'] },
@@ -55,6 +71,15 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'quote', name: 'Quoted passage', group: 'Writing', keys: ['Mod', 'Shift', 'B'] },
   { id: 'lineBreak', name: 'New line in the same paragraph', group: 'Writing', keys: ['Shift', 'Enter'] },
   { id: 'showName', name: 'Show who or what an underlined name is, beside the page', group: 'Writing', keys: ['Mod', 'Click'] },
+  { id: 'listen', name: 'Listen from the cursor, or pause and carry on', group: 'Writing', keys: ['Mod', 'L'] },
+  { id: 'stopReading', name: 'Stop reading aloud', group: 'Writing', keys: ['Mod', 'Shift', 'Space'] },
+  {
+    id: 'buildWorld',
+    name: 'Build the world from your summary',
+    where: 'on the World builder page',
+    group: 'Writing',
+    keys: ['Mod', 'Enter']
+  },
   { id: 'undo', name: 'Undo', group: 'Writing', keys: ['Mod', 'Z'] },
   { id: 'redo', name: 'Redo', group: 'Writing', keys: ['Mod', 'Y'], mac: ['Mod', 'Shift', 'Z'] },
   { id: 'search', name: 'Search, or find any action', group: 'Moving around', keys: ['Mod', 'K'] },
@@ -63,17 +88,30 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'close', name: 'Close a menu, list or dialog', group: 'Moving around', keys: ['Esc'] },
   {
     id: 'binderMove',
-    name: 'Move between chapters and scenes',
+    name: 'Move between acts, chapters and scenes',
     where: 'in the binder',
     group: 'Moving around',
     keys: ['↑', '↓'],
     either: true
   },
-  { id: 'binderFold', name: 'Close or open a chapter', where: 'in the binder', group: 'Moving around', keys: ['←', '→'], either: true },
+  {
+    id: 'binderFold',
+    name: 'Close or open an act or chapter',
+    where: 'in the binder',
+    group: 'Moving around',
+    keys: ['←', '→'],
+    either: true
+  },
   { id: 'binderOpen', name: 'Open the scene', where: 'in the binder', group: 'Moving around', keys: ['Enter'] },
-  { id: 'binderRename', name: 'Rename a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
-  { id: 'binderDelete', name: 'Delete a chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['Delete'] },
-  { id: 'binderUndo', name: 'Bring back what you just deleted', where: 'in the binder', group: 'Moving around', keys: ['Mod', 'Z'] }
+  { id: 'binderRename', name: 'Rename an act, chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['F2'] },
+  { id: 'binderDelete', name: 'Delete an act, chapter or scene', where: 'in the binder', group: 'Moving around', keys: ['Delete'] },
+  {
+    id: 'binderUndo',
+    name: 'Bring back what you just deleted',
+    where: 'in the binder or the Drafts tab',
+    group: 'Moving around',
+    keys: ['Mod', 'Z']
+  }
 ]
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = ['Writing', 'Moving around']
@@ -99,6 +137,8 @@ export const withShortcut = (label: string, id: ShortcutId, mac = isMac()): stri
 /** The parts of a key press that decide a shortcut. */
 export interface KeyPress {
   key: string
+  /** The physical key, when known: Space is told by it as well as by its character. */
+  code?: string
   ctrlKey: boolean
   metaKey: boolean
   shiftKey: boolean
@@ -119,6 +159,7 @@ export function isShortcut(e: KeyPress, id: ShortcutId, mac = isMac()): boolean 
   const want = main[0] === 'Esc' ? 'Escape' : main[0]
   // '?' is Shift and / on many keyboards (and other keys elsewhere): the character decides, not Shift.
   if (want === '?') return e.key === '?'
+  if (want === 'Space') return shift === e.shiftKey && (e.key === ' ' || e.code === 'Space')
   return shift === e.shiftKey && e.key.toLowerCase() === want.toLowerCase()
 }
 
@@ -140,11 +181,12 @@ export function pressShortcut(id: ShortcutId, mac = isMac()): void {
   const s = shortcut(id)
   const keys = (mac && s.mac) || s.keys
   const main = keys.filter((k) => k !== 'Mod' && k !== 'Shift')[0]
-  const key = main === 'Esc' ? 'Escape' : main.length === 1 ? main.toLowerCase() : main
+  const key = main === 'Esc' ? 'Escape' : main === 'Space' ? ' ' : main.length === 1 ? main.toLowerCase() : main
   const mod = keys.includes('Mod')
   window.dispatchEvent(
     new KeyboardEvent('keydown', {
       key,
+      code: main === 'Space' ? 'Space' : undefined,
       bubbles: true,
       cancelable: true,
       ctrlKey: mod && !mac,
