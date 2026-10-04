@@ -49,7 +49,7 @@ export const INTENSITY: readonly IntensityScaleInfo[] = [
         level: 4,
         label: 'Explicit',
         hint: 'Sex scenes written in full.',
-        prompt: 'Romance: sex scenes between adults may be written explicitly and in full when the scene calls for them.'
+        prompt: 'Romance: when adults have sex on the page, write the acts in full with blunt body words and direct talk; do not fade out, skip ahead, or hide them behind euphemism.'
       }
     ]
   },

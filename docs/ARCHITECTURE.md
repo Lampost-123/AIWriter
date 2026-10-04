@@ -998,7 +998,7 @@ keys in JSON that already reads with defaults (world meta `style`, `stories.styl
   rename one. Every preset, rule and phrase is AI Write's own wording (the repository is public).
 - **Block 1** (`ai/prompts.ts` `instructionsText`) adds "Genre and feel" (`genreText`: the lead's guidance, a blend's first
   sentence and feel, Adam's own take, a few of the genre's worn-out moves), "Content" (`contentText`: one sentence per scale
-  set; the content limits still win) and "Write like a person, not like an AI" (`aiPhrasesText`: `SLOP_RULES` and the
+  set; the content limits still win), "Sex scenes" when romance is Explicit and the job writes prose (`sexSceneText`: stage each act, blunt words, direct talk; Ask the world leaves it out), and "Write like a person, not like an AI" (`aiPhrasesText`: `SLOP_RULES` and the
   `PROMPT_SLOP` short list), on while `WritingPrefs.avoidAiPhrases` isn't false. Its short form keeps the lead genre and the
   rules without the phrase list. It grows by about 400 tokens for one genre and about 540 for a blend with all three levels
   (`ai/feel.test.ts`). Ask the world passes `proseRules: false`. `finalInstruction` ends with `feelLine` (the genre's feel and
