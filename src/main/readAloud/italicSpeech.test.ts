@@ -30,10 +30,15 @@ describe('speech in italics', () => {
     )
     expect(spoken('The ring said, *Take the floor.*')).toBe('The ring said, “Take the floor.”')
     expect(spoken('*Run,* she whispered.')).toBe('“Run,” she whispered.')
+    // The comma just after the italics, and a tag that goes on to say how.
+    expect(spoken('*She can feel it*, the ring said, low and soft, like a voice in the dark.')).toBe(
+      '“She can feel it”, the ring said, low and soft, like a voice in the dark.'
+    )
   })
 
   it('leaves a stressed word, a thought, a title and italics inside quotes as they are', () => {
     expect(spoken('She had *never* said that.')).toBe('She had never said that.')
+    expect(spoken('She had *never*, she said, been there.')).toBe('She had never, she said, been there.')
     expect(spoken('*Never,* she thought.')).toBe('Never, she thought.')
     expect(spoken('He read *The Long Road* twice.')).toBe('He read The Long Road twice.')
     expect(spoken('“I *told* you,” said Mara.')).toBe('“I told you,” said Mara.')

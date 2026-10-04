@@ -241,4 +241,12 @@ describe('a character who speaks in italics', () => {
       ['Ring', 'Take the floor, boy. You won’t get a better view.', 'An old, dry, amused voice.']
     ])
   })
+
+  it('with the comma after the italics, and a tag that says how', () => {
+    const ringCast = everyone(castOf([{ id: 'ring', name: 'Ring', aliases: [], about: '', voice: { design: 'An old, dry, amused voice.', voice: '' } }]))
+    const text = 'She can feel it, the ring said, low and soft, like a voice in the dark.'
+    const { para } = asSpoken({ pid: 'p1', text, italics: [[0, 15]] })
+    const clips = planClips({ paragraphs: [para], settings, cast: ringCast, lexicon: [], marks: new Map() }).clips
+    expect(clips[0]).toMatchObject({ who: 'Ring', clip: { input: 'She can feel it', voiceDesign: 'An old, dry, amused voice.' } })
+  })
 })
