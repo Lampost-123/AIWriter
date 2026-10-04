@@ -844,7 +844,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
 
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
-  return (input.memory.bringAbout ?? []).map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
+  // A fresh take doesn't build on the earlier draft: only Adam's own notes for the scene are aims.
+  const changes = (input.memory.bringAbout ?? []).filter((c) => !input.options.fresh || c.origin === 'adam')
+  return changes.map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
 }
 
 /**

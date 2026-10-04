@@ -35,7 +35,7 @@ export function cleanOptions(
         : fallback.targetWords
   const creativity = o?.creativity && o.creativity in CREATIVITY_PRESETS ? o.creativity : fallback.creativity
   const direction = typeof o?.direction === 'string' ? o.direction.trim().slice(0, 4000) : ''
-  return { targetWords, creativity, direction }
+  return { targetWords, creativity, direction, ...(o?.fresh === true ? { fresh: true } : {}) }
 }
 
 /**
