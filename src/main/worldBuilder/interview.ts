@@ -25,6 +25,8 @@ export const INTERVIEW_TEMPERATURE = 0.7
 export const ASKED_MOST = 30
 /** The longest topic kept as the label for an answer. */
 export const TOPIC_MOST = 40
+/** The most of each earlier answer told with each request (the whole answer is in the summary). */
+export const ANSWER_MOST = 300
 
 /** The reply couldn't be read as a question. */
 export const NO_QUESTION =
@@ -48,7 +50,8 @@ Rules
 - Read the summary as it stands. Ask about the most important thing it is missing or thin on. Never ask about what it already covers well.
 - Ask one thing only, in plain, friendly words, in one sentence of at most 25 words. No lists, no options to choose from, no two questions in one.
 - Use the names the summary uses, so the author knows what you mean.
-- Never ask again about a topic already asked in this interview, answered or skipped. A skipped topic is one the author doesn't want to talk about now.
+- Never ask again about a topic already asked in this interview, answered or skipped, even in other words or under another topic name. A skipped topic is one the author doesn't want to talk about now.
+- Lines in the summary that start with a short label and a colon ("Setting: ...", "Mara's goal: ...") are the author's answers to earlier questions. Treat what they say as covered; build on them instead of asking again.
 - "topic" names what the question is about in one to four words, starting with a capital letter ("Setting", "Mara's goal", "How magic works", "The ending"). The answer is added to the summary under it, so make it read well as a heading.
 
 Reply with one JSON object and nothing else:
@@ -70,10 +73,67 @@ export function askedText(asked: WorldInterviewAsked[]): string {
   if (!list.length) return ''
   const lines = list.map(
     (a) =>
-      `- ${oneLine(a.topic) || 'More'}: ${oneLine(a.question)} (${a.skipped ? 'skipped' : 'answered: the answer is now in the summary'})`
+      `- ${oneLine(a.topic) || 'More'}: ${oneLine(a.question)} (${a.skipped ? 'skipped' : answered(a.answer)})`
   )
   return `Already asked in this interview:\n${lines.join('\n')}`
 }
+
+/** How an answered question is shown: with the author's answer, cut short when long (all of it is in the summary). */
+function answered(answer: string | undefined): string {
+  const words = oneLine(answer)
+  if (!words) return 'answered: the answer is now in the summary'
+  const cut = words.length > ANSWER_MOST ? `${words.slice(0, ANSWER_MOST).replace(/\s+\S*$/, '')}…` : words
+  return `answered: "${cut}"`
+}
+
+/** Small words that don't tell one question from another. */
+const STOP = new Set(
+  'a an the and or but of to in on at for with from by is are was were be been do does did what who whom whose which when where why how this that these those it its their they them he she his her you your i me my we our about there here will would could should can any some more most each other else story world'.split(
+    ' '
+  )
+)
+
+/** The words that carry meaning in a question, for telling a repeat. */
+function keyWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/['’]s\b/g, '')
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 2 && !STOP.has(w))
+      .map((w) => w.replace(/(ies|es|s)$/, ''))
+  )
+}
+
+const sameTopic = (a: string, b: string): boolean => !!cleanTopic(a) && cleanTopic(a).toLowerCase() === cleanTopic(b).toLowerCase()
+
+/** The labels of answers already in the summary (its "Setting: ..." lines). */
+export function answerLabels(summary: string): string[] {
+  return [...summary.matchAll(/^([A-Z][^:\n]{0,39}):\s+\S/gm)].map((m) => m[1].trim())
+}
+
+/**
+ * What a new question repeats, or null: an earlier question on the same topic or in mostly the same words, or an
+ * answer already in the summary under the same label. Models told never to repeat still do, more so as the list grows.
+ */
+export function repeatOf(q: { topic: string; question: string }, asked: WorldInterviewAsked[], summary: string): string | null {
+  if (q.topic !== 'More') {
+    const label = answerLabels(summary).find((l) => sameTopic(l, q.topic))
+    if (label) return label
+  }
+  const mine = keyWords(q.question)
+  for (const a of asked) {
+    if (q.topic !== 'More' && sameTopic(a.topic, q.topic)) return a.topic
+    const theirs = keyWords(a.question)
+    const shared = [...mine].filter((w) => theirs.has(w)).length
+    if (shared >= 2 && shared / Math.min(mine.size, theirs.size) >= 0.6) return a.topic || a.question
+  }
+  return null
+}
+
+/** Sent back once when the reply repeats what was asked or answered. */
+export const askedAlready = (what: string): string =>
+  `[AI Write] That repeats what was already asked or answered ("${what}"). Ask about something else the summary is still missing, as one JSON object.`
 
 export function interviewUser(summary: string, asked: WorldInterviewAsked[]): string {
   const said = summary.trim()
@@ -158,29 +218,43 @@ export async function askQuestion(ctx: InterviewContext, input: WorldInterviewIn
   const asked = (Array.isArray(input?.asked) ? input.asked : []).map((a) => ({
     topic: oneLine(a?.topic).slice(0, 80),
     question: oneLine(a?.question).slice(0, 400),
-    skipped: !!a?.skipped
+    skipped: !!a?.skipped,
+    answer: a?.skipped ? undefined : oneLine(a?.answer).slice(0, 2000) || undefined
   }))
-  const done = await runTask({
-    db: ctx.db,
-    taskId: String(input?.taskId ?? ''),
-    job: 'world',
-    sceneId: null,
-    model: ctx.model,
-    messages: interviewMessages(summary, asked, contextOf(ctx.model.choice)),
-    reply: INTERVIEW_REPLY,
-    temperature: INTERVIEW_TEMPERATURE,
-    direction: 'Interview me: the next question about my summary',
-    emit: ctx.emit,
-    onKeyRejected: ctx.onKeyRejected,
-    fetchImpl: ctx.fetchImpl,
-    retryDelays: ctx.retryDelays
-  }).catch((e: unknown) => {
-    throw e instanceof UserError ? e : new UserError(WENT_WRONG)
-  })
+  const messages = interviewMessages(summary, asked, contextOf(ctx.model.choice))
+  const ask = (msgs: ChatMessage[]) =>
+    runTask({
+      db: ctx.db,
+      taskId: String(input?.taskId ?? ''),
+      job: 'world',
+      sceneId: null,
+      model: ctx.model,
+      messages: msgs,
+      reply: INTERVIEW_REPLY,
+      temperature: INTERVIEW_TEMPERATURE,
+      direction: 'Interview me: the next question about my summary',
+      emit: ctx.emit,
+      onKeyRejected: ctx.onKeyRejected,
+      fetchImpl: ctx.fetchImpl,
+      retryDelays: ctx.retryDelays
+    }).catch((e: unknown) => {
+      throw e instanceof UserError ? e : new UserError(WENT_WRONG)
+    })
+  let done = await ask(messages)
+  let q = done.status === 'complete' ? readQuestion(done.text) : null
+  // A question asked before (in other words, or about an answer already in the summary) is sent back once.
+  const repeated = q ? repeatOf(q, asked, summary) : null
+  if (q && repeated) {
+    const again = await ask([...messages, { role: 'assistant', content: done.text }, { role: 'user', content: askedAlready(repeated) }])
+    const q2 = again.status === 'complete' ? readQuestion(again.text) : null
+    if (again.status === 'stopped' || q2) {
+      done = again
+      q = q2
+    }
+  }
   const base = { generationId: done.generationId, topic: '', question: '', error: null }
   if (done.status === 'stopped') return { ...base, status: 'stopped' }
   if (done.status === 'error') return { ...base, status: 'error', error: done.error ?? WENT_WRONG }
-  const q = readQuestion(done.text)
   if (!q) return { ...base, status: 'error', error: NO_QUESTION }
   return { ...base, status: 'complete', ...q }
 }
