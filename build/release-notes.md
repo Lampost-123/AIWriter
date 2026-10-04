@@ -1,7 +1,7 @@
-<!-- version: 0.6.18 -->
-What's new in 0.6.18:
+<!-- version: 0.6.19 -->
+What's new in 0.6.19:
 
-- Better memory between scenes: the writer now gets every earlier scene's summary, and details of anyone named on the scene card or at the end of the last scene.
-- Read aloud: the writer marks who speaks and the narration's mood as it writes; your own writing is marked by the writer model.
-- Speech in italics, like a talking ring, is read in that character's voice, and new drafts put all speech in quote marks.
-- Characters who aren't in a scene are no longer given lines.
+- Recall (in the Cast tab): where everyone is, what they wear and hold, and how they are as each scene ends. Edit or remove anything; it stays in step with your text.
+- Every draft is checked for consistency, with a short report in the Issues tab.
+- Generate on a scene with text offers Fresh take: a new draft that doesn't build on the old one.
+- The writer is told who is dead and how much time has passed.
