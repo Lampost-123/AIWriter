@@ -28,6 +28,8 @@ import {
   sentEntryIds,
   sentEntryVersions,
   storySoFarText,
+  timeSincePrevious,
+  deadBy,
   type ContextInput,
   type PreparedContext
 } from './context'
@@ -1968,5 +1970,50 @@ describe('ties to people not in this scene', () => {
     expect(p.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['ties'])
     expect(p.blocks.find((b) => b.id === 'story-so-far')!.text).toBe(short('story-so-far'))
     expect(p.blocks.find((b) => b.id === 'pov')!.text).toBe(short('pov'))
+  })
+})
+
+describe('the time since the previous scene', () => {
+  const at = (now: string, then: string | undefined, otherStory = false) =>
+    timeSincePrevious({
+      scene: { title: '', card: { ...emptySceneCard(), when: now } },
+      memory: { previous: { sceneId: 'p', title: '', text: 'x', storyId: 's', storyTitle: '', when: then, otherStory: otherStory ? { ended: true, timeGap: '' } : null } } as never
+    })
+  it('says how long after the previous scene this one is, from both cards', () => {
+    expect(at('Day 8, noon', 'Day 5, dusk')).toBe(
+      "The previous scene was Day 5, dusk. 3 days later. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
+    )
+    expect(at('Day 10, dawn', 'Day 9, night')).toContain('The next day.')
+    expect(at('Day 13, dusk', 'Day 13, afternoon')).toContain('The same day.')
+    expect(at('Spring, the year after', 'Winter')).toBe(
+      "The previous scene was Winter. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
+    )
+    expect(at('Day 8', '')).toBe('')
+    expect(at('Day 8', 'Day 5', true)).toBe('')
+  })
+})
+
+describe('who is dead by this point', () => {
+  const who = (notes: string[]) =>
+    deadBy([{ kind: 'character', name: 'Anselm', happened: notes.map((note, i) => ({ note, where: '', changeId: String(i) })) }])
+  it('from a note that says they died, the latest', () => {
+    expect(who(['lied to Captain Sallow', 'presumed dead in the Archive fire'])).toEqual([{ name: 'Anselm', note: 'presumed dead in the Archive fire' }])
+    expect(who(['died in the fire'])).toHaveLength(1)
+    expect(who(['killed by the watch at dawn'])).toHaveLength(1)
+    expect(who(['was found drowned in the harbour'])).toHaveLength(1)
+  })
+  it('not from someone else’s death, news of one, or a death undone', () => {
+    expect(who(['killed the guard at the gate'])).toEqual([])
+    expect(who(['learned that Maud was dead'])).toEqual([])
+    expect(who(['watched her father die'])).toEqual([])
+    expect(who(['presumed dead in the fire', 'survived the fire after all'])).toEqual([])
+    // Someone else's death in a note of hers (a live run counted these as her own).
+    expect(who(['admitted Anselm died in the fire because of her'])).toEqual([])
+    expect(who(['burned the Archive, and Anselm died in it'])).toEqual([])
+    expect(who(['revealed her family drowned the old coast'])).toEqual([])
+  })
+  it('a death later in a note of what they did', () => {
+    expect(who(['fled across the causeway and was taken by the tide'])).toEqual([])
+    expect(who(['fought the watch and was killed by Sallow'])).toHaveLength(1)
   })
 })

@@ -26,7 +26,7 @@ import { buildLine, labeler, storyOfScene } from '../memory/line'
 import { loadShape, sceneMemory } from '../memory/scene'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
-import { formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL, storySoFarText } from '../ai/context'
+import { deadBy, formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL, storySoFarText } from '../ai/context'
 import { stateText, type SceneState } from '@shared/continuity'
 import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
@@ -289,6 +289,12 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
   if (has('facts') || has('knowledge') || has('timeline') || has('continuity')) {
     const sofar = short ? ctx.storySoFar.short : ctx.storySoFar.full
     if (sofar.trim()) out.push({ id: 'story-so-far', title: 'The story so far', text: sofar, entryIds: [] })
+  }
+
+  // Who is dead by now: the facts check's first question.
+  if (has('facts') || has('continuity')) {
+    const dead = deadBy(ctx.memory.entries)
+    if (dead.length) out.push({ id: 'dead', title: 'Dead at the start of this scene', text: dead.map((d) => `- ${d.name}: ${d.note}`).join('\n'), entryIds: [] })
   }
 
   // Where things stood as the previous scene ended: the continuity check's starting point.
