@@ -84,6 +84,7 @@ import type { PolishApi, PolishEvents } from './contracts/polish'
 import type { FindApi, FindEvents } from './contracts/find'
 import type { SpellingApi, SpellingEvents } from './contracts/spelling'
 import type { SoundsApi, SoundsEvents } from './contracts/sounds'
+import type { RecallApi, RecallEvents } from './contracts/recall'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -117,7 +118,8 @@ export interface AppApi
     PolishApi,
     FindApi,
     SpellingApi,
-    SoundsApi {
+    SoundsApi,
+    RecallApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -346,7 +348,8 @@ export interface AppEvents
     PolishEvents,
     FindEvents,
     SpellingEvents,
-    SoundsEvents {
+    SoundsEvents,
+    RecallEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

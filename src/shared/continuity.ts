@@ -22,6 +22,8 @@ export interface SceneState {
 }
 
 export const STATE_FIELDS = ['where', 'wearing', 'posture', 'holding', 'condition', 'mood', 'lastAction'] as const
+/** One of the values kept for each character. */
+export type StateField = (typeof STATE_FIELDS)[number]
 /** Words for each field, as the writer and Adam read them. */
 export const STATE_LABELS: Record<(typeof STATE_FIELDS)[number], string> = {
   where: 'where',
