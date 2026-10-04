@@ -68,6 +68,7 @@ import type {
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
+import { stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE } from './speakerTags'
 
@@ -98,7 +99,13 @@ export interface ContextInput {
   contextLength: number | null
   /** The model's own reply limit in tokens, from the model choice; null or left out when unknown. Lowers Auto's ceiling. */
   maxOutput?: number | null
+  /** Where things stand as the previous scene ended (continuity/tracker.ts); null or left out when nothing is known. */
+  continuity?: SceneState | null
 }
+
+/** What block 3b says first. */
+export const STAND_LEAD =
+  'Keep to this unless the scene card or the author says otherwise: a change (a coat taken off, a move to another room) happens on the page.'
 
 export interface BlockDraft {
   id: string
@@ -837,7 +844,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
 
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
-  return (input.memory.bringAbout ?? []).map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
+  // A fresh take doesn't build on the earlier draft: only Adam's own notes for the scene are aims.
+  const changes = (input.memory.bringAbout ?? []).filter((c) => !input.options.fresh || c.origin === 'adam')
+  return changes.map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
 }
 
 /**
@@ -1142,6 +1151,23 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
+  // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
+  //    wear and hold, how they are placed and how they are. Short: only the characters on the scene card.
+  const stand = input.continuity
+  const full = stand ? stateText(stand) : ''
+  if (full) {
+    const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
+    const short = onCard.length ? stateText(stand!, onCard) : ''
+    add(
+      'continuity',
+      3,
+      'Where things stand as the previous scene ended',
+      `${STAND_LEAD}\n${full}`,
+      short && short !== full ? `${STAND_LEAD}\n${short}` : null,
+      []
+    )
+  }
+
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
   const pov = sel.pov
   if (pov) {
@@ -1329,6 +1355,7 @@ export const SEND_ORDER = [
   'mentioned',
   'threads',
   'story-so-far',
+  'continuity',
   'previous-scene',
   'scene-card'
 ]

@@ -14,6 +14,7 @@ import { useNamesStore, useSceneNames } from '@/features/editor/names/sceneNames
 import { displayName, kindWord } from '@/features/peek/entryView'
 import { ListLoading, StateList, VoiceList } from '@/features/peek/parts'
 import { cardHasNoCast, castGroups, type CastGroup } from './castLogic'
+import { RecallSection } from './RecallSection'
 
 const NO_IDS: ID[] = []
 
@@ -70,6 +71,7 @@ export function CastPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
       {groups.map((g) => (
         <CastSection key={g.key} group={g} />
       ))}
+      <RecallSection sceneId={sceneId} />
     </div>
   )
 }

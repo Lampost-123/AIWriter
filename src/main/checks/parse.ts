@@ -25,7 +25,9 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
  * only part of it could be read (a single issue found inside something else): what such a reply didn't
  * mention mustn't be taken as gone.
  */
-export function readCheckReply(text: string): { ok: true; items: Record<string, unknown>[]; complete: boolean } | { ok: false; why: string } {
+export function readCheckReply(
+  text: string
+): { ok: true; items: Record<string, unknown>[]; complete: boolean; checked?: Record<string, unknown>[] } | { ok: false; why: string } {
   // A bare list of issues is fine too, fenced or not, with words before it or not.
   const list = topLevelList(text)
   if (list !== null) {
@@ -43,9 +45,11 @@ export function readCheckReply(text: string): { ok: true; items: Record<string, 
     if ('quote' in v && 'message' in v) return { ok: true, items: [v], complete: false }
     return { ok: false, why: 'it had no "issues" list' }
   }
-  if (issues === null) return { ok: true, items: [], complete: true }
+  // What each check looked at and found good (the critic's report): optional, an old-style reply has none.
+  const checked = Array.isArray(v.checked) ? v.checked.filter(isObj) : undefined
+  if (issues === null) return { ok: true, items: [], complete: true, checked }
   if (!Array.isArray(issues)) return { ok: false, why: 'its "issues" was not a list' }
-  return { ok: true, items: issues.filter(isObj), complete: true }
+  return { ok: true, items: issues.filter(isObj), complete: true, checked }
 }
 
 /** A list at the top of the reply (in a code fence, or the first bracket before any brace), as text; null when there is none. */

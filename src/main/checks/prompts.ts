@@ -16,6 +16,8 @@ const WHAT: Record<CheckKind, string> = {
     "knowledge: a character who acts on, mentions or reacts to something they don't know yet at this point (it isn't listed as known by them, or happens in a later scene), or who forgets something they know.",
   timeline:
     "timeline: where the characters were in the scenes before and when (the in-world dates and times), so someone is never in two places at once, travels further than the time allows, or has an age that doesn't add up.",
+  continuity:
+    "continuity: where things stood as the previous scene ended (where each character is, what they wear and hold, how they are placed, their condition, the time, weather and light) and how the scene carries them on: a coat taken off earlier still worn, someone sitting who was standing with no move between, something in a hand that was put down, a character who left still speaking, the light or the time of day changing for no reason.",
   voice:
     "voice: each character's dialogue against how they speak (their voice notes, verbal tics, what they never say, and their sample lines). Flag only lines that clearly don't sound like them.",
   style:
@@ -29,7 +31,7 @@ const NAMES = ALL_CHECKS.join(', ')
 export function sceneSystem(checks: CheckKind[]): string {
   const list = ALL_CHECKS.filter((c) => checks.includes(c))
   return `${CHECK_MARKER} ${list.join(', ')}
-You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the scenes just before it, the style guide and the scene's text. Reply with one JSON object and nothing else.
+You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the style guide and the scene's text. Reply with one JSON object and nothing else.
 
 What to check
 ${list.map((c) => `- ${WHAT[c]}`).join('\n')}
@@ -45,12 +47,14 @@ Rules
 - "fix": the quote rewritten so the problem goes, changing as few words as possible, in the scene's own style. Leave it out when rewriting those words alone can't fix it.
 - "check": one of ${NAMES}.
 
+- "checked": one item for each check above, saying in one or two plain sentences what you compared and what agreed (or didn't), with names, such as "Mara's injured wrist and grey cloak match how the scene before ended." "ok": false when that check found an issue.
+
 Reply with:
-{"issues": [{"check": "facts", "severity": "warning", "quote": "...", "message": "...", "conflicts": {"entry": "E1", "field": "eyes"}, "memory": "blue", "text": "green", "fix": "..."}]}
+{"issues": [{"check": "facts", "severity": "warning", "quote": "...", "message": "...", "conflicts": {"entry": "E1", "field": "eyes"}, "memory": "blue", "text": "green", "fix": "..."}], "checked": [{"check": "facts", "ok": false, "note": "..."}]}
 
 Field keys. Characters: ${fieldKeys('character').join(', ')}, sampleLines. Places: ${fieldKeys('place').join(', ')}. Any kind: summary, description.
 
-If there is nothing to report, reply {"issues": []}.`
+If there is nothing to report, reply with an empty "issues" list, and still say what you checked in "checked".`
 }
 
 /** The instructions for comparing a story with the story it runs alongside, or a prequel's ending with the book it leads into. */

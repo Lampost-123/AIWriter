@@ -95,6 +95,21 @@ const SENTENCES = [
   'Outside, the bells of the Narrows began the hour, and then, close and deliberate, someone knocked at the door.'
 ]
 
+/**
+ * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v1]"): each
+ * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
+ * wears it. The scene's time is "evening". Null for any other request.
+ */
+function continuityReply(system, user) {
+  if (!system.includes('[AIWRITE-CONTINUITY v1]')) return null
+  const cast = (/^Characters in this story: (.+)$/m.exec(user)?.[1] ?? '').split(', ').filter(Boolean)
+  const scene = user.split('The scene:\n')[1] ?? ''
+  const characters = cast
+    .filter((n) => scene.includes(n))
+    .map((name) => ({ name, where: 'in the scene', wearing: /in (?:her|his) ([a-z ]+cloak)/.exec(scene)?.[1] ?? '' }))
+  return JSON.stringify({ time: 'evening', weather: '', light: '', characters })
+}
+
 /** Deterministic prose of about `words` words, in paragraphs. */
 export function fakeProse(words) {
   const out = []
@@ -337,6 +352,7 @@ export async function startFakeProvider(options = {}) {
     memory ??= fakeBuilderReply(system, messages, model)
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
+    memory ??= continuityReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.

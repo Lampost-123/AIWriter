@@ -3,6 +3,7 @@
 // No Electron imports, so it can be tested against an in-memory database.
 
 import type Database from 'better-sqlite3'
+import { keptStateBefore } from '../continuity/tracker'
 import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { effectiveStyle } from '@shared/style'
@@ -34,7 +35,7 @@ export function cleanOptions(
         : fallback.targetWords
   const creativity = o?.creativity && o.creativity in CREATIVITY_PRESETS ? o.creativity : fallback.creativity
   const direction = typeof o?.direction === 'string' ? o.direction.trim().slice(0, 4000) : ''
-  return { targetWords, creativity, direction }
+  return { targetWords, creativity, direction, ...(o?.fresh === true ? { fresh: true } : {}) }
 }
 
 /**
@@ -61,7 +62,9 @@ export function gatherContextInput(
     story: { title: story.title, premise: story.premise, themes: story.themes, tone: story.tone },
     options: cleanOptions(options, { targetWords: cardLength(scene.card), creativity: extra.creativity }),
     contextLength: extra.contextLength,
-    maxOutput: extra.maxOutput ?? null
+    maxOutput: extra.maxOutput ?? null,
+    // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).
+    continuity: keptStateBefore(db, sceneId)
   }
 }
 

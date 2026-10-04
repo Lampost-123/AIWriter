@@ -569,6 +569,17 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
 - **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
   scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
   it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
+- **Where things stand** (`continuity/tracker.ts`, `@shared/continuity`): each character's where, wearing, position,
+  holding, condition, mood and last action as a scene ends, and its time, weather and light; only the latest of each
+  is kept. Worked out by the memory model before a draft (the last few scenes, oldest first) and kept in `meta`
+  'continuity' with the hashes of the words and of the state it built on; a state stands only while both (all the way
+  back) are unchanged, so nothing outlives its words. Sent to the writer as block 3b and to the continuity check.
+  Recall in the Cast tab (`features/cast/RecallSection.tsx`, contracts/recall.ts) browses it; Adam's changes stay
+  until that scene's words change.
+- **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
+  (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
+  and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report
+  (`checks/report.ts`, `meta` 'check_reports') and shown collapsed at the top of the Issues tab (`CheckReportCard`).
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
