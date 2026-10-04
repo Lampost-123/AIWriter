@@ -392,6 +392,13 @@ describe('selection', () => {
     })
     const viaDirection = input({ options: { direction: 'Have her think of the duke.', targetWords: 1000, creativity: 'balanced' } })
     expect(why(viaDirection)['The Duke']).toBe('Named in your direction')
+    // Named in the rest of the card, or at the end of the previous scene: the writer gets their details too.
+    const viaGoal = input()
+    viaGoal.scene.card.goal = 'Get past the Duke unseen.'
+    expect(why(viaGoal)['The Duke']).toBe('Named on the scene card')
+    const viaPrevious = input()
+    viaPrevious.memory.previous = { ...viaPrevious.memory.previous!, text: 'She left the docks at dusk. The Duke watched her go.' }
+    expect(why(viaPrevious)['The Duke']).toBe('Named at the end of the previous scene')
     // Each entry is listed with the block it is in.
     const entries = prepareContext(inp).entries
     expect(entries.find((e) => e.name === 'Mara Venn')).toMatchObject({
@@ -903,20 +910,25 @@ describe('blocks', () => {
     expect(blocks.map((b) => b.text).join('\n')).not.toContain('River songs')
   })
 
-  it('block 8: recent scenes, earlier chapters, earlier stories; short: fewer scenes and series roll-ups', () => {
+  it('block 8: every earlier scene, earlier stories; short: earlier chapters; then fewer scenes and series roll-ups', () => {
     const inp = richInput()
     const block = blockOf(inp, 'story-so-far')!
     expect(block.title).toBe('The story so far')
+    const recent =
+      '### Most recently\nCh 1, Sc 3: Scene summary 3.\n\nCh 1, Sc 4: Scene summary 4.\n\nCh 2, Sc 1: Scene summary 5.\n\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
+    // In full, every earlier scene of this story by its own summary (a chapter's summary loses detail).
     expect(block.text).toBe(
       [
         '### Book 1\nBook one summary.',
-        '### Earlier in Book 2\nCh 1: Chapter one summary.',
-        '### Most recently\nCh 1, Sc 3: Scene summary 3.\n\nCh 1, Sc 4: Scene summary 4.\n\nCh 2, Sc 1: Scene summary 5.\n\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
+        '### Earlier in Book 2\nCh 1, Sc 1: Scene summary 1.\n\nCh 1, Sc 2: Scene summary 2.',
+        recent
       ].join('\n\n')
     )
-    // Short: the series roll-up, chapter summaries, the last 2 scenes; the chapter this scene is in
+    // Short: earlier chapters by their summaries, the last 5 scenes in detail.
+    expect(block.short).toBe(['### Book 1\nBook one summary.', '### Earlier in Book 2\nCh 1: Chapter one summary.', recent].join('\n\n'))
+    // Smaller: the series roll-up, chapter summaries, the last 2 scenes; the chapter this scene is in
     // has no summary yet, so its earlier scene is told by its own summary rather than skipped.
-    expect(block.short).toBe(
+    expect(block.smaller[0]).toBe(
       [
         '### The River Books\nSeries roll-up.',
         '### Earlier in Book 2\nCh 1: Chapter one summary.\n\nCh 2, Sc 1: Scene summary 5.',
@@ -924,7 +936,7 @@ describe('blocks', () => {
       ].join('\n\n')
     )
     // Smaller still, for small models: only the most recent parts, saying so.
-    expect(block.smaller).toEqual([
+    expect(block.smaller.slice(1)).toEqual([
       'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.',
       'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 3: Scene summary 7.'
     ])
@@ -943,7 +955,9 @@ describe('blocks', () => {
       series: [],
       leadsInto: null
     }
-    expect(storySoFarText(s, 'Book 2', 0)).toBe(
+    // In full, the finished chapter's scenes too, each by its own summary.
+    expect(storySoFarText(s, 'Book 2', 0)).toContain('### Earlier in Book 2\nCh 1, Sc 1: One 1.\n\nCh 1, Sc 2: One 2.\n\nCh 2, Sc 1: Two 1.')
+    expect(storySoFarText(s, 'Book 2', 1)).toBe(
       [
         '### Earlier in Book 2\nCh 1: Chapter one.\n\nCh 2, Sc 1: Two 1.\n\nCh 2, Sc 2: Two 2.\n\nCh 2, Sc 3: Two 3.',
         '### Most recently\nCh 2, Sc 4: Two 4.\n\nCh 2, Sc 5: Two 5.\n\nCh 2, Sc 6: Two 6.\n\nCh 2, Sc 7: Two 7.\n\nCh 2, Sc 8: Two 8.'
@@ -960,10 +974,10 @@ describe('blocks', () => {
       ],
       chapters: [{ chapterId: 'c1', label: 'Ch 1', text: 'Chapter one.' }]
     }
-    expect(storySoFarText(pending, 'Book 2', 0)).toContain(
+    expect(storySoFarText(pending, 'Book 2', 1)).toContain(
       '### Earlier in Book 2\nCh 1: Chapter one.\n\nCh 2, Sc 1: Two 1.\n\nCh 2, Sc 2: Two 2.'
     )
-    expect(storySoFarText(pending, 'Book 2', 1)).toContain(
+    expect(storySoFarText(pending, 'Book 2', 2)).toContain(
       'Ch 2, Sc 2: Two 2.\n\nCh 3, Sc 1: Three 1.\n\nCh 3, Sc 2: Three 2.\n\nCh 3, Sc 3: Three 3.\n\n### Most recently\nCh 3, Sc 4: Three 4.'
     )
   })
@@ -982,7 +996,7 @@ describe('blocks', () => {
       leadsInto: { storyId: 'b2', title: 'Book 2', text: 'Mara is twenty.' }
     }
     const at = (level: number): string => storySoFarText(s, 'The Prequel', level)
-    expect(at(2)).toBe(
+    expect(at(3)).toBe(
       [
         'Only the most recent part of the story so far is given here, to save space.',
         '### Earlier in The Prequel\nCh 6: Chapter 6.\n\nCh 7: Chapter 7.\n\nCh 8: Chapter 8.\n\nCh 9, Sc 1: Scene 1.',
@@ -990,15 +1004,15 @@ describe('blocks', () => {
         '### Leads into Book 2\nThis story leads into Book 2. Below is how Book 2 begins: a target to steer towards over the story, not events to mention or bring about in this scene.\nMara is twenty.'
       ].join('\n\n')
     )
-    expect(at(1)).toContain('### Book 1\nBook one.')
-    expect(at(3)).not.toContain('Leads into')
-    expect(at(3)).toContain('### Most recently\nCh 9, Sc 2: Scene 2.\n\nCh 9, Sc 3: Scene 3.')
-    expect(at(4)).toBe(
+    expect(at(2)).toContain('### Book 1\nBook one.')
+    expect(at(4)).not.toContain('Leads into')
+    expect(at(4)).toContain('### Most recently\nCh 9, Sc 2: Scene 2.\n\nCh 9, Sc 3: Scene 3.')
+    expect(at(5)).toBe(
       'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 9, Sc 3: Scene 3.'
     )
     // At a story's first scene, the most recent part is the end of the story before it.
     const first: StorySoFar = { ...s, scenes: [], chapters: [], leadsInto: null }
-    expect(storySoFarText(first, 'Book 2', 4)).toBe('### Book 1\nBook one.')
+    expect(storySoFarText(first, 'Book 2', 5)).toBe('### Book 1\nBook one.')
   })
 
   it('block 8: side stories under "Meanwhile", a story cut short, and the "Leads into" target', () => {
@@ -1307,7 +1321,7 @@ describe('fitting the briefing to the model', () => {
     )
     expect(prepared.blocks.filter((b) => b.smaller.length).map((b) => [b.id, b.smaller.length])).toEqual([
       ['pov', 1],
-      ['story-so-far', 2]
+      ['story-so-far', 3]
     ])
     const form = (id: string, level: number): string => formsOf(prepared.blocks.find((b) => b.id === id)!)[level]
     const allShort = 10 * 110 + 2 * 1100 + 8
@@ -1909,7 +1923,8 @@ describe('ties to people not in this scene', () => {
         .blocks.filter((b) => b.short)
         .map((b) => b.id)
     ).toEqual(['ties'])
-    // Everything short is 11 x 110 plus the scene card and relationships in full; 50 less than that.
+    // Everything short is 11 x 110 plus the scene card and relationships in full; 100 less than that (more than the
+    // story so far's own extra step, chapters and the last few scenes, can save).
     const small = counts(
       prepared,
       () => 1000,
@@ -1917,7 +1932,7 @@ describe('ties to people not in this scene', () => {
       (_, level) => (level === 2 ? 50 : 20)
     )
     const short = (id: string): string | null => prepared.blocks.find((b) => b.id === id)!.short
-    const p = fit(11 * 110 + 2 * 1100 + 8 - 50, small)
+    const p = fit(11 * 110 + 2 * 1100 + 8 - 100, small)
     expect(p.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['ties'])
     expect(p.blocks.find((b) => b.id === 'story-so-far')!.text).toBe(short('story-so-far'))
     expect(p.blocks.find((b) => b.id === 'pov')!.text).toBe(short('pov'))
