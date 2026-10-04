@@ -171,9 +171,15 @@ const castLines = (cast: CastMember[]): string =>
   cast
     .map(
       (c) =>
-        `- ${c.name}${c.names.length > 1 ? ` (also ${c.names.filter((n) => n !== c.name).join(', ')})` : ''}${c.about ? `: ${c.about}` : ''}`
+        `- ${c.name}${c.names.length > 1 ? ` (also ${c.names.filter((n) => n !== c.name).join(', ')})` : ''}${c.here ? ' [in this scene]' : ''}${c.about ? `: ${c.about}` : ''}`
     )
     .join('\n') || '- (none listed)'
+
+/** Said when the scene's card says who is in it: someone only mentioned or remembered isn't speaking. */
+const hereNote = (cast: CastMember[]): string =>
+  cast.some((c) => c.here)
+    ? '\nThose marked [in this scene] are the ones there. Someone only mentioned, remembered or thought about does not speak in it, unless the text shows them arriving or quotes them (a memory, a letter, a call).'
+    : ''
 
 /** Instructions for marking who says each quote. */
 export const LABEL_PROMPT = (cast: CastMember[]): string => `${MARKER} speakers
@@ -181,7 +187,7 @@ You mark who speaks each line of dialogue in a scene from a novel, so an audiobo
 Every quoted line in the scene has a number in square brackets just before it, like [3]“Get out.”
 
 Characters in this story:
-${castLines(cast)}
+${castLines(cast)}${hereNote(cast)}
 
 Reply with only a JSON object mapping every number to who says that line, like {"1": "${cast[0]?.name ?? 'Mara'}", "2": "the guard"}.
 - Use a listed character's name exactly as written above.
@@ -330,7 +336,7 @@ export const MARK_PROMPT = (cast: CastMember[], pov?: string): string => `${MARK
 You mark a passage of a novel for its audiobook, read by an expressive text-to-speech voice that follows a short note on how each line is said. Each line that needs a note has a number in square brackets just before it: a quoted line of dialogue, like [3]“Get out.”, or a sentence of narration, like [4]He turned back to the window.
 
 Characters in this story:
-${castLines(cast)}${pov ? `\nThe story is told by ${pov}: lines the narrator says aloud are ${pov}'s.` : ''}
+${castLines(cast)}${hereNote(cast)}${pov ? `\nThe story is told by ${pov}: lines the narrator says aloud are ${pov}'s.` : ''}
 
 Reply with only a JSON object from each number to its note, like {"1": "${cast[0]?.name ?? 'Mara'} | coldly, barely above a whisper, daring him to argue | slow | sigh", "2": "hushed, dread building | slow"}.
 

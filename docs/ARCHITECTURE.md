@@ -556,6 +556,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   and so are the same speaker's later italic stretches in that paragraph (`readAloud/italicSpeech.ts`). Reading
   aloud plans and marks the paragraph with that speech in quote marks (`asSpoken`), and puts every place back where it
   is on the page. "the ring" in any case is the character Ring (`nameGroups`, `cast.ts`).
+- **Nobody who isn't there** (Adam, 2026-10-04: Laura given a line in a scene with only Jane). A paragraph's
+  narration gives an untagged line to a character only when a sentence opens with their name ("Jane set the cup
+  down."), not when it only mentions them; with one character on the card, an untagged line is theirs; a turn goes
+  back only to someone in the scene. The AI is told who is on the card (`[in this scene]`, `hereNote`). The writer's
+  tags go only to the paragraphs its draft added, and those it said of lines that never reached the page are dropped.
 - **Recall across scenes** (Adam, 2026-10-04: inconsistencies between scenes). Entries named in the card's goal,
   conflict, outcome or mood, or at the end of the previous scene (the part block 3 sends), are selected too
   (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
