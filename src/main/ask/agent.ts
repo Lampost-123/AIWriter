@@ -81,6 +81,22 @@ export const EDITOR_TOOLS: ToolSpec[] = [
     }
   },
   {
+    name: 'propose_rewrite',
+    description:
+      "Propose rewriting a passage of a scene that runs over several paragraphs (a beat pushed harder, a stretch tightened, a scene's opening redone). `start` is the passage's first few words and `end` its last few words, each copied exactly from the scene's current text (read it first; `start` must occur once, `end` after it); `replace` is the whole new passage, with a blank line between paragraphs and *asterisks* for italics. Keep the writer's voice and change only what was asked. The writer sees the old and new passage and decides; nothing changes unless they apply it. For a change inside one paragraph, use propose_edit.",
+    parameters: {
+      type: 'object',
+      properties: {
+        scene: optionalScene,
+        start: { type: 'string', description: 'The first few words of the passage, exactly as in the scene.' },
+        end: { type: 'string', description: 'The last few words of the passage, exactly as in the scene.' },
+        replace: { type: 'string', description: 'The new passage; a blank line between paragraphs.' },
+        why: { type: 'string', description: 'A short reason, in plain words.' }
+      },
+      required: ['start', 'end', 'replace', 'why']
+    }
+  },
+  {
     name: 'propose_scene_card',
     description: "Propose new values for parts of a scene's card (only the parts given change). The writer decides.",
     parameters: {
@@ -393,7 +409,7 @@ export class EditorAgent {
         const find = text('find')
         if (!find.trim()) throw new Mistake('`find` is empty. Copy the words to change from the scene.')
         if (find.includes('\n') || text('replace').includes('\n')) {
-          throw new Mistake('Keep each change inside one paragraph. For a change across paragraphs, propose one change per paragraph.')
+          throw new Mistake('Keep each propose_edit inside one paragraph. To rewrite a passage across paragraphs, use propose_rewrite.')
         }
         const hay = s.text
         const count = hay.split(find).length - 1
@@ -420,6 +436,34 @@ export class EditorAgent {
           revises ? `Revising change ${revises.id}` : `Proposing an edit to ${label}`,
           this.propose({ kind: 'text', sceneId: id, sceneLabel: label, find, replace: text('replace'), why: text('why') }, revises)
         ]
+      }
+      case 'propose_rewrite': {
+        const id = this.scene(a.scene)
+        const s = sceneText(this.db, id)
+        if (!s) throw new Mistake('That scene no longer exists.')
+        const start = text('start').trim()
+        const end = text('end').trim()
+        const replace = text('replace').trim()
+        if (!start || !end) throw new Mistake('Give the passage\'s first words as `start` and its last words as `end`, copied from the scene.')
+        if (!replace) throw new Mistake('Give the new passage as `replace`. To cut words, use propose_edit with an empty `replace`.')
+        const hay = s.text
+        const count = hay.split(start).length - 1
+        if (count === 0) throw new Mistake('The `start` words are not in the scene as written. Read the scene and copy them exactly.')
+        if (count > 1) throw new Mistake('The `start` words occur more than once. Give a few more of them so they occur only once.')
+        const from = hay.indexOf(start)
+        const endAt = hay.indexOf(end, from)
+        if (endAt < 0) throw new Mistake('The `end` words are not in the scene after the `start` words. Copy the passage\'s last words exactly.')
+        const to = endAt + end.length
+        const original = hay.slice(from, to)
+        if (original.replace(/\s+/g, ' ') === replace.replace(/\s+/g, ' ')) throw new Mistake('The new passage is the same as the old.')
+        const clash = this.proposals.find((p) => {
+          if (p.status !== 'pending' || (p.kind !== 'text' && p.kind !== 'passage') || p.sceneId !== id) return false
+          const [a0, a1] = p.kind === 'text' ? [hay.indexOf(p.find), hay.indexOf(p.find) + p.find.length] : [hay.indexOf(p.start), hay.indexOf(p.end, hay.indexOf(p.start)) + p.end.length]
+          return a0 >= 0 && a0 < to && from < a1
+        })
+        if (clash) throw new Mistake(`That passage overlaps change ${clash.id}. Make one change covering both instead.`)
+        const label = sceneLabelIn(this.outline(), id)
+        return [`Proposing a rewrite of ${label}`, this.propose({ kind: 'passage', sceneId: id, sceneLabel: label, start, end, original, replace, why: text('why') })]
       }
       case 'propose_scene_card': {
         const id = this.scene(a.scene)

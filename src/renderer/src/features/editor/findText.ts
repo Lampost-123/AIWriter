@@ -81,6 +81,43 @@ function findInParagraphs(doc: PMNode, quote: string, opts: FindOptions = {}): {
 }
 
 /**
+ * Where `quote` first is at or after the position `after`, within one paragraph (case, curly quotes and spacing don't
+ * matter), or null: the end of a passage the editor chat proposes rewriting, found after its start.
+ */
+export function findTextRangeAfter(doc: PMNode, quote: string, after: number): { from: number; to: number } | null {
+  const want = normalise(quote).norm
+  if (!want) return null
+  let found: { from: number; to: number } | null = null
+  doc.descendants((node, pos) => {
+    if (found) return false
+    if (!node.isTextblock) return true
+    if (pos + node.nodeSize <= after) return false
+    let text = ''
+    const at: number[] = []
+    node.forEach((child, offset) => {
+      const start = pos + 1 + offset
+      if (child.isText) {
+        const t = child.text ?? ''
+        for (let i = 0; i < t.length; i++) at.push(start + i)
+        text += t
+      } else {
+        at.push(start)
+        text += ' '
+      }
+    })
+    const { norm, map } = normalise(text)
+    for (let i = norm.indexOf(want); i >= 0; i = norm.indexOf(want, i + 1)) {
+      if (at[map[i]] >= after) {
+        found = { from: at[map[i]], to: at[map[i + want.length - 1]] + 1 }
+        break
+      }
+    }
+    return false
+  })
+  return found
+}
+
+/**
  * Where `quote` is in the scene, as a range of positions, or null when the words aren't there any
  * more. Case, curly quotes and spacing don't matter. Words spanning paragraphs are found by their
  * first paragraph's part.

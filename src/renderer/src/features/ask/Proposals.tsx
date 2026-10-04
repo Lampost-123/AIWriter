@@ -11,7 +11,7 @@ import { Check } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
-import { findTextRange } from '@/features/editor/findText'
+import { findTextRange, findTextRangeAfter } from '@/features/editor/findText'
 import { applyChanges, declineChange } from './applyProposal'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
@@ -21,6 +21,8 @@ function headOf(p: Proposal): string {
   switch (p.kind) {
     case 'text':
       return p.replace ? `Edit · ${p.sceneLabel}` : `Cut · ${p.sceneLabel}`
+    case 'passage':
+      return `Rewrite · ${p.sceneLabel}`
     case 'card':
       return `Scene card · ${p.sceneLabel}`
     case 'entry':
@@ -56,6 +58,17 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
             </>
           ) : null}
         </p>
+      )
+    case 'passage':
+      return (
+        <div className="flex flex-col gap-1.5 font-serif text-[13.5px] leading-[1.6]">
+          <p className="max-h-40 overflow-auto whitespace-pre-wrap break-words">
+            <del className="rounded-sm bg-danger-soft text-danger decoration-danger/60">{p.original}</del>
+          </p>
+          <p className="max-h-60 overflow-auto whitespace-pre-wrap break-words">
+            <ins className="rounded-sm bg-success-soft text-success no-underline">{p.replace}</ins>
+          </p>
+        </div>
       )
     case 'card':
       return (
@@ -113,15 +126,18 @@ function Body({ p }: { p: Proposal }): React.JSX.Element {
   }
 }
 
-/** Opens the scene and selects the words a proposed edit would change, so Adam sees them in place. */
-function showInPage(p: Extract<Proposal, { kind: 'text' }>): void {
+/** Opens the scene and selects the words a proposed edit (or rewrite) would change, so Adam sees them in place. */
+function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
   const app = useApp.getState()
   app.selectScene(p.sceneId)
   const until = Date.now() + 4000
   const look = (): void => {
     const b = editorBridge()
     if (b?.sceneId === p.sceneId && b.editor && !b.editor.isDestroyed) {
-      const r = findTextRange(b.editor.state.doc, p.find)
+      const doc = b.editor.state.doc
+      const start = findTextRange(doc, p.kind === 'text' ? p.find : p.start)
+      const end = start && p.kind === 'passage' ? findTextRangeAfter(doc, p.end, start.from) : null
+      const r = start && p.kind === 'passage' ? (end ? { from: start.from, to: end.to } : start) : start
       if (r) b.editor.chain().focus().setTextSelection(r).scrollIntoView().run()
       return
     }
@@ -163,7 +179,7 @@ function ProposalCard({ generationId, p, busy, onApply }: { generationId: ID; p:
               Not this
             </Button>
           ) : null}
-          {p.kind === 'text' ? (
+          {p.kind === 'text' || p.kind === 'passage' ? (
             <Button size="sm" variant="ghost" onClick={() => showInPage(p)}>
               Show in page
             </Button>
