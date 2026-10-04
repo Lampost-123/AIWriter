@@ -132,10 +132,10 @@ Reply with only a JSON object:
 - time: time of day (and date, if the story gives one); weather; light (lamplight, dusk, harsh sun).
 - One entry for each character who is in the scene or whose situation it changes, by their name as the cast list has it.
 - where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth).
-- wearing: what they have on, including anything put on, taken off, torn or soaked.
+- wearing: their clothes and anything else worn (a ring, a pack), including anything put on, taken off, torn or soaked. Never their hair, beard or body: those aren't worn.
 - posture: how they are placed (standing, sitting on the bed, lying on the floor, kneeling).
 - holding: what they hold or carry.
-- condition: injuries, exhaustion, hunger, drunkenness, anything about their body that lasts.
+- condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
 - mood: how they feel at the end.
 - lastAction: the last thing they did, in a few words.
 - Each value under 12 words. Give a value only when the scene shows it or it carries on from before; "" when unknown. When something has changed, give only the new state, never the old one.`
