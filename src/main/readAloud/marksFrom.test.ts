@@ -27,3 +27,17 @@ describe('a Mark who says what reply', () => {
     expect(Object.values(got.delivery)).toEqual([{ tone: 'tense' }, {}])
   })
 })
+
+describe('who is in the scene', () => {
+  it('tells the AI who is there, and that someone only mentioned isn’t speaking', () => {
+    const [jane, laura] = castOf([
+      { id: 'j', name: 'Jane', aliases: [], about: '' },
+      { id: 'l', name: 'Laura', aliases: [], about: '' }
+    ])
+    const prompt = MARK_PROMPT([{ ...jane, here: true }, laura])
+    expect(prompt).toContain('- Jane [in this scene]')
+    expect(prompt).toContain('- Laura\n')
+    expect(prompt).toContain('Someone only mentioned, remembered or thought about does not speak in it')
+    expect(MARK_PROMPT([jane, laura])).not.toContain('[in this scene]')
+  })
+})

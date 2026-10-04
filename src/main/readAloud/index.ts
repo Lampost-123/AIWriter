@@ -133,24 +133,49 @@ const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettin
 /** The speakers the writer gave the lines of its latest drafts (ai/speakerTags.ts), by scene, until their paragraphs are marked. */
 const fromWriter = new Map<ID, WriterSpeaker[]>()
 const WRITER_KEEP = 400
+/**
+ * When each scene's were last noted. Kept only a while: a line the writer tagged that never reached the page (the
+ * draft was replaced or edited) mustn't give its speaker to another line with the same words later ("Yes.").
+ */
+const writerNoted = new Map<ID, number>()
+const WRITER_FOR_MS = 10 * 60_000
 
 /** A draft ended: who the writer said says each of its lines, kept for its paragraphs once they are in the page. */
 export function noteWriterSpeakers(sceneId: ID, speakers: WriterSpeaker[]): void {
   if (!speakers.length) return
   fromWriter.set(sceneId, [...(fromWriter.get(sceneId) ?? []), ...speakers].slice(-WRITER_KEEP))
+  writerNoted.set(sceneId, Date.now())
+}
+
+/** The writer's speakers still waiting for a scene's paragraphs (none once they have waited too long). */
+function writerFor(sceneId: ID): WriterSpeaker[] | undefined {
+  if (Date.now() - (writerNoted.get(sceneId) ?? 0) > WRITER_FOR_MS) {
+    fromWriter.delete(sceneId)
+    writerNoted.delete(sceneId)
+  }
+  return fromWriter.get(sceneId)
 }
 
 /**
  * Puts the writer's speakers (and how each line is said) on the quotes of these paragraphs that have none kept yet,
  * each used once, and keeps them as the AI's marks are kept. Returns the marks as they are now.
  */
-function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: string }[], cast: CastMember[], tone: boolean) {
+function writerMarks(
+  worldId: ID,
+  sceneId: ID,
+  paragraphs: { pid: string; text: string }[],
+  cast: CastMember[],
+  tone: boolean,
+  /** Only these paragraphs take the writer's speakers (a draft's own new ones); all when left out. */
+  only?: ReadonlySet<string>
+) {
   const store = markStore()
   const kept = store.current(worldId, sceneId, paragraphs)
-  const given = fromWriter.get(sceneId)
+  const given = writerFor(sceneId)
   if (!given?.length) return kept
   const blocks: Para[] = []
   for (const p of paragraphs) {
+    if (only && !only.has(p.pid)) continue
     const had = kept.get(p.pid)
     const speakers: Record<string, string> = {}
     const delivery: Record<string, LineDelivery> = {}
@@ -210,8 +235,11 @@ function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[]):
   const s = speech()
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, sceneId, sceneText)
-  // The writer said who says the new lines: only what it didn't is left to the AI.
-  const kept = writerMarks(w.id, sceneId, paragraphs, rc.cast.all, s.markSpeakers)
+  // The writer said who says the new lines: only what it didn't is left to the AI. What it said of lines that never
+  // reached the page goes, so it can't land on another line with the same words later.
+  const kept = writerMarks(w.id, sceneId, paragraphs, rc.cast.all, s.markSpeakers, new Set(pids))
+  fromWriter.delete(sceneId)
+  writerNoted.delete(sceneId)
   const marking: MarkingScene = {
     worldId: w.id,
     sceneId,
