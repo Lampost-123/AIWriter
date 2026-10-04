@@ -742,6 +742,12 @@ describe('blocks', () => {
     expect(preview.messages[1].content).toContain('Make the scene bring about what the scene card says it should.')
     // Changes pinned to this scene are never sent as facts.
     expect(preview.messages[1].content).not.toContain('What has happened so far')
+    // A fresh take doesn't build on the earlier draft: only Adam's own note for the scene is an aim.
+    inp.memory.bringAbout = [...changes, { ...base, id: 'c4', origin: 'adam', entryId: tobin.id, kind: 'update', payload: { note: 'Leaves the ferry' } }]
+    inp.options = { ...inp.options, fresh: true }
+    const fresh = blockOf(inp, 'scene-card')!.text
+    expect(fresh).toContain('What this scene should bring about (aims for this draft, not facts yet):\n- Tobin: Leaves the ferry')
+    expect(fresh).not.toContain('Loses her temper')
   })
 
   it('block 3: the end of the previous scene on the line; short: the last 200 words', () => {

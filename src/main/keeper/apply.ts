@@ -1303,6 +1303,10 @@ function askWhichLast(run: Run): void {
 /** Applies a run (call inside a transaction). */
 export function applyRead(db: DB, ctx: ApplyContext, plan: ReadPlan, replies: ChunkReply[]): ApplyResult {
   const run = new Run(db, ctx, plan)
+  // Words a fact was read from were edited or deleted: the scene's summary may still tell the old version (and the
+  // story so far, given to the writer, is made from it), so it is written again after this read, whatever the size
+  // of the edit (Adam, 2026-10-04). Adam's own summary is left alone.
+  if (plan.atRisk.length || plan.gone.length) kdb.markTextSummaryStale(db, 'scene', plan.scene.sceneId)
   for (const m of plan.moves) {
     if (m.to) run.moveLink(m.link, m.to)
     else hist.updateLink(db, m.link.id, { state: m.state })
