@@ -1,5 +1,5 @@
 // The Issues tab's words and small decisions, kept pure so they are unit-tested (milestone 5, AI checks).
-import type { CheckProgress, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
+import type { CheckKind, CheckProgress, CheckReport, Issue, IssueKind, IssueSeverity } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { FIELD_GROUPS } from '@shared/fields'
 
@@ -13,6 +13,7 @@ export const KIND_WORDS: Record<IssueKind, string> = {
   timeline: 'Timeline and place',
   voice: 'Voice',
   style: 'Style and tone',
+  continuity: 'Continuity',
   thread: 'Plot thread',
   story: 'Across stories',
   phrase: 'Phrase to avoid',
@@ -124,4 +125,27 @@ export function occurrencesIn(text: string, quote: string): { from: number; to: 
 export function pickOccurrence<T>(found: T[], occurrence: number | undefined): T | null {
   if (occurrence !== undefined && found[occurrence]) return found[occurrence]
   return found.length === 1 ? found[0] : null
+}
+
+/** What each AI check is called in the critic's report. */
+export const CHECK_WORDS: Record<CheckKind, string> = {
+  facts: 'Facts',
+  knowledge: 'Who knows what',
+  timeline: 'Timeline and place',
+  continuity: 'Continuity',
+  voice: 'Voice',
+  style: 'Style and tone'
+}
+
+const AFTER_WORDS: Record<CheckReport['after'], string> = {
+  draft: 'Checked after the latest draft',
+  done: 'Checked when marked done',
+  request: 'Checked'
+}
+
+/** The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues". */
+export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found'>): string {
+  const checks = r.items.length === 1 ? '1 check' : `${r.items.length} checks`
+  const how = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'all good'
+  return `${AFTER_WORDS[r.after]} · ${checks} · ${how}`
 }

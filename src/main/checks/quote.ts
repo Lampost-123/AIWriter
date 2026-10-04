@@ -84,7 +84,8 @@ export const KIND_OF_CHECK: Record<CheckKind, IssueKind> = {
   knowledge: 'knowledge',
   timeline: 'timeline',
   voice: 'voice',
-  style: 'style'
+  style: 'style',
+  continuity: 'continuity'
 }
 
 /** The key of an AI check's issue: `check:<check>:<what it is about>:<the quote, plain>`. */

@@ -885,6 +885,32 @@ describe('blocks', () => {
     expect(parentChain(a, byId).map((e) => e.name)).toEqual(['B'])
   })
 
+  it('block 3b: where things stand as the previous scene ended; short: only the characters on the card', () => {
+    const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+    const inp = input()
+    inp.continuity = {
+      time: 'dusk',
+      weather: 'rain',
+      light: '',
+      characters: [
+        { ...blank, name: 'Mara Venn', where: 'the tavern door', wearing: 'a soaked grey cloak', holding: 'a lamp' },
+        { ...blank, name: 'The Duke', where: 'his tower', mood: 'suspicious' }
+      ]
+    }
+    const block = blockOf(inp, 'continuity')!
+    expect(block.title).toBe('Where things stand as the previous scene ended')
+    expect(block.text).toContain('Time: dusk. Weather: rain')
+    expect(block.text).toContain('- Mara Venn: where: the tavern door; wearing: a soaked grey cloak; holding: a lamp')
+    expect(block.text).toContain('- The Duke: where: his tower; mood: suspicious')
+    expect(block.short).toContain('- Mara Venn: ')
+    expect(block.short).not.toContain('The Duke')
+    // Sent just before the end of the previous scene.
+    const ids = prepareContext(inp).blocks.map((b) => b.id)
+    expect(ids.indexOf('continuity')).toBe(ids.indexOf('previous-scene') - 1)
+    // Nothing known: no block.
+    expect(blockOf(input(), 'continuity')).toBeUndefined()
+  })
+
   it('block 7: places around the location only as far as they exist here', () => {
     const inp = input()
     const varn = named(inp, 'Varn')

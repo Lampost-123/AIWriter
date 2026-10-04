@@ -23,6 +23,7 @@ import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
+import { stateBefore } from '../continuity/tracker'
 
 let keeper: Keeper | null = null
 
@@ -85,8 +86,24 @@ export function initKeeper(): void {
       emit('memory:status', idleStatus())
     }
   })
-  // Before a draft, the memory catches up with earlier scenes on the line.
-  setBeforeDraft((db, sceneId) => (keeper && keeper.db === db ? keeper.catchUpBefore(sceneId) : undefined))
+  // Before a draft, the memory catches up with earlier scenes on the line, and then where things stand as the
+  // previous scene ends is brought up to date (continuity/tracker.ts).
+  setBeforeDraft(async (db, sceneId) => {
+    if (!keeper || keeper.db !== db) return
+    await keeper.catchUpBefore(sceneId)
+    await continuityBefore(db, sceneId)
+  })
+}
+
+/**
+ * Where things stand as a scene begins (continuity/tracker.ts), brought up to date with the memory model: before a
+ * draft, and before a check of the scene. Never throws; with no memory model, what is kept stands.
+ */
+export async function continuityBefore(db: Database.Database, sceneId: ID, signal?: AbortSignal): Promise<void> {
+  const m = memoryModel()
+  if ('error' in m || pausedNote()) return
+  const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
+  await stateBefore({ db, model: m, signal: signal ?? new AbortController().signal, closed: () => !live() }, sceneId)
 }
 
 /** Filling in what the memory found, one batch after another, never holding up the memory itself. */

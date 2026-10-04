@@ -12,6 +12,7 @@ export const KIND_WORDS: Record<IssueKind, string> = {
   timeline: 'Timeline and place',
   voice: 'Voice',
   style: 'Style and tone',
+  continuity: 'Continuity',
   thread: 'Plot thread',
   story: 'Between stories',
   phrase: 'Phrase to avoid',

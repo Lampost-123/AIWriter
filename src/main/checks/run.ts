@@ -7,7 +7,7 @@
 // works for it. Never writes once stopped by the world closing. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { CheckKind } from '@shared/contracts/checks'
+import type { CheckKind, CheckReport } from '@shared/contracts/checks'
 import type { ChatMessage, Entry, EntryState, ID, WritingPrefs } from '@shared/types'
 import * as repo from '../db/repo'
 import { runTask, type Emit } from '../ai/tasks'
@@ -20,6 +20,7 @@ import { newId, UserError } from '../util'
 import { checkRequest, checkSections, gatherSceneCheck, splitScene, type SceneCheckContext } from './context'
 import { foundIssues, orderedChecks, readCheckReply, type ReadContext } from './parse'
 import { retryMessage, sceneSystem } from './prompts'
+import { reportItems, saveReport } from './report'
 
 type DB = Database.Database
 
@@ -41,6 +42,8 @@ export interface CheckOptions {
   /** Told each request's task id as it starts, so Stop can stop it. */
   onTask?: (taskId: ID | null) => void
   onKeyRejected?: () => void
+  /** Why the scene is checked, for its report (the critic's, in the Issues tab): 'request' when left out. */
+  after?: CheckReport['after']
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -123,6 +126,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   }
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
   const items: Record<string, unknown>[] = []
+  // What each check looked at and found good, from every part (the critic's report).
+  const checked: Record<string, unknown>[] = []
   let splits = 0
   let failure: string | null = null
   let stopped = false
@@ -184,6 +189,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
       const reply = readCheckReply(done.text)
       if (reply.ok) {
         got = reply.items
+        checked.push(...(reply.checked ?? []))
         if (!reply.complete) partial = true
         break
       }
@@ -214,6 +220,19 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   // A whole check replaces what the same checks found here before; a check cut short only adds.
   const replaces = whole ? (p: cdb.IssuePayload) => !!p.check && (checks as string[]).includes(p.check) : () => false
   const raised = cdb.saveFound(o.db, cdb.rowsInScenes(o.db, [sceneId]), found, replaces)
+  // The report: what each check looked at, what was good and where there were issues (a whole check only).
+  if (whole) {
+    const foundBy = new Map<CheckKind, number>()
+    for (const f of found) {
+      const c = f.payload.check
+      if (c && c !== 'story') foundBy.set(c, (foundBy.get(c) ?? 0) + 1)
+    }
+    try {
+      saveReport(o.db, { sceneId, after: o.after ?? 'request', items: reportItems(checks, checked, foundBy), found: found.length })
+    } catch (e) {
+      console.warn('Could not keep the check report', e)
+    }
+  }
   if (failure) return { status: 'error', error: failure, found: raised }
   if (stopped) return { status: 'stopped', found: raised }
   return { status: 'done', found: raised }
