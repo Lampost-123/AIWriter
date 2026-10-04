@@ -174,6 +174,8 @@ export interface WorldInterviewAsked {
   question: string
   /** Skipped rather than answered (its topic isn't asked about again). */
   skipped: boolean
+  /** His answer, as added to the summary (shown to the model beside its question, so it isn't asked again). */
+  answer?: string
 }
 
 export interface WorldInterviewInput {

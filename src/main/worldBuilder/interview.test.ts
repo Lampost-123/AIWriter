@@ -17,7 +17,8 @@ import {
   interviewSystem,
   interviewUser,
   NO_QUESTION,
-  readQuestion
+  readQuestion,
+  repeatOf
 } from './interview'
 
 const SUMMARY = 'Mara Venn is a smuggler captain who owes the Salt Guild a fortune. Magic always costs blood.'
@@ -153,5 +154,40 @@ describe('asking a question', () => {
       { taskId: 't4', summary: SUMMARY, asked: [] }
     )
     expect(q).toMatchObject({ status: 'error', question: '', error: NO_QUESTION })
+  })
+})
+
+describe('repeated questions', () => {
+  it('shows the model each answer beside its question', () => {
+    const text = askedText([{ topic: 'Setting', question: 'Where is it set?', skipped: false, answer: 'A drowned city of canals.' }])
+    expect(text).toContain('- Setting: Where is it set? (answered: "A drowned city of canals.")')
+  })
+
+  it('tells a repeat: the same topic, mostly the same words, or an answer already in the summary', () => {
+    const asked = [{ topic: 'Mara’s goal', question: 'What does Mara want most from the Salt Guild?', skipped: false }]
+    expect(repeatOf({ topic: 'Mara’s goal', question: 'Anything?' }, asked, '')).toBe('Mara’s goal')
+    expect(repeatOf({ topic: 'What Mara wants', question: 'What does Mara most want from the Salt Guild?' }, asked, '')).toBe('Mara’s goal')
+    expect(repeatOf({ topic: 'Setting', question: 'Where does it happen?' }, [], 'A story.\n\nSetting: A drowned city.')).toBe('Setting')
+    expect(repeatOf({ topic: 'Tone', question: 'How should it feel to read?' }, asked, 'Setting: A drowned city.')).toBeNull()
+  })
+
+  it('sends a repeated question back once, and asks something new', async () => {
+    const fake = await startFakeProvider({ delayMs: 0 })
+    try {
+      const db = memoryWorld()
+      const model: JobModel = {
+        job: 'world',
+        target: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'test' },
+        choice: { providerId: 'p1', modelId: 'fake/world-repeat', label: 'r', contextLength: 32000, promptPrice: 0, completionPrice: 0 },
+        thinking: 'off'
+      }
+      const q = await askQuestion(
+        { db, model, emit: () => undefined, retryDelays: [1] },
+        { taskId: 'r1', summary: `${SUMMARY}\n\nPremise: A debt comes due.`, asked: [{ topic: 'Premise', question: 'What is it about?', skipped: false, answer: 'A debt comes due.' }] }
+      )
+      expect(q).toMatchObject({ status: 'complete', topic: 'Main characters' })
+    } finally {
+      await fake.close()
+    }
   })
 })

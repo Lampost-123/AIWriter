@@ -102,7 +102,7 @@ function addAnswer(): boolean {
   if (!added) return false
   setWorldSummary(after)
   const index = s.asked.length
-  set({ answer: '', added: s.added + 1, asked: [...s.asked, { topic: s.topic, question: s.question, skipped: false }] })
+  set({ answer: '', added: s.added + 1, asked: [...s.asked, { topic: s.topic, question: s.question, skipped: false, answer: s.answer.trim() }] })
   if (answerToast != null) useToasts.getState().dismiss(answerToast)
   const id = toast('Answer added to your summary.', {
     action: { label: 'Undo', run: () => undoAnswer(id, s.worldId, index, { before, after, added }) }
@@ -124,7 +124,7 @@ function undoAnswer(id: number, worldId: ID | null, index: number, change: { bef
   // Still interviewing: the answer no longer counts, and its question isn't asked again.
   const s = get()
   if (s.open && s.worldId === worldId && s.asked[index]) {
-    set({ added: Math.max(0, s.added - 1), asked: s.asked.map((a, i) => (i === index ? { ...a, skipped: true } : a)) })
+    set({ added: Math.max(0, s.added - 1), asked: s.asked.map((a, i) => (i === index ? { topic: a.topic, question: a.question, skipped: true } : a)) })
   }
 }
 
