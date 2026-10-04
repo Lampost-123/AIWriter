@@ -234,6 +234,20 @@ export const NARRATION_TAG_LINE =
 
 Tasks 1 and 2 give most of the gain (no leaks, no second call for tagged drafts) and are small. Task 3 improves the tones themselves. Tasks 4 and 5 extend it to every AI writing path. Task 6 tells us whether real models comply; do it before deciding anything bigger. Task 7 is a safety margin.
 
+## Live results (4 October 2026, DeepSeek V4.1 Flash on OpenRouter, invented scenes)
+
+| What the writer was asked for | Quotes tagged | Samples where tagging collapsed |
+|---|---|---|
+| Dialogue only | 109 of 125 (87%) | 0 of 8 |
+| Dialogue and narration moods | 92 of 134 (69%) | 2 of 8 |
+| Narration moods as `{Narrator|...}` | 72 of 111 (65%) | 1 of 8 |
+
+Asked for narration moods, the writer sometimes put `{~mood}` before every quote instead of naming speakers. So the
+writer now tags dialogue only, and the marker's one background call per draft adds the narration's mood (and names any
+line the writer left untagged, most often the viewpoint character's short replies). In the app: every paragraph
+labelled with a tone, nothing leaked onto the page, no tag matched no line; about $0.02 per run of two drafts and a
+Continue. Also found: Drafts' record list never shows `speech` records, so tests count them from `getUsage`.
+
 ## Already done (this session)
 
 - Labels mark paragraphs that have none yet, without Listen.

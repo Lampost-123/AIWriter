@@ -8,7 +8,7 @@ import * as gens from '../db/generations'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { isTaskRunning, runTask, startTask, stopTask, stopTasksFor, type Emit, type TaskRequest } from './tasks'
 import { jobModel, type ModelSources } from './jobModel'
-import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE, type WriterSpeaker } from './speakerTags'
+import { SPEAKER_TAG_LINE, type WriterSpeaker } from './speakerTags'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -132,7 +132,7 @@ describe('the task runner', () => {
         model: { ...base.model, target: { ...base.model.target, baseUrl: big.url } },
         messages: [
           { role: 'system', content: 'You write a novel with its author.' },
-          { role: 'user', content: `Carry on.\n${SPEAKER_TAG_LINE}\n${NARRATION_TAG_LINE}` }
+          { role: 'user', content: `Carry on.\n${SPEAKER_TAG_LINE}` }
         ],
         onSpeakers: (speakers, id) => void heard.push({ speakers, id })
       })
@@ -143,7 +143,6 @@ describe('the task runner', () => {
         {
           id: done.generationId,
           speakers: [
-            { key: '~the rain had not let up since noon and the gutters of lowtown ran black with it', who: '', tone: 'low and watchful' },
             { key: 'you came', who: 'Tobin', tone: 'dry, a little amused' },
             { key: 'i said i would', who: 'Mara', tone: 'flat and certain' }
           ]
@@ -151,7 +150,7 @@ describe('the task runner', () => {
       ])
       const rec = gens.getGeneration(db, done.generationId)
       expect(rec.response).toBe(done.text)
-      expect(rec.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 1, dropped: 0 })
+      expect(rec.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 0, dropped: 0 })
     } finally {
       await big.close()
     }

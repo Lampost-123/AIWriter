@@ -153,7 +153,7 @@ const bareName = (s: string): string =>
 /**
  * A name the AI gave back ("Ines", "the captain") as a cast member. The AI doesn't always write a name exactly as the
  * page has it: "Adam (whispering)" or "Adam." is Adam, and so is "Adam Reyes" for a page called "Adam", when only one
- * character's name is in it ("Adam's brother" is not Adam).
+ * character's name is in it ("Adam's brother" is not Adam), and "Wen" is Old Wen when no one else's name has it.
  */
 export function memberNamed(cast: CastMember[], who: string | undefined): CastMember | null {
   const w = bareName(who ?? '')
@@ -166,7 +166,10 @@ export function memberNamed(cast: CastMember[], who: string | undefined): CastMe
       return name.length >= 3 && new RegExp(`${START}${esc(name)}(?!${NAME_CHAR}|['’]s${END})`, 'iu').test(w)
     })
   )
-  return within.length === 1 ? within[0] : null
+  if (within.length === 1) return within[0]
+  // One word of a longer name ("Wen" for Old Wen), when nobody else's name has it.
+  const part = /^\S{3,}$/u.test(w) ? cast.filter((c) => c.names.some((n) => bareName(n).split(/\s+/).length > 1 && bareName(n).split(/\s+/).includes(w))) : []
+  return within.length === 0 && part.length === 1 ? part[0] : null
 }
 
 /**

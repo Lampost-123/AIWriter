@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { HOW_NOTE, MARK_PROMPT, MOOD_NOTE } from '../readAloud/speakers'
-import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE, SpeakerTagFilter } from './speakerTags'
+import { HOW_NOTE, MARK_PROMPT } from '../readAloud/speakers'
+import { SPEAKER_TAG_LINE, SpeakerTagFilter } from './speakerTags'
 
 describe('what the writer is asked for', () => {
-  it('is the same kind of note the marker writes: how each line is said always, pace and sound when they apply', () => {
+  it('is the same kind of note the marker writes, on every quote: how it is said always, pace and sound when they apply', () => {
     expect(SPEAKER_TAG_LINE).toContain(HOW_NOTE)
     expect(MARK_PROMPT([])).toContain(HOW_NOTE)
-    expect(NARRATION_TAG_LINE).toContain(MOOD_NOTE)
-    expect(MARK_PROMPT([])).toContain(MOOD_NOTE)
     expect(SPEAKER_TAG_LINE).toContain('how it is said (always)')
     expect(SPEAKER_TAG_LINE).toContain('{Tobin|thick with tears, barely holding together|slow|sob}')
-    expect(NARRATION_TAG_LINE).toContain('carries on until the next tilde tag')
+    expect(SPEAKER_TAG_LINE).toContain('Every quote gets its own tag, however short')
+    // Only the dialogue: the narration's mood is the marker's.
+    expect(SPEAKER_TAG_LINE).not.toContain('tilde')
   })
 })
 

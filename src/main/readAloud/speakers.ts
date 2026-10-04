@@ -343,11 +343,6 @@ const SOUND_NAMES = BREEZE_TAGS.map((t) => t.slice(1, -1)).join(', ')
 /** How a line of dialogue is said, as the marker and the writer (ai/speakerTags.ts) are both told to note it. */
 export const HOW_NOTE =
   'a note to the voice actor, under 15 words: the feeling and how strong it is, the intent behind it, and what the listener hears when the feeling changes the voice (loud or hushed, breathy, trembling, cracking, thick with tears, a smile in it, through clenched teeth). Fit each line to its moment, so the lines of a scene do not all sound alike. Never describe the voice itself (no age, gender or accent): it is fixed.'
-
-/** How the narrator reads, as the marker and the writer are both told to note it. */
-export const MOOD_NOTE =
-  'The narrator performs the telling as a good audiobook narrator does, following the scene closely: tense and quick in a chase, soft and aching in grief, dry in a joke, low and slow in a tender moment, savouring or urgent and rising as it goes. Say how it sounds as well as the mood (low and hushed, a catch in the voice, a smile in it, breathless).'
-
 /** Instructions for "Mark who says what": who says each line and how, and how the narration is read. */
 export const MARK_PROMPT = (cast: CastMember[], pov?: string): string => `${MARKER} marks
 You mark a passage of a novel for its audiobook, read by an expressive text-to-speech voice that follows a short note on how each line is said. Each line that needs a note has a number in square brackets just before it: a quoted line of dialogue, like [3]“Get out.”, or a sentence of narration, like [4]He turned back to the window.
@@ -365,7 +360,7 @@ A line of dialogue: who says it | how it is said | pace | sound.
 Every number gets a note, in order: never skip a number or renumber.
 
 A sentence of narration: how the narrator reads it | pace | sound.
-- ${MOOD_NOTE}
+- The narrator performs the telling as a good audiobook narrator does, following the scene closely: tense and quick in a chase, soft and aching in grief, dry in a joke, low and slow in a tender moment, savouring or urgent and rising as it goes. Say how it sounds as well as the mood (low and hushed, a catch in the voice, a smile in it, breathless).
 - Where the mood carries on from the sentence before, or the sentence only says who spoke (she said), the note is just: same
 - A sound, where the sentence has the narrator's subject make one: an inhale as they breathe something in, a sigh, gasp or exhale where it happens.
 

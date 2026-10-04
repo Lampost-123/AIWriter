@@ -33,7 +33,7 @@ export function startEdit(raw: EditInput): EditStart {
   const memory = sceneMemory(db, input.sceneId)
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
-  const speakerTags = speech?.readAloud || speech?.showSpeakers ? { narration: !!speech.markSpeakers } : undefined
+  const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
   const briefing = editBriefing(input, {
     style: effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },

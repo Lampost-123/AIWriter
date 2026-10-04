@@ -42,6 +42,19 @@ describe('the writer’s tags on a draft', () => {
     expect(off.find((x) => x.id === 'b')?.delivery?.['~he said as if he had laid money on the opposite']).toBeUndefined()
   })
 
+  it('give a line split by an action, and tagged once, to the same speaker, said the same way', () => {
+    const wen = castOf([
+      { id: 'wen', name: 'Old Wen', aliases: [], about: '' },
+      { id: 'mara', name: 'Mara', aliases: [], about: '' }
+    ])
+    const split = [{ pid: 's', text: '“The lamp.” He laughed. “Thirty years I’ve kept it.” Mara waited. “Well?”' }]
+    const tags = [{ key: 'the lamp', who: 'Wen', tone: 'gleeful', sound: '(laughing)' }, { key: 'well', who: 'Mara', tone: 'impatient' }]
+    const [s] = writerBlocks({ paragraphs: split, given: tags, cast: wen, kept: new Map(), tone: true }).blocks
+    // "Wen" is Old Wen, the only character whose name has it.
+    expect(s.speakers).toEqual({ 'the lamp': 'Old Wen', 'thirty years i ve kept it': 'Old Wen', well: 'Mara' })
+    expect(s.delivery?.['thirty years i ve kept it']).toEqual({ tone: 'gleeful' })
+  })
+
   it('leave what is kept already, and the tags nobody took for later', () => {
     const kept = new Map([['b', { speakers: { 'you came': 'Mara' } }]])
     const { blocks, left } = writerBlocks({ paragraphs, given, cast, kept, tone: true, only: new Set(['a', 'b']) })

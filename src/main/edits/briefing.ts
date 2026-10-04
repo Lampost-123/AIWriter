@@ -23,8 +23,8 @@ export interface EditWorld {
   entries: EntryState[]
   /** The writer model's context length, when known. */
   contextLength: number | null
-  /** Ask the writer to tag who says each line and how (ai/speakerTags.ts); with `narration`, the narrator's mood too. */
-  speakerTags?: { narration: boolean }
+  /** Ask the writer to tag who says each line and how (ai/speakerTags.ts). */
+  speakerTags?: boolean
 }
 
 export type EditBriefing =
@@ -230,7 +230,7 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     continueAs: input.continueAs ?? 'paragraph',
     hasAfter: !!input.after.trim(),
     lineBreaks: keepsLineBreaks(input),
-    ...(world.speakerTags ? { speakerTags: world.speakerTags } : {})
+    ...(world.speakerTags ? { speakerTags: true } : {})
   }
   const system = systemPrompt(tool, world.style, o)
   const reply = Math.ceil(replyRoom(tool, words) * (world.speakerTags ? 1 + TAG_ALLOWANCE : 1))

@@ -40,6 +40,10 @@ const labels = (win: Page): Promise<string[]> =>
     })
   )
 
+/** The Read aloud AI calls this world has made (the marker's second calls are 'speech' records; Drafts never lists them). */
+const readAloudCalls = async (win: Page): Promise<number> =>
+  (await invoke(win, 'getUsage', { period: 'all-time', scope: 'world' })).jobs.find((j) => j.key === 'speech')?.calls ?? 0
+
 /** Where each paragraph sits on the page, and how wide the page is. */
 const layout = (win: Page): Promise<{ tops: number[]; width: number }> =>
   prose(win).evaluate((el) => ({
@@ -76,10 +80,12 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     await expect(speakersButton(win)).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(async () => (await labels(win)).length, { timeout: 30_000 }).toBe(await prose(win).locator('p').count())
     const shown = await labels(win)
-    // The narration's mood came from the writer too (no second model was asked about it).
-    expect(shown[0]).toBe('Narrator · low and watchful')
-    // Who says each line, and how, came from the writer itself as it wrote (its tags never reach the page).
+    // The narration's mood is the marker's (the fake marks narration "hushed and steady").
+    expect(shown[0]).toBe('Narrator · hushed and steady')
+    // Who says each line, and how, came from the writer itself as it wrote (its tags never reach the page), and the
+    // marker wasn't asked about those lines again (it would have said "quiet and wary" or "bright and quick").
     expect(shown.some((l) => l.includes('Tobin · dry, a little amused') && l.includes('Mara · flat and certain'))).toBe(true)
+    expect(shown.join('\n')).not.toMatch(/quiet and wary|bright and quick/)
     expect(words).not.toContain('{')
 
     // Never part of the text, and nothing on the page moved.
@@ -88,12 +94,12 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
     expect(JSON.stringify((await invoke(win, 'getScene', sceneId)).doc)).not.toContain('·')
-    // The writer tagged every line and the narration's mood, so no second AI call was made to mark the draft.
-    const records = await invoke(win, 'listGenerations', sceneId)
-    expect(records.filter((g) => g.job === 'speech')).toHaveLength(0)
+    // One quick call marked the narration, in the background as the draft landed.
+    expect(await readAloudCalls(win)).toBe(1)
     // The draft's record says how well the writer tagged it.
+    const records = await invoke(win, 'listGenerations', sceneId)
     const draft = await invoke(win, 'getGeneration', records.find((g) => g.job === 'draft')!.id)
-    expect(draft.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 1, dropped: 0 })
+    expect(draft.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 0, dropped: 0 })
     // Settings has the same switch: turned off there, the labels go.
     await openSettings(win, 'Read aloud and dictation')
     await win.getByRole('button', { name: 'More', exact: true }).click()
@@ -130,11 +136,9 @@ test('a variant put into the scene keeps who its writer said says each line, and
 
     await expect.poll(async () => (await labels(win)).length, { timeout: 30_000 }).toBe(await prose(win).locator('p').count())
     const shown = await labels(win)
-    expect(shown[0]).toBe('Narrator · low and watchful')
+    expect(shown[0]).toBe('Narrator · hushed and steady')
     expect(shown.some((l) => l.includes('Tobin · dry, a little amused'))).toBe(true)
-    const [story] = await invoke(win, 'listStories')
-    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
-    expect((await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'speech')).toHaveLength(0)
+    expect(shown.join('\n')).not.toMatch(/quiet and wary|bright and quick/)
   } finally {
     await speech.close()
     await fake.close()
@@ -159,8 +163,9 @@ test('words Adam types himself get who says each line and how, without Listen', 
       await win.keyboard.type(para)
     }
     await speakersButton(win).click()
-    // Every paragraph is marked in the background and shows its speaker with a tone.
+    // Every paragraph is marked in the background and shows its speaker with a tone: Adam's own words need the AI.
     await expect.poll(async () => (await labels(win)).filter((l) => l.includes(' · ')).length, { timeout: 30_000 }).toBe(3)
+    expect(await readAloudCalls(win)).toBeGreaterThan(0)
     expect((await labels(win))[0]).toBe('Narrator · hushed and steady')
 
     // An edit loses its paragraph's label, and it comes back a few seconds after typing stops.

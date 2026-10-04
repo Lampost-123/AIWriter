@@ -6,7 +6,7 @@
 // chunks is held back until it is complete. No Electron imports.
 
 import type { GenerationRecord } from '@shared/types'
-import { HOW_NOTE, MOOD_NOTE, NARRATION, QUOTE, quoteKey, readMark, SENTENCE } from '../readAloud/speakers'
+import { HOW_NOTE, NARRATION, QUOTE, quoteKey, readMark, SENTENCE } from '../readAloud/speakers'
 
 /** The longest a tag may be; a brace with no close within it is ordinary text. */
 const MAX_TAG = 260
@@ -158,8 +158,9 @@ export class SpeakerTagFilter {
 export const asksForTags = (messages: readonly { content: unknown }[]): boolean =>
   messages.some((m) => typeof m.content === 'string' && m.content.includes(SPEAKER_TAG_LINE))
 
-/** The closing instruction's line asking the writer to note how the narration is read too (Mark who says what). */
-export const NARRATION_TAG_LINE = `- Where the narration starts, and wherever its mood turns, put how the narrator reads it in curly braces after a tilde: {~hushed, dread building}The stairs went on. The mood carries on until the next tilde tag, through the dialogue too, so tag only where it changes. A few words: ${MOOD_NOTE}`
-
-/** The closing instruction's line asking the writer to tag each line of dialogue with its speaker. */
-export const SPEAKER_TAG_LINE = `- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it and how it is said in curly braces: {Mara|coldly, barely above a whisper}“Get out,” she said. After the name, split by bars: how it is said (always), then a pace (slow or fast) and a sound the speaker makes as the line starts (sigh, gasp, laugh, sob) only when they apply: {Tobin|thick with tears, barely holding together|slow|sob}. How it is said is ${HOW_NOTE} Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored, waving them on}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them.`
+/**
+ * The closing instruction's line asking the writer to tag each line of dialogue with its speaker and how it is said.
+ * Only the dialogue: asked for the narration's mood too (tilde tags), writers tagged a fifth fewer lines and sometimes
+ * put moods in place of speakers (live checks, 4 October 2026). A tilde tag a writer gives anyway is still read.
+ */
+export const SPEAKER_TAG_LINE = `- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it and how it is said in curly braces: {Mara|coldly, barely above a whisper}“Get out,” she said. After the name, split by bars: how it is said (always), then a pace (slow or fast) and a sound the speaker makes as the line starts (sigh, gasp, laugh, sob) only when they apply: {Tobin|thick with tears, barely holding together|slow|sob}. How it is said is ${HOW_NOTE} Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored, waving them on}. Every quote gets its own tag, however short (“No.”) and however quick the back-and-forth, and so does a line that carries on after a dialogue tag or an action. The tags are taken out before the author reads the scene, so never mention them.`

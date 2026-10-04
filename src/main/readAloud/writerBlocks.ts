@@ -60,6 +60,17 @@ export function writerBlocks(o: {
       const note = deliveryOf(g)
       if (note) delivery[q.key] = note
     }
+    // A line the writer split with an action ("The lamp." He laughed. "Thirty years…") and tagged once: the untagged
+    // part is the same speaker's, said the same way (the line before it in the paragraph, else the one after).
+    const quotes = spans.filter((x) => x.quote)
+    quotes.forEach((q, i) => {
+      if (had?.speakers?.[q.key] !== undefined || speakers[q.key] !== undefined) return
+      const from = [...quotes.slice(0, i)].reverse().find((x) => speakers[x.key]) ?? quotes.slice(i + 1).find((x) => speakers[x.key])
+      if (!from) return
+      speakers[q.key] = speakers[from.key]
+      const note = delivery[from.key] && carried(delivery[from.key])
+      if (note && Object.keys(note).length) delivery[q.key] = note
+    })
     const narration = spans.filter((x) => !x.quote)
     const told = narration.some((x) => delivery[x.key] !== undefined || had?.delivery?.[x.key] !== undefined)
     if (o.tone && mood && narration.length && !told) delivery[narration[0].key] = { ...mood }
