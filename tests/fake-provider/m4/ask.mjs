@@ -44,13 +44,18 @@ export function askReply(system, messages, model) {
   if (!names.length) names = headed(parts.get('Also relevant'))
   if (!names.length) names = listed(parts.get('Everything else in the memory')).slice(0, 2)
   names = [...new Set(names)].slice(0, 4)
-  const question = String([...messages].reverse().find((m) => m.role === 'user')?.content ?? '').trim()
+  // Adam's question, not the app's note asking for the tools.
+  const question = String(
+    [...messages].reverse().find((m) => m.role === 'user' && !String(m.content ?? '').startsWith('[AI Write, not the writer]'))?.content ?? ''
+  ).trim()
+  const proposed = messages.some((m) => m.role === 'tool' && String(m.content ?? '').startsWith('Proposed to the writer'))
   const earlier = messages.filter((m) => m.role === 'assistant').length
   const cited = names.map((n) => `[[${n}]]`)
   const who =
     cited.length > 1 ? `${cited.slice(0, -1).join(', ')} and ${cited[cited.length - 1]}` : (cited[0] ?? 'nothing in the memory yet')
   // A model that claims changes it never proposed (the app must say nothing came with the answer).
-  if (/\bpretend\b/i.test(question)) return 'I’ve tidied up the opening. Apply the changes below when you’re ready.'
+  if (/\bpretend\b/i.test(question))
+    return proposed ? 'I proposed a tidier opening line.' : 'I’ve tidied up the opening. Apply the changes below when you’re ready.'
   const lead = earlier ? `Answer ${earlier + 1} in this chat. ` : ''
   const paragraphs = [
     `${lead}From the memory: ${who}. You asked: “${question.replace(/\s+/g, ' ').slice(0, 120)}”.`,
@@ -72,9 +77,23 @@ export function askReply(system, messages, model) {
  */
 export function askToolCalls(system, messages, tools) {
   if (!system.startsWith(MARKER) || !Array.isArray(tools) || !tools.length) return null
-  const question = String([...messages].reverse().find((m) => m.role === 'user')?.content ?? '').toLowerCase()
+  const users = messages.filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
+  const nudged = users.some((u) => u.startsWith('[AI Write, not the writer] Your answer says'))
+  // The question is Adam's, not the app's note asking for the tools.
+  const question = (users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? '').toLowerCase()
   const last = messages[messages.length - 1]
   const toolResults = messages.filter((m) => m.role === 'tool')
+  // Asked to propose what it claimed ("pretend"), it does, as a fix would; a stubborn one still doesn't.
+  if (/\bpretend\b/.test(question)) {
+    if (!nudged || /\bstubborn/.test(question)) return null
+    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
+    if (last?.role === 'tool' && toolResults.length === 1) {
+      const text = String(last.content).split('\nText:\n')[1] ?? ''
+      const first = (/^[^.!?]+[.!?]/.exec(text.trim()) ?? [''])[0]
+      return first ? [{ name: 'propose_edit', arguments: { find: first, replace: first.toUpperCase(), why: 'Tidied, as claimed.' } }] : null
+    }
+    return null
+  }
   if (/\bnew place\b/.test(question)) {
     if (toolResults.length) return null
     return [{ name: 'propose_new_entry', arguments: { kind: 'place', name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' } }]

@@ -73,6 +73,12 @@ export interface TaskRequest {
     run(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
     /** Said to the model before the last request (the one without tools). */
     lastWords?: () => string
+    /**
+     * Looks at an answer given without tools: a note to send back once, asking for the tools after all (an answer
+     * that says it made changes it never proposed), or null to keep the answer. The answer it replaces is taken out
+     * of the reply.
+     */
+    nudge?: (answer: string) => string | null
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
   }
@@ -248,13 +254,32 @@ async function stream(
   // the last step, asked without them). Tokens and cost add up over the steps; the words written along the way are
   // the reply.
   const steps: AgentStep[] = []
+  // Where the latest request's words start in the reply, so an answer sent back by `nudge` can be taken out.
+  let stepFrom = r.text.length
   let outcome = await once(req.messages, req.agent?.tools)
   if (req.agent) {
     let messages = req.messages
     const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
     const add = (a: number | null, b: number | null): number | null => (a == null && b == null ? null : (a ?? 0) + (b ?? 0))
-    for (let step = 1; outcome.status === 'complete' && outcome.toolCalls?.length && step < req.agent.maxSteps; step++) {
+    let nudged = false
+    for (let step = 1; outcome.status === 'complete' && step < req.agent.maxSteps; step++) {
       if (r.controller.signal.aborted) break
+      if (!outcome.toolCalls?.length) {
+        // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
+        const nudge = nudged ? null : (req.agent.nudge?.(outcome.text) ?? null)
+        if (!nudge) break
+        nudged = true
+        messages = [...messages, { role: 'assistant', content: outcome.text }, { role: 'user', content: nudge }]
+        r.text = r.text.slice(0, stepFrom)
+        progress()
+        stepFrom = r.text.length
+        outcome = await once(messages, req.agent.tools)
+        total.prompt = add(total.prompt, outcome.promptTokens)
+        total.cached = add(total.cached, outcome.cachedTokens)
+        total.completion = add(total.completion, outcome.completionTokens)
+        total.cost = add(total.cost, outcome.cost)
+        continue
+      }
       const calls = outcome.toolCalls
       let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
       try {
@@ -279,6 +304,7 @@ async function stream(
       const last = step === req.agent.maxSteps - 1
       const note = last ? req.agent.lastWords?.() : undefined
       if (note) messages = [...messages, { role: 'user', content: note }]
+      stepFrom = r.text.length
       outcome = await once(messages, last ? undefined : req.agent.tools)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)

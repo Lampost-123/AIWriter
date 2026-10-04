@@ -51,3 +51,13 @@ describe('an answer that speaks of changes', () => {
     expect(speaksOfChanges('Did you want me to change the ending?')).toBe(false)
   })
 })
+
+describe('an answer that claims changes it never proposed', () => {
+  it('is a clear claim, not a word in a brainstorm', () => {
+    expect(speaksOfChanges('I’ve fixed the spelling in the first paragraph.')).toBe(true)
+    expect(speaksOfChanges('Here is the revised paragraph: The tide came in.')).toBe(true)
+    expect(speaksOfChanges('Apply these edits when you’re ready.')).toBe(true)
+    expect(speaksOfChanges('She could apply pressure to the wound, or run.')).toBe(false)
+    expect(speaksOfChanges('Would you accept a darker ending?')).toBe(false)
+  })
+})

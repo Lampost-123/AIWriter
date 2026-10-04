@@ -70,8 +70,14 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(again).toHaveAttribute('data-status', 'declined')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
 
-    // An answer that tells Adam to apply changes it never proposed is put right under it.
+    // An answer that claims changes it never proposed is asked once more: the changes come, and the claim is gone.
     await ask(win, 'Pretend to tidy the opening')
+    const tidied = changes(win).last().locator('[data-proposal]').first()
+    await expect(tidied).toContainText('Tidied, as claimed.')
+    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
+    // One that still doesn't propose them is put right under its answer.
+    await ask(win, 'Pretend stubbornly to tidy the opening')
     await expect(panel(win).locator('[data-no-changes]')).toHaveText('No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.')
     await expect(panel(win).locator('[data-no-changes]')).toHaveCount(1)
   } finally {
