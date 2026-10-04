@@ -485,6 +485,8 @@ export const WHY = {
   group: 'A group someone here belongs to',
   beats: 'Named in the beats',
   notes: 'Named in the scene notes',
+  cardWords: 'Named on the scene card',
+  previous: 'Named at the end of the previous scene',
   direction: 'Named in your direction',
   rule: 'A world rule',
   tie: 'Tied to someone in the scene',
@@ -616,12 +618,15 @@ export function selectEntries(input: ContextInput): Selection {
     .map((e) => take(e.id, WHY.rule, false))
     .filter(some)
 
-  // Anything else named in the beats, the notes or the direction (only what exists here).
+  // Anything else named in the beats, the notes, the direction, the rest of the card or the end of the previous
+  // scene (only what exists here): whoever and whatever the scene carries on with, so the writer has their details.
   const others: EntryState[] = []
   const texts = [
     [haystack(card.beats.join('\n')), WHY.beats],
     [haystack(card.notes), WHY.notes],
-    [haystack(input.options.direction), WHY.direction]
+    [haystack(input.options.direction), WHY.direction],
+    [haystack([card.goal, card.conflict, card.outcome, card.mood].join('\n')), WHY.cardWords],
+    [haystack(sceneTail(clean(input.memory.previous?.text))), WHY.previous]
   ] as const
   for (const e of m.entries) {
     if (chosen.has(e.id)) continue
@@ -979,26 +984,29 @@ function chapterOrder(s: StorySoFar): ID[] {
 }
 
 /**
- * How much of the story so far block 8 gives. 0 is the full form; 1 the short form (fewer scenes,
- * chapter level, series roll-ups); 2 to 4 keep only the most recent parts, so a model with little
- * room still learns what happened just before this scene rather than nothing at all.
+ * How much of the story so far block 8 gives. 0 is the full form: every earlier scene of this story by its own
+ * summary (Adam, 2026-10-04: a chapter's summary loses what later scenes depend on); 1 the short form (earlier
+ * chapters by their summaries, the last 5 scenes in detail); 2 fewer scenes and series roll-ups; 3 to 5 keep only
+ * the most recent parts, so a model with little room still learns what happened just before this scene rather than
+ * nothing at all.
  */
-export const STORY_LEVELS = 5
+export const STORY_LEVELS = 6
 /** At each level: how many of the most recent parts (a story, a chapter or a scene) are kept. */
-const RECENT_PARTS = [Infinity, Infinity, 6, 2, 1]
+const RECENT_PARTS = [Infinity, Infinity, Infinity, 6, 2, 1]
 
 /**
  * Block 8, oldest first. Summaries go in word for word, so the Context tab can find each one to edit it.
  * - Earlier stories on the line, one paragraph each ("Meanwhile" for side stories; a story the line
- *   cuts short says so). From level 1 a series roll-up stands in for the stories it covers.
- * - This story: each chapter by its summary, or by its scenes' summaries while it has none (the
- *   chapter this scene is in, say), so no earlier scene is skipped; then the last 5 scenes in detail
- *   (2 from level 1).
- * - The "Leads into" target, up to level 2.
+ *   cuts short says so). From level 2 a series roll-up stands in for the stories it covers.
+ * - This story: at level 0 every earlier scene by its own summary; from level 1 each chapter by its summary, or by
+ *   its scenes' summaries while it has none (the chapter this scene is in, say), so no earlier scene is skipped;
+ *   then the last 5 scenes in detail (2 from level 2).
+ * - The "Leads into" target, up to level 3.
  */
 export function storySoFarText(s: StorySoFar, storyTitle: string, level: number | boolean = 0): string {
-  const lv = typeof level === 'boolean' ? (level ? 1 : 0) : Math.max(0, Math.min(STORY_LEVELS - 1, level))
-  const short = lv > 0
+  const lv = typeof level === 'boolean' ? (level ? 2 : 0) : Math.max(0, Math.min(STORY_LEVELS - 1, level))
+  const every = lv === 0
+  const short = lv > 1
   type Part = { heading: string; text: string }
   const parts: Part[] = []
   const rolled = new Set<ID>()
@@ -1023,7 +1031,10 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, level: number 
   for (const chapterId of chapterOrder(s)) {
     const own = scenes.filter((x) => x.chapterId === chapterId)
     const chapter = told.get(chapterId)
-    if (chapter) {
+    if (every && own.length) {
+      // The full form: every earlier scene by its own summary, which keeps what a chapter's summary leaves out.
+      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: `${x.label}: ${clean(x.text)}` })
+    } else if (chapter) {
       // A chapter is told by its own summary unless every one of its summarised scenes is shown.
       if (!own.length || own.some((x) => !shown.has(x.sceneId)))
         parts.push({ heading: earlier, text: `${chapter.label}: ${clean(chapter.text)}` })
@@ -1046,7 +1057,7 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, level: number 
     out.push(`### ${heading}\n${texts.join('\n\n')}`)
   }
 
-  if (s.leadsInto && clean(s.leadsInto.text) && lv < 3) {
+  if (s.leadsInto && clean(s.leadsInto.text) && lv < 4) {
     const t = s.leadsInto.title
     out.push(
       `### Leads into ${t}\nThis story leads into ${t}. Below is how ${t} begins: a target to steer towards over the story, not events to mention or bring about in this scene.\n${clean(s.leadsInto.text)}`
@@ -1254,7 +1265,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   if (sel.others.length) {
     const mentionedOnly = sel.others.every((e) => {
       const why = sel.chosen.get(e.id)?.why
-      return why === WHY.beats || why === WHY.notes || why === WHY.direction
+      return why === WHY.beats || why === WHY.notes || why === WHY.direction || why === WHY.cardWords || why === WHY.previous
     })
     // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
     const paidOff = (e: Entry): string => {
@@ -1446,7 +1457,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     // Levels of shortening: 0 is the full form, 1 the short form, then any smaller ones.
     const min = hasShort && mode === 'short' ? 1 : 0
     const max = mode === 'full' ? 0 : forms.length - 1
-    return { b, mode, forms, tokensAt, hasShort, min, max, level: min, dropped: false }
+    // How far step 1 shortens a block: its short form, and for the story so far the step after (chapters, the last
+    // few scenes) too, since its full form (every scene) is much longer than the rest.
+    const shortTo = Math.min(max, b.id === 'story-so-far' ? 2 : 1)
+    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false }
   })
   type State = (typeof state)[number]
   const tokens = (s: State): number => s.tokensAt[s.level]
@@ -1480,7 +1494,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
     for (const s of shortenable) {
       if (fits()) break
-      if (s.level === 0 && s.max >= 1) s.level = 1
+      while (!fits() && s.level < s.shortTo) s.level++
     }
     // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
     //     than its short form, so a small model keeps what happened just before rather than a list of names.
@@ -1489,6 +1503,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       if (fits()) break
       if (lowest(s)) s.dropped = true
     }
+    const shortest = (st: State): number => Math.max(1, st.shortTo)
     // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
     //    down to its most recent parts, the point-of-view character down to the core of the profile),
     //    a step at a time, from the bottom up.
@@ -1496,7 +1511,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       more = false
       for (const s of shortenable) {
         if (fits()) break
-        if (s.level >= 1 && s.level < s.max) {
+        if (s.level >= shortest(s) && s.level < s.max) {
           s.level++
           more = true
         }
