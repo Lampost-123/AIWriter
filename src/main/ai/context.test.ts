@@ -29,6 +29,7 @@ import {
   sentEntryVersions,
   storySoFarText,
   timeSincePrevious,
+  deadBy,
   type ContextInput,
   type PreparedContext
 } from './context'
@@ -1983,5 +1984,22 @@ describe('the time since the previous scene', () => {
     )
     expect(at('Day 8', '')).toBe('')
     expect(at('Day 8', 'Day 5', true)).toBe('')
+  })
+})
+
+describe('who is dead by this point', () => {
+  const who = (notes: string[]) =>
+    deadBy([{ kind: 'character', name: 'Anselm', happened: notes.map((note, i) => ({ note, where: '', changeId: String(i) })) }])
+  it('from a note that says they died, the latest', () => {
+    expect(who(['lied to Captain Sallow', 'presumed dead in the Archive fire'])).toEqual([{ name: 'Anselm', note: 'presumed dead in the Archive fire' }])
+    expect(who(['died in the fire'])).toHaveLength(1)
+    expect(who(['killed by the watch at dawn'])).toHaveLength(1)
+    expect(who(['was found drowned in the harbour'])).toHaveLength(1)
+  })
+  it('not from someone else’s death, news of one, or a death undone', () => {
+    expect(who(['killed the guard at the gate'])).toEqual([])
+    expect(who(['learned that Maud was dead'])).toEqual([])
+    expect(who(['watched her father die'])).toEqual([])
+    expect(who(['presumed dead in the fire', 'survived the fire after all'])).toEqual([])
   })
 })

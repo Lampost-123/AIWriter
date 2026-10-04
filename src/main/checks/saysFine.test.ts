@@ -9,7 +9,9 @@ describe('an issue that says all is well', () => {
       'The scene is in past tense, close third person. This sentence is in past tense and third person, consistent. No issue.',
       'Past perfect is used correctly. No tense slip.',
       "Pell's dialogue is sardonic and dry, consistent with the memory's description. No issue.",
-      'Ilse knows the vault is flooding because she saw the water seeping in the previous scene. This is consistent with her knowledge.'
+      'Ilse knows the vault is flooding because she saw the water seeping in the previous scene. This is consistent with her knowledge.',
+      "Ilse's eyes are grey in the memory, but the scene says 'her grey eyes' – this matches, no problem.",
+      "The scene is in past tense, but this sentence is in present tense ('pressed' is past, so it's fine. No issue.)"
     ])
       expect(saysFine(m), m).toBe(true)
   })

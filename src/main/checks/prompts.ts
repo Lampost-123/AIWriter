@@ -19,7 +19,7 @@ const WHAT: Record<CheckKind, string> = {
   continuity:
     "continuity: where things stood as the previous scene ended (where each character is, what they wear and hold, how they are placed, their condition, the time, weather and light) and how the scene carries them on: a coat taken off earlier still worn, someone sitting who was standing with no move between, something in a hand that was put down, a character who left still speaking, the light or the time of day changing for no reason.",
   voice:
-    "voice: each character's dialogue against how they speak (their voice notes, verbal tics, what they never say, and their sample lines). Flag only lines that clearly don't sound like them.",
+    "voice: each character's dialogue against how they speak (their voice notes, verbal tics, what they never say). Flag only a line that clearly breaks them (someone who never swears swearing, a terse character making a speech); a line merely unlike their sample lines, or more emotional at an emotional moment, is not an issue.",
   style:
     "style: the scene against the style guide's point of view and tense (a slip into another point of view, or another tense, outside dialogue), the tone against the scene card's mood when it is far from it, and, when a genre or content levels are given, passages that clearly break the genre's feel or go further than a content level allows."
 }
@@ -41,6 +41,9 @@ Rules
 - Report only real problems a careful reader would notice. No comments on quality, no suggestions for improvement, nothing the memory doesn't say.
 - Never list something you looked at and found fine as an issue (no "this fits", "no problem", "consistent"): that goes in "checked". Every issue's message says what is wrong.
 - When unsure whether something is a problem, leave it out. "must-fix" only when it cannot be right.
+- Only what CONTRADICTS the memory, the story so far or the scene itself is an issue. A detail the memory doesn't have (a coat's colour, extra watchmen, something a character knows that it doesn't list) is never an issue on its own.
+- Clothing in a profile is what someone usually wears, not what they must wear: a change of clothes is not an issue (unless where things stood says otherwise and nothing in the scene explains it).
+- Anyone listed under "Dead at the start of this scene" who speaks, acts, sleeps, breathes or is treated as alive is a must-fix, unless the scene shows a ghost, a memory, a dream or a vision.
 - "quote": words copied exactly, character for character, from the scene: the shortest phrase or sentence that shows the problem.
 - "message": one plain sentence for the author saying what disagrees with what, such as "Mara's eyes are blue in the memory, but green here." Use names, never the ids.
 - "severity": "must-fix" when it can't be right as written (a dead character acting or speaking, someone in two places at once, a character knowing what they can't know); "warning" when it is probably a slip (looks, ages, travel times, a line that doesn't sound like them); "minor" when it is small and easily missed (one sentence in another tense).

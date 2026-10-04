@@ -180,7 +180,11 @@ export function saysFine(message: unknown): boolean {
   if (!m.trim()) return false
   const fine = /\b(no (issue|problem|slip|error|inconsistency|conflict|contradiction)s?\b|no (tense|pov|point of view|style) slip|(is|are|seems|remains) consistent|consistent with|this is fine|which is fine|is not a problem|isn['’]t a problem|nothing wrong|fits (his|her|their|its|the)\b|matches (his|her|their|the))/i
   const butWrong = /\b(but|however|yet|although|contradict|inconsistent|doesn['’]t match|does not match|wrong)\b/i
-  return fine.test(m) && !butWrong.test(m)
+  if (!fine.test(m)) return false
+  // The verdict at the end decides: "..., but the scene says grey: this matches, no problem."
+  const last = m.trim().split(/(?<=[.!?])\s+|\s+[–—-]\s+|;\s*/).filter(Boolean).at(-1) ?? m
+  const finalFine = /\b(no (issue|problem|slip|error|inconsistency|conflict|contradiction)s?|(which|this|that|it) (matches|is fine|fits|is consistent)|(it['’]s|is) fine|not a problem)\b/i
+  return (finalFine.test(last) && !butWrong.test(last)) || !butWrong.test(m)
 }
 
 export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext): FoundIssue[] {

@@ -377,6 +377,41 @@ export function oneLine(e: Entry, note = ''): string {
   return clean(e.summary) ? `${name}: ${clean(e.summary)}` : name
 }
 
+/**
+ * A note in what has happened to a character that says they themselves died: "died in the fire", "presumed dead",
+ * "killed by the watch", "was found drowned". Not one about someone else's death ("killed the guard", "learned
+ * Anselm was dead", "watched her father die").
+ */
+const OWN_DEATH = [
+  /\b(died|dies|perished)\b/i,
+  /\b(was|were|is|presumed|declared|reported|found|lies|lay|now)\s+(dead|killed|murdered|drowned|slain|executed|hanged)\b/i,
+  /^\s*(?:(killed|murdered|drowned|slain|executed|hanged)\s+(by|in|at|on|during|while|when|after|before)\b|burned to death)/i
+]
+/** A note about someone else's death, or news of one. */
+const OTHERS_DEATH = /\b(learn(s|ed|t)?|heard|hears|told|tells|saw|sees|watch(es|ed)|mourn(s|ed)?|bur(y|ies|ied)|news|grieve(s|d)?|avenge(s|d)?)\b/i
+/** Words that undo a death ("not dead after all", "survived"). */
+const ALIVE = /\b(not dead|alive after all|survived|returned alive|was alive|is alive|faked (?:his|her|their) death)\b/i
+const saysDied = (note: string): boolean => OWN_DEATH.some((re) => re.test(note)) && !OTHERS_DEATH.test(note)
+
+/**
+ * The characters who are dead by this point (Adam, 2026-10-04: a live run's dead monk was written sleeping, and missed),
+ * from what has happened to them: the latest note that says they died, unless a later one says they live. Each with
+ * that note ("presumed dead in the Archive fire").
+ */
+export function deadBy(entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]): { name: string; note: string }[] {
+  const out: { name: string; note: string }[] = []
+  for (const e of entries) {
+    if (e.kind !== 'character') continue
+    let note = ''
+    for (const h of e.happened ?? []) {
+      if (ALIVE.test(h.note)) note = ''
+      else if (saysDied(h.note)) note = clean(h.note)
+    }
+    if (note) out.push({ name: e.name, note })
+  }
+  return out
+}
+
 /** What has happened to an entry so far, oldest first; `last` keeps only the most recent few. */
 export function happenedText(e: Pick<EntryState, 'happened'>, last?: number): string {
   const all = (e.happened ?? []).filter((h) => clean(h.note))
@@ -810,6 +845,9 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
   const gap = timeSincePrevious(input)
   if (gap) lines.push(gap)
+  // Who is dead by now, so nobody dead walks or talks in the scene (except as a ghost, a memory or a vision).
+  const dead = deadBy(input.memory.entries)
+  if (dead.length) lines.push(`Dead by this point (only ever a memory, a ghost or a vision here): ${dead.map((d) => `${d.name} (${d.note})`).join('; ')}`)
   const pov = card.povId ? name(card.povId) : null
   if (pov) lines.push(`Point of view: ${pov}`)
   const others = names(card.presentIds.filter((id) => id !== card.povId))
