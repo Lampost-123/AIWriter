@@ -63,6 +63,7 @@ import {
   checkUser,
   existingText,
   JOB_OF,
+  overviewMoreUser,
   overviewSystem,
   overviewUser,
   pageText,
@@ -76,7 +77,17 @@ import {
 } from './prompts'
 import { earlierBuilds, madeItems } from './lines'
 import { finishWriter, newWriter, saveEntry, saveMeta, saveRelationship, setParent, type Source, type Writer } from './save'
-import { BATCH_ITEM_TOKENS, BATCH_MOST, MAX_SUMMARY_CHARS, NAMES_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
+import {
+  BATCH_ITEM_TOKENS,
+  BATCH_MOST,
+  MAX_SUMMARY_CHARS,
+  MORE_LOOKS,
+  NAMES_TOKENS,
+  OVERVIEW_PART_TOKENS,
+  replyRoom,
+  summaryRoom,
+  worldRoom
+} from './sizes'
 import { startTimeline } from './timeline'
 import { fillGaps, fillTargets, FILL_SAID_TOKENS, storySaid } from '../builder/fill'
 import { giveVoices as voicesFor } from '../readAloud/autoVoice'
@@ -583,6 +594,12 @@ function worldFor(b: Build, kind: EntryKind): { text: string; entries: { entryId
 
 // ---------- The first look ----------
 
+/** The items not already in a list (by name or other name), each once. */
+export function newItems(found: PlanItem[], listed: PlanItem[]): PlanItem[] {
+  const named = (list: PlanItem[]) => list.map((x, i) => ({ id: String(i), kind: x.kind, name: x.name, aliases: x.aliases }))
+  return mergePlan(found).filter((p) => !findMatch(p, named(listed)))
+}
+
 /** One list of everything the summary names, merged across its parts: the same thing named twice is one. */
 export function mergePlan(items: PlanItem[]): PlanItem[] {
   const out: PlanItem[] = []
@@ -611,7 +628,8 @@ async function firstLook(b: Build): Promise<PlanItem[] | null> {
   const choice = b.ctx.model.choice
   const system = overviewSystem()
   const existing = existingText(entryNames(b.ctx.db), NAMES_TOKENS)
-  const parts = splitSummary(b.summary, summaryRoom(choice, 'overview', estimateTokens(system + existing) + 60))
+  const room = summaryRoom(choice, 'overview', estimateTokens(system + existing) + 60)
+  const parts = splitSummary(b.summary, Math.min(room, OVERVIEW_PART_TOKENS))
   const items: PlanItem[] = []
   for (const [i, part] of parts.entries()) {
     setStep(b, 'reading', parts.length > 1 ? `Reading your summary: part ${i + 1} of ${parts.length}` : 'Reading your summary')
@@ -624,11 +642,27 @@ async function firstLook(b: Build): Promise<PlanItem[] | null> {
       if (!done) return null
       got = readReply(done)
     }
-    if (hasOverviewLists(got.value)) items.push(...overviewItems(got.value))
-    else if (parts.length === 1) {
-      b.failure = UNUSABLE
-      return null
-    } else b.missed.push(`Part ${i + 1} of your summary`)
+    if (!hasOverviewLists(got.value)) {
+      if (parts.length === 1) {
+        b.failure = UNUSABLE
+        return null
+      }
+      b.missed.push(`Part ${i + 1} of your summary`)
+      continue
+    }
+    const listed = mergePlan(overviewItems(got.value))
+    // Read again for what the list left out (cut off, or skipped), until a look finds nothing new.
+    for (let look = 0; look < MORE_LOOKS; look++) {
+      if (halted(b)) return null
+      setStep(b, 'reading', parts.length > 1 ? `Reading part ${i + 1} of ${parts.length} again for anything missed` : 'Reading your summary again for anything missed')
+      const more = await ask(b, 'overview', chat(system, overviewMoreUser(existing, listed, part, [i + 1, parts.length])))
+      if (!more) return null
+      const extra = readReply(more)
+      const fresh = hasOverviewLists(extra.value) ? newItems(overviewItems(extra.value), listed) : []
+      listed.push(...fresh)
+      if (!fresh.length) break
+    }
+    items.push(...listed)
   }
   return mergePlan(items)
 }

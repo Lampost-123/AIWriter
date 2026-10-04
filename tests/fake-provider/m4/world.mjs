@@ -18,6 +18,8 @@
 //                    owns|has|loves|hates|owes|belongs" or "'s"   a character; a first name alone ("Mara") is
 //                                                                 an other name of the full one ("Mara Venn")
 //                  The model fake/world-junk answers it with words, not JSON (a reply that can't be used).
+//                  Asked again for what it missed ("Already listed from this summary:"), it lists only what isn't
+//                  named there; the model fake/world-lazy lists only the first two of each kind the first time.
 //   character      {"fromNotes": {"name", "aliases" (its other names), "summary": the first sentence that
 //                  starts with its name}, "drafted": every other field the prompt lists, as "<Label> of
 //                  <name>, drafted to fit the world." ("supporting" for role, two lines for sample lines)}.
@@ -240,7 +242,16 @@ export function worldReply(system, messages, model) {
   if (!system.startsWith(MARKER)) return null
   const job = system.slice(MARKER.length).trim().split(/\s/)[0]
   const user = lastUser(messages)
-  if (job === 'overview') return model === 'fake/world-junk' ? 'I read it, and it is a fine world.' : overview(summaryIn(user))
+  if (job === 'overview') {
+    if (model === 'fake/world-junk') return 'I read it, and it is a fine world.'
+    const all = JSON.parse(overview(summaryIn(user)))
+    const listed = user.split('Already listed from this summary:\n')[1]
+    if (listed != null) {
+      const done = new Set(listed.split('\n\n')[0].split('\n').flatMap((l) => (l.split(': ')[1] ?? '').split('; ')).map(bare))
+      for (const k of Object.keys(all)) all[k] = all[k].filter((x) => !done.has(bare(x.name)))
+    } else if (model === 'fake/world-lazy') for (const k of Object.keys(all)) all[k] = all[k].slice(0, 2)
+    return JSON.stringify(all)
+  }
   if (job === 'character') return character(system, user)
   if (job in KIND_OF) return batch(job, system, user)
   if (job === 'relationships') return relationships(user)
