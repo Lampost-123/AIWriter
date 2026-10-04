@@ -556,6 +556,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   and so are the same speaker's later italic stretches in that paragraph (`readAloud/italicSpeech.ts`). Reading
   aloud plans and marks the paragraph with that speech in quote marks (`asSpoken`), and puts every place back where it
   is on the page. "the ring" in any case is the character Ring (`nameGroups`, `cast.ts`).
+- **Recall across scenes** (Adam, 2026-10-04: inconsistencies between scenes). Entries named in the card's goal,
+  conflict, outcome or mood, or at the end of the previous scene (the part block 3 sends), are selected too
+  (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
+  (level 0); chapter summaries with the last 5 scenes are its short form, and the fitting shortens it that far
+  (`shortTo`) before shortening anything above it.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
