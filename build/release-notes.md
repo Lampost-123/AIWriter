@@ -1,6 +1,6 @@
-<!-- version: 0.6.22 -->
-What's new in 0.6.22:
+<!-- version: 0.6.23 -->
+What's new in 0.6.23:
 
-- Interview me, on Build from a summary, no longer asks the same thing twice. The AI now sees each of your answers beside its question, and a question you've already answered is swapped for a new one.
+- Build from a summary now makes everything in one run. It reads your summary again for anything its first list missed, so characters, places, events and the rest are no longer skipped.
 
-Also in 0.6.21: Explicit romance writes sex scenes out in full, and the editor chat offers rewrites across paragraphs for you to accept or decline.
+Also in 0.6.22: Interview me no longer asks the same question twice.
