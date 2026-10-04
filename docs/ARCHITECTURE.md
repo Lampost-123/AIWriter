@@ -504,6 +504,10 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
   tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
   speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
+  While it is on, paragraphs with no marks yet (Adam's own words, older scenes, an edit) are marked in the background
+  (`speakerLabels` with `mark`: as the scene opens and 6 s after typing stops, twice at most for the same words). A line
+  given a speaker but no note on how it is said is asked about once more (`Ask.again`); marks files from before (v1)
+  drop the empty notes on named speakers' lines that Mark who says what never filled in.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
@@ -545,10 +549,22 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a
   variant's too), so they never reach the page, the record or the word count; `onSpeakers` hands what they said to
   `noteWriterSpeakers` (`readAloud/index.ts`), which puts them on the new paragraphs' quotes as marks
-  (`writerMarks`). With Mark who says what, the writer notes the narration's mood too (`{~hushed}`,
-  `NARRATION_TAG_LINE`). What the writer didn't write (Adam's own words, older drafts, a line it left untagged) is
-  marked by the writer model as well, without thinking (`askFor`); the Read aloud model only suggests voices (and
-  marks sound effects).
+  (`writerMarks`). The writer tags only the dialogue: the narration's mood is the marker's (below). What the writer
+  didn't write (Adam's own words, older drafts, a line it left untagged) is marked by the writer model as well,
+  without thinking (`askFor`); the Read aloud model only suggests voices (and marks sound effects).
+  A tag is `{Who|how|pace|sound}`, its fields read as the marker's notes are (`readMark`); both are told the same rules
+  for a note (`HOW_NOTE` in `readAloud/speakers.ts`). A tag belongs to the line it sits inside, else the next line in
+  its paragraph; the untagged part of a line split by an action takes the tagged part's speaker and tone, and "Wen" is
+  the character Old Wen (`memberNamed`). A tilde mood a writer gives unasked carries on until its next one
+  (`readAloud/writerBlocks.ts`), and the marker's "same" carries the mood before it. Continue and the AI edits ask for
+  tags too (`edits/prompts.ts`, the task runner's `onSpeakers`); a variant's or an edit's tags wait by record
+  (`noteGenerationSpeakers`) until History's snapshot before it goes in names it (`generationGoingIn`). Every tagged
+  record keeps `params.speakerTags` (quotes, tagged, toned, moods, dropped), and the reply gets 15% more room
+  (`TAG_ALLOWANCE`). Writer tags that cover a paragraph emit 'readAloud:marked', as the AI's marks do.
+  Live checks (4 October 2026, DeepSeek V4.1 Flash, invented scenes): asked for dialogue tags only, it tagged 87% of
+  quotes (109 of 125, never failing outright); asked for narration moods as well, 65–69%, and now and then it put
+  moods before every quote in place of speakers. It tends to leave the viewpoint character's short replies untagged;
+  the marker's background call for the narration names those too.
 - **Speakers the rules only guess** (a name nearby, turn-taking) are checked by the AI and wait for its answer; only
   a dialogue tag is taken without asking. A name the AI writes a little differently ("Adam (whispering)", "Adam
   Reyes" for a page called Adam) is still that character (`memberNamed`).

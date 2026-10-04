@@ -9,9 +9,9 @@ import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, 
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
-import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
+import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
-import { replyTokenLimit, sentEntryIds, TOKENS_PER_WORD } from './context'
+import { replyTokenLimit, sentEntryIds, TAG_ALLOWANCE, TOKENS_PER_WORD } from './context'
 import { isKeyFailure, strongContentRefusal } from './errors'
 
 type DB = Database.Database
@@ -99,7 +99,7 @@ export interface DraftRequest {
    * as it streams (always: a variant's too), and this hears what they said once the draft ends (before watchers
    * hear it ended).
    */
-  onSpeakers?: (speakers: WriterSpeaker[]) => void
+  onSpeakers?: (speakers: WriterSpeaker[], generationId: ID) => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -143,7 +143,9 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
   }
   const id = newId()
   const preset = CREATIVITY_PRESETS[req.options.creativity] ?? CREATIVITY_PRESETS.balanced
-  const reply = replyTokenLimit(req.preview.budget, req.model.maxOutput, req.thinking)
+  // The writer's speaker tags take reply room the words don't count.
+  const budget = asksForTags(req.preview.messages) ? { ...req.preview.budget, reserved: Math.ceil(req.preview.budget.reserved * (1 + TAG_ALLOWANCE)) } : req.preview.budget
+  const reply = replyTokenLimit(budget, req.model.maxOutput, req.thinking)
   const sent = startParams(req)
   // min_p is sent only to OpenRouter (ai/client.ts), so only then is it noted.
   const minP = req.provider.kind === 'openrouter' ? preset.min_p : null
@@ -294,6 +296,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   // creativity, or a reply that ran into the limit, so "What the AI saw" stays truthful.
   const used = withSent({ ...params, max_tokens: outcome.maxTokens }, outcome.sentParams, outcome.effort)
   if (cutOff) used.cutOff = true
+  if (asksForTags(req.preview.messages)) used.speakerTags = tags.coverage(job.text)
   const paramsChanged = JSON.stringify(used) !== JSON.stringify(params)
   if (!job.closed && db.open) {
     try {
@@ -314,7 +317,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   }
   active.delete(job.id)
   try {
-    req.onSpeakers?.(tags.speakers(job.text))
+    req.onSpeakers?.(tags.speakers(job.text), job.id)
   } catch (e) {
     console.error('Could not keep who says each line', e)
   }

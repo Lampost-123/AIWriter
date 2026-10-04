@@ -28,6 +28,30 @@ describe('a Mark who says what reply', () => {
   })
 })
 
+describe('“same” for the narration', () => {
+  it('carries on the mood before it, not no mood', () => {
+    const [two] = markParts([{ id: 'p1', text: 'She ran.' }, { id: 'p2', text: 'The door held.' }], ['p1', 'p2'], new Set(), 5000, 5000)
+    const got = marksFrom(two, { '1': 'tense, quick | sigh', '2': 'same' }, undefined, cast)
+    expect(got.get('p2')!.delivery).toEqual({ '~the door held': { tone: 'tense, quick' } })
+    // With nothing before it, it is just asked about.
+    expect(marksFrom(two, { '1': 'same', '2': 'same' }, undefined, cast).get('p1')!.delivery).toEqual({ '~she ran': {} })
+  })
+})
+
+describe('a line given a speaker but no note on how it is said', () => {
+  it('is asked about once more, then kept as it is', () => {
+    const quote = 'Adam swallowed. “I’m not scared.”'
+    const [first] = markParts([{ id: 'b1', text: quote }], ['b1'], new Set(), 5000, 5000)
+    const once = marksFrom(first, { '1': 'tense', '2': 'Adam' }, undefined, cast).get('b1')!
+    expect(once.speakers).toEqual({ 'i m not scared': 'Adam' })
+    expect(once.delivery).toEqual({ '~adam swallowed': { tone: 'tense' } })
+    // Asked again: the speaker is known now, and a second reply with no note is kept, so it isn't asked again.
+    const [again] = markParts([{ id: 'b1', text: quote, ...once }], ['b1'], new Set(), 5000, 5000)
+    expect(again.asks).toEqual([{ blockId: 'b1', key: 'i m not scared', quote: true, again: true }])
+    expect(marksFrom(again, { '1': 'Adam' }, undefined, cast).get('b1')!.delivery).toEqual({ 'i m not scared': {} })
+  })
+})
+
 describe('who is in the scene', () => {
   it('tells the AI who is there, and that someone only mentioned isn’t speaking', () => {
     const [jane, laura] = castOf([

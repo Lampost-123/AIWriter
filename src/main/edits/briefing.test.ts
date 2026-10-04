@@ -4,6 +4,7 @@ import type { EditInput } from '@shared/contracts/edits'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import { editBriefing, replyRoom, type EditWorld } from './briefing'
 import { EDIT_MARKER } from './prompts'
+import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
 function entry(id: string, name: string, o: Partial<EntryState> = {}): EntryState {
   return {
@@ -103,6 +104,15 @@ describe('what each tool sends', () => {
       expect(b.blocks.at(-1)!.id).toBe('ask')
       expect(user(b).endsWith(b.blocks.at(-1)!.text)).toBe(true)
     }
+  })
+
+  it('asks the writer to tag who says each line and how only when reading aloud wants it, with room for the tags', () => {
+    const plain = ok(editBriefing(input('continue', { selection: '' }), world()))
+    expect(user(plain)).not.toContain(SPEAKER_TAG_LINE)
+    const tagged = ok(editBriefing(input('continue', { selection: '' }), world({ speakerTags: true })))
+    expect(tagged.blocks.at(-1)!.text).toContain(SPEAKER_TAG_LINE)
+    expect(tagged.reply).toBe(Math.ceil(plain.reply * 1.15))
+    expect(user(ok(editBriefing(input('tone', { direction: 'colder' }), world({ speakerTags: true }))))).toContain(SPEAKER_TAG_LINE)
   })
 
   it('sends the selected words with the text around them, and where they sit in their paragraph', () => {

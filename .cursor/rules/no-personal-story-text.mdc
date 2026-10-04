@@ -1,0 +1,16 @@
+---
+description: Never read Adam's personal story text in AI Write
+alwaysApply: true
+---
+
+# No personal story text
+
+Never read Adam's own writing in AI Write. That includes scene prose, drafts, premises, chapter and story text, character, place and lore writeups, notes, and anything the open app shows as his story.
+
+Do not open a world folder, `world.db`, a backup, or an export to read that writing. Do not query those columns (`text`, `doc_json`, `premise`, `summary`, `description`, `notes`, `fields_json`, `card_json`, generation `direction` or output). Do not screenshot or inspect the running app when the page shows his manuscript or world.
+
+The library is his (usually Documents\AI Write). App data under Roaming\AI Write is off limits when it holds story text.
+
+Code, tests, and sample fixtures in this repository are fine. Word counts, ids, and schema are fine. If a task needs the actual words, stop and ask him to paste only the passage he wants read.
+
+When testing the app, launch a separate copy with its own data folder (`AIWRITE_DATA_DIR`, as `tests/e2e/helpers.ts` does). Never point that copy at his library or at Roaming\AI Write. Create worlds there and fill them with short stories you invent. Read only that test writing.

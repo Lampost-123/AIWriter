@@ -143,6 +143,8 @@ export interface ReadingPlan {
 export interface SpeakerLabelsRequest {
   sceneId: ID
   paragraphs: ReadParagraph[]
+  /** Also start the AI marking the paragraphs that have no label yet, in the background ('readAloud:marked' says when). */
+  mark?: boolean
 }
 
 /** The few words shown faintly above a paragraph: "Mara · sharp, quickly", "Narrator". Never part of the text. */

@@ -70,7 +70,7 @@ import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
-import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE } from './speakerTags'
+import { SPEAKER_TAG_LINE } from './speakerTags'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -149,6 +149,9 @@ export interface PreparedContext {
 }
 
 // ---------- Budget ----------
+
+/** Extra reply room when the writer tags who says each line and how (ai/speakerTags.ts): the tags are not words. */
+export const TAG_ALLOWANCE = 0.15
 
 /** Room for a reply of `targetWords` words (null is Auto: the longest Auto allows) plus 40%. */
 export const replyTokens = (targetWords: number | null): number =>
@@ -1482,11 +1485,8 @@ export interface ContextExtras {
    * (so keep them to a sensible size, such as the end of the scene so far).
    */
   extraBlocks?: { id: string; title: string; text: string }[]
-  /**
-   * Asks the writer to tag each line of dialogue with who says it and how (ai/speakerTags.ts), for reading aloud; with
-   * `narration`, how the narrator reads each paragraph too.
-   */
-  speakerTags?: { narration: boolean }
+  /** Asks the writer to tag each line of dialogue with who says it and how (ai/speakerTags.ts), for reading aloud. */
+  speakerTags?: boolean
 }
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
@@ -1513,7 +1513,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
   }
   const closing = extras.final ?? finalInstruction
-  const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE, ...(extras.speakerTags.narration ? [NARRATION_TAG_LINE] : [])] : []
+  const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []
   const final = (o: FinalOptions): string => [closing(o), ...tagLines].join('\n')
   const finalsFor = (max: number | undefined): PreparedContext['finals'] => ({
     withPrevious: final({ ...base, autoMax: max, hasPrevious: true }),
