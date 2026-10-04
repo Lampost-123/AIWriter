@@ -47,6 +47,8 @@ export interface IssuePayload {
   check?: CheckKind | 'story'
   sources?: IssueSource[]
   fix?: string | null
+  /** The critic's suggestion in a sentence, when a rewrite of the quote alone can't fix it. */
+  advice?: string
   memoryFix?: Issue['memoryFix']
   /** A story issue: the other story it was compared with. */
   otherStoryId?: ID
@@ -147,6 +149,7 @@ export function readIssue(r: Row, names: IssueNames): Issue {
     message: (r.message as string) ?? '',
     sources,
     fix: typeof p.fix === 'string' && p.fix.trim() ? p.fix : null,
+    ...(typeof p.advice === 'string' && p.advice.trim() ? { advice: p.advice } : {}),
     memoryFix,
     ...(typeof p.occurrence === 'number' ? { occurrence: p.occurrence } : {}),
     // An ignored common AI phrase is a phrase row: the Issues tab names it as what it is.

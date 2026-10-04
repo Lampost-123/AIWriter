@@ -88,14 +88,18 @@ test('marking a scene done catches a planted contradiction; Ignore keeps it igno
     await scenePanel(win).getByRole('button', { name: /^Back/ }).click()
     await expect(issuesTab(win)).toHaveAttribute('data-state', 'active')
 
+    // The critic's suggestions show on the cards before anything changes: a rewrite, or advice in a sentence.
+    await expect(eyes.locator('[data-suggested-fix]')).toHaveText("Suggested fix: “Mara's eyes were blue in the firelight.”")
+    await expect(issue(win, DEAD).locator('[data-suggested-fix]')).toHaveText('Suggested fix: Give the line to someone alive, or cut it.')
+
     // Ignore: gone at once, never raised again.
     await issue(win, DEAD).getByRole('button', { name: 'Ignore' }).click()
     await expect(issue(win, DEAD)).toHaveCount(0)
     await expect(toasts(win).getByText('Ignored. It won’t be raised again.')).toBeVisible()
     await expect(issuesPanel(win).getByRole('button', { name: 'Show ignored (1)' })).toBeVisible()
 
-    // Fix the text: the check's rewrite as a tracked change; nothing changes until Accept, which marks it fixed.
-    await eyes.getByRole('button', { name: 'Fix the text' }).click()
+    // Review the fix: the check's rewrite as a tracked change; nothing changes until Accept, which marks it fixed.
+    await eyes.getByRole('button', { name: 'Review the fix' }).click()
     await expect(change(win)).toBeVisible()
     await expect(prose(win).locator('.aw-sugg-words')).toHaveText("Mara's eyes were blue in the firelight.")
     expect((await invoke(win, 'getScene', sceneId)).text).toContain('green')

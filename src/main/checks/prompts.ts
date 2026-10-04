@@ -49,13 +49,14 @@ Rules
 - "severity": "must-fix" when it can't be right as written (a dead character acting or speaking, someone in two places at once, a character knowing what they can't know); "warning" when it is probably a slip (looks, ages, travel times, a line that doesn't sound like them); "minor" when it is small and easily missed (one sentence in another tense).
 - "conflicts": what it disagrees with: {"entry": "E1", "field": "eyes"} for something in the memory (the field's key when it is one of the entry's fields; leave "field" out otherwise), or {"scene": "S2"} for one of the earlier scenes.
 - "memory" and "text": when it is about one value (an eye colour, an age, a place), what the memory says and what the scene says, a few words each.
-- "fix": the quote rewritten so the problem goes, changing as few words as possible, in the scene's own style. Leave it out when rewriting those words alone can't fix it.
+- "fix": the quote rewritten so the problem goes, changing as few words as possible, in the scene's own style. Give one whenever rewriting those words can fix it.
+- "advice": when rewriting the quote alone can't fix it (or there are two good ways), one plain sentence for the author saying how to put it right, such as "Have Dov hear of Anselm's death earlier in the scene, or cut the line." Nothing is changed without the author.
 - "check": one of ${NAMES}.
 
 - "checked": one item for each check above, saying in one or two plain sentences what you compared and what agreed (or didn't), with names, such as "Mara's injured wrist and grey cloak match how the scene before ended." "ok": false when that check found an issue.
 
 Reply with:
-{"issues": [{"check": "facts", "severity": "warning", "quote": "...", "message": "...", "conflicts": {"entry": "E1", "field": "eyes"}, "memory": "blue", "text": "green", "fix": "..."}], "checked": [{"check": "facts", "ok": false, "note": "..."}]}
+{"issues": [{"check": "facts", "severity": "warning", "quote": "...", "message": "...", "conflicts": {"entry": "E1", "field": "eyes"}, "memory": "blue", "text": "green", "fix": "...", "advice": "..."}], "checked": [{"check": "facts", "ok": false, "note": "..."}]}
 
 Field keys. Characters: ${fieldKeys('character').join(', ')}, sampleLines. Places: ${fieldKeys('place').join(', ')}. Any kind: summary, description.
 

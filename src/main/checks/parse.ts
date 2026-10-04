@@ -224,6 +224,8 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
     let fix = str(item.fix ?? item.rewrite, 2000) || null
     // A rewrite of "A ... B" can't take the place of A alone; nor is one that changes nothing a fix.
     if (fix && (!found.whole || plainQuote(fix) === plainQuote(quote))) fix = null
+    // How to put it right in a sentence, when the quote's own rewrite isn't the whole answer.
+    const advice = str(item.advice ?? item.suggestion, 400)
     const memory = str(item.memory, 200)
     const text = str(item.text, 200)
     // The text is right and one of Adam's own notes is wrong: offered only for one short value of a fact.
@@ -251,6 +253,7 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
         check,
         sources,
         fix,
+        ...(advice ? { advice } : {}),
         memoryFix,
         entryId: entry?.id,
         field,
