@@ -187,10 +187,25 @@ export function saysFine(message: unknown): boolean {
   return (finalFine.test(last) && !butWrong.test(last)) || !butWrong.test(m)
 }
 
+/**
+ * True when a knowledge issue rests only on the memory not listing the knowledge ("the memory does not list Dov
+ * knowing this"): the memory's who-knows-what is never complete, so that alone isn't a problem (three live runs
+ * raised dozens). One that says the knowledge comes later, or that they weren't there, stays.
+ */
+export function onlyUnlisted(item: Record<string, unknown>): boolean {
+  if (String(item.check ?? '') !== 'knowledge') return false
+  const m = typeof item.message === 'string' ? item.message : ''
+  const unlisted =
+    /\b(memory|knowledge table|who knows what)\b[^.]*\b(does not|doesn['’]t|did not|never)\s+(list|show|record|say|mention|include|note)|\bnot (listed|recorded|shown) (as known|in the memory)|\bno record\b|\bis known only (by|to)\b|\bknown only (by|to)\b/i
+  const reallyCannot =
+    /\b(later|not yet|before (she|he|they|it)\b[^.]*\b(learn|hear|find|see)|until\b|was not (there|present)|wasn['’]t (there|present)|not present|in a later scene|happens? (later|after))\b/i
+  return unlisted.test(m) && !reallyCannot.test(m)
+}
+
 export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext): FoundIssue[] {
   const out = new Map<string, FoundIssue>()
   for (const item of items) {
-    if (saysFine(item.message)) continue
+    if (saysFine(item.message) || onlyUnlisted(item)) continue
     const check = checkOf(item.check ?? item.type ?? item.kind, ctx.checks)
     if (!check) continue
     const found = findSceneQuote(ctx.text, item.quote)

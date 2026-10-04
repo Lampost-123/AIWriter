@@ -78,7 +78,9 @@ describe('checking a scene', () => {
 
     // Each request is a 'check' record of the scene, so "What the AI saw" shows it.
     const rec = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0])
-    expect(rec.messages[0].content.startsWith('[AIWRITE-CHECK v1] facts, knowledge, timeline')).toBe(true)
+    // Two focused requests: what is so (facts, timeline, continuity), then who knows what.
+    expect(rec.messages[0].content.startsWith('[AIWRITE-CHECK v1] facts, timeline, continuity')).toBe(true)
+    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[1]).messages[0].content.startsWith('[AIWRITE-CHECK v1] knowledge')).toBe(true)
     expect(rec.blocks.map((b) => b.id)).toContain('memory')
 
     // Checked again: nothing new.
@@ -177,7 +179,7 @@ describe('check runs', () => {
     expect(done.map((d) => d.runId)).toEqual([first, second])
     expect(done[1]).toMatchObject({ status: 'complete', found: 2, background: true })
     expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[0].content.split('\n')[0]).toBe(
-      '[AIWRITE-CHECK v1] facts, knowledge, timeline, continuity'
+      '[AIWRITE-CHECK v1] facts, timeline, continuity'
     )
   })
 

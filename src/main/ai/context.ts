@@ -382,13 +382,18 @@ export function oneLine(e: Entry, note = ''): string {
  * "killed by the watch", "was found drowned". Not one about someone else's death ("killed the guard", "learned
  * Anselm was dead", "watched her father die").
  */
+// A note is about its own entry and has no subject ("died in the fire"), so a death counts only where the note's own
+// verb is the dying: at its start, or after "and", "then" or "later" ("fought the watch and was killed"). "Admitted
+// Anselm died in the fire" (a live run) is someone else's.
 const OWN_DEATH = [
-  /\b(died|dies|perished)\b/i,
-  /\b(was|were|is|presumed|declared|reported|found|lies|lay|now)\s+(dead|killed|murdered|drowned|slain|executed|hanged)\b/i,
-  /^\s*(?:(killed|murdered|drowned|slain|executed|hanged)\s+(by|in|at|on|during|while|when|after|before)\b|burned to death)/i
+  /^\s*(?:(?:was|were|is|now|then|later|finally)\s+)?(died|dies|perished|drowned|dead)\b/i,
+  /^\s*(?:(?:was|were|is)\s+)?(?:presumed|declared|reported|found|confirmed|left for)\s+(dead|drowned|killed|murdered)\b/i,
+  /^\s*(?:(?:was|were)\s+)?(?:(killed|murdered|drowned|slain|executed|hanged)\s+(by|in|at|on|during|while|when|after|before)\b|burned to death)/i,
+  /\b(?:and|then|later|but)\s+(?:was\s+)?(died|perished|killed by|drowned in|drowned at|murdered by|slain by)\b/i
 ]
 /** A note about someone else's death, or news of one. */
-const OTHERS_DEATH = /\b(learn(s|ed|t)?|heard|hears|told|tells|saw|sees|watch(es|ed)|mourn(s|ed)?|bur(y|ies|ied)|news|grieve(s|d)?|avenge(s|d)?)\b/i
+const OTHERS_DEATH =
+  /\b(learn(s|ed|t)?|heard|hears|told|tells|saw|sees|watch(es|ed)|mourn(s|ed)?|bur(y|ies|ied)|news|grieve(s|d)?|avenge(s|d)?|said|says|admit(s|ted)|claim(s|ed)|reveal(s|ed)|confess(es|ed)|believe(s|d)|fear(s|ed))\b/i
 /** Words that undo a death ("not dead after all", "survived"). */
 const ALIVE = /\b(not dead|alive after all|survived|returned alive|was alive|is alive|faked (?:his|her|their) death)\b/i
 const saysDied = (note: string): boolean => OWN_DEATH.some((re) => re.test(note)) && !OTHERS_DEATH.test(note)

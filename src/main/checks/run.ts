@@ -24,6 +24,12 @@ import { reportItems, saveReport } from './report'
 
 type DB = Database.Database
 
+/** The checks asked together in one request: what is so, then who knows what and how it reads. */
+export const CHECK_GROUPS: CheckKind[][] = [
+  ['facts', 'timeline', 'continuity'],
+  ['knowledge', 'voice', 'style']
+]
+
 /** Low creativity: the check reports, it doesn't invent. */
 export const CHECK_TEMPERATURE = 0.2
 /** Context length assumed when the model's is unknown. */
@@ -96,22 +102,6 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   }
   if (!ctx.text.trim()) return { status: 'empty' }
 
-  const system = sceneSystem(checks)
-  const budget = checkBudget(o.model, system)
-  let sections = checkSections(ctx, checks)
-  const size = (s: typeof sections): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
-  // A big memory leaves too little room for the scene: its entries are told in a line each.
-  if (size(sections) > budget.available * 0.6) sections = checkSections(ctx, checks, true)
-  const room = budget.available - size(sections)
-  if (room < 250) {
-    return {
-      status: 'error',
-      error: 'This is more than the consistency check model can read at once. Pick a model that can read more in Settings › Models.',
-      found: 0
-    }
-  }
-  const parts = splitScene(ctx.text, room)
-
   const read: ReadContext = {
     sceneId,
     storyId: ctx.storyId,
@@ -133,83 +123,104 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   let stopped = false
   // A reply read only in part can't say what is no longer there.
   let partial = false
-  const queue = parts.map((text) => ({ text }))
-  let number = 0
-  const total = (): number => number + queue.length
 
-  while (queue.length && !stopped && !failure) {
-    const part = queue.shift()!
-    number++
-    const req = checkRequest(sections, part.text, { part: number, parts: total() })
-    let messages: ChatMessage[] = [
-      { role: 'system', content: system },
-      { role: 'user', content: req.user }
-    ]
-    let got: Record<string, unknown>[] | null = null
-    for (let attempt = 0; attempt < 2 && !got && !stopped && !failure; attempt++) {
-      if (o.stopped()) {
-        stopped = true
-        break
-      }
-      const taskId = newId()
-      o.onTask?.(taskId)
-      let done
-      try {
-        done = await runTask({
-          db: o.db,
-          taskId,
-          job: 'check',
-          sceneId,
-          model: o.model,
-          messages,
-          reply: budget.reply,
-          temperature: CHECK_TEMPERATURE,
-          topP: 1,
-          blocks: req.blocks,
-          entries: req.entryIds.map((id) => ({ entryId: id, version: versions.get(id) ?? '' })),
-          emit: quiet,
-          onKeyRejected: o.onKeyRejected,
-          fetchImpl: o.fetchImpl,
-          retryDelays: o.retryDelays
-        })
-      } catch (e) {
-        failure = e instanceof UserError ? e.message : 'Something went wrong starting the check. Try again.'
-        break
-      } finally {
-        o.onTask?.(null)
-      }
-      if (done.status === 'stopped' || o.stopped()) {
-        stopped = true
-        break
-      }
-      if (done.status === 'error') {
-        failure = done.error ?? 'Something went wrong while checking. Try again.'
-        break
-      }
-      const reply = readCheckReply(done.text)
-      if (reply.ok) {
-        got = reply.items
-        checked.push(...(reply.checked ?? []))
-        if (!reply.complete) partial = true
-        break
-      }
-      // A long reply cut off by the reply limit: asking again would be cut off the same way, so the part is checked in halves.
-      if ((reply.why === CUT_OFF || done.cutOff) && splits < MAX_SPLITS) {
-        const halves = splitScene(part.text, Math.ceil(estimateTokens(part.text) / 2))
-        if (halves.length > 1) {
-          splits++
-          queue.unshift(...halves.map((text) => ({ text })))
-          number--
-          break
-        }
-      }
-      messages = [...messages, { role: 'assistant', content: done.text }, { role: 'user', content: retryMessage(reply.why) }]
-      if (attempt === 1) {
-        failure =
-          "The consistency check model's reply wasn't in the right format. Try again, or pick another consistency check model in Settings › Models."
+  // The checks in two focused requests (a live run found one request for all six spread the model thin and missed
+  // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads.
+  const groups = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  for (const group of groups) {
+    if (stopped || failure) break
+    const system = sceneSystem(group)
+    const budget = checkBudget(o.model, system)
+    let sections = checkSections(ctx, group)
+    const size = (s: typeof sections): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
+    // A big memory leaves too little room for the scene: its entries are told in a line each.
+    if (size(sections) > budget.available * 0.6) sections = checkSections(ctx, group, true)
+    const room = budget.available - size(sections)
+    if (room < 250) {
+      return {
+        status: 'error',
+        error: 'This is more than the consistency check model can read at once. Pick a model that can read more in Settings › Models.',
+        found: 0
       }
     }
-    if (got) items.push(...got)
+    const queue = splitScene(ctx.text, room).map((text) => ({ text }))
+    let number = 0
+    const total = (): number => number + queue.length
+
+    while (queue.length && !stopped && !failure) {
+      const part = queue.shift()!
+      number++
+      const req = checkRequest(sections, part.text, { part: number, parts: total() })
+      let messages: ChatMessage[] = [
+        { role: 'system', content: system },
+        { role: 'user', content: req.user }
+      ]
+      let got: Record<string, unknown>[] | null = null
+      for (let attempt = 0; attempt < 2 && !got && !stopped && !failure; attempt++) {
+        if (o.stopped()) {
+          stopped = true
+          break
+        }
+        const taskId = newId()
+        o.onTask?.(taskId)
+        let done
+        try {
+          done = await runTask({
+            db: o.db,
+            taskId,
+            job: 'check',
+            sceneId,
+            model: o.model,
+            messages,
+            reply: budget.reply,
+            temperature: CHECK_TEMPERATURE,
+            topP: 1,
+            blocks: req.blocks,
+            entries: req.entryIds.map((id) => ({ entryId: id, version: versions.get(id) ?? '' })),
+            emit: quiet,
+            onKeyRejected: o.onKeyRejected,
+            fetchImpl: o.fetchImpl,
+            retryDelays: o.retryDelays
+          })
+        } catch (e) {
+          failure = e instanceof UserError ? e.message : 'Something went wrong starting the check. Try again.'
+          break
+        } finally {
+          o.onTask?.(null)
+        }
+        if (done.status === 'stopped' || o.stopped()) {
+          stopped = true
+          break
+        }
+        if (done.status === 'error') {
+          failure = done.error ?? 'Something went wrong while checking. Try again.'
+          break
+        }
+        const reply = readCheckReply(done.text)
+        if (reply.ok) {
+          got = reply.items
+          checked.push(...(reply.checked ?? []))
+          if (!reply.complete) partial = true
+          break
+        }
+        // A long reply cut off by the reply limit: asking again would be cut off the same way, so the part is checked in halves.
+        if ((reply.why === CUT_OFF || done.cutOff) && splits < MAX_SPLITS) {
+          const halves = splitScene(part.text, Math.ceil(estimateTokens(part.text) / 2))
+          if (halves.length > 1) {
+            splits++
+            queue.unshift(...halves.map((text) => ({ text })))
+            number--
+            break
+          }
+        }
+        messages = [...messages, { role: 'assistant', content: done.text }, { role: 'user', content: retryMessage(reply.why) }]
+        if (attempt === 1) {
+          failure =
+            "The consistency check model's reply wasn't in the right format. Try again, or pick another consistency check model in Settings › Models."
+        }
+      }
+      if (got) items.push(...got)
+    }
   }
 
   if (!o.db.open || o.closed?.() || (stopped && !items.length)) return { status: 'stopped', found: 0 }

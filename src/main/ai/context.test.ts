@@ -2001,5 +2001,13 @@ describe('who is dead by this point', () => {
     expect(who(['learned that Maud was dead'])).toEqual([])
     expect(who(['watched her father die'])).toEqual([])
     expect(who(['presumed dead in the fire', 'survived the fire after all'])).toEqual([])
+    // Someone else's death in a note of hers (a live run counted these as her own).
+    expect(who(['admitted Anselm died in the fire because of her'])).toEqual([])
+    expect(who(['burned the Archive, and Anselm died in it'])).toEqual([])
+    expect(who(['revealed her family drowned the old coast'])).toEqual([])
+  })
+  it('a death later in a note of what they did', () => {
+    expect(who(['fled across the causeway and was taken by the tide'])).toEqual([])
+    expect(who(['fought the watch and was killed by Sallow'])).toHaveLength(1)
   })
 })
