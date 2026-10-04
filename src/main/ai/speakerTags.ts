@@ -5,6 +5,7 @@
 // reading aloud (readAloud/index.ts, noteWriterSpeakers). Works across chunk boundaries: a tag split between two
 // chunks is held back until it is complete. No Electron imports.
 
+import type { GenerationRecord } from '@shared/types'
 import { HOW_NOTE, MOOD_NOTE, NARRATION, QUOTE, quoteKey, readMark, SENTENCE } from '../readAloud/speakers'
 
 /** The longest a tag may be; a brace with no close within it is ordinary text. */
@@ -100,6 +101,20 @@ export class SpeakerTagFilter {
     return this.push(h)
   }
 
+  /** How well the writer tagged `text` (the draft as given out): kept with its record, to compare models. */
+  coverage(text: string): NonNullable<GenerationRecord['params']['speakerTags']> {
+    const said = this.speakers(text)
+    const lines = said.filter((s) => !s.key.startsWith(NARRATION))
+    const quotes = [...text.matchAll(new RegExp(QUOTE.source, 'g'))].filter((m) => quoteKey(m[0])).length
+    return {
+      quotes,
+      tagged: lines.length,
+      toned: lines.filter((s) => s.tone).length,
+      moods: said.length - lines.length,
+      dropped: this.tags.filter((t) => t.who).length - said.length
+    }
+  }
+
   /**
    * The speakers of the lines in `text` (the draft as given out). A tag belongs to the line it sits inside (just
    * after the opening quote mark), else to the next line in its paragraph before the next speaker's tag, so a tag
@@ -138,6 +153,10 @@ export class SpeakerTagFilter {
     return out
   }
 }
+
+/** True when these messages ask the writer to tag who says each line (the closing instruction has SPEAKER_TAG_LINE). */
+export const asksForTags = (messages: readonly { content: unknown }[]): boolean =>
+  messages.some((m) => typeof m.content === 'string' && m.content.includes(SPEAKER_TAG_LINE))
 
 /** The closing instruction's line asking the writer to note how the narration is read too (Mark who says what). */
 export const NARRATION_TAG_LINE = `- Where the narration starts, and wherever its mood turns, put how the narrator reads it in curly braces after a tilde: {~hushed, dread building}The stairs went on. The mood carries on until the next tilde tag, through the dialogue too, so tag only where it changes. A few words: ${MOOD_NOTE}`

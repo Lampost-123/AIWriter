@@ -8,6 +8,7 @@ import * as gens from '../db/generations'
 import { insertChange, putSummary, setBlockMode, setDefaultExistsPoints, setPin } from '../db/memory'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { AUTO_LENGTH } from '@shared/defaults'
+import { SPEAKER_TAG_LINE } from './speakerTags'
 import { assembleContext, replyTokenLimit, replyTokens, sentEntryVersions } from './context'
 import { draftCost, isDrafting, onDraftActivity, startDraftJob, stopDraft, stopDraftsFor, type DraftActivity, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
@@ -411,6 +412,33 @@ describe('drafting', () => {
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({ id: generationId, status: 'complete', modelId: 'fake/writer', providerName: 'Fake' })
     expect(list[0].words).toBeGreaterThan(50)
+  })
+
+  it('keeps room in the reply for the writer’s speaker tags, and records how well it tagged', async () => {
+    const { emit, done } = recorder()
+    const input = gatherContextInput(w.db, w.second.id, { targetWords: 600 }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
+    const plain = assembleContext(input, countRaw)
+    const last = plain.messages.at(-1)!
+    const preview = { ...plain, messages: [...plain.messages.slice(0, -1), { ...last, content: `${last.content}\n${SPEAKER_TAG_LINE}` }] }
+    const { generationId } = startDraftJob({
+      db: w.db,
+      sceneId: w.second.id,
+      options: input.options,
+      preview,
+      provider: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'k' },
+      model: model({ modelId: 'fake/writer' }),
+      entryVersions: sentEntryVersions(input.memory, preview.blocks),
+      emit,
+      retryDelays: [5]
+    })
+    await done(generationId)
+    const rec = gens.getGeneration(w.db, generationId)
+    const roomy = { ...preview.budget, reserved: Math.ceil(preview.budget.reserved * 1.15) }
+    expect(rec.params.max_tokens).toBe(replyTokenLimit(roomy).limit)
+    expect(rec.params.max_tokens).toBeGreaterThan(replyTokenLimit(preview.budget).limit)
+    expect(rec.response).not.toContain('{')
+    expect(rec.params.speakerTags).toMatchObject({ dropped: 0 })
+    expect(rec.params.speakerTags!.tagged).toBe(rec.params.speakerTags!.quotes)
   })
 
   it('asks with the plain reply room if the model cannot write that much, and records it', async () => {

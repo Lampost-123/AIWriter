@@ -8,6 +8,7 @@ import * as gens from '../db/generations'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { isTaskRunning, runTask, startTask, stopTask, stopTasksFor, type Emit, type TaskRequest } from './tasks'
 import { jobModel, type ModelSources } from './jobModel'
+import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE, type WriterSpeaker } from './speakerTags'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -117,6 +118,43 @@ describe('the task runner', () => {
     stopTasksFor(db)
     expect(gens.getGeneration(db, generationId).status).toBe('stopped')
     await stopTask(req.taskId)
+  })
+
+  it('takes the writer’s speaker tags out as it streams, and hears what they said once it ends', async () => {
+    const big = await startFakeProvider({ delayMs: 1, words: 200 })
+    try {
+      const db = world()
+      const events: Ev[] = []
+      const heard: { speakers: WriterSpeaker[]; id: string }[] = []
+      const base = request(db, events)
+      const done = await runTask({
+        ...base,
+        model: { ...base.model, target: { ...base.model.target, baseUrl: big.url } },
+        messages: [
+          { role: 'system', content: 'You write a novel with its author.' },
+          { role: 'user', content: `Carry on.\n${SPEAKER_TAG_LINE}\n${NARRATION_TAG_LINE}` }
+        ],
+        onSpeakers: (speakers, id) => void heard.push({ speakers, id })
+      })
+      expect(done.text).toContain('"You came," he said')
+      expect(done.text).not.toContain('{')
+      for (const e of events.filter((x) => x.name === 'task:progress')) expect((e.payload as AppEvents['task:progress']).text).not.toContain('{')
+      expect(heard).toEqual([
+        {
+          id: done.generationId,
+          speakers: [
+            { key: '~the rain had not let up since noon and the gutters of lowtown ran black with it', who: '', tone: 'low and watchful' },
+            { key: 'you came', who: 'Tobin', tone: 'dry, a little amused' },
+            { key: 'i said i would', who: 'Mara', tone: 'flat and certain' }
+          ]
+        }
+      ])
+      const rec = gens.getGeneration(db, done.generationId)
+      expect(rec.response).toBe(done.text)
+      expect(rec.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 1, dropped: 0 })
+    } finally {
+      await big.close()
+    }
   })
 
   it('says what went wrong in plain words that name the model', async () => {

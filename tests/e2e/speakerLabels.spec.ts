@@ -89,7 +89,11 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
     expect(JSON.stringify((await invoke(win, 'getScene', sceneId)).doc)).not.toContain('·')
     // The writer tagged every line and the narration's mood, so no second AI call was made to mark the draft.
-    expect((await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'speech')).toHaveLength(0)
+    const records = await invoke(win, 'listGenerations', sceneId)
+    expect(records.filter((g) => g.job === 'speech')).toHaveLength(0)
+    // The draft's record says how well the writer tagged it.
+    const draft = await invoke(win, 'getGeneration', records.find((g) => g.job === 'draft')!.id)
+    expect(draft.params.speakerTags).toEqual({ quotes: 2, tagged: 2, toned: 2, moods: 1, dropped: 0 })
     // Settings has the same switch: turned off there, the labels go.
     await openSettings(win, 'Read aloud and dictation')
     await win.getByRole('button', { name: 'More', exact: true }).click()

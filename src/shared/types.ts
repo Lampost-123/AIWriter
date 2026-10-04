@@ -748,6 +748,11 @@ export interface GenerationRecord extends GenerationSummary {
     polishOf?: ID
     /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
     sounds?: boolean
+    /**
+     * The writer was asked to tag who says each line (ai/speakerTags.ts): how many quotes the reply has, how many it
+     * tagged and gave a tone, its narration moods, and tags that matched no line.
+     */
+    speakerTags?: { quotes: number; tagged: number; toned: number; moods: number; dropped: number }
   }
   direction: string
   blocks: ContextBlock[]

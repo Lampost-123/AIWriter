@@ -6,6 +6,7 @@
 
 import type { EditTool, StyleGuide } from '@shared/types'
 import { instructionsText } from '../ai/prompts'
+import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
 export const EDIT_MARKER = '[AIWRITE-EDIT v1]'
 
@@ -24,6 +25,8 @@ export interface PromptOptions {
   hasAfter: boolean
   /** The words have a line break inside a paragraph (a letter, a verse): the new words keep theirs. */
   lineBreaks: boolean
+  /** Tag who says each line and how (ai/speakerTags.ts); with `narration`, the narrator's mood too. */
+  speakerTags?: { narration: boolean }
 }
 
 const ROLE = `You are a skilled fiction editor working on a novel with its author. The author has selected some words in a scene and asked for one change to them.`
@@ -95,6 +98,12 @@ export function systemPrompt(tool: EditTool, style: StyleGuide, o: PromptOptions
 
 /** The closing instruction, last in the briefing, so the model reads the job again just before it writes. */
 export function finalAsk(tool: EditTool, o: PromptOptions): string {
+  const ask = jobAsk(tool, o)
+  if (!o.speakerTags) return ask
+  return [ask, SPEAKER_TAG_LINE, ...(o.speakerTags.narration ? [NARRATION_TAG_LINE] : [])].join('\n')
+}
+
+function jobAsk(tool: EditTool, o: PromptOptions): string {
   const only = 'Reply with only the new words that take the place of the selected ones.'
   switch (tool) {
     case 'rewrite':

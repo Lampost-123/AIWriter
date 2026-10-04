@@ -18,6 +18,7 @@ import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type SentParams, type StreamOutcome } from './client'
 import { isKeyFailure } from './errors'
 import { jobFailure, type JobModel } from './jobModel'
+import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 
 type DB = Database.Database
 type GenerationParams = GenerationRecord['params']
@@ -76,6 +77,11 @@ export interface TaskRequest {
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
   }
+  /**
+   * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
+   * streams, so they never reach the window or the record, and this hears what they said once it ends.
+   */
+  onSpeakers?: (speakers: WriterSpeaker[], generationId: ID) => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -185,6 +191,7 @@ async function stream(
   o: { params: GenerationParams; limit: number; reply: number; thinkingRoom: number; start: SentParams; topP: number; promptTokens: number }
 ): Promise<TaskResult> {
   const { db, model, emit } = req
+  const tags = req.onSpeakers ? new SpeakerTagFilter() : null
   let progressTimer: ReturnType<typeof setTimeout> | null = null
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   const progress = (): void => {
@@ -214,7 +221,9 @@ async function stream(
         ...(tools?.length ? { tools } : {})
       },
       signal: r.controller.signal,
-      onText: (t) => {
+      onText: (raw) => {
+        const t = tags ? tags.push(raw) : raw
+        if (!t) return
         r.text += t
         progressTimer ??= setTimeout(progress, PROGRESS_MS)
         saveTimer ??= setTimeout(save, SAVE_MS)
@@ -298,6 +307,10 @@ async function stream(
   }
   if (progressTimer) clearTimeout(progressTimer)
   if (saveTimer) clearTimeout(saveTimer)
+  if (tags) {
+    r.text += tags.flush()
+    outcome = { ...outcome, text: r.text }
+  }
 
   const status = r.closed ? 'stopped' : outcome.status
   const error = status !== 'error' ? null : outcome.failure ? jobFailure(outcome.failure, model) : outcome.error
@@ -309,6 +322,7 @@ async function stream(
       const minPDropped = o.params.min_p != null && (outcome.sentParams.minP === false || !outcome.sentParams.sampling)
       const { min_p: _minP, ...withoutMinP } = o.params
       const used = minPDropped ? (sentAs(withoutMinP, outcome) ?? withoutMinP) : sentAs(o.params, outcome)
+      const kept = used ?? (cutOff || tags ? o.params : undefined)
       gens.finishGeneration(db, r.generationId, {
         status,
         error,
@@ -319,13 +333,22 @@ async function stream(
         cost,
         finishedAt: now(),
         // The reply limit and thinking as finally sent, so "What the AI saw" stays truthful.
-        params: used ? { ...used, ...(cutOff ? { cutOff: true } : {}) } : cutOff ? { ...o.params, cutOff: true } : undefined
+        params: kept
+          ? { ...kept, ...(cutOff ? { cutOff: true } : {}), ...(tags ? { speakerTags: tags.coverage(r.text) } : {}) }
+          : undefined
       })
     } catch (e) {
       console.error('Could not finish the record', e)
     }
   }
   running.delete(r.taskId)
+  if (tags) {
+    try {
+      req.onSpeakers?.(tags.speakers(r.text), r.generationId)
+    } catch (e) {
+      console.error('Could not keep who says each line', e)
+    }
+  }
   if (isKeyFailure(outcome.failure)) {
     try {
       req.onKeyRejected?.()

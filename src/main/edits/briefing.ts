@@ -8,7 +8,7 @@
 import type { ChatMessage, ContextBlock, Creativity, EntryState, ID, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
-import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TOKENS_PER_WORD } from '../ai/context'
+import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
@@ -23,6 +23,8 @@ export interface EditWorld {
   entries: EntryState[]
   /** The writer model's context length, when known. */
   contextLength: number | null
+  /** Ask the writer to tag who says each line and how (ai/speakerTags.ts); with `narration`, the narrator's mood too. */
+  speakerTags?: { narration: boolean }
 }
 
 export type EditBriefing =
@@ -227,10 +229,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     direction,
     continueAs: input.continueAs ?? 'paragraph',
     hasAfter: !!input.after.trim(),
-    lineBreaks: keepsLineBreaks(input)
+    lineBreaks: keepsLineBreaks(input),
+    ...(world.speakerTags ? { speakerTags: world.speakerTags } : {})
   }
   const system = systemPrompt(tool, world.style, o)
-  const reply = replyRoom(tool, words)
+  const reply = Math.ceil(replyRoom(tool, words) * (world.speakerTags ? 1 + TAG_ALLOWANCE : 1))
   const contextLength = world.contextLength && world.contextLength > 0 ? world.contextLength : DEFAULT_CONTEXT
   const room = Math.floor(contextLength * 0.85) - reply
 

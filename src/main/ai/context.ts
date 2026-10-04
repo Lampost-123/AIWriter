@@ -150,6 +150,9 @@ export interface PreparedContext {
 
 // ---------- Budget ----------
 
+/** Extra reply room when the writer tags who says each line and how (ai/speakerTags.ts): the tags are not words. */
+export const TAG_ALLOWANCE = 0.15
+
 /** Room for a reply of `targetWords` words (null is Auto: the longest Auto allows) plus 40%. */
 export const replyTokens = (targetWords: number | null): number =>
   Math.ceil(Math.max(0, targetWords ?? AUTO_LENGTH.max) * TOKENS_PER_WORD * REPLY_HEADROOM)
