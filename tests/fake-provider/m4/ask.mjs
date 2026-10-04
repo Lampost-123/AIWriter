@@ -78,7 +78,7 @@ export function askReply(system, messages, model) {
 export function askToolCalls(system, messages, tools) {
   if (!system.startsWith(MARKER) || !Array.isArray(tools) || !tools.length) return null
   const users = messages.filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
-  const nudged = users.some((u) => u.startsWith('[AI Write, not the writer] Your answer says'))
+  const nudged = users.some((u) => u.startsWith('[AI Write, not the writer] Your answer gives'))
   // The question is Adam's, not the app's note asking for the tools.
   const question = (users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? '').toLowerCase()
   const last = messages[messages.length - 1]
@@ -97,6 +97,17 @@ export function askToolCalls(system, messages, tools) {
   if (/\bnew place\b/.test(question)) {
     if (toolResults.length) return null
     return [{ name: 'propose_new_entry', arguments: { kind: 'place', name: 'The Salt Stair', summary: 'Worn steps cut into the harbour wall.', why: 'You asked for a new place.' } }]
+  }
+  // Asked to push a passage harder: it reads the scene, then rewrites the whole of it (every paragraph) as two new ones.
+  if (/\bpush\b/.test(question)) {
+    if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
+    if (last?.role === 'tool' && toolResults.length === 1) {
+      const words = (String(last.content).split('\nText:\n')[1] ?? '').trim().split(/\s+/)
+      if (words.length < 6) return null
+      const replace = 'The tide *roared* in over the flats.\n\nThe gulls screamed once, then nothing.'
+      return [{ name: 'propose_rewrite', arguments: { start: words.slice(0, 3).join(' '), end: words.slice(-3).join(' '), replace, why: 'Pushed harder, as asked.' } }]
+    }
+    return null
   }
   if (!/\b(fix|tighten)\b/.test(question)) return null
   if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]

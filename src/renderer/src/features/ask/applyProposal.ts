@@ -9,7 +9,8 @@ import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
-import { findTextRange } from '@/features/editor/findText'
+import { findTextRange, findTextRangeAfter } from '@/features/editor/findText'
+import { Fragment, type Node as PMNode, type Schema } from '@tiptap/pm/model'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { setProposalStatus } from './askStore'
 
@@ -157,12 +158,77 @@ async function applyRename(p: Extract<Proposal, { kind: 'rename' }>): Promise<Ap
   }
 }
 
+/** A paragraph's words as inline content: *asterisks* become italics. */
+function inline(schema: Schema, text: string): PMNode[] {
+  const out: PMNode[] = []
+  const italic = schema.marks.italic
+  for (const part of text.split(/(\*[^*\n]+\*)/)) {
+    if (!part) continue
+    const it = /^\*([^*\n]+)\*$/.exec(part)
+    if (it && italic) out.push(schema.text(it[1], [italic.create()]))
+    else out.push(schema.text(part.replace(/\*/g, '')))
+  }
+  return out
+}
+
+/**
+ * A passage rewritten across paragraphs: from its start words to its end words becomes the new paragraphs, in one
+ * step (a snapshot first; Ctrl+Z or Undo takes it back). The words before the start and after the end in their
+ * paragraphs stay, joined to the first and last new paragraph.
+ */
+async function applyPassage(p: Extract<Proposal, { kind: 'passage' }>): Promise<Applied> {
+  const editor = await sceneInPage(p.sceneId)
+  if (!editor) return { ok: false, why: `${p.sceneLabel} couldn’t be opened.` }
+  if (editorBridge()?.busy()) return { ok: false, why: 'A draft is being written into this scene. Wait for it to finish, then apply.' }
+  const doc = editor.state.doc
+  const start = findTextRange(doc, p.start)
+  const end = start ? findTextRangeAfter(doc, p.end, start.from) : null
+  if (!start || !end) {
+    return { ok: false, why: 'The words this change looks for aren’t in the scene any more: another change or your own editing changed them. Ask again for a fresh one.' }
+  }
+  await snapshotBefore(p.sceneId, 'Before an edit from Ask the world')
+  const $a = doc.resolve(start.from)
+  const $b = doc.resolve(end.to)
+  const schema = editor.schema
+  const texts = p.replace
+    .split(/\n\s*\n/)
+    .map((t) => t.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean)
+  const last = texts.length - 1
+  const nodes = texts.map((t, i) => {
+    let content = Fragment.from(inline(schema, t))
+    if (i === 0) content = $a.parent.content.cut(0, $a.parentOffset).append(content)
+    if (i === last) content = content.append($b.parent.content.cut($b.parentOffset))
+    // The first keeps its paragraph's id; the rest get fresh ones (paragraphIds.ts).
+    const attrs = i === 0 ? $a.parent.attrs : { ...$a.parent.attrs, pid: null }
+    return $a.parent.type.create(attrs, content)
+  })
+  const from = $a.before($a.depth)
+  const to = $b.after($b.depth)
+  editor
+    .chain()
+    .command(({ tr }) => {
+      tr.replaceWith(from, to, nodes)
+      return true
+    })
+    .run()
+  return {
+    ok: true,
+    undo: async () => {
+      const b = editorBridge()
+      if (b?.sceneId === p.sceneId) b.undo()
+    }
+  }
+}
+
 /** Carries out one proposed change. Never throws: a problem comes back in plain words. */
 export async function applyProposal(p: Proposal): Promise<Applied> {
   try {
     switch (p.kind) {
       case 'text':
         return await applyText(p)
+      case 'passage':
+        return await applyPassage(p)
       case 'card':
         return await applyCard(p)
       case 'entry':

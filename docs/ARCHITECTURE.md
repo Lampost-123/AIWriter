@@ -1228,7 +1228,8 @@ it uses the Chat and brainstorm model, with no setting of its own.
   took").
 - **The tools** (`ask/agent.ts`, `EditorAgent`): `read_scene`, `outline`, `search`, `get_entry`, `style_guide`,
   `scene_issues` look things up; the `propose_*` tools only record a proposal (checked first: an edit's words must
-  be in the scene exactly once, on one line) and tell the model nothing has changed yet. A mistake goes back to the
+  be in the scene exactly once, on one line; `propose_rewrite` takes a passage across paragraphs, from its `start`
+  words to its `end` words) and tell the model nothing has changed yet. A mistake goes back to the
   model as the tool's answer, never as an error. Proposals are saved with the answer's record (`db/ask.ts`) and
   sent as `ask:proposals`; each step as `ask:step`.
 - **Applying** happens in the window (`features/ask/applyProposal.ts`) through the usual APIs, each with its Undo:
@@ -1237,9 +1238,10 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Honest about what is waiting.** A `propose_*` call that fails answers "Not proposed: nothing is waiting"; an
   edit that overlaps another waiting one is turned down (once one is applied the other's words would be gone), and
   `revises: N` replaces change N instead. Before the last request (no tools) the model is told what it proposed
-  (`lastWords`). An answer that clearly claims changes it never proposed (`claimsChanges`, `shared/askChanges.ts`) is
-  sent back once (`nudge` in the task runner, `PROPOSE_NOW`), and its words are taken out of the reply; if it still
-  proposes nothing, the chat says so under it.
+  (`lastWords`). An answer with no proposals that clearly claims or hands over changes (`claimsChanges`), or that
+  answers a request for edits (`asksForChanges`, both in `shared/askChanges.ts`), is sent back once (`nudge` in the task runner, `PROPOSE_NOW`), and its words are taken out of the reply; if it still
+  proposes nothing, the chat says so under it. Earlier answers are sent again with the changes they proposed noted
+  (`withProposals`, `ipc/ask.ts`), so the model sees itself using the tools.
 - **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.
