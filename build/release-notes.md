@@ -1,6 +1,6 @@
-<!-- version: 0.6.20 -->
-What's new in 0.6.20:
+<!-- version: 0.6.21 -->
+What's new in 0.6.21:
 
-- The consistency check now suggests a fix for each issue it finds, shown on the issue before anything changes. Review the fix puts it in the page for you to accept or reject; a fix that needs more than a rewrite comes as advice.
+- With Romance set to Explicit, a sex scene is written out: each act happens on the page, in plain body words, and the characters say what they want. Put the acts on the scene card and each one is played through. Anything in Content limits still comes first.
 
-Also in 0.6.19: Recall in the Cast tab, a check after every draft, and Fresh take when regenerating.
+Also in 0.6.20: the consistency check suggests a fix for each issue, for you to accept or reject.
