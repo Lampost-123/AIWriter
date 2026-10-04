@@ -92,6 +92,11 @@ export interface Issue {
    */
   fix: string | null
   /**
+   * How the critic suggests putting it right, in a sentence, when rewriting the quoted words alone can't ("Have Dov
+   * hear of the death first, or cut the line"). Shown on the card; nothing changes until Adam acts on it.
+   */
+  advice?: string
+  /**
    * When the text is right and one of Adam's own notes is wrong: the entry and field "Update the memory"
    * sets, and the value from the text. Null when updating the memory makes no sense for this issue.
    */

@@ -239,6 +239,16 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
         </button>
       ) : null}
       <p className="mt-1 text-[12.5px] leading-[18px] text-muted">{issue.message}</p>
+      {/* The critic's suggestion, shown before anything changes: Fix the text puts the rewrite in the page to accept
+          or reject; advice is for Adam to act on. */}
+      {issue.fix || issue.advice ? (
+        <div className="mt-1.5 rounded-md bg-surface-2 px-2 py-1.5 text-[12.5px] leading-[18px]" data-suggested-fix>
+          <span className="font-medium text-fg">Suggested fix: </span>
+          {issue.fix ? <span className="font-serif text-fg">{quoted(issue.fix.trim())}</span> : null}
+          {issue.fix && issue.advice ? ' ' : null}
+          {issue.advice ? <span className="text-muted">{issue.advice}</span> : null}
+        </div>
+      ) : null}
       {issue.sources.length ? (
         <p className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[12px]">
           <span className="text-faint">Disagrees with</span>
@@ -255,9 +265,13 @@ function IssueCard({ issue }: { issue: Issue }): React.JSX.Element {
           <Button
             size="sm"
             onClick={() => fixTheText(issue)}
-            title={issue.fix ? 'Shows the suggested rewrite in the page, to accept or reject' : 'Asks the writer model to rewrite the sentence'}
+            title={
+              issue.fix
+                ? 'Shows the suggested fix in the page, to accept or reject: nothing changes until you accept'
+                : 'Asks the writer model to rewrite the sentence, shown in the page to accept or reject'
+            }
           >
-            Fix the text
+            {issue.fix ? 'Review the fix' : 'Fix the text'}
           </Button>
         ) : null}
         {memoryWords ? (

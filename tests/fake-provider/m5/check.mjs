@@ -99,6 +99,7 @@ function checkIssues(system, user) {
           severity: 'must-fix',
           quote: s,
           message: `${e.name} is dead by this point in the story, but speaks here.`,
+          advice: 'Give the line to someone alive, or cut it.',
           conflicts: { entry: e.id }
         })
       }
