@@ -510,7 +510,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   drop the empty notes on named speakers' lines that Mark who says what never filled in.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
-  reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
+  reads Adam's summary in parts that fit the model (at most `OVERVIEW_PART_TOKENS` each), reads each part again
+  for what its list left out (`overviewMoreUser`, up to `MORE_LOOKS` times, stopping when a look finds nothing
+  new: a long list is cut off, and models skip minor things), and lays the world out kind by kind (characters and
   places first, then groups, items, lore and rules, events, plot threads, the glossary, relationships, and
   the world's themes and tone when they are empty), saving each thing as it is made. Characters get full
   profiles from the character builder (`src/main/builder/`). The summary's own sentences go in as Adam's

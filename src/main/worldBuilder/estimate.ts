@@ -6,7 +6,7 @@
 import type { ModelChoice, ThinkingLevel } from '@shared/types'
 import { estimateTokens, sentences } from '../keeper/text'
 import { splitSummary } from './parse'
-import { BATCH_ITEM_TOKENS, BATCH_MOST, NAMES_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
+import { BATCH_ITEM_TOKENS, BATCH_MOST, NAMES_TOKENS, OVERVIEW_PART_TOKENS, replyRoom, summaryRoom, worldRoom } from './sizes'
 
 /** Capitalised words that aren't names: sentence starts, pronouns, days and the like. */
 const NOT_NAMES = new Set(
@@ -69,16 +69,17 @@ export function guessBuild(
   const characters = Math.max(text ? 1 : 0, Math.round(fresh * 0.45))
   const others = Math.max(0, fresh - characters) + Math.ceil(sentences(text).length / 5)
   const namesIn = Math.min(existing * 8, NAMES_TOKENS)
-  const parts = splitSummary(text, summaryRoom(choice, 'overview', INSTRUCTIONS.overview + namesIn)).length
+  const parts = splitSummary(text, Math.min(OVERVIEW_PART_TOKENS, summaryRoom(choice, 'overview', INSTRUCTIONS.overview + namesIn))).length
   const worldIn = Math.min(existing * 40, worldRoom(choice, 'character'))
   const about = (job: 'character' | 'places'): number => Math.min(tokens, summaryRoom(choice, job, INSTRUCTIONS.batch + worldIn))
   const batches = Math.ceil(others / BATCH_MOST)
-  let input = (INSTRUCTIONS.overview + namesIn) * parts + tokens
+  // Each part is read twice: the first look, then again for anything it left out (with what it listed).
+  let input = 2 * ((INSTRUCTIONS.overview + namesIn) * parts + tokens) + names * 10
   input += characters * (INSTRUCTIONS.character + worldIn + about('character'))
   input += batches * (INSTRUCTIONS.batch + worldIn + about('places'))
   input += INSTRUCTIONS.relationships + INSTRUCTIONS.themes + 2 * tokens
   if (existing) input += INSTRUCTIONS.check + tokens + Math.min(existing * 60, 3000)
-  let output = parts * (150 + names * 50) + characters * Math.min(1600, replyRoom(choice, 'character'))
+  let output = parts * (250 + names * 50) + characters * Math.min(1600, replyRoom(choice, 'character'))
   output += others * Math.min(BATCH_ITEM_TOKENS / 2, replyRoom(choice, 'places'))
   output += 100 + characters * 40 + 150 + (existing ? 250 : 0)
   return { parts, characters, others, input, output: Math.round(output * THINKING_COST[thinking]) }

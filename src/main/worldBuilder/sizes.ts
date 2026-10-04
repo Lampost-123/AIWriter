@@ -32,6 +32,12 @@ export const WORLD_TOKENS = 2500
 /** The most of the world's names told with the first look. */
 export const NAMES_TOKENS = 2000
 
+/** The most of the summary the first look reads at once, in tokens, however big the model: a part it can list in full. */
+export const OVERVIEW_PART_TOKENS = 6000
+
+/** How many times the first look reads a part again for what it left out (it stops when a look finds nothing new). */
+export const MORE_LOOKS = 2
+
 /** The longest summary a build takes, in characters (about 30 pages). */
 export const MAX_SUMMARY_CHARS = 120_000
 
