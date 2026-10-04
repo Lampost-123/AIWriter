@@ -1,6 +1,6 @@
-<!-- version: 0.6.21 -->
-What's new in 0.6.21:
+<!-- version: 0.6.22 -->
+What's new in 0.6.22:
 
-- With Romance set to Explicit, a sex scene is written out: each act happens on the page, in plain body words, and the characters say what they want. Put the acts on the scene card and each one is played through. Anything in Content limits still comes first.
+- Interview me, on Build from a summary, no longer asks the same thing twice. The AI now sees each of your answers beside its question, and a question you've already answered is swapped for a new one.
 
-Also in 0.6.20: the consistency check suggests a fix for each issue, for you to accept or reject.
+Also in 0.6.21: Explicit romance writes sex scenes out in full, and the editor chat offers rewrites across paragraphs for you to accept or decline.
