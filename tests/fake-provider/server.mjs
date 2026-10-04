@@ -357,7 +357,7 @@ export async function startFakeProvider(options = {}) {
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
-    if (memory === null && lastUser.includes('put who says it in curly braces')) {
+    if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
       // Asked for the narration's mood too: the opening paragraph's.
       if (lastUser.includes('how the narrator reads it in curly braces')) full = full.replace('The rain had not let up', '{~low and watchful}The rain had not let up')

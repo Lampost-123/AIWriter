@@ -99,7 +99,7 @@ export interface DraftRequest {
    * as it streams (always: a variant's too), and this hears what they said once the draft ends (before watchers
    * hear it ended).
    */
-  onSpeakers?: (speakers: WriterSpeaker[]) => void
+  onSpeakers?: (speakers: WriterSpeaker[], generationId: ID) => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -314,7 +314,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   }
   active.delete(job.id)
   try {
-    req.onSpeakers?.(tags.speakers(job.text))
+    req.onSpeakers?.(tags.speakers(job.text), job.id)
   } catch (e) {
     console.error('Could not keep who says each line', e)
   }

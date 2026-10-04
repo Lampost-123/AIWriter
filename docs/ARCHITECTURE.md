@@ -504,6 +504,10 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
   tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
   speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
+  While it is on, paragraphs with no marks yet (Adam's own words, older scenes, an edit) are marked in the background
+  (`speakerLabels` with `mark`: as the scene opens and 6 s after typing stops, twice at most for the same words). A line
+  given a speaker but no note on how it is said is asked about once more (`Ask.again`); marks files from before (v1)
+  drop the empty notes on named speakers' lines that Mark who says what never filled in.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and

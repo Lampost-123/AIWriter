@@ -88,6 +88,8 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
     expect(JSON.stringify((await invoke(win, 'getScene', sceneId)).doc)).not.toContain('·')
+    // The writer tagged every line and the narration's mood, so no second AI call was made to mark the draft.
+    expect((await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'speech')).toHaveLength(0)
     // Settings has the same switch: turned off there, the labels go.
     await openSettings(win, 'Read aloud and dictation')
     await win.getByRole('button', { name: 'More', exact: true }).click()
@@ -97,6 +99,71 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
     await expect(option).not.toBeChecked()
     expect((await invoke(win, 'getSettings')).speech.showSpeakers).toBe(false)
     await expect(labelled(win)).toHaveCount(0)
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})
+
+test('a variant put into the scene keeps who its writer said says each line, and how', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true, showSpeakers: true } })
+    await useFakeModel(win, fake)
+
+    await win.getByRole('button', { name: 'Variants', exact: true }).click()
+    await win.getByRole('radio', { name: 'Two' }).click()
+    await win.getByRole('button', { name: 'Write two variants' }).click()
+    await expect(win.getByRole('button', { name: 'New variants' })).toBeVisible({ timeout: 30_000 })
+    await win.getByRole('region', { name: 'Variant 2', exact: true }).getByRole('button', { name: 'Use this one' }).click()
+    await expect(prose(win)).toContainText('"You came," he said', { timeout: 30_000 })
+
+    await expect.poll(async () => (await labels(win)).length, { timeout: 30_000 }).toBe(await prose(win).locator('p').count())
+    const shown = await labels(win)
+    expect(shown[0]).toBe('Narrator · low and watchful')
+    expect(shown.some((l) => l.includes('Tobin · dry, a little amused'))).toBe(true)
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+    expect((await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'speech')).toHaveLength(0)
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})
+
+test('words Adam types himself get who says each line and how, without Listen', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true } })
+    await useFakeModel(win, fake)
+
+    await prose(win).click()
+    for (const [i, para] of ['The ferry was late again.', '"You came," Tobin said.', '"I said I would."'].entries()) {
+      if (i) await win.keyboard.press('Enter')
+      await win.keyboard.type(para)
+    }
+    await speakersButton(win).click()
+    // Every paragraph is marked in the background and shows its speaker with a tone.
+    await expect.poll(async () => (await labels(win)).filter((l) => l.includes(' · ')).length, { timeout: 30_000 }).toBe(3)
+    expect((await labels(win))[0]).toBe('Narrator · hushed and steady')
+
+    // An edit loses its paragraph's label, and it comes back a few seconds after typing stops.
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type(' Mara looked away.')
+    await expect.poll(async () => (await labels(win)).length).toBe(2)
+    await expect.poll(async () => (await labels(win)).filter((l) => l.includes(' · ')).length, { timeout: 30_000 }).toBe(3)
   } finally {
     await speech.close()
     await fake.close()

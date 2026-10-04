@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { SpeakerTagFilter } from './speakerTags'
+import { HOW_NOTE, MARK_PROMPT, MOOD_NOTE } from '../readAloud/speakers'
+import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE, SpeakerTagFilter } from './speakerTags'
+
+describe('what the writer is asked for', () => {
+  it('is the same kind of note the marker writes: how each line is said always, pace and sound when they apply', () => {
+    expect(SPEAKER_TAG_LINE).toContain(HOW_NOTE)
+    expect(MARK_PROMPT([])).toContain(HOW_NOTE)
+    expect(NARRATION_TAG_LINE).toContain(MOOD_NOTE)
+    expect(MARK_PROMPT([])).toContain(MOOD_NOTE)
+    expect(SPEAKER_TAG_LINE).toContain('how it is said (always)')
+    expect(SPEAKER_TAG_LINE).toContain('{Tobin|thick with tears, barely holding together|slow|sob}')
+    expect(NARRATION_TAG_LINE).toContain('carries on until the next tilde tag')
+  })
+})
 
 /** Streams `text` in chunks of `size` and gives back what the page gets, and the speakers. */
 function stream(text: string, size: number) {
@@ -45,6 +58,31 @@ describe('the writer’s speaker tags', () => {
       { key: 'go on', who: 'Ring', tone: 'sly' },
       { key: 'take the floor boy', who: 'Ring', tone: '' }
     ])
+  })
+
+  it('takes out a long narration mood, and a long name, so neither reaches the page', () => {
+    const long = '{~hushed and tight, dread building with every careful step up the stairs}The stairs went on.'
+    expect(stream(long, 5)).toEqual({
+      out: 'The stairs went on.',
+      speakers: [{ key: '~the stairs went on', who: '', tone: 'hushed and tight, dread building with every careful step up the stairs' }]
+    })
+    expect(stream('{Mara the ferry woman from the harbour who never smiles at anyone|cold}“Go.”', 4).out).toBe('“Go.”')
+  })
+
+  it('gives a tag to the next line in its paragraph, or the line it sits inside', () => {
+    const { out, speakers } = stream('{Mara|cold} Mara turned. “Get out.”\n\n“{Tobin|dry}No.” {Mara}He left. “Good.”\n\n{Tobin}Nothing.\n\n“Wait.”', 3)
+    expect(out).toBe('Mara turned. “Get out.”\n\n“No.” He left. “Good.”\n\nNothing.\n\n“Wait.”')
+    expect(speakers).toEqual([
+      { key: 'get out', who: 'Mara', tone: 'cold' },
+      { key: 'no', who: 'Tobin', tone: 'dry' },
+      { key: 'good', who: 'Mara', tone: '' }
+    ])
+  })
+
+  it('reads pace and sound as the marker does', () => {
+    const { speakers } = stream('{Mara|thick with tears|slow|sob}“I can’t.”', 4)
+    expect(speakers[0]).toMatchObject({ key: 'i can t', who: 'Mara', tone: 'thick with tears', pace: 'slow' })
+    expect(speakers[0].sound).toBeTruthy()
   })
 
   it('leaves braces that aren’t tags, and drops a tag cut off at the end', () => {

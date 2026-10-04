@@ -15,6 +15,7 @@ import type { StartVariantsInput, VariantSet, VariantsStarted } from '@shared/co
 import { UserError } from '../util'
 import { activeDraftIds, isDrafting, startDraftJob, stopDraft, type Emit } from '../ai/drafts'
 import type { DraftBriefing } from '../ai/draftFlow'
+import type { WriterSpeaker } from '../ai/speakerTags'
 import { latestVariantRows } from '../db/variants'
 
 type DB = Database.Database
@@ -68,6 +69,8 @@ export interface VariantsDeps {
   startingElsewhere?(sceneId: ID): boolean
   /** The provider bookkeeping every draft does (draftFlow.providerNotes). */
   providerNotes?(providerId: ID): { onKeyRejected: () => void; onWorked: () => void }
+  /** Who the writer said says each line of a variant, kept until it goes into the scene (readAloud). */
+  onSpeakers?(generationId: ID, speakers: WriterSpeaker[]): void
   /** For tests. */
   retryDelays?: number[]
 }
@@ -116,6 +119,7 @@ export async function startVariantSet(input: StartVariantsInput, deps: VariantsD
         emit: deps.emit,
         onKeyRejected: notes?.onKeyRejected,
         onWorked: notes?.onWorked,
+        onSpeakers: (speakers, id) => deps.onSpeakers?.(id, speakers),
         retryDelays: deps.retryDelays
       })
       set.ids.push(generationId)

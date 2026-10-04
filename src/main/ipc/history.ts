@@ -5,7 +5,7 @@ import type { HistoryApi } from '@shared/contracts/history'
 import { currentHistory } from '../history'
 import type { WorldHistory } from '../history/worldHistory'
 import { sceneRestored } from '../keeper'
-import { aiChangeComing } from '../readAloud'
+import { aiChangeComing, generationGoingIn } from '../readAloud'
 import { UserError } from '../util'
 
 /** The open world's history. Throws a plain-words error if no world is open. */
@@ -18,8 +18,12 @@ function history(): WorldHistory {
 export const historyHandlers: Handlers<keyof HistoryApi> = {
   // A snapshot never holds an AI change up: with no world (or no history.db) nothing is kept.
   takeSnapshot: (input) => {
-    // AI-written text is about to go in: reading aloud marks what it adds once it has (never holds this up).
-    if (input?.kind === 'ai') aiChangeComing(input.sceneId, input.doc)
+    // AI-written text is about to go in: reading aloud marks what it adds once it has (never holds this up), with what
+    // the writer said of a variant's or an edit's lines.
+    if (input?.kind === 'ai') {
+      if (typeof input.generationId === 'string') generationGoingIn(input.sceneId, input.generationId)
+      aiChangeComing(input.sceneId, input.doc)
+    }
     return currentHistory()?.take(input) ?? null
   },
   listSnapshots: (sceneId, options) => history().listSnapshots(sceneId, options),
