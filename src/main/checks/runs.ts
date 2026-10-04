@@ -11,7 +11,7 @@
 // No Electron imports: the window, the settings and the memory keeper come in through RunDeps.
 
 import type Database from 'better-sqlite3'
-import type { CheckDone, CheckKind, CheckProgress, CheckStart, CheckTarget } from '@shared/contracts/checks'
+import type { CheckDone, CheckKind, CheckProgress, CheckReport, CheckStart, CheckTarget } from '@shared/contracts/checks'
 import { ALL_CHECKS, DONE_CHECKS } from '@shared/contracts/checks'
 import type { ID, WritingPrefs } from '@shared/types'
 import type { JobModel } from '../ai/jobModel'
@@ -45,8 +45,10 @@ interface Run {
   db: DB
   target: CheckTarget
   checks: CheckKind[]
-  /** Started by marking a scene done: quiet (nothing said if it can't run). */
+  /** Started by marking a scene done, or by a draft landing: quiet (nothing said if it can't run). */
   background: boolean
+  /** Why it runs, for each scene's report: Adam asked, Mark done, or a draft landed (the critic). */
+  after: CheckReport['after']
   sceneIds: ID[]
   labels: Map<ID, string>
   /** When it was asked for (a background check counts what was raised since, the memory keeper's clashes too). */
@@ -128,7 +130,14 @@ const cleanChecks = (checks: unknown): CheckKind[] => {
   return list.length ? list : [...ALL_CHECKS]
 }
 
-function newRun(db: DB, input: CheckStart, background: boolean, ids: ID[], labels: Map<ID, string>): Run {
+function newRun(
+  db: DB,
+  input: CheckStart,
+  background: boolean,
+  ids: ID[],
+  labels: Map<ID, string>,
+  after: CheckReport['after'] = background ? 'done' : 'request'
+): Run {
   let resolve!: () => void
   const done = new Promise<void>((r) => (resolve = r))
   return {
@@ -137,6 +146,7 @@ function newRun(db: DB, input: CheckStart, background: boolean, ids: ID[], label
     target: input.target,
     checks: cleanChecks(input.checks),
     background,
+    after,
     sceneIds: ids,
     labels,
     since: now(),
@@ -213,6 +223,33 @@ export function checkWhenDone(db: DB, sceneId: ID): ID | null {
     return run.id
   } catch (e) {
     console.warn('Could not start the checks for a scene marked done', e)
+    return null
+  }
+}
+
+/**
+ * The critic (Adam, 2026-10-04): a draft that landed in a scene is checked in the background with every check,
+ * continuity included, and its report says what was checked, what was good and where there were issues. Quiet like
+ * Mark done's: with no model set up, or no words in the scene, nothing happens. A check already waiting for the
+ * scene reads it as it is then.
+ */
+export function checkAfterDraft(db: DB, sceneId: ID): ID | null {
+  if (!deps) return null
+  try {
+    deps.model()
+  } catch {
+    return null
+  }
+  if (waiting.some((r) => r.background && r.db === db && r.target.id === sceneId)) return null
+  try {
+    const target: CheckTarget = { scope: 'scene', id: sceneId }
+    const { ids, labels } = scenesFor(db, loadShape(db), target)
+    if (!ids.length) return null
+    const run = newRun(db, { runId: `draft:${sceneId}:${newId()}`, target, checks: ALL_CHECKS }, true, ids, labels, 'draft')
+    enqueue(run)
+    return run.id
+  } catch (e) {
+    console.warn('Could not start the checks for a new draft', e)
     return null
   }
 }
@@ -334,6 +371,7 @@ async function go(r: Run): Promise<void> {
     closed: () => r.closed || !r.db.open,
     onTask: (id) => (r.taskId = id),
     onKeyRejected: () => d.onKeyRejected?.(model),
+    after: r.after,
     fetchImpl: d.fetchImpl,
     retryDelays: d.retryDelays
   }

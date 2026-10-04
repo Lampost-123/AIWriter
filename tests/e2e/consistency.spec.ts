@@ -252,13 +252,13 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await main(win).getByRole('button', { name: 'The lost map' }).click()
   await expect(binder(win).getByRole('button', { name: /^Plot threads\s*\d/ })).toHaveAttribute('aria-current', 'page')
 
-  // Checking the story: facts, knowledge and timeline, with progress on the page and in the binder, and Stop.
+  // Checking the story: facts, knowledge, timeline and continuity, with progress on the page and in the binder, and Stop.
   await binder(win).getByRole('button', { name: 'Consistency', exact: true }).click()
   await main(win).getByRole('button', { name: 'Check this story', exact: true }).click()
   await expect(main(win).getByText('Checking Ch 1, Sc 1: The ferry · 1 of 3')).toBeVisible()
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toContainText('Checking Ch 1, Sc 1 · 1 of 3')
   await expect.poll(() => checkStarts(app).then((s) => s.length)).toBe(1)
-  expect((await checkStarts(app))[0]).toMatchObject({ target: { scope: 'story', id: m.storyId }, checks: ['facts', 'knowledge', 'timeline'] })
+  expect((await checkStarts(app))[0]).toMatchObject({ target: { scope: 'story', id: m.storyId }, checks: ['facts', 'knowledge', 'timeline', 'continuity'] })
   await main(win).getByRole('button', { name: 'Stop' }).click()
   await expect(win.getByText(`Check of ${m.storyTitle} stopped.`)).toBeVisible()
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toHaveCount(0)
@@ -269,7 +269,7 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await win.getByRole('menuitem', { name: /Voice and style too/ }).click()
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toBeVisible()
   await expect.poll(() => checkStarts(app).then((s) => s.length)).toBe(2)
-  expect((await checkStarts(app))[1].checks).toEqual(['facts', 'knowledge', 'timeline', 'voice', 'style'])
+  expect((await checkStarts(app))[1].checks).toEqual(['facts', 'knowledge', 'timeline', 'continuity', 'voice', 'style'])
   await binder(win).getByRole('button', { name: 'Stop the check' }).click()
   await expect(binder(win).getByRole('status', { name: 'Check running' })).toHaveCount(0)
 
@@ -278,5 +278,5 @@ test('the Consistency page: issues by scene, the reports, badges, checking, and 
   await win.getByRole('menuitem', { name: 'Check this scene' }).click()
   await expect(win.getByText('Checked Ch 1, Sc 2. 2 new issues.')).toBeVisible()
   await expect.poll(() => checkStarts(app).then((s) => s.length)).toBe(3)
-  expect((await checkStarts(app))[2]).toMatchObject({ target: { scope: 'scene', id: m.landing }, checks: ['facts', 'knowledge', 'timeline', 'voice', 'style'] })
+  expect((await checkStarts(app))[2]).toMatchObject({ target: { scope: 'scene', id: m.landing }, checks: ['facts', 'knowledge', 'timeline', 'continuity', 'voice', 'style'] })
 })
