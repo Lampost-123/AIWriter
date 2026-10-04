@@ -566,6 +566,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
   (level 0); chapter summaries with the last 5 scenes are its short form, and the fitting shortens it that far
   (`shortTo`) before shortening anything above it.
+- **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
+  scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
+  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
