@@ -566,6 +566,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
   (level 0); chapter summaries with the last 5 scenes are its short form, and the fitting shortens it that far
   (`shortTo`) before shortening anything above it.
+- **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
+  scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
+  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
 - **Where things stand** (`continuity/tracker.ts`, `@shared/continuity`): each character's where, wearing, position,
   holding, condition, mood and last action as a scene ends, and its time, weather and light; only the latest of each
   is kept. Worked out by the memory model before a draft (the last few scenes, oldest first) and kept in `meta`

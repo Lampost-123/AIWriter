@@ -22,7 +22,7 @@ import { memoryAt } from './places'
 import * as scene from '../memory/scene'
 import { READING_MARKER } from './prompts'
 import { fieldsClearedByHand, removeScenes, restoreScenes } from './removed'
-import { sceneSummaryDue } from './summaries'
+import { sceneSourceHash, sceneSummaryDue } from './summaries'
 import { fillFound } from '../builder/fill'
 
 let fake: FakeProvider
@@ -956,5 +956,39 @@ describe('someone new found in the text', () => {
     const result = await fillFound(w.db, out.newEntryIds ?? [], modelFor('fake/empty'), { prefs: defaultWritingPrefs(), retryDelays: [0] })
     expect(result.filled).toEqual([])
     expect(repo.getEntries(w.db, [kell.id])[0]).toEqual(kell)
+  })
+})
+
+describe('a scene’s summary after an edit to what a fact was read from', () => {
+  it('is written again, however small the edit (the story so far is made from it)', async () => {
+    const w = world()
+    const long = 'The tide came in slowly over the flats while the gulls circled. '.repeat(30)
+    const asWritten = (): void => {
+      // A summary written from the scene as it is now: not due.
+      mem.putSummary(w.db, { level: 'scene', targetId: w.sceneId, text: 'Mara lost her left hand.', origin: 'text' })
+      kdb.setSummarySourceHash(w.db, 'scene', w.sceneId, sceneSourceHash(kdb.keeperScene(w.db, w.sceneId)!.text))
+    }
+    save(w.db, w.sceneId, [
+      ['p0', long],
+      ['p1', 'Mara lost her left hand.']
+    ])
+    await read(w.db, w.sceneId)
+    asWritten()
+    expect(sceneSummaryDue(w.db, w.sceneId, false)).toBe(false)
+    // A small edit that no fact was read from: not redone while Adam writes.
+    save(w.db, w.sceneId, [
+      ['p0', long.replace('slowly', 'quietly')],
+      ['p1', 'Mara lost her left hand.']
+    ])
+    await read(w.db, w.sceneId)
+    expect(sceneSummaryDue(w.db, w.sceneId, false)).toBe(false)
+    // The sentence a fact came from changes (a few words of a long scene): the summary is out of date.
+    save(w.db, w.sceneId, [
+      ['p0', long.replace('slowly', 'quietly')],
+      ['p1', 'Mara kept both hands.']
+    ])
+    await read(w.db, w.sceneId)
+    expect(kdb.summaryRow(w.db, 'scene', w.sceneId)!.stale).toBe(true)
+    expect(sceneSummaryDue(w.db, w.sceneId, false)).toBe(true)
   })
 })
