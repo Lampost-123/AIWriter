@@ -1237,8 +1237,9 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Honest about what is waiting.** A `propose_*` call that fails answers "Not proposed: nothing is waiting"; an
   edit that overlaps another waiting one is turned down (once one is applied the other's words would be gone), and
   `revises: N` replaces change N instead. Before the last request (no tools) the model is told what it proposed
-  (`lastWords`). If an answer still speaks of changes to apply and none came with it, the chat says so under it
-  (`speaksOfChanges`, `features/ask/askWords.ts`).
+  (`lastWords`). An answer that clearly claims changes it never proposed (`claimsChanges`, `shared/askChanges.ts`) is
+  sent back once (`nudge` in the task runner, `PROPOSE_NOW`), and its words are taken out of the reply; if it still
+  proposes nothing, the chat says so under it.
 - **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.

@@ -2,6 +2,7 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The work is done in src/main/ask/*; this file connects it to
 // the open world, the settings, the chat and brainstorm model and the window.
 import type { Handlers } from './index'
+import { claimsChanges, PROPOSE_NOW } from '@shared/askChanges'
 import type { AskApi, AskTurn } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { UserError, now } from '../util'
@@ -123,6 +124,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         maxSteps: MAX_STEPS,
         run: (calls) => agent.runAll(calls),
         lastWords: () => agent.lastWords(),
+        // An answer that claims changes it never proposed is asked once more to propose them.
+        nudge: (answer) => (agent.proposals.length === 0 && claimsChanges(answer) ? PROPOSE_NOW : null),
         extraParams: () => (agent.proposals.length ? { proposals: agent.proposals } : {})
       }
     }))
