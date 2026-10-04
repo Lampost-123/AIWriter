@@ -170,9 +170,23 @@ function namedMessage(message: string, ctx: Pick<ReadContext, 'entries' | 'scene
 }
 
 /** The issues of a reply that can be trusted, ready to save (one per key). */
+/**
+ * True when an "issue" says what was checked was fine ("This line fits his voice. No problem."): a model that lists
+ * what it looked at as issues (seen in a live run) buries the real ones. One that goes on to say what is wrong
+ * ("consistent, but ...") stays.
+ */
+export function saysFine(message: unknown): boolean {
+  const m = typeof message === 'string' ? message : ''
+  if (!m.trim()) return false
+  const fine = /\b(no (issue|problem|slip|error|inconsistency|conflict|contradiction)s?\b|no (tense|pov|point of view|style) slip|(is|are|seems|remains) consistent|consistent with|this is fine|which is fine|is not a problem|isn['’]t a problem|nothing wrong|fits (his|her|their|its|the)\b|matches (his|her|their|the))/i
+  const butWrong = /\b(but|however|yet|although|contradict|inconsistent|doesn['’]t match|does not match|wrong)\b/i
+  return fine.test(m) && !butWrong.test(m)
+}
+
 export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext): FoundIssue[] {
   const out = new Map<string, FoundIssue>()
   for (const item of items) {
+    if (saysFine(item.message)) continue
     const check = checkOf(item.check ?? item.type ?? item.kind, ctx.checks)
     if (!check) continue
     const found = findSceneQuote(ctx.text, item.quote)

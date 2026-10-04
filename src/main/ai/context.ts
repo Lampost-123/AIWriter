@@ -808,6 +808,8 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const lines: string[] = []
   if (clean(title)) lines.push(`Scene: ${clean(title)}`)
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
+  const gap = timeSincePrevious(input)
+  if (gap) lines.push(gap)
   const pov = card.povId ? name(card.povId) : null
   if (pov) lines.push(`Point of view: ${pov}`)
   const others = names(card.presentIds.filter((id) => id !== card.povId))
@@ -840,6 +842,26 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
   if (clean(input.options.direction)) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
   return parts.join('\n\n')
+}
+
+/**
+ * How long after the previous scene this one is, from both cards' When (Adam, 2026-10-04: a live run's writer said
+ * "four days" where one night had passed): "The previous scene was Day 5, dusk: this is 3 days later." Only within
+ * one story, and only when both have a When.
+ */
+export function timeSincePrevious(input: Pick<ContextInput, 'scene' | 'memory'>): string {
+  const prev = input.memory.previous
+  const now = clean(input.scene.card.when)
+  const then = clean(prev?.when)
+  if (!prev || prev.otherStory || !now || !then) return ''
+  const day = (s: string): number | null => {
+    const m = /\bday\s+(\d+)\b/i.exec(s)
+    return m ? Number(m[1]) : null
+  }
+  const a = day(then)
+  const b = day(now)
+  const gap = a != null && b != null && b >= a ? (b === a ? ' The same day.' : b - a === 1 ? ' The next day.' : ` ${b - a} days later.`) : ''
+  return `The previous scene was ${then}.${gap} Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by.`
 }
 
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {

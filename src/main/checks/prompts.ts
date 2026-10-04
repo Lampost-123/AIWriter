@@ -11,9 +11,9 @@ export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
 /** What each check looks for, in the model's instructions. */
 const WHAT: Record<CheckKind, string> = {
   facts:
-    'facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs), injuries, what someone carries or owns, who is dead, where people and things are, and the world\'s rules.',
+    'facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world\'s rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision.',
   knowledge:
-    "knowledge: a character who acts on, mentions or reacts to something they don't know yet at this point (it isn't listed as known by them, or happens in a later scene), or who forgets something they know.",
+    "knowledge: a character who acts on or mentions something they could not know yet: it happens in a later scene, or it happened where they were not and nothing (the story so far, the scenes before, this scene) shows them learning it. The memory's list of who knows what is far from complete: something it doesn't list is NOT a problem by itself, and things said or shown in the story so far or in this scene count as known by those who were there. Also a character who forgets something they clearly know.",
   timeline:
     "timeline: where the characters were in the scenes before and when (the in-world dates and times), so someone is never in two places at once, travels further than the time allows, or has an age that doesn't add up.",
   continuity:
@@ -39,6 +39,8 @@ ${list.map((c) => `- ${WHAT[c]}`).join('\n')}
 Rules
 - The memory is what is true at the start of this scene. Something that changes during the scene (an injury, a new coat, a journey, someone learning a secret) is fine when the scene shows it happening. Flag only what the scene treats as already so that contradicts the memory, with nothing in the scene to explain it.
 - Report only real problems a careful reader would notice. No comments on quality, no suggestions for improvement, nothing the memory doesn't say.
+- Never list something you looked at and found fine as an issue (no "this fits", "no problem", "consistent"): that goes in "checked". Every issue's message says what is wrong.
+- When unsure whether something is a problem, leave it out. "must-fix" only when it cannot be right.
 - "quote": words copied exactly, character for character, from the scene: the shortest phrase or sentence that shows the problem.
 - "message": one plain sentence for the author saying what disagrees with what, such as "Mara's eyes are blue in the memory, but green here." Use names, never the ids.
 - "severity": "must-fix" when it can't be right as written (a dead character acting or speaking, someone in two places at once, a character knowing what they can't know); "warning" when it is probably a slip (looks, ages, travel times, a line that doesn't sound like them); "minor" when it is small and easily missed (one sentence in another tense).

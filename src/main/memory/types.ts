@@ -175,6 +175,8 @@ export interface SceneMemory {
     /** The story that scene is in. */
     storyId: ID
     storyTitle: string
+    /** That scene's When on its card ('' when it has none), so a draft knows how much time has passed. */
+    when?: string
     /**
      * Set when that is another story (this story's first scene, after another book or a time gap):
      * whether it was that story's last scene, and this story's time gap ("200 years", '' for none).

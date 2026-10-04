@@ -28,6 +28,7 @@ import {
   sentEntryIds,
   sentEntryVersions,
   storySoFarText,
+  timeSincePrevious,
   type ContextInput,
   type PreparedContext
 } from './context'
@@ -1962,5 +1963,25 @@ describe('ties to people not in this scene', () => {
     expect(p.blocks.filter((b) => b.dropped).map((b) => b.id)).toEqual(['ties'])
     expect(p.blocks.find((b) => b.id === 'story-so-far')!.text).toBe(short('story-so-far'))
     expect(p.blocks.find((b) => b.id === 'pov')!.text).toBe(short('pov'))
+  })
+})
+
+describe('the time since the previous scene', () => {
+  const at = (now: string, then: string | undefined, otherStory = false) =>
+    timeSincePrevious({
+      scene: { title: '', card: { ...emptySceneCard(), when: now } },
+      memory: { previous: { sceneId: 'p', title: '', text: 'x', storyId: 's', storyTitle: '', when: then, otherStory: otherStory ? { ended: true, timeGap: '' } : null } } as never
+    })
+  it('says how long after the previous scene this one is, from both cards', () => {
+    expect(at('Day 8, noon', 'Day 5, dusk')).toBe(
+      "The previous scene was Day 5, dusk. 3 days later. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
+    )
+    expect(at('Day 10, dawn', 'Day 9, night')).toContain('The next day.')
+    expect(at('Day 13, dusk', 'Day 13, afternoon')).toContain('The same day.')
+    expect(at('Spring, the year after', 'Winter')).toBe(
+      "The previous scene was Winter. Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by."
+    )
+    expect(at('Day 8', '')).toBe('')
+    expect(at('Day 8', 'Day 5', true)).toBe('')
   })
 })
