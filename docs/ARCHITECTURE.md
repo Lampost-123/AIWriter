@@ -523,7 +523,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
 - **World builder: Interview me** (`src/main/worldBuilder/interview.ts`, `features/worldBuilder/WorldInterview.tsx`,
   `interviewStore.ts`). The AI asks one short question at a time about what the summary is missing or thin on:
   one `world` record per question (`askWorldQuestion`, prompt marker `[AIWRITE-WORLD v1] interview`, the World
-  builder model and Thinking), reading the summary as it stands and the questions asked so far. Answers never go
+  builder model and Thinking), reading the summary as it stands and the questions asked so far, each with Adam's
+  answer. A reply that repeats an earlier question, or a topic already answered in the summary ("Setting: ..."
+  lines), is sent back once (`repeatOf`, `askedAlready`). Answers never go
   through the AI: each is added to the end of the summary in Adam's words under the question's topic
   ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
   stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
