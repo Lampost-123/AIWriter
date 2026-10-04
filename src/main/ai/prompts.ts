@@ -104,6 +104,8 @@ export function instructionsText(
     )
   }
 
+  // Not in the short form, which a small model gets.
+  if (opts.proseRules !== false && !short) parts.push(SPOKEN_LINE)
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
@@ -161,6 +163,13 @@ export function aiPhrasesText(short = false): string {
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
+
+/**
+ * Block 1's rule that everything said aloud goes in quote marks, whoever or whatever says it (Adam, 2026-10-04: a
+ * ring that talks was written in italics, so reading aloud gave its lines to the narrator).
+ */
+export const SPOKEN_LINE =
+  'Speech\nPut everything said aloud in quote marks, whoever or whatever says it: a person, an animal, a talking object, a voice heard in someone’s head. Never set speech in italics instead.'
 
 /** The closing instruction at the end of the briefing. */
 /** What the closing instruction of a draft's briefing is made from (milestone 4's own closings take it too). */

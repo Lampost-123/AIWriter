@@ -167,3 +167,11 @@ describe('the closing reminder of the phrases to avoid', () => {
     expect(text).toContain('- Never use “the shape of her”, or any close variation of it.')
   })
 })
+
+describe('speech in quote marks', () => {
+  it('asks the writer to put everything said aloud in quote marks, a talking object’s too, but not in the short form', () => {
+    expect(instructionsText(guide())).toContain('Put everything said aloud in quote marks, whoever or whatever says it')
+    expect(instructionsText(guide(), { trimSample: true })).not.toContain('Put everything said aloud')
+    expect(instructionsText(guide(), { proseRules: false })).not.toContain('Put everything said aloud')
+  })
+})
