@@ -5,17 +5,18 @@
 // Both caches live in the app's user data folder (`speech-cache/`), never in a world folder or a backup: the
 // spoken audio up to the limit Adam picks, and the AI's marks, one file per scene.
 import { join } from 'node:path'
-import type {
-  AudioCacheStats,
-  ClipRequest,
-  EntryReadAloud,
-  PlannedClip,
-  ReadingPlan,
-  ReadingRequest,
-  ReadParagraph,
-  SampleRequest,
-  SpeakerLabel,
-  SpeakerLabelsRequest
+import {
+  canHaveVoice,
+  type AudioCacheStats,
+  type ClipRequest,
+  type EntryReadAloud,
+  type PlannedClip,
+  type ReadingPlan,
+  type ReadingRequest,
+  type ReadParagraph,
+  type SampleRequest,
+  type SpeakerLabel,
+  type SpeakerLabelsRequest
 } from '@shared/contracts/readAloud'
 import { defaultSpeechSettings } from '@shared/defaults'
 import type { ID, SpeechSettings } from '@shared/types'
@@ -40,7 +41,7 @@ import { labelOf, markedEnough } from './labels'
 import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
-import { quoteKey, readMark, spansIn, withLabels, type Para } from './speakers'
+import { NARRATION, NARRATOR, quoteKey, readMark, spansIn, withLabels, type Para } from './speakers'
 import type { LineDelivery } from './types'
 import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
@@ -169,8 +170,10 @@ function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: 
       const i = given.findIndex((g) => g.key === q.key)
       if (i < 0) continue
       const [g] = given.splice(i, 1)
-      const { how } = readMark(`x | ${g.tone}`)
-      speakers[q.key] = memberNamed(cast, g.who)?.name ?? g.who
+      // "the narrator", in any case, is the narrator; a name the writer wrote a little differently is still that page.
+      const { who, how } = readMark(`${g.who} | ${g.tone}`)
+      const name = who === NARRATION ? NARRATOR : who
+      speakers[q.key] = memberNamed(cast, name)?.name ?? name
       // With Mark who says what, a line the writer gave no note on how it is said is left for the AI to note.
       if (how || !tone) delivery[q.key] = how ?? {}
     }
@@ -386,7 +389,8 @@ export function planReading(req: ReadingRequest): ReadingPlan {
   const busy = m.busyIn(w.id, req.sceneId)
   if (!busy.size) return done({ clips: first.clips, marking: [], ...ahead })
   // A line waits for its speaker only when that changes its voice: with nobody's own voice, only the bar's name does.
-  if (!s.markSpeakers && !rc.cast.scene.some((c) => hasOwnVoice(c, s))) return done({ clips: first.clips, marking: [...busy], ...ahead })
+  // Anyone in the world may be named (a tag, or the AI), not only the scene's card's people.
+  if (!s.markSpeakers && !rc.cast.all.some((c) => hasOwnVoice(c, s))) return done({ clips: first.clips, marking: [...busy], ...ahead })
   const again = planClips({ ...base, ...(s.markSpeakers ? { marking: busy } : { labelling: busy }) })
   return done({ clips: again.clips, marking: [...busy], ...ahead })
 }
@@ -536,7 +540,7 @@ export async function suggestCharacterVoice(
 ): Promise<{ design: string; status: 'complete' | 'stopped' | 'error'; error: string | null }> {
   const db = world.db()
   const entry = repo.getEntry(db, entryId)
-  if (entry.kind !== 'character') throw new UserError('Only characters have a voice of their own.')
+  if (!canHaveVoice(entry.kind)) throw new UserError('Only characters, and things that talk, have a voice of their own.')
   const model = jobModel('speech', modelSources())
   const current = getEntryReadAloud(db, entryId).voice.design
   const { done, design } = await askVoice({

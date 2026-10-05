@@ -13,7 +13,14 @@
 // audio, from the disk cache when heard before), three ahead, and asks again after an edit, when the AI's marks
 // come in ('readAloud:marked') and, with Mark who says what, when it reaches `markAhead`, so the AI's notes keep a
 // little ahead of it. Speed is the player's (pitch kept); the server speaks at its own pace.
-import type { ID } from '../types'
+import type { EntryKind, ID } from '../types'
+
+/**
+ * The kinds of page that can have a read-aloud voice of their own: characters, and the things that may talk in a
+ * story (a ring with a personality, a house, a chorus). The rest only get "Say it as".
+ */
+export const VOICED_KINDS: readonly EntryKind[] = ['character', 'item', 'place', 'group']
+export const canHaveVoice = (kind: EntryKind): boolean => VOICED_KINDS.includes(kind)
 
 /** One voice the speech server offers: one of Breeze's own, or one of Adam's clips. */
 export interface ReadAloudVoice {

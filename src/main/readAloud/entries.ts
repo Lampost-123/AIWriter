@@ -34,14 +34,28 @@ export interface ReadingCast {
   narrator?: string
 }
 
+/** True when this entry has a read-aloud voice of its own (a description, or a voice from the list). */
+const voiced = (kept: EntryReadAloud | undefined): boolean => !!(kept?.voice.design || kept?.voice.voice)
+
+/**
+ * Everyone reading aloud can give a line to: every character, and anything else in the world that talks and has a
+ * voice of its own (Adam, 2026-10-04: a ring with its own personality and voice; its page is an item, not a
+ * character). A thing with no voice is left out, so a place named in the narration is never taken for a speaker.
+ */
+export function speakersOf(db: DB, kept = readAloudOf(db)): CastMember[] {
+  const entries = repo.listEntries(db).filter((e) => e.kind === 'character' || voiced(kept[e.id]))
+  // Characters first, as before; the things that talk after them.
+  const ordered = [...entries.filter((e) => e.kind === 'character'), ...entries.filter((e) => e.kind !== 'character')]
+  return ordered.flatMap((e) => member(e, kept[e.id]) ?? [])
+}
+
 /**
  * The cast a scene is read with: its card's people (and viewpoint character) when it lists any, else the characters
  * its words name (`sceneText`) and the viewpoint character, else everyone in the world.
  */
 export function readingCast(db: DB, sceneId: ID | null, sceneText = ''): ReadingCast {
   const kept = readAloudOf(db)
-  const characters = repo.listEntries(db, 'character')
-  const all = characters.flatMap((e) => member(e, kept[e.id]) ?? [])
+  const all = speakersOf(db, kept)
   // Who the scene's words name, worked out once (the AI is told about them too).
   const namedNow = sceneText ? all.filter((c) => namedIn(c, sceneText)) : []
   let scene = all

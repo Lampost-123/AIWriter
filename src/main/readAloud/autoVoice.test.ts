@@ -106,6 +106,12 @@ describe('"Say it as" from the AI', () => {
     expect(auto[0].content.startsWith(suggest.replace(/Output only the description\.$/, ''))).toBe(true)
     expect(auto[1]).toEqual(voicePrompt(e, [], '')[1])
   })
+
+  it('says what a thing that talks is, so its voice fits', () => {
+    const db = memoryWorld()
+    const ring = repo.createEntry(db, 'item', { name: 'Ring', summary: 'A gold ring with a sly voice.' })
+    expect(voicePrompt(ring, ['Go on.'], '')[1].content).toContain('SPEAKER (an item in the story that talks): Ring')
+  })
 })
 
 describe('giving characters their voices', () => {

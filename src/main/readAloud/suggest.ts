@@ -109,6 +109,9 @@ const FIELDS: [string, string][] = [
  * Asks for a voice description from what the world knows about a character. With `say`, it also asks how the name
  * is said, as a last "SAY IT AS:" line, only when a narrator would likely misread it (readVoiceReply reads both).
  */
+/** What a page that isn't a character is, for the voice prompt. */
+const KIND_NOUN: Partial<Record<Entry['kind'], string>> = { item: 'an item', place: 'a place', group: 'a group' }
+
 export function voicePrompt(entry: Entry, lines: string[], current: string, opts: { say?: boolean } = {}): ChatMessage[] {
   const field = (key: string): string => (entry.fields[key] ?? '').trim()
   const samples = field('sampleLines')
@@ -121,7 +124,7 @@ export function voicePrompt(entry: Entry, lines: string[], current: string, opts
       role: 'system',
       content:
         `${MARKER} voice\n` +
-        'You write voice descriptions for a text-to-speech voice designer. From what is known about a character, describe how their voice sounds: ' +
+        'You write voice descriptions for a text-to-speech voice designer. From what is known about a character (or a thing in the story that talks), describe how their voice sounds: ' +
         'apparent age and gender, pitch and register, texture (breathy, gravelly, clear, nasal), accent, pace, and the mood it usually carries. ' +
         'One or two sentences, at most 40 words, in plain English, like "A woman in her sixties with a low, smoky voice, a soft Scottish accent and a slow, amused delivery." ' +
         'Describe the sound only, not the plot or what they say. ' +
@@ -130,7 +133,7 @@ export function voicePrompt(entry: Entry, lines: string[], current: string, opts
     {
       role: 'user',
       content: [
-        `CHARACTER: ${entry.name}${entry.aliases.length ? ` (also called ${entry.aliases.join(', ')})` : ''}`,
+        `${entry.kind === 'character' ? 'CHARACTER' : `SPEAKER (${KIND_NOUN[entry.kind] ?? 'a thing'} in the story that talks)`}: ${entry.name}${entry.aliases.length ? ` (also called ${entry.aliases.join(', ')})` : ''}`,
         entry.summary.trim() ? `IN ONE LINE: ${entry.summary.trim()}` : '',
         ...FIELDS.map(([key, label]) => (field(key) ? `${label}: ${field(key).slice(0, 600)}` : '')),
         entry.description.trim() ? `ABOUT THEM:\n${entry.description.trim().slice(0, 1500)}` : '',

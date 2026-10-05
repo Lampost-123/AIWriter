@@ -2,12 +2,12 @@
 // "Use this", Hear, the voice from the list and "Say it as" with Listen; reading aloud's own text-to-speech code;
 // Adam's rule, 2 October 2026). MCreader kept a cast per story; AI Write keeps these per entry in the world.
 //
-// On an entry's page: a character's "Read-aloud voice" (Suggest, Hear) and, for any entry, "Say it as"
-// with Listen. Kept in the world's meta key read_aloud. Shown in features/world/EntryForm.tsx only once
-// read aloud is turned on. Owned by the Read aloud part. Changes save as Adam types.
+// On an entry's page: a character's "Read-aloud voice" (Suggest, Hear), the same for a thing that may talk (an item,
+// a place, a group; Adam's ring, 2026-10-04) and, for any entry, "Say it as" with Listen. Kept in the world's meta
+// key read_aloud. Shown in features/world/EntryForm.tsx only once read aloud is turned on. Owned by the Read aloud part. Changes save as Adam types.
 import { AudioLines, Check, Play, Sparkles, Square, Volume2, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import type { EntryReadAloud } from '@shared/contracts/readAloud'
+import { canHaveVoice, type EntryReadAloud } from '@shared/contracts/readAloud'
 import type { Entry } from '@shared/types'
 import { Button, Field, Input, Notice, Select, Spinner } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
@@ -34,7 +34,9 @@ type Proposal = { text: string; writing: boolean }
 const tidy = (text: string): string => text.trim().replace(/^["“]/, '').replace(/["”]$/, '').trim()
 
 function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
-  const character = entry.kind === 'character'
+  // A character, or a thing that may talk: it can have a voice of its own.
+  const character = canHaveVoice(entry.kind)
+  const thing = character && entry.kind !== 'character'
   const castVoices = useApp((s) => s.settings?.speech.castVoices ?? true)
   const [value, setValue] = useState<EntryReadAloud | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -197,7 +199,7 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <label htmlFor={ids.design} className="text-[12px] font-medium text-muted">
-                  How they sound
+                  {thing ? 'How it sounds' : 'How they sound'}
                 </label>
                 <div className="flex items-center gap-1">
                   <Button
@@ -205,7 +207,11 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
                     variant="ghost"
                     icon={<Sparkles size={13} />}
                     disabled={!!proposal?.writing}
-                    title="The AI describes their voice from their age, looks, background and lines. Nothing is kept until you pick Use this."
+                    title={
+                      thing
+                        ? 'The AI describes its voice from what the world knows about it and its lines. Nothing is kept until you pick Use this.'
+                        : 'The AI describes their voice from their age, looks, background and lines. Nothing is kept until you pick Use this.'
+                    }
                     onClick={() => void suggest()}
                   >
                     Suggest
@@ -214,7 +220,7 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
                     size="sm"
                     variant="ghost"
                     disabled={!own && !busy(hearLabel)}
-                    title={own ? `Hear ${name} say one of their lines` : 'Describe how they sound, or pick a voice, first'}
+                    title={own ? `Hear ${name} say one of ${thing ? 'its' : 'their'} lines` : `Describe how ${thing ? 'it sounds' : 'they sound'}, or pick a voice, first`}
                     icon={
                       sample.loading === hearLabel ? (
                         <Spinner size={12} />
@@ -237,13 +243,17 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
                 minRows={2}
                 maxRows={8}
                 maxLength={600}
-                placeholder="A man in his sixties, deep and gravelly, with a slow Glaswegian accent and dry humour."
+                placeholder={
+                  thing
+                    ? 'An old, dry, amused voice, unhurried and sly, as if it has all the time in the world.'
+                    : 'A man in his sixties, deep and gravelly, with a slow Glaswegian accent and dry humour.'
+                }
                 onChange={(e) => update({ design: e.target.value })}
               />
               {proposal ? (
                 <div className="rounded-lg border border-ai/30 bg-ai-soft px-3 py-2.5 animate-fade-in" aria-live="polite">
                   <p className="text-[12px] text-muted">
-                    {proposal.writing ? 'Writing a description…' : 'Suggested from what the world knows about them:'}
+                    {proposal.writing ? 'Writing a description…' : `Suggested from what the world knows about ${thing ? 'it' : 'them'}:`}
                   </p>
                   <p className="mt-1 min-h-[1.5em] text-[13.5px] leading-relaxed text-fg">{proposal.text}</p>
                   <div className="mt-2 flex items-center gap-2">
@@ -288,10 +298,10 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
               </Field>
               <p className="text-[12px] text-faint">
                 {v.voice.voice
-                  ? 'This voice reads their lines; the description is kept in case you go back to it.'
+                  ? `This voice reads ${thing ? 'its' : 'their'} lines; the description is kept in case you go back to it.`
                   : v.voice.design.trim()
                     ? 'The voice is made from the description once and kept, so it never drifts. Changing the words makes a new voice.'
-                    : 'With neither, their lines are read in the dialogue voice.'}
+                    : `With neither, ${thing ? 'its' : 'their'} lines are read in the dialogue voice.`}
               </p>
               {!castVoices ? (
                 <Notice

@@ -47,6 +47,32 @@ describe('the writer’s speaker tags', () => {
     ])
   })
 
+  it('follows a tag the writer put elsewhere: inside the quote, after it, before the narration, or at the paragraph’s end', () => {
+    const cases: [string, string, string[]][] = [
+      ['“{Mara}Get out,” she said.', '“Get out,” she said.', ['get out']],
+      ['“Get out,” {Mara} she said.', '“Get out,” she said.', ['get out']],
+      ['{Mara} She turned to him. “Get out.”', 'She turned to him. “Get out.”', ['get out']],
+      ['“Get out,” she said. {Mara}', '“Get out,” she said. ', ['get out']],
+      ['{Mara}\n“Get out.”', '\n“Get out.”', ['get out']]
+    ]
+    for (const [draft, page, keys] of cases) {
+      const { out, speakers } = stream(draft, 3)
+      expect(out, draft).toBe(page)
+      expect(speakers.map((x) => [x.key, x.who]), draft).toEqual(keys.map((k) => [k, 'Mara']))
+    }
+  })
+
+  it('gives each line one tag, and a tag that only says “she” names nobody', () => {
+    const { speakers } = stream('{Mara}“Get out,” she said. {Tobin}“No.” {Mara}', 5)
+    expect(speakers).toEqual([
+      { key: 'get out', who: 'Mara', tone: '' },
+      { key: 'no', who: 'Tobin', tone: '' }
+    ])
+    expect(stream('{she}“Fine.” {He|gruff}“Go.”', 4).speakers).toEqual([])
+    // A tag before narration never reaches into the next paragraph.
+    expect(stream('{Mara} She waited.\n\n“Get out,” said Tobin.', 4).speakers).toEqual([])
+  })
+
   it('leaves braces that aren’t tags, and drops a tag cut off at the end', () => {
     expect(stream('A {note across\nlines} stays.', 4).out).toBe('A {note across\nlines} stays.')
     expect(stream('She waited. {Mara|cold', 3).out).toBe('She waited. ')

@@ -556,6 +556,14 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   and so are the same speaker's later italic stretches in that paragraph (`readAloud/italicSpeech.ts`). Reading
   aloud plans and marks the paragraph with that speech in quote marks (`asSpoken`), and puts every place back where it
   is on the page. "the ring" in any case is the character Ring (`nameGroups`, `cast.ts`).
+- **Things that talk.** Reading aloud's cast is every character and anything else in the world with a read-aloud
+  voice of its own (`speakersOf`, `readAloud/entries.ts`): a ring with a personality is an item page, and before
+  0.6.18 its lines could only ever be "Someone" in the dialogue voice. Items, places and groups get the same
+  Read-aloud voice box as characters (`VOICED_KINDS`, `contracts/readAloud.ts`; `EntryVoice.tsx`, Suggest included);
+  a thing with no voice stays out of the cast, so a place named in the narration is never taken for a speaker. The
+  writer's tag is followed wherever the writer put it (inside or after the quote, before the narration that leads to
+  it, at the paragraph's end), a tag that only says "she" names nobody, and a page's own name counts however short
+  it is ("Jo"); only aliases and short forms need three letters.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice

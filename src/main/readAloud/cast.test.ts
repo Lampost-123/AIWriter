@@ -25,6 +25,10 @@ describe('the names a character goes by', () => {
     expect(namesFor({ name: 'Mara Quill', aliases: ['the captain'] })).toEqual(['the captain', 'Mara Quill', 'Mara'])
     // After a title, the short form is the name, not the title.
     expect(namesFor({ name: 'Brother Anselm', aliases: [] })).toEqual(['Brother Anselm', 'Anselm'])
+    // A short name is still the page's name; a short alias or short form is not a name ("it" would be everywhere).
+    expect(namesFor({ name: 'Jo', aliases: ['it'] })).toEqual(['Jo'])
+    expect(namesFor({ name: 'Jo Marsh', aliases: [] })).toEqual(['Jo Marsh'])
+    expect(memberNamed(castOf([{ id: 'jo', name: 'Jo', aliases: [], about: '' }]), 'Jo')?.id).toBe('jo')
   })
 
   it('finds a character by any name the AI gives back', () => {

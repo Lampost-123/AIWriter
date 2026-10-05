@@ -90,11 +90,29 @@ export class SpeakerTagFilter {
     return this.push(h)
   }
 
-  /** The speakers of the lines in `text` (the draft as given out), by the tags just before their quotes. */
+  /**
+   * The speakers of the lines in `text` (the draft as given out), by the tags before their quotes. A tag goes with
+   * the quote (or italic speech) it stands just before, as asked; a writer that put it elsewhere is still followed:
+   * inside the quote after its opening mark, right after the quote, before the narration that leads to the quote in
+   * the same paragraph, or at the end of the paragraph after its last quote. Each line takes one tag. A tag that
+   * only says "she" or "he" names nobody: the rules, or the AI, say who that is.
+   */
   speakers(text: string): WriterSpeaker[] {
     const out: WriterSpeaker[] = []
-    for (const t of this.tags) {
-      if (!t.who) continue
+    const lines = [...text.matchAll(new RegExp(`${QUOTE.source}|${ITALIC_SPEECH}`, 'g'))].map((m) => ({
+      at: m.index!,
+      end: m.index! + m[0].length,
+      key: quoteKey(m[0])
+    }))
+    const taken = new Set<number>()
+    const claim = (pick: (l: (typeof lines)[number]) => boolean): (typeof lines)[number] | undefined => {
+      const i = lines.findIndex((l, k) => !taken.has(k) && l.key && pick(l))
+      if (i < 0) return undefined
+      taken.add(i)
+      return lines[i]
+    }
+    this.tags.forEach((t, n) => {
+      if (!t.who) return
       const from = t.at + (/^\s{0,3}/.exec(text.slice(t.at))?.[0].length ?? 0)
       // {~hushed, dread building}: how the narrator reads the sentence it starts (up to any quote in it).
       if (t.who.startsWith('~')) {
@@ -103,18 +121,27 @@ export class SpeakerTagFilter {
         const sentence = new RegExp(SENTENCE.source, 'y').exec(rest)?.[0] ?? ''
         const key = quoteKey(sentence)
         if (key && tone) out.push({ key: NARRATION + key, who: '', tone })
-        continue
+        return
       }
-      // A quote, or speech in italics (between asterisks), as a ring that talks might have it.
-      const m = new RegExp(`${QUOTE.source}|${ITALIC_SPEECH}`, 'y')
-      m.lastIndex = from
-      const q = m.exec(text)
-      const key = q ? quoteKey(q[0]) : ''
-      if (key) out.push({ key, who: t.who, tone: t.tone })
-    }
+      if (PRONOUN_TAG.test(t.who)) return
+      // How far along the paragraph the tag reaches: to the next tag, or the paragraph's end.
+      const lineEnd = text.indexOf('\n', t.at)
+      const reach = Math.min(this.tags[n + 1]?.at ?? text.length, lineEnd === -1 ? text.length : lineEnd)
+      const lineStart = text.lastIndexOf('\n', t.at - 1) + 1
+      const line =
+        claim((l) => l.at === from) ??
+        claim((l) => l.at < t.at && t.at <= l.end) ??
+        claim((l) => l.end <= t.at && /^\s*$/.test(text.slice(l.end, t.at))) ??
+        claim((l) => l.at >= from && l.at < reach) ??
+        claim((l) => l.at >= lineStart && l.end <= t.at && !lines.some((m) => m.at > l.at && m.end <= t.at))
+      if (line) out.push({ key: line.key, who: t.who, tone: t.tone })
+    })
     return out
   }
 }
+
+/** A tag that names nobody: "she", "he", "they" are whoever the rules or the AI say they are. */
+const PRONOUN_TAG = /^(?:he|she|they|it|i|we|you|him|her|them)$/i
 
 /** The closing instruction's line asking the writer to note how the narration is read too (Mark who says what). */
 export const NARRATION_TAG_LINE =
@@ -122,4 +149,4 @@ export const NARRATION_TAG_LINE =
 
 /** The closing instruction's line asking the writer to tag each line of dialogue with its speaker. */
 export const SPEAKER_TAG_LINE =
-  "- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above; for someone unnamed, a few plain words: {the guard|bored}. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."
+  "- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above (a thing or creature that talks too, by its page's name: {Ring|sly}); for someone unnamed, a few plain words: {the guard|bored}, never just he or she. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."

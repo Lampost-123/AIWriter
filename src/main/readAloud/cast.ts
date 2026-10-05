@@ -27,7 +27,9 @@ export function namesFor(e: Pick<CastEntry, 'name' | 'aliases'>): string[] {
   // The short form: the name after a title ("Anselm" in "Brother Anselm"), else the first name.
   const titled = e.name.trim().match(TITLED)
   const short = titled ? titled[2]! : e.name.trim().split(/\s+/)[0]!
-  const all = [e.name, ...e.aliases, short].map((n) => n.trim()).filter((n) => n.length >= 3)
+  // The page's own name whatever its length ("Jo" is Jo, written so); an alias or the short form only from three
+  // letters, so "it" or "al" never counts.
+  const all = [e.name.trim(), ...[...e.aliases, short].map((n) => n.trim()).filter((n) => n.length >= 3)].filter(Boolean)
   return [...new Set(all)].sort((a, b) => b.length - a.length)
 }
 
