@@ -26,7 +26,9 @@ import { buildLine, labeler, storyOfScene } from '../memory/line'
 import { loadShape, sceneMemory } from '../memory/scene'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
-import { formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL } from '../ai/context'
+import { deadBy, formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL, storySoFarText } from '../ai/context'
+import { stateText, type SceneState } from '@shared/continuity'
+import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
 
 type DB = Database.Database
@@ -72,6 +74,10 @@ export interface SceneCheckContext {
   entries: CheckEntry[]
   earlier: CheckScene[]
   style: { pov: string; tense: string; proseStyle: string; tone: string; genre?: string; content?: string[] }
+  /** Where things stood as the previous scene ended (continuity/tracker.ts), if it still stands. */
+  continuity: SceneState | null
+  /** The story so far, as the writer gets it: in full (chapters and the last few scenes) and short (the most recent parts). */
+  storySoFar: { full: string; short: string }
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').trim()
@@ -135,6 +141,7 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
   }
 
   const style = effectiveStyle(prefs, repo.getWorldStyle(db), story.style)
+  const sofar = memory.storySoFar
   return {
     sceneId,
     storyId: story.id,
@@ -152,7 +159,9 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
       tone: clean(story.tone),
       genre: genreText(style.genres),
       content: intensityLines(style.intensity)
-    }
+    },
+    continuity: keptStateBefore(db, sceneId),
+    storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' }
   }
 }
 
@@ -272,6 +281,29 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       id: 'knowledge',
       title: 'Who knows what at the start of this scene',
       text: lines.length ? lines.join('\n') : 'The memory lists nothing that these characters know.',
+      entryIds: []
+    })
+  }
+
+  // The story so far (Adam, 2026-10-04: check against what happened long before, not only the last few scenes).
+  if (has('facts') || has('knowledge') || has('timeline') || has('continuity')) {
+    const sofar = short ? ctx.storySoFar.short : ctx.storySoFar.full
+    if (sofar.trim()) out.push({ id: 'story-so-far', title: 'The story so far', text: sofar, entryIds: [] })
+  }
+
+  // Who is dead by now: the facts check's first question.
+  if (has('facts') || has('continuity')) {
+    const dead = deadBy(ctx.memory.entries)
+    if (dead.length) out.push({ id: 'dead', title: 'Dead at the start of this scene', text: dead.map((d) => `- ${d.name}: ${d.note}`).join('\n'), entryIds: [] })
+  }
+
+  // Where things stood as the previous scene ended: the continuity check's starting point.
+  if (has('continuity')) {
+    const stand = ctx.continuity ? stateText(ctx.continuity) : ''
+    out.push({
+      id: 'continuity',
+      title: 'Where things stood as the previous scene ended',
+      text: stand || 'Nothing is known yet about where things stood (this may be the opening scene).',
       entryIds: []
     })
   }

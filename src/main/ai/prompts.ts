@@ -96,6 +96,11 @@ export function instructionsText(
   if (feel) parts.push(feel)
   const content = contentText(style)
   if (content) parts.push(content)
+  // Ask the world sets proseRules false, so it does not get the sex-scene craft.
+  if (opts.proseRules !== false) {
+    const sex = sexSceneText(style)
+    if (sex) parts.push(sex)
+  }
 
   if (style.samplePassage.trim()) {
     const sample = short ? trimPassage(style.samplePassage) : style.samplePassage.trim()
@@ -104,6 +109,8 @@ export function instructionsText(
     )
   }
 
+  // Not in the short form, which a small model gets.
+  if (opts.proseRules !== false && !short) parts.push(SPOKEN_LINE)
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
@@ -143,6 +150,22 @@ function firstSentences(text: string, n: number): string {
   return ends.length > n ? text.slice(0, (ends[n - 1].index ?? 0) + 1) : text
 }
 
+/**
+ * Craft for Explicit romance, on jobs that write prose. Empty otherwise.
+ * The content limits in the style guide still win: they are stated above this block.
+ */
+export function sexSceneText(style: Pick<StyleGuide, 'intensity'>): string {
+  if (style.intensity?.romance !== 4) return ''
+  return `Sex scenes
+When anyone is having sex in this passage, write the sex as a physical scene, the way a porn page tags acts and the way people talk in one. Any passage that is not sexual, leave alone.
+- Stage each act in order, on the page. Do not cut away, skip to afterwards, or summarise it ("they had sex", "they made love").
+- When the scene card names acts (oral, anal, a position, finishing inside, and the like), give each named act its own stretch: who does it, the contact, a line of talk, and how that stretch ends.
+- Use blunt words for bodies, acts and fluids: cock, cunt, clit, balls, tits, ass, fuck, suck, come. Never use coy stand-ins such as manhood, member, length, core, heat, centre, flower, nectar or velvet, or "their bodies moved as one".
+- During the sex, dialogue is direct, and this overrides the rule about subtext: characters say what they want and what is happening, in short lines (a command, begging, praise, or the name of the act). Save longer speeches for afterwards.
+- Stay in the body: pressure, wetness, stretch, taste, smell, breath, and where the hands and the mouth are. Clothes come off in the prose. Do not give anyone an extra hand.
+- Adults only. Consent shows in what they do and say.`
+}
+
 /** "Content": one sentence for each intensity scale Adam set; the content limits still win. Empty when none is set. */
 export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits'>): string {
   const lines = intensityLines(style.intensity ?? {})
@@ -161,6 +184,13 @@ export function aiPhrasesText(short = false): string {
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
+
+/**
+ * Block 1's rule that everything said aloud goes in quote marks, whoever or whatever says it (Adam, 2026-10-04: a
+ * ring that talks was written in italics, so reading aloud gave its lines to the narrator).
+ */
+export const SPOKEN_LINE =
+  'Speech\nPut everything said aloud in quote marks, whoever or whatever says it: a person, an animal, a talking object, a voice heard in someone’s head. Never set speech in italics instead.'
 
 /** The closing instruction at the end of the briefing. */
 /** What the closing instruction of a draft's briefing is made from (milestone 4's own closings take it too). */
@@ -209,6 +239,9 @@ export function finalInstruction(o: {
   lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
+  if (o.style.intensity?.romance === 4) {
+    lines.push('- If adults have sex in this scene, play every act on the page in blunt words and direct talk; do not fade out or euphemise.')
+  }
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
   const other = o.previousStory

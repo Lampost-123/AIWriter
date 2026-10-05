@@ -112,6 +112,7 @@ function previousScene(db: DB, shape: WorldShape, storyId: ID, line: Line): Scen
     text: text.text,
     storyId: step.storyId,
     storyTitle: from?.title ?? '',
+    when: repo.getScene(db, step.sceneId).card.when.trim(),
     otherStory:
       step.storyId === storyId
         ? null

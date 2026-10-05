@@ -60,14 +60,17 @@ export function readingCast(db: DB, sceneId: ID | null, sceneText = ''): Reading
   const namedNow = sceneText ? all.filter((c) => namedIn(c, sceneText)) : []
   let scene = all
   let pov: CastMember | null = null
+  let onCard = false
   if (sceneId) {
     try {
       const card = repo.getScene(db, sceneId).card
       pov = all.find((c) => c.id === card.povId) ?? null
       const present = new Set(card.presentIds)
       const named = all.filter((c) => c === pov || namedNow.includes(c))
-      if (all.some((c) => present.has(c.id))) scene = all.filter((c) => present.has(c.id) || c === pov)
-      else if (named.length) scene = named
+      if (all.some((c) => present.has(c.id))) {
+        scene = all.filter((c) => present.has(c.id) || c === pov)
+        onCard = true
+      } else if (named.length) scene = named
     } catch {
       /* The scene has gone: everyone in the world it is. */
     }
@@ -81,9 +84,10 @@ export function readingCast(db: DB, sceneId: ID | null, sceneText = ''): Reading
     forAi: (text) => {
       // The scene's own people (when its card lists them or its words name them), and anyone else its words name, up to
       // a list the AI can take in.
-      const own = scene === all ? [] : scene
+      // Those on the card are said to be in the scene: the AI is told someone only mentioned isn't speaking.
+      const own = scene === all ? [] : onCard ? scene.map((c) => ({ ...c, here: true })) : scene
       const named = text === sceneText ? namedNow : all.filter((c) => namedIn(c, text))
-      return [...own, ...named.filter((c) => !own.includes(c))].slice(0, 40)
+      return [...own, ...named.filter((c) => !own.some((o) => o.id === c.id))].slice(0, 40)
     }
   }
 }

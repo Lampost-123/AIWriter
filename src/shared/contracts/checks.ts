@@ -19,6 +19,7 @@ export type IssueKind =
   | 'timeline'
   | 'voice'
   | 'style'
+  | 'continuity'
   | 'thread'
   | 'story'
   | 'phrase'
@@ -34,11 +35,35 @@ export type IssueSeverity = 'must-fix' | 'warning' | 'minor'
  */
 export type IssueStatus = 'open' | 'ignored' | 'fixed' | 'gone'
 
-/** Which AI checks to run. Marking a scene done runs facts, knowledge and timeline. */
-export type CheckKind = 'facts' | 'knowledge' | 'timeline' | 'voice' | 'style'
+/**
+ * Which AI checks to run. Marking a scene done runs facts, knowledge, timeline and continuity; every draft runs them
+ * all (Adam, 2026-10-04: a critic after each draft). Continuity is where things stand (the continuity tracker):
+ * clothes, position, what is in hand, where people are, the time and light.
+ */
+export type CheckKind = 'facts' | 'knowledge' | 'timeline' | 'continuity' | 'voice' | 'style'
 
-export const DONE_CHECKS: CheckKind[] = ['facts', 'knowledge', 'timeline']
-export const ALL_CHECKS: CheckKind[] = ['facts', 'knowledge', 'timeline', 'voice', 'style']
+export const DONE_CHECKS: CheckKind[] = ['facts', 'knowledge', 'timeline', 'continuity']
+export const ALL_CHECKS: CheckKind[] = ['facts', 'knowledge', 'timeline', 'continuity', 'voice', 'style']
+
+/** What a check found good or not, in a sentence: the critic's report (collapsed under the Issues tab). */
+export interface CheckReportItem {
+  check: CheckKind
+  /** True when it found nothing to report. */
+  ok: boolean
+  /** What it compared, and what agreed or didn't, in one or two plain sentences. */
+  note: string
+}
+
+/** The latest check of a scene: when, why, what each check looked at, and how many things it found. */
+export interface CheckReport {
+  sceneId: ID
+  /** ISO time it finished. */
+  at: string
+  /** 'draft': after a draft landed; 'done': Mark done; 'request': Adam asked. */
+  after: 'draft' | 'done' | 'request'
+  items: CheckReportItem[]
+  found: number
+}
 
 /** What an issue conflicts with, for its links. */
 export type IssueSource =
@@ -66,6 +91,11 @@ export interface Issue {
    * as a tracked change; without one, Fix the text asks the writer model (the AI tools' Rewrite).
    */
   fix: string | null
+  /**
+   * How the critic suggests putting it right, in a sentence, when rewriting the quoted words alone can't ("Have Dov
+   * hear of the death first, or cut the line"). Shown on the card; nothing changes until Adam acts on it.
+   */
+  advice?: string
   /**
    * When the text is right and one of Adam's own notes is wrong: the entry and field "Update the memory"
    * sets, and the value from the text. Null when updating the memory makes no sense for this issue.
@@ -188,6 +218,9 @@ export interface ChecksApi {
   /** Starts a check; progress arrives as checks:* events. Refuses (plain words) when no model is set up. */
   startCheck(input: CheckStart): Promise<void>
   stopCheck(runId: ID): Promise<void>
+
+  /** The latest check's report for a scene (what was checked, what was good, what wasn't), or null. */
+  getCheckReport(sceneId: ID): Promise<CheckReport | null>
 
   // ----- Reports -----
   getRepetitionReport(storyId: ID): Promise<RepetitionReport>

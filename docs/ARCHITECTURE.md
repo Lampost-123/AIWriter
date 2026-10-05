@@ -504,9 +504,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   or "Show speakers and tone" is on; Adam's own typing is still marked a little ahead of the reading. "Show speakers and
   tone" (`speech.showSpeakers`, off by default; beside Listen, in Settings and the palette) draws each marked paragraph's
   speaker and tone faintly above it as a CSS-only decoration (`features/readAloud/speakerLabels.ts`), never in the text.
+  While it is on, paragraphs with no marks yet (Adam's own words, older scenes, an edit) are marked in the background
+  (`speakerLabels` with `mark`: as the scene opens and 6 s after typing stops, twice at most for the same words). A line
+  given a speaker but no note on how it is said is asked about once more (`Ask.again`); marks files from before (v1)
+  drop the empty notes on named speakers' lines that Mark who says what never filled in.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
-  reads Adam's summary in parts that fit the model and lays the world out kind by kind (characters and
+  reads Adam's summary in parts that fit the model (at most `OVERVIEW_PART_TOKENS` each), reads each part again
+  for what its list left out (`overviewMoreUser`, up to `MORE_LOOKS` times, stopping when a look finds nothing
+  new: a long list is cut off, and models skip minor things), and lays the world out kind by kind (characters and
   places first, then groups, items, lore and rules, events, plot threads, the glossary, relationships, and
   the world's themes and tone when they are empty), saving each thing as it is made. Characters get full
   profiles from the character builder (`src/main/builder/`). The summary's own sentences go in as Adam's
@@ -519,7 +525,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
 - **World builder: Interview me** (`src/main/worldBuilder/interview.ts`, `features/worldBuilder/WorldInterview.tsx`,
   `interviewStore.ts`). The AI asks one short question at a time about what the summary is missing or thin on:
   one `world` record per question (`askWorldQuestion`, prompt marker `[AIWRITE-WORLD v1] interview`, the World
-  builder model and Thinking), reading the summary as it stands and the questions asked so far. Answers never go
+  builder model and Thinking), reading the summary as it stands and the questions asked so far, each with Adam's
+  answer. A reply that repeats an earlier question, or a topic already answered in the summary ("Setting: ..."
+  lines), is sent back once (`repeatOf`, `askedAlready`). Answers never go
   through the AI: each is added to the end of the summary in Adam's words under the question's topic
   ("Setting: ..."), kept as the summary always is, with Undo on its toast. Nothing else about an interview is
   stored; it ends on Stop, on leaving the page or when a build starts (a typed answer is added first).
@@ -545,10 +553,22 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a
   variant's too), so they never reach the page, the record or the word count; `onSpeakers` hands what they said to
   `noteWriterSpeakers` (`readAloud/index.ts`), which puts them on the new paragraphs' quotes as marks
-  (`writerMarks`). With Mark who says what, the writer notes the narration's mood too (`{~hushed}`,
-  `NARRATION_TAG_LINE`). What the writer didn't write (Adam's own words, older drafts, a line it left untagged) is
-  marked by the writer model as well, without thinking (`askFor`); the Read aloud model only suggests voices (and
-  marks sound effects).
+  (`writerMarks`). The writer tags only the dialogue: the narration's mood is the marker's (below). What the writer
+  didn't write (Adam's own words, older drafts, a line it left untagged) is marked by the writer model as well,
+  without thinking (`askFor`); the Read aloud model only suggests voices (and marks sound effects).
+  A tag is `{Who|how|pace|sound}`, its fields read as the marker's notes are (`readMark`); both are told the same rules
+  for a note (`HOW_NOTE` in `readAloud/speakers.ts`). A tag belongs to the line it sits inside, else the next line in
+  its paragraph; the untagged part of a line split by an action takes the tagged part's speaker and tone, and "Wen" is
+  the character Old Wen (`memberNamed`). A tilde mood a writer gives unasked carries on until its next one
+  (`readAloud/writerBlocks.ts`), and the marker's "same" carries the mood before it. Continue and the AI edits ask for
+  tags too (`edits/prompts.ts`, the task runner's `onSpeakers`); a variant's or an edit's tags wait by record
+  (`noteGenerationSpeakers`) until History's snapshot before it goes in names it (`generationGoingIn`). Every tagged
+  record keeps `params.speakerTags` (quotes, tagged, toned, moods, dropped), and the reply gets 15% more room
+  (`TAG_ALLOWANCE`). Writer tags that cover a paragraph emit 'readAloud:marked', as the AI's marks do.
+  Live checks (4 October 2026, DeepSeek V4.1 Flash, invented scenes): asked for dialogue tags only, it tagged 87% of
+  quotes (109 of 125, never failing outright); asked for narration moods as well, 65–69%, and now and then it put
+  moods before every quote in place of speakers. It tends to leave the viewpoint character's short replies untagged;
+  the marker's background call for the narration names those too.
 - **Speakers the rules only guess** (a name nearby, turn-taking) are checked by the AI and wait for its answer; only
   a dialogue tag is taken without asking. A name the AI writes a little differently ("Adam (whispering)", "Adam
   Reyes" for a page called Adam) is still that character (`memberNamed`).
@@ -556,14 +576,38 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   and so are the same speaker's later italic stretches in that paragraph (`readAloud/italicSpeech.ts`). Reading
   aloud plans and marks the paragraph with that speech in quote marks (`asSpoken`), and puts every place back where it
   is on the page. "the ring" in any case is the character Ring (`nameGroups`, `cast.ts`).
-- **Things that talk.** Reading aloud's cast is every character and anything else in the world with a read-aloud
-  voice of its own (`speakersOf`, `readAloud/entries.ts`): a ring with a personality is an item page, and before
-  0.6.18 its lines could only ever be "Someone" in the dialogue voice. Items, places and groups get the same
-  Read-aloud voice box as characters (`VOICED_KINDS`, `contracts/readAloud.ts`; `EntryVoice.tsx`, Suggest included);
-  a thing with no voice stays out of the cast, so a place named in the narration is never taken for a speaker. The
-  writer's tag is followed wherever the writer put it (inside or after the quote, before the narration that leads to
-  it, at the paragraph's end), a tag that only says "she" names nobody, and a page's own name counts however short
-  it is ("Jo"); only aliases and short forms need three letters.
+- **Nobody who isn't there** (Adam, 2026-10-04: Laura given a line in a scene with only Jane). A paragraph's
+  narration gives an untagged line to a character only when a sentence opens with their name ("Jane set the cup
+  down."), not when it only mentions them; with one character on the card, an untagged line is theirs; a turn goes
+  back only to someone in the scene. The AI is told who is on the card (`[in this scene]`, `hereNote`). The writer's
+  tags go only to the paragraphs its draft added, and those it said of lines that never reached the page are dropped.
+- **Recall across scenes** (Adam, 2026-10-04: inconsistencies between scenes). Entries named in the card's goal,
+  conflict, outcome or mood, or at the end of the previous scene (the part block 3 sends), are selected too
+  (`WHY.cardWords`, `WHY.previous`). Block 8's full form is every earlier scene of this story by its own summary
+  (level 0); chapter summaries with the last 5 scenes are its short form, and the fitting shortens it that far
+  (`shortTo`) before shortening anything above it.
+- **A scene's summary follows its facts.** When a read finds the words a fact came from edited or deleted, the
+  scene's summary is marked stale (`applyRead`) and written again after the run, however small the edit; otherwise
+  it waits for Mark done or a large change, as before. Chapter and story roll-ups follow it.
+- **Where things stand** (`continuity/tracker.ts`, `@shared/continuity`): each character's where, wearing, position,
+  holding, condition, mood and last action as a scene ends, and its time, weather and light; only the latest of each
+  is kept. Worked out by the memory model before a draft (the last few scenes, oldest first) and kept in `meta`
+  'continuity' with the hashes of the words and of the state it built on; a state stands only while both (all the way
+  back) are unchanged, so nothing outlives its words. Sent to the writer as block 3b and to the continuity check.
+  Recall in the Cast tab (`features/cast/RecallSection.tsx`, contracts/recall.ts) browses it; Adam's changes stay
+  until that scene's words change.
+- **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
+  (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
+  and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report
+  (`checks/report.ts`, `meta` 'check_reports') and shown collapsed at the top of the Issues tab (`CheckReportCard`).
+- **Things that talk** (Adam, 2026-10-04: a ring with its own personality and voice; its page is an item). Reading
+  aloud's cast is every character and anything else in the world with a read-aloud voice of its own (`speakersOf`,
+  `readAloud/entries.ts`); before 0.6.24 only character pages counted, so the ring's lines could only ever be
+  "Someone" in the dialogue voice. Items, places and groups get the same Read-aloud voice box as characters
+  (`VOICED_KINDS`, `contracts/readAloud.ts`; `EntryVoice.tsx`, Suggest included); a thing with no voice stays out of
+  the cast, so a place named in the narration is never taken for a speaker. A writer's tag that only says "she"
+  names nobody, and a page's own name counts however short it is ("Jo"); only aliases and short forms need three
+  letters.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
@@ -982,7 +1026,7 @@ keys in JSON that already reads with defaults (world meta `style`, `stories.styl
   rename one. Every preset, rule and phrase is AI Write's own wording (the repository is public).
 - **Block 1** (`ai/prompts.ts` `instructionsText`) adds "Genre and feel" (`genreText`: the lead's guidance, a blend's first
   sentence and feel, Adam's own take, a few of the genre's worn-out moves), "Content" (`contentText`: one sentence per scale
-  set; the content limits still win) and "Write like a person, not like an AI" (`aiPhrasesText`: `SLOP_RULES` and the
+  set; the content limits still win), "Sex scenes" when romance is Explicit and the job writes prose (`sexSceneText`: stage each act, blunt words, direct talk; Ask the world leaves it out), and "Write like a person, not like an AI" (`aiPhrasesText`: `SLOP_RULES` and the
   `PROMPT_SLOP` short list), on while `WritingPrefs.avoidAiPhrases` isn't false. Its short form keeps the lead genre and the
   rules without the phrase list. It grows by about 400 tokens for one genre and about 540 for a blend with all three levels
   (`ai/feel.test.ts`). Ask the world passes `proseRules: false`. `finalInstruction` ends with `feelLine` (the genre's feel and
@@ -1212,7 +1256,8 @@ it uses the Chat and brainstorm model, with no setting of its own.
   took").
 - **The tools** (`ask/agent.ts`, `EditorAgent`): `read_scene`, `outline`, `search`, `get_entry`, `style_guide`,
   `scene_issues` look things up; the `propose_*` tools only record a proposal (checked first: an edit's words must
-  be in the scene exactly once, on one line) and tell the model nothing has changed yet. A mistake goes back to the
+  be in the scene exactly once, on one line; `propose_rewrite` takes a passage across paragraphs, from its `start`
+  words to its `end` words) and tell the model nothing has changed yet. A mistake goes back to the
   model as the tool's answer, never as an error. Proposals are saved with the answer's record (`db/ask.ts`) and
   sent as `ask:proposals`; each step as `ask:step`.
 - **Applying** happens in the window (`features/ask/applyProposal.ts`) through the usual APIs, each with its Undo:
@@ -1221,8 +1266,10 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Honest about what is waiting.** A `propose_*` call that fails answers "Not proposed: nothing is waiting"; an
   edit that overlaps another waiting one is turned down (once one is applied the other's words would be gone), and
   `revises: N` replaces change N instead. Before the last request (no tools) the model is told what it proposed
-  (`lastWords`). If an answer still speaks of changes to apply and none came with it, the chat says so under it
-  (`speaksOfChanges`, `features/ask/askWords.ts`).
+  (`lastWords`). An answer with no proposals that clearly claims or hands over changes (`claimsChanges`), or that
+  answers a request for edits (`asksForChanges`, both in `shared/askChanges.ts`), is sent back once (`nudge` in the task runner, `PROPOSE_NOW`), and its words are taken out of the reply; if it still
+  proposes nothing, the chat says so under it. Earlier answers are sent again with the changes they proposed noted
+  (`withProposals`, `ipc/ask.ts`), so the model sees itself using the tools.
 - **A model that can't use tools** is said so in plain words (`ai/errors.ts`), pointing to Settings › Models.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.

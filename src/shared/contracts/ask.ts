@@ -77,6 +77,20 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       find: string
       replace: string
     }
+  | {
+      /**
+       * A passage of a scene rewritten, across paragraphs (Adam, 2026-10-04: "push the beats harder" can't be one
+       * paragraph's change): from the words `start` to the words `end`, as the scene has them now, becomes `replace`
+       * (paragraphs split by a blank line). `original` is the passage as it was, to show.
+       */
+      kind: 'passage'
+      sceneId: ID
+      sceneLabel: string
+      start: string
+      end: string
+      original: string
+      replace: string
+    }
   | { kind: 'card'; sceneId: ID; sceneLabel: string; patch: CardProposal }
   | { kind: 'entry'; entryId: ID; entryKind: EntryKind; name: string; patch: EntryProposal }
   | { kind: 'newEntry'; entryKind: EntryKind; name: string; summary: string; description: string }

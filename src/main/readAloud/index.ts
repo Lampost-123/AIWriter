@@ -33,20 +33,20 @@ import { isDrafting, type DraftActivity } from '../ai/drafts'
 import { voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
-import { everyone, memberNamed, type CastMember } from './cast'
+import { everyone, type CastMember } from './cast'
 import { DraftMarks } from './draftMarks'
 import { asSpoken } from './italicSpeech'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
 import { labelOf, markedEnough } from './labels'
-import { Marker, MarkStore, type Ask, type MarkingScene } from './marks'
+import { Marker, MarkStore, textHash, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { speak, VOICES_NOT_READY } from './speak'
-import { NARRATION, NARRATOR, quoteKey, readMark, spansIn, withLabels, type Para } from './speakers'
-import type { LineDelivery } from './types'
+import { quoteKey } from './speakers'
 import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
+import { writerBlocks } from './writerBlocks'
 import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
 
 /** Where reading aloud keeps its caches. */
@@ -134,54 +134,75 @@ const speech = (): SpeechSettings => ({ ...defaultSpeechSettings(), ...getSettin
 /** The speakers the writer gave the lines of its latest drafts (ai/speakerTags.ts), by scene, until their paragraphs are marked. */
 const fromWriter = new Map<ID, WriterSpeaker[]>()
 const WRITER_KEEP = 400
+/**
+ * When each scene's were last noted. Kept only a while: a line the writer tagged that never reached the page (the
+ * draft was replaced or edited) mustn't give its speaker to another line with the same words later ("Yes.").
+ */
+const writerNoted = new Map<ID, number>()
+const WRITER_FOR_MS = 10 * 60_000
 
 /** A draft ended: who the writer said says each of its lines, kept for its paragraphs once they are in the page. */
 export function noteWriterSpeakers(sceneId: ID, speakers: WriterSpeaker[]): void {
   if (!speakers.length) return
   fromWriter.set(sceneId, [...(fromWriter.get(sceneId) ?? []), ...speakers].slice(-WRITER_KEEP))
+  writerNoted.set(sceneId, Date.now())
 }
 
 /**
- * Puts the writer's speakers (and how each line is said) on the quotes of these paragraphs that have none kept yet,
- * each used once, and keeps them as the AI's marks are kept. Returns the marks as they are now.
+ * What the writer said of the lines of a variant or an AI edit, by its record, until it goes into the page (History's
+ * snapshot before it names the record) or has waited too long. Only the latest few are kept.
  */
-function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: string }[], cast: CastMember[], tone: boolean) {
+const byGeneration = new Map<ID, { speakers: WriterSpeaker[]; at: number }>()
+const GENERATIONS_KEPT = 30
+const GENERATION_FOR_MS = 30 * 60_000
+
+/** A variant or an AI edit finished: who says each of its lines, for when it goes into the scene. */
+export function noteGenerationSpeakers(generationId: ID, speakers: WriterSpeaker[]): void {
+  if (!speakers.length) return
+  const now = Date.now()
+  for (const [id, g] of byGeneration) if (now - g.at > GENERATION_FOR_MS) byGeneration.delete(id)
+  byGeneration.set(generationId, { speakers, at: now })
+  while (byGeneration.size > GENERATIONS_KEPT) byGeneration.delete(byGeneration.keys().next().value!)
+}
+
+/** A variant or an AI edit is going into the scene: what its writer said waits for the paragraphs it brings. */
+export function generationGoingIn(sceneId: ID, generationId: ID): void {
+  const g = byGeneration.get(generationId)
+  if (!g) return
+  byGeneration.delete(generationId)
+  noteWriterSpeakers(sceneId, g.speakers)
+}
+
+/** The writer's speakers still waiting for a scene's paragraphs (none once they have waited too long). */
+function writerFor(sceneId: ID): WriterSpeaker[] | undefined {
+  if (Date.now() - (writerNoted.get(sceneId) ?? 0) > WRITER_FOR_MS) {
+    fromWriter.delete(sceneId)
+    writerNoted.delete(sceneId)
+  }
+  return fromWriter.get(sceneId)
+}
+
+/**
+ * Puts the writer's speakers, how each line is said and the narrator's mood (writerBlocks.ts) on these paragraphs
+ * where nothing is kept yet, each tag used once, and keeps them as the AI's marks are kept. Returns the marks as they
+ * are now.
+ */
+function writerMarks(
+  worldId: ID,
+  sceneId: ID,
+  paragraphs: { pid: string; text: string }[],
+  cast: CastMember[],
+  tone: boolean,
+  /** Only these paragraphs take the writer's speakers (a draft's own new ones); all when left out. */
+  only?: ReadonlySet<string>
+) {
   const store = markStore()
   const kept = store.current(worldId, sceneId, paragraphs)
-  const given = fromWriter.get(sceneId)
+  const given = writerFor(sceneId)
   if (!given?.length) return kept
-  const blocks: Para[] = []
-  for (const p of paragraphs) {
-    const had = kept.get(p.pid)
-    const speakers: Record<string, string> = {}
-    const delivery: Record<string, LineDelivery> = {}
-    for (const q of spansIn(p.text)) {
-      // A sentence of narration: how the narrator reads it.
-      if (!q.quote) {
-        if (had?.delivery?.[q.key] !== undefined || delivery[q.key] !== undefined) continue
-        const n = given.findIndex((g) => g.key === q.key)
-        if (n < 0) continue
-        const [g] = given.splice(n, 1)
-        const { how } = readMark(`narration | ${g.tone}`)
-        if (how) delivery[q.key] = how
-        continue
-      }
-      if (had?.speakers?.[q.key] !== undefined || speakers[q.key] !== undefined) continue
-      const i = given.findIndex((g) => g.key === q.key)
-      if (i < 0) continue
-      const [g] = given.splice(i, 1)
-      // "the narrator", in any case, is the narrator; a name the writer wrote a little differently is still that page.
-      const { who, how } = readMark(`${g.who} | ${g.tone}`)
-      const name = who === NARRATION ? NARRATOR : who
-      speakers[q.key] = memberNamed(cast, name)?.name ?? name
-      // With Mark who says what, a line the writer gave no note on how it is said is left for the AI to note.
-      if (how || !tone) delivery[q.key] = how ?? {}
-    }
-    if (!Object.keys(speakers).length && !Object.keys(delivery).length) continue
-    const block = withLabels({ id: p.pid, text: p.text, ...had }, speakers)
-    blocks.push({ ...block, delivery: { ...delivery, ...(had?.delivery ?? {}) } })
-  }
-  if (!given.length) fromWriter.delete(sceneId)
+  const { blocks, left } = writerBlocks({ paragraphs, given, cast, kept, tone, only })
+  if (left.length) fromWriter.set(sceneId, left)
+  else fromWriter.delete(sceneId)
   if (!blocks.length) return kept
   try {
     store.save(worldId, sceneId, blocks, paragraphs, new Set(paragraphs.map((p) => p.pid)))
@@ -189,6 +210,8 @@ function writerMarks(worldId: ID, sceneId: ID, paragraphs: { pid: string; text: 
     console.warn('[read aloud] could not keep the writer’s speakers', e)
     return kept
   }
+  // These paragraphs are marked now, with no AI call to say so: the labels and a waiting reading hear it here.
+  emit('readAloud:marked', { sceneId, pids: blocks.map((b) => b.id), error: null })
   return store.current(worldId, sceneId, paragraphs)
 }
 
@@ -205,7 +228,7 @@ function marksWanted(): boolean {
  * what, who says each line and how; otherwise who says the quotes the rules can't place. Paragraphs already being
  * marked for the same words are left to that call (a reading's, or an earlier draft's). Failures are only logged.
  */
-function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[]): void {
+function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[], o: { sounds?: boolean } = {}): void {
   const w = world.maybeCurrentWorld()
   if (!w) return
   // Speech in italics is read as dialogue, as a reading reads it (italicSpeech.ts).
@@ -213,8 +236,11 @@ function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[]):
   const s = speech()
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, sceneId, sceneText)
-  // The writer said who says the new lines: only what it didn't is left to the AI.
-  const kept = writerMarks(w.id, sceneId, paragraphs, rc.cast.all, s.markSpeakers)
+  // The writer said who says the new lines: only what it didn't is left to the AI. What it said of lines that never
+  // reached the page goes, so it can't land on another line with the same words later.
+  const kept = writerMarks(w.id, sceneId, paragraphs, rc.cast.all, s.markSpeakers, new Set(pids))
+  fromWriter.delete(sceneId)
+  writerNoted.delete(sceneId)
   const marking: MarkingScene = {
     worldId: w.id,
     sceneId,
@@ -226,7 +252,7 @@ function markInBackground(sceneId: ID, onPage: ReadParagraph[], pids: string[]):
   }
   const want = new Set(pids)
   // Sound effects: the new paragraphs' sounds are marked too, quietly (src/main/sounds).
-  soundsInBackground(w.id, w.db, sceneId, paragraphs, pids)
+  if (o.sounds !== false) soundsInBackground(w.id, w.db, sceneId, paragraphs, pids)
   if (s.markSpeakers) {
     theMarker().noteAll(marking, want)
     return
@@ -272,17 +298,18 @@ export function draftActivity(e: DraftActivity): void {
 
 /**
  * "Show speakers and tone": a few words for each paragraph whose marks are in (who says it, and how when that is
- * known), from the paragraphs as the page shows them. Paragraphs being marked now, or not marked yet, get none.
+ * known), from the paragraphs as the page shows them. Paragraphs being marked now, or not marked yet, get none; with
+ * `mark`, those not marked yet are marked in the background (not while a draft is being written into the scene).
  */
 export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
   const w = world.maybeCurrentWorld()
   if (!w || typeof req?.sceneId !== 'string' || !Array.isArray(req.paragraphs)) return []
   const s = speech()
-  const paragraphs = req.paragraphs
+  const onPage = req.paragraphs
     .slice(0, 5000)
     .map(paragraphOf)
     .filter((p) => p.pid && /[\p{L}\p{N}]/u.test(p.text))
-    .map((p) => asSpoken(p).para)
+  const paragraphs = onPage.map((p) => asSpoken(p).para)
   if (!paragraphs.length) return []
   const sceneText = paragraphs.map((p) => p.text).join('\n\n')
   const rc = readingCast(w.db, req.sceneId, sceneText)
@@ -291,11 +318,36 @@ export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
   const busy = marker?.busyIn(w.id, req.sceneId) ?? new Set<string>()
   const byPid = new Map<string, PlannedClip[]>()
   for (const c of clips) (byPid.get(c.pid) ?? byPid.set(c.pid, []).get(c.pid)!).push(c)
-  return paragraphs.flatMap((p) => {
-    if (busy.has(p.pid) || !markedEnough(p.text, kept.get(p.pid), { tone: s.markSpeakers, unplaced: unplaced.has(p.pid) })) return []
+  const missing: string[] = []
+  const labels = paragraphs.flatMap((p) => {
+    if (busy.has(p.pid)) return []
+    if (!markedEnough(p.text, kept.get(p.pid), { tone: s.markSpeakers, unplaced: unplaced.has(p.pid) })) {
+      missing.push(p.pid)
+      return []
+    }
     const label = labelOf(byPid.get(p.pid) ?? [])
     return label ? [{ pid: p.pid, label }] : []
   })
+  if (req.mark && !isDrafting(req.sceneId)) {
+    const text = new Map(paragraphs.map((p) => [p.pid, p.text]))
+    const pids = missing.filter((pid) => labelTry(req.sceneId, pid, text.get(pid)!))
+    if (pids.length) markInBackground(req.sceneId, onPage, pids, { sounds: false })
+  }
+  return labels
+}
+
+/** Times the labels may start the AI marking the same words of a paragraph: a reply that left a line out is asked once more. */
+const LABEL_TRIES = 2
+const labelTries = new Map<string, number>()
+
+/** True when the labels may ask about these words again (and counts it). */
+function labelTry(sceneId: ID, pid: string, text: string): boolean {
+  if (labelTries.size > 5000) labelTries.clear()
+  const key = `${sceneId}:${pid}:${textHash(text)}`
+  const n = labelTries.get(key) ?? 0
+  if (n >= LABEL_TRIES) return false
+  labelTries.set(key, n + 1)
+  return true
 }
 
 /** A paragraph from the window, checked and cut to size. */

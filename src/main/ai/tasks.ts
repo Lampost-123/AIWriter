@@ -18,6 +18,7 @@ import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type SentParams, type StreamOutcome } from './client'
 import { isKeyFailure } from './errors'
 import { jobFailure, type JobModel } from './jobModel'
+import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 
 type DB = Database.Database
 type GenerationParams = GenerationRecord['params']
@@ -73,9 +74,20 @@ export interface TaskRequest {
     run(calls: ToolCall[]): Promise<{ results: ChatMessage[]; steps: AgentStep[] }>
     /** Said to the model before the last request (the one without tools). */
     lastWords?: () => string
+    /**
+     * Looks at an answer given without tools: a note to send back once, asking for the tools after all (an answer
+     * that says it made changes it never proposed), or null to keep the answer. The answer it replaces is taken out
+     * of the reply.
+     */
+    nudge?: (answer: string) => string | null
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
   }
+  /**
+   * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
+   * streams, so they never reach the window or the record, and this hears what they said once it ends.
+   */
+  onSpeakers?: (speakers: WriterSpeaker[], generationId: ID) => void
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -185,6 +197,7 @@ async function stream(
   o: { params: GenerationParams; limit: number; reply: number; thinkingRoom: number; start: SentParams; topP: number; promptTokens: number }
 ): Promise<TaskResult> {
   const { db, model, emit } = req
+  const tags = req.onSpeakers ? new SpeakerTagFilter() : null
   let progressTimer: ReturnType<typeof setTimeout> | null = null
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   const progress = (): void => {
@@ -214,7 +227,9 @@ async function stream(
         ...(tools?.length ? { tools } : {})
       },
       signal: r.controller.signal,
-      onText: (t) => {
+      onText: (raw) => {
+        const t = tags ? tags.push(raw) : raw
+        if (!t) return
         r.text += t
         progressTimer ??= setTimeout(progress, PROGRESS_MS)
         saveTimer ??= setTimeout(save, SAVE_MS)
@@ -248,13 +263,32 @@ async function stream(
   // the last step, asked without them). Tokens and cost add up over the steps; the words written along the way are
   // the reply.
   const steps: AgentStep[] = []
+  // Where the latest request's words start in the reply, so an answer sent back by `nudge` can be taken out.
+  let stepFrom = r.text.length
   let outcome = await once(req.messages, req.agent?.tools)
   if (req.agent) {
     let messages = req.messages
     const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
     const add = (a: number | null, b: number | null): number | null => (a == null && b == null ? null : (a ?? 0) + (b ?? 0))
-    for (let step = 1; outcome.status === 'complete' && outcome.toolCalls?.length && step < req.agent.maxSteps; step++) {
+    let nudged = false
+    for (let step = 1; outcome.status === 'complete' && step < req.agent.maxSteps; step++) {
       if (r.controller.signal.aborted) break
+      if (!outcome.toolCalls?.length) {
+        // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
+        const nudge = nudged ? null : (req.agent.nudge?.(outcome.text) ?? null)
+        if (!nudge) break
+        nudged = true
+        messages = [...messages, { role: 'assistant', content: outcome.text }, { role: 'user', content: nudge }]
+        r.text = r.text.slice(0, stepFrom)
+        progress()
+        stepFrom = r.text.length
+        outcome = await once(messages, req.agent.tools)
+        total.prompt = add(total.prompt, outcome.promptTokens)
+        total.cached = add(total.cached, outcome.cachedTokens)
+        total.completion = add(total.completion, outcome.completionTokens)
+        total.cost = add(total.cost, outcome.cost)
+        continue
+      }
       const calls = outcome.toolCalls
       let answered: Awaited<ReturnType<NonNullable<TaskRequest['agent']>['run']>>
       try {
@@ -279,6 +313,7 @@ async function stream(
       const last = step === req.agent.maxSteps - 1
       const note = last ? req.agent.lastWords?.() : undefined
       if (note) messages = [...messages, { role: 'user', content: note }]
+      stepFrom = r.text.length
       outcome = await once(messages, last ? undefined : req.agent.tools)
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)
@@ -298,6 +333,10 @@ async function stream(
   }
   if (progressTimer) clearTimeout(progressTimer)
   if (saveTimer) clearTimeout(saveTimer)
+  if (tags) {
+    r.text += tags.flush()
+    outcome = { ...outcome, text: r.text }
+  }
 
   const status = r.closed ? 'stopped' : outcome.status
   const error = status !== 'error' ? null : outcome.failure ? jobFailure(outcome.failure, model) : outcome.error
@@ -309,6 +348,7 @@ async function stream(
       const minPDropped = o.params.min_p != null && (outcome.sentParams.minP === false || !outcome.sentParams.sampling)
       const { min_p: _minP, ...withoutMinP } = o.params
       const used = minPDropped ? (sentAs(withoutMinP, outcome) ?? withoutMinP) : sentAs(o.params, outcome)
+      const kept = used ?? (cutOff || tags ? o.params : undefined)
       gens.finishGeneration(db, r.generationId, {
         status,
         error,
@@ -319,13 +359,22 @@ async function stream(
         cost,
         finishedAt: now(),
         // The reply limit and thinking as finally sent, so "What the AI saw" stays truthful.
-        params: used ? { ...used, ...(cutOff ? { cutOff: true } : {}) } : cutOff ? { ...o.params, cutOff: true } : undefined
+        params: kept
+          ? { ...kept, ...(cutOff ? { cutOff: true } : {}), ...(tags ? { speakerTags: tags.coverage(r.text) } : {}) }
+          : undefined
       })
     } catch (e) {
       console.error('Could not finish the record', e)
     }
   }
   running.delete(r.taskId)
+  if (tags) {
+    try {
+      req.onSpeakers?.(tags.speakers(r.text), r.generationId)
+    } catch (e) {
+      console.error('Could not keep who says each line', e)
+    }
+  }
   if (isKeyFailure(outcome.failure)) {
     try {
       req.onKeyRejected?.()

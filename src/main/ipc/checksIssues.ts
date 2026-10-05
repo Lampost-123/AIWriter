@@ -15,7 +15,9 @@ import { currentKeeper, entryEditedByHand, memoryStatus } from '../keeper'
 import { loadShapeSafe } from '../keeper/places'
 import { labeler } from '../memory/line'
 import { UserError } from '../util'
-import { closeRunsFor, setRunDeps, startCheck, stopCheck } from '../checks/runs'
+import { checkAfterDraft, closeRunsFor, setRunDeps, startCheck, stopCheck } from '../checks/runs'
+import { onDraftActivity } from '../ai/drafts'
+import { runOrWait } from '../usage'
 
 /** How long a check waits for the memory to catch up before checking with what it has. */
 const CATCH_UP_MS = 60_000
@@ -56,6 +58,29 @@ cdb.onIssuesTouched((storyId, sceneIds) => emit('issues:changed', { storyId, sce
 
 // Closing a world stops its checks first; nothing is written after.
 world.onWorldClosing((w) => closeRunsFor(w.db))
+
+// The critic (Adam, 2026-10-04): a draft that lands in a scene is checked in the background, a little after it ends
+// (so its words are saved into the scene first); another draft starting there meanwhile waits for that one instead.
+// Variants put nothing in the scene until one is picked.
+const AFTER_DRAFT_MS = 15_000
+const afterDraft = new Map<ID, ReturnType<typeof setTimeout>>()
+onDraftActivity((e) => {
+  if (e.variant) return
+  const was = afterDraft.get(e.sceneId)
+  if (was) clearTimeout(was)
+  afterDraft.delete(e.sceneId)
+  if (e.phase !== 'end') return
+  const db = world.maybeCurrentWorld()?.db
+  if (!db) return
+  const t = setTimeout(() => {
+    afterDraft.delete(e.sceneId)
+    if (world.maybeCurrentWorld()?.db !== db || !db.open) return
+    // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.
+    runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId))
+  }, Number(process.env.AIWRITE_AFTER_DRAFT_MS) || AFTER_DRAFT_MS)
+  t.unref?.()
+  afterDraft.set(e.sceneId, t)
+})
 
 /** The rows as issues, with entries' names and places as they are now. */
 function asIssues(rows: Record<string, unknown>[]): Issue[] {

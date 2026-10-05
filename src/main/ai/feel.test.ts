@@ -6,7 +6,7 @@ import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
 import { effectiveStyle } from '@shared/style'
 import type { StyleGuide, WritingPrefs } from '@shared/types'
 import { getEncoding } from 'js-tiktoken'
-import { aiPhrasesText, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText } from './prompts'
+import { aiPhrasesText, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText, sexSceneText } from './prompts'
 
 const prefs = (p: Partial<WritingPrefs> = {}): WritingPrefs => ({ spelling: 'UK', pov: 'Close third person', tense: 'Past tense', voiceNotes: '', avoidWords: [], ...p })
 const guide = (g: Partial<StyleGuide> = {}): StyleGuide => ({ ...defaultStyleGuide(), ...g })
@@ -92,6 +92,20 @@ describe('the genre and feel in the writer instructions', () => {
     expect(genreText(guide())).toBe('')
   })
 
+  it('adds the sex-scene craft only when romance is explicit and the job writes prose', () => {
+    expect(sexSceneText(guide())).toBe('')
+    expect(sexSceneText(guide({ intensity: { romance: 3 } }))).toBe('')
+    const skill = sexSceneText(guide({ intensity: { romance: 4 } }))
+    expect(skill).toMatch(/^Sex scenes\n/)
+    expect(skill).toContain('blunt words')
+    expect(skill).toContain('overrides the rule about subtext')
+    const explicit = guide({ intensity: { romance: 4 } })
+    expect(instructionsText(explicit)).toContain('Sex scenes')
+    expect(instructionsText(explicit, { trimSample: true })).toContain('Sex scenes')
+    expect(instructionsText(explicit, { proseRules: false })).not.toContain('Sex scenes')
+    expect(instructionsText(guide({ intensity: { romance: 3 } }))).not.toContain('Sex scenes')
+  })
+
   it('says each content level plainly and lets the content limits win', () => {
     expect(contentText(guide())).toBe('')
     const text = contentText(guide({ intensity: { romance: 2 }, contentLimits: 'No harm to animals.' }))
@@ -145,6 +159,18 @@ describe('the closing reminder of the genre and tone', () => {
       tone: 'Tense'
     })
     expect(text).toContain("- Keep the relentless momentum of thriller, and the story's tone: Tense.")
+    expect(text).not.toContain('blunt words')
+  })
+
+  it('reminds an explicit draft to play the sex on the page', () => {
+    const text = finalInstruction({
+      targetWords: 1000,
+      style: guide({ intensity: { romance: 4 } }),
+      hasBeats: true,
+      hasPrevious: false,
+      hasDirection: false
+    })
+    expect(text).toContain('play every act on the page in blunt words and direct talk')
   })
 })
 
@@ -165,5 +191,13 @@ describe('the closing reminder of the phrases to avoid', () => {
   it('goes in the closing instruction', () => {
     const text = finalInstruction({ targetWords: 1000, style: guide({ avoidPhrases: ['the shape of her'] }), hasBeats: true, hasPrevious: false, hasDirection: false })
     expect(text).toContain('- Never use “the shape of her”, or any close variation of it.')
+  })
+})
+
+describe('speech in quote marks', () => {
+  it('asks the writer to put everything said aloud in quote marks, a talking object’s too, but not in the short form', () => {
+    expect(instructionsText(guide())).toContain('Put everything said aloud in quote marks, whoever or whatever says it')
+    expect(instructionsText(guide(), { trimSample: true })).not.toContain('Put everything said aloud')
+    expect(instructionsText(guide(), { proseRules: false })).not.toContain('Put everything said aloud')
   })
 })

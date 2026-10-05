@@ -29,8 +29,7 @@
 //   fake/credit-limit      402 "can only afford" when max_tokens is over 3000, else a normal stream
 //   fake/memory-bad-json   memory keeper requests: a broken JSON reply the first time, then valid replies
 //   (any writer model)     asked to tag its dialogue with who says it (ai/speakerTags.ts), it tags "You came," as
-//                          {Tobin|dry, a little amused} and "I said I would." as {Mara|flat and certain}; asked
-//                          for the narration's mood too, the opening paragraph as {~low and watchful}
+//                          {Tobin|dry, a little amused} and "I said I would." as {Mara|flat and certain}
 //   fake/memory-junk       memory keeper requests: never valid JSON (the scene shows "Memory not updated")
 //   fake/overthinker       thinks for 3000 tokens whatever it is asked: with a reply limit of 3000 or less it sends only
 //                          thinking and stops with finish_reason "length"; with more, thinking then the reply
@@ -94,6 +93,21 @@ const SENTENCES = [
   'He turned his cup a slow quarter turn on the table and watched her over the rim.',
   'Outside, the bells of the Narrows began the hour, and then, close and deliberate, someone knocked at the door.'
 ]
+
+/**
+ * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v1]"): each
+ * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
+ * wears it. The scene's time is "evening". Null for any other request.
+ */
+function continuityReply(system, user) {
+  if (!system.includes('[AIWRITE-CONTINUITY v1]')) return null
+  const cast = (/^Characters in this story: (.+)$/m.exec(user)?.[1] ?? '').split(', ').filter(Boolean)
+  const scene = user.split('The scene:\n')[1] ?? ''
+  const characters = cast
+    .filter((n) => scene.includes(n))
+    .map((name) => ({ name, where: 'in the scene', wearing: /in (?:her|his) ([a-z ]+cloak)/.exec(scene)?.[1] ?? '' }))
+  return JSON.stringify({ time: 'evening', weather: '', light: '', characters })
+}
 
 /** Deterministic prose of about `words` words, in paragraphs. */
 export function fakeProse(words) {
@@ -337,14 +351,13 @@ export async function startFakeProvider(options = {}) {
     memory ??= fakeBuilderReply(system, messages, model)
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
+    memory ??= continuityReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
-    if (memory === null && lastUser.includes('put who says it in curly braces')) {
+    if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
-      // Asked for the narration's mood too: the opening paragraph's.
-      if (lastUser.includes('how the narrator reads it in curly braces')) full = full.replace('The rain had not let up', '{~low and watchful}The rain had not let up')
     }
     // A memory reply longer than the reply limit (about 4 characters a token) is cut off there, as a real model's would be.
     const cut = memory !== null && memory.length > limit * 4

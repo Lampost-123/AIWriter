@@ -10,6 +10,7 @@
 //           shouted) when the memory says <Name> died, is dead or was killed: must fix, with no fix.
 //   other checks find nothing.
 //   story   (comparing two stories) finds nothing.
+//   Every reply also says what each check looked at ("checked"): "Looked at <check>.", ok unless it raised something.
 // The model fake/check-bad-json answers its first check with words, not JSON (asked once more, it answers
 // properly). Returns null for any other request.
 
@@ -98,6 +99,7 @@ function checkIssues(system, user) {
           severity: 'must-fix',
           quote: s,
           message: `${e.name} is dead by this point in the story, but speaks here.`,
+          advice: 'Give the line to someone alive, or cut it.',
           conflicts: { entry: e.id }
         })
       }
@@ -112,5 +114,9 @@ export function checkReply(system, messages, model = '') {
   const users = (messages ?? []).filter((m) => m.role === 'user').map((m) => String(m.content ?? ''))
   if (model === 'fake/check-bad-json' && users.length === 1 && badJsonSeen++ === 0) return 'I found a couple of things worth a look in this scene.'
   if (/^\[AIWRITE-CHECK v1\] story/.test(system)) return JSON.stringify({ issues: [] })
-  return JSON.stringify({ issues: checkIssues(system, users[0] ?? '') }, null, 1)
+  const issues = checkIssues(system, users[0] ?? '')
+  // What each check looked at (the critic's report): "Looked at <check>." with ok unless it raised something.
+  const checks = system.split('\n')[0].slice(MARKER.length).split(',').map((c) => c.trim()).filter(Boolean)
+  const checked = checks.map((check) => ({ check, ok: !issues.some((i) => i.check === check), note: `Looked at ${check}.` }))
+  return JSON.stringify({ issues, checked }, null, 1)
 }

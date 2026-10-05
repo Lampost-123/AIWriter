@@ -53,11 +53,10 @@ export async function assemble(
     maxOutput: settings.models.writer?.maxOutput ?? null,
     creativity: settings.creativity
   })
-  // With reading aloud on, the writer says who speaks each line as it writes (ai/speakerTags.ts).
+  // With reading aloud on, the writer says who speaks each line and how as it writes (ai/speakerTags.ts). Only the
+  // dialogue: asked for the narration's mood as well, writers tagged a fifth fewer lines (live checks, 4 October 2026).
   const speech = settings.speech
-  // With Mark who says what, how the narration is read too.
-  const tags = speech?.readAloud || speech?.showSpeakers ? { narration: !!speech.markSpeakers } : undefined
-  const prepared = prepareContext(input, { ...extras, speakerTags: tags })
+  const prepared = prepareContext(input, { ...extras, speakerTags: !!(speech?.readAloud || speech?.showSpeakers) })
   const counts = await countCached(prepared.texts)
   return { input, preview: finishContext(prepared, counts) }
 }

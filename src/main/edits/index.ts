@@ -14,6 +14,8 @@ import * as providers from '../ai/providers'
 import { jobModel } from '../ai/jobModel'
 import { providerNotes } from '../ai/draftFlow'
 import { startTask } from '../ai/tasks'
+import type { WriterSpeaker } from '../ai/speakerTags'
+import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing } from './briefing'
 import { editInput } from './input'
@@ -29,11 +31,15 @@ export function startEdit(raw: EditInput): EditStart {
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
   const memory = sceneMemory(db, input.sceneId)
+  // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
+  const speech = settings.speech
+  const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
   const briefing = editBriefing(input, {
     style: effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
     entries: memory.entries,
-    contextLength: model.choice.contextLength ?? null
+    contextLength: model.choice.contextLength ?? null,
+    speakerTags
   })
   if (!briefing.ok) return briefing
 
@@ -52,7 +58,9 @@ export function startEdit(raw: EditInput): EditStart {
     entries: briefing.entries,
     extra: { tool },
     emit,
-    onKeyRejected: providerNotes(model.target.id).onKeyRejected
+    onKeyRejected: providerNotes(model.target.id).onKeyRejected,
+    // Kept until Adam accepts the change (History's snapshot before it names this record).
+    ...(speakerTags ? { onSpeakers: (speakers: WriterSpeaker[], id: string) => noteGenerationSpeakers(id, speakers) } : {})
   })
   return { ok: true, generationId, note: briefing.note }
 }

@@ -109,8 +109,8 @@ describe('who says each line over a conversation', () => {
 
   it('lets the scene’s own cast narrow who a paragraph names, while a tag can name anyone', () => {
     const scene: SceneCast = { all: world, scene: [mara], pov: null }
-    // Tomas isn't in this scene: naming him in the narration doesn't make the line his...
-    expect(speakers(['Tomas was gone. “Hello?”'], scene)).toEqual([null])
+    // Tomas isn't in this scene: naming him in the narration doesn't make the line his; Mara is alone, so it's hers...
+    expect(speakers(['Tomas was gone. “Hello?”'], scene)).toEqual(['mara'])
     // ...but a tag naming him does.
     expect(speakers(['“Hello?” Tomas called.'], scene)).toEqual(['tom'])
   })
@@ -169,5 +169,27 @@ describe('a name the AI gives back', () => {
     expect(who('Adam and Mara')).toBeNull()
     expect(who('the guard')).toBeNull()
     expect(who('narrator')).toBeNull()
+  })
+})
+
+describe('someone who isn’t in the scene', () => {
+  const jane = castOf([
+    { id: 'jane', name: 'Jane', aliases: [], about: '' },
+    { id: 'laura', name: 'Laura', aliases: [], about: '' }
+  ])
+  const [j, l] = jane
+  it('isn’t given a line because the narration thinks of them', () => {
+    const anyone = everyone(jane)
+    expect(speakers(['She thought of Laura. “Where are you?”'], anyone)).toEqual([null])
+    expect(speakers(['Laura had always laughed at that. “Not funny now.”'], anyone)).toEqual(['laura'])
+    // A sentence that opens with the speaker's name still gives them the line.
+    expect(speakers(['Jane set the phone down. “Fine.”'], anyone)).toEqual(['jane'])
+  })
+
+  it('isn’t given a turn after speaking in a memory, when the card has only Jane', () => {
+    const alone: SceneCast = { all: jane, scene: [j], pov: j }
+    const lines = ['“Be careful,” Laura said once, years ago.', '“I am careful,” Jane whispered.', 'She waited.', '“Are you there?”']
+    expect(speakers(lines, alone)).toEqual(['laura', 'jane', 'jane'])
+    expect(l.id).toBe('laura')
   })
 })

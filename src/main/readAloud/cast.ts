@@ -39,6 +39,8 @@ export interface CastMember {
   names: string[]
   voice?: CharacterVoice
   about?: string
+  /** Told to the AI: on this scene's card, so in the scene (not only mentioned or remembered). */
+  here?: boolean
 }
 
 /** A name as a pattern: its own characters, and any run of spaces where it has one. */
@@ -78,7 +80,12 @@ interface NamePatterns {
   after: RegExp[]
   before: RegExp[]
   named: RegExp[]
+  /** Their name opening a sentence of the narration: "Jane set the cup down." (the one doing something). */
+  subject: RegExp[]
 }
+
+/** A sentence's start: the paragraph's, or after a full stop (with any closing quote or bracket) and a space. */
+const SENTENCE_START = String.raw`(?:^|[.!?…]["”’)\]]*\s+)(?:(?:Then|But|And|So|Now|Still|Slowly|Finally|Instead),?\s+)?`
 
 /** Made once for each cast member (a plan reads every quote against every character). */
 const patterns = new WeakMap<CastMember, NamePatterns>()
@@ -89,7 +96,8 @@ function patternsOf(c: CastMember): NamePatterns {
     p = {
       after: groups.map((g) => tagAfter(g.any, g.flags)),
       before: groups.map((g) => tagBefore(g.any, g.flags)),
-      named: groups.map((g) => new RegExp(`${START}${g.any}${END}`, g.flags))
+      named: groups.map((g) => new RegExp(`${START}${g.any}${END}`, g.flags)),
+      subject: groups.map((g) => new RegExp(`${SENTENCE_START}${g.any}${END}`, g.flags))
     }
     patterns.set(c, p)
   }
@@ -147,7 +155,7 @@ const bareName = (s: string): string =>
 /**
  * A name the AI gave back ("Ines", "the captain") as a cast member. The AI doesn't always write a name exactly as the
  * page has it: "Adam (whispering)" or "Adam." is Adam, and so is "Adam Reyes" for a page called "Adam", when only one
- * character's name is in it ("Adam's brother" is not Adam).
+ * character's name is in it ("Adam's brother" is not Adam), and "Wen" is Old Wen when no one else's name has it.
  */
 export function memberNamed(cast: CastMember[], who: string | undefined): CastMember | null {
   const w = bareName(who ?? '')
@@ -160,7 +168,10 @@ export function memberNamed(cast: CastMember[], who: string | undefined): CastMe
       return name.length >= 3 && new RegExp(`${START}${esc(name)}(?!${NAME_CHAR}|['’]s${END})`, 'iu').test(w)
     })
   )
-  return within.length === 1 ? within[0] : null
+  if (within.length === 1) return within[0]
+  // One word of a longer name ("Wen" for Old Wen), when nobody else's name has it.
+  const part = /^\S{3,}$/u.test(w) ? cast.filter((c) => c.names.some((n) => bareName(n).split(/\s+/).length > 1 && bareName(n).split(/\s+/).includes(w))) : []
+  return within.length === 0 && part.length === 1 ? part[0] : null
 }
 
 /**
@@ -178,10 +189,14 @@ export function speakerOf(para: string, at: number, len: number, cast: SceneCast
   if (tagged.length) return { who: tagged.sort((a, b) => b.names[0].length - a.names[0].length)[0], how: 'tagged' }
   // Told in the first person: "I said" is the viewpoint character.
   if (cast.pov && (I_AFTER.test(after) || I_BEFORE.test(before))) return { who: cast.pov, how: 'tagged' }
-  // Named in the narration, not inside a quote: "Where's Tomas?" is not Tomas talking.
-  const narration = para.replace(/["“][^"”]*["”]/g, ' ')
-  const named = cast.scene.filter((c) => namedIn(c, narration))
-  return named.length === 1 ? { who: named[0], how: 'named' } : null
+  // Named in the narration as the one doing something, a sentence opening with their name ("Jane set the cup down."),
+  // not inside a quote ("Where's Tomas?" is not Tomas talking) or as who someone thinks of ("She thought of Laura.").
+  const narration = para.replace(/["“][^"”]*["”]/g, '. ')
+  const named = cast.scene.filter((c) => patternsOf(c).subject.some((re) => re.test(narration)))
+  if (named.length === 1) return { who: named[0], how: 'named' }
+  // A scene whose card has one character in it: an untagged line is theirs.
+  if (cast.scene !== cast.all && cast.scene.length === 1) return { who: cast.scene[0], how: 'named' }
+  return null
 }
 
 /** A word of a tag's subject: letters and numbers in any alphabet, with an apostrophe or a hyphen inside. */
@@ -284,7 +299,8 @@ export function attributeRun(pieces: RunPiece[], cast: SceneCast): (Attribution 
     if (!tagged && p.label) found = { who: p.label, how: 'label' }
     else if (sameTagged && !tagged) found = { who: last!, how: 'tagged' }
     else if (!found && last && block === lastPara) found = { who: last, how: lastHow }
-    else if (!found && last && other && block !== lastPara) found = { who: other, how: 'turn' }
+    // A turn goes back only to someone in the scene: a character who spoke only in a memory or a call isn't here.
+    else if (!found && last && other && block !== lastPara && cast.scene.includes(other)) found = { who: other, how: 'turn' }
     if (found) {
       strangerIn = undefined
       if (found.who !== last) {

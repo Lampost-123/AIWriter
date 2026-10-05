@@ -35,8 +35,11 @@ export function speechSpans(text: string, italics: readonly [number, number][] |
     const count = (re: RegExp): number => before.match(re)?.length ?? 0
     if (count(/“/g) > count(/”/g) || count(/"/g) % 2 === 1) continue
     const several = words.trim().split(/\s+/).length >= 2
-    // Speech before a tag ends with its own punctuation ("Go on," said); a stressed word doesn't.
-    const tagged = (/[,.!?…—–-]["”’]?$/.test(words) && TAG_AFTER.test(text.slice(to, to + 60))) || TAG_BEFORE.test(before.slice(-120))
+    // Speech before a tag ends with punctuation, in the italics ("*Go on,* said") or just after them ("*Go on*,
+    // said") when it opens its sentence; a word stressed mid-sentence doesn't ("She had *never*, she said").
+    const opensSentence = /(?:^|[.!?…:]["”’)]*\s+)$/.test(before)
+    const ends = /[,.!?…—–-]["”’]?$/.test(words) || (opensSentence && /^[,.!?…—–-]/.test(text.slice(to)))
+    const tagged = (ends && TAG_AFTER.test(text.slice(to, to + 60))) || TAG_BEFORE.test(before.slice(-120))
     if (tagged || (speaking && several)) {
       out.push([from, to])
       speaking = true

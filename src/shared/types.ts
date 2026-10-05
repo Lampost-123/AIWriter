@@ -633,6 +633,12 @@ export interface DraftOptions {
    * waits in the page to be accepted or rejected. Left out: off.
    */
   polish?: boolean
+  /**
+   * A fresh take (Adam, 2026-10-04): a redraft that doesn't build on the scene's earlier draft. What the memory read
+   * from that draft isn't given as what this scene should bring about (only Adam's own notes for the scene are).
+   * Left out: off.
+   */
+  fresh?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
@@ -742,6 +748,11 @@ export interface GenerationRecord extends GenerationSummary {
     polishOf?: ID
     /** Read aloud's AI marking the sounds of a passage (sound effects): a 'speech' record. */
     sounds?: boolean
+    /**
+     * The writer was asked to tag who says each line (ai/speakerTags.ts): how many quotes the reply has, how many it
+     * tagged and gave a tone, its narration moods, and tags that matched no line.
+     */
+    speakerTags?: { quotes: number; tagged: number; toned: number; moods: number; dropped: number }
   }
   direction: string
   blocks: ContextBlock[]

@@ -2,6 +2,18 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The work is done in src/main/ask/*; this file connects it to
 // the open world, the settings, the chat and brainstorm model and the window.
 import type { Handlers } from './index'
+import { asksForChanges, claimsChanges, PROPOSE_NOW } from '@shared/askChanges'
+import type { Proposal } from '@shared/contracts/ask'
+
+/**
+ * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
+ * proposing (a chat whose past answers read as words alone teaches the model to write changes out, not propose them).
+ */
+function withProposals(answer: string, proposals: Proposal[]): string {
+  if (!proposals.length) return answer
+  const what = proposals.map((p) => `change ${p.id} (${p.kind === 'text' ? 'an edit' : p.kind === 'passage' ? 'a rewrite' : p.kind}, ${p.status})`).join(', ')
+  return `${answer}\n\n[Proposed with the tools: ${what}]`
+}
 import type { AskApi, AskTurn } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { UserError, now } from '../util'
@@ -79,7 +91,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
       question,
       storyId,
       sceneId: input.sceneId ?? null,
-      turns: earlier.map((t) => ({ question: t.question, answer: t.answer })),
+      turns: earlier.map((t) => ({ question: t.question, answer: withProposals(t.answer, t.proposals ?? []) })),
       prefs: getWritingPrefs(),
       contextLength: model.choice.contextLength ?? null
     })
@@ -123,6 +135,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
         maxSteps: MAX_STEPS,
         run: (calls) => agent.runAll(calls),
         lastWords: () => agent.lastWords(),
+        // An answer that claims changes it never proposed is asked once more to propose them.
+        // An answer with no proposals is asked once more when it claims changes, or when the writer asked for edits.
+        nudge: (answer) => (agent.proposals.length === 0 && (claimsChanges(answer) || asksForChanges(question)) ? PROPOSE_NOW : null),
         extraParams: () => (agent.proposals.length ? { proposals: agent.proposals } : {})
       }
     }))

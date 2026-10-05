@@ -25,7 +25,9 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
  * only part of it could be read (a single issue found inside something else): what such a reply didn't
  * mention mustn't be taken as gone.
  */
-export function readCheckReply(text: string): { ok: true; items: Record<string, unknown>[]; complete: boolean } | { ok: false; why: string } {
+export function readCheckReply(
+  text: string
+): { ok: true; items: Record<string, unknown>[]; complete: boolean; checked?: Record<string, unknown>[] } | { ok: false; why: string } {
   // A bare list of issues is fine too, fenced or not, with words before it or not.
   const list = topLevelList(text)
   if (list !== null) {
@@ -43,9 +45,11 @@ export function readCheckReply(text: string): { ok: true; items: Record<string, 
     if ('quote' in v && 'message' in v) return { ok: true, items: [v], complete: false }
     return { ok: false, why: 'it had no "issues" list' }
   }
-  if (issues === null) return { ok: true, items: [], complete: true }
+  // What each check looked at and found good (the critic's report): optional, an old-style reply has none.
+  const checked = Array.isArray(v.checked) ? v.checked.filter(isObj) : undefined
+  if (issues === null) return { ok: true, items: [], complete: true, checked }
   if (!Array.isArray(issues)) return { ok: false, why: 'its "issues" was not a list' }
-  return { ok: true, items: issues.filter(isObj), complete: true }
+  return { ok: true, items: issues.filter(isObj), complete: true, checked }
 }
 
 /** A list at the top of the reply (in a code fence, or the first bracket before any brace), as text; null when there is none. */
@@ -166,9 +170,42 @@ function namedMessage(message: string, ctx: Pick<ReadContext, 'entries' | 'scene
 }
 
 /** The issues of a reply that can be trusted, ready to save (one per key). */
+/**
+ * True when an "issue" says what was checked was fine ("This line fits his voice. No problem."): a model that lists
+ * what it looked at as issues (seen in a live run) buries the real ones. One that goes on to say what is wrong
+ * ("consistent, but ...") stays.
+ */
+export function saysFine(message: unknown): boolean {
+  const m = typeof message === 'string' ? message : ''
+  if (!m.trim()) return false
+  const fine = /\b(no (issue|problem|slip|error|inconsistency|conflict|contradiction)s?\b|no (tense|pov|point of view|style) slip|(is|are|seems|remains) consistent|consistent with|this is fine|which is fine|is not a problem|isn['’]t a problem|nothing wrong|fits (his|her|their|its|the)\b|matches (his|her|their|the))/i
+  const butWrong = /\b(but|however|yet|although|contradict|inconsistent|doesn['’]t match|does not match|wrong)\b/i
+  if (!fine.test(m)) return false
+  // The verdict at the end decides: "..., but the scene says grey: this matches, no problem."
+  const last = m.trim().split(/(?<=[.!?])\s+|\s+[–—-]\s+|;\s*/).filter(Boolean).at(-1) ?? m
+  const finalFine = /\b(no (issue|problem|slip|error|inconsistency|conflict|contradiction)s?|(which|this|that|it) (matches|is fine|fits|is consistent)|(it['’]s|is) fine|not a problem)\b/i
+  return (finalFine.test(last) && !butWrong.test(last)) || !butWrong.test(m)
+}
+
+/**
+ * True when a knowledge issue rests only on the memory not listing the knowledge ("the memory does not list Dov
+ * knowing this"): the memory's who-knows-what is never complete, so that alone isn't a problem (three live runs
+ * raised dozens). One that says the knowledge comes later, or that they weren't there, stays.
+ */
+export function onlyUnlisted(item: Record<string, unknown>): boolean {
+  if (String(item.check ?? '') !== 'knowledge') return false
+  const m = typeof item.message === 'string' ? item.message : ''
+  const unlisted =
+    /\b(memory|knowledge table|who knows what)\b[^.]*\b(does not|doesn['’]t|did not|never)\s+(list|show|record|say|mention|include|note)|\bnot (listed|recorded|shown) (as known|in the memory)|\bno record\b|\bis known only (by|to)\b|\bknown only (by|to)\b/i
+  const reallyCannot =
+    /\b(later|not yet|before (she|he|they|it)\b[^.]*\b(learn|hear|find|see)|until\b|was not (there|present)|wasn['’]t (there|present)|not present|in a later scene|happens? (later|after))\b/i
+  return unlisted.test(m) && !reallyCannot.test(m)
+}
+
 export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext): FoundIssue[] {
   const out = new Map<string, FoundIssue>()
   for (const item of items) {
+    if (saysFine(item.message) || onlyUnlisted(item)) continue
     const check = checkOf(item.check ?? item.type ?? item.kind, ctx.checks)
     if (!check) continue
     const found = findSceneQuote(ctx.text, item.quote)
@@ -187,6 +224,8 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
     let fix = str(item.fix ?? item.rewrite, 2000) || null
     // A rewrite of "A ... B" can't take the place of A alone; nor is one that changes nothing a fix.
     if (fix && (!found.whole || plainQuote(fix) === plainQuote(quote))) fix = null
+    // How to put it right in a sentence, when the quote's own rewrite isn't the whole answer.
+    const advice = str(item.advice ?? item.suggestion, 400)
     const memory = str(item.memory, 200)
     const text = str(item.text, 200)
     // The text is right and one of Adam's own notes is wrong: offered only for one short value of a fact.
@@ -214,6 +253,7 @@ export function foundIssues(items: Record<string, unknown>[], ctx: ReadContext):
         check,
         sources,
         fix,
+        ...(advice ? { advice } : {}),
         memoryFix,
         entryId: entry?.id,
         field,

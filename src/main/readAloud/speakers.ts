@@ -171,9 +171,15 @@ const castLines = (cast: CastMember[]): string =>
   cast
     .map(
       (c) =>
-        `- ${c.name}${c.names.length > 1 ? ` (also ${c.names.filter((n) => n !== c.name).join(', ')})` : ''}${c.about ? `: ${c.about}` : ''}`
+        `- ${c.name}${c.names.length > 1 ? ` (also ${c.names.filter((n) => n !== c.name).join(', ')})` : ''}${c.here ? ' [in this scene]' : ''}${c.about ? `: ${c.about}` : ''}`
     )
     .join('\n') || '- (none listed)'
+
+/** Said when the scene's card says who is in it: someone only mentioned or remembered isn't speaking. */
+const hereNote = (cast: CastMember[]): string =>
+  cast.some((c) => c.here)
+    ? '\nThose marked [in this scene] are the ones there. Someone only mentioned, remembered or thought about does not speak in it, unless the text shows them arriving or quotes them (a memory, a letter, a call).'
+    : ''
 
 /** Instructions for marking who says each quote. */
 export const LABEL_PROMPT = (cast: CastMember[]): string => `${MARKER} speakers
@@ -181,7 +187,7 @@ You mark who speaks each line of dialogue in a scene from a novel, so an audiobo
 Every quoted line in the scene has a number in square brackets just before it, like [3]“Get out.”
 
 Characters in this story:
-${castLines(cast)}
+${castLines(cast)}${hereNote(cast)}
 
 Reply with only a JSON object mapping every number to who says that line, like {"1": "${cast[0]?.name ?? 'Mara'}", "2": "the guard"}.
 - Use a listed character's name exactly as written above.
@@ -268,6 +274,8 @@ interface Ask {
   blockId: string
   key: string
   quote: boolean
+  /** A quote whose speaker is known already: asked about how it is said for the second time. */
+  again?: boolean
 }
 
 /** Part of a scene to mark: its paragraphs as sent, a number before each line that needs a note, and the text before it. */
@@ -310,7 +318,14 @@ export function markParts(blocks: Para[], ids: string[], busy: Set<string> = new
       let text = b.text
       for (let k = spans.length - 1; k >= 0; k--)
         text = `${text.slice(0, spans[k].at)}[${part.asks.length + k + 1}]${text.slice(spans[k].at)}`
-      part.asks.push(...spans.map((x) => ({ blockId: b.id, key: x.key, quote: x.quote })))
+      part.asks.push(
+        ...spans.map((x) => ({
+          blockId: b.id,
+          key: x.key,
+          quote: x.quote,
+          ...(x.quote && b.speakers?.[x.key] !== undefined ? { again: true } : {})
+        }))
+      )
       part.text += (part.text ? '\n\n' : '') + text
       if (spans.length) {
         part.blockIds.push(b.id)
@@ -325,18 +340,21 @@ export function markParts(blocks: Para[], ids: string[], busy: Set<string> = new
 
 const SOUND_NAMES = BREEZE_TAGS.map((t) => t.slice(1, -1)).join(', ')
 
+/** How a line of dialogue is said, as the marker and the writer (ai/speakerTags.ts) are both told to note it. */
+export const HOW_NOTE =
+  'a note to the voice actor, under 15 words: the feeling and how strong it is, the intent behind it, and what the listener hears when the feeling changes the voice (loud or hushed, breathy, trembling, cracking, thick with tears, a smile in it, through clenched teeth). Fit each line to its moment, so the lines of a scene do not all sound alike. Never describe the voice itself (no age, gender or accent): it is fixed.'
 /** Instructions for "Mark who says what": who says each line and how, and how the narration is read. */
 export const MARK_PROMPT = (cast: CastMember[], pov?: string): string => `${MARKER} marks
 You mark a passage of a novel for its audiobook, read by an expressive text-to-speech voice that follows a short note on how each line is said. Each line that needs a note has a number in square brackets just before it: a quoted line of dialogue, like [3]“Get out.”, or a sentence of narration, like [4]He turned back to the window.
 
 Characters in this story:
-${castLines(cast)}${pov ? `\nThe story is told by ${pov}: lines the narrator says aloud are ${pov}'s.` : ''}
+${castLines(cast)}${hereNote(cast)}${pov ? `\nThe story is told by ${pov}: lines the narrator says aloud are ${pov}'s.` : ''}
 
 Reply with only a JSON object from each number to its note, like {"1": "${cast[0]?.name ?? 'Mara'} | coldly, barely above a whisper, daring him to argue | slow | sigh", "2": "hushed, dread building | slow"}.
 
 A line of dialogue: who says it | how it is said | pace | sound.
 - Who: a listed character's name exactly as written above; someone not listed, a few plain words (the guard). Work it out as a careful reader would: the dialogue tag and the action beside the line, who "he" or "she" is at that point, who is being answered, and whose turn it is in a back-and-forth. A quote nobody says aloud (a sign, a title, a word being talked about): ${NARRATOR}.
-- How: a note to the voice actor, under 15 words: the feeling and how strong it is, the intent behind it, and what the listener hears when the feeling changes the voice (loud or hushed, breathy, trembling, cracking, thick with tears, a smile in it, through clenched teeth). Read it from the dialogue tag, what the speaker is doing, and what has happened in the scene so far. Fit each line to its moment, so the lines of a scene do not all sound alike. Never describe the voice itself (no age, gender or accent): it is fixed.
+- How: ${HOW_NOTE} Read it from the dialogue tag, what the speaker is doing, and what has happened in the scene so far.
 - Pace, only when it is not ordinary: slow or fast.
 - Sound, only when the speaker makes one as the line starts: crying, laughing, a gasp, a sigh, a breath before something hard to say.
 Every number gets a note, in order: never skip a number or renumber.
@@ -383,6 +401,8 @@ export function marksFrom(part: MarkPart, said: Record<string, string>, pov?: st
   const out = new Map<string, BlockMarks>()
   const of = (id: string): BlockMarks => out.get(id) ?? out.set(id, { speakers: {}, delivery: {} }).get(id)!
   const told = new Set<string>()
+  // The last narration note so far: "same" carries it on (its tone and pace; a sound happens once).
+  let last: LineDelivery | undefined
   part.asks.forEach((a, i) => {
     const raw = said[String(i + 1)]?.trim() ?? ''
     const m = of(a.blockId)
@@ -395,14 +415,22 @@ export function marksFrom(part: MarkPart, said: Record<string, string>, pov?: st
       }
       const name = who === NARRATION ? NARRATOR : pov && /^(?:i|me|myself)$/i.test(who) ? pov : who
       m.speakers[a.key] = name || UNKNOWN
-      m.delivery[a.key] = how && name !== NARRATOR ? how : {}
+      // A line given a speaker but no note on how it is said is asked about once more.
+      if (how && name !== NARRATOR) m.delivery[a.key] = how
+      else if (!name || name === NARRATOR || a.again) m.delivery[a.key] = {}
       return
     }
-    if (SAME.test(raw.replace(/[."']/g, '').trim())) return
+    if (SAME.test(raw.replace(/[."']/g, '').trim())) {
+      if (!last || told.has(a.blockId)) return
+      m.delivery[a.key] = { ...last }
+      told.add(a.blockId)
+      return
+    }
     const { how } = readMark(/^\s*(?:the )?narrat(?:ion|or)\s*(?:\||$)/i.test(raw) ? raw : `narration | ${raw}`)
     if (!how || startsWithSpeaker(raw, cast, pov)) return
     m.delivery[a.key] = how
     told.add(a.blockId)
+    last = { ...(how.tone ? { tone: how.tone } : {}), ...(how.pace ? { pace: how.pace } : {}) }
   })
   for (const a of part.asks) {
     if (a.quote || told.has(a.blockId)) continue

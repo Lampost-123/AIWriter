@@ -5,13 +5,15 @@
 // reading aloud (readAloud/index.ts, noteWriterSpeakers). Works across chunk boundaries: a tag split between two
 // chunks is held back until it is complete. No Electron imports.
 
-import { NARRATION, QUOTE, quoteKey, SENTENCE } from '../readAloud/speakers'
+import type { GenerationRecord } from '@shared/types'
+import { HOW_NOTE, NARRATION, QUOTE, quoteKey, readMark, SENTENCE } from '../readAloud/speakers'
 
 /** The longest a tag may be; a brace with no close within it is ordinary text. */
-const MAX_TAG = 200
+const MAX_TAG = 260
 /** Speech in italics, as the writer writes it: between asterisks, within a line. */
 const ITALIC_SPEECH = /\*[^*\n]+\*/.source
-const TAG = /^\{([^{}|\n]{1,60})(?:\|([^{}\n]*))?\}$/
+/** A tag: a name (or a tilde and the narration's mood, which may run long), then its fields after bars. */
+const TAG = /^\{(~[^{}\n]{1,240}|[^{}|\n]{1,120})(?:\|([^{}\n]*))?\}$/
 
 /** A tag as found: where it was in the text as the page has it, who it names, and how the line is said. */
 interface FoundTag {
@@ -29,6 +31,15 @@ export interface WriterSpeaker {
   key: string
   who: string
   tone: string
+  pace?: 'slow' | 'fast'
+  /** A Breeze sound tag at the line's start ("(sigh)"). */
+  sound?: string
+}
+
+/** A tag's fields read as the marker's notes are (readMark): the tone, and a pace and sound when given. */
+function fieldsOf(raw: string): Pick<WriterSpeaker, 'tone' | 'pace' | 'sound'> {
+  const how = readMark(`x | ${raw}`).how ?? {}
+  return { tone: how.tone ?? '', ...(how.pace ? { pace: how.pace } : {}), ...(how.sound ? { sound: how.sound } : {}) }
 }
 
 export class SpeakerTagFilter {
@@ -90,52 +101,56 @@ export class SpeakerTagFilter {
     return this.push(h)
   }
 
+  /** How well the writer tagged `text` (the draft as given out): kept with its record, to compare models. */
+  coverage(text: string): NonNullable<GenerationRecord['params']['speakerTags']> {
+    const said = this.speakers(text)
+    const lines = said.filter((s) => !s.key.startsWith(NARRATION))
+    const quotes = [...text.matchAll(new RegExp(QUOTE.source, 'g'))].filter((m) => quoteKey(m[0])).length
+    return {
+      quotes,
+      tagged: lines.length,
+      toned: lines.filter((s) => s.tone).length,
+      moods: said.length - lines.length,
+      dropped: this.tags.filter((t) => t.who).length - said.length
+    }
+  }
+
   /**
-   * The speakers of the lines in `text` (the draft as given out), by the tags before their quotes. A tag goes with
-   * the quote (or italic speech) it stands just before, as asked; a writer that put it elsewhere is still followed:
-   * inside the quote after its opening mark, right after the quote, before the narration that leads to the quote in
-   * the same paragraph, or at the end of the paragraph after its last quote. Each line takes one tag. A tag that
-   * only says "she" or "he" names nobody: the rules, or the AI, say who that is.
+   * The speakers of the lines in `text` (the draft as given out). A tag belongs to the line it sits inside (just
+   * after the opening quote mark), else to the next line in its paragraph before the next speaker's tag, so a tag
+   * a little early ("{Mara|cold} Mara turned. “Get out.”") still finds its line.
    */
   speakers(text: string): WriterSpeaker[] {
     const out: WriterSpeaker[] = []
-    const lines = [...text.matchAll(new RegExp(`${QUOTE.source}|${ITALIC_SPEECH}`, 'g'))].map((m) => ({
-      at: m.index!,
-      end: m.index! + m[0].length,
-      key: quoteKey(m[0])
-    }))
-    const taken = new Set<number>()
-    const claim = (pick: (l: (typeof lines)[number]) => boolean): (typeof lines)[number] | undefined => {
-      const i = lines.findIndex((l, k) => !taken.has(k) && l.key && pick(l))
-      if (i < 0) return undefined
-      taken.add(i)
-      return lines[i]
-    }
-    this.tags.forEach((t, n) => {
-      if (!t.who) return
+    // A tag that only says "she" or "he" names nobody: the rules, or the AI, say who that is.
+    const tags = this.tags.filter((t) => t.who && !PRONOUN_TAG.test(t.who))
+    const line = `${QUOTE.source}|${ITALIC_SPEECH}`
+    for (const [i, t] of tags.entries()) {
       const from = t.at + (/^\s{0,3}/.exec(text.slice(t.at))?.[0].length ?? 0)
       // {~hushed, dread building}: how the narrator reads the sentence it starts (up to any quote in it).
       if (t.who.startsWith('~')) {
-        const tone = [t.who.slice(1).trim(), t.tone].filter(Boolean).join(', ')
+        const fields = fieldsOf([t.who.slice(1).trim(), t.tone].filter(Boolean).join('|'))
         const rest = text.slice(from).split(/["“\n]/)[0]
         const sentence = new RegExp(SENTENCE.source, 'y').exec(rest)?.[0] ?? ''
         const key = quoteKey(sentence)
-        if (key && tone) out.push({ key: NARRATION + key, who: '', tone })
-        return
+        if (key && (fields.tone || fields.pace || fields.sound)) out.push({ key: NARRATION + key, who: '', ...fields })
+        continue
       }
-      if (PRONOUN_TAG.test(t.who)) return
-      // How far along the paragraph the tag reaches: to the next tag, or the paragraph's end.
-      const lineEnd = text.indexOf('\n', t.at)
-      const reach = Math.min(this.tags[n + 1]?.at ?? text.length, lineEnd === -1 ? text.length : lineEnd)
-      const lineStart = text.lastIndexOf('\n', t.at - 1) + 1
-      const line =
-        claim((l) => l.at === from) ??
-        claim((l) => l.at < t.at && t.at <= l.end) ??
-        claim((l) => l.end <= t.at && /^\s*$/.test(text.slice(l.end, t.at))) ??
-        claim((l) => l.at >= from && l.at < reach) ??
-        claim((l) => l.at >= lineStart && l.end <= t.at && !lines.some((m) => m.at > l.at && m.end <= t.at))
-      if (line) out.push({ key: line.key, who: t.who, tone: t.tone })
-    })
+      const inside = new RegExp(line, 'y')
+      inside.lastIndex = t.at - 1
+      let q = /["“]/.test(text[t.at - 1] ?? '') ? inside.exec(text) : null
+      if (!q || !quoteKey(q[0])) {
+        const nl = text.indexOf('\n', from)
+        const next = tags.slice(i + 1).find((x) => x.at > t.at && !x.who.startsWith('~'))?.at ?? Infinity
+        const end = Math.min(nl < 0 ? text.length : nl, next)
+        const ahead = new RegExp(line, 'g')
+        ahead.lastIndex = from
+        q = ahead.exec(text)
+        if (q && q.index >= end) q = null
+      }
+      const key = q ? quoteKey(q[0]) : ''
+      if (key) out.push({ key, who: t.who, ...fieldsOf(t.tone) })
+    }
     return out
   }
 }
@@ -143,10 +158,13 @@ export class SpeakerTagFilter {
 /** A tag that names nobody: "she", "he", "they" are whoever the rules or the AI say they are. */
 const PRONOUN_TAG = /^(?:he|she|they|it|i|we|you|him|her|them)$/i
 
-/** The closing instruction's line asking the writer to note how the narration is read too (Mark who says what). */
-export const NARRATION_TAG_LINE =
-  '- At the start of each paragraph of narration, and where its mood turns, put how the narrator reads it in curly braces after a tilde: {~hushed, dread building}The stairs went on. A few words, for an audiobook narrator: the feeling and how it sounds.'
+/** True when these messages ask the writer to tag who says each line (the closing instruction has SPEAKER_TAG_LINE). */
+export const asksForTags = (messages: readonly { content: unknown }[]): boolean =>
+  messages.some((m) => typeof m.content === 'string' && m.content.includes(SPEAKER_TAG_LINE))
 
-/** The closing instruction's line asking the writer to tag each line of dialogue with its speaker. */
-export const SPEAKER_TAG_LINE =
-  "- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it in curly braces, with how it is said after a bar: {Mara|coldly, barely above a whisper}“Get out,” she said. Use the character's name exactly as given above (a thing or creature that talks too, by its page's name: {Ring|sly}); for someone unnamed, a few plain words: {the guard|bored}, never just he or she. Give each quote its own tag, a line that carries on after a dialogue tag too. The tags are taken out before the author reads the scene, so never mention them."
+/**
+ * The closing instruction's line asking the writer to tag each line of dialogue with its speaker and how it is said.
+ * Only the dialogue: asked for the narration's mood too (tilde tags), writers tagged a fifth fewer lines and sometimes
+ * put moods in place of speakers (live checks, 4 October 2026). A tilde tag a writer gives anyway is still read.
+ */
+export const SPEAKER_TAG_LINE = `- Just before the opening quote mark of every line of dialogue (or the opening asterisk of speech in italics), put who says it and how it is said in curly braces: {Mara|coldly, barely above a whisper}“Get out,” she said. After the name, split by bars: how it is said (always), then a pace (slow or fast) and a sound the speaker makes as the line starts (sigh, gasp, laugh, sob) only when they apply: {Tobin|thick with tears, barely holding together|slow|sob}. How it is said is ${HOW_NOTE} Use the character's name exactly as given above (a thing or creature that talks too, by its page's name: {Ring|sly}); for someone unnamed, a few plain words: {the guard|bored, waving them on}, never just he or she. Every quote gets its own tag, however short (“No.”) and however quick the back-and-forth, and so does a line that carries on after a dialogue tag or an action. The tags are taken out before the author reads the scene, so never mention them.`

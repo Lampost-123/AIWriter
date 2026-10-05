@@ -93,6 +93,20 @@ export function overviewUser(existing: string, summary: string, part: [number, n
   return `${existing}\n\nThe author's summary${which}:\n"""\n${summary.trim()}\n"""\n\nList everything now, as one JSON object.`
 }
 
+/**
+ * The first look again, for what it left out (Adam, 2026-10-04: a build skipped characters and other things, so
+ * he had to run it twice): a long list is cut off at the reply's room, and a model reading a long summary lists
+ * the main things and skips the rest. It is shown what it has listed and asked for only what isn't there.
+ */
+export function overviewMoreUser(existing: string, listed: Pick<PlanItem, 'kind' | 'name'>[], summary: string, part: [number, number] | null): string {
+  const which = part && part[1] > 1 ? ` (part ${part[0]} of ${part[1]}; the other parts are read separately)` : ''
+  const byKind = (Object.keys(KIND_LABELS) as EntryKind[])
+    .map((kind) => [kind, listed.filter((p) => p.kind === kind).map((p) => p.name)] as const)
+    .filter(([, names]) => names.length)
+    .map(([kind, names]) => `- ${KIND_LABELS[kind].many}: ${names.join('; ')}`)
+  return `${existing}\n\nThe author's summary${which}:\n"""\n${summary.trim()}\n"""\n\nAlready listed from this summary:\n${byKind.join('\n') || '- nothing yet'}\n\nRead the summary again, all the way to its end, and list everything it names or describes that is NOT already listed above or in the world: people mentioned only in passing, places, groups, objects, how things work, events, open questions and words. Leave every list empty when nothing is missing. Reply as one JSON object, in the same shape.`
+}
+
 /** The world's entries by kind, names and other names only, for the first look to reuse; the longest lists are cut to fit `maxTokens`. */
 export function existingText(entries: Pick<Entry, 'kind' | 'name' | 'aliases'>[], maxTokens = 2000): string {
   const byKind = (Object.keys(NOUNS) as EntryKind[])

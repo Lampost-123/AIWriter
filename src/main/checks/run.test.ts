@@ -12,6 +12,7 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import type { JobModel } from '../ai/jobModel'
 import { UserError } from '../util'
 import { checkScene, type CheckOptions } from './run'
+import { checkReport, reportItems } from './report'
 import { checkWhenDone, resetRunsForTests, setRunDeps, startCheck, stopCheck, type RunDeps } from './runs'
 import { Keeper } from '../keeper/engine'
 import * as kdb from '../db/keeper'
@@ -77,7 +78,9 @@ describe('checking a scene', () => {
 
     // Each request is a 'check' record of the scene, so "What the AI saw" shows it.
     const rec = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0])
-    expect(rec.messages[0].content.startsWith('[AIWRITE-CHECK v1] facts, knowledge, timeline')).toBe(true)
+    // Two focused requests: what is so (facts, timeline, continuity), then who knows what.
+    expect(rec.messages[0].content.startsWith('[AIWRITE-CHECK v1] facts, timeline, continuity')).toBe(true)
+    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[1]).messages[0].content.startsWith('[AIWRITE-CHECK v1] knowledge')).toBe(true)
     expect(rec.blocks.map((b) => b.id)).toContain('memory')
 
     // Checked again: nothing new.
@@ -176,7 +179,7 @@ describe('check runs', () => {
     expect(done.map((d) => d.runId)).toEqual([first, second])
     expect(done[1]).toMatchObject({ status: 'complete', found: 2, background: true })
     expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[0].content.split('\n')[0]).toBe(
-      '[AIWRITE-CHECK v1] facts, knowledge, timeline'
+      '[AIWRITE-CHECK v1] facts, timeline, continuity'
     )
   })
 
@@ -242,5 +245,31 @@ describe('the memory keeper before a check', () => {
     await keeper.whenRead(w.s2)
     expect(kdb.needsReading(w.db, w.s2)).toBe(false)
     keeper.stop()
+  })
+})
+
+describe('the critic’s report', () => {
+  it('says what each check looked at, what was good and where there were issues, and keeps the latest', async () => {
+    const w = world()
+    await checkScene({ ...options(w.db), after: 'draft' }, w.s2, ['facts', 'continuity', 'voice'])
+    const report = checkReport(w.db, w.s2)!
+    expect(report).toMatchObject({ sceneId: w.s2, after: 'draft', found: 2 })
+    expect(report.items).toEqual([
+      { check: 'facts', ok: false, note: 'Looked at facts.' },
+      { check: 'continuity', ok: true, note: 'Looked at continuity.' },
+      { check: 'voice', ok: true, note: 'Looked at voice.' }
+    ])
+    // The request gave the continuity check where things stood, and the story so far.
+    const rec = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0])
+    expect(rec.blocks.map((b) => b.id)).toEqual(expect.arrayContaining(['continuity', 'memory']))
+    expect(rec.messages[1].content).toContain('## Where things stood as the previous scene ended')
+  })
+
+  it('without what each check looked at, still says whether it found anything', () => {
+    const items = reportItems(['facts', 'timeline'], [], new Map([['facts', 2]]))
+    expect(items).toEqual([
+      { check: 'facts', ok: false, note: 'Found 2 things to look at.' },
+      { check: 'timeline', ok: true, note: 'Nothing to report.' }
+    ])
   })
 })

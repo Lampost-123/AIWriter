@@ -31,7 +31,7 @@ import { PopoverPanel, Segmented, useDelayed } from './parts'
 import { useNewLook } from '@/features/look/look'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
-type DraftMode = 'replace' | 'add'
+type DraftMode = 'replace' | 'fresh' | 'add'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
 
@@ -289,9 +289,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     // Emptied since the choice was made: there's nothing to replace.
     setPopover(null)
     void startDraft(sceneId, bridge, {
-      replace: mode === 'replace' && filled,
+      replace: (mode === 'replace' || mode === 'fresh') && filled,
       takeKeyboard: !!mode,
-      options: () => useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS
+      // A fresh take doesn't build on what the earlier draft established.
+      options: () => ({ ...(useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS), ...(mode === 'fresh' ? { fresh: true } : {}) })
     })
   }, [sceneId])
 
@@ -537,6 +538,14 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   hint="The new draft takes its place."
                   keyboard={choiceByKey}
                   onClick={() => void generate('replace')}
+                />
+                <ModeChoice
+                  mode="fresh"
+                  icon={<Sparkles size={14} />}
+                  label="Fresh take"
+                  hint="Replaces it with a new take that doesn’t build on this draft."
+                  keyboard={choiceByKey}
+                  onClick={() => void generate('fresh')}
                 />
                 <ModeChoice
                   mode="add"

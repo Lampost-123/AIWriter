@@ -70,10 +70,54 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(again).toHaveAttribute('data-status', 'declined')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
 
-    // An answer that tells Adam to apply changes it never proposed is put right under it.
+    // An answer that claims changes it never proposed is asked once more: the changes come, and the claim is gone.
     await ask(win, 'Pretend to tidy the opening')
+    const tidied = changes(win).last().locator('[data-proposal]').first()
+    await expect(tidied).toContainText('Tidied, as claimed.')
+    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
+    // One that still doesn't propose them is put right under its answer.
+    await ask(win, 'Pretend stubbornly to tidy the opening')
     await expect(panel(win).locator('[data-no-changes]')).toHaveText('No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.')
     await expect(panel(win).locator('[data-no-changes]')).toHaveCount(1)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a passage across paragraphs is proposed as one rewrite; Apply replaces it all, Undo brings it back', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats.')
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('The gulls went quiet.')
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
+    const paragraphs = prose(win).locator('p')
+    await expect(paragraphs).toHaveCount(2)
+
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Push this beat harder')
+    const card = changes(win).locator('[data-proposal]').first()
+    await expect(card).toContainText('Rewrite · Ch 1, Sc 1')
+    await expect(card).toContainText('The gulls screamed once, then nothing.')
+    await expect(paragraphs).toHaveCount(2)
+    await expect(prose(win)).toContainText('The gulls went quiet.')
+
+    await card.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(paragraphs.nth(0)).toHaveText('The tide roared in over the flats.')
+    await expect(paragraphs.nth(0).locator('em')).toHaveText('roared')
+    await expect(paragraphs.nth(1)).toHaveText('The gulls screamed once, then nothing.')
+    await expect(card).toHaveAttribute('data-status', 'applied')
+    await win.getByRole('button', { name: 'Undo' }).click()
+    await expect(paragraphs.nth(0)).toHaveText('The tide came in over the flats.')
+    await expect(paragraphs.nth(1)).toHaveText('The gulls went quiet.')
+    await expect(card).toHaveAttribute('data-status', 'pending')
   } finally {
     await fake.close()
   }

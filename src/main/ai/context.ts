@@ -68,8 +68,9 @@ import type {
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
+import { stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
-import { NARRATION_TAG_LINE, SPEAKER_TAG_LINE } from './speakerTags'
+import { SPEAKER_TAG_LINE } from './speakerTags'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -98,7 +99,13 @@ export interface ContextInput {
   contextLength: number | null
   /** The model's own reply limit in tokens, from the model choice; null or left out when unknown. Lowers Auto's ceiling. */
   maxOutput?: number | null
+  /** Where things stand as the previous scene ended (continuity/tracker.ts); null or left out when nothing is known. */
+  continuity?: SceneState | null
 }
+
+/** What block 3b says first. */
+export const STAND_LEAD =
+  'Keep to this unless the scene card or the author says otherwise: a change (a coat taken off, a move to another room) happens on the page.'
 
 export interface BlockDraft {
   id: string
@@ -142,6 +149,9 @@ export interface PreparedContext {
 }
 
 // ---------- Budget ----------
+
+/** Extra reply room when the writer tags who says each line and how (ai/speakerTags.ts): the tags are not words. */
+export const TAG_ALLOWANCE = 0.15
 
 /** Room for a reply of `targetWords` words (null is Auto: the longest Auto allows) plus 40%. */
 export const replyTokens = (targetWords: number | null): number =>
@@ -370,6 +380,46 @@ export function oneLine(e: Entry, note = ''): string {
   return clean(e.summary) ? `${name}: ${clean(e.summary)}` : name
 }
 
+/**
+ * A note in what has happened to a character that says they themselves died: "died in the fire", "presumed dead",
+ * "killed by the watch", "was found drowned". Not one about someone else's death ("killed the guard", "learned
+ * Anselm was dead", "watched her father die").
+ */
+// A note is about its own entry and has no subject ("died in the fire"), so a death counts only where the note's own
+// verb is the dying: at its start, or after "and", "then" or "later" ("fought the watch and was killed"). "Admitted
+// Anselm died in the fire" (a live run) is someone else's.
+const OWN_DEATH = [
+  /^\s*(?:(?:was|were|is|now|then|later|finally)\s+)?(died|dies|perished|drowned|dead)\b/i,
+  /^\s*(?:(?:was|were|is)\s+)?(?:presumed|declared|reported|found|confirmed|left for)\s+(dead|drowned|killed|murdered)\b/i,
+  /^\s*(?:(?:was|were)\s+)?(?:(killed|murdered|drowned|slain|executed|hanged)\s+(by|in|at|on|during|while|when|after|before)\b|burned to death)/i,
+  /\b(?:and|then|later|but)\s+(?:was\s+)?(died|perished|killed by|drowned in|drowned at|murdered by|slain by)\b/i
+]
+/** A note about someone else's death, or news of one. */
+const OTHERS_DEATH =
+  /\b(learn(s|ed|t)?|heard|hears|told|tells|saw|sees|watch(es|ed)|mourn(s|ed)?|bur(y|ies|ied)|news|grieve(s|d)?|avenge(s|d)?|said|says|admit(s|ted)|claim(s|ed)|reveal(s|ed)|confess(es|ed)|believe(s|d)|fear(s|ed))\b/i
+/** Words that undo a death ("not dead after all", "survived"). */
+const ALIVE = /\b(not dead|alive after all|survived|returned alive|was alive|is alive|faked (?:his|her|their) death)\b/i
+const saysDied = (note: string): boolean => OWN_DEATH.some((re) => re.test(note)) && !OTHERS_DEATH.test(note)
+
+/**
+ * The characters who are dead by this point (Adam, 2026-10-04: a live run's dead monk was written sleeping, and missed),
+ * from what has happened to them: the latest note that says they died, unless a later one says they live. Each with
+ * that note ("presumed dead in the Archive fire").
+ */
+export function deadBy(entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]): { name: string; note: string }[] {
+  const out: { name: string; note: string }[] = []
+  for (const e of entries) {
+    if (e.kind !== 'character') continue
+    let note = ''
+    for (const h of e.happened ?? []) {
+      if (ALIVE.test(h.note)) note = ''
+      else if (saysDied(h.note)) note = clean(h.note)
+    }
+    if (note) out.push({ name: e.name, note })
+  }
+  return out
+}
+
 /** What has happened to an entry so far, oldest first; `last` keeps only the most recent few. */
 export function happenedText(e: Pick<EntryState, 'happened'>, last?: number): string {
   const all = (e.happened ?? []).filter((h) => clean(h.note))
@@ -485,6 +535,8 @@ export const WHY = {
   group: 'A group someone here belongs to',
   beats: 'Named in the beats',
   notes: 'Named in the scene notes',
+  cardWords: 'Named on the scene card',
+  previous: 'Named at the end of the previous scene',
   direction: 'Named in your direction',
   rule: 'A world rule',
   tie: 'Tied to someone in the scene',
@@ -616,12 +668,15 @@ export function selectEntries(input: ContextInput): Selection {
     .map((e) => take(e.id, WHY.rule, false))
     .filter(some)
 
-  // Anything else named in the beats, the notes or the direction (only what exists here).
+  // Anything else named in the beats, the notes, the direction, the rest of the card or the end of the previous
+  // scene (only what exists here): whoever and whatever the scene carries on with, so the writer has their details.
   const others: EntryState[] = []
   const texts = [
     [haystack(card.beats.join('\n')), WHY.beats],
     [haystack(card.notes), WHY.notes],
-    [haystack(input.options.direction), WHY.direction]
+    [haystack(input.options.direction), WHY.direction],
+    [haystack([card.goal, card.conflict, card.outcome, card.mood].join('\n')), WHY.cardWords],
+    [haystack(sceneTail(clean(input.memory.previous?.text))), WHY.previous]
   ] as const
   for (const e of m.entries) {
     if (chosen.has(e.id)) continue
@@ -796,6 +851,11 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   const lines: string[] = []
   if (clean(title)) lines.push(`Scene: ${clean(title)}`)
   if (clean(card.when)) lines.push(`When: ${clean(card.when)}`)
+  const gap = timeSincePrevious(input)
+  if (gap) lines.push(gap)
+  // Who is dead by now, so nobody dead walks or talks in the scene (except as a ghost, a memory or a vision).
+  const dead = deadBy(input.memory.entries)
+  if (dead.length) lines.push(`Dead by this point (only ever a memory, a ghost or a vision here): ${dead.map((d) => `${d.name} (${d.note})`).join('; ')}`)
   const pov = card.povId ? name(card.povId) : null
   if (pov) lines.push(`Point of view: ${pov}`)
   const others = names(card.presentIds.filter((id) => id !== card.povId))
@@ -830,9 +890,31 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   return parts.join('\n\n')
 }
 
+/**
+ * How long after the previous scene this one is, from both cards' When (Adam, 2026-10-04: a live run's writer said
+ * "four days" where one night had passed): "The previous scene was Day 5, dusk: this is 3 days later." Only within
+ * one story, and only when both have a When.
+ */
+export function timeSincePrevious(input: Pick<ContextInput, 'scene' | 'memory'>): string {
+  const prev = input.memory.previous
+  const now = clean(input.scene.card.when)
+  const then = clean(prev?.when)
+  if (!prev || prev.otherStory || !now || !then) return ''
+  const day = (s: string): number | null => {
+    const m = /\bday\s+(\d+)\b/i.exec(s)
+    return m ? Number(m[1]) : null
+  }
+  const a = day(then)
+  const b = day(now)
+  const gap = a != null && b != null && b >= a ? (b === a ? ' The same day.' : b - a === 1 ? ' The next day.' : ` ${b - a} days later.`) : ''
+  return `The previous scene was ${then}.${gap} Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by.`
+}
+
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
-  return (input.memory.bringAbout ?? []).map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
+  // A fresh take doesn't build on the earlier draft: only Adam's own notes for the scene are aims.
+  const changes = (input.memory.bringAbout ?? []).filter((c) => !input.options.fresh || c.origin === 'adam')
+  return changes.map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
 }
 
 /**
@@ -979,26 +1061,29 @@ function chapterOrder(s: StorySoFar): ID[] {
 }
 
 /**
- * How much of the story so far block 8 gives. 0 is the full form; 1 the short form (fewer scenes,
- * chapter level, series roll-ups); 2 to 4 keep only the most recent parts, so a model with little
- * room still learns what happened just before this scene rather than nothing at all.
+ * How much of the story so far block 8 gives. 0 is the full form: every earlier scene of this story by its own
+ * summary (Adam, 2026-10-04: a chapter's summary loses what later scenes depend on); 1 the short form (earlier
+ * chapters by their summaries, the last 5 scenes in detail); 2 fewer scenes and series roll-ups; 3 to 5 keep only
+ * the most recent parts, so a model with little room still learns what happened just before this scene rather than
+ * nothing at all.
  */
-export const STORY_LEVELS = 5
+export const STORY_LEVELS = 6
 /** At each level: how many of the most recent parts (a story, a chapter or a scene) are kept. */
-const RECENT_PARTS = [Infinity, Infinity, 6, 2, 1]
+const RECENT_PARTS = [Infinity, Infinity, Infinity, 6, 2, 1]
 
 /**
  * Block 8, oldest first. Summaries go in word for word, so the Context tab can find each one to edit it.
  * - Earlier stories on the line, one paragraph each ("Meanwhile" for side stories; a story the line
- *   cuts short says so). From level 1 a series roll-up stands in for the stories it covers.
- * - This story: each chapter by its summary, or by its scenes' summaries while it has none (the
- *   chapter this scene is in, say), so no earlier scene is skipped; then the last 5 scenes in detail
- *   (2 from level 1).
- * - The "Leads into" target, up to level 2.
+ *   cuts short says so). From level 2 a series roll-up stands in for the stories it covers.
+ * - This story: at level 0 every earlier scene by its own summary; from level 1 each chapter by its summary, or by
+ *   its scenes' summaries while it has none (the chapter this scene is in, say), so no earlier scene is skipped;
+ *   then the last 5 scenes in detail (2 from level 2).
+ * - The "Leads into" target, up to level 3.
  */
 export function storySoFarText(s: StorySoFar, storyTitle: string, level: number | boolean = 0): string {
-  const lv = typeof level === 'boolean' ? (level ? 1 : 0) : Math.max(0, Math.min(STORY_LEVELS - 1, level))
-  const short = lv > 0
+  const lv = typeof level === 'boolean' ? (level ? 2 : 0) : Math.max(0, Math.min(STORY_LEVELS - 1, level))
+  const every = lv === 0
+  const short = lv > 1
   type Part = { heading: string; text: string }
   const parts: Part[] = []
   const rolled = new Set<ID>()
@@ -1023,7 +1108,10 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, level: number 
   for (const chapterId of chapterOrder(s)) {
     const own = scenes.filter((x) => x.chapterId === chapterId)
     const chapter = told.get(chapterId)
-    if (chapter) {
+    if (every && own.length) {
+      // The full form: every earlier scene by its own summary, which keeps what a chapter's summary leaves out.
+      for (const x of own) if (!shown.has(x.sceneId)) parts.push({ heading: earlier, text: `${x.label}: ${clean(x.text)}` })
+    } else if (chapter) {
       // A chapter is told by its own summary unless every one of its summarised scenes is shown.
       if (!own.length || own.some((x) => !shown.has(x.sceneId)))
         parts.push({ heading: earlier, text: `${chapter.label}: ${clean(chapter.text)}` })
@@ -1046,7 +1134,7 @@ export function storySoFarText(s: StorySoFar, storyTitle: string, level: number 
     out.push(`### ${heading}\n${texts.join('\n\n')}`)
   }
 
-  if (s.leadsInto && clean(s.leadsInto.text) && lv < 3) {
+  if (s.leadsInto && clean(s.leadsInto.text) && lv < 4) {
     const t = s.leadsInto.title
     out.push(
       `### Leads into ${t}\nThis story leads into ${t}. Below is how ${t} begins: a target to steer towards over the story, not events to mention or bring about in this scene.\n${clean(s.leadsInto.text)}`
@@ -1130,6 +1218,23 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     const title = other.ended ? `How ${other.title} ended` : `Where ${other.title} had got to`
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
+
+  // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
+  //    wear and hold, how they are placed and how they are. Short: only the characters on the scene card.
+  const stand = input.continuity
+  const full = stand ? stateText(stand) : ''
+  if (full) {
+    const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
+    const short = onCard.length ? stateText(stand!, onCard) : ''
+    add(
+      'continuity',
+      3,
+      'Where things stand as the previous scene ended',
+      `${STAND_LEAD}\n${full}`,
+      short && short !== full ? `${STAND_LEAD}\n${short}` : null,
+      []
+    )
+  }
 
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
   const pov = sel.pov
@@ -1254,7 +1359,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   if (sel.others.length) {
     const mentionedOnly = sel.others.every((e) => {
       const why = sel.chosen.get(e.id)?.why
-      return why === WHY.beats || why === WHY.notes || why === WHY.direction
+      return why === WHY.beats || why === WHY.notes || why === WHY.direction || why === WHY.cardWords || why === WHY.previous
     })
     // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
     const paidOff = (e: Entry): string => {
@@ -1318,6 +1423,7 @@ export const SEND_ORDER = [
   'mentioned',
   'threads',
   'story-so-far',
+  'continuity',
   'previous-scene',
   'scene-card'
 ]
@@ -1379,11 +1485,8 @@ export interface ContextExtras {
    * (so keep them to a sensible size, such as the end of the scene so far).
    */
   extraBlocks?: { id: string; title: string; text: string }[]
-  /**
-   * Asks the writer to tag each line of dialogue with who says it and how (ai/speakerTags.ts), for reading aloud; with
-   * `narration`, how the narrator reads each paragraph too.
-   */
-  speakerTags?: { narration: boolean }
+  /** Asks the writer to tag each line of dialogue with who says it and how (ai/speakerTags.ts), for reading aloud. */
+  speakerTags?: boolean
 }
 
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
@@ -1410,7 +1513,7 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
   }
   const closing = extras.final ?? finalInstruction
-  const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE, ...(extras.speakerTags.narration ? [NARRATION_TAG_LINE] : [])] : []
+  const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []
   const final = (o: FinalOptions): string => [closing(o), ...tagLines].join('\n')
   const finalsFor = (max: number | undefined): PreparedContext['finals'] => ({
     withPrevious: final({ ...base, autoMax: max, hasPrevious: true }),
@@ -1446,7 +1549,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     // Levels of shortening: 0 is the full form, 1 the short form, then any smaller ones.
     const min = hasShort && mode === 'short' ? 1 : 0
     const max = mode === 'full' ? 0 : forms.length - 1
-    return { b, mode, forms, tokensAt, hasShort, min, max, level: min, dropped: false }
+    // How far step 1 shortens a block: its short form, and for the story so far the step after (chapters, the last
+    // few scenes) too, since its full form (every scene) is much longer than the rest.
+    const shortTo = Math.min(max, b.id === 'story-so-far' ? 2 : 1)
+    return { b, mode, forms, tokensAt, hasShort, min, max, shortTo, level: min, dropped: false }
   })
   type State = (typeof state)[number]
   const tokens = (s: State): number => s.tokensAt[s.level]
@@ -1480,7 +1586,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
     for (const s of shortenable) {
       if (fits()) break
-      if (s.level === 0 && s.max >= 1) s.level = 1
+      while (!fits() && s.level < s.shortTo) s.level++
     }
     // 1b. Still too long: the ties to people not in the scene (block 11) go before any block is made smaller
     //     than its short form, so a small model keeps what happened just before rather than a list of names.
@@ -1489,6 +1595,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       if (fits()) break
       if (lowest(s)) s.dropped = true
     }
+    const shortest = (st: State): number => Math.max(1, st.shortTo)
     // 2. Still too long with everything short: the smaller forms some blocks have (the story so far
     //    down to its most recent parts, the point-of-view character down to the core of the profile),
     //    a step at a time, from the bottom up.
@@ -1496,7 +1603,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       more = false
       for (const s of shortenable) {
         if (fits()) break
-        if (s.level >= 1 && s.level < s.max) {
+        if (s.level >= shortest(s) && s.level < s.max) {
           s.level++
           more = true
         }

@@ -20,6 +20,8 @@ import {
   markParts,
   type MarkPart,
   marksFrom,
+  NARRATION,
+  NARRATOR,
   numbered,
   parseLabels,
   parseNumbered,
@@ -37,8 +39,26 @@ export interface KeptParagraph extends ParagraphMarks {
 }
 
 interface MarksFile {
-  v: 1
+  v: 1 | 2
   paragraphs: Record<string, KeptParagraph>
+}
+
+/**
+ * Version 1 kept an empty note on a named speaker's line when it was marked without Mark who says what, and those
+ * lines were never noted after it was turned on: their empty notes go, so they are asked about once more.
+ */
+function fromV1(paragraphs: Record<string, KeptParagraph>): Record<string, KeptParagraph> {
+  const out: Record<string, KeptParagraph> = {}
+  for (const [pid, k] of Object.entries(paragraphs)) {
+    const delivery = Object.fromEntries(
+      Object.entries(k.delivery ?? {}).filter(([key, how]) => {
+        const who = k.speakers?.[key]
+        return key.startsWith(NARRATION) || Object.keys(how).length > 0 || !who || who === NARRATOR || who === UNKNOWN
+      })
+    )
+    out[pid] = { ...k, delivery }
+  }
+  return out
 }
 
 /** The hash a paragraph's marks are kept with: when its words change, so does this, and the marks are dropped. */
@@ -60,7 +80,8 @@ export class MarkStore {
     const file = this.fileOf(worldId, sceneId)
     if (!file) return {}
     const kept = readJson<Partial<MarksFile>>(file, {})
-    return kept.v === 1 && kept.paragraphs && typeof kept.paragraphs === 'object' ? kept.paragraphs : {}
+    if (!kept.paragraphs || typeof kept.paragraphs !== 'object') return {}
+    return kept.v === 2 ? kept.paragraphs : kept.v === 1 ? fromV1(kept.paragraphs) : {}
   }
 
   /** The marks for these paragraphs, only where their words are the ones the marks were made for. */
@@ -92,7 +113,7 @@ export class MarkStore {
       const delivery = b.delivery && Object.keys(b.delivery).length ? b.delivery : undefined
       kept[b.id] = { hash: textHash(b.text), ...(speakers ? { speakers } : {}), ...(delivery ? { delivery } : {}) }
     }
-    const out: MarksFile = { v: 1, paragraphs: kept }
+    const out: MarksFile = { v: 2, paragraphs: kept }
     writeFileAtomic(file, JSON.stringify(out))
   }
 }

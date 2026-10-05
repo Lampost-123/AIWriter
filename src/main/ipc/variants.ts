@@ -10,6 +10,7 @@ import { draftBriefing, providerNotes } from '../ai/draftFlow'
 import { latestVariantSet, startVariantSet, stopVariantSet } from '../variants'
 import { isStartingBeat } from '../beats'
 import { isStartingDraft } from './ai'
+import { noteGenerationSpeakers } from '../readAloud'
 
 export const variantsHandlers: Handlers<keyof VariantsApi> = {
   startVariants: (input) =>
@@ -19,7 +20,8 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
       briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal }),
       // Generate's draft or a beat of Beat by beat getting ready.
       startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
-      providerNotes
+      providerNotes,
+      onSpeakers: noteGenerationSpeakers
     }),
   stopVariants: (setId) => stopVariantSet(setId),
   getVariantSet: (sceneId) => latestVariantSet(world.db(), sceneId)

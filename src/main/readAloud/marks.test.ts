@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -74,6 +74,23 @@ describe('the marks kept for a scene', () => {
     // Without the scene's whole list, nothing it wasn't sent is let go.
     store.save('w1', 's1', [{ id: 'p8', text: 'Eight.', delivery: { '~eight': {} } }], [{ pid: 'p8', text: 'Eight.' }])
     expect(Object.keys(store.load('w1', 's1')).sort()).toEqual(['p1', 'p8', 'p9'])
+  })
+
+  it('lets go of the empty notes an older version kept on a named speaker’s lines, so they are noted', () => {
+    const text = '“Not now.” “Fine.” “Look!” It was late.'
+    const kept = {
+      hash: textHash(text),
+      speakers: { 'not now': 'Mara', fine: '?', look: 'narrator' },
+      delivery: { 'not now': {}, fine: {}, look: {}, '~it was late': {} }
+    }
+    mkdirSync(join(dir, 'w1'), { recursive: true })
+    writeFileSync(join(dir, 'w1', 's1.json'), JSON.stringify({ v: 1, paragraphs: { p1: kept } }))
+    const store = new MarkStore(dir)
+    expect(store.current('w1', 's1', [{ pid: 'p1', text }]).get('p1')?.delivery).toEqual({ fine: {}, look: {}, '~it was late': {} })
+    // Once saved again, the file is the new version and its notes stay as they are.
+    store.save('w1', 's1', [], [{ pid: 'p1', text }])
+    store.save('w1', 's1', [{ id: 'p1', text, speakers: kept.speakers, delivery: { 'not now': {} } }], [{ pid: 'p1', text }])
+    expect(store.load('w1', 's1').p1.delivery).toEqual({ 'not now': {} })
   })
 
   it('never writes outside its folder for an id that is not the app’s own', () => {

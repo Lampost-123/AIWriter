@@ -205,11 +205,11 @@ describe('building a fresh world from a summary', () => {
       'Mara Venn is a smuggler captain who owes the Salt Guild a fortune.'
     )
 
-    // Every request is recorded as the World builder's, and the run keeps them all.
+    // Every request is recorded as the World builder's (the first look, its look again for anything missed, and the rest), and the run keeps them all.
     const recs = records(t.db)
-    expect(recs).toHaveLength(12)
+    expect(recs).toHaveLength(13)
     expect(recs.every((r) => r.status === 'complete')).toBe(true)
-    expect(run?.generationIds).toHaveLength(12)
+    expect(run?.generationIds).toHaveLength(13)
     expect(done.cost).toBeGreaterThan(0)
 
     expect(done.made).toHaveLength(13)
@@ -260,6 +260,24 @@ describe('building a fresh world from a summary', () => {
     expect(t.names('character')).toEqual(['Mara Venn', 'Tobin'])
     expect(t.named('Mara Venn').summary).toBe('Mara Venn is a smuggler captain.')
     expect(done.made.find((m) => m.what === 'relationship')?.detail).toBe('Younger brother: Mara Venn')
+  })
+
+  it('reads the summary again for what the first look left out, so one build makes everything', async () => {
+    const summary = [
+      'Mara Venn is a smuggler captain.',
+      'Tobin is her younger brother.',
+      'Ilse is the harbour master.',
+      'Corran is a lighthouse keeper.',
+      'Saltmarsh is a port.',
+      'Fenreach is a village.',
+      'Gullhaven is a town.'
+    ].join(' ')
+    const t = setup({ modelId: 'fake/world-lazy' })
+    const done = await t.build(summary)
+    expect(done.status).toBe('complete')
+    expect(t.names('character')).toEqual(['Corran', 'Ilse', 'Mara Venn', 'Tobin'])
+    expect(t.names('place')).toEqual(['Fenreach', 'Gullhaven', 'Saltmarsh'])
+    expect(t.steps()).toContain('Reading your summary again for anything missed')
   })
 })
 
@@ -645,8 +663,8 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     expect(originOf(after, 'summary')).toBe('text')
     expect(t.saved).toContain(erin.id)
     // Recorded as the World builder's, and part of the build's cost and records.
-    expect(records(t.db)).toHaveLength(13)
-    expect(kdb.getRun(t.db, done.runId!)?.generationIds).toHaveLength(13)
+    expect(records(t.db)).toHaveLength(14)
+    expect(kdb.getRun(t.db, done.runId!)?.generationIds).toHaveLength(14)
     // The pages the build made were full already: nothing else was asked.
     expect(pagesToFill(t.db, [])).toEqual([])
   })
@@ -695,7 +713,7 @@ describe('the last steps: filling in what is missing, and the characters’ voic
     // A character it didn't make keeps its voice, and isn't asked about.
     expect(voiceOf(t.db, brann.id)).toBe('Gravel and smoke.')
     // Recorded as read aloud's requests, not the World builder's.
-    expect(records(t.db)).toHaveLength(12)
+    expect(records(t.db)).toHaveLength(13)
     const speech = t.db.prepare("SELECT status FROM generations WHERE job = 'speech'").all()
     expect(speech).toHaveLength(2)
   })
