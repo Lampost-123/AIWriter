@@ -26,6 +26,11 @@ if (process.env.AIWRITE_FAKE_MIC === '1') {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
 }
+// App tests run in the background on Adam's PC (Adam, 2026-10-07: "so I can still use my system"): the window is
+// see-through, clicked through, off the taskbar, never takes focus and never really fills the screen. Windows would
+// count it as covered by his own windows and slow it down, so it is told not to.
+const BACKGROUND = process.env.AIWRITE_BACKGROUND === 'on'
+if (BACKGROUND) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 registerPortraitScheme()
 
 let mainWindow: BrowserWindow | null = null
@@ -66,7 +71,7 @@ function startLook(): Look {
 }
 
 /** Each theme's --bg colour in styles.css, in each look. */
-const BACKGROUND: Record<Look, Record<PaintedTheme, string>> = {
+const BACKGROUND_COLOUR: Record<Look, Record<PaintedTheme, string>> = {
   classic: { light: '#f6f4f0', dark: '#161514', sepia: '#ece3cf' },
   new: { light: '#ebe5da', dark: '#12110f', sepia: '#e5d9c0' }
 }
@@ -99,11 +104,13 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
+    ...(BACKGROUND ? { skipTaskbar: true } : {}),
     title: 'AI Write',
-    backgroundColor: BACKGROUND[look][theme],
+    backgroundColor: BACKGROUND_COLOUR[look][theme],
     icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      ...(BACKGROUND ? { backgroundThrottling: false } : {}),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -112,6 +119,22 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  if (BACKGROUND) {
+    // Where it would be (off-screen, Windows scales it wrongly), but unseen, clicked through, and shown without
+    // taking focus wherever the app shows or focuses it. Screenshots are of the page, so they don't see this.
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true)
+    win.show = () => win.showInactive()
+    win.focus = () => undefined
+    // Full screen would bring it onto Adam's screen: pretended instead, with the same events.
+    let full = false
+    win.setFullScreen = (on: boolean) => {
+      if (on === full) return
+      full = on
+      win.emit(on ? 'enter-full-screen' : 'leave-full-screen')
+    }
+    win.isFullScreen = () => full
+  }
   // No menu bar on Windows and Linux (Alt would otherwise show File / Edit / View with Reload).
   if (process.platform !== 'darwin') win.removeMenu()
 
