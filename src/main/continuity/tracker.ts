@@ -391,10 +391,11 @@ export async function stateBefore(o: TrackOptions, sceneId: ID): Promise<SceneSt
   }
 }
 
-/** The state a scene starts from, as kept (no model is asked): the previous scene's end, if it still stands. */
+/**
+ * The state a scene starts from, as kept (no model is asked): the previous scene's end, when the last few scenes
+ * before are fresh (`startsFresh`, as a draft brings them up to date), else null rather than a ghost.
+ */
 export function keptStateBefore(db: DB, sceneId: ID): SceneState | null {
-  const prev = scenesBefore(db, sceneId).at(-1)
-  if (!prev) return null
   const all = load(db)
-  return stands(db, all, prev) ? finalOf(all, prev) : null
+  return startsFresh(db, all, sceneId) ? startOf(db, all, sceneId) : null
 }

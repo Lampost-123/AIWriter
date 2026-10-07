@@ -324,8 +324,10 @@ describe('where things stand', () => {
     const soFar = 'Mara sat on the bed.'
     write(w.db, five, `${soFar}\n\nThen she lay down.`)
     const here = await stateAtText(opts(w.db, f), five, soFar)
-    // The scenes before are kept at their ends (no new reading), and the scene so far builds on them.
+    // The scenes before are kept at their ends (no new reading), and the scene so far builds on them; so does a
+    // draft of the scene from its start, and a check of it.
     expect(f.asked).toHaveLength(5)
+    expect(keptStateBefore(w.db, five)?.characters[0]).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs' })
     expect(f.asked[4]).toContain('wearing: a grey cloak')
     expect(here?.characters[0]).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs', posture: 'sitting on the bed' })
     // Recall at the cursor finds that checkpoint, and the scene's end reads on from it.
