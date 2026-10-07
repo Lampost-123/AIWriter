@@ -133,6 +133,82 @@ export function findPlace(paragraphs: string[], all: RegExp[], none: RegExp[] = 
   return null
 }
 
+/** Where an event spread over neighbouring paragraphs happens: `paragraph` is the first of them, `last` the last. */
+export interface SpreadPlace extends Place {
+  last: number
+}
+
+/**
+ * Like `findPlace`, but an event may be spread over up to `span` neighbouring paragraphs: a writer names Ash once and
+ * says "he" after ("'I'll see to the horses,' he said." ... "He pulled his collar up and went out", round 7). The
+ * event is placed where it is first complete: the earliest paragraph that ends a run of one, two or three (fewest first)
+ * in which each of `all` matches one paragraph, and none of `none` any. `also` says a paragraph counts as matching a
+ * pattern it doesn't (a person's name, where a pronoun stands for them: `refersTo`).
+ */
+export function findAcross(
+  paragraphs: string[],
+  all: RegExp[],
+  none: RegExp[] = [],
+  span = 3,
+  also: (paragraph: number, pattern: RegExp) => boolean = () => false
+): SpreadPlace | null {
+  const starts: number[] = []
+  let at = 0
+  for (const p of paragraphs) {
+    starts.push(at)
+    at += p.length + 2
+  }
+  for (let end = 0; end < paragraphs.length; end++) {
+    for (let size = 1; size <= Math.max(1, span) && size <= end + 1; size++) {
+      const i = end - size + 1
+      const window = paragraphs.slice(i, i + size)
+      if (!all.every((r) => window.some((p, k) => once(r).test(p) || also(i + k, r))) || window.some((p) => none.some((r) => once(r).test(p)))) continue
+      const quote = window
+        .flatMap((p) => sentences(p))
+        .filter((x) => all.some((r) => once(r).test(x.text)))
+        .map((x) => x.text)
+        .join(' ')
+      const last = i + size - 1
+      return { paragraph: i, last, start: starts[i], end: starts[last] + paragraphs[last].length, quote: quote || window.join(' ') }
+    }
+  }
+  return null
+}
+
+/** Someone named, the pronouns that stand for them, and the names of others the same pronouns could stand for. */
+export interface Referent {
+  name: RegExp
+  pronoun: RegExp
+  others: RegExp
+}
+
+/**
+ * For each paragraph, whether it speaks of someone: by name, or by a pronoun in the narration (outside speech) when they
+ * were the last of `name` and `others` named in the narration before it ("Ash got up. ... 'I know,' he said, and went
+ * out", round 7). Names said aloud aren't tracked: in "'Cinder wants rubbing down,' he said" the "he" is still Ash.
+ */
+export function refersTo(paragraphs: string[], who: Referent): boolean[] {
+  const all = (r: RegExp): RegExp => new RegExp(r.source, r.flags.includes('g') ? r.flags : `${r.flags}g`)
+  let last: 'them' | 'other' | null = null
+  return paragraphs.map((p) => {
+    const narration = outsideQuotes(p)
+    const seen: { at: number; kind: 'them' | 'other' | 'pronoun' }[] = []
+    for (const [r, kind] of [
+      [who.name, 'them'],
+      [who.others, 'other'],
+      [who.pronoun, 'pronoun']
+    ] as const)
+      for (const m of narration.matchAll(all(r))) seen.push({ at: m.index ?? 0, kind })
+    seen.sort((a, b) => a.at - b.at)
+    let hit = once(who.name).test(p)
+    for (const e of seen) {
+      if (e.kind === 'pronoun') hit ||= last === 'them'
+      else last = e.kind
+    }
+    return hit
+  })
+}
+
 /** The first sentence matching all of `all` (and none of `none`), for finding where a planted event happens. */
 export function findSentence(text: string, all: RegExp[], none: RegExp[] = []): Sentence | null {
   return sentences(text).find((s) => all.every((r) => once(r).test(s.text)) && !none.some((r) => once(r).test(s.text))) ?? null

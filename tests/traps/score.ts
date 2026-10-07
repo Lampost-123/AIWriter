@@ -332,8 +332,8 @@ export interface ChainStepResult {
   generationId: string | null
   words: number
   text: string
-  /** The plants this step was asked for, and the words where each landed. */
-  planted: { id: string; quote: string }[]
+  /** The plants this step was asked for, and the words where each landed (`by: 'judge'` where the patterns missed it). */
+  planted: { id: string; quote: string; by?: 'judge' }[]
   /** The checks of every earlier plant still in force, and of the facts from chapters back. */
   results: CheckResult[]
   judge: SampleResult['judge']
@@ -614,7 +614,7 @@ export function passagesMarkdown(r: RunReport): string {
         }
         out.push(st.text.trim(), '')
         const bad = st.results.filter((x) => x.verdict === 'broken' || x.verdict === 'unverified')
-        if (st.planted.length) out.push(`- Planted: ${st.planted.map((x) => x.id).join(', ')}`)
+        if (st.planted.length) out.push(`- Planted: ${st.planted.map((x) => (x.by === 'judge' ? `${x.id} (by the judge)` : x.id)).join(', ')}`)
         for (const x of bad) out.push(`- ${x.verdict === 'broken' ? 'Broken' : 'Unverified'}: ${x.trap} — ${x.ask}${x.quote ? ` “${x.quote}”` : ''}`)
         if (st.resolved.length) out.push(`- Ended on the page: ${st.resolved.join(', ')}`)
         if (st.repair?.checked) {

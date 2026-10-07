@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkout, countWords, git, openApp, standInDirections, whenEnded, type App, type TrapsConfig } from './app'
 import { paragraphsOf } from './page'
-import { findPlace, outsideQuotes, type PatternCheck } from './patterns'
+import { findAcross, outsideQuotes, refersTo, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
 import { quoteInPassage } from './score'
 import { repairLanded, storyFor, storyId, findSavedWorld, type SavedWorld } from './run'
 import {
@@ -46,9 +46,21 @@ export interface ChainPlant {
   name: string
   /** What is true once it has happened, for the judge. */
   fact: string
-  /** Where it happened in its step: a paragraph matching all of these (and none of `none`). */
+  /**
+   * Where it happened in its step: one paragraph, or up to three neighbouring ones (Ash named in one, "he went out" in
+   * the next), matching all of these (and none of `none`).
+   */
   find: RegExp[]
   none?: RegExp[]
+  /** Someone `find` names (its pattern is `who.name`), who may be "he" or "she" in the paragraphs after. */
+  who?: Referent
+  /** Asked of the judge when no paragraphs match `find` (good answer "yes", with the words that show it). */
+  happens: string
+  /**
+   * The event can run on over the paragraphs that follow (the bar dropped, then the key turned): a change is looked for
+   * in its step only after the last paragraph in a row that still matches `find`.
+   */
+  runsOn?: boolean
   /** A change shown on the page that ends it (she pulls her boots back on): checked no further after that step. */
   change?: RegExp
   /** A deterministic check of each later step (the narration only). */
@@ -97,6 +109,16 @@ const ASH_BACK =
 /** The door unlocked, unbarred or unbolted, in any wording; or someone let in (which needs it). */
 const UNLOCKED =
   /\b(?:unlock\w*|unbarred|unbolted|turned the key|turn the key|key (?:in|turned in|grated in|scraped in|rattled in) the lock|undid the (?:lock|bolt|bar))\b|\bthe (?:bar|bolt) (?:lifting|lifted|was lifted|drawn|drew back|slid back|went up|scraped back|came up|came off|was drawn)\b|\b(?:lifted|drew|slid|raised|took) (?:back |up |off )?the (?:bar|bolt)\b|\b(?:let|lets|letting) (?:him|her|them|Ash|Mother Rook|the landlady) in\b|\bkey\b[^.!?\n]{0,80}\bturned it(?: back)?\b|\bturned (?:it|the key) back\b/i
+/**
+ * The door locked, barred or bolted, in the wordings round 7 found and their kin: "The key was in the lock. She turned
+ * it", "found the key on the inside and turned it, and the lock went over", "dropped it into the brackets", "lifted it
+ * into its keep", "the bolt came home", "took the key out of the lock and put it in her pocket".
+ */
+export const DOOR_LOCKED =
+  /\b(?:locked|lock(?:s|ed)? the door|turned the key|key (?:\w+ ){0,2}in the lock|shot the bolt|bolted)\b|\bkey\b[^\n]{0,80}?\bturned it\b|\bturned (?:it|the key) in the lock\b|\bthe lock (?:went|turned|clicked|snapped|shot) (?:over|home)\b|\b(?:bar|bolt)\b[^.!?\n]{0,30}\b(?:went|came|slid|dropped|fell|was) home\b|\b(?:set|shot|slid|dropped|pushed|drove|put|eased|knocked) (?:it|the bar|the bolt) home\b|\binto (?:its|their|the) (?:keep|keeps|irons|brackets|staples|sockets|hasps?|cleats)\b|\b(?:took|drew|pulled|slid|eased|got|lifted) the key (?:out|from)\b[^.!?\n]{0,120}\bpocket\b|\bkey out of the lock\b/i
+const ASH = /\bAsh\b/
+/** Others "he" could stand for in the chain's scene: the story's men, Cinder (a gelding), the inn's boy. */
+const OTHER_MEN = /\b(?:Cinder|Hobb|Gale|Oskar|Ide|Vey|Corran|Edric)\b|\b(?:the|Rook['’]s) (?:boy|ostler|man)\b/i
 const GOT_UP = /\b(?:got up|sat up|rose|stood up|swung (?:her )?(?:legs|feet)|got off the settle|pushed herself up|came off the settle|left the settle|struggled up|was on her feet|got to her feet|climbed off|levered herself up)\b/i
 const CASE_MOVED = /\b(?:took|picked up|fetched|lifted|got|reached for|snatched|gathered up) the (?:survey )?case\b|\bcase (?:from|off) the (?:window)?sill\b/i
 
@@ -110,6 +132,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     name: 'Boots off',
     fact: "Wren pulled off her wet boots; they are drying by the hearth and she is in her stockings.",
     find: [/\bboots?\b/i, /\b(?:off|pulled|tugged|kicked|unlaced|dragged|hearth|fire|dry|drying)\b/i],
+    happens: 'Does Wren take her boots off?',
     change: BOOTS_ON,
     drift: {
       what: 'Wren walks in her boots, or has them on, without putting them back on.',
@@ -125,6 +148,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     name: 'Coat off',
     fact: 'Wren hung her oilskin coat on the peg behind the door; she is not wearing it.',
     find: [/\b(?:coat|oilskin)\b/i, /\b(?:peg|hook|hung|hang\w*|door)\b/i],
+    happens: 'Does Wren take her coat off and hang it up?',
     change: COAT_ON,
     drift: {
       what: 'Wren wears her coat again without putting it on.',
@@ -142,7 +166,9 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     id: 'ash-out',
     name: 'Ash gone to the stable',
     fact: 'Ash went out to the stable to see to the horses; he has not come back.',
-    find: [/\bAsh\b/, /\b(?:stable|horses)\b/i, /\b(?:went|goes|out|left|gone|go)\b/i],
+    find: [ASH, /\b(?:stable|horses)\b/i, /\b(?:went|goes|out|left|gone|go)\b/i],
+    who: { name: ASH, pronoun: /\b(?:he|him|his|himself)\b/i, others: OTHER_MEN },
+    happens: 'Does Ash go out of the room (to the stable, or to see to the horses)?',
     change: ASH_BACK,
     endedAsk: 'Before the words quoted, does the passage show Ash coming back into the room (his step at the door, the door unbarred or unlocked for him, someone letting him in, or him coming in)?',
     drift: {
@@ -160,7 +186,9 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     id: 'door-locked',
     name: 'Door locked',
     fact: 'Wren locked the parlour door and put the key in her pocket; it stays locked until someone unlocks it.',
-    find: [/\b(?:locked|lock(?:s|ed)? the door|turned the key|key in the lock|shot the bolt|bolted)\b/i],
+    find: [DOOR_LOCKED],
+    happens: 'Does Wren lock, bolt or bar the door?',
+    runsOn: true,
     change: UNLOCKED,
     endedAsk: 'Before the words quoted, does the passage show the door being unlocked, unbarred or unbolted, or someone letting a person in?',
     drift: {
@@ -178,6 +206,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     name: 'Survey case on the windowsill',
     fact: 'Wren put the survey case down on the windowsill.',
     find: [/\b(?:survey|case)\b/i, /\b(?:sill|windowsill|window)\b/i],
+    happens: 'Does Wren put the survey case down on the windowsill?',
     change: CASE_MOVED,
     judge: {
       ask: "The survey case was last put down on the windowsill. Is it described as in Wren's hands, lap or arms, under her arm, or anywhere other than the windowsill, without the passage first showing someone pick it up or move it? Only thinking of it, or looking at it on the sill, doesn't count.",
@@ -189,6 +218,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     name: 'Lying on the settle',
     fact: 'Wren is lying on the settle by the fire.',
     find: [/\b(?:lay|lies|lying|lain|stretched out|lie down)\b/i, /\bsettle\b/i],
+    happens: 'Does Wren lie down on the settle?',
     change: GOT_UP,
     judge: {
       ask: 'Wren was last lying on the settle by the fire. Is she described as standing, walking about, or sitting somewhere else, without the passage first showing her get up or move? Lying, or sitting up on the settle itself, doesn’t count.',
@@ -200,6 +230,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     name: 'Right hand cut',
     fact: "A shard cut the palm of Wren's RIGHT hand; her left hand is unhurt (her old burn is on her LEFT forearm).",
     find: [/\bright\b/i, /\b(?:hand|palm)\b/i, /\b(?:cut|blood|bleed\w*|sliced|gash\w*|shard)\b/i],
+    happens: "Is the palm of Wren's right hand cut?",
     drift: {
       what: 'The cut is put on her left hand.',
       broken: LEFT_HAND_CUT,
@@ -216,6 +247,7 @@ export const CHAIN_FAR: ChainPlant[] = [
     name: 'Compass given away (chapter 2)',
     fact: "Wren gave her brass compass away as a toll in chapter 2; she has no compass.",
     find: [],
+    happens: '',
     drift: { what: PATTERNS.compass.what, broken: PATTERNS.compass.broken, not: PATTERNS.compass.not, outsideQuotes: true, touches: PATTERNS.compass.touches }
   },
   {
@@ -223,6 +255,7 @@ export const CHAIN_FAR: ChainPlant[] = [
     name: 'Burn on the left forearm (chapter 1)',
     fact: "Wren's old burn is on her LEFT forearm.",
     find: [],
+    happens: '',
     drift: { what: PATTERNS.burn.what, broken: PATTERNS.burn.broken, outsideQuotes: true, touches: PATTERNS.burn.touches }
   }
 ]
@@ -305,25 +338,73 @@ export function endedBy(text: string, plants: ChainPlant[]): string[] {
  * a change after the paragraph that planted them (Ash goes out and comes back within one Add below; the key turned to
  * lock the door is not an unlocking).
  */
-export function endedIn(text: string, before: ChainPlant[], planted: ChainPlant[]): string[] {
+export function endedIn(text: string, before: ChainPlant[], planted: ChainPlant[], quotes: { id: string; quote: string }[] = []): string[] {
   const paras = paragraphsOf(text)
   const late = planted.filter((p) => {
-    const place = findPlace(paras, p.find, p.none ?? [])
-    return place ? endedBy(paras.slice(place.paragraph + 1).join('\n\n'), [p]).length > 0 : false
+    const last = plantedThrough(paras, p, quotes.find((q) => q.id === p.id)?.quote)
+    return last != null ? endedBy(paras.slice(last + 1).join('\n\n'), [p]).length > 0 : false
   })
   return [...new Set([...endedBy(text, before), ...late.map((p) => p.id)])]
 }
 
-/** Whether a step's planted events landed: each in a paragraph of its words, with that paragraph's words. */
-export function landed(spec: ChainSpec, ids: string[], text: string): { ok: boolean; planted: { id: string; quote: string }[]; missing: string[] } {
+/**
+ * The last paragraph of a planted event in its step's paragraphs: where its patterns found it (or, landed by the judge,
+ * the paragraph holding its quote), run on over the paragraphs after that still match for a plant that `runsOn`.
+ */
+function plantedThrough(paras: string[], p: ChainPlant, quote?: string): number | null {
+  const place = placeOf(paras, p)
+  let last = place ? place.last : quote ? paras.findIndex((x) => quoteInPassage(x, quote)) : -1
+  if (last < 0) return null
+  if (p.runsOn) while (last + 1 < paras.length && p.find.every((r) => new RegExp(r.source, r.flags.replace('g', '')).test(paras[last + 1]))) last++
+  return last
+}
+
+/** Where a plant's patterns find it in a step's paragraphs, a pronoun standing for its `who` where it has one. */
+export function placeOf(paras: string[], p: ChainPlant): SpreadPlace | null {
+  const refers = p.who ? refersTo(paras, p.who) : null
+  return findAcross(paras, p.find, p.none ?? [], 3, (i, r) => !!refers && r === p.who!.name && refers[i])
+}
+
+/** A planted event that landed, with the words that show it; `by: 'judge'` where only the judge found it. */
+export interface Planted {
+  id: string
+  quote: string
+  by?: 'judge'
+}
+
+/**
+ * Whether a step's planted events landed, by the patterns: each in a paragraph of its words, or spread over up to three
+ * neighbouring ones (round 7: Ash named once, then "he"), with those paragraphs' matching words.
+ */
+export function landed(spec: ChainSpec, ids: string[], text: string): { ok: boolean; planted: Planted[]; missing: string[] } {
   const paras = paragraphsOf(text)
-  const planted: { id: string; quote: string }[] = []
+  const planted: Planted[] = []
   const missing: string[] = []
   for (const id of ids) {
     const p = spec.plants.find((x) => x.id === id)
-    const place = p ? findPlace(paras, p.find, p.none ?? []) : null
+    const place = p ? placeOf(paras, p) : null
     if (place) planted.push({ id, quote: place.quote })
     else missing.push(id)
+  }
+  return { ok: !missing.length, planted, missing }
+}
+
+/** The judge's questions for planted events the patterns missed (ids L1...), as write.ts asks for a story's plants. */
+export function landingChecks(spec: ChainSpec, missing: string[]): Check[] {
+  return missing.map((id, i) => ({ id: `L${i + 1}`, trap: id, ask: `${spec.plants.find((p) => p.id === id)?.happens ?? id} Quote the words that show it.`, bad: 'no' }))
+}
+
+/**
+ * Folds the judge's answers into a landing: a missing event lands when the judge says yes with a quote that is in the
+ * passage; anything else stays missing.
+ */
+export function landedByJudge(land: ReturnType<typeof landed>, checks: Check[], answers: { id: string; answer: string; quote: string }[] | null, text: string): ReturnType<typeof landed> {
+  const planted = [...land.planted]
+  const missing: string[] = []
+  for (const c of checks) {
+    const a = answers?.find((x) => x.id.toUpperCase() === c.id)
+    if (a?.answer === 'yes' && a.quote && quoteInPassage(text, a.quote)) planted.push({ id: c.trap, quote: a.quote, by: 'judge' })
+    else missing.push(c.trap)
   }
   return { ok: !missing.length, planted, missing }
 }
@@ -391,7 +472,7 @@ export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: Cha
       const newly = spec.plants.filter((p) => st.planted.some((x) => x.id === p.id))
       for (const p of st.planted) landedAt.set(p.id, st.step)
       const text = st.repair?.text ?? st.text
-      const resolved = endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly)
+      const resolved = endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, st.planted)
       for (const id of resolved) ended.add(id)
       if (firstSlip == null && results.some((r) => r.verdict === 'broken')) firstSlip = st.step
       return { ...st, results, resolved, ...(st.repair && after ? { repair: { ...st.repair, results: after } } : {}) }
@@ -452,6 +533,13 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       }
       if (got.status !== 'complete' || !got.text.trim()) break
       land = landed(spec, asked, got.text)
+      if (!land.ok) {
+        // The patterns missed it: the judge is asked once whether it happens, with the words (as write.ts does).
+        const checks = landingChecks(spec, land.missing)
+        const j = await app.askJudge({ facts: ['The passage carries on a scene; answer only from what it shows.'], checks }, got.text)
+        land = landedByJudge(land, checks, j.answers, got.text)
+        if (land.planted.some((x) => x.by === 'judge')) cfg.log(`  ${spec.id} chain ${index + 1} step ${n}: the judge found ${land.planted.filter((x) => x.by === 'judge').map((x) => x.id).join(', ')}`)
+      }
       if (land.ok) break
       cfg.log(`  ${spec.id} chain ${index + 1} step ${n}: ${land.missing.join(', ')} didn't land; drafting again`)
     }
@@ -492,7 +580,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     for (const p of land.planted) landedAt.set(p.id, n)
     const resolved = [
       ...new Set([
-        ...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly),
+        ...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly, land.planted),
         ...results.filter((r) => r.by === 'judge' && r.answer === 'yes' && r.verdict === 'kept' && r.ask.startsWith('Ended?')).map((r) => r.trap)
       ])
     ]

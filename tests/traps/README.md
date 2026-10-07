@@ -181,8 +181,10 @@ a scene and across scenes. A chain does what he does (`chain.ts`, `--probes-vers
   1); Ash goes out to the stable and Wren locks the door, key in her pocket (3); the survey case on the windowsill and
   Wren lying down on the settle (5); a shard cuts her RIGHT palm (7). Steps 9 and 11 are bait without the truth ("Someone
   knocks at the door.", "Wren wonders which way the coast road runs from here in the dark."). Each plant must land in
-  its step (a paragraph that shows it), else the step is drafted again, twice at most, else the chain is given up and
-  the report says so. Facts from chapters back are checked from the first step: the compass given away, the burn on her
+  its step: a paragraph that shows it, or up to three neighbouring ones (Ash named once, then "he went out"; "he" counts
+  as Ash while he was the last man named in the narration); where no pattern finds it, the judge is asked once whether
+  it happens, and a yes counts only with words that are in the draft. Else the step is drafted again, twice at most,
+  else the chain is given up and the report says so. Facts from chapters back are checked from the first step: the compass given away, the burn on her
   LEFT forearm.
 - **Between steps**, as when Adam pauses: the step lands in the page (saved), step 3's check and repair runs on the
   landing and its fixes go into the page, then the memory reads the scene and everything that follows a read finishes

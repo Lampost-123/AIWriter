@@ -2,8 +2,8 @@
 // lines, the slips and the lines that only look like slips (said aloud, a mention, a negation), and the bookkeeping
 // of which plants are in force. No model.
 import { describe, expect, it } from 'vitest'
-import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, endedBy, endedIn, inForce, landed, stepChecks, type ChainPlant } from '../traps/chain'
-import { patternVerdict } from '../traps/patterns'
+import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, endedBy, endedIn, inForce, landed, landedByJudge, landingChecks, stepChecks, type ChainPlant } from '../traps/chain'
+import { findAcross, patternVerdict, refersTo } from '../traps/patterns'
 import { firstBreak } from '../traps/patterns'
 import { summariseChains, type ChainResult, type CheckResult } from '../traps/score'
 
@@ -192,3 +192,72 @@ describe('round 6: Ash at the door and let in', () => {
     expect(drift('door-locked', t)).not.toBe('broken')
   })
 })
+
+describe('round 7: plants that landed but were not found', () => {
+  const spec = CHAINS[0]
+  it('Ash named once, then "he": the going out spread over neighbouring paragraphs', () => {
+    const a = [
+      'Ash drank off what was in his cup and set it down and got up.',
+      '‘I’ll see to the horses,’ he said. ‘Cinder’s had a long day of it.’',
+      'Wren said nothing.',
+      '‘I’ve been in a yard before.’ He pulled his collar up and went out, and the rain came in on the flags.'
+    ].join('\n\n')
+    expect(landed(spec, ['ash-out'], a)).toMatchObject({ ok: true, missing: [] })
+    const b = [
+      '‘The day after,’ Ash said. He put his bowl on the bench and stood. ‘I’ll see to the horses before I sit down again or I won’t get up.’',
+      'He pulled his boots on, one and then the other, stamping each heel down.',
+      '‘I know,’ he said, and went out.'
+    ].join('\n\n')
+    expect(landed(spec, ['ash-out'], b)).toMatchObject({ ok: true, missing: [] })
+    // More than three paragraphs apart is not one event.
+    expect(landed(spec, ['ash-out'], ['Ash looked at the fire.', 'Rain.', 'More rain.', 'The horses went out.'].join('\n\n')).ok).toBe(false)
+    // "He" is Ash only while Ash was the last man named in the narration; a name said aloud doesn't count.
+    const who = plant('ash-out').who!
+    expect(refersTo(['Ash got up.', '‘Cinder wants rubbing,’ he said.', 'Cinder stamped in the yard. He was hungry.', 'She waited.'], who)).toEqual([true, true, false, false])
+  })
+  it('places a spread event where it is first complete', () => {
+    const t = ['Ash got up.', '‘The horses,’ he said, and went out.', 'Wren waited.', 'Ash came back from the horses, out of the wet.'].join('\n\n')
+    expect(findAcross(paragraphsOfText(t), plant('ash-out').find)).toMatchObject({ paragraph: 0, last: 1 })
+    expect(endedIn(t, [], [plant('ash-out')])).toEqual(['ash-out'])
+  })
+  it('the door locked in the wordings the patterns missed', () => {
+    for (const line of [
+      'The key was in the lock. She turned it, and the wards grated, and she took the key out and put it in her coat pocket.',
+      'Then she lifted the latch and set the door properly into its frame, and found the key on the inside and turned it, and the lock went over with a sound like something being put down.',
+      'The bar was a good oak one, worn bright along the top where hands had been. She dropped it into the brackets and set it home with the heel of her hand.',
+      'The bar was a length of oak worn pale in the middle; she lifted it into its keep and dropped it, and it went home with a knock.',
+      'It went stiff and then gave, and the bolt came home with a small hard knock.',
+      'Then she took the key from the inside of the lock, where Mother Rook had left it, and put it in her breeches pocket.'
+    ])
+      expect(landed(spec, ['door-locked'], line).ok, line).toBe(true)
+    expect(landed(spec, ['door-locked'], 'She looked at the door and thought about the key.').ok).toBe(false)
+  })
+  it('the bar dropped and then the key turned is one locking, not a lock and an unlock', () => {
+    const t = [
+      'The bar was a length of oak worn pale in the middle; she lifted it into its keep and dropped it, and it went home with a knock.',
+      'The key was in the lock. She turned it, and the wards grated, and she took the key out and put it in her coat pocket.',
+      'Then she went back to the settle and sat down beside the case.'
+    ].join('\n\n')
+    expect(endedIn(t, [], [plant('door-locked')])).toEqual([])
+    // An unlocking after the locking, past other paragraphs, still ends it.
+    expect(endedIn(`${t}\n\nAt the knock she took the key from her pocket and turned the key back, and let him in.`, [], [plant('door-locked')])).toEqual(['door-locked'])
+  })
+  it('asks the judge once for what the patterns missed, and takes a yes only with words in the passage', () => {
+    const text = 'Ash shrugged into his coat. ‘Cinder wants rubbing down,’ he said, and left them to it.'
+    const land = landed(spec, ['ash-out', 'door-locked'], text)
+    expect(land.missing).toEqual(['ash-out', 'door-locked'])
+    const checks = landingChecks(spec, land.missing)
+    expect(checks.map((c) => [c.id, c.trap, c.bad])).toEqual([
+      ['L1', 'ash-out', 'no'],
+      ['L2', 'door-locked', 'no']
+    ])
+    expect(checks[0].ask).toMatch(/^Does Ash go out/)
+    const yes = landedByJudge(land, checks, [{ id: 'L1', answer: 'yes', quote: 'he said, and left them to it' }, { id: 'L2', answer: 'no', quote: '' }], text)
+    expect(yes).toMatchObject({ ok: false, missing: ['door-locked'], planted: [{ id: 'ash-out', quote: 'he said, and left them to it', by: 'judge' }] })
+    const madeUp = landedByJudge(land, checks, [{ id: 'L1', answer: 'yes', quote: 'he went out to the stable' }, { id: 'L2', answer: 'yes', quote: 'she locked the door' }], text)
+    expect(madeUp).toMatchObject({ ok: false, missing: ['ash-out', 'door-locked'], planted: [] })
+    expect(landedByJudge(land, checks, null, text).ok).toBe(false)
+  })
+})
+
+const paragraphsOfText = (t: string): string[] => t.split(/\n\s*\n/)
