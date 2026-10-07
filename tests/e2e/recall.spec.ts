@@ -1,8 +1,13 @@
-// Recall in the Cast tab (Adam, 2026-10-04): where things stand as the scene ends. Worked out on request (the fake
-// memory model says who the scene names is "in the scene", wearing the cloak it mentions); a value Adam changes is
-// kept; a character he takes out goes; when the scene's words change, it says it is out of date until read again.
+// Recall in the Cast tab (Adam, 2026-10-04): where things stand as the scene ends. Worked out on its own once the
+// memory has read the scene (the fake memory model says who the scene names is "in the scene", wearing the cloak it
+// mentions, each with the words that show it); a value Adam changes is kept; a character he takes out goes; when the
+// scene's words change, it says it is out of date until read again. At the cursor (Adam, 2026-10-07): where things
+// stand at that point in the scene, read on from the checkpoint before it.
 import type { Page } from '@playwright/test'
 import { createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+
+// The memory reads the scene as soon as there is a model, and not again on its own while a test runs.
+const QUIET = { env: { AIWRITE_KEEPER_QUIET_MS: '600000' } }
 
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
 const recall = (win: Page) => scenePanel(win).getByRole('region', { name: 'Recall' })
@@ -10,7 +15,7 @@ const recall = (win: Page) => scenePanel(win).getByRole('region', { name: 'Recal
 test('Recall: worked out, changed by hand, a character taken out, and out of date when the words change', async ({ launch }) => {
   const fake = await startFake()
   try {
-    const { win } = await launch()
+    const { win } = await launch(QUIET)
     await createWorldFromWelcome(win, 'Harbour')
     await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
     await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
@@ -19,12 +24,12 @@ test('Recall: worked out, changed by hand, a character taken out, and out of dat
     await invoke(win, 'saveSceneText', sceneId, null, 'Mara stood at the rail in her grey cloak. Tobin watched.')
     await useFakeModel(win, fake)
 
+    // Worked out on its own once the memory has read the scene, each value with the words it came from.
     await scenePanel(win).getByRole('tab', { name: 'Cast' }).click()
-    await expect(recall(win)).toContainText('Not worked out yet.')
-    await recall(win).getByRole('button', { name: 'Work it out' }).click()
     const mara = recall(win).locator('[data-recall-character="Mara"]')
-    await expect(mara).toContainText('in the scene')
+    await expect(mara).toContainText('in the scene', { timeout: 30_000 })
     await expect(mara).toContainText('grey cloak')
+    await expect(mara.getByRole('button', { name: /^Wearing: grey cloak/ })).toHaveAttribute('title', 'From the words: “in her grey cloak”')
     await expect(recall(win).locator('[data-recall-character="Tobin"]')).toBeVisible()
     await expect(recall(win)).toContainText('evening')
 
@@ -53,6 +58,47 @@ test('Recall: worked out, changed by hand, a character taken out, and out of dat
     await expect(recall(win).locator('[data-recall-stale]')).toHaveCount(0)
     await expect(mara).toContainText('blue cloak')
     await expect(recall(win)).not.toContainText('Includes your changes.')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Recall at the cursor: where things stand at that point, read on from the checkpoint before it', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(QUIET)
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+    await invoke(win, 'saveSceneText', sceneId, null, 'Mara stood at the rail in her grey cloak.')
+    await useFakeModel(win, fake)
+    await scenePanel(win).getByRole('tab', { name: 'Cast' }).click()
+    await expect(recall(win).locator('[data-recall-character="Mara"]')).toContainText('grey cloak', { timeout: 30_000 })
+
+    // At the end of the words read so far: worked out there, to read, not to change.
+    await recall(win).getByRole('button', { name: 'At the cursor' }).click()
+    await expect(recall(win).getByRole('heading')).toHaveText('Recall: at the cursor')
+    await win.locator('.scene-prose p').first().click()
+    await win.keyboard.press('End')
+    const mara = recall(win).locator('[data-recall-character="Mara"]')
+    await expect(recall(win).locator('[data-recall-at="exact"]')).toBeVisible()
+    await expect(mara).toContainText('grey cloak')
+    await expect(mara.getByRole('button')).toHaveCount(0)
+
+    // Further on, past what was read: the nearest point before it until worked out here, from only the new words.
+    await win.keyboard.press('Enter')
+    await win.keyboard.type('Mara came back in her blue cloak.')
+    await expect(recall(win).locator('[data-recall-at="earlier"]')).toBeVisible()
+    await expect(mara).toContainText('grey cloak')
+    await recall(win).getByRole('button', { name: 'Work it out here' }).click()
+    await expect(recall(win).locator('[data-recall-at="exact"]')).toBeVisible()
+    await expect(mara).toContainText('blue cloak')
+    await expect(recall(win).getByRole('button', { name: 'Work it out here' })).toHaveCount(0)
+
+    // Back to the scene's end.
+    await recall(win).getByRole('button', { name: 'Scene end' }).click()
+    await expect(recall(win).getByRole('heading')).toHaveText('Recall: as this scene ends')
   } finally {
     await fake.close()
   }

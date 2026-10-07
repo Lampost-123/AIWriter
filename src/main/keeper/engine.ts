@@ -5,6 +5,7 @@
 // - Runs queue per scene and a newer trigger replaces a queued one (a run always reads the latest text).
 // - Before a draft, queued or failed runs for earlier scenes on the line run first (catchUpBefore).
 // - When the queue is empty, summaries whose sources changed are rolled up (chapter, story, series).
+// - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
 // - Closing the world stops everything cleanly: nothing is written to a closed database.
 // No Electron imports: the window and settings are reached through KeeperDeps (see index.ts).
 
@@ -40,6 +41,11 @@ export interface KeeperDeps {
    * caller can fill in their empty fields as a follow-on (builder/fill.ts) that never holds up the memory.
    */
   onNewEntries?: (entryIds: ID[], model: MemoryModel) => void
+  /**
+   * A scene was read (new words or not): told after the run, so where things stand as it ends can be brought up to
+   * date as a follow-on (continuity/tracker.ts) that never holds up the memory.
+   */
+  onSceneRead?: (sceneId: ID, model: MemoryModel) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -433,6 +439,12 @@ export class Keeper {
         }
         const scene = kdb.keeperScene(this.db, id)
         if (scene) this.dirtyStories.add(scene.storyId)
+        if (model && scene)
+          try {
+            this.deps.onSceneRead?.(id, model)
+          } catch (e) {
+            console.warn('Could not start bringing where things stand up to date', e)
+          }
         const done = this.done.has(id)
         this.done.delete(id)
         if (this.deps.summaries === false || !model || !scene) return

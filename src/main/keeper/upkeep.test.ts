@@ -881,6 +881,37 @@ describe('cost', () => {
   })
 })
 
+describe('after a read', () => {
+  it('says which scene was read, so where things stand as it ends can be brought up to date', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [['p1', 'Kell lost his hat.']])
+    const read: ID[] = []
+    const k = new Keeper({
+      db: w.db,
+      model: () => modelFor(),
+      emitStatus: () => {},
+      emitChanged: () => {},
+      onSceneRead: (id) => read.push(id),
+      quietMs: 60_000,
+      summaries: false,
+      retryDelays: [0]
+    })
+    const s2 = repo.createScene(w.db, w.chapterId, { title: 'Scene 2' }).id
+    await k.catchUpBefore(s2)
+    expect(read).toEqual([w.sceneId])
+    // Nothing new to read: not read again, nothing said.
+    await k.catchUpBefore(s2)
+    expect(read).toEqual([w.sceneId])
+    save(w.db, w.sceneId, [
+      ['p1', 'Kell lost his hat.'],
+      ['p2', 'Kell found his boots.']
+    ])
+    await k.catchUpBefore(s2)
+    expect(read).toEqual([w.sceneId, w.sceneId])
+    k.stop()
+  })
+})
+
 describe('someone new found in the text', () => {
   it('is told after the run, and the memory model fills in their empty fields as the AI’s, from the scene', async () => {
     const w = world()

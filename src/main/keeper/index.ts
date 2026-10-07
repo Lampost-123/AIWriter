@@ -23,7 +23,7 @@ import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
-import { stateAtText, stateBefore, type SceneState } from '../continuity/tracker'
+import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
 
 let keeper: Keeper | null = null
 
@@ -74,6 +74,7 @@ export function initKeeper(): void {
       emitStatus: (s) => emit('memory:status', s),
       emitChanged: (p) => emit('memory:changed', { sceneId: p.sceneId, entryIds: [...new Set(p.entryIds)] }),
       onNewEntries: (entryIds, model) => fillLater(w.db, entryIds, model),
+      onSceneRead: (sceneId, model) => standLater(w.db, sceneId, model),
       quietMs: quietMs()
     })
     keeper.start()
@@ -122,6 +123,33 @@ export async function continuityAt(db: Database.Database, sceneId: ID, text: str
     console.warn('Could not work out where things stand in the scene so far', e)
     return null
   }
+}
+
+/** Bringing where things stand up to date after the memory read a scene, one scene after another. */
+let standing: Promise<void> = Promise.resolve()
+
+/**
+ * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
+ * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
+ * it changed. Never holds up the memory; never throws.
+ */
+function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
+  const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
+  standing = standing.then(async () => {
+    if (!live() || pausedNote()) return
+    try {
+      const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
+      const was = storedState(db, sceneId)
+      if (was?.current) return
+      await stateBefore(o, sceneId)
+      await stateAfter(o, sceneId)
+      // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
+      const now = live() ? storedState(db, sceneId) : null
+      if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
+    } catch (e) {
+      console.warn('Could not bring where things stand up to date', e)
+    }
+  })
 }
 
 /** Filling in what the memory found, one batch after another, never holding up the memory itself. */

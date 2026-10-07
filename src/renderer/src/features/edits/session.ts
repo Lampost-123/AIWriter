@@ -15,6 +15,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { snapshotBefore } from '@/features/history/snapshot'
+import { sceneText } from '@/features/editor/streamDoc'
 import { revealEntryPart } from '@/features/palette/entryReveal'
 import {
   acceptSuggestion,
@@ -297,6 +298,16 @@ function retryAction(l: Pick<Live, 'sceneId' | 'tool' | 'direction' | 'from' | '
       )
     }
   }
+}
+
+/**
+ * The scene's words up to the cursor (or the end of the selected words), written as the scene's saved words are
+ * (paragraphs between blank lines): where things stand there shows in Recall. Null when the page isn't showing it.
+ */
+export function wordsToCursor(sceneId: ID): string | null {
+  const v = view()
+  if (!v || editorBridge()?.sceneId !== sceneId) return null
+  return sceneText(v.state.doc.cut(0, continueFrom(v.state)))
 }
 
 /** Where Continue carries on from: the cursor, or the end of the selected words (not the paragraph end a selection may reach). */
