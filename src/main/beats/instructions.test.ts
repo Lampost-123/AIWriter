@@ -46,6 +46,11 @@ describe('the closing instruction for one beat', () => {
     expect(text).toContain('Carry on seamlessly from the very end of the scene so far')
   })
 
+  it('keeps to where things stand at the end of the scene so far, when the briefing says it', () => {
+    expect(beatInstruction(final({ hasStand: true }), ask(2))).toContain('- Keep to where things stand at the end of the scene so far')
+    expect(beatInstruction(final(), ask(2))).not.toContain('Keep to where things stand')
+  })
+
   it("gives Adam's note for the beat, and asks for it to be followed", () => {
     const text = beatInstruction(final(), ask(3, { steer: 'Make her hesitate first.\nShe nearly says yes.' }))
     expect(text).toContain("The author's note for this beat: Make her hesitate first.\n  She nearly says yes.")

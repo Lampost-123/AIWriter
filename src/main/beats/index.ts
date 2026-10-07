@@ -58,6 +58,11 @@ export async function startBeat(
   const steer = tidySteer(input.steer)
   const block = soFarBlock(typeof input.soFar === 'string' ? input.soFar : '', getSettings().models.writer?.contextLength ?? null)
   const soFarEnds = input.soFarEnds === 'mid-beat' || input.soFarEnds === 'after-beat' ? input.soFarEnds : 'with-beat'
+  // Where things stand is worked out from the whole page when the beats so far end it (below a scene break, the words
+  // above it count too), else from the scene so far as given (a beat written again, say).
+  const given = typeof input.soFar === 'string' ? input.soFar.trim() : ''
+  const page = given ? repo.getScene(world.db(), sceneId).text.trim() : ''
+  const standText = page.endsWith(given) ? page : given
 
   const stop = new AbortController()
   starting.set(sceneId, stop)
@@ -77,7 +82,8 @@ export async function startBeat(
           extraBlocks: block ? [block] : []
         },
         signal: stop.signal,
-        catchUp
+        catchUp,
+        ...(block ? { soFar: standText } : {})
       })
     }
     let b = await briefing(index === 1)

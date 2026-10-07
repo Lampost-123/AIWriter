@@ -639,6 +639,11 @@ export interface DraftOptions {
    * Left out: off.
    */
   fresh?: boolean
+  /**
+   * Add below (October 2026): the draft carries on from the end of the scene's words rather than writing the scene
+   * afresh. The writer is given the scene so far and where things stand at its end. Left out: off.
+   */
+  addBelow?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'

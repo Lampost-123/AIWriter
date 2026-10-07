@@ -225,13 +225,22 @@ export function finalInstruction(o: {
   hasBringAbout?: boolean
   /** The tone in effect (the story's, else the series', else the world's), for the closing reminder. */
   tone?: string
+  /** Add below: the briefing has the scene so far, and the draft carries on from its end rather than starting the scene. */
+  addBelow?: boolean
+  /** The briefing says where things stand at the end of the scene so far (block 3b). */
+  hasStand?: boolean
 }): string {
   const lines: string[] = [
     '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.'
   ]
-  const plan = planLine(o)
+  if (o.addBelow) {
+    lines.push(
+      "- The scene so far is already on the page. Carry on seamlessly from its very end, as if there had been no pause: don't repeat, recap or rewrite any of it, and don't start the scene again."
+    )
+  }
+  const plan = o.addBelow ? addBelowPlanLine(o) : planLine(o)
   if (plan) lines.push(plan)
-  lines.push(lengthLine(o))
+  lines.push(o.addBelow && o.targetWords == null ? addBelowLengthLine(o) : lengthLine(o))
   const keep: string[] = []
   if (o.style.pov) keep.push(lowerFirst(o.style.pov))
   if (o.style.tense) keep.push(lowerFirst(o.style.tense))
@@ -244,8 +253,15 @@ export function finalInstruction(o: {
   }
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
+  if (o.hasStand) {
+    lines.push(
+      '- Keep to where things stand at the end of the scene so far: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes on the page.'
+    )
+  }
   const other = o.previousStory
-  if (o.hasPrevious && other) {
+  if (o.addBelow) {
+    // The scene so far already follows on from the previous scene.
+  } else if (o.hasPrevious && other) {
     const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
     const what = other.ended ? `is how ${other.title} ended` : `is where ${other.title} had got to`
     lines.push(
@@ -255,7 +271,20 @@ export function finalInstruction(o: {
   if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
-  return `Write the scene now.\n${lines.join('\n')}`
+  return `${o.addBelow ? 'Carry the scene on now, from the end of the scene so far.' : 'Write the scene now.'}\n${lines.join('\n')}`
+}
+
+/** Add below's line about length with Auto: what the rest of the scene needs, within Auto's ceiling. */
+function addBelowLengthLine(o: { autoMax?: number }): string {
+  const max = Math.max(AUTO_LENGTH.min, o.autoMax ?? AUTO_LENGTH.max).toLocaleString('en-GB')
+  return `- Write as much as the rest of the scene needs, up to ${max} words: play out what is left in full, and don't pad it.`
+}
+
+/** Add below's line about the plan: what the scene card asks for that the scene so far hasn't done yet. */
+function addBelowPlanLine(o: { hasBeats: boolean; hasGoal?: boolean; hasOutcome?: boolean; hasNotes?: boolean }): string {
+  if (o.hasBeats) return "- Write the scene card's beats the scene so far hasn't reached yet, in order, picking up from where it has got to."
+  if (o.hasGoal || o.hasOutcome || o.hasNotes) return '- Take the scene on from where it has got to, towards what the scene card describes.'
+  return '- Take the scene on naturally from where it has got to.'
 }
 
 /**

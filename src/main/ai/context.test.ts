@@ -31,7 +31,8 @@ import {
   timeSincePrevious,
   deadBy,
   type ContextInput,
-  type PreparedContext
+  type PreparedContext,
+  STAND_LEAD_SO_FAR
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { countRaw } from './tokens'
@@ -912,11 +913,45 @@ describe('blocks', () => {
     expect(block.text).toContain('- The Duke: where: his tower; mood: suspicious')
     expect(block.short).toContain('- Mara Venn: ')
     expect(block.short).not.toContain('The Duke')
-    // Sent just before the end of the previous scene.
-    const ids = prepareContext(inp).blocks.map((b) => b.id)
-    expect(ids.indexOf('continuity')).toBe(ids.indexOf('previous-scene') - 1)
+    // Sent last, right above the closing instruction, after the scene card and any block a part adds.
+    const ids = prepareContext(inp, { extraBlocks: [{ id: 'scene-so-far', title: 'The scene so far', text: 'Words.' }] }).blocks.map((b) => b.id)
+    expect(ids.at(-1)).toBe('continuity')
+    expect(ids.indexOf('scene-card')).toBeLessThan(ids.indexOf('scene-so-far'))
+    expect(ids.indexOf('previous-scene')).toBeLessThan(ids.indexOf('scene-card'))
+    // A new scene isn't told to keep to it in the closing instruction (time may have passed): only the lead says so.
+    expect(prepareContext(inp).finals.withPrevious).not.toContain('Keep to where things stand')
     // Nothing known: no block.
     expect(blockOf(input(), 'continuity')).toBeUndefined()
+  })
+
+  it('block 3b at the end of the scene so far: its own title and lead, and the closing instruction keeps to it', () => {
+    const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+    const inp = input()
+    inp.continuity = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [{ ...blank, name: 'Mara Venn', wearing: 'white shirt unbuttoned, boots off (by the door)', posture: 'sitting on the bed' }]
+    }
+    inp.continuityAtSoFar = true
+    const block = blockOf(inp, 'continuity')!
+    expect(block.title).toBe('Where things stand at the end of the scene so far')
+    expect(block.text.startsWith(STAND_LEAD_SO_FAR)).toBe(true)
+    expect(block.text).toContain('wearing: white shirt unbuttoned, boots off (by the door); position: sitting on the bed')
+    expect(prepareContext(inp).finals.withPrevious).toContain('Keep to where things stand at the end of the scene so far')
+  })
+
+  it('Add below: carries on from the scene so far rather than starting the scene, or the previous scene', () => {
+    const inp = input({ options: { direction: '', targetWords: null, creativity: 'balanced', addBelow: true } })
+    const final = prepareContext(inp).finals.withPrevious
+    expect(final.startsWith('Carry the scene on now, from the end of the scene so far.')).toBe(true)
+    expect(final).toContain("don't repeat, recap or rewrite any of it, and don't start the scene again")
+    expect(final).toContain("beats the scene so far hasn't reached yet")
+    expect(final).toContain('Write as much as the rest of the scene needs')
+    expect(final).not.toContain('Continue seamlessly from where the previous scene ends')
+    expect(final).not.toContain('Write the scene now')
+    // Without Add below, the usual closing.
+    expect(prepareContext(input()).finals.withPrevious.startsWith('Write the scene now.')).toBe(true)
   })
 
   it('block 7: places around the location only as far as they exist here', () => {

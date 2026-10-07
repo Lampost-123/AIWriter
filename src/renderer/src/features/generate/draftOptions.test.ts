@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { BLANK_DRAFT_OPTIONS, draftLength, patchDraftOptions, resolveDraftOptions } from './draftOptions'
 
 describe('resolveDraftOptions', () => {
+  it('carries a Fresh take and Add below through to the draft', () => {
+    expect(resolveDraftOptions({ ...BLANK_DRAFT_OPTIONS, fresh: true }, null, 'balanced')).toMatchObject({ fresh: true })
+    expect(resolveDraftOptions({ ...BLANK_DRAFT_OPTIONS, addBelow: true }, null, 'balanced')).toMatchObject({ addBelow: true })
+    expect(resolveDraftOptions(BLANK_DRAFT_OPTIONS, null, 'balanced')).not.toHaveProperty('addBelow')
+  })
+
   it('uses the card length and the default creativity when Adam chose nothing', () => {
     expect(resolveDraftOptions(undefined, 1500, 'balanced')).toEqual({ direction: '', targetWords: 1500, creativity: 'balanced' })
     expect(resolveDraftOptions(BLANK_DRAFT_OPTIONS, 900, 'steady')).toEqual({ direction: '', targetWords: 900, creativity: 'steady' })

@@ -121,8 +121,11 @@ export function editState(db: DB, sceneId: ID, change: (edits: StateEdits) => vo
   return true
 }
 
-/** What the memory model is asked for one scene. */
-export function stateMessages(before: SceneState | null, sceneText: string, cast: string[]): ChatMessage[] {
+/**
+ * What the memory model is asked for one scene. `soFar`: the text is the scene so far (the words before a Continue,
+ * a beat or Add below), not a finished scene, so it says where things stand at the end of what is written.
+ */
+export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], soFar = false): ChatMessage[] {
   const system = `${MARKER} state
 You keep track of continuity for a novel, so the next scenes are written consistently. Given where things stood before a scene and the scene's text, say where things stand at the END of the scene.
 
@@ -131,17 +134,19 @@ Reply with only a JSON object:
 
 - time: time of day (and date, if the story gives one); weather; light (lamplight, dusk, harsh sun).
 - One entry for each character who is in the scene or whose situation it changes, by their name as the cast list has it.
-- where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth).
-- wearing: their clothes and anything else worn (a ring, a pack), including anything put on, taken off, torn or soaked. Never their hair, beard or body: those aren't worn.
-- posture: how they are placed (standing, sitting on the bed, lying on the floor, kneeling).
-- holding: what they hold or carry.
+- where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth; on the bed, by the window).
+- wearing: everything they have on, item by item, each with how it is now: done up or open, pushed up or down, tucked in or loose, torn, soaked, half off (a white shirt unbuttoned to the waist with the sleeves rolled up, dark trousers, boots off). Anything taken off and where it is now (cloak over the chair). Jewellery, a pack, a sword belt. Always the whole outfit as it is now, not only what changed. Never their hair, beard or body: those aren't worn.
+- posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing; anyone they are touching or holding (sitting on the edge of the bed facing the window, hands in her lap, knee against Tobin's).
+- holding: what they hold or carry, and in which hand when the text says.
 - condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
 - mood: how they feel at the end.
 - lastAction: the last thing they did, in a few words.
-- Each value under 12 words. Give a value only when the scene shows it or it carries on from before; "" when unknown. When something has changed, give only the new state, never the old one.`
+- Only what the words show, or what carries on from before. Never guess or fill a gap with what is likely: "" when the story hasn't said. When something has changed, give only the new state, never the old one.
+- Keep each value short, but leave out no detail the text gives: wearing and posture may take a full line.`
   const user = [
     cast.length ? `Characters in this story: ${cast.join(', ')}` : '',
     `Before this scene:\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet: this may be the opening)'}`,
+    soFar ? 'The scene is not finished: this is the scene so far. Say where things stand at the end of what is written.' : '',
     `The scene:\n"""\n${sceneText.length > SCENE_CHARS ? `…${sceneText.slice(-SCENE_CHARS)}` : sceneText}\n"""`
   ]
     .filter(Boolean)
@@ -173,11 +178,22 @@ export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneSta
   const kept = all[sceneId]
   if (kept && stands(o.db, all, sceneId)) return withEdits(kept.state, kept.edits)
   const before = finalOf(all, scenesBefore(o.db, sceneId).at(-1))
+  const state = await askState(o, sceneId, before, scene.text, false)
+  if (!state) return null
+  const now = load(o.db)
+  // Adam's edits stay while the words are the ones he edited against; new words are read afresh.
+  now[sceneId] = { hash, base: stateHash(before), state, ...(kept?.hash === hash && kept.edits ? { edits: kept.edits } : {}) }
+  save(o.db, now)
+  return withEdits(state, now[sceneId].edits)
+}
+
+/** Asks the memory model where things stand after `text`, laid over `before`. Null when it couldn't say. */
+async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, soFar: boolean): Promise<SceneState | null> {
   const cast = repo
     .listEntries(o.db, 'character')
     .map((e) => e.name)
     .slice(0, 80)
-  const messages = stateMessages(before, scene.text, cast)
+  const messages = stateMessages(before, text, cast, soFar)
   const got = await callModel({
     db: o.db,
     model: o.model,
@@ -185,7 +201,7 @@ export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneSta
     job: 'memory',
     messages,
     blocks: [{ id: 'continuity', title: 'Where things stand', text: messages[1].content, tokens: estimateTokens(messages[1].content), priority: 1, dropped: false, short: false, entryIds: [] }],
-    maxTokens: 2000,
+    maxTokens: 3000,
     signal: o.signal,
     closed: o.closed,
     fetchImpl: o.fetchImpl,
@@ -194,13 +210,39 @@ export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneSta
   // Nothing to go on: no state rather than one the words no longer support.
   if (got.status !== 'complete' || o.closed() || !o.db.open) return null
   const read = readState(got.text)
-  if (!read) return null
-  const state = mergeState(before, read)
-  const now = load(o.db)
-  // Adam's edits stay while the words are the ones he edited against; new words are read afresh.
-  now[sceneId] = { hash, base: stateHash(before), state, ...(kept?.hash === hash && kept.edits ? { edits: kept.edits } : {}) }
-  save(o.db, now)
-  return withEdits(state, now[sceneId].edits)
+  return read ? mergeState(before, read) : null
+}
+
+/** States worked out for a scene so far that isn't the scene's saved words, by scene, words and the state before. */
+const soFarStates = new Map<string, SceneState>()
+const SO_FAR_KEPT = 40
+
+/**
+ * Where things stand at the end of `text`, the scene so far (the words before a Continue, or before a beat or Add
+ * below): built on where things stood as the scene before it ended, brought up to date first. When `text` is the
+ * scene's saved words this is the scene's own state (kept, and shown in Recall); otherwise it is worked out and
+ * remembered for those words for this session only. With no words, the state the scene starts from. Null when the
+ * memory model couldn't say (never the state before in its place: that would be told as the scene so far's).
+ */
+export async function stateAtText(o: TrackOptions, sceneId: ID, text: string): Promise<SceneState | null> {
+  const before = await stateBefore(o, sceneId)
+  if (!text.trim() || o.signal.aborted || o.closed()) return before
+  const scene = kdb.keeperScene(o.db, sceneId)
+  if (scene && scene.text.trim() === text.trim()) return stateAfter(o, sceneId)
+  const key = `${sceneId}:${hashOf(text)}:${stateHash(before)}`
+  const known = soFarStates.get(key)
+  if (known) return known
+  try {
+    const state = await askState(o, sceneId, before, text, true)
+    if (!state) return null
+    soFarStates.set(key, state)
+    // The oldest go first.
+    while (soFarStates.size > SO_FAR_KEPT) soFarStates.delete(soFarStates.keys().next().value!)
+    return state
+  } catch (e) {
+    console.warn('Could not work out where things stand in the scene so far', e)
+    return null
+  }
 }
 
 /**

@@ -10,6 +10,10 @@ export interface SceneDraftOptions {
   targetWords: number | 'auto' | null
   /** Null: use the default from Settings. */
   creativity: Creativity | null
+  /** For one draft only, never kept: a Fresh take (DraftOptions.fresh). */
+  fresh?: boolean
+  /** For one draft only, never kept: Add below carries on from the scene's words (DraftOptions.addBelow). */
+  addBelow?: boolean
 }
 
 export const BLANK_DRAFT_OPTIONS: SceneDraftOptions = { direction: '', targetWords: null, creativity: null }
@@ -31,7 +35,9 @@ export function resolveDraftOptions(
     direction: o.direction.trim(),
     targetWords: o.targetWords === 'auto' ? null : (o.targetWords ?? cardWords),
     creativity: o.creativity ?? defaultCreativity,
-    ...(polish ? { polish: true } : {})
+    ...(polish ? { polish: true } : {}),
+    ...(o.fresh ? { fresh: true } : {}),
+    ...(o.addBelow ? { addBelow: true } : {})
   }
 }
 

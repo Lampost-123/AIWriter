@@ -1,7 +1,8 @@
 // The briefing for an AI edit of selected words, or for Continue: compact, and only what the job needs.
 // The style guide with Adam's preferences, the point of view and tense, the characters in the scene (for
 // Fix voice, each speaker's voice and who says which line), the words around the selection, the selection
-// itself, and the job once more at the end. For Continue, the scene so far and the scene card's beats.
+// itself, and the job once more at the end. For Continue, the scene so far, the scene card's beats and where things
+// stand at the point it carries on from (where each person is, what they wear, how they are placed).
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
@@ -11,6 +12,7 @@ import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
+import { stateText, type SceneState } from '@shared/continuity'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 
@@ -25,6 +27,8 @@ export interface EditWorld {
   contextLength: number | null
   /** Ask the writer to tag who says each line and how (ai/speakerTags.ts). */
   speakerTags?: boolean
+  /** For Continue: where things stand at the point it carries on from (continuity/tracker.ts), or null when not known. */
+  stand?: SceneState | null
 }
 
 export type EditBriefing =
@@ -42,6 +46,10 @@ export type EditBriefing =
       note: string | null
     }
   | { ok: false; problem: string; entryId?: ID; entryName?: string }
+
+/** What Continue's "Where things stand" says first. */
+export const STAND_LEAD_HERE =
+  'Where things stand at the point you carry on from. Keep to it exactly: where each person is, what they wear and how it sits, how they are placed and what they hold. Nothing changes unless it happens on the page, in your words.'
 
 /** The longest selection each tool works on, in words. */
 export const MAX_WORDS = { alternatives: 1200, other: 3000 }
@@ -305,6 +313,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
       const lead = isContinue ? "The text that comes after (lead into it; don't repeat it):" : 'The text just after the selected words:'
       parts.push({ id: 'after', priority: 4, title, text: `${lead}\n${fence(after)}`, entryIds: [] })
     }
+    const stand = isContinue && world.stand ? stateText(world.stand) : ''
+    if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
     parts.push({ id: 'ask', priority: 1, title: 'What the AI was asked', text: finalAsk(tool, o), entryIds: [] })
     return parts
   }

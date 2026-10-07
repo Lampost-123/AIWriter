@@ -14,7 +14,7 @@ import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
-import { setBeforeDraft } from '../ai/gather'
+import { setBeforeDraft, setStandAt } from '../ai/gather'
 import { emit } from '../events'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import type { MemoryModel } from './model'
@@ -23,7 +23,7 @@ import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
-import { stateBefore } from '../continuity/tracker'
+import { stateAtText, stateBefore, type SceneState } from '../continuity/tracker'
 
 let keeper: Keeper | null = null
 
@@ -93,6 +93,8 @@ export function initKeeper(): void {
     await keeper.catchUpBefore(sceneId)
     await continuityBefore(db, sceneId)
   })
+  // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.
+  setStandAt(continuityAt)
 }
 
 /**
@@ -104,6 +106,22 @@ export async function continuityBefore(db: Database.Database, sceneId: ID, signa
   if ('error' in m || pausedNote()) return
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   await stateBefore({ db, model: m, signal: signal ?? new AbortController().signal, closed: () => !live() }, sceneId)
+}
+
+/**
+ * Where things stand at the end of `text`, the scene so far (continuity/tracker.ts `stateAtText`), worked out with
+ * the memory model. Never throws; null with no memory model (or memory paused) or when it couldn't say.
+ */
+export async function continuityAt(db: Database.Database, sceneId: ID, text: string, signal?: AbortSignal): Promise<SceneState | null> {
+  const m = memoryModel()
+  if ('error' in m || pausedNote()) return null
+  const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
+  try {
+    return await stateAtText({ db, model: m, signal: signal ?? new AbortController().signal, closed: () => !live() }, sceneId, text)
+  } catch (e) {
+    console.warn('Could not work out where things stand in the scene so far', e)
+    return null
+  }
 }
 
 /** Filling in what the memory found, one batch after another, never holding up the memory itself. */

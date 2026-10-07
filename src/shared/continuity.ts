@@ -36,8 +36,8 @@ export const STATE_LABELS: Record<(typeof STATE_FIELDS)[number], string> = {
 }
 /** The most characters kept. */
 export const MOST_TRACKED = 40
-/** The longest a value is kept. */
-export const LONGEST_VALUE = 160
+/** The longest a value is kept: room for every piece of clothing and how it sits, or a full description of a pose. */
+export const LONGEST_VALUE = 400
 const clip = (v: unknown): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, LONGEST_VALUE) : '')
 const empty = (): SceneState => ({ time: '', weather: '', light: '', characters: [] })
 

@@ -18,7 +18,8 @@ import {
   type ContextExtras,
   type ContextInput
 } from './context'
-import { catchUpBeforeDraft, gatherContextInput } from './gather'
+import { catchUpBeforeDraft, gatherContextInput, standAtText } from './gather'
+import type { SceneState } from '../continuity/tracker'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 
@@ -40,11 +41,15 @@ export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id:
   return { choice, target, thinking: settings.thinking?.writer ?? 'off' }
 }
 
-/** Assembles the briefing for a scene with the current writer model's context length. */
+/**
+ * Assembles the briefing for a scene with the current writer model's context length. `stand`: where things stand at
+ * the end of the scene so far, for a draft that carries on from it (in place of where the previous scene ended).
+ */
 export async function assemble(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  extras?: ContextExtras
+  extras?: ContextExtras,
+  stand?: SceneState | null
 ): Promise<{ input: ContextInput; preview: ContextPreview }> {
   const settings = getSettings()
   const input = gatherContextInput(world.db(), sceneId, options, {
@@ -53,6 +58,10 @@ export async function assemble(
     maxOutput: settings.models.writer?.maxOutput ?? null,
     creativity: settings.creativity
   })
+  if (stand) {
+    input.continuity = stand
+    input.continuityAtSoFar = true
+  }
   // With reading aloud on, the writer says who speaks each line and how as it writes (ai/speakerTags.ts). Only the
   // dialogue: asked for the narration's mood as well, writers tagged a fifth fewer lines (live checks, 4 October 2026).
   const speech = settings.speech
@@ -79,18 +88,22 @@ export interface DraftBriefing {
  * so the briefing is up to date (spec, Memory upkeep): this never waits long, a failure drafts with what
  * the memory has, and `signal` ends the wait at once (then this fails with the code 'cancelled').
  * `catchUp: false` skips that (a later beat of the same draft, say, right after the first).
+ * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
+ * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
  */
 export async function draftBriefing(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; soFar?: string } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel()
   const db = world.db()
   if (o.catchUp !== false) await catchUpBeforeDraft(db, sceneId, undefined, o.signal)
   if (o.signal?.aborted) throw stoppedBeforeStart()
+  const stand = o.soFar?.trim() ? await standAtText(db, sceneId, o.soFar, undefined, o.signal) : null
+  if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const { input, preview } = await assemble(sceneId, options, o.extras)
+  const { input, preview } = await assemble(sceneId, options, o.extras, stand)
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   // A model whose window is known can't take a reply longer than what's left of it: say so

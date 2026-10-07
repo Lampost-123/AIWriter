@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EntryState } from '@shared/types'
 import type { EditInput } from '@shared/contracts/edits'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
-import { editBriefing, replyRoom, type EditWorld } from './briefing'
+import { STAND_LEAD_HERE, editBriefing, replyRoom, type EditWorld } from './briefing'
 import { EDIT_MARKER } from './prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
@@ -233,6 +233,38 @@ describe('Continue', () => {
     expect(system(b)).toContain('The scene already has text after this point: lead into it')
     expect(user(b)).toContain('It stops part-way through a paragraph.')
     expect(user(b)).toContain('The text that comes after (lead into it; don\'t repeat it):\n"""\nTobin was waiting.\n"""')
+  })
+
+  it('says where things stand at the point it carries on from, right before the ask', () => {
+    const stand = {
+      time: 'night',
+      weather: '',
+      light: '',
+      characters: [
+        {
+          name: 'Mara',
+          where: 'by the hearth',
+          wearing: 'shirt untucked, boots off',
+          posture: 'kneeling',
+          holding: '',
+          condition: '',
+          mood: '',
+          lastAction: ''
+        }
+      ]
+    }
+    const b = ok(
+      editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '', continueAs: 'paragraph' }), world({ stand }))
+    )
+    const at = b.blocks.findIndex((x) => x.id === 'stand')
+    expect(at).toBe(b.blocks.length - 2)
+    expect(b.blocks[at].text.startsWith(STAND_LEAD_HERE)).toBe(true)
+    expect(user(b)).toContain('- Mara: where: by the hearth; wearing: shirt untucked, boots off; position: kneeling')
+    // Not known, or another tool: no such part.
+    expect(
+      ok(editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), world())).blocks.some((x) => x.id === 'stand')
+    ).toBe(false)
+    expect(ok(editBriefing(input('rewrite'), world({ stand }))).blocks.some((x) => x.id === 'stand')).toBe(false)
   })
 })
 
