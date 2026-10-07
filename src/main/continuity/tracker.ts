@@ -16,16 +16,9 @@
 import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ID } from '@shared/types'
-import {
-  mergeState,
-  readState,
-  stateText,
-  withEdits,
-  type SceneState,
-  type StateEdits
-} from '@shared/continuity'
+import { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 
-export { mergeState, readState, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
+export { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
 import { callModel, type MemoryModel } from '../keeper/model'
@@ -35,7 +28,7 @@ import { estimateTokens } from '../keeper/text'
 type DB = Database.Database
 
 export const META_KEY = 'continuity'
-const MARKER = '[AIWRITE-CONTINUITY v1]'
+const MARKER = '[AIWRITE-CONTINUITY v2]'
 
 /** The most of a scene sent at once (characters); a longer one is read from its end, where it finishes. */
 const SCENE_CHARS = 60_000
@@ -118,36 +111,54 @@ export function editState(db: DB, sceneId: ID, change: (edits: StateEdits) => vo
   change(edits)
   k.edits = edits
   save(db, all)
+  // When the scene goes on from here, the reading starts from his version.
+  const scene = kdb.keeperScene(db, sceneId)
+  if (scene && k.hash === hashOf(scene.text)) keepPoint(db, sceneId, k.base, scene.text, withEdits(k.state, edits))
   return true
 }
 
-/**
- * What the memory model is asked for one scene. `soFar`: the text is the scene so far (the words before a Continue,
- * a beat or Add below), not a finished scene, so it says where things stand at the end of what is written.
- */
-export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], soFar = false): ChatMessage[] {
+export interface StateAsk {
+  /** The text is the scene so far (the words before a Continue, a beat or Add below), not a finished scene. */
+  soFar?: boolean
+  /**
+   * The words just before `sceneText`, already counted in the state before: the text is the rest of the scene from a
+   * checkpoint, and these are given so it reads on from them.
+   */
+  after?: string
+}
+
+/** What the memory model is asked for one scene, or for the rest of a scene from a checkpoint. */
+export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], ask: StateAsk = {}): ChatMessage[] {
+  const field = '{"value": "", "quote": ""}'
   const system = `${MARKER} state
-You keep track of continuity for a novel, so the next scenes are written consistently. Given where things stood before a scene and the scene's text, say where things stand at the END of the scene.
+You keep track of continuity for a novel, so the next scenes are written consistently. Given where things stood before a scene and the scene's text, say what the scene changes, so it is known where things stand at the END of it.
 
-Reply with only a JSON object:
-{"time": "", "weather": "", "light": "", "characters": [{"name": "", "where": "", "wearing": "", "posture": "", "holding": "", "condition": "", "mood": "", "lastAction": ""}]}
+Reply with only a JSON object. Each value is ${field}: the value as it is at the end, and the quote: the exact words in the scene that show it, copied word for word (a few words to a sentence; join two places with …):
+{"time": ${field}, "weather": ${field}, "light": ${field}, "characters": [{"name": "", "where": ${field}, "wearing": ${field}, "posture": ${field}, "holding": ${field}, "condition": ${field}, "mood": ${field}, "lastAction": ${field}}]}
 
+- Only values the scene's words show or change, each with its quote. Leave out anything you can't quote: it carries on from before, or stays unknown. Never guess or fill a gap with what is likely. A value without its words is thrown away.
 - time: time of day (and date, if the story gives one); weather; light (lamplight, dusk, harsh sun).
 - One entry for each character who is in the scene or whose situation it changes, by their name as the cast list has it.
 - where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth; on the bed, by the window).
-- wearing: everything they have on, item by item, each with how it is now: done up or open, pushed up or down, tucked in or loose, torn, soaked, half off (a white shirt unbuttoned to the waist with the sleeves rolled up, dark trousers, boots off). Anything taken off and where it is now (cloak over the chair). Jewellery, a pack, a sword belt. Always the whole outfit as it is now, not only what changed. Never their hair, beard or body: those aren't worn.
+- wearing: everything they have on, item by item, each with how it is now: done up or open, pushed up or down, tucked in or loose, torn, soaked, half off (a white shirt unbuttoned to the waist with the sleeves rolled up, dark trousers, boots off). Anything taken off and where it is now (cloak over the chair). Jewellery, a pack, a sword belt. Always the whole outfit as it is now, not only what changed (what carries on comes from before; the quote is the words that change it). Never their hair, beard or body: those aren't worn.
 - posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing; anyone they are touching or holding (sitting on the edge of the bed facing the window, hands in her lap, knee against Tobin's).
 - holding: what they hold or carry, and in which hand when the text says.
 - condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
 - mood: how they feel at the end.
 - lastAction: the last thing they did, in a few words.
-- Only what the words show, or what carries on from before. Never guess or fill a gap with what is likely: "" when the story hasn't said. When something has changed, give only the new state, never the old one.
+- When something has changed, give only the new state, never the old one.
 - Keep each value short, but leave out no detail the text gives: wearing and posture may take a full line.`
+  const from = ask.after?.trim()
   const user = [
     cast.length ? `Characters in this story: ${cast.join(', ')}` : '',
-    `Before this scene:\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet: this may be the opening)'}`,
-    soFar ? 'The scene is not finished: this is the scene so far. Say where things stand at the end of what is written.' : '',
-    `The scene:\n"""\n${sceneText.length > SCENE_CHARS ? `…${sceneText.slice(-SCENE_CHARS)}` : sceneText}\n"""`
+    from
+      ? `Where things stand before the words below (the scene up to here is counted in it):\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet)'}`
+      : `Before this scene:\n${before ? stateText(before) || '(nothing known yet)' : '(nothing known yet: this may be the opening)'}`,
+    from
+      ? `The words just before, already counted (for what leads into the scene below; nothing to report from them):\n"""\n…${from}\n"""`
+      : '',
+    ask.soFar ? 'The scene is not finished: this is the scene so far. Say where things stand at the end of what is written.' : '',
+    `The scene${from ? ', from here on' : ''}:\n"""\n${sceneText.length > SCENE_CHARS ? `…${sceneText.slice(-SCENE_CHARS)}` : sceneText}\n"""`
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -168,7 +179,8 @@ export interface TrackOptions {
 
 /**
  * The state at the end of a scene, from its words as they are now: kept, or asked for (building on the state kept
- * for the scene before it on the story's line). Null when the scene has no words or the model couldn't say.
+ * for the scene before it on the story's line, and reading on from the scene's last checkpoint that still matches its
+ * words). Null when the scene has no words or the model couldn't say.
  */
 export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneState | null> {
   const scene = kdb.keeperScene(o.db, sceneId)
@@ -178,22 +190,23 @@ export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneSta
   const kept = all[sceneId]
   if (kept && stands(o.db, all, sceneId)) return withEdits(kept.state, kept.edits)
   const before = finalOf(all, scenesBefore(o.db, sceneId).at(-1))
-  const state = await askState(o, sceneId, before, scene.text, false)
+  const state = await readUpTo(o, sceneId, before, scene.text, false)
   if (!state) return null
   const now = load(o.db)
-  // Adam's edits stay while the words are the ones he edited against; new words are read afresh.
+  // Adam's edits stay while the words are the ones he edited against; new words are read afresh (from the checkpoint
+  // his edits were laid over, so what he put right carries on).
   now[sceneId] = { hash, base: stateHash(before), state, ...(kept?.hash === hash && kept.edits ? { edits: kept.edits } : {}) }
   save(o.db, now)
   return withEdits(state, now[sceneId].edits)
 }
 
 /** Asks the memory model where things stand after `text`, laid over `before`. Null when it couldn't say. */
-async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, soFar: boolean): Promise<SceneState | null> {
+async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, ask: StateAsk): Promise<SceneState | null> {
   const cast = repo
     .listEntries(o.db, 'character')
     .map((e) => e.name)
     .slice(0, 80)
-  const messages = stateMessages(before, text, cast, soFar)
+  const messages = stateMessages(before, text, cast, ask)
   const got = await callModel({
     db: o.db,
     model: o.model,
@@ -209,40 +222,114 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
   })
   // Nothing to go on: no state rather than one the words no longer support.
   if (got.status !== 'complete' || o.closed() || !o.db.open) return null
-  const read = readState(got.text)
+  // A value counts only with words the model was given; the words before a checkpoint were given too.
+  const read = readChanges(got.text, `${ask.after ?? ''}\n\n${text}`, sceneId)
   return read ? mergeState(before, read) : null
 }
 
-/** States worked out for a scene so far that isn't the scene's saved words, by scene, words and the state before. */
-const soFarStates = new Map<string, SceneState>()
-const SO_FAR_KEPT = 40
+// ---------- Checkpoints inside scenes ----------
+// Where things stand after the first `at` characters of a scene's words (Adam, 2026-10-07), kept in the world's
+// `meta` under 'continuity-points', by scene, with the hash of those words and of the state the scene starts from.
+// Taken whenever where things stand is worked out partway through a scene (Continue, a beat, Add below, Recall at
+// the cursor) or at its end; the next reading starts from the latest one that still matches the words, so only new
+// words are read. A checkpoint whose words, or whose scene's starting state, changed is never used.
+
+export const POINTS_KEY = 'continuity-points'
+/** The most checkpoints kept for a scene (the least lately used go first). */
+const MOST_POINTS = 12
+/** How much of the words before a checkpoint is given with the words after it, so the reading follows on. */
+const LEAD_IN = 1_500
+
+interface Point {
+  /** How many characters of the scene's words it stands after. */
+  at: number
+  /** Those words' hash. */
+  hash: string
+  state: SceneState
+}
+type Points = Record<ID, { base: string; points: Point[] }>
+
+function loadPoints(db: DB): Points {
+  try {
+    const raw = JSON.parse(repo.getMeta(db, POINTS_KEY) ?? '{}') as unknown
+    return raw && typeof raw === 'object' ? (raw as Points) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** The latest checkpoint for a scene that matches `text` and builds on `base` (the state the scene starts from). */
+function pointFor(db: DB, sceneId: ID, base: string, text: string): Point | null {
+  const mine = loadPoints(db)[sceneId]
+  if (!mine || mine.base !== base) return null
+  let best: Point | null = null
+  for (const p of mine.points) if (p.at <= text.length && (!best || p.at > best.at) && hashOf(text.slice(0, p.at)) === p.hash) best = p
+  return best
+}
+
+function keepPoint(db: DB, sceneId: ID, base: string, text: string, state: SceneState): void {
+  if (!db.open) return
+  const all = loadPoints(db)
+  const mine = all[sceneId]?.base === base ? all[sceneId] : { base, points: [] }
+  mine.points = [...mine.points.filter((p) => p.at !== text.length), { at: text.length, hash: hashOf(text), state }].slice(-MOST_POINTS)
+  all[sceneId] = mine
+  // Scenes that are gone take their checkpoints with them.
+  for (const id of Object.keys(all)) if (!kdb.keeperScene(db, id)) delete all[id]
+  repo.setMeta(db, POINTS_KEY, JSON.stringify(all))
+}
+
+/**
+ * Where things stand after `text` (a scene's words, or the first part of them), built on `before` (the state the
+ * scene starts from): from the latest checkpoint that matches, reading only the words after it, and kept as a new
+ * checkpoint. Null when the model couldn't say.
+ */
+async function readUpTo(o: TrackOptions, sceneId: ID, before: SceneState | null, text: string, soFar: boolean): Promise<SceneState | null> {
+  const base = stateHash(before)
+  const from = pointFor(o.db, sceneId, base, text)
+  if (from && !text.slice(from.at).trim()) return from.state
+  const state = from
+    ? await askState(o, sceneId, from.state, text.slice(from.at), { soFar, after: text.slice(Math.max(0, from.at - LEAD_IN), from.at) })
+    : await askState(o, sceneId, before, text, { soFar })
+  if (!state) return null
+  keepPoint(o.db, sceneId, base, text, state)
+  return state
+}
 
 /**
  * Where things stand at the end of `text`, the scene so far (the words before a Continue, or before a beat or Add
  * below): built on where things stood as the scene before it ended, brought up to date first. When `text` is the
- * scene's saved words this is the scene's own state (kept, and shown in Recall); otherwise it is worked out and
- * remembered for those words for this session only. With no words, the state the scene starts from. Null when the
+ * scene's saved words this is the scene's own state (kept, and shown in Recall); otherwise it is worked out from the
+ * latest checkpoint before it and kept as a checkpoint. With no words, the state the scene starts from. Null when the
  * memory model couldn't say (never the state before in its place: that would be told as the scene so far's).
  */
 export async function stateAtText(o: TrackOptions, sceneId: ID, text: string): Promise<SceneState | null> {
-  const before = await stateBefore(o, sceneId)
+  await stateBefore(o, sceneId)
+  // As the scene's own state builds on it (and Recall finds the checkpoints by it): the scene before's, if it stands.
+  const before = keptStateBefore(o.db, sceneId)
   if (!text.trim() || o.signal.aborted || o.closed()) return before
   const scene = kdb.keeperScene(o.db, sceneId)
   if (scene && scene.text.trim() === text.trim()) return stateAfter(o, sceneId)
-  const key = `${sceneId}:${hashOf(text)}:${stateHash(before)}`
-  const known = soFarStates.get(key)
-  if (known) return known
   try {
-    const state = await askState(o, sceneId, before, text, true)
-    if (!state) return null
-    soFarStates.set(key, state)
-    // The oldest go first.
-    while (soFarStates.size > SO_FAR_KEPT) soFarStates.delete(soFarStates.keys().next().value!)
-    return state
+    return await readUpTo(o, sceneId, before, text, true)
   } catch (e) {
     console.warn('Could not work out where things stand in the scene so far', e)
     return null
   }
+}
+
+/**
+ * Where things stand at the end of `text` (the scene up to a point in it), as kept: the scene's own state when `text`
+ * is all its words, else the latest checkpoint at or before that point. `exact`: worked out at that very point.
+ * Null when nothing is kept for it. No model is asked.
+ */
+export function storedStateAt(db: DB, sceneId: ID, text: string): { state: SceneState; exact: boolean; current: boolean } | null {
+  const scene = kdb.keeperScene(db, sceneId)
+  if (scene && scene.text.trim() === text.trim()) {
+    const end = storedState(db, sceneId)
+    return end && { state: end.state, exact: true, current: end.current }
+  }
+  const p = pointFor(db, sceneId, stateHash(keptStateBefore(db, sceneId)), text)
+  return p && { state: p.state, exact: !text.slice(p.at).trim(), current: true }
 }
 
 /**

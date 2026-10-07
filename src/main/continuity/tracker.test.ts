@@ -1,5 +1,6 @@
-// Where things stand: the memory model's reply laid over the state before, only the latest of each kept, Adam's
-// edits kept until the words change, and nothing used once the words it came from (or an earlier scene's state)
+// Where things stand: the memory model's reply laid over the state before, only the latest of each kept, each value
+// with the words that show it (one without is left out), Adam's edits kept until the words change, checkpoints inside
+// scenes so only new words are read, and nothing used once the words it came from (or an earlier scene's state)
 // changed. The model is a stand-in that answers with the state each test gives it.
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
@@ -12,13 +13,14 @@ import {
   editState,
   keptStateBefore,
   mergeState,
-  readState,
+  readChanges,
   stateAfter,
   stateAtText,
   stateBefore,
   stateMessages,
   stateText,
   storedState,
+  storedStateAt,
   type SceneState
 } from './tracker'
 
@@ -27,14 +29,28 @@ const model: MemoryModel = {
   choice: { providerId: 'p1', modelId: 'fake/writer', label: 'fake', contextLength: 32000, promptPrice: null, completionPrice: null }
 }
 
-/** A stand-in model: each request answers with the next state given, and the requests are counted. */
-function answering(...replies: Partial<SceneState>[]): typeof fetch & { asked: string[] } {
+/** The words a request gives to be read (the scene, or the rest of it from a checkpoint). */
+const wordsAsked = (content: string): string => /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(content)?.[1] ?? ''
+
+/**
+ * A stand-in model: each request answers with the next state given, each value backed by the first words of what it
+ * was given to read (or by `quote`, when a test gives one), and the requests are counted.
+ */
+function answering(...replies: (Partial<SceneState> & { quote?: string })[]): typeof fetch & { asked: string[] } {
   const asked: string[] = []
   const f = (async (_input: unknown, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { content: string }[] }
     asked.push(body.messages[1].content)
-    const reply = replies[Math.min(asked.length - 1, replies.length - 1)]
-    const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(reply) }, finish_reason: 'stop' }] }
+    const { quote: given, ...reply } = replies[Math.min(asked.length - 1, replies.length - 1)]
+    const quote = given ?? wordsAsked(body.messages[1].content).split(/\s+/).slice(0, 3).join(' ')
+    const backed = (v: unknown) => (typeof v === 'string' && v ? { value: v, quote } : undefined)
+    const said = {
+      time: backed(reply.time),
+      weather: backed(reply.weather),
+      light: backed(reply.light),
+      characters: (reply.characters ?? []).map((c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, k === 'name' ? v : backed(v)])))
+    }
+    const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(said) }, finish_reason: 'stop' }] }
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
   }) as typeof fetch & { asked: string[] }
   f.asked = asked
@@ -86,13 +102,31 @@ describe('where things stand', () => {
     expect(after.weather).toBe('rain')
     expect(after.characters[0]).toMatchObject({ wearing: 'a dry shirt', holding: 'a lamp', posture: 'sitting by the fire' })
     expect(stateText(after)).toBe('Time: night. Weather: rain\n- Mara: wearing: a dry shirt; position: sitting by the fire; holding: a lamp')
-    expect(readState('not json')).toBeNull()
-    expect(readState('Here: {"time": "noon", "characters": [{"name": "Tobin", "where": "the dock"}, {"where": "nobody"}]}')).toEqual({
-      time: 'noon',
-      weather: '',
-      light: '',
-      characters: [{ name: 'Tobin', where: 'the dock', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }]
-    })
+    expect(readChanges('not json', '', 's1')).toBeNull()
+  })
+
+  it('keeps a value only with the words that show it, and keeps those words with it', () => {
+    const words = 'Tobin stood on the dock. “Not yet,” he said, and pulled his collar up.'
+    const read = readChanges(
+      `Here: {"time": {"value": "noon", "quote": "the sun was high"}, "characters": [
+        {"name": "Tobin", "where": {"value": "the dock", "quote": "Tobin stood on the dock"},
+         "wearing": {"value": "a coat, collar up", "quote": "pulled  his COLLAR up!"}, "mood": "wary",
+         "posture": {"value": "standing", "quote": "Tobin stood … his collar"}},
+        {"where": {"value": "nobody", "quote": "on the dock"}}]}`,
+      words,
+      's1'
+    )!
+    // No such words: no time. A value given without words: left out. Case, spacing and punctuation don't matter.
+    expect(read.time).toBe('')
+    expect(read.characters).toEqual([
+      { name: 'Tobin', where: 'the dock', wearing: 'a coat, collar up', posture: 'standing', holding: '', condition: '', mood: '', lastAction: '' }
+    ])
+    expect(read.said?.['tobin|wearing']).toEqual({ quote: 'pulled his COLLAR up!', sceneId: 's1' })
+    // Carried on: the words stay with the value until a new value replaces it.
+    const before: SceneState = { time: '', weather: '', light: '', characters: [mara({ holding: 'a lamp' })], said: { 'mara|holding': { quote: 'took the lamp', sceneId: 's0' } } }
+    const after = mergeState(before, read)
+    expect(after.said).toMatchObject({ 'mara|holding': { quote: 'took the lamp' }, 'tobin|where': { quote: 'Tobin stood on the dock' } })
+    expect(mergeState(after, { characters: [mara({ holding: 'nothing' })] }).said?.['mara|holding']).toBeUndefined()
   })
 
   it('is asked for once for the same words, again when they change, and builds on the scene before', async () => {
@@ -188,6 +222,80 @@ describe('where things stand', () => {
     const failing = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch
     await stateBefore(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] })), w.two)
     expect(await stateAtText(opts(w.db, failing), w.two, 'Mara sat')).toBeNull()
+  })
+
+  it('keeps checkpoints inside a scene and reads on from the latest, only the new words', async () => {
+    const w = world()
+    const first = 'Mara came in out of the rain and hung her cloak over the chair.'
+    const second = `${first}\n\nShe sat on the bed and pulled off her boots.`
+    const all = `${second}\n\nThen she lay back and closed her eyes.`
+    write(w.db, w.one, all)
+    const f = answering(
+      { characters: [mara({ wearing: 'a wet shirt; cloak over the chair', where: 'her room' })] },
+      { characters: [mara({ wearing: 'a wet shirt; cloak over the chair; boots off', posture: 'sitting on the bed' })] },
+      { characters: [mara({ posture: 'lying on the bed, eyes closed' })] }
+    )
+    await stateAtText(opts(w.db, f), w.one, first)
+    const here = await stateAtText(opts(w.db, f), w.one, second)
+    expect(here?.characters[0]).toMatchObject({ where: 'her room', posture: 'sitting on the bed' })
+    // The second reading started from the first checkpoint: only the new paragraph to read, the one before to lead in.
+    expect(wordsAsked(f.asked[1])).toBe('\n\nShe sat on the bed and pulled off her boots.')
+    expect(f.asked[1]).toContain('already counted')
+    expect(f.asked[1]).toContain('where: her room')
+    // The scene's end reads on from the second checkpoint; asked again, nothing is read again.
+    const end = await stateAfter(opts(w.db, f), w.one)
+    expect(wordsAsked(f.asked[2])).toBe('\n\nThen she lay back and closed her eyes.')
+    expect(end?.characters[0]).toMatchObject({ wearing: 'a wet shirt; cloak over the chair; boots off', posture: 'lying on the bed, eyes closed' })
+    await stateAtText(opts(w.db, f), w.one, second)
+    expect(f.asked).toHaveLength(3)
+    // Kept, without asking: at the end, at a checkpoint, and after one (the nearest before, not exact).
+    expect(storedStateAt(w.db, w.one, all)).toMatchObject({ exact: true, current: true })
+    expect(storedStateAt(w.db, w.one, second)?.state.characters[0].posture).toBe('sitting on the bed')
+    expect(storedStateAt(w.db, w.one, `${second}\n\nThen she lay`)).toMatchObject({ exact: false })
+    expect(storedStateAt(w.db, w.one, 'Mara came')).toBeNull()
+  })
+
+  it('never reads on from a checkpoint whose words changed, or whose scene now starts differently', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara sat by the fire. She warmed her hands.')
+    const f = answering({ characters: [mara({ wearing: 'a grey cloak' })] }, { characters: [mara({ posture: 'sitting by the fire' })] })
+    await stateAtText(opts(w.db, f), w.two, 'Mara sat by the fire.')
+    // Words before the checkpoint edited: read from the start of the scene.
+    await stateAtText(opts(w.db, f), w.two, 'Mara knelt by the fire. She warmed her hands.')
+    expect(wordsAsked(f.asked.at(-1)!)).toBe('Mara knelt by the fire. She warmed her hands.')
+    // The scene before changed: its checkpoints are set aside too.
+    write(w.db, w.one, 'Mara left her cloak behind.')
+    const g = answering({ characters: [mara({ wearing: 'no cloak' })] }, { characters: [mara({ posture: 'sitting by the fire' })] })
+    expect(storedStateAt(w.db, w.two, 'Mara sat by the fire.')).toBeNull()
+    await stateAtText(opts(w.db, g), w.two, 'Mara sat by the fire. She warmed')
+    expect(wordsAsked(g.asked.at(-1)!)).toBe('Mara sat by the fire. She warmed')
+  })
+
+  it('carries what Adam put right into the words that follow', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] })), w.one)
+    editState(w.db, w.one, (e) => {
+      e.characters = { mara: { wearing: 'a red cloak' } }
+    })
+    // The scene goes on: read from his version, and what the new words don't change stays his.
+    write(w.db, w.one, 'Mara pulled on her grey cloak.\n\nShe sat down.')
+    const f = answering({ characters: [mara({ posture: 'sitting' })] })
+    const end = await stateAfter(opts(w.db, f), w.one)
+    expect(f.asked[0]).toContain('wearing: a red cloak')
+    expect(end?.characters[0]).toMatchObject({ wearing: 'a red cloak', posture: 'sitting' })
+  })
+
+  it('leaves out a value whose words aren’t in the scene: it carries on from before instead', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara sat by the fire.')
+    await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] })), w.one)
+    const guess = answering({ characters: [mara({ wearing: 'a blue dress' })], quote: 'in her blue dress' })
+    const end = await stateAfter(opts(w.db, guess), w.two)
+    expect(end?.characters[0].wearing).toBe('a grey cloak')
+    expect(end?.said?.['mara|wearing']).toEqual({ quote: 'Mara pulled on', sceneId: w.one })
   })
 
   it('asks for every piece of clothing and how it sits, and the whole pose', () => {

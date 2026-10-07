@@ -2,15 +2,18 @@
 // for each character where they are, what they wear and hold, how they are placed, their condition, mood and last
 // action; and the scene's time, weather and light. Adam can change any value (click it), take a character out, or
 // have the scene read again. A state whose words changed since is shown as out of date, and the writer isn't given it
-// until it is read again, so nothing outlives the words it came from.
+// until it is read again, so nothing outlives the words it came from. At the cursor (Adam, 2026-10-07): the same at
+// any point in the scene, following the cursor, from the checkpoints kept inside it (worked out there on request).
+// Each value's words show when the pointer rests on it.
 import { useCallback, useEffect, useState } from 'react'
-import type { RecallChange, RecallView } from '@shared/contracts/recall'
-import { STATE_FIELDS, STATE_LABELS, type CharacterState, type StateField } from '@shared/continuity'
+import type { RecallAtView, RecallChange, RecallView } from '@shared/contracts/recall'
+import { STATE_FIELDS, STATE_LABELS, sourceKey, type CharacterState, type StateField, type StateSources } from '@shared/continuity'
 import type { ID } from '@shared/types'
 import { Button, Input, Notice, Spinner } from '@/components/ui'
 import { RefreshCw, X } from '@/components/ui/icons'
-import { api } from '@/lib/api'
+import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { wordsToCursor } from '@/features/edits/session'
 
 const SCENE_FIELDS = [
   ['time', 'Time'],
@@ -18,31 +21,77 @@ const SCENE_FIELDS = [
   ['light', 'Light']
 ] as const
 
+/** How often Recall at the cursor looks where the cursor is (nothing is asked of the model). */
+const FOLLOW_MS = 700
+
 /** A field's label for Adam: "Where", "Wearing", "Position"... */
 const labelOf = (f: StateField): string => STATE_LABELS[f].charAt(0).toUpperCase() + STATE_LABELS[f].slice(1)
 
 const plainError = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (\w+Error: )?/, '') : String(e))
 
+type Mode = 'end' | 'cursor'
+
 export function RecallSection({ sceneId }: { sceneId: ID }): React.JSX.Element {
+  const [mode, setMode] = useState<Mode>('end')
   const [view, setView] = useState<RecallView | null>(null)
+  const [at, setAt] = useState<RecallAtView | null>(null)
+  /** The scene's words up to the cursor; null while the page isn't showing this scene. */
+  const [words, setWords] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
-    void api
-      .getRecall(sceneId)
-      .then((v) => live && setView(v))
-      .catch((e: unknown) => live && setError(plainError(e)))
+    const load = (): void =>
+      void api
+        .getRecall(sceneId)
+        .then((v) => live && setView(v))
+        .catch((e: unknown) => live && setError(plainError(e)))
+    load()
+    // Brought up to date on its own after the memory read the scene.
+    const off = onEvent('recall:changed', (p) => p.sceneId === sceneId && load())
     return () => {
       live = false
+      off()
     }
   }, [sceneId])
 
-  const run = useCallback(async (work: () => Promise<RecallView>): Promise<void> => {
+  // At the cursor: follows the cursor as it moves and the words as they change.
+  useEffect(() => {
+    setAt(null)
+    setWords(null)
+    if (mode !== 'cursor') return
+    let live = true
+    let last: string | null | undefined
+    const look = (): void => {
+      const w = wordsToCursor(sceneId)
+      if (w === last) return
+      last = w
+      setWords(w)
+      if (w === null) return setAt(null)
+      void api
+        .getRecallAt(sceneId, w)
+        .then((v) => live && last === w && setAt(v))
+        .catch((e: unknown) => live && setError(plainError(e)))
+    }
+    look()
+    const timer = setInterval(look, FOLLOW_MS)
+    const off = onEvent('recall:changed', (p) => {
+      if (p.sceneId !== sceneId) return
+      last = undefined
+      look()
+    })
+    return () => {
+      live = false
+      clearInterval(timer)
+      off()
+    }
+  }, [mode, sceneId])
+
+  const run = useCallback(async <T,>(work: () => Promise<T>, done: (v: T) => void): Promise<void> => {
     setError(null)
     try {
-      setView(await work())
+      done(await work())
     } catch (e) {
       setError(plainError(e))
     }
@@ -50,28 +99,66 @@ export function RecallSection({ sceneId }: { sceneId: ID }): React.JSX.Element {
 
   const readAgain = (): void => {
     setBusy(true)
-    void run(() => api.refreshRecall(sceneId)).finally(() => setBusy(false))
+    const work =
+      mode === 'end'
+        ? run(() => api.refreshRecall(sceneId), setView)
+        : words === null
+          ? Promise.resolve()
+          : run(() => api.refreshRecallAt(sceneId, words), (v) => wordsToCursor(sceneId) === words && setAt(v))
+    void work.finally(() => setBusy(false))
   }
-  const change = (c: RecallChange): Promise<void> => run(() => api.setRecallValue(sceneId, c))
-  const remove = (name: string): Promise<void> => run(() => api.removeRecallCharacter(sceneId, name))
+  const change = (c: RecallChange): Promise<void> => run(() => api.setRecallValue(sceneId, c), setView)
+  const remove = (name: string): Promise<void> => run(() => api.removeRecallCharacter(sceneId, name), setView)
 
-  const state = view?.state ?? null
+  const atCursor = mode === 'cursor'
+  const state = atCursor ? (at?.state ?? null) : (view?.state ?? null)
+  const canRead = atCursor ? words !== null && !at?.exact : true
   return (
     <section aria-label="Recall" data-recall>
       <div className="mb-1.5 flex items-center gap-2">
-        <h3 className="flex-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Recall: as this scene ends</h3>
-        <Button size="sm" variant="ghost" icon={busy ? <Spinner size={13} /> : <RefreshCw size={13} />} disabled={busy} onClick={readAgain}>
-          {state ? 'Read again' : 'Work it out'}
-        </Button>
+        <h3 className="flex-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+          {atCursor ? 'Recall: at the cursor' : 'Recall: as this scene ends'}
+        </h3>
+        {canRead ? (
+          <Button size="sm" variant="ghost" icon={busy ? <Spinner size={13} /> : <RefreshCw size={13} />} disabled={busy} onClick={readAgain}>
+            {atCursor ? 'Work it out here' : state ? 'Read again' : 'Work it out'}
+          </Button>
+        ) : null}
+      </div>
+      <div className="mb-2 flex gap-1" role="group" aria-label="Where in the scene">
+        <ModeButton on={!atCursor} onClick={() => setMode('end')}>
+          Scene end
+        </ModeButton>
+        <ModeButton on={atCursor} onClick={() => setMode('cursor')}>
+          At the cursor
+        </ModeButton>
       </div>
       {error ? (
         <div className="mb-2">
           <Notice tone="danger">{error}</Notice>
         </div>
       ) : null}
-      {!view ? null : !state ? (
+      {atCursor ? (
+        words === null ? (
+          <p className="text-[12.5px] leading-relaxed text-muted">Click in this scene’s words to see where things stand at that point.</p>
+        ) : !state ? (
+          <p className="text-[12.5px] leading-relaxed text-muted">
+            Not worked out at the cursor yet. Work it out here reads the words up to the cursor: where each character is, what they wear and hold,
+            and how they are placed.
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 text-[12px] text-faint" data-recall-at={at?.exact ? 'exact' : 'earlier'}>
+              {at?.exact
+                ? 'Where things stand at the cursor. To put a value right, use Scene end.'
+                : 'As worked out a little earlier in the scene. Work it out here for exactly this point.'}
+            </p>
+            <StateView sceneId={sceneId} state={state} />
+          </>
+        )
+      ) : !view ? null : !state ? (
         <p className="text-[12.5px] leading-relaxed text-muted">
-          Not worked out yet. It is worked out before the next scene is drafted, or now with Work it out: where each character is, what they
+          Not worked out yet. It is worked out once the memory has read the scene, or now with Work it out: where each character is, what they
           wear and hold, how they are placed, and how they are.
         </p>
       ) : (
@@ -84,69 +171,151 @@ export function RecallSection({ sceneId }: { sceneId: ID }): React.JSX.Element {
           ) : view.edited ? (
             <p className="mb-2 text-[12px] text-faint">Includes your changes. They stay until this scene’s words change.</p>
           ) : null}
-          <dl className="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
-            {SCENE_FIELDS.map(([f, label]) => (
-              <Row key={f} label={label} value={state[f]} onSave={(value) => change({ field: f, value })} />
-            ))}
-          </dl>
-          <ul className="flex flex-col gap-2">
-            {state.characters.map((c) => (
-              <li key={c.name}>
-                <CharacterCard character={c} onChange={(field, value) => change({ character: c.name, field, value })} onRemove={() => remove(c.name)} />
-              </li>
-            ))}
-          </ul>
+          <StateView sceneId={sceneId} state={state} onChange={change} onRemove={remove} />
         </>
       )}
     </section>
   )
 }
 
+function ModeButton({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-6 items-center rounded-full px-2.5 text-[11.5px] font-medium transition-[background-color,color] duration-(--dur-quick)',
+        on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** A state's values: to change (with onChange) or only to read. */
+function StateView({
+  sceneId,
+  state,
+  onChange,
+  onRemove
+}: {
+  sceneId: ID
+  state: NonNullable<RecallView['state']>
+  onChange?: (c: RecallChange) => Promise<void>
+  onRemove?: (name: string) => Promise<void>
+}): React.JSX.Element {
+  return (
+    <>
+      <dl className="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
+        {SCENE_FIELDS.map(([f, label]) => (
+          <Row
+            key={f}
+            label={label}
+            value={state[f]}
+            from={wordsOf(state.said, sourceKey(null, f), sceneId)}
+            onSave={onChange && ((value) => onChange({ field: f, value }))}
+          />
+        ))}
+      </dl>
+      <ul className="flex flex-col gap-2">
+        {state.characters.map((c) => (
+          <li key={c.name}>
+            <CharacterCard
+              character={c}
+              said={state.said}
+              sceneId={sceneId}
+              onChange={onChange && ((field, value) => onChange({ character: c.name, field, value }))}
+              onRemove={onRemove && (() => onRemove(c.name))}
+            />
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+/** The words a value came from, for its tooltip. */
+function wordsOf(said: StateSources | undefined, key: string, sceneId: ID): string | undefined {
+  const s = said?.[key]
+  return s ? `From the words: “${s.quote}”${s.sceneId === sceneId ? '' : ' (in an earlier scene)'}` : undefined
+}
+
 function CharacterCard({
   character,
+  said,
+  sceneId,
   onChange,
   onRemove
 }: {
   character: CharacterState
-  onChange: (field: StateField, value: string) => Promise<void>
-  onRemove: () => Promise<void>
+  said: StateSources | undefined
+  sceneId: ID
+  onChange?: (field: StateField, value: string) => Promise<void>
+  onRemove?: () => Promise<void>
 }): React.JSX.Element {
   return (
     <div className="rounded-lg border border-line px-2.5 py-2" data-recall-character={character.name}>
       <div className="mb-1 flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-fg">{character.name}</span>
-        <button
-          type="button"
-          aria-label={`Take ${character.name} out`}
-          title="Take out (until this scene’s words change)"
-          onClick={() => void onRemove()}
-          className="rounded p-0.5 text-faint hover:bg-surface-2 hover:text-fg"
-        >
-          <X size={13} />
-        </button>
+        {onRemove ? (
+          <button
+            type="button"
+            aria-label={`Take ${character.name} out`}
+            title="Take out (until this scene’s words change)"
+            onClick={() => void onRemove()}
+            className="rounded p-0.5 text-faint hover:bg-surface-2 hover:text-fg"
+          >
+            <X size={13} />
+          </button>
+        ) : null}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
         {STATE_FIELDS.map((f) => (
-          <Row key={f} label={labelOf(f)} value={character[f]} onSave={(value) => onChange(f, value)} />
+          <Row
+            key={f}
+            label={labelOf(f)}
+            value={character[f]}
+            from={wordsOf(said, sourceKey(character.name, f), sceneId)}
+            onSave={onChange && ((value) => onChange(f, value))}
+          />
         ))}
       </dl>
     </div>
   )
 }
 
-/** One value: its label, and the value as a button that turns into a box to change it (Enter keeps it, Esc doesn't). */
-function Row({ label, value, onSave }: { label: string; value: string; onSave: (value: string) => Promise<void> }): React.JSX.Element {
+/**
+ * One value: its label, and the value as a button that turns into a box to change it (Enter keeps it, Esc doesn't);
+ * without onSave, only to read. `from`: the words it came from, shown when the pointer rests on it.
+ */
+function Row({
+  label,
+  value,
+  from,
+  onSave
+}: {
+  label: string
+  value: string
+  from?: string
+  onSave?: (value: string) => Promise<void>
+}): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const save = (): void => {
     setEditing(false)
-    if (draft.trim() !== value) void onSave(draft.trim())
+    if (draft.trim() !== value) void onSave?.(draft.trim())
   }
   return (
     <>
       <dt className="text-faint">{label}</dt>
       <dd className="min-w-0">
-        {editing ? (
+        {!onSave ? (
+          <span title={from} className={cn('block break-words', value ? 'text-fg' : 'text-faint')}>
+            {value || '—'}
+          </span>
+        ) : editing ? (
           <Input
             autoFocus
             aria-label={label}
@@ -167,6 +336,7 @@ function Row({ label, value, onSave }: { label: string; value: string; onSave: (
           <button
             type="button"
             aria-label={`${label}: ${value || 'not known'}. Change`}
+            title={from}
             onClick={() => {
               setDraft(value)
               setEditing(true)

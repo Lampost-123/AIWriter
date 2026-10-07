@@ -95,18 +95,27 @@ const SENTENCES = [
 ]
 
 /**
- * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v1]"): each
+ * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v2]"): each
  * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
- * wears it. The scene's time is "evening". Null for any other request.
+ * wears it. The scene's time is "evening". Each value comes with words from the scene that show it, as asked: the
+ * sentence that names the character, the words about the cloak, and the scene's first words for the time.
+ * Null for any other request.
  */
 function continuityReply(system, user) {
-  if (!system.includes('[AIWRITE-CONTINUITY v1]')) return null
+  if (!system.includes('[AIWRITE-CONTINUITY v2]')) return null
   const cast = (/^Characters in this story: (.+)$/m.exec(user)?.[1] ?? '').split(', ').filter(Boolean)
-  const scene = user.split('The scene:\n')[1] ?? ''
+  const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
+  const sentences = scene.split(/(?<=[.!?])\s+/)
+  const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
   const characters = cast
     .filter((n) => scene.includes(n))
-    .map((name) => ({ name, where: 'in the scene', wearing: /in (?:her|his) ([a-z ]+cloak)/.exec(scene)?.[1] ?? '' }))
-  return JSON.stringify({ time: 'evening', weather: '', light: '', characters })
+    .map((name) => ({
+      name,
+      where: { value: 'in the scene', quote: sentences.find((s) => s.includes(name)) ?? name },
+      ...(cloak ? { wearing: { value: cloak[1], quote: cloak[0] } } : {})
+    }))
+  const opening = scene.split(/\s+/).slice(0, 3).join(' ')
+  return JSON.stringify({ time: { value: 'evening', quote: opening }, characters })
 }
 
 /** Deterministic prose of about `words` words, in paragraphs. */
