@@ -404,6 +404,10 @@ export interface Probe {
   patterns?: PatternCheck[]
   /** A note on how the probe's page was set up (story version 3: a fact closer than planned). */
   note?: string
+  /** What Adam types for the draft (Generate, Add below) or the beat's note (story version 3, probes v2). */
+  direction?: string
+  /** The scene card's beats for the probe, in place of the card's own (story version 3, probes v2: Continue). */
+  beats?: string[]
 }
 
 /**

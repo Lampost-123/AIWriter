@@ -10,7 +10,7 @@ Adam's library, settings or keys, and it is never part of `npm test` or CI.
 
 ## The stories
 
-- **Version 3 (the default)**: "The Salt Road", 30 scenes in 7 chapters (about 44,000 words), written once by a live
+- **Version 3 (the default)**: "The Salt Road", 30 scenes in 7 chapters (47,411 words), written once by a live
   DeepSeek Flash through the app's own Generate from a hand-written outline (`story3.ts`), then frozen in
   `story-v3.json` so every checkout is scored on the very same words. Adam, 2026-10-07: version 2 was too short (every
   fact fitted in what the writer is shown, so the memory never mattered and every step scored 99%), so make it much
@@ -49,16 +49,27 @@ Commit it. An existing story file is never written over (`--out <file>` for anot
 npm run traps -- --fake --story-file <a fake-written story> --out <a folder of your own>
 
 # A real score of this checkout (main) on DeepSeek Flash, through DeepSeek's own API.
-npm run traps -- --out C:\Users\adox1\Documents\AIWriter-trap-scores\round3\step1
+npm run traps -- --samples 3 --out C:\Users\adox1\Documents\AIWriter-trap-scores\round4\step1
 
 # The same harness and story on another checkout's app code (it needs its own node_modules: npm ci there first).
-npm run traps -- --root C:\Users\adox1\Documents\AIWriter-stage --out ...\round3\step2
+npm run traps -- --samples 3 --root C:\Users\adox1\Documents\AIWriter-stage --out ...\round4\step2
+
+# Later: the same checkout again (new probes, more samples), from the world the run above saved: no memory build
+# for the first 23 scenes.
+npm run traps -- --samples 3 --root C:\Users\adox1\Documents\AIWriter-stage --from-world ...\round4\step2 --out ...\round5\step2
 
 # Side by side
 npm run traps -- --compare <report folder> <report folder>
 ```
 
 A report folder that already has a report is never written over.
+
+**The saved world.** Most of a run's cost is the memory reading the 23 scenes before the first probe; that depends
+only on the app code being scored and the story, not on the probes. So each run saves the world as it stands just
+before the first probe scene (`world-before-s24.db`, with a `.json` saying what it was made from) beside its report,
+and `--from-world <report folder>` starts a later run there. It is used only for the same app code (git's id for the
+checkout's `src` folder, with no uncommitted changes), the same story file and the same models; anything else is
+refused. A copy is opened; the saved file is never changed. `--no-save-world` skips saving it.
 
 **The key** is read from `DEEPSEEK_API_KEY` only: from the terminal's environment, or, on Windows, from the user's
 saved environment variables (set with `setx DEEPSEEK_API_KEY ...` or System Properties). It is never printed or written
@@ -79,8 +90,9 @@ so far, marked as stopped; writing saves its progress for `--resume`. The tokens
 the report.
 
 Other flags: `--samples N` (default 3), `--probes G1,C1`, `--words N` (Generate's length, default 600), `--add-words N`
-(Add below, 400), `--beat-scene-words N` (900), `--price-in X --price-out Y` (USD per million tokens, for an estimated
-cost), `--out <folder>`, `--keep` (keep the throwaway world, with "What the AI saw" for every call), `--story-file`,
+(Add below, 400), `--beat-scene-words N` (900), `--price-in X --price-cached Y --price-out Z` (USD per million tokens
+for the estimated cost; default DeepSeek's chat prices, 0.28, 0.028 for input it reads from its cache, and 0.42),
+`--out <folder>`, `--keep` (keep the throwaway world, with "What the AI saw" for every call), `--story-file`,
 `--base-url <url>` (only to check the harness against a local fake server).
 
 Each run writes `report.md` (the scores), `report.json` (everything, including each passage and the judge's answers)
@@ -100,51 +112,66 @@ run exactly as before.
 
 ## Cost (an estimate)
 
-At DeepSeek's chat prices (about $0.28 per million tokens in and $0.42 out, less for cached input; check their
-pricing page for Flash). DeepSeek reports tokens, not cost; the report always gives the tokens by job.
+At DeepSeek's chat prices (about $0.28 per million tokens in, $0.028 for input it reads from its cache, and $0.42 out;
+check their pricing page for Flash). DeepSeek reports tokens, not cost; the report gives the tokens by job, how many
+were read from the cache where the app records it (drafts and Continue; not the memory's calls), and an estimated cost.
 
-- **Writing story version 3**: about 180 calls (30 scenes, a few written twice; the memory reading each scene, where
-  things stand, summaries; a judge call now and then), roughly 700,000 tokens in and 170,000 out: about $0.30.
-- **Scoring on version 3, 5 samples**: the memory reads all 30 scenes in the checkout being scored (that is what is
-  measured), then 7 probes x 5 passages. Main or 0.6.24: about 200 calls, 550,000 in, 90,000 out (about $0.20). Step 2
-  reads where things stand after every scene too: about 330 calls, 800,000 in, 150,000 out (about $0.30). Step 3 adds a
-  repair call per passage and a judge call when a fix changed one: about 1,000,000 in, 170,000 out (about $0.35).
+- **Writing story version 3** (done once, 7 October 2026): 237 calls, 913,000 tokens in, 186,000 out.
+- **Scoring on version 3, probes v2, 3 samples** (from round 3's real runs, scaled): the memory build up to the first
+  probe is most of it and depends only on the app code; 7 probes x 3 passages add about 300,000 tokens in (the
+  briefing for a 30-scene story is about 14,000 tokens), and step 3 onwards a repair call per passage (about 10,000).
+  0.6.24 about 690,000 in and 120,000 out (about $0.24); step 1 about 725,000 and 120,000 ($0.25); step 2 about 855,000
+  and 155,000 ($0.30); step 3 about 1,050,000 and 165,000 ($0.36); step 4 about 1,170,000 and 170,000 ($0.40). Five
+  versions about $1.55 at full price; the samples of one probe send the same briefing, so DeepSeek's cache takes it
+  nearer $1.35.
+- **Again from a saved world** (`--from-world`): only scenes 24 to 29 are read: about 40% of the above.
+- Round 3 (5 samples, probes v1) used 0.87 to 1.54 million tokens in a run.
 
-## Story version 3: the traps
+## Story version 3: the traps (probes v2)
 
 | Trap | The truth (scene it becomes true) | Tested by |
 |---|---|---|
 | An injury chapters back | Wren's LEFT forearm is burned (s2) | G1, C1, C2, G2, A2 (deterministic) |
-| A horse changed and named | Thistle goes lame and stays at Hobb's Farm; Wren rides Ash's grey gelding Cinder (s9) | G1, G2, A1, A2 (deterministic) |
-| An item given away | Wren gives her brass compass to the bridge-keeper as a toll (s7) | G1, B1, A1, A2 (deterministic) |
+| A horse changed and named | Thistle goes lame and stays at Hobb's Farm; Wren rides Ash's grey gelding Cinder (s9) | G1, G2, A1, A2 (judge, with a deterministic tripwire) |
+| An item given away | Wren gives her brass compass to the bridge-keeper as a toll (s7) | G1, A1, A2 (judge, with a deterministic tripwire) |
 | A scar on one side | A knife cuts Ash's LEFT cheek (s8), a scar by s14 | G1, C2, A1, A2 (deterministic) |
 | A promise made in chapter 1 | Wren promises Pell a blue glass bead (s3), buys it (s13), gives it (s26) | B1 (judge), A1 (deterministic) |
 | Who knows what | Only Ash (s6) and Bryn (s15) know the survey shows silver; Sela, Oskar, Pell and Gale never do | B1, G2 (judge) |
 | Clothes off early in a long scene | Early in s24 (2,400 words) Wren takes off her coat and boots; they stay off | C1 (judge and a deterministic tripwire) |
 | Someone gone early in a long scene | Early in s27 (2,400 words) Bryn takes the horses to the smith and doesn't come back | C2 (deterministic) |
 
-## Story version 3: the probes
+## Story version 3: the probes (v2)
 
-| Probe | What the app is asked | On the page |
-|---|---|---|
-| G1 | Generate s28 (fog on the fell) from its card | Empty |
-| C1 | Continue near the end of s24 | All but the last paragraph: the boots came off 1,300+ words back, beyond what Continue is shown |
-| C2 | Continue near the end of s27 | All but the last paragraph: Bryn left 1,300+ words back |
-| B1 | Beat 3 of s26 (goodbye to Pell) | Up to just before the bead is given |
-| G2 | Generate s29 (the Assize) from its card | Empty |
-| A1 | Add below halfway through s30 | Half the scene |
-| A2 | Add below halfway through s25 | Half the scene |
+Probes v2 (Adam, 2026-10-07): in round 3 about 75 of every 120 checks were "not touched": the passages never came near
+the traps. Each probe now aims its passage at its traps through what Adam would type himself (a draft's direction, a
+beat's note, the scene card's beats for Continue), never saying what is true. Reports say "probes v2"; scores with
+probes v1 (round 3) don't compare.
+
+| Probe | What the app is asked | Aimed with | On the page |
+|---|---|---|---|
+| G1 | Generate s28 (fog on the fell) | "Show, step by step, how Wren finds her bearings when the fog comes down. Name the horses as they climb. Her old burn aches in the cold and wet. When they stop to rest, describe Ash's face up close." | Empty |
+| C1 | Continue near the end of s24 | A last beat on the card: Wren gets up, rubbing her aching arm, and goes to the door to look at the storm | All but the last paragraph: the boots came off 1,300+ words back, beyond what Continue is shown |
+| C2 | Continue near the end of s27 | A last beat: Wren rolls up her sleeves, the talk turns to Bryn, the firelight on Ash's scarred face | All but the last paragraph: Bryn left 1,300+ words back |
+| B1 | Beat 3 of s26 (goodbye to Pell) | The beat itself (the parting) | Up to just before the bead is given |
+| G2 | Generate s29 (the Assize) | They ride to the hall; Bryn beside Wren; Gale presses to find out what the survey shows; her sleeve rides up over her old burn | Empty |
+| A1 | Add below halfway through s30 | Wren searches her pockets for a keepsake for Bryn, takes her bearings, they ride on; Ash's face | Half the scene |
+| A2 | Add below halfway through s25 | Wren checks which way the river lies; her burned arm stiff on the reins; Ash's face in the wind | Half the scene |
 
 When a written scene is too short for the planned distance, the report says so on the probe.
 
 ## How it scores
 
 **Deterministic checks** (`patterns.ts`), sentence by sentence, need no judge: a sentence that breaks the truth (her
-burn on the right arm, riding Thistle, using the compass, Bryn speaking in the room) is **broken**, unless the same
+burn on the right arm, Ash's scar on the right, still having the bead, Bryn speaking in the room) is **broken**, unless the same
 sentence shows it isn't a slip ("the compass she no longer had") or the change was shown earlier in the passage ("Bryn
 came back in"); a passage that mentions the subject without breaking it is **kept**; one that never mentions it is
 **not touched**. They replace the judge questions it misread (version 2's B2 counted Tobin as never coming down
-although every passage had him on the stairs).
+although every passage had him on the stairs). Probes v2 tightened them so a mention isn't a slip: round 3 counted
+"'I've got to fetch Thistle,' she said." as riding Thistle and "she held the compass in her head instead of her hand"
+as having the compass. Riding now needs a riding verb with Thistle (or a mare) as what is ridden in one sentence;
+having the compass needs it in her hand or pocket, taken out, opened or read, and never "in her head", a memory, a
+wish or a negation. Where a pattern can't be sure (the horse, the compass), the judge decides, with a precise
+question and examples of what doesn't count, and the pattern stays behind it as a tripwire.
 
 **Judge questions**, only where a pattern can't do it (who knows what, a promise kept, clothes worn): the judge (the
 memory model unless `--judge`) gets only the passage, the facts true where it begins and yes/no questions, each with

@@ -1697,6 +1697,12 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   words. Its probes sit in chapters 6 and 7, with every fact chapters back or early in a long scene, beyond what
   Continue is shown; most checks are deterministic (`patterns.ts`), the judge only asks what a pattern can't. A hard
   token budget (`budget.ts`, checked before every call) stops writing and scoring cleanly.
+- **Probes v2** (Adam, 2026-10-07, after round 3 left most checks "not touched" and counted mentions as slips): each
+  probe is aimed at its traps the way Adam would aim a draft (a direction, a beat's note, the card's beats for
+  Continue) without saying what is true; a mention is no longer a slip (riding needs a riding verb with the horse as
+  what is ridden; the compass must be in her hand or used); the judge decides the horse and the compass, the patterns
+  stay as tripwires. `PROBES_VERSION` goes in the report. Each run saves the world before the first probe scene, and
+  `--from-world` starts a later run of the same app code (git's id for `src`) and story there, without the memory build.
 - **Story version 2** (`story.ts`, `--story v2`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
   make them. Traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
   change of clothes later), a cut on the left palm, people moved between rooms, who knows what (a secret told to only

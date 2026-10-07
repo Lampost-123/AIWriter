@@ -103,6 +103,8 @@ export function tally(results: Pick<CheckResult, 'verdict'>[]): Tally {
 export interface Usage {
   calls: number
   promptTokens: number
+  /** Of the prompt tokens, how many the provider read from its cache (billed for much less), when it says. */
+  cachedTokens?: number
   completionTokens: number
   /** USD, as the provider reported it (or worked out from the model's prices); null when nothing was known. */
   cost: number | null
@@ -149,6 +151,10 @@ export interface ProbeResult {
 
 export interface RunReport {
   storyVersion: number
+  /** The probes' version (story version 3): runs with different probe versions don't compare. */
+  probesVersion?: number
+  /** The world saved before the first probe scene (for --from-world), or the saved world this run started from. */
+  world?: { saved?: string; from?: string }
   /** Where the story came from (story.ts, or the written story-v3.json with its model and date). */
   storySource?: string
   /** The story's traps (absent in reports from before story version 3: version 2's). */
@@ -165,7 +171,7 @@ export interface RunReport {
   harness: { root: string; commit: string }
   provider: string
   /** USD per million tokens in and out, given for the run (DeepSeek's API reports tokens, not cost); null when not given. */
-  prices?: { in: number; out: number } | null
+  prices?: { in: number; cached?: number; out: number } | null
   models: { writer: string; memory: string; judge: string }
   samples: number
   words: { generate: number; addBelow: number; beatScene: number }
@@ -218,8 +224,10 @@ export function summariseRepair(probes: ProbeResult[], traps: TrapList = TRAPS):
 }
 
 /** USD for these tokens at the given prices per million. */
-export const estimatedCost = (u: Pick<Usage, 'promptTokens' | 'completionTokens'>, prices: { in: number; out: number }): number =>
-  (u.promptTokens * prices.in + u.completionTokens * prices.out) / 1_000_000
+export const estimatedCost = (u: Pick<Usage, 'promptTokens' | 'completionTokens' | 'cachedTokens'>, prices: { in: number; cached?: number; out: number }): number => {
+  const cached = Math.min(u.cachedTokens ?? 0, u.promptTokens)
+  return ((u.promptTokens - cached) * prices.in + cached * (prices.cached ?? prices.in) + u.completionTokens * prices.out) / 1_000_000
+}
 
 const pct = (v: number | null): string => (v == null ? '–' : `${Math.round(v * 100)}%`)
 const usd = (v: number | null): string => (v == null ? 'not reported' : `$${v.toFixed(v < 0.1 ? 4 : 2)}`)
@@ -229,12 +237,14 @@ const MARK: Record<Verdict, string> = { kept: 'kept', broken: '**BROKEN**', unve
 export function reportMarkdown(r: RunReport): string {
   const out: string[] = []
   const s = r.summary
-  out.push(`# Trap scores: ${r.tested.branch} @ ${r.tested.commit.slice(0, 9)}${r.tested.dirty ? ' (with uncommitted changes)' : ''}`)
+  out.push(`# Trap scores: ${r.tested.branch} @ ${r.tested.commit.slice(0, 9)}${r.tested.dirty ? ' (app code with uncommitted changes)' : ''}`)
   out.push('')
-  out.push(`- Story version ${r.storyVersion}, ${r.samples} sample${r.samples === 1 ? '' : 's'} per probe, ${r.startedAt.slice(0, 16).replace('T', ' ')}${r.fake ? ' — **fake model (a check of the harness, not a score)**' : ''}`)
+  out.push(`- Story version ${r.storyVersion}${r.probesVersion ? `, probes v${r.probesVersion}` : ''}, ${r.samples} sample${r.samples === 1 ? '' : 's'} per probe, ${r.startedAt.slice(0, 16).replace('T', ' ')}${r.fake ? ' — **fake model (a check of the harness, not a score)**' : ''}`)
   out.push(`- Writer: \`${r.models.writer}\`; memory: \`${r.models.memory}\`; judge: \`${r.models.judge}\` (${r.provider})`)
   out.push(`- App code from \`${r.tested.root}\` (version ${r.tested.appVersion}); harness at ${r.harness.commit.slice(0, 9)}`)
   if (r.storySource) out.push(`- Story: ${r.storySource}`)
+  if (r.world?.from) out.push(`- Started from the saved world ${r.world.from} (no memory build before it)`)
+  if (r.world?.saved) out.push(`- World saved before the first probe scene: ${r.world.saved} (reuse with --from-world)`)
   if (r.budget) {
     out.push(
       `- Tokens: ${r.budget.usedIn.toLocaleString('en-GB')} in, ${r.budget.usedOut.toLocaleString('en-GB')} out (budget ${r.budget.maxIn.toLocaleString('en-GB')} in, ${r.budget.maxOut.toLocaleString('en-GB')} out)`
@@ -329,11 +339,19 @@ export function reportMarkdown(r: RunReport): string {
   }
   out.push('## Calls and cost')
   out.push('')
-  out.push(`| Job | Calls | Prompt tokens | Reply tokens | Cost reported |${r.prices ? ' Estimated cost |' : ''}`)
-  out.push(`|---|---:|---:|---:|---:|${r.prices ? '---:|' : ''}`)
+  out.push(`| Job | Calls | Prompt tokens | Of them cached | Reply tokens | Cost reported |${r.prices ? ' Estimated cost |' : ''}`)
+  out.push(`|---|---:|---:|---:|---:|---:|${r.prices ? '---:|' : ''}`)
   const rows: [string, Usage][] = [...Object.entries(r.usage.byJob), ['judge', r.usage.judge], ['total', r.usage.total]]
-  for (const [job, u] of rows) out.push(`| ${job} | ${u.calls} | ${u.promptTokens.toLocaleString('en-GB')} | ${u.completionTokens.toLocaleString('en-GB')} | ${usd(u.cost)} |${r.prices ? ` ${usd(estimatedCost(u, r.prices))} |` : ''}`)
-  if (r.prices) out.push('', `Estimated at $${r.prices.in} per million tokens in and $${r.prices.out} out (cache hits counted at the full price).`)
+  for (const [job, u] of rows)
+    out.push(
+      `| ${job} | ${u.calls} | ${u.promptTokens.toLocaleString('en-GB')} | ${u.cachedTokens == null ? '–' : u.cachedTokens.toLocaleString('en-GB')} | ${u.completionTokens.toLocaleString('en-GB')} | ${usd(u.cost)} |${r.prices ? ` ${usd(estimatedCost(u, r.prices))} |` : ''}`
+    )
+  if (r.prices) {
+    out.push(
+      '',
+      `Estimated at $${r.prices.in} per million tokens in, $${r.prices.cached ?? r.prices.in} for those read from the provider's cache, and $${r.prices.out} out (DeepSeek's chat prices unless set with --price-in, --price-cached, --price-out; check Flash's). The memory's calls don't record cache hits, so they count at the full price.`
+    )
+  }
   out.push('')
   return out.join('\n')
 }
@@ -372,6 +390,7 @@ export function compareMarkdown(a: RunReport, b: RunReport): string {
   if (a.storyVersion !== b.storyVersion) out.push(`**Different story versions (${a.storyVersion} and ${b.storyVersion}): the scores don't compare.**`, '')
   if (JSON.stringify(a.models) !== JSON.stringify(b.models)) out.push(`Different models: ${JSON.stringify(a.models)} and ${JSON.stringify(b.models)}.`, '')
   if (a.fake || b.fake) out.push('One of the runs used the fake model: not a real score.', '')
+  if ((a.probesVersion ?? 0) !== (b.probesVersion ?? 0)) out.push(`**Different probe versions (${a.probesVersion ?? '–'} and ${b.probesVersion ?? '–'}): the scores don't compare.**`, '')
   if ((a.storySource ?? '') !== (b.storySource ?? '')) out.push(`Different stories: ${a.storySource ?? 'version 1 or 2'} and ${b.storySource ?? 'version 1 or 2'}.`, '')
   for (const r of [a, b]) if (r.stopped) out.push(`${name(r)} stopped before the end: ${r.stopped}`, '')
   out.push(`| | ${name(a)} | ${name(b)} |`, '|---|---:|---:|')

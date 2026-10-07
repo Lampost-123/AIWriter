@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs'
 import { CHAPTERS, ENTRIES, PROBES, SCENES, STORY, STORY_VERSION, TRAPS, type Probe } from './story'
-import { CHAPTERS3, ENTRIES3, OUTLINE_VERSION, PROBES3, STORY3, TRAPS3, type Card3, type Entry3, type ProbeSpec3 } from './story3'
+import { CHAPTERS3, ENTRIES3, OUTLINE_VERSION, PROBES3, PROBES_VERSION, STORY3, TRAPS3, type Card3, type Entry3, type ProbeSpec3 } from './story3'
 
 export interface StoryScene {
   key: string
@@ -16,6 +16,8 @@ export interface StoryScene {
 
 export interface StoryData {
   version: number
+  /** The probes' version (story version 3; absent for version 2, whose probes go with its story version). */
+  probesVersion?: number
   /** Where the story came from, for the report. */
   source: string
   story: { title: string; premise: string }
@@ -144,11 +146,14 @@ export function storyV3(f: StoryFixture, source: string): StoryData {
       checks: spec.checks,
       tripwires: spec.tripwires,
       patterns: spec.patterns,
+      ...(spec.direction ? { direction: spec.direction } : {}),
+      ...(spec.beats ? { beats: spec.beats } : {}),
       ...(page.note ? { note: page.note } : {})
     }
   })
   return {
     version: 3,
+    probesVersion: PROBES_VERSION,
     source: `${source} (written ${f.writtenAt.slice(0, 10)} by ${f.models.writer}${f.fake ? ', FAKE' : ''})`,
     story: f.story,
     chapters: f.chapters,

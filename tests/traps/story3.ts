@@ -28,6 +28,13 @@ import type { Check, Tripwire } from './story'
 /** Bump when the outline, the probes or the checks change: a story written from another outline version won't load. */
 export const OUTLINE_VERSION = 1
 
+/**
+ * Bump when the probes or their checks change (the written story stays the same): reports say "probes vN", and runs
+ * with different probe versions don't compare. 1: round 3. 2 (7 October 2026): each probe aimed at its traps, and the
+ * quick checks tightened so a mention isn't a slip.
+ */
+export const PROBES_VERSION = 2
+
 export const TRAPS3 = [
   { id: 'burn', name: 'An injury chapters back', tests: "Wren's left forearm, burned in chapter 1, is still the left one in chapter 7." },
   { id: 'horse', name: 'A horse changed and named', tests: 'Thistle went lame in chapter 2 and stayed behind; Wren rides Cinder, a grey gelding, ever since.' },
@@ -240,18 +247,23 @@ export const PATTERNS = {
     id: 'horse',
     trap: 'horse',
     what: 'Wren rides Thistle (lame and left at the farm) or a mare, not Cinder.',
-    broken: /\bThistle\b|\b(?:rode|ride|rides|riding|mounted|astride|urged|reined|kicked)\b[^.!?\n]{0,40}\b(?:the|her) (?:dun )?mare\b|\b(?:the|her) (?:dun )?mare\b[^.!?\n]{0,30}\bunder her\b/i,
-    not: /\b(?:lame|limp\w*|left (?:her|behind)|Hobb|farm|paddock|stall|remember\w*|thought of|missed|miss|before|used to|once|wondered|old)\b/i,
+    // Riding: a riding verb with Thistle or a mare as what is ridden, or Thistle doing the carrying, in one sentence.
+    // A mention isn't riding ("I've got to fetch Thistle", "Thistle'll be fat as a parson").
+    broken:
+      /\b(?:rode|ride|rides|riding|ridden|mounted|mount|astride|urged|reined|spurred|kicked|swung (?:up )?(?:onto|into the saddle of|up on)|climbed (?:up )?(?:onto|on))\b[^.!?\n"“”]{0,30}\b(?:Thistle|(?:the|her) (?:dun )?mare)\b|\bThistle\b[^.!?\n"“”]{0,30}\b(?:under her|beneath her|carried her|bore her|picked her way|picked his way|plodded|trotted on|cantered|galloped)\b/i,
+    not: /\b(?:lame|limp\w*|left (?:her|behind)|Hobb|farm|paddock|stall|remember\w*|thought of|think\w*|missed|miss|before|used to|once|wondered|old|fetch|back for|would|will|'ll|’ll|had ridden|had been)\b/i,
     touches: /\b(?:Cinder|Thistle|gelding|mare)\b/i
   },
   compass: {
     id: 'compass',
     trap: 'compass',
     what: 'Wren has or uses the brass compass she gave away.',
-    broken: /\b(?:her|grandmother's|grandmother’s|the brass|the) compass\b|\bcompass\b[^.!?\n]{0,30}\b(?:needle|lid|case|face)\b/i,
-    // Not hers, or not that compass: "every point of the compass", "the compass rose" on a map.
-    not: /\b(?:no longer|gave|given|give|traded|toll|Agate|without|wish\w*|missed|miss|had not|hadn't|hadn’t|didn't have|didn’t have|did not have|gone|lost|left (?:it|behind|with)|cord|neck|once|used to|would have|if only)\b|\bcompass (?:rose|points?)\b|\b(?:points?|quarters?) of the compass\b/i,
-    touches: /\bcompass\b/i
+    // Having it: in her hand or pocket, taken out, opened, its needle read for a bearing. Not a compass in her head, a
+    // memory, a wish, or the one she gave away ("the way she had walked it with the compass in her other hand").
+    broken:
+      /\b(?:took|pulled|drew|fished|got) (?:out )?(?:her |the |grandmother's |grandmother’s )?(?:brass )?compass\b|\b(?:checked|consulted|opened|flipped open|snapped open|held up|glanced at|squinted at|tapped|shook) (?:her |the |grandmother's |grandmother’s )?(?:brass )?compass\b|\bcompass\b[^.!?\n]{0,40}\b(?:in her (?:(?:other |left |right )?hand|palm|fingers|pocket|fist)|from her (?:pocket|coat|pack|jacket)|needle (?:swung|settled|pointed|trembled|quivered)|bearing)\b/i,
+    not: /\b(?:no longer|gave|given|give|traded|toll|Agate|without|wish\w*|missed|miss|had not|hadn't|hadn’t|didn't|didn’t|did not|gone|lost|left (?:it|behind|with)|cord|neck|once|used to|would have|if only|instead|remember\w*|thought of|in her (?:head|mind)|out of her head|the way she had|had (?:\w+ )?(?:walked|held|used|carried|done))\b|\bcompass (?:rose|points?)\b|\b(?:points?|quarters?) of the compass\b|\blike a compass\b/i,
+    touches: /\bcompass\b|\b(?:bearings?|north|which way)\b/i
   },
   scar: {
     id: 'scar',
@@ -264,10 +276,12 @@ export const PATTERNS = {
     id: 'bead',
     trap: 'promise',
     what: 'Wren still has the bead she gave Pell.',
-    broken: /\bbead\b/i,
-    // Not the gift: "a bead of sweat".
-    not: /\b(?:Pell|gave|given|give|promise\w*|girl|child|word|kept)\b|\bbeads? of\b/i,
-    touches: /\bbead\b/i
+    // Having it: in her pocket or hand, or handled. A memory of giving it isn't having it.
+    broken:
+      /\bbead\b[^.!?\n]{0,40}\b(?:in her (?:pocket|hand|palm|fingers|purse)|from her (?:pocket|purse|pack))\b|\b(?:fingered|turned|rolled|touched|felt for|held|took out|pulled out|found|gave Bryn|offered Bryn|pressed)\b[^.!?\n]{0,30}\b(?:blue |glass )*bead\b/i,
+    // Not the gift: "a bead of sweat"; nor Pell's bead remembered.
+    not: /\b(?:Pell|gave|given|give|promise\w*|girl|child|word|kept|remember\w*|thought of)\b|\bbeads? of\b/i,
+    touches: /\bbead\b|\bpockets?\b/i
   },
   brynBack: {
     id: 'bryn',
@@ -960,6 +974,10 @@ export interface ProbeSpec3 {
   kind: 'generate' | 'addBelow' | 'continue' | 'beat'
   beat?: number
   at: ProbeAt
+  /** What Adam would type for this draft (Generate, Add below) or this beat (its note): aims it at the traps. */
+  direction?: string
+  /** The scene card's beats for the probe (Continue reads them): aims it at the traps. */
+  beats?: string[]
   asks: string
   facts: string[]
   checks: Check[]
@@ -969,29 +987,53 @@ export interface ProbeSpec3 {
 
 const p = (c: PatternCheck, id: string): PatternCheck => ({ ...c, id })
 
+/** A pattern as a tripwire behind one of the judge's questions. */
+const wire = (c: PatternCheck, check: string): Tripwire => ({ check, what: c.what, pattern: c.broken, not: c.not, unlessBefore: c.unlessBefore })
+
+const COMPASS_ASK =
+  'Does Wren have or use a compass in this passage: holding it, taking it out of a pocket, opening it, reading its needle to take a bearing? Thinking of a compass, remembering one, wishing for one, or finding her way without one (by the land, the wind, the survey, "the compass in her head") does NOT count.'
+const HORSE_ASK =
+  "Is Wren riding Thistle (her dun mare) or any mare? Riding Cinder (a grey gelding) does not count, and nor does only talking or thinking about Thistle (\"I've got to fetch Thistle\", \"Thistle'll be fat\")."
+
+// Probes version 2 (Adam, 2026-10-07): in round 3 about 75 of every 120 checks were "not touched": the passages never
+// came near the traps. Each probe now aims its passage at its traps, through what Adam would type himself (a draft's
+// direction, a beat's note, the scene card's beats for Continue), without ever saying what is true: "find her bearings
+// in the fog", never "she has no compass".
 export const PROBES3: ProbeSpec3[] = [
   {
     id: 'G1',
     scene: 's28',
     kind: 'generate',
     at: { start: true },
-    asks: 'Generate scene 28 (fog on the fell) from its card: the horse, the compass, the burn and the scar are all chapters back.',
+    asks: 'Generate scene 28 (fog on the fell), asked to show how Wren finds her bearings, the horses by name, her old burn, and Ash’s face up close.',
+    direction:
+      'Show, step by step, how Wren finds her bearings when the fog comes down. Name the horses as they climb. Her old burn aches in the cold and wet. When they stop to rest, describe Ash’s face up close.',
     facts: [
       "Wren rides Cinder, Ash's grey gelding. Her dun mare Thistle went lame in chapter 2 and is still at Hobb's Farm.",
       "Wren gave her grandmother's brass compass to Mother Agate as a toll in chapter 2; she has no compass.",
       "Wren's LEFT forearm was burned in chapter 1 (now healing).",
       "Ash has a thin scar on his LEFT cheek from a knife in chapter 2."
     ],
-    checks: [],
-    tripwires: [],
-    patterns: [p(PATTERNS.horse, 'G1a'), p(PATTERNS.compass, 'G1b'), p(PATTERNS.burn, 'G1c'), p(PATTERNS.scar, 'G1d')]
+    checks: [
+      { id: 'G1a', trap: 'horse', ask: HORSE_ASK, bad: 'yes' },
+      { id: 'G1b', trap: 'compass', ask: COMPASS_ASK, bad: 'yes' }
+    ],
+    tripwires: [wire(PATTERNS.horse, 'G1a'), wire(PATTERNS.compass, 'G1b')],
+    patterns: [p(PATTERNS.burn, 'G1c'), p(PATTERNS.scar, 'G1d')]
   },
   {
     id: 'C1',
     scene: 's24',
     kind: 'continue',
     at: { after: 'boots-off', gap: 1300 },
-    asks: 'Continue near the end of the long scene 24: her coat and boots came off early in the scene, beyond what Continue is shown.',
+    beats: [
+      'A storm drives them into a shepherd’s hut on Linmouth Moor, soaked to the skin.',
+      'They light a fire, eat what they have, and dry out as best they can.',
+      'Late into the night, Ash tells the story of how he became a drover, and Bryn tells a darker one about her father.',
+      'Wren cannot sleep and sits by the fire going over Edric’s survey, thinking about what it will mean.',
+      'Before dawn Wren gets up, rubbing her aching arm, crosses the hut and opens the door to look out at the storm.'
+    ],
+    asks: 'Continue near the end of the long scene 24, its card now ending with Wren crossing the hut to the door: her coat and boots came off early in the scene, beyond what Continue is shown.',
     facts: [
       "Early in this scene Wren took off her oilskin coat (hanging by the fire) and her boots (drying); she wears the shepherd's dry wool shirt and is barefoot.",
       "Wren's LEFT forearm was burned in chapter 1."
@@ -1004,9 +1046,7 @@ export const PROBES3: ProbeSpec3[] = [
         bad: 'yes'
       }
     ],
-    tripwires: [
-      { check: 'C1a', what: 'She walks in her boots or wears her coat.', pattern: PATTERNS.bootsOn.broken, not: PATTERNS.bootsOn.not, unlessBefore: PATTERNS.bootsOn.unlessBefore }
-    ],
+    tripwires: [wire(PATTERNS.bootsOn, 'C1a')],
     patterns: [p(PATTERNS.burn, 'C1b')]
   },
   {
@@ -1014,7 +1054,14 @@ export const PROBES3: ProbeSpec3[] = [
     scene: 's27',
     kind: 'continue',
     at: { after: 'bryn-out', gap: 1300 },
-    asks: 'Continue near the end of the long scene 27: Bryn left for the smith early in the scene, beyond what Continue is shown.',
+    beats: [
+      'They reach Carrow and take rooms at the Wheatsheaf on the market square.',
+      'The landlord tells them the Assize sits the day after tomorrow, and that the Warden’s man has been asking about a survey.',
+      'Over a long supper by the fire Ash and Wren talk about what they will do after Carrow, and whether he will stay.',
+      'Wren goes over the survey one last time while Ash dozes in his chair.',
+      'Late in the evening Wren rolls up her sleeves to spread the survey on the table, the talk turns to Bryn, and the firelight falls on Ash’s scarred face.'
+    ],
+    asks: 'Continue near the end of the long scene 27, its card now ending with talk of Bryn, Ash’s face and Wren’s sleeves: Bryn left for the smith early in the scene, beyond what Continue is shown.',
     facts: [
       'Early in this scene Bryn took the horses to the smith at the far end of town; she has not come back. Only Wren, Ash and the landlord are at the Wheatsheaf.',
       "Ash has a thin scar on his LEFT cheek. Wren's LEFT forearm was burned in chapter 1."
@@ -1032,56 +1079,68 @@ export const PROBES3: ProbeSpec3[] = [
     asks: 'Beat 3 of scene 26 (goodbye to Pell on the far bank): the bead promised in chapter 1, bought in chapter 3, is due.',
     facts: [
       "In chapter 1 Wren promised Pell a blue glass bead from Harrowgate; she bought it at the market there in chapter 3 and has it with her.",
-      'Only Ash and Bryn know the survey shows silver workings; Oskar and Pell know nothing about it.',
-      "Wren has no compass (she gave it away as a toll in chapter 2)."
+      'Only Ash and Bryn know the survey shows silver workings; Oskar and Pell know nothing about it.'
     ],
     checks: [
       { id: 'B1a', trap: 'promise', ask: 'Before they part, does Wren give Pell the blue glass bead, or at least speak of her promise to?', bad: 'no' },
       { id: 'B1b', trap: 'knows', ask: 'Does Oskar or Pell say or show that they know the survey shows silver workings (or is either of them told)?', bad: 'yes' }
     ],
     tripwires: [],
-    patterns: [p(PATTERNS.compass, 'B1c')]
+    patterns: []
   },
   {
     id: 'G2',
     scene: 's29',
     kind: 'generate',
     at: { start: true },
-    asks: 'Generate scene 29 (the Assize) from its card: who knows about the silver, and the burn and the horse from far back.',
+    asks: 'Generate scene 29 (the Assize), asked to have Gale press to know what the survey shows, Bryn beside Wren, her sleeve over her old burn, and the ride to the hall.',
+    direction:
+      'They ride to the Assize hall that morning. Bryn stands beside Wren in the hall. Gale presses hard to find out what the survey shows; let the reader see exactly what he knows and what he doesn’t. As Wren lays the survey out, her sleeve rides up over her old burn.',
     facts: [
       'Only Ash and Bryn know the survey shows silver workings (Ash told Bryn in chapter 4). Gale knows who Wren is but not what the survey shows.',
       "Wren's LEFT forearm was burned in chapter 1. She rides Cinder; Thistle stayed lame at Hobb's Farm."
     ],
     checks: [
       { id: 'G2a', trap: 'knows', ask: 'Does Gale say or show that he knows the survey shows silver workings?', bad: 'yes' },
-      { id: 'G2b', trap: 'knows', ask: 'Does Bryn react as if she is hearing about the silver workings for the first time?', bad: 'yes' }
+      { id: 'G2b', trap: 'knows', ask: 'Does Bryn react as if she is hearing about the silver workings for the first time?', bad: 'yes' },
+      { id: 'G2d', trap: 'horse', ask: HORSE_ASK, bad: 'yes' }
     ],
-    tripwires: [],
-    patterns: [p(PATTERNS.burn, 'G2c'), p(PATTERNS.horse, 'G2d')]
+    tripwires: [wire(PATTERNS.horse, 'G2d')],
+    patterns: [p(PATTERNS.burn, 'G2c')]
   },
   {
     id: 'A1',
     scene: 's30',
     kind: 'addBelow',
     at: { share: 0.5 },
-    asks: 'Add below halfway through scene 30: the bead, the compass, the scar and the horse, all long settled.',
+    asks: 'Add below halfway through scene 30, asked for a keepsake from Wren’s pockets, her bearings for the coast road, Ash’s face, and riding on.',
+    direction:
+      'At the parting, Wren searches her pockets for something to give Bryn as a keepsake. Then she takes her bearings for the coast road and they ride on. Show Ash’s face as he says goodbye to his cousin.',
     facts: [
       "Wren gave the blue glass bead to Pell in chapter 6; she doesn't have it.",
       "Wren has no compass (given away in chapter 2). She rides Cinder. Ash's scar is on his LEFT cheek."
     ],
-    checks: [],
-    tripwires: [],
-    patterns: [p(PATTERNS.bead, 'A1a'), p(PATTERNS.compass, 'A1b'), p(PATTERNS.scar, 'A1c'), p(PATTERNS.horse, 'A1d')]
+    checks: [
+      { id: 'A1b', trap: 'compass', ask: COMPASS_ASK, bad: 'yes' },
+      { id: 'A1d', trap: 'horse', ask: HORSE_ASK, bad: 'yes' }
+    ],
+    tripwires: [wire(PATTERNS.compass, 'A1b'), wire(PATTERNS.horse, 'A1d')],
+    patterns: [p(PATTERNS.bead, 'A1a'), p(PATTERNS.scar, 'A1c')]
   },
   {
     id: 'A2',
     scene: 's25',
     kind: 'addBelow',
     at: { share: 0.5 },
-    asks: 'Add below halfway through scene 25 (down to the river): the horse, the compass and the burn, chapters back.',
+    asks: 'Add below halfway through scene 25, asked for Wren to check which way the river lies, her burned arm on the reins, Ash’s face in the wind, and the ride down.',
+    direction:
+      'Wren checks which way the river lies before they go on. They ride down the last slope; her burned arm is stiff on the reins. Ash grins at her, the wind in his face.',
     facts: ["Wren rides Cinder. She has no compass. Her LEFT forearm was burned in chapter 1. Ash's scar is on his LEFT cheek."],
-    checks: [],
-    tripwires: [],
-    patterns: [p(PATTERNS.horse, 'A2a'), p(PATTERNS.compass, 'A2b'), p(PATTERNS.burn, 'A2c'), p(PATTERNS.scar, 'A2d')]
+    checks: [
+      { id: 'A2a', trap: 'horse', ask: HORSE_ASK, bad: 'yes' },
+      { id: 'A2b', trap: 'compass', ask: COMPASS_ASK, bad: 'yes' }
+    ],
+    tripwires: [wire(PATTERNS.horse, 'A2a'), wire(PATTERNS.compass, 'A2b')],
+    patterns: [p(PATTERNS.burn, 'A2c'), p(PATTERNS.scar, 'A2d')]
   }
 ]

@@ -3,8 +3,10 @@
 import { describe, expect, it } from 'vitest'
 import { Budget, estimateTokens } from '../traps/budget'
 import { firstBreak, patternVerdict, sentences } from '../traps/patterns'
-import { GUARDS3, PATTERNS, PROBES3, SCENES3, TRAPS3, type Scene3 } from '../traps/story3'
-import { probePage, type FixturePlant, type StoryScene } from '../traps/storyData'
+import { GUARDS3, PATTERNS, PROBES3, PROBES_VERSION, SCENES3, TRAPS3, type Scene3 } from '../traps/story3'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { loadFixture, probePage, storyV3, type FixturePlant, type StoryScene } from '../traps/storyData'
 import { checkPlants, paragraphAt } from '../traps/write'
 
 const broken = (key: keyof typeof PATTERNS, text: string): boolean => patternVerdict(PATTERNS[key], text).verdict === 'broken'
@@ -69,6 +71,46 @@ describe('the version 3 checks', () => {
   })
 })
 
+describe('probes v2: a mention is not a slip', () => {
+  // The sentences round 3 counted as broken, though the writer clearly knew the truth.
+  it('does not take talk of Thistle for riding her', () => {
+    expect(broken('horse', "'I've got to fetch Thistle,' she said.")).toBe(false)
+    expect(broken('horse', '‘Thistle’ll be fat as a parson.’')).toBe(false)
+    expect(broken('horse', "'Thistle'll be fat as a parson.'")).toBe(false)
+  })
+  it('does not take a compass in her head, or a memory of one, for having it', () => {
+    for (const t of [
+      'Wren stood in the mouth of it and looked back at the fog, and got the compass out of her head and the levels out of the field book, and the adit sat exactly where Edric had put it, at the foot of the second beck, a hundred and ten yards north of the intake wall, on the line.',
+      'She held the compass in her head instead of her hand: north by the lie of the ground, which here ran down to the beck on her left, and the beck ran west, and the adit was above the beck a hundred and forty paces past the second wall end.',
+      'Edric had drawn it with the levels marked off it every chain, and she put her hand on the top stone and walked, counting, the way she had walked it forty times on paper with the compass in her other hand, and the numbers came out the same.'
+    ])
+      expect(broken('compass', t), t).toBe(false)
+  })
+  it('still catches riding Thistle and using the compass', () => {
+    expect(broken('horse', 'She rode Thistle down to the ford.')).toBe(true)
+    expect(broken('horse', 'Wren swung up into the saddle of the dun mare.')).toBe(true)
+    expect(broken('horse', 'Thistle carried her down the last slope.')).toBe(true)
+    expect(broken('compass', 'She pulled out her compass and watched the needle settle.')).toBe(true)
+    expect(broken('compass', 'The compass in her hand pointed north.')).toBe(true)
+    expect(broken('compass', 'She took the compass from her pocket.')).toBe(true)
+    expect(broken('compass', 'She walked on with the compass in her other hand.')).toBe(true)
+  })
+  it('tells having the bead from remembering it', () => {
+    expect(broken('bead', 'She fingered the blue glass bead in her pocket.')).toBe(true)
+    expect(broken('bead', 'She turned the bead over and over.')).toBe(true)
+    expect(broken('bead', 'She thought of Pell holding the bead up to the light.')).toBe(false)
+    expect(patternVerdict(PATTERNS.bead, 'Wren searched her pockets: a few coins, a crust, nothing worth giving.').verdict).toBe('kept')
+  })
+  it('aims every probe at its traps without saying what is true', () => {
+    expect(PROBES_VERSION).toBe(2)
+    for (const p of PROBES3) {
+      const aimed = [p.direction ?? '', ...(p.beats ? [p.beats.at(-1) ?? ''] : [])].join(' ')
+      if (p.id !== 'B1') expect(aimed.trim(), p.id).not.toBe('')
+      expect(aimed, p.id).not.toMatch(/\b(?:left|right|Cinder|Thistle|gave|given|gelding|no compass|without|Hobb|lame|bead|smith|barefoot)\b/i)
+    }
+  })
+})
+
 describe('the version 3 outline', () => {
   it('plants each event so its own words would be found, without breaking a guard', () => {
     for (const s of SCENES3) {
@@ -107,6 +149,28 @@ describe('the version 3 outline', () => {
     expect(SCENES3).toHaveLength(30)
     expect(new Set(SCENES3.map((s) => s.chapter)).size).toBe(7)
     for (const p of PROBES3) expect(SCENES3.find((s) => s.key === p.scene)!.chapter).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('the written story (story-v3.json)', () => {
+  const file = join(__dirname, '..', 'traps', 'story-v3.json')
+  it.runIf(existsSync(file))('loads, with a page for every probe, its planted events where the probes need them', () => {
+    const data = storyV3(loadFixture(file), file)
+    expect(data.scenes).toHaveLength(30)
+    expect(data.probesVersion).toBe(PROBES_VERSION)
+    for (const p of data.probes) {
+      const scene = data.scenes.find((s) => s.key === p.scene)!
+      if (p.kind === 'generate') expect(p.paragraphs, p.id).toBe(0)
+      else {
+        expect(p.paragraphs, p.id).toBeGreaterThan(0)
+        expect(p.paragraphs, p.id).toBeLessThan(scene.paragraphs.length)
+      }
+    }
+    // The story's own words never break what is true where the probes look (they were checked as it was written).
+    for (const key of ['s24', 's25', 's26', 's27', 's28', 's29', 's30']) {
+      const text = data.scenes.find((s) => s.key === key)!.paragraphs.join('\n\n')
+      for (const c of [PATTERNS.burn, PATTERNS.compass, PATTERNS.horse, PATTERNS.scar]) expect(firstBreak(c, text)?.text ?? null, `${key} ${c.id}`).toBeNull()
+    }
   })
 })
 

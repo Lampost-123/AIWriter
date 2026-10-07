@@ -17,7 +17,11 @@
 //   --judge <model id>     judge model (default: the memory model)
 //   --words <n>            length asked of Generate (default 600); --add-words (Add below, 400); --beat-scene-words (900)
 //   --out <folder>         where the report goes (default traps-results/<date>-<branch>-<commit>); never written over
-//   --price-in <usd> --price-out <usd>   per million tokens, for an estimated cost (DeepSeek reports tokens, not cost)
+//   --price-in <usd> --price-cached <usd> --price-out <usd>   per million tokens, for the estimated cost (DeepSeek
+//                          reports tokens, not cost; default its chat prices, 0.28, 0.028 and 0.42)
+//   --from-world <folder>  start from the world an earlier run of the same checkout and story saved before its first
+//                          probe scene (its report folder): the memory isn't built again up to there
+//   --no-save-world        don't save that world beside the report (it is saved by default)
 //   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
 //   --compare <a> <b>      put two runs' report.json (or their folders) side by side; no model calls
@@ -58,7 +62,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -153,6 +157,10 @@ if (flag('--compare')) {
   set('--base-url', 'TRAPS_BASE_URL')
   set('--price-in', 'TRAPS_PRICE_IN')
   set('--price-out', 'TRAPS_PRICE_OUT')
+  set('--price-cached', 'TRAPS_PRICE_CACHED')
+  const fromWorld = value('--from-world')
+  if (fromWorld) env.TRAPS_FROM_WORLD = resolve(fromWorld)
+  if (flag('--no-save-world')) env.TRAPS_SAVE_WORLD = '0'
   set('--probes', 'TRAPS_PROBES')
   set('--writer', 'TRAPS_WRITER_MODEL')
   set('--memory', 'TRAPS_MEMORY_MODEL')

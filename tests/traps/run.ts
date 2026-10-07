@@ -7,7 +7,8 @@
 // the next scenes are always the story's own words. The story is version 3 (the long story a live model wrote,
 // story-v3.json) unless --story v2 asks for the hand-written one.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkout, countWords, git, openApp, whenEnded, type App, type TrapsConfig } from './app'
 import { landedPage, mirrorFixes, paragraphsOf, wordsFrom } from './page'
@@ -30,6 +31,33 @@ export { configFromEnv, type TrapsConfig } from './app'
 /** The story the run uses. */
 export function storyFor(cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): StoryData {
   return cfg.story === 'v2' ? storyV2() : storyV3(loadFixture(cfg.storyFile), cfg.storyFile)
+}
+
+/** Which words the story is: version 2's own, or a hash of the written story file. */
+const storyId = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): string =>
+  cfg.story === 'v2' ? 'story.ts v2' : createHash('sha1').update(readFileSync(cfg.storyFile)).digest('hex')
+
+/** What a saved world was saved from: it is only used again for the same checkout, story and models. */
+export interface SavedWorld {
+  /** The scene the world stops just before (its index in the story, and its key). */
+  scene: string
+  sceneIndex: number
+  story: string
+  commit: string
+  /** The app code's own version (git's id for the checkout's src folder): the same across harness-only commits. */
+  srcTree: string
+  dirty: boolean
+  models: { writer: string; memory: string; judge: string }
+  savedAt: string
+}
+
+/** A saved world's file and what it was saved from (`path`: the .db file, or a report folder holding one). */
+export function findSavedWorld(path: string): { file: string; saved: SavedWorld } {
+  const file = existsSync(path) && statSync(path).isDirectory() ? readdirSync(path).filter((f) => /^world-before-.+\.db$/.test(f)).map((f) => join(path, f))[0] : path
+  if (!file || !existsSync(file)) throw new Error(`No saved world at ${path}.`)
+  const meta = file.replace(/\.db$/, '.json')
+  if (!existsSync(meta)) throw new Error(`${file} has no ${meta} saying what it was saved from.`)
+  return { file, saved: JSON.parse(readFileSync(meta, 'utf8')) as SavedWorld }
 }
 
 type Written = Omit<SampleResult, 'judge' | 'results' | 'index'>
@@ -103,7 +131,8 @@ async function writeSample(app: App, cfg: TrapsConfig, probe: Probe, sceneId: st
     const text = app.gens.getGeneration(app.db, generationId).response
     return { status: done.status, error: done.error, generationId, text, words: countWords(text) }
   }
-  const options = { targetWords: cfg.words.generate, creativity: 'balanced' as const, direction: '' }
+  // Aimed at its traps the way Adam would aim a draft: his direction for it (probes v2).
+  const options = { targetWords: cfg.words.generate, creativity: 'balanced' as const, direction: probe.direction ?? '' }
   if (probe.kind === 'generate') return draft((await app.aiHandlers.startDraft(sceneId, options)).generationId)
   if (probe.kind === 'addBelow') return draft((await app.aiHandlers.startDraft(sceneId, { ...options, targetWords: cfg.words.addBelow, addBelow: true })).generationId)
   if (probe.kind === 'beat') {
@@ -112,7 +141,7 @@ async function writeSample(app: App, cfg: TrapsConfig, probe: Probe, sceneId: st
       sessionId: `traps-${probe.id}-${index}`,
       index: probe.beat ?? 1,
       options: { ...options, targetWords: cfg.words.beatScene },
-      steer: '',
+      steer: probe.direction ?? '',
       soFar,
       soFarEnds: 'with-beat'
     })
@@ -132,17 +161,61 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
   const chosen = data.probes.filter((p) => !cfg.probes || cfg.probes.includes(p.id))
   if (!chosen.length) throw new Error(`No probe called ${cfg.probes?.join(', ')}. The probes are ${data.probes.map((p) => p.id).join(', ')}.`)
   const startedAt = new Date().toISOString()
-  cfg.log(`story: ${data.source}`)
-  const app = await openApp(cfg, data, `${data.story.title} (trap story)`)
+  const tested = checkout(cfg.root)
+  const stamp = startedAt.slice(0, 19).replace(/[-:T]/g, '').replace(/^(\d{8})/, '$1-')
+  const outDir = cfg.out ?? join(cfg.harnessRoot, 'traps-results', `${stamp}-${tested.branch.replace(/[^\w.-]+/g, '-')}-${tested.commit.slice(0, 7)}${cfg.fake ? '-fake' : ''}`)
+  const sceneIndex = (key: string): number => data.scenes.findIndex((s) => s.key === key)
+  const firstProbe = Math.min(...chosen.map((p) => sceneIndex(p.scene)))
+  const lastScene = Math.max(...chosen.map((p) => sceneIndex(p.scene)))
+  const story = storyId(cfg)
+  const srcTree = git(cfg.root, ['rev-parse', 'HEAD:src'])
+
+  // A saved world from an earlier run of the same checkout and story: the memory build up to it is not done again.
+  const from = cfg.fromWorld ? findSavedWorld(cfg.fromWorld) : null
+  if (from) {
+    const s = from.saved
+    if (s.story !== story) throw new Error(`The saved world ${from.file} was made with another story; it can't be used for this one.`)
+    if (s.srcTree !== srcTree || !srcTree || s.dirty || tested.dirty) {
+      throw new Error(
+        `The saved world ${from.file} was made with other app code (${s.commit.slice(0, 9)}${s.dirty ? ', with uncommitted changes' : ''}) than this checkout's (${tested.commit.slice(0, 9)}${tested.dirty ? ', with uncommitted changes' : ''}): build it again for this checkout.`
+      )
+    }
+    if (firstProbe < s.sceneIndex) throw new Error(`The saved world stops before ${s.scene}, after the first probe's scene; build it again (leave out --from-world).`)
+  }
+
+  cfg.log(`story: ${data.source}${data.probesVersion ? `, probes v${data.probesVersion}` : ''}`)
+  const app = await openApp(cfg, data, `${data.story.title} (trap story)`, from?.file ?? null)
   let stopped: string | undefined
+  let savedWorld: string | undefined
   try {
+    if (from) {
+      if (JSON.stringify(from.saved.models) !== JSON.stringify(app.models)) throw new Error(`The saved world ${from.file} was built with other models (${JSON.stringify(from.saved.models)}).`)
+      const titles = data.scenes.slice(0, from.saved.sceneIndex).map((s) => s.title)
+      if (JSON.stringify(app.existing.map((s) => s.title)) !== JSON.stringify(titles)) throw new Error(`The saved world ${from.file} doesn't hold the story's scenes up to ${from.saved.scene}.`)
+      cfg.log(`started from the saved world ${from.file} (scenes up to ${from.saved.scene} already read)`)
+    }
     const probeResults: ProbeResult[] = []
-    const lastScene = Math.max(...chosen.map((p) => data.scenes.findIndex((s) => s.key === p.scene)))
     scenes: for (const [si, scene] of data.scenes.entries()) {
       if (si > lastScene) break
+      if (from && si < from.saved.sceneIndex) continue
+      if (si === firstProbe && cfg.saveWorld && !from) {
+        // The world just before the first probe scene, so a later run (new probes, more samples) can start here.
+        await app.memoryIdle()
+        mkdirSync(outDir, { recursive: true })
+        const file = join(outDir, `world-before-${scene.key}.db`)
+        if (!existsSync(file)) {
+          await app.snapshot(file)
+          const meta: SavedWorld = { scene: scene.key, sceneIndex: si, story, commit: tested.commit, srcTree, dirty: tested.dirty, models: app.models, savedAt: new Date().toISOString() }
+          writeFileSync(file.replace(/\.db$/, '.json'), JSON.stringify(meta, null, 2))
+          savedWorld = file
+          cfg.log(`world saved before ${scene.key}: ${file}`)
+        }
+      }
       const sceneId = app.makeScene(scene)
       const here = chosen.filter((p) => p.scene === scene.key).sort((a, b) => a.paragraphs - b.paragraphs)
       for (const probe of here) {
+        // Aimed at its traps the way Adam would aim Continue: the scene card's beats (probes v2).
+        if (probe.beats) app.setBeats(sceneId, probe.beats)
         const soFarParas = scene.paragraphs.slice(0, probe.paragraphs)
         if (soFarParas.length) app.save(scene.key, sceneId, soFarParas)
         const soFar = soFarParas.join('\n\n')
@@ -209,6 +282,8 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
     const used = app.budget.usedNow()
     const report: RunReport = {
       storyVersion: data.version,
+      ...(data.probesVersion ? { probesVersion: data.probesVersion } : {}),
+      ...(savedWorld || from ? { world: { ...(savedWorld ? { saved: savedWorld } : {}), ...(from ? { from: from.file } : {}) } } : {}),
       storySource: data.source,
       traps: data.traps.map(({ id, name }) => ({ id, name })),
       ...(stopped ? { stopped } : {}),
@@ -216,7 +291,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       startedAt,
       finishedAt: new Date().toISOString(),
       fake: cfg.fake,
-      tested: checkout(cfg.root),
+      tested,
       harness: { root: cfg.harnessRoot, commit: git(cfg.harnessRoot, ['rev-parse', 'HEAD']) || 'unknown' },
       provider: app.providerName,
       prices: cfg.prices,
@@ -229,10 +304,6 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {})
     }
 
-    const stamp = startedAt.slice(0, 19).replace(/[-:T]/g, '').replace(/^(\d{8})/, '$1-')
-    const outDir =
-      cfg.out ??
-      join(cfg.harnessRoot, 'traps-results', `${stamp}-${report.tested.branch.replace(/[^\w.-]+/g, '-')}-${report.tested.commit.slice(0, 7)}${cfg.fake ? '-fake' : ''}`)
     mkdirSync(outDir, { recursive: true })
     writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2))
     writeFileSync(join(outDir, 'report.md'), reportMarkdown(report))
