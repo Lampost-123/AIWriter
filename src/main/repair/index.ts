@@ -204,7 +204,7 @@ function checkOf(code: string): CheckKind {
 function sourcesOf(code: string, codex: CodexLine[]): IssueSource[] {
   const l = codex.find((x) => x.code === code)
   if (l?.kind === 'scene' && l.sceneId) return [{ kind: 'scene', sceneId: l.sceneId, label: l.label }]
-  if ((l?.kind === 'entry' || l?.kind === 'dead') && l.entryId) return [{ kind: 'entry', entryId: l.entryId, name: l.label, field: null }]
+  if ((l?.kind === 'entry' || l?.kind === 'dead' || l?.kind === 'owns') && l.entryId) return [{ kind: 'entry', entryId: l.entryId, name: l.label, field: null }]
   return []
 }
 

@@ -62,7 +62,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     contextLength: model.choice.contextLength ?? null,
     speakerTags,
     stand,
-    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand) }
+    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships }
   })
   if (!briefing.ok) return briefing
 

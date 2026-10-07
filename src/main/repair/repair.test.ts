@@ -11,6 +11,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import * as cdb from '../db/checks'
+import * as mem from '../db/memory'
 import type { MemoryModel } from '../keeper/model'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { checkIfWanted, checkNewWords, criticChecks, KEEP_PROMPTS, noteStage, placeInScene, repairsApplied, repairWanted, resetRepairsForTests } from './index'
@@ -148,6 +149,67 @@ describe('check and repair', () => {
     const fixed = cdb.issueRow(db, ids[out.fixes[0].id])!
     expect(fixed).toMatchObject({ status: 'fixed', kind: 'continuity', quote: 'Mara kept her hood low' })
     expect(JSON.parse(fixed.payload_json as string)).toMatchObject({ fix: 'Mara kept her hood down' })
+  })
+
+  it('the compass case: a thing given away chapters back and used again is asked about, never mended', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const outline = repo.getOutline(db, story.id)
+    const [s1, sceneId] = [outline.scenes[0].id, repo.createScene(db, outline.chapters[0].id).id]
+    const wren = repo.createEntry(db, 'character', { name: 'Wren' })
+    repo.createEntry(db, 'character', { name: 'Mother Agate' })
+    const compass = repo.createEntry(db, 'item', { name: 'The brass compass', aliases: ["Wren's compass"] })
+    const note = (text: string) => mem.insertChange(db, { entryId: wren.id, anchor: 'scene', sceneId: s1, kind: 'update', payload: { note: text }, origin: 'text' })
+    note("gave her grandmother's brass compass to Mother Agate as a toll")
+    // Many things happen to her after: it is long out of her last few.
+    for (let i = 0; i < 12; i++) note(`walked on through the rain, day ${i}`)
+    repo.updateSceneCard(db, sceneId, { ...repo.getScene(db, sceneId).card, povId: wren.id, presentIds: [wren.id] })
+    const before = 'Fog came down on the fell.'
+    const ai = 'Wren took the compass out of her pocket and looked at the needle.'
+    const text = `${before}\n\n${ai}`
+    repo.saveSceneText(db, sceneId, { type: 'doc', content: text.split('\n\n').map((t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] })) }, text)
+    gens.insertGeneration(db, {
+      id: 'draft-c',
+      sceneId,
+      job: 'draft',
+      providerId: 'p1',
+      providerName: 'Fake',
+      modelId: 'fake/writer',
+      params: { temperature: 1, top_p: 1, max_tokens: 1000 },
+      direction: '',
+      blocks: [],
+      messages: [],
+      budget: { contextLength: 0, reserved: 0, available: 0, used: 0 },
+      entries: [],
+      createdAt: '2026-10-07T09:00:00.000Z'
+    })
+    gens.finishGeneration(db, 'draft-c', { status: 'complete', error: null, response: ai, promptTokens: 1, completionTokens: 1, cost: null, finishedAt: '2026-10-07T09:00:01.000Z' })
+    const claim = {
+      quote: 'Wren took the compass out of her pocket',
+      who: 'Wren',
+      about: 'owns',
+      line: 'O1',
+      verdict: 'slip',
+      bothTrue: 'no',
+      between: 'nothing',
+      why: 'Wren gave her compass to Mother Agate as a toll.',
+      question: 'Wren gave her compass to Mother Agate. Should she get it back first, or find her way without it?',
+      fix: { replace: 'took the compass out of her pocket', with: 'wished for the compass' }
+    }
+    const fetchImpl = answering({ claims: [claim] })
+    const out = await checkNewWords(opts(db, fetchImpl), { sceneId, recordId: 'draft-c', paragraphs: [{ text: ai, from: 0, to: ai.length }], leadIn: before })
+    const asked = fetchImpl.asked[0]
+    expect(asked.system).toContain('O what people here gave away, lost or got')
+    expect(asked.user).toContain(
+      "## What people here no longer have, or have now (O ids)\n- [O1] Wren: no longer has the brass compass (gave her grandmother's brass compass to Mother Agate as a toll; since Book 1, Ch 1, Sc 1)"
+    )
+    // "the compass" in the new words finds the entry by its main word.
+    expect(asked.user).toMatch(/### E\d The brass compass \(item; named in the scene\)/)
+    // A slip against the memory is always a question, never mended.
+    expect(out).toMatchObject({ fixes: [], questions: 1, slips: 1 })
+    const open = cdb.sceneIssueRows(db, sceneId).filter((r) => r.status === 'open')
+    expect(open.map((r) => [r.quote, r.message])).toEqual([['Wren took the compass out of her pocket', claim.question]])
+    expect(JSON.parse(open[0].payload_json as string).sources).toEqual([{ kind: 'entry', entryId: compass.id, name: 'the brass compass', field: null }])
   })
 
   it('asks about a fix the page could not make (Adam was in those words), with the fix to review', async () => {

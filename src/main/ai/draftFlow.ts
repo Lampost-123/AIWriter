@@ -70,9 +70,13 @@ export async function assemble(
     input.continuityAtSoFar = true
     input.stageWhere = stageWhere(db, stand)
   }
+  // The scene so far a draft carries on from (Add below, a later beat): the items it names come into the briefing, and
+  // first in what must stay true.
+  const soFar = (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n')
+  if (soFar.trim()) input.soFar = soFar
   // Story memory step 5 (src/main/retrieval/): entries of the last two scenes, what was said word for word, and what a
   // search for what the scene is about finds. Only candidates: the fitting below still keeps to the budget.
-  input.recall = await recallForBriefing(db, sceneId, input, (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n'), signal)
+  input.recall = await recallForBriefing(db, sceneId, input, soFar, signal)
   return { input, ...(await fitted(input, extras)) }
 }
 

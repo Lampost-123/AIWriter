@@ -5,7 +5,8 @@
 //
 // What is selected (spec, "What gets selected"), each entry with why in plain words for the Context tab:
 // - everything on the scene card: point of view, characters present, location, its plot threads;
-// - anything whose name or alias appears in the beats, the notes or Adam's direction;
+// - anything whose name or alias appears in the beats, the notes or Adam's direction; an item also by its own main word
+//   ("the compass" for "The brass compass", memory/items.ts), there or in the scene so far;
 // - the places around the location and the groups the people present belong to, one line each;
 // - relationships and knowledge among the people present, as of this scene;
 // - lore flagged as a hard rule, always;
@@ -80,6 +81,7 @@ import { finalInstruction, indentMore, instructionsText, type FinalOptions } fro
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, type StageReach } from './mustStay'
+import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
 
@@ -129,6 +131,11 @@ export interface ContextInput {
    * searching, and what was said word for word. Null or left out: none of it (switched off, or a test).
    */
   recall?: RecallInput | null
+  /**
+   * The words already in the scene that the draft carries on from (Add below, a later beat), as the briefing sends them:
+   * an item they name, or name by its main word, is brought in, and what must stay true puts it first. Left out: none.
+   */
+  soFar?: string
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -575,6 +582,7 @@ export const WHY = {
   cardWords: 'Named on the scene card',
   previous: 'Named at the end of the previous scene',
   direction: 'Named in your direction',
+  soFar: 'Named in the scene so far',
   rule: 'A world rule',
   tie: 'Tied to someone in the scene',
   plan: 'Asked for by the plan',
@@ -710,6 +718,9 @@ export function selectEntries(input: ContextInput): Selection {
 
   // Anything else named in the beats, the notes, the direction, the rest of the card or the end of the previous
   // scene (only what exists here): whoever and whatever the scene carries on with, so the writer has their details.
+  // An item is found by its names without "the" and by its own main word too ("the compass" for "The brass compass":
+  // only a word no other entry has, and not a common one; memory/items.ts), and in the scene so far as well (Adam,
+  // 2026-10-07: "the compass" never found the entry, and a compass given away came back in the writer's words).
   const others: EntryState[] = []
   const texts = [
     [haystack(card.beats.join('\n')), WHY.beats],
@@ -718,10 +729,12 @@ export function selectEntries(input: ContextInput): Selection {
     [haystack([card.goal, card.conflict, card.outcome, card.mood].join('\n')), WHY.cardWords],
     [haystack(sceneTail(clean(input.memory.previous?.text))), WHY.previous]
   ] as const
+  const itemTexts = [...texts, [haystack(clean(input.soFar)), WHY.soFar] as const]
+  const heads = itemHeads([...known.values()])
   for (const e of m.entries) {
     if (chosen.has(e.id)) continue
     const names = [e.name, ...(e.aliases ?? [])]
-    const hit = texts.find(([h]) => namedIn(h, names))
+    const hit = texts.find(([h]) => namedIn(h, names)) ?? (e.kind === 'item' ? itemTexts.find(([h]) => namedIn(h, namesOf(e, heads))) : undefined)
     const got = hit ? take(e.id, hit[1], false) : null
     if (got) others.push(got)
   }
@@ -1315,15 +1328,23 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   // it is in the briefing above as well, so where room is short it goes first, with the ties (block 11), and comes back
   // first once everything else has its room.
   const reach = stageReach(input)
+  const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
+  const card = input.scene.card
   const mustFrom = {
     stand: input.continuity,
     reach,
-    people: [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character'),
+    people,
     named: [...sel.chosen.values()].map((c) => c.entry),
     facts: input.memory.facts,
     sceneId: input.memory.sceneId,
     storyTitle: input.story.title,
-    places: input.stageWhere ?? {}
+    places: input.stageWhere ?? {},
+    // What those in the scene gave away, lost or got, however long ago (memory/items.ts); the items the scene names first.
+    holdings: holdingsOf({ entries: input.memory.entries, relationships: input.memory.relationships, people: people.map((e) => e.id) }),
+    about: [card.goal, card.conflict, card.outcome, card.mood, card.notes, ...card.beats, input.options.direction, input.soFar]
+      .map(clean)
+      .filter(Boolean)
+      .join('\n')
   }
   const must = mustStayTrue(mustFrom)
   if (must.length) {

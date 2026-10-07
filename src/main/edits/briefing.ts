@@ -6,7 +6,7 @@
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
-import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, SceneCard, StyleGuide } from '@shared/types'
+import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, RelationshipState, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
@@ -14,6 +14,7 @@ import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
 import { MUST_TITLE, mustStayTrue, mustText } from '../ai/mustStay'
+import { holdingsOf } from '../memory/items'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 
@@ -35,9 +36,10 @@ export interface EditWorld {
   stand?: SceneState | null
   /**
    * What must stay true (ai/mustStay.ts) is made from these and the characters in the briefing: who knows what, the
-   * scene and its story, and where the stage's words are (by scene id). Left out: no list.
+   * scene and its story, where the stage's words are (by scene id), and the relationships at the scene (with `entries`,
+   * what those in the briefing gave away, lost or got: memory/items.ts). Left out: no list.
    */
-  must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string> }
+  must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string>; relationships?: RelationshipState[] }
 }
 
 export type EditBriefing =
@@ -243,9 +245,12 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const people = order.slice(0, tool === 'voice' ? MAX_CHARACTERS.voice : MAX_CHARACTERS.other).map((id) => byId.get(id)!)
   // What must stay true at this point (step 4): where things stand, when known here, and the codex facts of the people
   // in the briefing. Sent right before the closing ask: in full, then short with less room, and left out on the last
-  // try, so an edit a small model could do before still fits.
+  // try, so an edit a small model could do before still fits. With what those people gave away, lost or got, however
+  // long ago (memory/items.ts), the items named near the words first.
+  const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: people.map((e) => e.id) }) : []
+  const about = [near, card.goal, card.conflict, card.outcome, card.notes, ...(card.beats ?? []), direction].filter((t) => t?.trim()).join('\n')
   const mustOf = (short: boolean): string[] =>
-    world.must ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must, short }) : []
+    world.must ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must, holdings, about, short }) : []
   const must = { full: mustOf(false), short: mustOf(true) }
 
   const o: PromptOptions = {
