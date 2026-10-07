@@ -142,20 +142,33 @@ export function stateAt(
   const touch = (key: string, entryId: ID, aspect: string, otherId: ID | null, restore: () => void): void => {
     for (const f of frames) if (!f.touched.has(key)) f.touched.set(key, { entryId, aspect, otherId, restore })
   }
+  /** Puts back where a value was last set (changedWhere) as it is now, when the host wins a clash. */
+  const whereBack = (e: EntryState, k: string): (() => void) => {
+    const had = !!e.changedWhere && Object.prototype.hasOwnProperty.call(e.changedWhere, k)
+    const was = e.changedWhere?.[k]
+    return () => {
+      if (had && was !== undefined) (e.changedWhere ??= {})[k] = was
+      else if (e.changedWhere) delete e.changedWhere[k]
+    }
+  }
   const touchValue = <K extends 'description' | 'summary'>(e: EntryState, k: K): void => {
     if (!frames.length) return
     const was = e[k]
+    const where = whereBack(e, k)
     touch(`${e.id}|${k}`, e.id, k, null, () => {
       e[k] = was
+      where()
     })
   }
   const touchField = (e: EntryState, k: string): void => {
     if (!frames.length) return
     const had = Object.prototype.hasOwnProperty.call(e.fields, k)
     const was = e.fields[k]
+    const where = whereBack(e, k)
     touch(`${e.id}|${k}`, e.id, k, null, () => {
       if (had) e.fields[k] = was
       else delete e.fields[k]
+      where()
     })
   }
   const touchRel = (a: ID, b: ID): void => {

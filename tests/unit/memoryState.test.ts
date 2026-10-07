@@ -203,6 +203,12 @@ describe('state', () => {
       const s = pureWorld(world(entries, changes)).state('b2')
       expect(s.entries.get('m')?.description).toBe('From the host.')
       expect(s.entries.get('m')?.fields.eyes).toBe('blue')
+      // Since when each holds goes with the value that won: the host's scene for the description, the side story's
+      // for the eyes.
+      const where = s.entries.get('m')?.changedWhere ?? {}
+      expect(where.description).toMatch(/, Ch 2, Sc 1$/)
+      expect(where.eyes).toMatch(/, Ch 1, Sc 1$/)
+      expect(where.description?.split(',')[0]).not.toBe(where.eyes?.split(',')[0])
       expect(s.relationships.map((r) => r.type)).toEqual(['enemy'])
       // Inside Book 1 after the side story ended, the same.
       expect(pureWorld(world(entries, changes)).state('b1', 'b1.c3.s1').entries.get('m')?.description).toBe('From the host.')
