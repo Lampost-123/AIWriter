@@ -16,6 +16,8 @@ describe("the search model's tokenizer (BERT, lower-cased)", () => {
 
   it('puts CJK characters on their own and drops control characters', () => {
     expect(basicTokens('ab你好cd')).toEqual(['ab', '你', '好', 'cd'])
+    // Private use and unassigned characters go too, as BERT's own tokenizer drops every "C" character.
+    expect(basicTokens(`a${String.fromCodePoint(0xe000)}b${String.fromCodePoint(0x10ffff)}c`)).toEqual(['abc'])
     expect(basicTokens('he\u0000llo​')).toEqual(['hello'])
   })
 

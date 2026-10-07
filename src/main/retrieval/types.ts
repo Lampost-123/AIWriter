@@ -56,6 +56,8 @@ export interface Embedder {
   readonly floor: number
   /** Unit-length vectors for these texts, in order. A query is phrased for searching ('query'); passages as they are. */
   embed(texts: string[], kind: 'query' | 'passage', signal?: AbortSignal): Promise<Float32Array[]>
+  /** The same for passages, read in the background, behind any search's texts. Missing: `embed` is used. */
+  embedLater?(texts: string[], signal?: AbortSignal): Promise<Float32Array[]>
   /** Lets go of the model (its memory, its threads). */
   close?(): void
 }

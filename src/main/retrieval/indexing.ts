@@ -5,11 +5,11 @@
 
 import type Database from 'better-sqlite3'
 import type { ID } from '@shared/types'
-import { liveSceneTexts } from '../db/retrieval'
+import { liveSceneTexts, sceneTextsOf } from '../db/retrieval'
 import type { SearchIndex } from './store'
 import { scenePassages, textHash } from './text'
 import type { Embedder } from './types'
-import type { VectorCache } from './recall'
+import type { Vectors } from './vectors'
 
 type DB = Database.Database
 
@@ -47,16 +47,27 @@ export function syncNow(db: DB, index: SearchIndex): SceneSync {
 
 const breathe = (): Promise<void> => new Promise((r) => setImmediate(r))
 
-/** The same, a few scenes at a time, letting the app get on between them (the background indexing). */
+/**
+ * The same, a few scenes at a time, letting the app get on between them (the background indexing). Each batch's words
+ * are read again just before they go in, so words written meanwhile are never covered by older ones.
+ */
 export async function syncSlowly(db: DB, index: SearchIndex, signal: AbortSignal, scenesAtOnce = 20): Promise<SceneSync> {
   const sync = scenesToSync(db, index)
   index.removeScenes(sync.removed)
+  const done: SceneSync['changed'] = []
   for (let i = 0; i < sync.changed.length; i += scenesAtOnce) {
-    if (signal.aborted || !index.open) break
-    applySync(index, { changed: sync.changed.slice(i, i + scenesAtOnce), removed: [] })
+    if (signal.aborted || !index.open || !db.open) break
+    const ids = sync.changed.slice(i, i + scenesAtOnce).map((c) => c.id)
+    const now = sceneTextsOf(db, ids)
+    const batch = ids.flatMap((id) => {
+      const text = now.get(id)
+      return text === undefined ? [] : [{ id, text, hash: textHash(text) }]
+    })
+    applySync(index, { changed: batch, removed: ids.filter((id) => !now.has(id)) })
+    done.push(...batch)
     await breathe()
   }
-  return sync
+  return { changed: done, removed: sync.removed }
 }
 
 /** How many passages to read for their vectors at once (a few per worker thread). */
@@ -70,7 +81,7 @@ export async function readPassages(
   index: SearchIndex,
   embedder: Pick<Embedder, 'model'>,
   read: (texts: string[], signal: AbortSignal) => Promise<Float32Array[]>,
-  o: { signal: AbortSignal; cache?: VectorCache; onProgress?: () => void }
+  o: { signal: AbortSignal; vectors?: Vectors; onProgress?: () => void }
 ): Promise<number> {
   let count = 0
   while (!o.signal.aborted && index.open) {
@@ -83,7 +94,7 @@ export async function readPassages(
     if (o.signal.aborted || !index.open) break
     const made = todo.map((t, i) => ({ hash: t.hash, vec: vecs[i] })).filter((x) => x.vec)
     index.putVectors(embedder.model, 'passage', made)
-    for (const x of made) o.cache?.set(embedder.model, x.hash, x.vec)
+    for (const x of made) o.vectors?.set(embedder.model, x.hash, x.vec)
     count += made.length
     o.onProgress?.()
     if (made.length < todo.length) break

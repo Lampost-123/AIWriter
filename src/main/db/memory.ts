@@ -255,7 +255,14 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
       const s = p.said
       const said =
         s && (s.kind === 'promise' || s.kind === 'threat' || s.kind === 'secret') && typeof s.by === 'string' && text(s.words)
-          ? { said: { kind: s.kind, by: s.by, words: text(s.words).slice(0, 2000) } }
+          ? {
+              said: {
+                kind: s.kind,
+                by: s.by,
+                words: text(s.words).slice(0, 2000),
+                ...(Array.isArray(s.heard) ? { heard: s.heard.filter((id): id is ID => typeof id === 'string').slice(0, 20) } : {})
+              }
+            }
           : {}
       return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said } }
     }

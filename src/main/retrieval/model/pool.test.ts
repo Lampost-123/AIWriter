@@ -27,13 +27,12 @@ class FakeWorker extends EventEmitter implements WorkerLike {
   }
 }
 
-const weights = { buffer: new SharedArrayBuffer(4), tensors: {} }
-const config = { hidden: 1, heads: 1, layers: 0, intermediate: 1, eps: 1e-12, maxPositions: 8 }
+const INIT = { engine: 'ts', config: { hidden: 1, heads: 1, layers: 0, intermediate: 1, eps: 1e-12, maxPositions: 8 }, buffer: new SharedArrayBuffer(4), tensors: {} }
 
 describe("the search model's worker threads", () => {
   it('shares texts out and gives each vector back in order', async () => {
     const made: FakeWorker[] = []
-    const pool = new BertPool(() => (made.push(new FakeWorker()), made[made.length - 1]), weights, config, 2)
+    const pool = new BertPool(() => (made.push(new FakeWorker()), made[made.length - 1]), INIT, 2)
     await pool.ready
     const vecs = await pool.run([[1], [2, 2], [3, 3, 3]])
     expect(vecs.map((v) => Array.from(v))).toEqual([
@@ -48,7 +47,7 @@ describe("the search model's worker threads", () => {
 
   it('reads a search before the background indexing waiting behind it', async () => {
     const w = new FakeWorker()
-    const pool = new BertPool(() => w, weights, config, 1)
+    const pool = new BertPool(() => w, INIT, 1)
     await pool.ready
     const later = pool.run([[10], [11], [12]], { background: true })
     const now = pool.run([[1]])
@@ -59,10 +58,10 @@ describe("the search model's worker threads", () => {
   })
 
   it('says when the model could not start, and drops texts that were stopped', async () => {
-    const pool = new BertPool(() => new FakeWorker(true), weights, config, 1)
+    const pool = new BertPool(() => new FakeWorker(true), INIT, 1)
     await expect(pool.ready).rejects.toThrow('no model here')
     pool.close()
-    const ok = new BertPool(() => new FakeWorker(), weights, config, 1)
+    const ok = new BertPool(() => new FakeWorker(), INIT, 1)
     await ok.ready
     const stop = new AbortController()
     stop.abort()

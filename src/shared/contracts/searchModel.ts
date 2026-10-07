@@ -13,7 +13,7 @@ export type SearchModelState =
 
 export interface SearchModelStatus {
   state: SearchModelState
-  /** The download's size in megabytes (about 134). */
+  /** The download's size in megabytes (about 133). */
   sizeMb: number
   /** While downloading: how far it has got, 0 to 1. */
   progress: number | null
@@ -21,6 +21,8 @@ export interface SearchModelStatus {
   problem: string | null
   /** For the open world, while the model is ready: how many of its passages have been read for finding by meaning. */
   indexed: { done: number; total: number } | null
+  /** Which engine runs it, while it is ready: the fast one (onnxruntime) or the slower one written for AI Write. */
+  engine?: 'onnx' | 'ts' | null
 }
 
 export interface SearchModelApi {

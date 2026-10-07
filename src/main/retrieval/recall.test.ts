@@ -13,7 +13,8 @@ import { countRaw } from '../ai/tokens'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { memorySearchIndex, type SearchIndex } from './store'
 import { syncNow, readPassages } from './indexing'
-import { factDocs, queryParts, recallFor, VectorCache, withoutNames } from './recall'
+import { factDocs, queryParts, recallFor, withoutNames } from './recall'
+import { Vectors } from './vectors'
 import { stubEmbedder } from './stub'
 import { RECALL_WHY } from './briefing'
 
@@ -86,7 +87,7 @@ describe('recall for a briefing', () => {
     syncNow(w.db, index)
     const embedder = stubEmbedder()
     await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })
-    const r = await recallFor({ db: w.db, index, embedder, cache: new VectorCache() }, w.scene, inputFor(w.db, w.scene))
+    const r = await recallFor({ db: w.db, index, embedder, vectors: new Vectors() }, w.scene, inputFor(w.db, w.scene))
     const all = r.passages.map((p) => p.text).join('\n')
     expect(all).toContain('I swear I will come back for you before the snow')
     // Never a later scene, never another story's line.
@@ -125,14 +126,14 @@ describe('recall for a briefing', () => {
     input.recall = await recallFor({ db: w.db, index, embedder: stubEmbedder() }, w.scene, input)
     const roomy = assembleContext(input, countRaw)
     const said = roomy.blocks.find((b) => b.id === 'said')!
-    expect(said).toMatchObject({ priority: 6, dropped: false })
+    expect(said).toMatchObject({ priority: 9, dropped: false })
     expect(said.text).toContain('Mara’s promise to Tobin (Book 1, Ch 1, Sc 1): “I swear I will come back for you before the snow.”')
     const recalled = roomy.blocks.find((b) => b.id === 'recalled')!
     expect(recalled).toMatchObject({ priority: 9, dropped: false })
     expect(roomy.messages[1].content).toContain('## Earlier passages that may matter')
     // Kell is named at the end of the previous scene (as before); the ring, three scenes back in the words, stays.
     expect(roomy.entries!.find((e) => e.entryId === w.kell.id)?.why).toBe('Named at the end of the previous scene')
-    expect(roomy.entries!.find((e) => e.entryId === w.ring.id)).toMatchObject({ why: RECALL_WHY.sticky, blockId: 'mentioned' })
+    expect(roomy.entries!.find((e) => e.entryId === w.ring.id)).toMatchObject({ why: RECALL_WHY.sticky, blockId: 'recall-entries' })
     expect(roomy.entries!.find((e) => e.entryId === w.tobin.id)?.why).toBe(RECALL_WHY.found)
 
     // A small model: the passages give way first, and the briefing never goes past what fits.
@@ -180,5 +181,94 @@ describe('names left out of the codex search', () => {
   it('takes out whole names and their possessives, nothing else', () => {
     expect(withoutNames("Mara's vow to Kell at the well; Marangel stays", ['Mara', 'Kell'])).toBe('vow to at the well; Marangel stays')
     expect(withoutNames('The Old Mill burned', ['old mill'])).toBe('The burned')
+  })
+})
+
+describe('a search that takes too long, or is stopped', () => {
+  /** A model that never answers a search's own words unless stopped (and notes the signal it was given). */
+  const stuck = () => {
+    const signals: (AbortSignal | undefined)[] = []
+    const model = {
+      model: 'stuck',
+      floor: 0,
+      embed: (_t: string[], kind: 'query' | 'passage', signal?: AbortSignal) =>
+        new Promise<Float32Array[]>((_r, reject) => {
+          // A search's own words (facts are read in the background, and go on).
+          if (kind === 'query') signals.push(signal)
+          signal?.addEventListener('abort', () => reject(new Error('Stopped')), { once: true })
+        })
+    }
+    return { model, signals }
+  }
+
+  it('goes ahead by keyword alone after the wait, and takes its words out of the model’s queue', async () => {
+    const w = world()
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const s = stuck()
+    const t0 = Date.now()
+    const r = await recallFor({ db: w.db, index, embedder: s.model, vectors: new Vectors(), meaningWaitMs: 50 }, w.scene, inputFor(w.db, w.scene))
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(r.passages.map((p) => p.text).join('\n')).toContain('At the old well')
+    expect(s.signals.length).toBeGreaterThan(0)
+    expect(s.signals.every((x) => x?.aborted)).toBe(true)
+  })
+
+  it('stops at once with the draft', async () => {
+    const w = world()
+    const s = stuck()
+    const stop = new AbortController()
+    const p = recallFor({ db: w.db, index: null, embedder: s.model, vectors: new Vectors(), signal: stop.signal, meaningWaitMs: 60_000 }, w.scene, inputFor(w.db, w.scene))
+    setTimeout(() => stop.abort(), 20)
+    const t0 = Date.now()
+    await p
+    expect(Date.now() - t0).toBeLessThan(2000)
+    expect(s.signals.every((x) => x?.aborted)).toBe(true)
+  })
+})
+
+describe('a small model loses nothing more important for step 5', () => {
+  it('keeps the end of the previous scene, the setting and the story so far as they are without it', async () => {
+    const w = world()
+    // More for blocks 3, 7 and 8 to hold: a place with a long description, scene summaries, more said.
+    const place = repo.createEntry(w.db, 'place', { name: 'Ferry Steps', summary: 'Stone steps down to the river.', description: FILLER.repeat(12) })
+    repo.updateSceneCard(w.db, w.scene, { ...repo.getScene(w.db, w.scene).card, locationId: place.id })
+    for (const [i, id] of w.ids.slice(0, 4).entries()) mem.putSummary(w.db, { level: 'scene', targetId: id, text: `Scene ${i + 1} summary. ${FILLER.repeat(3)}`, origin: 'text' })
+    const long = `“${'I will come back for you, I swear it on the well and on our mother. '.repeat(10)}”`
+    for (let i = 0; i < 6; i++) {
+      for (const who of [w.mara, w.tobin]) {
+        mem.insertChange(w.db, {
+          anchor: 'scene',
+          sceneId: w.ids[i % 4],
+          origin: 'text',
+          entryId: who.id,
+          kind: 'knowledge',
+          payload: { factId: `p${i}`, fact: `Promise number ${i}`, said: { kind: 'promise', by: w.mara.id, words: long, heard: [w.tobin.id] } }
+        })
+      }
+    }
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    for (const length of [5_000, 6_000, 7_000, 8_000, 10_000, 14_000]) {
+      const off = inputFor(w.db, w.scene, length)
+      const on = inputFor(w.db, w.scene, length)
+      on.recall = await recallFor({ db: w.db, index, embedder: stubEmbedder() }, w.scene, on)
+      expect(on.recall.said.length).toBeGreaterThan(0)
+      const a = assembleContext(off, countRaw)
+      const b = assembleContext(on, countRaw)
+      if (a.budget.used <= a.budget.available) expect(b.budget.used).toBeLessThanOrEqual(b.budget.available)
+      // Everything else is exactly as it is without step 5 (its blocks only take the room left).
+      for (const was of a.blocks) {
+        const now = b.blocks.find((x) => x.id === was.id)
+        expect({ length, id: was.id, text: now?.text, dropped: now?.dropped }).toEqual({ length, id: was.id, text: was.text, dropped: was.dropped })
+      }
+      for (const id of ['previous-scene', 'setting', 'story-so-far']) {
+        const was = a.blocks.find((x) => x.id === id)
+        const now = b.blocks.find((x) => x.id === id)
+        if (!was || was.dropped) continue
+        expect({ length, id, dropped: now?.dropped }).toEqual({ length, id, dropped: false })
+        expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
+      }
+    }
   })
 })

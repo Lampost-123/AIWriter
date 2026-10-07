@@ -81,7 +81,7 @@ describe('what was said', () => {
     const factIds = new Set(said.map((s) => s.change.payload.factId))
     expect(factIds.size).toBe(1)
     for (const s of said) {
-      expect(s.said).toEqual({ kind: 'promise', by: mara.id, words: LINE })
+      expect(s.said).toEqual({ kind: 'promise', by: mara.id, words: LINE, heard: [tobin.id, ana.id] })
       expect(s.words).toBe(LINE)
       expect(s.change.origin).toBe('text')
     }
@@ -91,6 +91,27 @@ describe('what was said', () => {
     // ...but not before it was said.
     expect(sceneMemory(db, first).facts.some((f) => factIds.has(f.factId))).toBe(false)
     expect(kdb.listLog(db).some((l) => l.text === 'A promise: Mara will come back for Tobin before the snow')).toBe(true)
+  })
+
+  it('keeps the same line by the same speaker once, however the model words it on a later read', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const scene = repo.getOutline(db, story.id).scenes[0].id
+    save(db, scene, [
+      ['a', 'Mara lost her hat. Tobin lost his oar.'],
+      ['b', LINE]
+    ])
+    await readWith(db, scene, [{ type: 'said', kind: 'promise', entry: 'Mara', heard: ['Tobin'], fact: 'Mara will come back for Tobin before the snow', quote: LINE }])
+    // A new paragraph is read; the model reports the promise again, worded otherwise.
+    save(db, scene, [
+      ['a', 'Mara lost her hat. Tobin lost his oar.'],
+      ['b', LINE],
+      ['c', 'The rain kept on.']
+    ])
+    await readWith(db, scene, [{ type: 'said', kind: 'promise', entry: 'Mara', heard: ['Tobin'], fact: 'Mara vows to return to her brother before winter', quote: LINE }])
+    const said = saidChanges(db)
+    expect(said).toHaveLength(2)
+    expect(new Set(said.map((s) => s.change.payload.factId)).size).toBe(1)
   })
 
   it('follows the line when its words change, and lets it go when they are gone', async () => {

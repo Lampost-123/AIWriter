@@ -187,6 +187,8 @@ export const sampleLines = (e: Entry): string[] =>
 
 export const MAX_SAMPLE_LINES = 5
 const MAX_INVOLVED = 6
+/** The longest line something said is kept with (its source link keeps all of its words). */
+const MAX_SAID_CHARS = 2000
 
 /** The words in plain form, as a suppression stores them. */
 const wordsOf = (s: string): string => plain(s)
@@ -1127,9 +1129,17 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
         const e = run.resolve(who, chunk.ids, refs)
         if (e && e.kind === 'character' && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && run.ensureHere(e, s)) hearers.push(e)
       }
+      // The same line by the same speaker read again (however the model words the fact) is the fact already kept.
+      const again = mem
+        .changesInScene(db, run.scene.sceneId)
+        .find((c) => c.kind === 'knowledge' && c.payload.said?.by === entry.id && plain(c.payload.said.words) === plain(s.quote))
       const k = str(a.factId, 10).toUpperCase()
-      const factId = chunk.ids.known.get(k) ?? mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ?? newId()
-      const said = { kind, by: entry.id, words: s.quote }
+      const factId =
+        (again?.kind === 'knowledge' ? again.payload.factId : null) ??
+        chunk.ids.known.get(k) ??
+        mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ??
+        newId()
+      const said = { kind, by: entry.id, words: s.quote.slice(0, MAX_SAID_CHARS), heard: hearers.map((h) => h.id) }
       for (const who of [entry, ...hearers]) addChange(run, who, { kind: 'knowledge', payload: { factId, fact, said } }, s)
       for (const h of hearers) run.touched.add(h.id)
       return

@@ -1,6 +1,8 @@
-// Where step 5 meets the briefing (ai/context.ts): the entries it adds to the selection (sticky ones, and those found
-// by searching) and its two blocks, what was said word for word and earlier passages found by searching. Everything
-// still goes through the briefing's priority order and budget: these only add candidates. Pure.
+// Where step 5 meets the briefing (ai/context.ts): the entries it adds (sticky ones, and those found by searching) and
+// its blocks, what was said word for word and earlier passages found by searching. All three are candidates at
+// priority 9: when the briefing is too long they are left out before any block that matters more is made smaller than
+// its short form, and they come back only once everything more important has its room (finishContext, `lowest`), so a
+// small model loses nothing for them. Pure.
 
 import type { EntryState, ID } from '@shared/types'
 import type { RecallInput, RecalledPassage, SaidLine } from './types'
@@ -12,10 +14,22 @@ export const RECALL_WHY = {
   found: 'Found by searching for what the scene is about'
 } as const
 
-/** What was said sits with relationships and who knows what (block 6), shortened and left out before them. */
-export const SAID_PRIORITY = 6
-/** Earlier passages sit with the other entries named (block 9), shortened and left out before them. */
+/** How the writer is told why a recalled entry is there (in its heading). */
+export function recalledWhy(why: string | undefined): string {
+  return why === RECALL_WHY.sticky ? 'in a scene just before' : why === RECALL_WHY.found ? 'may matter here' : ''
+}
+
+/** The block holding the entries step 5 brings in. */
+export const RECALL_ENTRIES = { id: 'recall-entries', priority: 9, title: 'Also in mind' } as const
+
+/** What was said: a candidate at block 9's priority. */
+export const SAID_PRIORITY = 9
+/** Earlier passages: a candidate at block 9's priority. */
 export const RECALLED_PRIORITY = 9
+
+/** Step 5's blocks: candidates, left out first when the briefing is too long and put back last. */
+const RECALL_BLOCK_IDS = new Set<string>([RECALL_ENTRIES.id, 'said', 'recalled'])
+export const isRecallBlock = (id: string): boolean => RECALL_BLOCK_IDS.has(id)
 
 /** How many passages each form of the passages block holds: full, short, smaller. */
 export const PASSAGES_SHOWN = { full: 5, short: 2, smaller: 1 }

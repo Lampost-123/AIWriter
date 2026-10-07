@@ -49,7 +49,7 @@ New facts, by "type":
 {"type": "detail", "entry": "E1", "field": "eyes", "value": "grey", "quote": "..."}
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
 {"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 when it is a fact listed under Facts", "forgets": false, "quote": "..."}
-{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to, in a few words: Mara will come back for Tobin before the snow", "quote": "the spoken line, copied exactly"}
+{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to, in a few words: Mara will come back for Tobin before the snow", "factId": "K1 when it is a fact listed under Facts", "quote": "the spoken line, copied exactly"}
 {"type": "thread", "entry": "E5 (an open plot thread), or leave it out and give a name", "name": "the question or promise", "status": "open|resolved", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of their dialogue that is especially typical of how they speak"}

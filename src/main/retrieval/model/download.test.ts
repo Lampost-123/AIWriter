@@ -3,17 +3,17 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { downloadModel, DownloadStopped, removeModel } from './download'
-import { fileUrl, installed, SEARCH_MODEL, SEARCH_MODEL_FILES, SEARCH_MODEL_REVISION, type ModelFile } from './files'
+import { engineToDownload, filePath, filesFor, fileUrl, installed, readManifest, SEARCH_MODEL, SEARCH_MODEL_FILES, SEARCH_MODEL_REVISION, writeManifest, type ModelFile } from './files'
 
 const small = Buffer.from('{"hidden_size": 8}')
 const big = Buffer.alloc(300_000, 7)
 const FILES: ModelFile[] = [
   { name: 'config.json', bytes: small.length, gitSha1: createHash('sha1').update(`blob ${small.length}\u0000`).update(small).digest('hex') },
-  { name: 'model.safetensors', bytes: big.length, sha256: createHash('sha256').update(big).digest('hex') }
+  { name: 'onnx/model.onnx', bytes: big.length, sha256: createHash('sha256').update(big).digest('hex') }
 ]
 
 let server: Server
@@ -24,7 +24,7 @@ let slow = false
 beforeAll(async () => {
   server = createServer((req, res) => {
     hits.push(req.url ?? '')
-    const body = req.url?.endsWith('config.json') ? small : req.url?.endsWith('model.safetensors') ? big : null
+    const body = req.url?.endsWith('config.json') ? small : req.url?.endsWith('model.onnx') ? big : null
     if (!body) {
       res.writeHead(404).end()
       return
@@ -67,19 +67,20 @@ afterEach(() => {
 })
 
 describe('downloading the search model', () => {
-  it('takes the files from Hugging Face at a fixed revision, about 134 MB in all', () => {
-    expect(fileUrl(SEARCH_MODEL_FILES[2])).toBe(`https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/${SEARCH_MODEL_REVISION}/model.safetensors`)
-    expect(Math.round(SEARCH_MODEL_FILES.reduce((n, f) => n + f.bytes, 0) / 1e6)).toBe(134)
+  it('takes the files from Hugging Face at a fixed revision, about 133 MB in all', () => {
+    expect(fileUrl(SEARCH_MODEL_FILES[2])).toBe(`https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/${SEARCH_MODEL_REVISION}/onnx/model.onnx`)
+    expect(fileUrl(filesFor('ts')[2])).toBe(`https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/${SEARCH_MODEL_REVISION}/model.safetensors`)
+    expect(Math.round(SEARCH_MODEL_FILES.reduce((n, f) => n + f.bytes, 0) / 1e6)).toBe(133)
   })
 
   it('downloads, checks and records each file, telling how far it has got', async () => {
     const d = dir()
     const seen: number[] = []
     await downloadModel(d, { fetchImpl: fetch, signal: new AbortController().signal, base, files: FILES, onProgress: (p) => seen.push(p.done / p.total) })
-    expect(readFileSync(join(d, 'model.safetensors')).equals(big)).toBe(true)
-    expect(installed(d, FILES)).toMatchObject({ model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION })
+    expect(readFileSync(join(d, 'onnx', 'model.onnx')).equals(big)).toBe(true)
+    expect(readManifest(d)).toMatchObject({ model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION })
     expect(seen.at(-1)).toBe(1)
-    expect(readdirSync(d).some((n) => n.endsWith('.part'))).toBe(false)
+    expect(readdirSync(join(d, 'onnx')).some((n) => n.endsWith('.part'))).toBe(false)
     // Asked again, nothing is fetched.
     hits.length = 0
     await downloadModel(d, { fetchImpl: fetch, signal: new AbortController().signal, base, files: FILES })
@@ -100,8 +101,8 @@ describe('downloading the search model', () => {
     const d = dir()
     damaged = true
     await expect(downloadModel(d, { fetchImpl: fetch, signal: new AbortController().signal, base, files: FILES })).rejects.toThrow(/damaged/)
-    expect(installed(d, FILES)).toBeNull()
-    expect(readdirSync(d).filter((n) => n !== 'config.json')).toEqual([])
+    expect(readManifest(d)).toBeNull()
+    expect(readdirSync(d)).toEqual([])
   })
 
   it('stops part way and leaves nothing half-downloaded', async () => {
@@ -118,17 +119,54 @@ describe('downloading the search model', () => {
       }
     })
     await expect(p).rejects.toBeInstanceOf(DownloadStopped)
-    expect(existsSync(join(d, 'model.safetensors'))).toBe(false)
-    expect(readdirSync(d).some((n) => n.endsWith('.part'))).toBe(false)
-    expect(installed(d, FILES)).toBeNull()
+    expect(existsSync(join(d, 'onnx', 'model.onnx'))).toBe(false)
+    expect(readdirSync(join(d, 'onnx')).some((n) => n.endsWith('.part'))).toBe(false)
+    expect(readManifest(d)).toBeNull()
   })
 
-  it('reads a folder emptied by hand as not downloaded, and Remove takes it all away', async () => {
+  it('keeps what installed.json said before (the fast engine couldn’t start), and Remove takes it all away', async () => {
     const d = dir()
+    mkdirSync(d, { recursive: true })
+    writeManifest(d, { model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION, at: 'x', onnxFailed: { at: 'x', why: 'no' } })
     await downloadModel(d, { fetchImpl: fetch, signal: new AbortController().signal, base, files: FILES })
-    writeFileSync(join(d, 'model.safetensors'), 'cut short')
-    expect(installed(d, FILES)).toBeNull()
+    expect(readManifest(d)?.onnxFailed).toEqual({ at: 'x', why: 'no' })
     removeModel(d)
     expect(existsSync(d)).toBe(false)
+  })
+})
+
+describe('which form of the model is here', () => {
+  /** The real files' sizes, without their contents (sparse files). */
+  const lay = (d: string, engine: 'onnx' | 'ts'): void => {
+    for (const f of filesFor(engine)) {
+      const p = filePath(d, f)
+      mkdirSync(join(p, '..'), { recursive: true })
+      writeFileSync(p, '')
+      truncateSync(p, f.bytes)
+    }
+  }
+
+  it('reads each engine as downloaded only when its files are all there at their sizes', () => {
+    const d = dir()
+    lay(d, 'onnx')
+    expect(installed(d)).toBeNull()
+    writeManifest(d, { model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION, at: 'now' })
+    expect(installed(d)?.engines).toEqual(['onnx'])
+    lay(d, 'ts')
+    expect(installed(d)?.engines).toEqual(['onnx', 'ts'])
+    // A file cut short (emptied by hand, or another revision) isn't the model.
+    writeFileSync(filePath(d, filesFor('onnx')[2]), 'cut short')
+    expect(installed(d)?.engines).toEqual(['ts'])
+    writeManifest(d, { model: SEARCH_MODEL, revision: 'older', at: 'now' })
+    expect(installed(d)).toBeNull()
+  })
+
+  it('downloads the fast engine’s form unless that engine isn’t here or couldn’t start', () => {
+    const d = dir()
+    expect(engineToDownload(d, true)).toBe('onnx')
+    expect(engineToDownload(d, false)).toBe('ts')
+    mkdirSync(d, { recursive: true })
+    writeManifest(d, { model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION, at: 'now', onnxFailed: { at: 'now', why: 'no' } })
+    expect(engineToDownload(d, true)).toBe('ts')
   })
 })

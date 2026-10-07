@@ -68,7 +68,7 @@ test('Find by meaning is on by default, offers the search model, and can be turn
   await openSettings(win, 'Models')
   const toggle = win.getByRole('switch', { name: 'Find by meaning' })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  await expect(win.getByRole('button', { name: /^Download the search model \(134 MB\)$/ })).toBeVisible()
+  await expect(win.getByRole('button', { name: /^Download the search model \(133 MB\)$/ })).toBeVisible()
   await expect(win.getByText('Until then, passages are found by their words.')).toBeVisible()
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'false')

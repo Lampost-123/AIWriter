@@ -10,15 +10,17 @@ import type { EntryState, FactState, ID, SceneCard, Summary } from '@shared/type
 import type { ContextInput } from '../ai/context'
 import { sceneTail } from '../ai/context'
 import { listAllChanges, listSummaries, loadShape } from '../db/memory'
-import { saidChanges, scenesCardsAndText } from '../db/retrieval'
+import { saidChanges, scenesCardsAndText, type SaidChange } from '../db/retrieval'
 import { buildLine, labeler, storyOfScene } from '../memory/line'
 import type { Line } from '../memory/types'
 import { fuse, KeywordIndex, nearest, type Ranked } from './rank'
-import { saidLines, type SaidFact } from './said'
+import { saidLines, type SaidTime } from './said'
 import { STICKY_SCENES, stickyEntries } from './sticky'
 import type { SearchIndex, StoredPassage } from './store'
 import { countWords, searchWords, terms, textHash } from './text'
+import { plain } from '../keeper/text'
 import type { Embedder, RecallInput, RecalledPassage } from './types'
+import { Vectors } from './vectors'
 
 type DB = Database.Database
 
@@ -34,26 +36,6 @@ const LIST_SIZE = 12
 const KEYWORD_KEEP = 0.3
 /** How long the search model may take over one search before keyword search goes ahead alone. */
 export const MEANING_WAIT_MS = 6000
-/** Texts (facts, summaries) the search model reads during one search at most; the rest wait for the next. */
-const EMBED_NOW_MOST = 64
-
-/** Vectors kept in memory for the open world, by model and hash, so the Context tab and the draft share them. */
-export class VectorCache {
-  private readonly map = new Map<string, Float32Array>()
-  constructor(private readonly most = 60_000) {}
-  get(model: string, hash: string): Float32Array | undefined {
-    return this.map.get(`${model}|${hash}`)
-  }
-  set(model: string, hash: string, vec: Float32Array): void {
-    const k = `${model}|${hash}`
-    this.map.delete(k)
-    this.map.set(k, vec)
-    if (this.map.size > this.most) this.map.delete(this.map.keys().next().value as string)
-  }
-  clear(): void {
-    this.map.clear()
-  }
-}
 
 export interface RecallDeps {
   db: DB
@@ -61,8 +43,12 @@ export interface RecallDeps {
   index: SearchIndex | null
   /** The search model, or null: keyword search only (not downloaded, switched off, or not working). */
   embedder: Embedder | null
-  cache?: VectorCache
+  /** The open world's vectors (kept between searches, each text read once). */
+  vectors?: Vectors
+  /** Stops this search (the draft was stopped). */
   signal?: AbortSignal
+  /** Stops the background reading this search starts (the world closing). */
+  background?: AbortSignal
   meaningWaitMs?: number
 }
 
@@ -202,79 +188,34 @@ export function summaryDocs(summaries: Summary[], line: Line, storyId: ID, label
 
 // ---------- Searching ----------
 
-/** Rejects after `ms` (or when `signal` aborts), so a slow search model never holds a draft up for long. */
-function withLimit<T>(p: Promise<T>, ms: number, signal?: AbortSignal): Promise<T | null> {
-  return new Promise((resolve) => {
+/**
+ * Waits for `p` at most `ms`, or until `outer` stops; either way `stop` is aborted, so whatever the search still has
+ * queued for the model is taken out of the queue (background reading goes on). Null when it didn't finish.
+ */
+export function withLimit<T>(p: (signal: AbortSignal) => Promise<T>, ms: number, outer?: AbortSignal): Promise<T | null> {
+  const stop = new AbortController()
+  return new Promise<T | null>((resolve) => {
     let done = false
     const finish = (v: T | null): void => {
       if (done) return
       done = true
       clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
+      outer?.removeEventListener('abort', onOuter)
+      stop.abort()
       resolve(v)
     }
-    const onAbort = (): void => finish(null)
+    const onOuter = (): void => finish(null)
     const timer = setTimeout(() => finish(null), ms)
-    signal?.addEventListener('abort', onAbort, { once: true })
-    p.then(finish, (e: unknown) => {
-      console.warn('Searching by meaning failed; keyword search goes ahead alone', e instanceof Error ? e.message : e)
-      finish(null)
-    })
+    if (outer?.aborted) return finish(null)
+    outer?.addEventListener('abort', onOuter, { once: true })
+    p(stop.signal).then(
+      (v) => finish(stop.signal.aborted ? null : v),
+      (e: unknown) => {
+        if (!stop.signal.aborted) console.warn('Searching by meaning failed; keyword search goes ahead alone', e instanceof Error ? e.message : e)
+        finish(null)
+      }
+    )
   })
-}
-
-/** Vectors for these texts (by hash): from memory, then the index, then the search model for up to EMBED_NOW_MOST. */
-async function vectorsFor(
-  deps: RecallDeps,
-  embedder: Embedder,
-  texts: { hash: string; text: string }[],
-  kind: 'passage' | 'other'
-): Promise<Map<string, Float32Array>> {
-  const out = new Map<string, Float32Array>()
-  const missing: { hash: string; text: string }[] = []
-  for (const t of texts) {
-    const v = deps.cache?.get(embedder.model, t.hash)
-    if (v) out.set(t.hash, v)
-    else if (!missing.some((m) => m.hash === t.hash)) missing.push(t)
-  }
-  if (missing.length && deps.index?.open) {
-    const kept = deps.index.vectors(
-      embedder.model,
-      missing.map((m) => m.hash)
-    )
-    for (const [h, v] of kept) {
-      out.set(h, v)
-      deps.cache?.set(embedder.model, h, v)
-    }
-  }
-  // Passages are read by the background indexing; other texts are read here, a few at a time.
-  const toRead = kind === 'other' ? missing.filter((m) => !out.has(m.hash)).slice(0, EMBED_NOW_MOST) : []
-  if (toRead.length) {
-    const vecs = await embedder.embed(
-      toRead.map((t) => t.text),
-      'passage',
-      deps.signal
-    )
-    const made = toRead.map((t, i) => ({ hash: t.hash, vec: vecs[i] })).filter((x) => x.vec)
-    for (const x of made) {
-      out.set(x.hash, x.vec)
-      deps.cache?.set(embedder.model, x.hash, x.vec)
-    }
-    if (deps.index?.open) deps.index.putVectors(embedder.model, 'other', made)
-  }
-  return out
-}
-
-/** The query vectors for these parts (kept, so a search made again costs nothing). */
-async function queryVectors(deps: RecallDeps, embedder: Embedder, parts: string[]): Promise<Float32Array[]> {
-  const keys = parts.map((p) => `q:${textHash(p)}`)
-  const missing = parts.filter((_, i) => !deps.cache?.get(embedder.model, keys[i]))
-  if (missing.length) {
-    const vecs = await embedder.embed(missing, 'query', deps.signal)
-    missing.forEach((p, i) => deps.cache?.set(embedder.model, `q:${textHash(p)}`, vecs[i]))
-    if (!deps.cache) return parts.map((p) => vecs[missing.indexOf(p)])
-  }
-  return keys.map((k) => deps.cache!.get(embedder.model, k)!)
 }
 
 /** Keeps the finds of one list that score at least `keep` of its best. */
@@ -289,33 +230,32 @@ interface Lists {
   facts: Ranked<FactDoc>[][]
 }
 
-/** The meaning lists for each part: passages, summaries and facts closest to it. */
+/**
+ * The meaning lists for each part: passages, summaries and facts closest to it. The search's own words are read now
+ * (stopped with `signal`); passages' vectors come from the background indexing; facts' and summaries' are read in the
+ * background and waited for while there is time (kept for next time either way).
+ */
 async function meaningLists(
   deps: RecallDeps,
   embedder: Embedder,
+  vectors: Vectors,
+  signal: AbortSignal,
   parts: string[],
   passages: StoredPassage[],
   summaries: SummaryDoc[],
   facts: FactDoc[]
 ): Promise<Lists> {
-  const qv = await queryVectors(deps, embedder, parts)
-  const pv = await vectorsFor(
-    deps,
-    embedder,
-    passages.map((p) => ({ hash: p.hash, text: p.text })),
-    'passage'
-  )
-  const sv = await vectorsFor(
-    deps,
-    embedder,
-    summaries.map((s) => ({ hash: textHash(s.text), text: s.text })),
-    'other'
-  )
-  const fv = await vectorsFor(
-    deps,
-    embedder,
-    facts.map((f) => ({ hash: textHash(f.text), text: f.text })),
-    'other'
+  const queries = parts.map((p) => ({ hash: `q:${textHash(p)}`, text: p }))
+  const others = [...summaries.map((x) => x.text), ...facts.map((x) => x.text)].map((t) => ({ hash: textHash(t), text: t }))
+  const [qv, ov] = await Promise.all([
+    vectors.read({ embedder, texts: queries, now: true, signal }),
+    vectors.read({ embedder, texts: others, now: false, index: deps.index, store: 'other', signal, background: deps.background })
+  ])
+  if (signal.aborted) throw new Error('out of time')
+  const pv = vectors.kept(
+    embedder.model,
+    passages.map((p) => p.hash),
+    deps.index
   )
   const withVec = <T>(items: T[], hash: (x: T) => string, vecs: Map<string, Float32Array>): { item: T; vec: Float32Array }[] =>
     items.flatMap((item) => {
@@ -323,13 +263,50 @@ async function meaningLists(
       return vec ? [{ item, vec }] : []
     })
   const p = withVec(passages, (x) => x.hash, pv)
-  const s = withVec(summaries, (x) => textHash(x.text), sv)
-  const f = withVec(facts, (x) => textHash(x.text), fv)
+  const s = withVec(summaries, (x) => textHash(x.text), ov)
+  const f = withVec(facts, (x) => textHash(x.text), ov)
+  const qs = queries.map((q) => qv.get(q.hash)).filter((v): v is Float32Array => !!v)
   return {
-    passages: qv.map((q) => nearest(q, p, LIST_SIZE, embedder.floor)),
-    summaries: qv.map((q) => nearest(q, s, LIST_SIZE, embedder.floor)),
-    facts: qv.map((q) => nearest(q, f, LIST_SIZE, embedder.floor))
+    passages: qs.map((q) => nearest(q, p, LIST_SIZE, embedder.floor)),
+    summaries: qs.map((q) => nearest(q, s, LIST_SIZE, embedder.floor)),
+    facts: qs.map((q) => nearest(q, f, LIST_SIZE, embedder.floor))
   }
+}
+
+/**
+ * Each time something was said on this scene's line (not later, not in another story's what-if): the changes that
+ * record it (one per character who knows it) grouped by fact, place and line, with who said it and who heard it there
+ * (as recorded; for lines kept before that was recorded, the others who learned it there).
+ */
+export function saidTimes(changes: SaidChange[], onLine: Map<ID, { at: number; storyId: ID }>, label: ReturnType<typeof labeler>): SaidTime[] {
+  const out = new Map<string, SaidTime & { knowers: Set<ID>; recorded: boolean }>()
+  for (const s of changes) {
+    const c = s.change
+    const at = c.anchor === 'scene' && c.sceneId ? onLine.get(c.sceneId) : undefined
+    if (c.anchor === 'scene' && !at) continue
+    const key = `${c.payload.factId}|${c.anchor}|${c.sceneId ?? c.storyId ?? ''}|${plain(s.words)}`
+    let t = out.get(key)
+    if (!t) {
+      t = {
+        factId: c.payload.factId,
+        kind: s.said.kind,
+        by: s.said.by,
+        heard: [],
+        words: s.words,
+        where: c.anchor === 'scene' && c.sceneId ? label({ storyId: at!.storyId, sceneId: c.sceneId }) : c.anchor === 'story-start' ? label({ storyId: c.storyId }) : '',
+        order: at?.at ?? -1,
+        knowers: new Set(),
+        recorded: false
+      }
+      out.set(key, t)
+    }
+    t.knowers.add(c.entryId)
+    if (s.said.heard) {
+      t.recorded = true
+      for (const id of s.said.heard) if (id !== t.by && !t.heard.includes(id)) t.heard.push(id)
+    }
+  }
+  return [...out.values()].map(({ knowers, recorded, ...t }) => ({ ...t, heard: recorded ? t.heard : [...knowers].filter((id) => id !== t.by) }))
 }
 
 /** The scenes on the line before this one, each with its place on the walk and its story. */
@@ -373,28 +350,11 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     }))
   )
 
-  // What was said, as the world's changes have it, for the facts known here.
-  const said = new Map<ID, SaidFact>()
-  for (const s of saidChanges(db, listAllChanges(db))) {
-    const c = s.change
-    const at = c.anchor === 'scene' && c.sceneId ? onLine.get(c.sceneId) : undefined
-    if (c.anchor === 'scene' && !at) continue
-    const factId = c.payload.factId
-    const cur = said.get(factId)
-    // The speaker's own change says it best; otherwise the first.
-    if (cur && c.entryId !== s.said.by) continue
-    said.set(factId, {
-      factId,
-      kind: s.said.kind,
-      by: s.said.by,
-      words: s.words,
-      where: c.anchor === 'scene' && c.sceneId ? label({ storyId: at!.storyId, sceneId: c.sceneId }) : c.anchor === 'story-start' ? label({ storyId: c.storyId }) : '',
-      order: at?.at ?? -1
-    })
-  }
+  // What was said, as the world's changes have it: each time, on this scene's line.
+  const times = saidTimes(saidChanges(db, listAllChanges(db)), onLine, label)
 
   const parts = queryParts(input, soFar)
-  const facts = factDocs(memory, onCard, new Set(said.keys()))
+  const facts = factDocs(memory, onCard, new Set(times.map((t) => t.factId)))
   const summaries = summaryDocs(listSummaries(db), line, story.id, label)
   const index = deps.index?.open ? deps.index : null
   const allowed = [...onLine.keys()]
@@ -422,9 +382,15 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
   }
 
   // Meaning search, when the search model is here, for as long as it is quick enough.
-  if (deps.embedder && parts.length) {
+  if (deps.embedder && parts.length && !deps.signal?.aborted) {
+    const embedder = deps.embedder
+    const vectors = deps.vectors ?? new Vectors()
     const passages = index ? index.passagesIn(allowed).filter((p) => !sentAlready(p)) : []
-    const meaning = await withLimit(meaningLists(deps, deps.embedder, parts, passages, summaries, facts), deps.meaningWaitMs ?? MEANING_WAIT_MS, deps.signal)
+    const meaning = await withLimit(
+      (signal) => meaningLists(deps, embedder, vectors, signal, parts, passages, summaries, facts),
+      deps.meaningWaitMs ?? MEANING_WAIT_MS,
+      deps.signal
+    )
     if (meaning) {
       lists.passages.push(...meaning.passages)
       lists.summaries.push(...meaning.summaries)
@@ -464,6 +430,6 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     sticky: sticky.filter((id) => !onCard.has(id)),
     found,
     passages: countWords(recalled.map((p) => p.text).join(' ')) ? recalled : [],
-    said: saidLines(memory.facts, said, { nameOf, inScene: people, found: saidFound.slice(0, 4) })
+    said: saidLines(memory.facts, times, { nameOf, inScene: people, found: saidFound.slice(0, 4) })
   }
 }

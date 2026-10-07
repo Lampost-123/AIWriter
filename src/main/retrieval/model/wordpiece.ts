@@ -7,9 +7,10 @@
 const MAX_WORD_CHARS = 100
 
 const isWhitespace = (ch: string): boolean => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || /\p{Zs}/u.test(ch)
+/** Every "other" character (Unicode C*: controls, format marks, private use, unassigned), as BERT's tokenizer drops them. */
 const isControl = (ch: string): boolean => {
   if (ch === '\t' || ch === '\n' || ch === '\r') return false
-  return /[\p{Cc}\p{Cf}]/u.test(ch)
+  return /\p{C}/u.test(ch)
 }
 /** BERT counts every ASCII non-letter, non-digit symbol as punctuation, and anything Unicode calls punctuation. */
 const isPunctuation = (ch: string): boolean => {

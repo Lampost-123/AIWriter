@@ -16,6 +16,15 @@ export function liveSceneTexts(db: DB): Map<ID, string> {
   return new Map(rows.map((r) => [r.id as string, (r.text as string) ?? '']))
 }
 
+/** These live scenes' words now, by id (a scene deleted meanwhile is left out). */
+export function sceneTextsOf(db: DB, ids: ID[]): Map<ID, string> {
+  if (!ids.length) return new Map()
+  const rows = db
+    .prepare('SELECT id, text FROM scenes WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL')
+    .all(JSON.stringify(ids)) as Row[]
+  return new Map(rows.map((r) => [r.id as string, (r.text as string) ?? '']))
+}
+
 /** These scenes' cards and words (those still there), in the order asked. */
 export function scenesCardsAndText(db: DB, ids: ID[]): { id: ID; card: Partial<SceneCard>; text: string }[] {
   if (!ids.length) return []

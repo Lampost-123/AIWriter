@@ -1,6 +1,6 @@
 // Settings › Models: finding earlier passages by meaning (story memory step 5, Adam, 2026-10-07). Before each draft
 // the briefing searches the story so far for what the scene is about: by its words always, and by meaning once the
-// search model is downloaded (about 134 MB, once, like the speech models). The switch turns the search model off;
+// search model is downloaded (about 133 MB, once, like the speech models). The switch turns the search model off;
 // the download, its progress and Stop, and Remove are here too.
 import { useEffect, useId, useState } from 'react'
 import type { SearchModelStatus } from '@shared/contracts/searchModel'

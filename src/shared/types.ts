@@ -942,6 +942,8 @@ export interface SaidPayload {
   by: ID
   /** The line as it was read, word for word (its source link follows later edits to it). */
   words: string
+  /** Who heard it said there (not the speaker): those there at the time, not everyone who knows it now. */
+  heard?: ID[]
 }
 
 /** A plot thread opens or is resolved. */

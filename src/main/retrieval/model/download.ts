@@ -6,8 +6,8 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { open, rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { fileUrl, installed, SEARCH_MODEL, SEARCH_MODEL_FILES, SEARCH_MODEL_REVISION, writeManifest, type ModelFile } from './files'
+import { dirname } from 'node:path'
+import { filePath, fileUrl, readManifest, SEARCH_MODEL, SEARCH_MODEL_FILES, SEARCH_MODEL_REVISION, writeManifest, type ModelFile } from './files'
 
 export interface DownloadProgress {
   /** Bytes in place or downloaded so far, of `total`. */
@@ -43,25 +43,28 @@ export class DownloadStopped extends Error {
   }
 }
 
-/** Downloads every file the search model needs into `dir`. Resolves when it is all there and checked. */
+/**
+ * Downloads every file in `files` (the fast engine's, unless told) into `dir`. Resolves when it is all there and checked.
+ * What installed.json already says (the fast engine couldn't start, say) is kept.
+ */
 export async function downloadModel(
   dir: string,
   o: { fetchImpl: typeof fetch; signal: AbortSignal; onProgress?: (p: DownloadProgress) => void; base?: string; files?: ModelFile[] }
 ): Promise<void> {
   const files = o.files ?? SEARCH_MODEL_FILES
-  if (installed(dir, files)) return
   mkdirSync(dir, { recursive: true })
   let done = 0
   const total = files.reduce((n, f) => n + f.bytes, 0)
   const tell = (): void => o.onProgress?.({ done, total })
   for (const f of files) {
-    const path = join(dir, f.name)
+    const path = filePath(dir, f)
     if (await fileIsRight(path, f)) {
       done += f.bytes
       tell()
       continue
     }
     if (o.signal.aborted) throw new DownloadStopped()
+    mkdirSync(dirname(path), { recursive: true })
     const part = `${path}.part`
     let res: Response
     try {
@@ -97,7 +100,9 @@ export async function downloadModel(
     }
     await rename(part, path)
   }
-  writeManifest(dir, { model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION, at: new Date().toISOString() })
+  const before = readManifest(dir)
+  const same = before?.model === SEARCH_MODEL && before.revision === SEARCH_MODEL_REVISION
+  writeManifest(dir, { ...(same ? before : {}), model: SEARCH_MODEL, revision: SEARCH_MODEL_REVISION, at: new Date().toISOString() })
 }
 
 /** Removes the downloaded model (Settings › Models, Remove). */

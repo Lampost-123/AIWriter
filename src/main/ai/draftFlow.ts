@@ -48,12 +48,14 @@ export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id:
 /**
  * Assembles the briefing for a scene with the current writer model's context length. `stand`: where things stand at
  * the end of the scene so far, for a draft that carries on from it (in place of where the previous scene ended).
+ * `signal`: the draft's Stop (step 5's search stops with it).
  */
 export async function assemble(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
   extras?: ContextExtras,
-  stand?: SceneState | null
+  stand?: SceneState | null,
+  signal?: AbortSignal
 ): Promise<{ input: ContextInput; preview: ContextPreview; prepared: PreparedContext }> {
   const settings = getSettings()
   const db = world.db()
@@ -70,7 +72,7 @@ export async function assemble(
   }
   // Story memory step 5 (src/main/retrieval/): entries of the last two scenes, what was said word for word, and what a
   // search for what the scene is about finds. Only candidates: the fitting below still keeps to the budget.
-  input.recall = await recallForBriefing(db, sceneId, input, (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n'))
+  input.recall = await recallForBriefing(db, sceneId, input, (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n'), signal)
   return { input, ...(await fitted(input, extras)) }
 }
 
@@ -121,7 +123,7 @@ export async function draftBriefing(
   const stand = o.soFar?.trim() ? await standAtText(db, sceneId, o.soFar, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const made = await assemble(sceneId, options, o.extras, stand)
+  const made = await assemble(sceneId, options, o.extras, stand, o.signal)
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   let b: DraftBriefing = { ...made, choice, target, thinking, entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks) }

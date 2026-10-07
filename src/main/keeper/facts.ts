@@ -187,6 +187,8 @@ export function changeContent(c: ChangeData): string {
     case 'relationship':
       return `${c.payload.type} ${c.payload.ended ? 'ended' : 'ongoing'}`
     case 'knowledge':
+      // Something said is the same fact when the same speaker says the same line, however the fact is worded.
+      if (c.payload.said) return `said by ${c.payload.said.by}: ${c.payload.said.words}`
       return `${c.payload.fact} ${c.payload.forgets ? 'forgets' : 'knows'}`
     case 'thread':
       return `${c.payload.status} ${c.payload.note}`
