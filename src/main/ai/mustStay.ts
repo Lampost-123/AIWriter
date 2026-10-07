@@ -3,11 +3,14 @@
 // most attention (the full briefing stays above it). Drawn from the stage (where things stand at the point of writing,
 // continuity/tracker.ts) and from the codex entries in the scene, it holds only current values, each with where it
 // became true: "Mara: left arm in a sling (since Ch 3, Sc 2)". Older values that no longer hold are never sent: near-miss
-// facts confuse models. Capped, so it stays short. Pure.
+// facts confuse models. Capped, so it stays short. Since 2026-10-07 it also says what the people in the scene gave
+// away, lost or got however long ago ("Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2,
+// Sc 7)", memory/items.ts), the items the scene names first. Pure.
 
 import type { EntryState, FactState, ID } from '@shared/types'
 import { sourceKey, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
+import { holdingLine, holdingsFirst, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
@@ -15,6 +18,8 @@ export const MUST_MOST = 12
 export const MUST_SHORT = 6
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
+/** The most lines among them about what someone gave away, lost or got. */
+export const MUST_ITEMS = 4
 /** The longest a line's words are kept, in characters (since when it holds comes after, whole), and a secret's. */
 const LONGEST_LINE = 320
 const LONGEST_FACT = 200
@@ -53,14 +58,41 @@ export interface MustInput {
   /** Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by scene id. */
   places: Record<ID, string>
   /**
+   * What the people in the scene gave away, lost or got during the story, however long ago, as it is now (memory/items.ts
+   * `holdingsOf`). Left out: none.
+   */
+  holdings?: Holding[]
+  /** What the scene is about (its card, beats, Adam's direction, the scene so far): the items it names come first. */
+  about?: string
+  /**
    * The short form, for a model with little room: at most MUST_SHORT lines, and none of who knows what or of the
    * codex's changed looks (the briefing above has those).
    */
   short?: boolean
 }
 
-/** The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. */
-const RANK = { dead: 0, condition: 1, marks: 2, wearing: 3, holding: 4, gap: 5, where: 6, posture: 7, changed: 8, time: 9, light: 10, weather: 11 } as const
+/**
+ * The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. What
+ * someone no longer has comes high when the scene names it ("goneNamed"), and right after what they hold otherwise.
+ */
+const RANK = {
+  dead: 0,
+  condition: 1,
+  goneNamed: 2,
+  marks: 3,
+  wearing: 4,
+  holding: 5,
+  gone: 6,
+  gotNamed: 7,
+  gap: 8,
+  where: 9,
+  posture: 10,
+  changed: 11,
+  got: 12,
+  time: 13,
+  light: 14,
+  weather: 15
+} as const
 type Kind = keyof typeof RANK
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
@@ -159,6 +191,18 @@ export function mustStayTrue(o: MustInput): string[] {
   })
   // Carrying on with no one on the scene card: everyone the stage has in the scene.
   if (!people.length && o.reach === 'here') o.stand?.characters.forEach((c, i) => stageLines(c, i))
+
+  // What someone in the scene gave away, lost or got, however long ago (memory/items.ts): only how it is now, the items
+  // the scene names first. "Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2, Sc 7)".
+  const whoOf = new Map(people.map((e, i) => [e.id, i]))
+  const about = o.about ?? ''
+  holdingsFirst((o.holdings ?? []).filter((h) => whoOf.has(h.personId)), about)
+    .slice(0, MUST_ITEMS)
+    .forEach((h) => {
+      const named = namesItem(about, h)
+      const kind: Kind = h.has ? (named ? 'gotNamed' : 'got') : named ? 'goneNamed' : 'gone'
+      add(kind, whoOf.get(h.personId)!, holdingLine(h, (w) => shortPlace(w, o.storyTitle)), '', true)
+    })
 
   function stageLines(c: CharacterState, who: number): void {
     const name = clean(c.name)

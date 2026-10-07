@@ -302,6 +302,16 @@ describe('Continue', () => {
     expect(tight.blocks.some((x) => x.id === 'must')).toBe(false)
     expect(ok(at(32_000)).blocks.some((x) => x.id === 'must')).toBe(true)
   })
+
+  it('what must stay true says what Mara gave away scenes back, from her notes and the ties at the scene', () => {
+    const ledger = entry('ledger', 'The forged ledger', { kind: 'item' })
+    const mara = { ...MARA, happened: [{ note: 'handed the forged ledger to Tobin', where: 'Book 1, Ch 1, Sc 3', changeId: 'c1', at: 3 }] }
+    const must = { facts: [], sceneId: 's1', storyTitle: 'Book 1', places: {}, relationships: [] }
+    const b = ok(editBriefing(input('rewrite'), world({ entries: [mara, TOBIN, OLD_ROSE, TAVERN, ledger], must })))
+    const text = b.blocks.find((x) => x.id === 'must')!.text
+    expect(text).toContain('- Mara: no longer has the forged ledger (handed the forged ledger to Tobin; since Ch 1, Sc 3)')
+    expect(text).toContain('- Tobin: has the forged ledger (Mara handed the forged ledger to Tobin; since Ch 1, Sc 3)')
+  })
 })
 
 describe('Fix voice', () => {

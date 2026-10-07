@@ -9,7 +9,8 @@ import { issueKey, occurrenceAt, plainQuote, sceneQuote, stillThere } from './qu
 import { memoryFixable } from './memoryFix'
 import { canUpdateField } from './run'
 import { checkOf, fieldOf, foundIssues, readCheckReply, severityOf, type ReadContext } from './parse'
-import { checkRequest, checkSections, gatherSceneCheck, splitScene } from './context'
+import { checkRequest, checkSections, factsThatMatter, gatherSceneCheck, splitScene } from './context'
+import * as mem from '../db/memory'
 import { storyComparisons, storyIssues } from './stories'
 import { sceneSystem } from './prompts'
 import { loadMemoryData, loadShape } from '../memory/scene'
@@ -497,6 +498,43 @@ describe('what a check of a scene is told', () => {
     const parts = splitScene(long, 200)
     expect(parts.length).toBeGreaterThan(1)
     expect(parts.join('\n\n')).toBe(long)
+  })
+})
+
+describe('who knows what that matters, and what people here gave away', () => {
+  it('keeps the facts about what the words name when there are more than the list holds, in the memory’s order', () => {
+    const wren = { ...tobin, id: 'w', name: 'Wren' } as EntryState
+    const ash = { ...tobin, id: 'a', name: 'Ash' } as EntryState
+    const compass = { ...tobin, id: 'c', kind: 'item', name: 'The brass compass' } as EntryState
+    const facts = Array.from({ length: 45 }, (_, i) => ({ factId: `f${i}`, fact: `The drove road ${i} floods in spring`, knownBy: ['w', 'a'], at: i }))
+    // Learned at the start of the story and listed last: the old way, cut after the first 30, left it out.
+    facts.push({ factId: 'fc', fact: 'Mother Agate keeps the compass in her hut', knownBy: ['w'], at: -1 })
+    const kept = factsThatMatter(facts, [wren, ash], [wren, ash, compass], 30)
+    expect(kept).toHaveLength(30)
+    expect(kept.at(-1)?.factId).toBe('fc')
+    // The rest are the most lately learned, still in the memory's order.
+    expect(kept.slice(0, -1).map((f) => f.factId)).toEqual(facts.slice(16, 45).map((f) => f.factId))
+    // Fewer than the list holds: all of them, as they were.
+    expect(factsThatMatter(facts.slice(0, 5), [wren, ash], [wren, ash], 30)).toEqual(facts.slice(0, 5))
+  })
+
+  it('tells the facts check what someone here gave away chapters back, as it is now', () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const outline = repo.getOutline(db, story.id)
+    const [s1, s2] = [outline.scenes[0].id, repo.createScene(db, outline.chapters[0].id).id]
+    const wren = repo.createEntry(db, 'character', { name: 'Wren' })
+    repo.createEntry(db, 'character', { name: 'Mother Agate' })
+    repo.createEntry(db, 'item', { name: 'The brass compass' })
+    mem.insertChange(db, { entryId: wren.id, anchor: 'scene', sceneId: s1, kind: 'update', payload: { note: 'gave her brass compass to Mother Agate as a toll' }, origin: 'text' })
+    repo.updateSceneCard(db, s2, { ...repo.getScene(db, s2).card, povId: wren.id })
+    repo.saveSceneText(db, s2, null, 'Wren checked the compass in the fog.')
+    const at2 = gatherSceneCheck(db, s2, PREFS)
+    // Named in the scene by its main word.
+    expect(at2.entries.map((c) => [c.entry.name, c.why])).toContainEqual(['The brass compass', 'named in the scene'])
+    const owned = checkSections(at2, ['facts']).find((s) => s.id === 'owned')!
+    expect(owned.text).toBe('- Wren: no longer has the brass compass (gave her brass compass to Mother Agate as a toll; since Book 1, Ch 1, Sc 1)')
+    expect(checkSections(at2, ['voice']).some((s) => s.id === 'owned')).toBe(false)
   })
 })
 

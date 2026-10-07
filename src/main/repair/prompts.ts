@@ -3,16 +3,18 @@
 //   W1...  where things stand just before the new words (the live stage), each value with the story's words for it
 //   E1...  the memory's entries named in the new words or on the scene card (looks, injuries, what they own...)
 //   K1...  who knows what at the start of the scene
+//   O1...  what the people here gave away, lost or got, however long ago (memory/items.ts), as it is now
 //   D1...  who is dead by now
 //   S1...  the scenes just before (when and where, who was there)
 // The system prompt starts with "[AIWRITE-REPAIR v1]", so the fake provider in tests recognises it. Pure.
 
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
 import { STATE_FIELDS, STATE_LABELS, sourceKey, type SceneState } from '@shared/continuity'
-import { deadBy, mentions } from '../ai/context'
+import { deadBy } from '../ai/context'
 import type { SceneCheckContext } from '../checks/context'
-import { entryText } from '../checks/context'
+import { entryText, factsThatMatter, headsAt, holdingsHere } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
+import { holdingLine, nameIn, namesOf } from '../memory/items'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
@@ -29,8 +31,8 @@ export interface StageLine {
 /** One fact from the memory a claim may be compared with. */
 export interface CodexLine {
   code: string
-  kind: 'entry' | 'knows' | 'dead' | 'scene'
-  /** The entry it is about (an E line), or the scene (an S line). */
+  kind: 'entry' | 'knows' | 'owns' | 'dead' | 'scene'
+  /** The entry it is about (an E line; the item, for an O line), or the scene (an S line). */
   entryId?: ID
   sceneId?: ID
   label: string
@@ -40,6 +42,8 @@ export interface CodexLine {
 const MOST_FULL = 8
 /** The most facts listed under who knows what. */
 const MOST_FACTS = 30
+/** The most lines about what people here gave away, lost or got. */
+const MOST_OWNED = 12
 
 /** Where things stand as lines with ids, each with its words. */
 export function stageLines(stage: SceneState | null): StageLine[] {
@@ -65,10 +69,10 @@ export const stageLineText = (l: StageLine): string =>
 export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: CodexLine[]; sections: { id: string; title: string; text: string; entryIds: ID[] }[] } {
   const lines: CodexLine[] = []
   const sections: { id: string; title: string; text: string; entryIds: ID[] }[] = []
-  // The entries the new words name, and who the scene card puts there (the E codes are the check context's own).
-  const named = ctx.entries.filter(
-    (c) => c.why !== 'named in the scene' || [c.entry.name, ...(c.entry.aliases ?? [])].some((n) => n.trim().length > 1 && mentions(newWords, n))
-  )
+  // The entries the new words name (an item by its own main word too: "the compass"), and who the scene card puts there
+  // (the E codes are the check context's own).
+  const heads = headsAt(ctx.memory)
+  const named = ctx.entries.filter((c) => c.why !== 'named in the scene' || namesOf(c.entry, heads).some((n) => nameIn(newWords, n)))
   if (named.length) {
     for (const c of named) lines.push({ code: c.code, kind: 'entry', entryId: c.entry.id, label: c.entry.name })
     sections.push({
@@ -79,8 +83,15 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
     })
   }
   const people = named.filter((c) => c.entry.kind === 'character' && !c.label)
-  const ids = new Set(people.map((c) => c.entry.id))
-  const facts = ctx.memory.facts.filter((f) => f.knownBy.some((id) => ids.has(id)) || people.some((c) => mentions(f.fact, c.entry.name))).slice(0, MOST_FACTS)
+  // Who knows what: when there are more than the list holds, those about what the new words name and about the people
+  // here are kept (factsThatMatter), not just the first in the memory's order.
+  const facts = factsThatMatter(
+    ctx.memory.facts,
+    people.map((c) => c.entry),
+    named.map((c) => c.entry),
+    MOST_FACTS,
+    heads
+  )
   if (facts.length) {
     const text = facts.map((f, i) => {
       const code = `K${i + 1}`
@@ -90,6 +101,22 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
       return `- [${code}] ${f.fact.trim()} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
     })
     sections.push({ id: 'knowledge', title: 'Who knows what at the start of this scene (K ids)', text: text.join('\n'), entryIds: [] })
+  }
+  // What the people here gave away, lost or got, however long ago, as it is now (memory/items.ts; Adam, 2026-10-07: a
+  // compass given away chapters before was taken out of a pocket, and nothing here said it had gone). The items the new
+  // words name first. A slip against one of these is always a question, never mended (claims.ts: not a stage line).
+  const owned = holdingsHere(
+    ctx.memory,
+    people.map((c) => c.entry.id),
+    newWords
+  ).slice(0, MOST_OWNED)
+  if (owned.length) {
+    const text = owned.map((h, i) => {
+      const code = `O${i + 1}`
+      lines.push({ code, kind: 'owns', entryId: h.itemId, label: h.item })
+      return `- [${code}] ${holdingLine(h)}`
+    })
+    sections.push({ id: 'owned', title: 'What people here no longer have, or have now (O ids)', text: text.join('\n'), entryIds: [] })
   }
   const dead = deadBy(ctx.memory.entries)
   if (dead.length) {
@@ -117,11 +144,11 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
 /** The instructions: the same every time, so providers that cache repeated prompts can reuse them. */
 export function repairSystem(): string {
   return `${REPAIR_MARKER} claims
-You check newly written words of a novel, claim by claim, against what is already known, for the author. You are given where things stand just before the new words (each line with an id, W1..., and the story's own words that show it), facts from the story's memory (E entries, K who knows what, D who is dead, S the scenes just before), the words just before the new ones, and the new words. Reply with one JSON object and nothing else.
+You check newly written words of a novel, claim by claim, against what is already known, for the author. You are given where things stand just before the new words (each line with an id, W1..., and the story's own words that show it), facts from the story's memory (E entries, K who knows what, O what people here gave away, lost or got, D who is dead, S the scenes just before), the words just before the new ones, and the new words. Reply with one JSON object and nothing else.
 
 How to check
 - Go through the new words one claim at a time: each place where they say, or take for granted, where someone is; how they are placed (standing, sitting, lying, on what); what they wear, item by item; what they hold or carry; an injury or how their body is; what they know; what they own; or the time of day and how much time has passed.
-- For each claim, find the line it touches (a W, E, K, D or S id) and compare the two. Leave out claims that touch no line.
+- For each claim, find the line it touches (a W, E, K, O, D or S id) and compare the two. Leave out claims that touch no line. Someone using, holding or carrying a thing an O line says they no longer have is a slip, unless the new words show them getting it back.
 - The lines are where things stood BEFORE the new words. Anything the new words show happening first is fine, and so is anything that could have happened in between without being written: time passing, someone going somewhere, getting up, putting something down.
 - "fits": the claim agrees with the line. "shown": the new words themselves show the change happening (she pulls her boots on, he gets up, someone tells her). "slip": the new words treat as already so something that cannot be true together with the line, and nothing in the new words or the words just before shows it changing: a boot back on with no words putting it on, a cup in a hand that put it down, a character knowing what they haven't learnt, a dead character acting.
 - NOT a slip: a detail the line doesn't mention, or a more exact one (a man asleep sitting against a wall whose hand lies open on the floor: both can be true); someone somewhere else after time could have passed or they could have moved (a man last seen crossing the river home, later sitting by his own fire); anything the line leaves open. When unsure, it is not a slip.

@@ -16,7 +16,7 @@
 
 import type Database from 'better-sqlite3'
 import type { CheckKind } from '@shared/contracts/checks'
-import type { ContextBlock, EntryState, ID, SceneCard, WritingPrefs } from '@shared/types'
+import type { ContextBlock, EntryState, FactState, ID, SceneCard, WritingPrefs } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
 import { effectiveStyle } from '@shared/style'
 import { genreLabel, genresOf } from '@shared/genres'
@@ -30,6 +30,7 @@ import { deadBy, formatProfile, happenedText, mentions, sceneTail, SHORT_TAIL, s
 import { stateText, type SceneState } from '@shared/continuity'
 import { keptStateBefore } from '../continuity/tracker'
 import { estimateTokens } from '../keeper/text'
+import { holdingLine, holdingsFirst, holdingsOf, itemHeads, namesOf, type Holding } from '../memory/items'
 
 type DB = Database.Database
 
@@ -39,6 +40,8 @@ export const EARLIER_SCENES = 3
 const MOST_FACTS = 40
 /** The most entries told in full; any more are told in a line each. */
 const MOST_FULL = 24
+/** The most lines about what people here gave away, lost or got. */
+export const MOST_OWNED = 12
 
 /** One entry the check is told about. */
 export interface CheckEntry {
@@ -95,6 +98,8 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
   const here = new Map(memory.entries.map((e) => [e.id, e]))
   const away = new Map(memory.elsewhere.map((x) => [x.entry.id, x]))
   const firstHere = new Set(memory.firstHere)
+  // An item is found by its own main word too ("the compass" for "The brass compass": memory/items.ts).
+  const heads = headsAt(memory)
   const entries: CheckEntry[] = []
   const taken = new Set<ID>()
   const take = (id: ID | null | undefined, why: string): void => {
@@ -111,7 +116,7 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
   // Everything the text names, in the order it first does (those that don't exist here too: a dead or
   // not-yet-met character named in the scene is just what the checks are for).
   const named = [...here.values(), ...[...away.values()].map((x) => x.entry)]
-    .map((e) => ({ e, at: firstMention(text, [e.name, ...(e.aliases ?? [])]) }))
+    .map((e) => ({ e, at: firstMention(text, namesOf(e, heads)) }))
     .filter((x) => x.at >= 0)
     .sort((a, b) => a.at - b.at)
   for (const { e } of named) take(e.id, 'named in the scene')
@@ -164,6 +169,53 @@ export function gatherSceneCheck(db: DB, sceneId: ID, prefs: WritingPrefs): Scen
     storySoFar: sofar ? { full: storySoFarText(sofar, story.title, 1), short: storySoFarText(sofar, story.title, 3) } : { full: '', short: '' }
   }
 }
+
+/**
+ * Who knows what, for a check: the facts the people here know or that name one of them, in the memory's order. When
+ * there are more than `cap`, those that matter most are kept (Adam, 2026-10-07: the list was cut in the memory's own
+ * order, so a fact about what the new words name could be left out): first a fact that names something the words being
+ * checked name (an entry in `named`; an item by its main word too), then one that names someone here or that some of
+ * them know and others don't, then the most lately learned.
+ */
+export function factsThatMatter(
+  facts: FactState[],
+  people: EntryState[],
+  named: EntryState[],
+  cap: number,
+  heads: Map<ID, string[]> = itemHeads([...people, ...named])
+): FactState[] {
+  const ids = new Set(people.map((e) => e.id))
+  const namesIn = (fact: string, list: EntryState[]): boolean => list.some((e) => namesOf(e, heads).some((n) => mentions(fact, n)))
+  const things = named.filter((e) => !ids.has(e.id))
+  const scored = facts
+    .filter((f) => f.knownBy.some((id) => ids.has(id)) || people.some((p) => mentions(f.fact, p.name)))
+    .map((f, i) => {
+      const knowers = people.filter((p) => f.knownBy.includes(p.id)).length
+      const gap = knowers > 0 && knowers < people.length
+      return { f, i, score: (namesIn(f.fact, things) ? 2 : 0) + (gap || namesIn(f.fact, people) ? 1 : 0) }
+    })
+  if (scored.length <= cap) return scored.map((x) => x.f)
+  // Those kept, in the order the memory lists them.
+  const kept = new Set(
+    [...scored]
+      .sort((a, b) => b.score - a.score || (b.f.at ?? -2) - (a.f.at ?? -2) || a.i - b.i)
+      .slice(0, cap)
+      .map((x) => x.i)
+  )
+  return scored.filter((x) => kept.has(x.i)).map((x) => x.f)
+}
+
+/**
+ * What these characters gave away, lost or got however long ago, as of the scene's start (memory/items.ts), the items
+ * `text` names first.
+ */
+export function holdingsHere(memory: Pick<SceneMemory, 'entries' | 'relationships'>, people: ID[], text: string): Holding[] {
+  return holdingsFirst(holdingsOf({ entries: memory.entries, relationships: memory.relationships, people }), text)
+}
+
+/** Each item's own main words, among every entry the memory knows at the scene (memory/items.ts itemHeads). */
+export const headsAt = (memory: Pick<SceneMemory, 'entries' | 'elsewhere'>): Map<ID, string[]> =>
+  itemHeads([...memory.entries, ...memory.elsewhere.map((x) => x.entry)])
 
 /** Where any of the names first appears in the text as a whole word (as the briefing reads names), or -1. */
 function firstMention(text: string, names: string[]): number {
@@ -268,11 +320,18 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
     }
   }
 
+  const characters = ctx.entries.filter((c) => c.entry.kind === 'character' && !c.label)
   if (has('knowledge')) {
-    const people = ctx.entries.filter((c) => c.entry.kind === 'character' && !c.label)
-    const ids = new Set(people.map((c) => c.entry.id))
-    const facts = ctx.memory.facts.filter((f) => f.knownBy.some((id) => ids.has(id)) || people.some((c) => mentions(f.fact, c.entry.name)))
-    const lines = facts.slice(0, MOST_FACTS).map((f) => {
+    const people = characters
+    // The facts that matter most to this scene, when there are more than the list holds (factsThatMatter).
+    const facts = factsThatMatter(
+      ctx.memory.facts,
+      people.map((c) => c.entry),
+      ctx.entries.map((c) => c.entry),
+      MOST_FACTS,
+      headsAt(ctx.memory)
+    )
+    const lines = facts.map((f) => {
       const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
       const not = people.filter((c) => !f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
       return `- ${clean(f.fact)} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
@@ -295,6 +354,19 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
   if (has('facts') || has('continuity')) {
     const dead = deadBy(ctx.memory.entries)
     if (dead.length) out.push({ id: 'dead', title: 'Dead at the start of this scene', text: dead.map((d) => `- ${d.name}: ${d.note}`).join('\n'), entryIds: [] })
+  }
+
+  // What the characters here gave away, lost or got, however long ago (Adam, 2026-10-07: a compass given away chapters
+  // before was taken out of a pocket): only what is true now, the items the scene names first.
+  if (has('facts') || has('continuity')) {
+    const owned = holdingsHere(
+      ctx.memory,
+      characters.map((c) => c.entry.id),
+      ctx.text
+    ).slice(0, MOST_OWNED)
+    if (owned.length) {
+      out.push({ id: 'owned', title: 'What people here no longer have, or have now', text: owned.map((h) => `- ${holdingLine(h)}`).join('\n'), entryIds: [] })
+    }
   }
 
   // Where things stood as the previous scene ended: the continuity check's starting point.

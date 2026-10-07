@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 import type { EntryKind, EntryState, FactState } from '@shared/types'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneState } from '@shared/continuity'
-import { MUST_GAPS, MUST_LEAD, MUST_MOST, MUST_SHORT, mustStayTrue, mustText, shortPlace, stageFor, type MustInput } from './mustStay'
+import { MUST_GAPS, MUST_ITEMS, MUST_LEAD, MUST_MOST, MUST_SHORT, mustStayTrue, mustText, shortPlace, stageFor, type MustInput } from './mustStay'
+import type { Holding } from '../memory/items'
 import { assembleContext, MUST_BLOCK, PLAN_BLOCK, prepareContext, stageReach, WHY, type ContextInput } from './context'
 import { countRaw } from './tokens'
 
@@ -197,6 +198,54 @@ describe('what must stay true', () => {
     expect(mustStayTrue(base({ people: people.slice(0, 2), stand: null, reach: 'none', facts: many }))).toHaveLength(MUST_GAPS)
   })
 
+  it('says what someone in the scene gave away or lost however long ago, and what they got back: only how it is now', () => {
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const h = (item: string, has: boolean, at: number, how: string, where: string, extra: Partial<Holding> = {}): Holding => ({
+      personId: wren.id,
+      person: 'Wren',
+      itemId: item,
+      item: `the ${item}`,
+      words: [item],
+      has,
+      again: false,
+      how,
+      where,
+      at,
+      ...extra
+    })
+    const compass = h('compass', false, 70, 'gave her brass compass to Mother Agate as a toll', 'The Mill, Ch 2, Sc 7')
+    const lines = mustStayTrue(base({ people: [wren, osric], stand: null, reach: 'none', holdings: [compass] }))
+    expect(lines).toEqual(['Wren: no longer has the compass (gave her brass compass to Mother Agate as a toll; since Ch 2, Sc 7)'])
+    const back = h('compass', true, 200, 'got the compass back from Mother Agate', 'The Mill, Ch 5, Sc 20', { again: true })
+    expect(mustStayTrue(base({ people: [wren], stand: null, reach: 'none', holdings: [back] }))).toEqual([
+      'Wren: has the compass again (got the compass back from Mother Agate; since Ch 5, Sc 20)'
+    ])
+    // Only for those in the scene.
+    expect(mustStayTrue(base({ people: [osric], stand: null, reach: 'none', holdings: [compass] }))).toEqual([])
+    // At most a few, the items the scene names first; what is gone before what is had.
+    const many = [
+      h('lantern', false, 10, 'dropped the lantern in the weir', 'The Mill, Ch 1, Sc 2'),
+      h('bead', true, 90, 'bought a blue glass bead', 'The Mill, Ch 3, Sc 13'),
+      h('knife', false, 40, 'lost the knife', 'The Mill, Ch 2, Sc 4'),
+      h('ledger', false, 30, 'burned the ledger', 'The Mill, Ch 1, Sc 3'),
+      h('map', false, 20, 'gave the map to Osric', 'The Mill, Ch 1, Sc 2'),
+      compass
+    ]
+    const about = 'Fog on the fell. Wren needs a bearing: the compass?'
+    const capped = mustStayTrue(base({ people: [wren], stand: null, reach: 'none', holdings: many, about }))
+    expect(capped).toHaveLength(MUST_ITEMS)
+    expect(capped[0]).toContain('no longer has the compass')
+    expect(capped.join('\n')).not.toContain('the bead')
+    // The short form keeps one the scene names; in the full form one not named comes after what is worn and held, and
+    // before where people are.
+    const short = mustStayTrue(base({ people: [wren], holdings: [compass], about, short: true }))
+    expect(short).toContain('Wren: no longer has the compass (gave her brass compass to Mother Agate as a toll; since Ch 2, Sc 7)')
+    const ranked = mustStayTrue(base({ people: [wren], holdings: [compass] }))
+    expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeGreaterThan(ranked.findIndex((l) => l.startsWith('Wren is holding')))
+    expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeLessThan(ranked.findIndex((l) => l.startsWith('Where Wren is')))
+  })
+
   it('reads with its lead, or none in the short form', () => {
     expect(mustText(['A', 'B'], 'here')).toBe(`${MUST_LEAD.here}\n- A\n- B`)
     expect(mustText(['A'], 'start')).toBe(`${MUST_LEAD.start}\n- A`)
@@ -298,6 +347,49 @@ describe('what must stay true in a draft', () => {
     const none = draftInput({ continuity: null, continuityAtSoFar: false })
     none.memory.entries = none.memory.entries.map((e) => ({ ...e, fields: {} }))
     expect(prepareContext(none).blocks.find((b) => b.id === MUST_BLOCK)).toBeUndefined()
+  })
+
+  it('the compass case: given away in scene 7, still gone at scene 23, though it is long out of her last few events', () => {
+    const inp = draftInput({ continuityAtSoFar: false, continuity: null })
+    const [wren] = inp.memory.entries
+    const agate = entry('character', 'Mother Agate')
+    const compass = entry('item', 'The brass compass', { aliases: ["Wren's compass"], summary: "Wren's grandmother's brass pocket compass." })
+    const at = (sc: number) => ({ where: `The Mill, Ch ${Math.ceil(sc / 4)}, Sc ${sc}`, at: sc * 10 })
+    wren.happened = [
+      { note: "gave her grandmother's brass compass to Mother Agate as a toll", changeId: 'c7', ...at(7) },
+      ...Array.from({ length: 19 }, (_, i) => ({ note: `walked on through the rain, day ${i}`, changeId: `w${i}`, ...at(8 + i) }))
+    ]
+    inp.memory.entries = [...inp.memory.entries, agate, compass]
+    const p = assembleContext(inp, countRaw)
+    const must = p.blocks.find((b) => b.id === MUST_BLOCK)!.text
+    expect(must).toContain("- Wren: no longer has the brass compass (gave her grandmother's brass compass to Mother Agate as a toll; since Ch 2, Sc 7)")
+    // Osric, there too, never had it: nothing about him.
+    expect(must).not.toContain('Osric Hale: no longer')
+    // The card doesn't name it, so the entry stays out of the briefing; the list still says it is gone.
+    expect(p.entries?.some((e) => e.entryId === compass.id)).toBe(false)
+  })
+
+  it('an item is found by its main word on the card, in the beats or in the scene so far, unless another entry shares it', () => {
+    const inp = draftInput()
+    const compass = entry('item', 'The brass compass')
+    inp.memory.entries = [...inp.memory.entries, compass]
+    inp.scene.card.beats = ['Fog comes down on the fell; Wren reaches for the compass']
+    expect(assembleContext(inp, countRaw).entries?.find((e) => e.entryId === compass.id)).toMatchObject({ why: WHY.beats, blockId: 'mentioned' })
+    // Named only in the scene so far that Add below carries on from.
+    const soFar = draftInput({ soFar: 'Wren turned the compass over in her hands.' })
+    soFar.memory.entries = [...soFar.memory.entries, compass]
+    expect(assembleContext(soFar, countRaw).entries?.find((e) => e.entryId === compass.id)).toMatchObject({ why: WHY.soFar })
+    // Another entry has "compass" in its name too: "the compass" could be either, so neither is brought in by it.
+    const inn = entry('place', 'The Compass Rose')
+    const both = draftInput({ soFar: 'Wren turned the compass over in her hands.' })
+    both.memory.entries = [...both.memory.entries, compass, inn]
+    const got = assembleContext(both, countRaw).entries ?? []
+    expect(got.some((e) => e.entryId === compass.id || e.entryId === inn.id)).toBe(false)
+    // A common word never finds an item by itself ("eye" for the Dragon's Eye).
+    const eye = entry('item', "The Dragon's Eye")
+    const common = draftInput({ soFar: 'She rubbed her eye.' })
+    common.memory.entries = [...common.memory.entries, eye]
+    expect((assembleContext(common, countRaw).entries ?? []).some((e) => e.entryId === eye.id)).toBe(false)
   })
 
   it('the plan goes after the closing instruction, and brings in what it asked for that Adam has not kept out', () => {

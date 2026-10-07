@@ -26,7 +26,8 @@ src/shared/      Types and the API contract shared by both sides. Only additive 
 src/main/        Electron main process
   memory/        The memory engine (milestone 2): types.ts is its contract; line.ts (which stories,
                  chapters and scenes come before a point), state.ts (what is true there), scene.ts
-                 (reads the database: what counts for one scene). Pure where it can be.
+                 (reads the database: what counts for one scene), items.ts (who has what, and an item's
+                 main word). Pure where it can be.
   keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
                  the memory in step with it, plus summaries at every level
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
@@ -701,6 +702,32 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   closing ask (`edits/briefing.ts`; short when the people are left out to fit, and out on the last try): Continue
   with where things stand at the cursor; the other tools don't wait for the memory model, so only a checkpoint kept at
   exactly that point (`standKept`), else the codex's facts alone. Variants get it with the rest of Generate's briefing.
+- **What someone gave away or lost stays known, and items are found by their main word** (Adam, 2026-10-07: in the
+  trap story's real run, Wren gave her brass compass to Mother Agate in scene 7, and in scene 23 the writer had her take
+  it out of her pocket. The codex had it, but only as about the nineteenth newest thing that had happened to her, and
+  "the compass" never found the entry "The brass compass"). `memory/items.ts`, pure:
+  - **Who has what** (`holdingsOf`): read from the codex as of the point being written, on its own line, so never from a
+    later scene or another storyline: what has happened to each character ("gave her brass compass to Mother Agate"),
+    to each item ("stolen by Bryn") and in each event the keeper made, and ties between a character and an item
+    ("holds", "owned by", "formerly owned"). Only items that are codex entries count, so "lost her temper" or "lost her
+    left hand" never does, and nothing that didn't happen ("did not give", "promised to give", "took a bearing with the
+    compass"). An item has one holder at a time and the latest says who: given away and got back is had again, and
+    whoever had it no longer does. Something had from the starting setup is no change; one got during the story is.
+  - **In what must stay true**: for each person in the scene, at most `MUST_ITEMS` (4) lines, "Wren: no longer has the
+    brass compass (gave her grandmother's brass compass to Mother Agate as a toll; since Ch 2, Sc 7)", "…has the brass
+    compass again (got it back…)". Those whose item the card, beats, direction or scene so far name come first and rank
+    just after injuries; the rest come after what people wear and hold. AI edits and Continue get them too.
+  - **In check and repair**: a list of them with O ids (`codexLines`, the items the new words name first, at most 12),
+    and the prompt says using a thing an O line says is gone is a slip. Like every slip against the memory, it is asked
+    as a question, never mended. The critic's facts check gets the same list. Who knows what (K lines, at most 30; the
+    critic's 40) keeps, when there are more, those that name what the words name, then those about the people there or
+    known by only some of them, then the most lately learned (`factsThatMatter`), no longer simply the first ones.
+  - **An item's main word** (`mainWord`, `itemHeads`): the last word of a name with other words besides it ("compass" in
+    "The brass compass" and in "Wren's compass"), only when no other entry has that word in its name (a place "The
+    Compass Rose" means neither is found by "compass") and it isn't a common word ("the Dragon's Eye" is never found by
+    "eye"). An item is also found by its name without "the" ("brass compass"). So "the compass" on the card, in the
+    beats, the direction, the end of the previous scene or the scene so far (`ContextInput.soFar`, "Named in the scene so
+    far") brings the entry into block 9 within its usual priority and room, and the checks find it in the scene's words.
 - **Facts to keep to and details to show.** In the writer's briefing (not Ask the world or the checks), a character's
   Basics and distinguishing marks are "Facts to keep to" and the rest of Looks "Details to show now and then, not all
   at once" (`fieldSections` with `split`), so a cheap model stops describing eye colour in every scene.
