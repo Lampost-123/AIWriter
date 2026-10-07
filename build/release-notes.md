@@ -1,9 +1,10 @@
 <!-- version: 0.6.30 -->
 What's new in 0.6.30:
 
-- The AI keeps track of each piece of clothing on its own: boots taken off stay off, and the coat stays as it was.
-- It keeps track of things in the room too: a door barred or open, a case left on the windowsill, a lamp lit.
-- It notes who is touching whom, and who can see or hear whom, only when the story says so.
-- Recall shows each of these on its own line, and you can change, add or remove them.
+- The AI keeps far better track of a scene as you carry it on with Continue and Add below: where everyone is, each piece of clothing, what they hold, things left in the room, doors locked or open.
+- Small slips in new words are mended in amber, with Undo; anything else is asked as a question.
+- It plans each draft first and keeps a short list of what must stay true.
+- It finds earlier passages by meaning (a one-off download in Settings).
+- Recall shows where things stand at the cursor.
 
-Also in 0.6.29: the AI looks back through the story for what matters to each scene.
+Also in 0.6.24: Read aloud gets MCreader's newer voices.
