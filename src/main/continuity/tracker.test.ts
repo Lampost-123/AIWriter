@@ -5,6 +5,7 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
+import { quoteFound } from '@shared/continuity'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
@@ -296,6 +297,91 @@ describe('where things stand', () => {
     const end = await stateAfter(opts(w.db, guess), w.two)
     expect(end?.characters[0].wearing).toBe('a grey cloak')
     expect(end?.said?.['mara|wearing']).toEqual({ quote: 'Mara pulled on', sceneId: w.one })
+  })
+
+  it('carries on into the scene so far while a scene far back waits to be read again', async () => {
+    const w = world()
+    const chapter = repo.getOutline(w.db, repo.listStories(w.db)[0].id).chapters[0].id
+    const four = repo.createScene(w.db, chapter, { title: 'Four' }).id
+    const five = repo.createScene(w.db, chapter, { title: 'Five' }).id
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara walked to the inn.')
+    write(w.db, w.three, 'Mara ate her supper.')
+    write(w.db, four, 'Mara climbed the stairs.')
+    const f = answering(
+      { characters: [mara({ wearing: 'a grey cloak' })] },
+      { characters: [mara({ where: 'the inn' })] },
+      { characters: [mara({ mood: 'full' })] },
+      { characters: [mara({ where: 'upstairs' })] },
+      { characters: [mara({ posture: 'sitting on the bed' })] },
+      { characters: [mara({ posture: 'lying down' })] }
+    )
+    await stateAfter(opts(w.db, f), w.one)
+    await stateBefore(opts(w.db, f), five)
+    expect(f.asked).toHaveLength(4)
+    // The first scene changes: more than three back from the fifth, so it isn't read again before a draft there.
+    write(w.db, w.one, 'Mara pulled on her grey cloak and smiled.')
+    const soFar = 'Mara sat on the bed.'
+    write(w.db, five, `${soFar}\n\nThen she lay down.`)
+    const here = await stateAtText(opts(w.db, f), five, soFar)
+    // The scenes before are kept at their ends (no new reading), and the scene so far builds on them.
+    expect(f.asked).toHaveLength(5)
+    expect(f.asked[4]).toContain('wearing: a grey cloak')
+    expect(here?.characters[0]).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs', posture: 'sitting on the bed' })
+    // Recall at the cursor finds that checkpoint, and the scene's end reads on from it.
+    expect(storedStateAt(w.db, five, soFar)?.state.characters[0].posture).toBe('sitting on the bed')
+    await stateAfter(opts(w.db, f), five)
+    expect(wordsAsked(f.asked[5])).toBe('\n\nThen she lay down.')
+  })
+
+  it('never takes a value from the words before a checkpoint: they are already counted', async () => {
+    const w = world()
+    const first = 'Mara sat on the bed.'
+    write(w.db, w.one, `${first}\n\nShe yawned and stretched.`)
+    const f = answering({ characters: [mara({ posture: 'sitting on the bed' })] }, { characters: [mara({ posture: 'standing' })], quote: 'Mara sat on the bed' })
+    await stateAtText(opts(w.db, f), w.one, first)
+    const end = await stateAfter(opts(w.db, f), w.one)
+    expect(f.asked[1]).toContain('already counted')
+    expect(end?.characters[0].posture).toBe('sitting on the bed')
+  })
+
+  it('needs at least two words in each place a quote is taken from', () => {
+    const words = 'Mara came in. She hung her grey cloak on the peg.'
+    expect(quoteFound('Mara came', words)).toBe(true)
+    expect(quoteFound('Mara came … grey cloak', words)).toBe(true)
+    expect(quoteFound('Mara … cloak', words)).toBe(false)
+    expect(quoteFound('cloak', words)).toBe(false)
+  })
+
+  it('keeps what Adam put right while the model was reading', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara sat by the fire.')
+    await stateBefore(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] }, { characters: [mara({ posture: 'sitting' })] })), w.three)
+    write(w.db, w.one, 'Mara pulled on her red cloak.')
+    await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a red cloak' })] })), w.one)
+    // The second scene is read again (it built on the old first); Adam puts a value right while it is.
+    const inner = answering({ characters: [mara({ posture: 'sitting by the fire' })] })
+    const f = (async (input: unknown, init?: RequestInit) => {
+      editState(w.db, w.two, (e) => {
+        e.characters = { mara: { mood: 'tired' } }
+      })
+      return inner(input as string, init)
+    }) as typeof fetch
+    const end = await stateAfter(opts(w.db, f), w.two)
+    expect(end?.characters[0]).toMatchObject({ wearing: 'a red cloak', posture: 'sitting by the fire', mood: 'tired' })
+    expect(storedState(w.db, w.two)).toMatchObject({ edited: true, current: true })
+  })
+
+  it('keeps the latest checkpoints of a scene, the oldest going first', async () => {
+    const w = world()
+    const words = Array.from({ length: 10 }, (_, i) => `Mara took step number ${i + 1}.`)
+    write(w.db, w.one, words.join('\n\n'))
+    const f = answering({ characters: [mara({ posture: 'walking' })] })
+    for (let i = 1; i < words.length; i++) await stateAtText(opts(w.db, f), w.one, words.slice(0, i).join('\n\n'))
+    // Nine read, eight kept: the first is gone, the second and later are still there.
+    expect(storedStateAt(w.db, w.one, words[0])).toBeNull()
+    expect(storedStateAt(w.db, w.one, words.slice(0, 2).join('\n\n'))).toMatchObject({ exact: true })
   })
 
   it('asks for every piece of clothing and how it sits, and the whole pose', () => {

@@ -143,7 +143,9 @@ function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): voi
       if (was?.current) return
       await stateBefore(o, sceneId)
       await stateAfter(o, sceneId)
-      if (live() && storedState(db, sceneId)?.current) emit('recall:changed', { sceneId })
+      // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
+      const now = live() ? storedState(db, sceneId) : null
+      if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
     } catch (e) {
       console.warn('Could not bring where things stand up to date', e)
     }

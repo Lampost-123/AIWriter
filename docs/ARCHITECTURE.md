@@ -637,12 +637,17 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
 - **The live stage** (Adam, 2026-10-07: "a comprehensive framework that ensures consistency instead of the model
   guessing"; step 2 of the consistency plan). Changes, not guesses: the memory model gives each value as
   `{value, quote}`, and `readChanges` (shared/continuity.ts) keeps a value only when `quoteFound` finds its words in
-  what the model was given; the rest carries on from before. The words go with the value (`SceneState.said`, by
+  what the model was given to read (two words or more in each place it quotes; never the lead-in before a
+  checkpoint, which is already counted); the rest carries on from before. The words go with the value (`SceneState.said`, by
   `sourceKey`), carried on until a new value replaces it or Adam sets his own. Checkpoints inside scenes (`meta`
   'continuity-points', by scene, with the hash of the words up to each and of the state the scene starts from; at most
   `MOST_POINTS` per scene and `MOST_SCENES` scenes): every reading partway through or at the end of a scene is kept,
   and the next starts from the latest that still matches the words (`readUpTo`), reading only what follows with a
-  short lead-in. Adam's Recall edits are laid over the scene-end checkpoint, so they carry into words added after.
+  short lead-in. Every reading of a scene builds on the same start (`startOf`, the scene before's kept end), so the
+  scene so far, the scene's end and Recall at the cursor share checkpoints; the scene so far and Recall need only the
+  last few scenes before to be fresh (`startsFresh`), not the whole line, so a scene far back waiting to be read again
+  doesn't leave them with nothing. Adam's Recall edits are laid over the scene-end checkpoint, so they carry into
+  words added after.
   After each memory read (`KeeperDeps.onSceneRead`, `standLater` in keeper/index.ts), the scene-end state is brought
   up to date on its own and Recall reloads (`recall:changed`). Recall has Scene end and At the cursor: the latter
   follows the cursor (`wordsToCursor`, edits/session.ts) and shows the checkpoint at or before it

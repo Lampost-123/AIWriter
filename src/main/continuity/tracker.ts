@@ -67,6 +67,27 @@ function finalOf(all: Stored, sceneId: ID | undefined): SceneState | null {
 }
 
 /**
+ * The state a scene's own reading builds on: the one kept for the scene before it on the story's line. The scene's
+ * end and its checkpoints are all keyed to it, so every reading of the scene finds the same checkpoints.
+ */
+const startOf = (db: DB, all: Stored, sceneId: ID): SceneState | null => finalOf(all, scenesBefore(db, sceneId).at(-1))
+
+/**
+ * True when the scenes a draft brings up to date (the last few before this one) are each kept from their words as
+ * they are now, built on the one before: what the scene starts from is no ghost. Looser than `stands`, which goes all
+ * the way back, so a scene far back waiting to be read again doesn't leave the scene so far with nothing.
+ */
+function startsFresh(db: DB, all: Stored, sceneId: ID): boolean {
+  const line = scenesBefore(db, sceneId)
+  return line.slice(-CATCH_UP).every((id) => {
+    const k = all[id]
+    if (!k) return true
+    const i = line.indexOf(id)
+    return k.hash === hashOf(kdb.keeperScene(db, id)?.text ?? '') && k.base === stateHash(i > 0 ? finalOf(all, line[i - 1]) : null)
+  })
+}
+
+/**
  * True when a kept state still stands: read from the scene's words as they are now, built on the state the scene
  * before ends with now, and that one standing too, all the way back. Anything else would be a ghost (a cloak taken
  * off in an earlier scene's new words, still worn here), and is worked out again before it is used.
@@ -113,7 +134,8 @@ export function editState(db: DB, sceneId: ID, change: (edits: StateEdits) => vo
   save(db, all)
   // When the scene goes on from here, the reading starts from his version.
   const scene = kdb.keeperScene(db, sceneId)
-  if (scene && k.hash === hashOf(scene.text)) keepPoint(db, sceneId, k.base, scene.text, withEdits(k.state, edits))
+  // Only when his version still stands: one laid over an old start would set aside the checkpoints that do.
+  if (scene && stands(db, all, sceneId)) keepPoint(db, sceneId, k.base, scene.text, withEdits(k.state, edits))
   return true
 }
 
@@ -189,13 +211,15 @@ export async function stateAfter(o: TrackOptions, sceneId: ID): Promise<SceneSta
   const all = load(o.db)
   const kept = all[sceneId]
   if (kept && stands(o.db, all, sceneId)) return withEdits(kept.state, kept.edits)
-  const before = finalOf(all, scenesBefore(o.db, sceneId).at(-1))
+  const before = startOf(o.db, all, sceneId)
   const state = await readUpTo(o, sceneId, before, scene.text, false)
   if (!state) return null
   const now = load(o.db)
   // Adam's edits stay while the words are the ones he edited against; new words are read afresh (from the checkpoint
-  // his edits were laid over, so what he put right carries on).
-  now[sceneId] = { hash, base: stateHash(before), state, ...(kept?.hash === hash && kept.edits ? { edits: kept.edits } : {}) }
+  // his edits were laid over, so what he put right carries on). Taken as they are now: he may have changed a value
+  // while the model was reading.
+  const edits = now[sceneId]?.hash === hash ? now[sceneId].edits : undefined
+  now[sceneId] = { hash, base: stateHash(before), state, ...(edits ? { edits } : {}) }
   save(o.db, now)
   return withEdits(state, now[sceneId].edits)
 }
@@ -222,8 +246,9 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
   })
   // Nothing to go on: no state rather than one the words no longer support.
   if (got.status !== 'complete' || o.closed() || !o.db.open) return null
-  // A value counts only with words the model was given; the words before a checkpoint were given too.
-  const read = readChanges(got.text, `${ask.after ?? ''}\n\n${text}`, sceneId)
+  // A value counts only with words it was given to read: the words before a checkpoint are already counted, and a
+  // value quoted from them may since have changed again.
+  const read = readChanges(got.text, text, sceneId)
   return read ? mergeState(before, read) : null
 }
 
@@ -236,8 +261,8 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
 
 export const POINTS_KEY = 'continuity-points'
 /** The most checkpoints kept for a scene (the oldest go first), and the most scenes kept with them (the least lately read go first). */
-const MOST_POINTS = 12
-const MOST_SCENES = 30
+const MOST_POINTS = 8
+const MOST_SCENES = 15
 /** How much of the words before a checkpoint is given with the words after it, so the reading follows on. */
 const LEAD_IN = 1_500
 
@@ -307,9 +332,13 @@ async function readUpTo(o: TrackOptions, sceneId: ID, before: SceneState | null,
  * memory model couldn't say (never the state before in its place: that would be told as the scene so far's).
  */
 export async function stateAtText(o: TrackOptions, sceneId: ID, text: string): Promise<SceneState | null> {
+  // The scene before's end, just brought up to date: what the scene's own state builds on too (startOf), so both
+  // readings, and Recall at the cursor, find the same checkpoints. Nothing when it couldn't be read from its words as
+  // they are now: never a ghost.
   await stateBefore(o, sceneId)
-  // As the scene's own state builds on it (and Recall finds the checkpoints by it): the scene before's, if it stands.
-  const before = keptStateBefore(o.db, sceneId)
+  const all = load(o.db)
+  if (!startsFresh(o.db, all, sceneId)) return null
+  const before = startOf(o.db, all, sceneId)
   if (!text.trim() || o.signal.aborted || o.closed()) return before
   const scene = kdb.keeperScene(o.db, sceneId)
   if (scene && scene.text.trim() === text.trim()) return stateAfter(o, sceneId)
@@ -332,7 +361,9 @@ export function storedStateAt(db: DB, sceneId: ID, text: string): { state: Scene
     const end = storedState(db, sceneId)
     return end && { state: end.state, exact: true, current: end.current }
   }
-  const p = pointFor(db, sceneId, stateHash(keptStateBefore(db, sceneId)), text)
+  const all = load(db)
+  if (!startsFresh(db, all, sceneId)) return null
+  const p = pointFor(db, sceneId, stateHash(startOf(db, all, sceneId)), text)
   return p && { state: p.state, exact: !text.slice(p.at).trim(), current: true }
 }
 

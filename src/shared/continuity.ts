@@ -105,14 +105,14 @@ const plain = (s: string): string =>
 
 /**
  * True when a quote's words are in the text, in order: case, punctuation and spacing aside, and with "…" (or "...")
- * joining two places. Fewer than two words is too little to show anything.
+ * joining two places. Fewer than two words, in any one place, is too little to show anything.
  */
 export function quoteFound(quote: string, text: string): boolean {
   const parts = quote
     .split(/\u2026|\.{3}/)
     .map(plain)
     .filter((p) => p.trim())
-  if (!parts.length || parts.join(' ').trim().split(' ').length < 2) return false
+  if (!parts.length || parts.some((p) => p.split(' ').filter(Boolean).length < 2)) return false
   const body = plain(text)
   let at = 0
   for (const p of parts) {
