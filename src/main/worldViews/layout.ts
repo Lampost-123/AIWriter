@@ -42,6 +42,12 @@ function hash(s: string): number {
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))
 
 /**
+ * A place rounded to a whole map unit, never -0 (Math.round gives -0 for anything just below 0): the
+ * layout is kept in the world as JSON, which writes -0 as 0, so the map shown and the map kept would differ.
+ */
+const whole = (v: number): number => Math.round(v) + 0
+
+/**
  * Some nodes (`members`, by index) bucketed into square cells, for finding the ones within a cell's width
  * of a node. `near` calls back with every member in the same or a neighbouring cell as node i (a member
  * where it was when the grid was made, any other node where it is now), in a fixed order.
@@ -277,7 +283,7 @@ export function layoutGraph(graph: LayoutGraph, fixed?: Positions): Positions {
     if (pinnedCount) relocate(x, y, ids, movers)
   }
 
-  ids.forEach((id, i) => out.set(id, pinned[i] ? fixed!.get(id)! : { x: Math.round(x[i]), y: Math.round(y[i]) }))
+  ids.forEach((id, i) => out.set(id, pinned[i] ? fixed!.get(id)! : { x: whole(x[i]), y: whole(y[i]) }))
   return out
 }
 

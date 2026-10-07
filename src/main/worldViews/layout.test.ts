@@ -80,6 +80,28 @@ describe('the relationship map layout', () => {
     expect(dist(p, 'a', 'b')).toBeLessThan(400)
   })
 
+  it('gives places that read back the same once kept in the world (never -0, which JSON keeps as 0)', () => {
+    const kept = (p: Positions) => JSON.parse(JSON.stringify([...p]))
+    // Two hundred small casts, laid out afresh and with a newcomer fitted in. Places depend on the ids,
+    // and a few of these (p14, p24, p143 among them) used to land at -0 across or down.
+    for (let s = 0; s < 200; s++) {
+      const [mara, tobin, kell] = [
+        { id: `p${s}-0`, name: 'Mara' },
+        { id: `p${s}-1`, name: 'Tobin' },
+        { id: `p${s}-2`, name: 'Kell' }
+      ]
+      const pair = layoutGraph({ nodes: [mara, tobin], edges: [[mara.id, tobin.id]] })
+      const three: LayoutGraph = {
+        nodes: [mara, tobin, kell],
+        edges: [
+          [mara.id, tobin.id],
+          [tobin.id, kell.id]
+        ]
+      }
+      for (const p of [pair, layoutGraph(three), layoutGraph(three, pair)]) expect([...p]).toEqual(kept(p))
+    }
+  })
+
   it('fits newcomers into a crowded cast without putting them on top of anyone', () => {
     const g = graph(330, 700)
     const before = layoutGraph(g)
