@@ -628,12 +628,25 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   Add below (`DraftOptions.addBelow`), a later beat and Continue are told where things stand at the end of the words
   already in the scene, not as the previous scene ended: `stateAtText` (continuity/tracker.ts, through the keeper's
   `continuityAt` and `standAtText` in ai/gather.ts, waiting at most `STAND_LIMIT_MS`, Continue `CONTINUE_STAND_MS`).
-  For the scene's saved words it is the scene's own state (kept, shown in Recall); for other words it is remembered
-  for the session only; when the model can't say, nothing is told rather than the previous scene's state under the
+  For the scene's saved words it is the scene's own state (kept, shown in Recall); for other words it is kept as a
+  checkpoint (below); when the model can't say, nothing is told rather than the previous scene's state under the
   wrong title. Add below also gets the scene so far as a block (`soFarBlock`, as Beat by beat) and a closing
   instruction to carry it on rather than start the scene (`finalInstruction` with `addBelow`). Block 3b is sent last,
   right above the closing instruction, after the scene so far. The tracker asks for every piece of clothing and how it
   sits, the whole pose, and nothing guessed; a value may be up to `LONGEST_VALUE` (400) characters.
+- **The live stage** (Adam, 2026-10-07: "a comprehensive framework that ensures consistency instead of the model
+  guessing"; step 2 of the consistency plan). Changes, not guesses: the memory model gives each value as
+  `{value, quote}`, and `readChanges` (shared/continuity.ts) keeps a value only when `quoteFound` finds its words in
+  what the model was given; the rest carries on from before. The words go with the value (`SceneState.said`, by
+  `sourceKey`), carried on until a new value replaces it or Adam sets his own. Checkpoints inside scenes (`meta`
+  'continuity-points', by scene, with the hash of the words up to each and of the state the scene starts from; at most
+  `MOST_POINTS` per scene and `MOST_SCENES` scenes): every reading partway through or at the end of a scene is kept,
+  and the next starts from the latest that still matches the words (`readUpTo`), reading only what follows with a
+  short lead-in. Adam's Recall edits are laid over the scene-end checkpoint, so they carry into words added after.
+  After each memory read (`KeeperDeps.onSceneRead`, `standLater` in keeper/index.ts), the scene-end state is brought
+  up to date on its own and Recall reloads (`recall:changed`). Recall has Scene end and At the cursor: the latter
+  follows the cursor (`wordsToCursor`, edits/session.ts) and shows the checkpoint at or before it
+  (`storedStateAt`), worked out exactly there on request (`refreshRecallAt`); it is for reading, not changing.
 - **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report

@@ -235,8 +235,9 @@ async function askState(o: TrackOptions, sceneId: ID, before: SceneState | null,
 // words are read. A checkpoint whose words, or whose scene's starting state, changed is never used.
 
 export const POINTS_KEY = 'continuity-points'
-/** The most checkpoints kept for a scene (the least lately used go first). */
+/** The most checkpoints kept for a scene (the oldest go first), and the most scenes kept with them (the least lately read go first). */
 const MOST_POINTS = 12
+const MOST_SCENES = 30
 /** How much of the words before a checkpoint is given with the words after it, so the reading follows on. */
 const LEAD_IN = 1_500
 
@@ -272,9 +273,12 @@ function keepPoint(db: DB, sceneId: ID, base: string, text: string, state: Scene
   const all = loadPoints(db)
   const mine = all[sceneId]?.base === base ? all[sceneId] : { base, points: [] }
   mine.points = [...mine.points.filter((p) => p.at !== text.length), { at: text.length, hash: hashOf(text), state }].slice(-MOST_POINTS)
+  // This scene last, so the scenes read least lately are the first to go.
+  delete all[sceneId]
   all[sceneId] = mine
+  const ids = Object.keys(all)
   // Scenes that are gone take their checkpoints with them.
-  for (const id of Object.keys(all)) if (!kdb.keeperScene(db, id)) delete all[id]
+  for (const [i, id] of ids.entries()) if (i < ids.length - MOST_SCENES || !kdb.keeperScene(db, id)) delete all[id]
   repo.setMeta(db, POINTS_KEY, JSON.stringify(all))
 }
 
