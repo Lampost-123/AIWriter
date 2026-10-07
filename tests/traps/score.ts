@@ -117,10 +117,67 @@ export interface SampleResult {
   generationId: string | null
   words: number
   text: string
-  judge: { status: 'ok' | 'unreadable' | 'failed' | 'skipped'; raw: string }
+  judge: { status: 'ok' | 'unreadable' | 'failed' | 'skipped'; raw: string; asked?: string }
   results: CheckResult[]
   /** Step 3's check and repair on this passage, when the checkout has it. */
   repair?: RepairResult
+  /**
+   * The app's records for this sample, in order (ids in the world's database, saved beside the report as
+   * evidence-world.db): the writer's draft, a plan, where things stand, the repair, any memory reads. The judge's calls
+   * aren't the app's: their reply is `judge.raw` and what they were asked is `judge.asked`.
+   */
+  records?: { id: string; job: string; kind: string }[]
+}
+
+/**
+ * The repair's reply, claim by claim, as the harness reads it: the app doesn't report what it drops, so this counts
+ * what it would drop by its own rules (a quote not in the new words, a line the request never had, a slip the model
+ * itself says could be true with the line: "bothTrue": "yes").
+ */
+export interface RepairDrops {
+  /** The reply could be read. */
+  read: boolean
+  claims: number
+  slips: number
+  quoteNotFound: number
+  unknownLine: number
+  bothTrueYes: number
+  note: string
+}
+
+const flat = (t: string): string =>
+  t
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+
+/** Counts what a repair reply holds and what the app's rules would drop (`request`: what it was asked, `words`: the new words). */
+export function repairDrops(reply: string, request: string, words: string): RepairDrops {
+  const note = "Counted by the harness from the repair's reply; the app reports only the claims it kept and the slips."
+  const start = reply.indexOf('{')
+  const end = reply.lastIndexOf('}')
+  let claims: Record<string, unknown>[] = []
+  try {
+    const v = JSON.parse(reply.slice(start, end + 1)) as { claims?: unknown }
+    if (!Array.isArray(v.claims)) throw new Error('no claims')
+    claims = v.claims.filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+  } catch {
+    return { read: false, claims: 0, slips: 0, quoteNotFound: 0, unknownLine: 0, bothTrueYes: 0, note }
+  }
+  const text = flat(words)
+  const lines = new Set([...request.matchAll(/\[([A-Z]\d+)\]|### ([A-Z]\d+)\b/g)].map((m) => m[1] ?? m[2]))
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  return {
+    read: true,
+    claims: claims.length,
+    slips: claims.filter((c) => str(c.verdict).toLowerCase() === 'slip').length,
+    quoteNotFound: claims.filter((c) => !str(c.quote).trim() || !text.includes(flat(str(c.quote)))).length,
+    unknownLine: claims.filter((c) => !lines.has(str(c.line).toUpperCase().replace(/[^A-Z0-9]/g, ''))).length,
+    bothTrueYes: claims.filter((c) => str(c.verdict).toLowerCase() === 'slip' && str(c.bothTrue ?? c.both_true).toLowerCase() === 'yes').length,
+    note
+  }
 }
 
 /** What check and repair (step 3) did to one passage as it landed, and the repaired passage scored again. */
@@ -133,6 +190,8 @@ export interface RepairResult {
   fixes: { was: string; now: string; why: string; made: boolean }[]
   /** The questions it raised in the Issues tab, in its words. */
   questions: string[]
+  /** What the repair's reply held and what fell away before the app judged it (counted by the harness: the app reports only claims and slips). */
+  drops?: RepairDrops
   /** The passage after the fixes the page made (the passage itself when none). */
   text: string
   judge: SampleResult['judge']
@@ -165,6 +224,8 @@ export interface RunReport {
   stopped?: string
   /** Step 5 (recall by meaning), when the checkout has it: whether finding by meaning was in use for the probes. */
   recall?: { meaning: boolean; probes: number; withMeaning: number; engine: string | null; indexed: { done: number; total: number } | null; notes: string[] }
+  /** The world's database (every record of the run) and the index of which records belong to which sample. */
+  evidence?: { world: string; index: string }
   /** The token budget and what was used of it. */
   budget?: { maxIn: number; maxOut: number; usedIn: number; usedOut: number }
   startedAt: string

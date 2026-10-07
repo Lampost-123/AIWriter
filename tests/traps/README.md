@@ -96,7 +96,13 @@ for the estimated cost; default DeepSeek's chat prices, 0.28, 0.028 for input it
 `--base-url <url>` (only to check the harness against a local fake server).
 
 Each run writes `report.md` (the scores), `report.json` (everything, including each passage and the judge's answers)
-and `passages.md` (every passage, for reading). A "Could not start the token worker" warning is expected: token
+and `passages.md` (every passage, for reading), and always, even when it stops or fails, the evidence: a copy of the
+run's world database (`evidence-world.db`: every call the app made, what was sent and what came back) and
+`evidence-index.json` (which records belong to which probe and sample: the writer's draft, a plan, where things stand,
+the repair, memory reads). The judge's calls aren't the app's: `report.json` has each one's question
+(`judge.asked`) and reply (`judge.raw`). For step 3 and later, `repair.drops` counts what each repair reply held and
+what the app's rules drop from it (a quote not in the new words, a line it was never given, a slip the model says
+could be true with the line); the app reports only the claims it kept, so the harness counts these itself. A "Could not start the token worker" warning is expected: token
 counting falls back to the main thread, with the same counts.
 
 ## Check and repair (step 3)
@@ -157,7 +163,17 @@ were read from the cache where the app records it (drafts and Continue; not the 
 | Clothes off early in a long scene | Early in s24 (2,400 words) Wren takes off her coat and boots; they stay off | C1 (judge and a deterministic tripwire) |
 | Someone gone early in a long scene | Early in s27 (2,400 words) Bryn takes the horses to the smith and doesn't come back | C2 (deterministic) |
 
-## Story version 3: the probes (v2)
+## Story version 3: the probes (v3)
+
+Probes v3 (7 October 2026, after round 4's diagnosis): B1's page ended after the bead was given (the bead was handed
+over across three sentences of paragraph 35, and a sentence-by-sentence search found a later mention), so all of its
+samples were scored against a page that already answered the question. B1 now stops before scene 26 first mentions the
+bead (Oskar's "the bead you owe my Pell"), so the page holds no reminder; a planted event is found a paragraph at a
+time; and a probe whose page already shows what it tests stops the run with a plain error. C2's check no longer takes
+someone reporting Bryn ("'Bryn said it wasn't hers to know'") for Bryn speaking in the room: only the narration
+counts. Scores with probes v2 (round 4) don't compare.
+
+### Probes v2
 
 Probes v2 (Adam, 2026-10-07): in round 3 about 75 of every 120 checks were "not touched": the passages never came near
 the traps. Each probe now aims its passage at its traps through what Adam would type himself (a draft's direction, a
@@ -169,7 +185,7 @@ probes v1 (round 3) don't compare.
 | G1 | Generate s28 (fog on the fell) | "Show, step by step, how Wren finds her bearings when the fog comes down. Name the horses as they climb. Her old burn aches in the cold and wet. When they stop to rest, describe Ash's face up close." | Empty |
 | C1 | Continue near the end of s24 | A last beat on the card: Wren gets up, rubbing her aching arm, and goes to the door to look at the storm | All but the last paragraph: the boots came off 1,300+ words back, beyond what Continue is shown |
 | C2 | Continue near the end of s27 | A last beat: Wren rolls up her sleeves, the talk turns to Bryn, the firelight on Ash's scarred face | All but the last paragraph: Bryn left 1,300+ words back |
-| B1 | Beat 3 of s26 (goodbye to Pell) | The beat itself (the parting) | Up to just before the bead is given |
+| B1 | Beat 3 of s26 (across the river, then goodbye to Pell) | The beat, with the note "Get them across the river first, then the goodbye on the far bank." | Up to just before the scene first mentions the bead (v3) |
 | G2 | Generate s29 (the Assize) | They ride to the hall; Bryn beside Wren; Gale presses to find out what the survey shows; her sleeve rides up over her old burn | Empty |
 | A1 | Add below halfway through s30 | Wren searches her pockets for a keepsake for Bryn, takes her bearings, they ride on; Ash's face | Half the scene |
 | A2 | Add below halfway through s25 | Wren checks which way the river lies; her burned arm stiff on the reins; Ash's face in the wind | Half the scene |

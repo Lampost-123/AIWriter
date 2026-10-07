@@ -15,6 +15,7 @@ import { landedPage, mirrorFixes, paragraphsOf, wordsFrom } from './page'
 import {
   passagesMarkdown,
   recallSummary,
+  repairDrops,
   reportMarkdown,
   scorePassage,
   summarise,
@@ -83,13 +84,18 @@ async function repairLanded(app: App, scene: StoryScene, sceneId: string, before
     const parts = applyMod
       ? applyMod.landedParts(page.state.doc, page.from, page.state.doc.content.size)
       : added.map((text) => ({ pid: null, text, from: 0, to: text.length }))
+    const fromRow = app.lastRow()
     const outcome = await repairMod.repairHandlers.checkNewWords({
       sceneId,
       recordId: written.generationId,
       paragraphs: parts.map(({ text, from, to }) => ({ text, from, to })),
       leadIn: before.join('\n\n').slice(-1_500)
     })
-    if (!outcome.repairId) return nothing
+    // What the repair's reply held, and what the app's rules drop from it (the app doesn't report that).
+    const call = app.recordsSince(fromRow).find((r) => r.kind === 'repair')
+    const rec = call ? app.record(call.id) : null
+    const drops = rec ? repairDrops(rec.response, rec.messages, written.text) : undefined
+    if (!outcome.repairId) return { ...nothing, ...(drops ? { drops } : {}) }
     let text = written.text
     let made: string[] = []
     if (outcome.fixes.length) {
@@ -115,7 +121,8 @@ async function repairLanded(app: App, scene: StoryScene, sceneId: string, before
       slips: outcome.slips,
       fixes: outcome.fixes.map((f) => ({ was: f.was, now: f.now, why: f.why, made: made.includes(f.id) })),
       questions: raised.filter((r) => r.status === 'open').map((r) => r.message),
-      text: made.length ? text : written.text
+      text: made.length ? text : written.text,
+      ...(drops ? { drops } : {})
     }
   } finally {
     // Back as it was before the words landed, with nothing the repair raised left behind.
@@ -144,7 +151,7 @@ async function writeSample(app: App, cfg: TrapsConfig, probe: Probe, sceneId: st
       options: { ...options, targetWords: cfg.words.beatScene },
       steer: probe.direction ?? '',
       soFar,
-      soFarEnds: 'with-beat'
+      soFarEnds: probe.soFarEnds ?? 'with-beat'
     })
     return draft(started.generationId)
   }
@@ -188,6 +195,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
   const app = await openApp(cfg, data, `${data.story.title} (trap story)`, from?.file ?? null)
   let stopped: string | undefined
   let savedWorld: string | undefined
+  const evidence: ProbeResult[] = []
   try {
     if (from) {
       if (JSON.stringify(from.saved.models) !== JSON.stringify(app.models)) throw new Error(`The saved world ${from.file} was built with other models (${JSON.stringify(from.saved.models)}).`)
@@ -195,7 +203,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       if (JSON.stringify(app.existing.map((s) => s.title)) !== JSON.stringify(titles)) throw new Error(`The saved world ${from.file} doesn't hold the story's scenes up to ${from.saved.scene}.`)
       cfg.log(`started from the saved world ${from.file} (scenes up to ${from.saved.scene} already read)`)
     }
-    const probeResults: ProbeResult[] = []
+    const probeResults: ProbeResult[] = evidence
     scenes: for (const [si, scene] of data.scenes.entries()) {
       if (si > lastScene) break
       if (from && si < from.saved.sceneIndex) continue
@@ -239,6 +247,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
             break scenes
           }
           cfg.log(`probe ${probe.id} (${probe.kind}, ${scene.title}) sample ${i + 1}/${cfg.samples}`)
+          const fromRow = app.lastRow()
           let written: Written
           try {
             written = await writeSample(app, cfg, probe, sceneId, soFar, i)
@@ -248,11 +257,12 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
           if (written.status !== 'complete' || !written.text.trim()) {
             cfg.log(`  not written: ${written.error ?? written.status}`)
             result.samples.push({ ...written, status: written.status === 'complete' ? 'error' : written.status, error: written.error ?? 'Nothing was written.', index: i, judge: { status: 'skipped', raw: '' }, results: [] })
+            result.samples.push({ ...result.samples.pop()!, records: app.recordsSince(fromRow) })
             continue
           }
           const j = await app.askJudge(probe, written.text)
           const results = scorePassage(probe, written.text, j.answers)
-          const sample: SampleResult = { ...written, index: i, judge: { status: j.status, raw: j.raw }, results }
+          const sample: SampleResult = { ...written, index: i, judge: { status: j.status, raw: j.raw, ...(j.asked ? { asked: j.asked } : {}) }, results }
           cfg.log(`  ${written.words} words; ${results.map((r) => `${r.id} ${r.verdict}`).join(', ')}`)
           if (app.repairMod) {
             let landed: Omit<RepairResult, 'judge' | 'results'>
@@ -273,6 +283,8 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
               `  repair: ${landed.checked ? `${landed.claims} claims, ${landed.fixes.length} fixes (${landed.fixes.filter((f) => f.made).length} made), ${landed.questions.length} questions` : 'checked nothing'}${landed.text !== written.text ? `; after: ${sample.repair.results.map((r) => `${r.id} ${r.verdict}`).join(', ')}` : ''}`
             )
           }
+          // Which of the app's records this sample made (the writer's, a plan, where things stand, the repair...).
+          sample.records = app.recordsSince(fromRow)
           result.samples.push(sample)
         }
       }
@@ -312,6 +324,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       usage: app.usage(),
       summary: summarise(probeResults, 'written', data.traps),
       ...(probeResults.some((x) => x.recall) ? { recall: recallSummary(probeResults) } : {}),
+      evidence: { world: join(outDir, 'evidence-world.db'), index: join(outDir, 'evidence-index.json') },
       ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {})
     }
 
@@ -324,6 +337,30 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
     cfg.log(`report written to ${outDir}`)
     return { report, outDir }
   } finally {
+    // The evidence, always (a run that stopped or failed too): every record the run made, with what was sent and what
+    // came back, and which records belong to which sample. The throwaway data folder goes after this.
+    try {
+      mkdirSync(outDir, { recursive: true })
+      const world = join(outDir, 'evidence-world.db')
+      if (!existsSync(world)) await app.saveEvidence(world)
+      const index = join(outDir, 'evidence-index.json')
+      if (!existsSync(index)) {
+        writeFileSync(
+          index,
+          JSON.stringify(
+            {
+              note: "Record ids are rows of the generations table in evidence-world.db (messages_json is what was sent, response what came back). Judge calls aren't the app's: report.json has each one's question (judge.asked) and reply (judge.raw).",
+              probes: evidence.map((p) => ({ probe: p.id, scene: p.scene, samples: p.samples.map((m) => ({ sample: m.index + 1, records: m.records ?? [] })) }))
+            },
+            null,
+            2
+          )
+        )
+      }
+      cfg.log(`evidence saved: ${world}`)
+    } catch (e) {
+      cfg.log(`could not save the evidence: ${e instanceof Error ? e.message : String(e)}`)
+    }
     await app.close()
   }
 }

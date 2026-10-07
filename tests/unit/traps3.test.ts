@@ -2,13 +2,13 @@
 // the written story, the plant check that decides whether a written scene is kept, and the token budget. No model.
 import { describe, expect, it } from 'vitest'
 import { Budget, estimateTokens } from '../traps/budget'
-import { firstBreak, patternVerdict, sentences } from '../traps/patterns'
+import { findPlace, firstBreak, outsideQuotes, patternVerdict, sentences } from '../traps/patterns'
 import { GUARDS3, PATTERNS, PROBES3, PROBES_VERSION, SCENES3, TRAPS3, type Scene3 } from '../traps/story3'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadFixture, probePage, storyV3, type FixturePlant, type StoryScene } from '../traps/storyData'
 import { checkPlants, paragraphAt } from '../traps/write'
-import { recallSummary, type ProbeResult } from '../traps/score'
+import { recallSummary, repairDrops, type ProbeResult } from '../traps/score'
 
 const broken = (key: keyof typeof PATTERNS, text: string): boolean => patternVerdict(PATTERNS[key], text).verdict === 'broken'
 
@@ -103,7 +103,7 @@ describe('probes v2: a mention is not a slip', () => {
     expect(patternVerdict(PATTERNS.bead, 'Wren searched her pockets: a few coins, a crust, nothing worth giving.').verdict).toBe('kept')
   })
   it('aims every probe at its traps without saying what is true', () => {
-    expect(PROBES_VERSION).toBe(2)
+    expect(PROBES_VERSION).toBe(3)
     for (const p of PROBES3) {
       const aimed = [p.direction ?? '', ...(p.beats ? [p.beats.at(-1) ?? ''] : [])].join(' ')
       if (p.id !== 'B1') expect(aimed.trim(), p.id).not.toBe('')
@@ -167,6 +167,11 @@ describe('the written story (story-v3.json)', () => {
         expect(p.paragraphs, p.id).toBeLessThan(scene.paragraphs.length)
       }
     }
+    // B1's page stops before scene 26 first mentions the bead: no reminder, and certainly not the bead given (round 4).
+    const b1 = data.probes.find((p) => p.id === 'B1')!
+    const s26 = data.scenes.find((s) => s.key === 's26')!
+    expect(s26.paragraphs.slice(0, b1.paragraphs).some((x) => /\bbead\b/i.test(x))).toBe(false)
+    expect(s26.paragraphs[b1.paragraphs]).toMatch(/\bbead\b/)
     // The story's own words never break what is true where the probes look (they were checked as it was written).
     for (const key of ['s24', 's25', 's26', 's27', 's28', 's29', 's30']) {
       const text = data.scenes.find((s) => s.key === key)!.paragraphs.join('\n\n')
@@ -291,5 +296,75 @@ describe('recall by meaning in the report', () => {
   it('says when it was off, and why, once', () => {
     const r = recallSummary([probe(false, 0, 'No search model.'), probe(false, 0, 'No search model.')])
     expect(r).toMatchObject({ meaning: false, withMeaning: 0, notes: ['No search model.'] })
+  })
+})
+
+describe('probes v3: round 4 diagnosis', () => {
+  // Round 4's C2a: someone telling what Bryn said is not Bryn in the room.
+  it('does not take Bryn reported, or her absence remarked, for Bryn speaking in the room', () => {
+    for (const t of [
+      '‘Bryn says that. Says you write like a woman counting sheep and afraid to lose one.’',
+      '‘Bryn said it wasn\'t hers to know.’',
+      '‘Bryn said you\'d have it out on every table between here and the coast,’ he said.',
+      '‘Bryn says a lot of things like that and then she asks.’',
+      '‘Bryn\'s not here to say it.’',
+      "'Bryn said it wasn't hers to know,' Ash said."
+    ])
+      expect(broken('brynBack', t), t).toBe(false)
+  })
+  it('still catches Bryn speaking in the room', () => {
+    expect(broken('brynBack', "'She's over the bank at the lower bend,' Bryn said, and spat.")).toBe(true)
+    expect(broken('brynBack', "Behind her, on the bench, Bryn said, without moving, 'Shut the door.'")).toBe(true)
+    expect(broken('brynBack', '‘From the west,’ Bryn said.')).toBe(true)
+  })
+  it('blanks what is said aloud, keeping apostrophes and the length', () => {
+    const t = "‘Bryn said it wasn't hers,’ he said. Bryn's cart was gone."
+    const o = outsideQuotes(t)
+    expect(o).toHaveLength(t.length)
+    expect(o).not.toMatch(/Bryn said/)
+    expect(o).toMatch(/he said\. Bryn's cart was gone\./)
+    // An unclosed quote ends with its paragraph.
+    expect(outsideQuotes("'Wait,\n\nBryn said.")).toMatch(/Bryn said\./)
+  })
+  // Round 4's B1: the bead given over a few sentences, found a paragraph later by a sentence-by-sentence search.
+  const s26 = [
+    'They got across.',
+    "She got the bead out of her jumper pocket. It was a blue glass bead the size of a hazelnut, with a white thread running through it, and it had been in her pocket through the rain at the ford and the night in the hut and it was still whole. She put it in Pell's hand.",
+    'Pell ran up the bank.',
+    'Pell came back down the bank with her fist closed and stood beside her father and opened her hand and looked at the bead again, and closed it.'
+  ]
+  const given = SCENES3.find((x) => x.key === 's26')!.plants.find((x) => x.id === 'bead-given')!
+  it('finds a planted event in the paragraph it happens in, across sentences', () => {
+    expect(findPlace(s26, given.find)).toMatchObject({ paragraph: 1 })
+    expect(findPlace(s26, given.find)!.quote).toMatch(/^She got the bead out .* She put it in Pell's hand\.$/)
+  })
+  const scene = (paragraphs: string[]): StoryScene => ({ key: 's26', chapter: 5, title: 'The crossing', card: { pov: 'wren', present: [], location: 'ferry', when: '', beats: [] }, paragraphs })
+  const b1 = PROBES3.find((p) => p.id === 'B1')!
+  it('cuts a "before" page before the first mention, whatever paragraph the story file recorded', () => {
+    const paras = ['At the landing.', 'Oskar talked of the bead you owe my Pell.', ...s26]
+    expect(probePage(b1, scene(paras), [{ id: 'bead-given', trap: 'promise', scene: 's26', quote: '', paragraph: 5, by: 'pattern' }])).toEqual({ paragraphs: 1 })
+  })
+  it('fails loudly when the page would already show what the probe tests', () => {
+    const noMention = { ...b1, at: { before: 'bead-given' } }
+    expect(() => probePage(noMention, scene(s26), [{ id: 'bead-given', trap: 'promise', scene: 's26', quote: '', paragraph: 9, by: 'pattern' }])).not.toThrow()
+    // A page cut after the giving, as round 4's was.
+    const late = { id: 'X', scene: 's26', at: { before: 'nothing-here' } } as unknown as Parameters<typeof probePage>[0]
+    expect(() => probePage(late, scene(s26), [{ id: 'nothing-here', trap: 'promise', scene: 's26', quote: '', paragraph: 3, by: 'pattern' }])).not.toThrow()
+  })
+})
+
+describe('the repair reply, counted', () => {
+  it('counts claims, slips, and what the app would drop', () => {
+    const reply = JSON.stringify({
+      claims: [
+        { quote: 'her boots rang', line: 'W1', verdict: 'slip', bothTrue: 'no' },
+        { quote: 'words not there', line: 'W1', verdict: 'slip', bothTrue: 'maybe' },
+        { quote: 'her boots rang', line: 'W9', verdict: 'fits' },
+        { quote: 'her boots rang', line: 'E1', verdict: 'slip', bothTrue: 'yes' }
+      ]
+    })
+    const request = '## Where things stand\n- [W1] Wren · wearing: boots off\n### E1 Wren Hollis'
+    expect(repairDrops(`Here: ${reply}`, request, 'Her boots rang on the floor.')).toMatchObject({ read: true, claims: 4, slips: 3, quoteNotFound: 1, unknownLine: 1, bothTrueYes: 1 })
+    expect(repairDrops('no json', request, '').read).toBe(false)
   })
 })

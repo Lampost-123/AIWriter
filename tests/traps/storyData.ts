@@ -4,7 +4,8 @@
 
 import { readFileSync } from 'node:fs'
 import { CHAPTERS, ENTRIES, PROBES, SCENES, STORY, STORY_VERSION, TRAPS, type Probe } from './story'
-import { CHAPTERS3, ENTRIES3, OUTLINE_VERSION, PROBES3, PROBES_VERSION, STORY3, TRAPS3, type Card3, type Entry3, type ProbeSpec3 } from './story3'
+import { findPlace } from './patterns'
+import { CHAPTERS3, ENTRIES3, OUTLINE_VERSION, PROBES3, PROBES_VERSION, SCENES3, STORY3, TRAPS3, type Card3, type Entry3, type ProbeSpec3 } from './story3'
 
 export interface StoryScene {
   key: string
@@ -116,7 +117,19 @@ export function probePage(spec: ProbeSpec3, scene: StoryScene, plants: FixturePl
   const plantId = 'before' in at ? at.before : at.after
   const plant = plants.find((p) => p.id === plantId && p.scene === spec.scene)
   if (!plant) throw new Error(`Probe ${spec.id} needs where "${plantId}" happens in ${spec.scene}, and the written story doesn't say.`)
-  if ('before' in at) return { paragraphs: Math.max(1, plant.paragraph) }
+  if ('before' in at) {
+    // Found again in the written words, a paragraph at a time (a writer spreads one event over a few sentences: round 4
+    // recorded the bead given in the paragraph after it was), and before its first mention when asked.
+    const planned = SCENES3.find((x) => x.key === spec.scene)?.plants.find((x) => x.id === plantId)
+    const found = planned ? findPlace(paras, planned.find, planned.none ?? []) : null
+    const mention = at.firstMention ? paras.findIndex((x) => new RegExp(at.firstMention!.source, at.firstMention!.flags.replace('g', '')).test(x)) : -1
+    const cut = Math.min(plant.paragraph, found?.paragraph ?? plant.paragraph, mention >= 0 ? mention : plant.paragraph)
+    if (cut < 1) throw new Error(`Probe ${spec.id}: "${plantId}" is in the first paragraph of ${spec.scene}; there is no page before it.`)
+    // Fails loudly rather than score a page that already shows what the probe tests.
+    const shown = planned ? findPlace(paras.slice(0, cut), planned.find, planned.none ?? []) : null
+    if (shown) throw new Error(`Probe ${spec.id}'s page already shows "${plantId}" (paragraph ${shown.paragraph + 1}: “${shown.quote.slice(0, 120)}”).`)
+    return { paragraphs: cut }
+  }
   // Continue near the end of the scene: every paragraph but the last on the page, so it carries on from there.
   const cut = Math.max(plant.paragraph + 1, n - 1)
   const gap = paras.slice(plant.paragraph + 1, cut).reduce((t, x) => t + wordsIn(x), 0)
@@ -148,6 +161,7 @@ export function storyV3(f: StoryFixture, source: string): StoryData {
       patterns: spec.patterns,
       ...(spec.direction ? { direction: spec.direction } : {}),
       ...(spec.beats ? { beats: spec.beats } : {}),
+      ...(spec.soFarEnds ? { soFarEnds: spec.soFarEnds } : {}),
       ...(page.note ? { note: page.note } : {})
     }
   })

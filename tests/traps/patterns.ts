@@ -14,6 +14,11 @@ export interface PatternCheck {
   not?: RegExp
   /** ...or this matches anywhere earlier in the passage (the change shown on the page: "Bryn came back in"). */
   unlessBefore?: RegExp
+  /**
+   * Only what the narration says counts, not what someone says aloud: words inside quotation marks are left out before
+   * `broken` is tried ("'Bryn said it wasn't hers to know,'" is Ash reporting her, not Bryn speaking).
+   */
+  outsideQuotes?: boolean
   /** The passage touches the subject at all (else the check is "not touched", not "kept"). */
   touches: RegExp
 }
@@ -35,14 +40,53 @@ export function sentences(text: string): Sentence[] {
 
 const once = (r: RegExp): RegExp => new RegExp(r.source, r.flags.replace('g', ''))
 
+const isLetter = (c: string | undefined): boolean => !!c && /[\p{L}\p{N}]/u.test(c)
+
+/**
+ * The text with what is said aloud blanked out (kept the same length): words between quotation marks, curly or
+ * straight, double or single. A single straight or curly apostrophe inside a word ("wasn't", "Bryn's") is not a quote.
+ */
+export function outsideQuotes(text: string): string {
+  let out = ''
+  let open: string | null = null
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    const before = text[i - 1]
+    const after = text[i + 1]
+    if (!open) {
+      const opens = c === '“' || c === '"' || ((c === '‘' || c === "'") && !isLetter(before))
+      if (opens) {
+        open = c === '“' ? '”' : c === '‘' ? '’' : c
+        out += ' '
+        continue
+      }
+      out += c
+      continue
+    }
+    // Speech running on into the next paragraph opens again there: a quote never outlasts its paragraph.
+    if (c === '\n') {
+      open = null
+      out += c
+      continue
+    }
+    const closes = open === '”' || open === '"' ? c === open || (open === '”' && c === '"') : (c === open || (open === '’' && c === "'")) && !isLetter(after)
+    if (closes) open = null
+    out += ' '
+  }
+  return out
+}
+
 /** The first sentence that breaks the truth (and isn't excused), or null. */
-export function firstBreak(p: Pick<PatternCheck, 'broken' | 'not' | 'unlessBefore'>, text: string, from = 0): Sentence | null {
+export function firstBreak(p: Pick<PatternCheck, 'broken' | 'not' | 'unlessBefore' | 'outsideQuotes'>, text: string, from = 0): Sentence | null {
   const broken = once(p.broken)
   const not = p.not ? once(p.not) : null
   const unless = p.unlessBefore ? once(p.unlessBefore) : null
+  // Quotation marks can span sentences: blank out what is said in the whole text first.
+  const narration = p.outsideQuotes ? outsideQuotes(text) : text
   for (const s of sentences(text)) {
     if (s.start < from) continue
-    if (!broken.test(s.text) || not?.test(s.text)) continue
+    const tried = p.outsideQuotes ? narration.slice(s.start, s.start + s.text.length) : s.text
+    if (!broken.test(tried) || not?.test(s.text)) continue
     if (unless?.test(text.slice(0, s.start))) continue
     return s
   }
@@ -55,6 +99,36 @@ export function patternVerdict(p: PatternCheck, text: string): { verdict: 'broke
   if (b) return { verdict: 'broken', quote: b.text }
   const touched = sentences(text).find((s) => once(p.touches).test(s.text))
   return touched ? { verdict: 'kept', quote: touched.text } : { verdict: 'silent', quote: '' }
+}
+
+/** Where something happens in a scene: its paragraph, where that starts in the joined text, and its words. */
+export interface Place {
+  paragraph: number
+  start: number
+  end: number
+  quote: string
+}
+
+/**
+ * The first paragraph where all of `all` match (and none of `none`), for finding where a planted event happens: a whole
+ * paragraph, since a writer often spreads one event over a few sentences ("She got the bead out of her pocket. ... She
+ * put it in Pell's hand."). The quote is that paragraph's sentences that match any of `all`. `paragraphs` are joined
+ * with a blank line, as the scene's text is.
+ */
+export function findPlace(paragraphs: string[], all: RegExp[], none: RegExp[] = []): Place | null {
+  let start = 0
+  for (let i = 0; i < paragraphs.length; i++) {
+    const para = paragraphs[i]
+    if (all.every((r) => once(r).test(para)) && !none.some((r) => once(r).test(para))) {
+      const quote = sentences(para)
+        .filter((x) => all.some((r) => once(r).test(x.text)))
+        .map((x) => x.text)
+        .join(' ')
+      return { paragraph: i, start, end: start + para.length, quote: quote || para }
+    }
+    start += para.length + 2
+  }
+  return null
 }
 
 /** The first sentence matching all of `all` (and none of `none`), for finding where a planted event happens. */

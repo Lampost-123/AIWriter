@@ -31,9 +31,11 @@ export const OUTLINE_VERSION = 1
 /**
  * Bump when the probes or their checks change (the written story stays the same): reports say "probes vN", and runs
  * with different probe versions don't compare. 1: round 3. 2 (7 October 2026): each probe aimed at its traps, and the
- * quick checks tightened so a mention isn't a slip.
+ * quick checks tightened so a mention isn't a slip. 3 (7 October 2026, after round 4's diagnosis): B1's page ends
+ * before the bead is first mentioned in its scene (round 4's page already showed it given), and Bryn reported by
+ * someone else ("'Bryn said it wasn't hers to know'") is not Bryn speaking.
  */
-export const PROBES_VERSION = 2
+export const PROBES_VERSION = 3
 
 export const TRAPS3 = [
   { id: 'burn', name: 'An injury chapters back', tests: "Wren's left forearm, burned in chapter 1, is still the left one in chapter 7." },
@@ -287,6 +289,9 @@ export const PATTERNS = {
     id: 'bryn',
     trap: 'rooms',
     what: 'Bryn speaks or acts in the room without coming back first.',
+    // Someone telling what Bryn said ("'Bryn says that...'", "'Bryn said you'd have it out on every table'") is speech,
+    // not Bryn in the room: only the narration counts.
+    outsideQuotes: true,
     broken:
       /\bBryn (?:said|says|asked|called|muttered|answered|replied|whispered|told|laughed|snapped|grinned|nodded|shrugged|sat|stood|leaned|poured|drank)\b|\b(?:said|asked|called|muttered|answered|replied|whispered|snapped) Bryn\b/i,
     not: /\b(?:would|might|hoped|wondered|thought|remember\w*|smith|forge|when|until|before|if)\b/i,
@@ -963,8 +968,11 @@ export type ProbeAt =
   | { start: true }
   /** Continue far from a planted event: at least `gap` words after it (beyond Continue's 1,200), near the scene's end. */
   | { after: string; gap: number }
-  /** Just before the paragraph where a planted event happens. */
-  | { before: string }
+  /**
+   * Just before the paragraph where a planted event happens, found again in the written words, paragraph by paragraph;
+   * with `firstMention`, before the first paragraph of the scene that mentions it at all (so the page holds no reminder).
+   */
+  | { before: string; firstMention?: RegExp }
   /** This share of the scene's words (cut at a paragraph). */
   | { share: number }
 
@@ -978,6 +986,8 @@ export interface ProbeSpec3 {
   direction?: string
   /** The scene card's beats for the probe (Continue reads them): aims it at the traps. */
   beats?: string[]
+  /** A beat probe whose page stops part-way through the beat before (Beat by beat's own "mid-beat"). */
+  soFarEnds?: 'with-beat' | 'mid-beat'
   asks: string
   facts: string[]
   checks: Check[]
@@ -1075,10 +1085,14 @@ export const PROBES3: ProbeSpec3[] = [
     scene: 's26',
     kind: 'beat',
     beat: 3,
-    at: { before: 'bead-given' },
-    asks: 'Beat 3 of scene 26 (goodbye to Pell on the far bank): the bead promised in chapter 1, bought in chapter 3, is due.',
+    // Probes v3: before the scene first mentions the bead (Oskar's "the bead you owe my Pell"), so the page holds no
+    // reminder; round 4's page ended after the bead was given.
+    at: { before: 'bead-given', firstMention: /\bbead\b/i },
+    soFarEnds: 'mid-beat',
+    direction: 'Get them across the river first, then the goodbye on the far bank.',
+    asks: 'Beat 3 of scene 26 (across the river, then goodbye to Pell): the bead promised in chapter 1, bought in chapter 3, is due; the page stops before the scene first mentions it.',
     facts: [
-      "In chapter 1 Wren promised Pell a blue glass bead from Harrowgate; she bought it at the market there in chapter 3 and has it with her.",
+      "In chapter 1 Wren promised Pell a blue glass bead from Harrowgate. She bought it at the market there in chapter 3, and she has it with her now: she has not given it to Pell yet.",
       'Only Ash and Bryn know the survey shows silver workings; Oskar and Pell know nothing about it.'
     ],
     checks: [

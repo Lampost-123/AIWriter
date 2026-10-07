@@ -452,7 +452,34 @@ export interface App {
   leave(sceneId: string): Promise<void>
   askJudge(probe: { facts: string[]; checks: Check[] }, text: string): Promise<SampleResult['judge'] & { answers: JudgeAnswer[] | null }>
   usage(): { byJob: Record<string, Usage>; judge: Usage; total: Usage }
+  /** The newest record's row so far, to find the records a step makes. */
+  lastRow(): number
+  /** The records made since a row, each with what it was (the writer's draft, a plan, a repair, the memory...). */
+  recordsSince(row: number): CallRecord[]
+  /** A record's request and reply. */
+  record(id: string): { messages: string; response: string } | null
+  /** A consistent copy of the world's database (every record, with what was sent and what came back), as evidence. */
+  saveEvidence(file: string): Promise<void>
   close(): Promise<void>
+}
+
+/** One model call the app made, as recorded in the world. */
+export interface CallRecord {
+  id: string
+  job: string
+  /** What it was, from its job and the marker its request starts with. */
+  kind: 'writer' | 'plan' | 'repair' | 'stand' | 'memory' | 'summary' | 'other'
+}
+
+/** What a record was, from its job and its request's marker. */
+export function callKind(job: string, messages: string): CallRecord['kind'] {
+  if (messages.includes('[AIWRITE-REPAIR v')) return 'repair'
+  if (messages.includes('[AIWRITE-PLAN v')) return 'plan'
+  if (messages.includes('[AIWRITE-CONTINUITY v')) return 'stand'
+  if (job === 'draft' || job === 'beat' || messages.includes('[AIWRITE-EDIT v')) return 'writer'
+  if (job === 'summary' || messages.includes('[AIWRITE-MEMORY-SUMMARY v')) return 'summary'
+  if (job === 'memory') return 'memory'
+  return 'other'
 }
 
 export async function openApp(
@@ -736,9 +763,9 @@ export async function openApp(
         }
         raw = o.text
         const answers = readJudgeReply(o.text)
-        if (answers) return { status: 'ok', raw, answers }
+        if (answers) return { status: 'ok', raw, answers, asked: messages[1].content }
       }
-      return { status: raw ? 'unreadable' : 'failed', raw, answers: null }
+      return { status: raw ? 'unreadable' : 'failed', raw, answers: null, asked: messages[1].content }
     }
 
     /**
@@ -749,7 +776,7 @@ export async function openApp(
       const byJob: Record<string, Usage> = {}
       const rows = db
         .prepare(
-          `SELECT CASE WHEN instr(messages_json, '[AIWRITE-REPAIR v') > 0 THEN 'repair' ELSE job END AS job, COUNT(*) AS calls,
+          `SELECT CASE WHEN instr(messages_json, '[AIWRITE-REPAIR v') > 0 THEN 'repair' WHEN instr(messages_json, '[AIWRITE-PLAN v') > 0 THEN 'plan' ELSE job END AS job, COUNT(*) AS calls,
              COALESCE(SUM(prompt_tokens), 0) AS p, COALESCE(SUM(completion_tokens), 0) AS c, SUM(cost) AS cost,
              COALESCE(SUM(CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cachedTokens') END), 0) AS k
            FROM generations WHERE rowid > ? GROUP BY 1 ORDER BY 1`
@@ -783,6 +810,18 @@ export async function openApp(
       existing,
       snapshot,
       recallReady,
+      lastRow: () => (db.prepare('SELECT COALESCE(MAX(rowid), 0) AS m FROM generations').get() as { m: number }).m,
+      recordsSince: (row: number) =>
+        (db.prepare('SELECT id, job, messages_json AS m FROM generations WHERE rowid > ? ORDER BY rowid').all(row) as { id: string; job: string; m: string }[]).map(
+          (r) => ({ id: r.id, job: r.job, kind: callKind(r.job, r.m) })
+        ),
+      record: (id: string) => {
+        const r = db.prepare('SELECT messages_json AS m, response AS r FROM generations WHERE id = ?').get(id) as { m: string; r: string } | undefined
+        return r ? { messages: r.m, response: r.r } : null
+      },
+      saveEvidence: async (file: string) => {
+        await db.backup(file)
+      },
       save,
       memoryIdle,
       leave,

@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { checkout, countWords, openApp, whenEnded, type App, type TrapsConfig } from './app'
-import { firstBreak, findSentence } from './patterns'
+import { firstBreak, findPlace } from './patterns'
 import { paragraphsOf } from './page'
 import { quoteInPassage } from './score'
 import { GUARDS3, OUTLINE_VERSION, SCENES3, type Scene3 } from './story3'
@@ -54,10 +54,12 @@ export async function checkPlants(
   const found = new Map<string, { start: number; end: number; quote: string; by: 'pattern' | 'judge' }>()
   const ask: { id: string; ask: string; plant: (typeof scene.plants)[number] }[] = []
   for (const p of scene.plants) {
-    const s = findSentence(joined, p.find, p.none ?? [])
-    if (s) found.set(p.id, { start: s.start, end: s.start + s.text.length, quote: s.text, by: 'pattern' })
+    // A paragraph at a time: a writer spreads one event over a few sentences ("She got the bead out. ... She put it in
+    // Pell's hand."), and a sentence-by-sentence search found a later mention instead (round 4).
+    const place = findPlace(paragraphs, p.find, p.none ?? [])
+    if (place) found.set(p.id, { start: place.start, end: place.end, quote: place.quote, by: 'pattern' })
     else if (p.judge) ask.push({ id: `Q${ask.length + 1}`, ask: p.judge, plant: p })
-    else problems.push(`"${p.id}" didn't happen (no sentence shows it).`)
+    else problems.push(`"${p.id}" didn't happen (no paragraph shows it).`)
   }
   if (ask.length) {
     const answers = await judge(

@@ -408,6 +408,8 @@ export interface Probe {
   direction?: string
   /** The scene card's beats for the probe, in place of the card's own (story version 3, probes v2: Continue). */
   beats?: string[]
+  /** A beat probe: how its page ends (Beat by beat's own words for it); 'with-beat' when left out. */
+  soFarEnds?: 'with-beat' | 'mid-beat'
 }
 
 /**
