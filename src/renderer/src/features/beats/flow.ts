@@ -56,6 +56,8 @@ import {
   type PageMark
 } from './sessionLogic'
 import { WORDS_META } from '@/features/goals/wordsMeta'
+import { onRepaired, repairLanded } from '@/features/repair/repairRun'
+import { quietRepairs } from '@/features/repair/marks'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -97,6 +99,13 @@ let run: Run | null = null
 
 /** The page as each beat's record left it (so Write it again knows whether the beat is still the newest undo step). */
 const marks = new Map<ID, PageMark>()
+
+// Check and repair mends slips in a beat's words as it lands, as an undo step of its own: when the page was as the beat
+// left it, it still is, with those fixes on top, so Write it again takes the fixes out with the beat.
+onRepaired((recordId, before, after) => {
+  const mark = marks.get(recordId)
+  if (mark && unchangedSince(before, mark)) marks.set(recordId, { ...markPage(after), steps: (mark.steps ?? 1) + 1 })
+})
 
 /** The last message about a beat (a problem, a cut-off), taken away when the next beat starts. */
 let beatToast: number | null = null
@@ -515,17 +524,22 @@ function append(r: Run, text: string): void {
 function makeWay(r: Run, bridge: EditorBridge, ed: Editor): boolean {
   r.settled = true
   const id = r.generationId!
-  if (unchangedSince(ed.state, r.oldRecord ? marks.get(r.oldRecord) : null)) {
+  const mark = r.oldRecord ? marks.get(r.oldRecord) : null
+  if (unchangedSince(ed.state, mark)) {
     holdHeight(ed.view.dom)
     // Nothing of the new version is on the page yet, so ending its stream changes nothing. The page
     // stays where it is (an undo would otherwise show the caret, wherever that is).
     bridge.endStream(id)
-    undoNoScroll(ed.state, ed.view.dispatch)
+    // The beat, and the slips mended in it as it landed (each an undo step of its own), come out together; taking
+    // those fixes out this way isn't Adam undoing them (features/repair/marks.ts).
+    const steps = mark?.steps ?? 1
+    const quietly = (tr: Transaction): void => ed.view.dispatch(quietRepairs(tr))
+    for (let i = 0; i < steps; i++) undoNoScroll(ed.state, quietly)
     // A first beat that had replaced the scene's text takes its place again; a first beat below the
     // old text goes under a scene break again.
     const replace = r.index === 1 && useBeats.getState().session?.mode === 'whole' && bridge.hasText()
     if (!bridge.beginStream(r.sceneId, id, { replace, noBreak: !replace && r.index > 1, quiet: true })) {
-      redoNoScroll(ed.state, ed.view.dispatch)
+      for (let i = 0; i < steps; i++) redoNoScroll(ed.state, quietly)
       void api.stopGeneration(id).catch(() => undefined)
       return false
     }
@@ -578,7 +592,14 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
   note(r)
   const failed = (p.status === 'error' && !!p.error) || !!p.cutOff
   const bridge = editorBridge()
+  // Check and repair: where the beat's words begin, for checking them as soon as they are in.
+  const shown = bridge?.editor && bridge.sceneId === r.sceneId ? activeStream(bridge.editor.state) : null
+  const landed = shown && shown.generationId === p.generationId && !(shown.replace && !shown.before) ? shown.from : null
   const { replaced } = bridge?.endStream(p.generationId, { failed }) ?? { replaced: false }
+  // The beat's words are in the page: checked claim by claim now, slips mended in amber (features/repair).
+  if (landed !== null && r.wrote && p.status !== 'error' && bridge?.editor && !bridge.editor.isDestroyed && bridge.sceneId === r.sceneId) {
+    repairLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: bridge.editor.state.doc.content.size })
+  }
   run = null
   // The page as this beat left it, so Write it again can tell whether it is still the newest undo step.
   if (r.wrote && bridge?.sceneId === r.sceneId && bridge.editor) marks.set(p.generationId, markPage(bridge.editor.state))

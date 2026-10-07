@@ -21,6 +21,7 @@ import { editBriefing } from './briefing'
 import { editInput } from './input'
 import { standAtText } from '../ai/gather'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
+import { noteStage } from '../repair'
 import { UserError } from '../util'
 
 /**
@@ -82,5 +83,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     // Kept until Adam accepts the change (History's snapshot before it names this record).
     ...(speakerTags ? { onSpeakers: (speakers: WriterSpeaker[], id: string) => noteGenerationSpeakers(id, speakers) } : {})
   })
+  // Check and repair: once Adam accepts Continue's words, they are checked against where things stood at the cursor.
+  if (tool === 'continue') noteStage(generationId, input.sceneId, stand)
   return { ok: true, generationId, note: briefing.note }
 }

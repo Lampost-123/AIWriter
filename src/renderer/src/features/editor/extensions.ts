@@ -16,6 +16,7 @@ import { PageSpelling } from '@/features/spelling/editorSpelling'
 import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 import { SoundMarks } from '@/features/sounds/soundMarks'
+import { RepairMarks } from '@/features/repair/marks'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
 
@@ -53,7 +54,8 @@ const MarkDoneShortcut = Extension.create({
  * "Show speakers and tone", who says each paragraph and how (features/readAloud/speakerLabels.ts);
  * milestone 5 the live checks' underlines (features/liveChecks/liveDecorations.ts). Writing by hand adds spell check
  * and synonyms (features/spelling/editorSpelling.ts) and the daily word count (features/goals/wordTally.ts); sound effects mark
- * the words each sound plays on while the Sounds view shows (features/sounds/soundMarks.ts).
+ * the words each sound plays on while the Sounds view shows (features/sounds/soundMarks.ts); check and repair shows the
+ * slips it mended as new AI words landed, in amber (features/repair/marks.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -88,6 +90,8 @@ export function sceneExtensions(): AnyExtension[] {
     KnownWords,
     WordTally,
     // Sound effects: the words each sound plays on, while the Sounds view shows.
-    SoundMarks
+    SoundMarks,
+    // Check and repair: slips mended as new AI words landed, in amber (features/repair/marks.ts).
+    RepairMarks
   ]
 }

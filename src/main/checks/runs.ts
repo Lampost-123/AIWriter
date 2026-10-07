@@ -231,9 +231,10 @@ export function checkWhenDone(db: DB, sceneId: ID): ID | null {
  * The critic (Adam, 2026-10-04): a draft that landed in a scene is checked in the background with every check,
  * continuity included, and its report says what was checked, what was good and where there were issues. Quiet like
  * Mark done's: with no model set up, or no words in the scene, nothing happens. A check already waiting for the
- * scene reads it as it is then.
+ * scene reads it as it is then. `checks`: fewer than all, when the new words were already checked claim by claim as
+ * they landed (check and repair, repair/index.ts: continuity, who knows what and the timeline).
  */
-export function checkAfterDraft(db: DB, sceneId: ID): ID | null {
+export function checkAfterDraft(db: DB, sceneId: ID, checks: CheckKind[] = ALL_CHECKS): ID | null {
   if (!deps) return null
   try {
     deps.model()
@@ -245,7 +246,7 @@ export function checkAfterDraft(db: DB, sceneId: ID): ID | null {
     const target: CheckTarget = { scope: 'scene', id: sceneId }
     const { ids, labels } = scenesFor(db, loadShape(db), target)
     if (!ids.length) return null
-    const run = newRun(db, { runId: `draft:${sceneId}:${newId()}`, target, checks: ALL_CHECKS }, true, ids, labels, 'draft')
+    const run = newRun(db, { runId: `draft:${sceneId}:${newId()}`, target, checks: checks.length ? checks : ALL_CHECKS }, true, ids, labels, 'draft')
     enqueue(run)
     return run.id
   } catch (e) {

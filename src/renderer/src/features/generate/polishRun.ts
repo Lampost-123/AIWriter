@@ -16,6 +16,7 @@ import { showReplacement, waitingSuggestion } from '@/features/edits/session'
 import { cleanReply } from '@/features/edits/text'
 import { looksLikeRefusalReply } from '@shared/refusal'
 import { findDraft, lastPolish, polishedScene, rememberPolish, type DraftPlace } from './polish'
+import { repairLanded } from '@/features/repair/repairRun'
 
 interface PolishState {
   /** "Polish after drafting" is on. */
@@ -36,6 +37,8 @@ export function setPolishOn(on: boolean): void {
 interface Live {
   taskId: ID
   sceneId: ID
+  /** The draft being polished (its stage is what the polished words are checked against). */
+  draftId: ID
   place: DraftPlace
   stopAsked: boolean
   stopTimer: ReturnType<typeof setTimeout> | null
@@ -83,7 +86,7 @@ const recordAction = (generationId: ID): { label: string; run: () => void } => (
 export async function startPolish(o: { sceneId: ID; draftId: ID; place: DraftPlace }): Promise<void> {
   if (live) return
   listen()
-  const l: Live = { taskId: newTaskId(), sceneId: o.sceneId, place: o.place, stopAsked: false, stopTimer: null }
+  const l: Live = { taskId: newTaskId(), sceneId: o.sceneId, draftId: o.draftId, place: o.place, stopAsked: false, stopTimer: null }
   live = l
   usePolish.setState({ sceneId: o.sceneId, stopping: false })
   try {
@@ -200,7 +203,9 @@ function put(l: Live, text: string, generationId: ID): boolean {
     note: 'The polish pass’s revision of the draft. Accept to use it in place of the draft, or reject it to keep the draft as it was.',
     label: 'Polish pass',
     snapshot: 'Before the polish pass',
-    generationId
+    generationId,
+    // Check and repair: the polished words are checked claim by claim once they are in, as a draft's are.
+    onAccepted: (words) => repairLanded({ sceneId: l.sceneId, recordId: generationId, stageOf: l.draftId, ...words })
   })
   return true
 }

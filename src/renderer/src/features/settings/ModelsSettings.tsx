@@ -13,6 +13,7 @@ import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
+import { RepairSettings } from '@/features/repair/RepairSettings'
 
 export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
 
@@ -170,6 +171,7 @@ export function ModelsSettings(): React.JSX.Element {
         />
       ) : null}
       <DefaultCreativity />
+      <RepairSettings />
     </div>
   )
 }

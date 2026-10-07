@@ -2,6 +2,7 @@
 // db/checks.ts; this file connects them to the open world, the settings, the memory keeper and the window.
 import type { Handlers } from './index'
 import type { Issue } from '@shared/contracts/checks'
+import { criticChecks } from '../repair'
 import type { EntryInput, ID } from '@shared/types'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
@@ -60,26 +61,42 @@ cdb.onIssuesTouched((storyId, sceneIds) => emit('issues:changed', { storyId, sce
 world.onWorldClosing((w) => closeRunsFor(w.db))
 
 // The critic (Adam, 2026-10-04): a draft that lands in a scene is checked in the background, a little after it ends
-// (so its words are saved into the scene first); another draft starting there meanwhile waits for that one instead.
-// Variants put nothing in the scene until one is picked.
+// (so its words are saved into the scene first); another draft starting there meanwhile waits for that one instead,
+// and its check then covers both. Variants put nothing in the scene until one is picked. Check and repair (Adam,
+// 2026-10-07): when the page had the drafts' words checked claim by claim as they landed (repair/index.ts), the critic
+// waits for those checks (a minute at most) and leaves out what every one of them covered (continuity with a stage to
+// compare with, who knows what when the memory lists any, the timeline when there are scenes before); everything else
+// it checks, and all of it when a check didn't run or failed (Adam's switch off, no memory model, a call that failed).
 const AFTER_DRAFT_MS = 15_000
-const afterDraft = new Map<ID, ReturnType<typeof setTimeout>>()
+const afterDraft = new Map<ID, { timer: ReturnType<typeof setTimeout> | null; records: ID[] }>()
 onDraftActivity((e) => {
   if (e.variant) return
   const was = afterDraft.get(e.sceneId)
-  if (was) clearTimeout(was)
-  afterDraft.delete(e.sceneId)
-  if (e.phase !== 'end') return
+  if (was?.timer) clearTimeout(was.timer)
+  const records = was?.records ?? []
+  if (e.phase !== 'end') {
+    // A draft starting: the drafts waiting for their check wait for this one's end too.
+    if (records.length) afterDraft.set(e.sceneId, { timer: null, records })
+    else afterDraft.delete(e.sceneId)
+    return
+  }
   const db = world.maybeCurrentWorld()?.db
-  if (!db) return
+  if (!db) {
+    afterDraft.delete(e.sceneId)
+    return
+  }
+  if (!records.includes(e.generationId)) records.push(e.generationId)
   const t = setTimeout(() => {
     afterDraft.delete(e.sceneId)
     if (world.maybeCurrentWorld()?.db !== db || !db.open) return
-    // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.
-    runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId))
+    void criticChecks(records).then((checks) => {
+      if (world.maybeCurrentWorld()?.db !== db || !db.open) return
+      // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.
+      runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId, checks))
+    })
   }, Number(process.env.AIWRITE_AFTER_DRAFT_MS) || AFTER_DRAFT_MS)
   t.unref?.()
-  afterDraft.set(e.sceneId, t)
+  afterDraft.set(e.sceneId, { timer: t, records })
 })
 
 /** The rows as issues, with entries' names and places as they are now. */

@@ -54,7 +54,7 @@
 //
 // Milestone 4's AI calls (AI edits, Ask the world, the outline helper, read aloud) are answered by
 // the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with; milestone 5's
-// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs.
+// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs; check and repair's by repair.mjs.
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -65,6 +65,7 @@ import { m4Reply } from './m4/index.mjs'
 import { askToolCalls } from './m4/ask.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
+import { repairReply } from './repair.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -97,7 +98,8 @@ const SENTENCES = [
 /**
  * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v2]"): each
  * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
- * wears it. The scene's time is "evening". Each value comes with words from the scene that show it, as asked: the
+ * wears it ("<Name> took off her hood." takes it off: "hood off"); "<Name> left for the docks." puts them "gone to the
+ * docks". The scene's time is "evening". Each value comes with words from the scene that show it, as asked: the
  * sentence that names the character, the words about the cloak, and the scene's first words for the time.
  * Null for any other request.
  */
@@ -109,11 +111,22 @@ function continuityReply(system, user) {
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
   const characters = cast
     .filter((n) => scene.includes(n))
-    .map((name) => ({
-      name,
-      where: { value: 'in the scene', quote: sentences.find((s) => s.includes(name)) ?? name },
-      ...(cloak ? { wearing: { value: cloak[1], quote: cloak[0] } } : {})
-    }))
+    .map((name) => {
+      // Check and repair's tests: "<Name> took off her hood." and "<Name> left for the docks."
+      const took = new RegExp(`${name} took off (?:her|his) ([a-z ]+?)[.,]`).exec(scene)
+      const left = new RegExp(`${name} left for the ([a-z ]+?)[.,]`).exec(scene)
+      return {
+        name,
+        where: left
+          ? { value: `gone to the ${left[1]}`, quote: left[0].slice(0, -1) }
+          : { value: 'in the scene', quote: sentences.find((s) => s.includes(name)) ?? name },
+        ...(cloak
+          ? { wearing: { value: cloak[1], quote: cloak[0] } }
+          : took
+            ? { wearing: { value: `${took[1]} off`, quote: took[0].slice(0, -1) } }
+            : {})
+      }
+    })
   const opening = scene.split(/\s+/).slice(0, 3).join(' ')
   return JSON.stringify({ time: { value: 'evening', quote: opening }, characters })
 }
@@ -361,6 +374,7 @@ export async function startFakeProvider(options = {}) {
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
     memory ??= continuityReply(system, firstUser)
+    memory ??= repairReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : fakeProse(words))
     // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.

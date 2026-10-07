@@ -425,6 +425,11 @@ export interface Settings {
   look: 'new' | 'classic'
   /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
   lookNote?: boolean
+  /**
+   * Check and repair (Settings › Models, "Check new words straight away"; on by default): after a draft, a beat or
+   * Continue, the new words are checked claim by claim, small slips fixed in amber and the rest asked (src/main/repair/).
+   */
+  checkNewWords: boolean
 }
 
 /**

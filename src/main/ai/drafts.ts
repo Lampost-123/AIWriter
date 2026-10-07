@@ -45,6 +45,8 @@ export interface DraftActivity {
   phase: 'start' | 'end'
   /** One of a set of Variants: nothing goes into the scene until Adam picks one. */
   variant: boolean
+  /** The draft's record (check and repair keys what it checked by it: the critic after the draft asks). */
+  generationId: ID
 }
 const watchers = new Set<(e: DraftActivity) => void>()
 
@@ -181,7 +183,7 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 
   const job: Job = { id, sceneId: req.sceneId, db: req.db, controller: new AbortController(), text: '', closed: false, done: Promise.resolve() }
   active.set(id, job)
-  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant })
+  tellWatchers({ sceneId: req.sceneId, phase: 'start', variant: !!req.partOf?.variant, generationId: id })
   job.done = run(job, req, params, reply.fallback)
   return { generationId: id }
 }
@@ -321,7 +323,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   } catch (e) {
     console.error('Could not keep who says each line', e)
   }
-  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant })
+  tellWatchers({ sceneId: job.sceneId, phase: 'end', variant: !!req.partOf?.variant, generationId: job.id })
   try {
     if (isKeyFailure(outcome.failure)) req.onKeyRejected?.()
     else if (outcome.status === 'complete') req.onWorked?.()

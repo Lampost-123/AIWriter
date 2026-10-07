@@ -1,8 +1,9 @@
-<!-- version: 0.6.26 -->
-What's new in 0.6.26:
+<!-- version: 0.6.27 -->
+What's new in 0.6.27:
 
-- The AI keeps track of where everyone is at every point in a scene, not just at its end. Each detail it notes comes with the exact words that show it, so nothing is guessed.
-- Recall shows where things stand at the cursor.
-- Only new words are read, so keeping track is quicker and cheaper.
+- As soon as a draft, a beat or Continue lands, the AI checks the new words against where everyone is, what they wear and hold, who knows what, and the timeline.
+- Small slips are fixed straight away, shown in amber, with Undo.
+- Anything that needs your choice is asked as one question in the Issues tab.
+- You can turn this off in Settings › Models.
 
-Also in 0.6.25: Add below, beats and Continue remember where everyone is in the scene so far.
+Also in 0.6.26: the AI keeps track of where everyone is at every point in a scene.

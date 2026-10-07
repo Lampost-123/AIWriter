@@ -91,6 +91,8 @@ export function endsWithBeat(doc: PMNode, beats: BeatParagraphs, index: number, 
 export interface PageMark {
   depth: number
   doc: PMNode
+  /** How many undo steps take the beat out: 1, or more when check and repair mended slips in it as it landed. */
+  steps?: number
 }
 
 export const markPage = (state: EditorState): PageMark => ({ depth: undoDepth(state), doc: state.doc })
