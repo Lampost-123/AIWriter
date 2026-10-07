@@ -25,6 +25,7 @@ import { planBeforeWriting } from '../plan'
 import { keepsRoom } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
+import { recallForBriefing } from '../retrieval'
 
 /** The preview is made again as Adam edits the scene card: only the blocks that changed are counted again. */
 const countCached = cachedCounter(countTokens)
@@ -67,6 +68,9 @@ export async function assemble(
     input.continuityAtSoFar = true
     input.stageWhere = stageWhere(db, stand)
   }
+  // Story memory step 5 (src/main/retrieval/): entries of the last two scenes, what was said word for word, and what a
+  // search for what the scene is about finds. Only candidates: the fitting below still keeps to the budget.
+  input.recall = await recallForBriefing(db, sceneId, input, (extras?.extraBlocks ?? []).map((b) => b.text).join('\n\n'))
   return { input, ...(await fitted(input, extras)) }
 }
 

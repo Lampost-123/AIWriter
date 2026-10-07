@@ -26,6 +26,7 @@ import type { Ids } from './request'
 import { findMention, spotIn, type ReadPlan, type Spot } from './track'
 import { existedEarlier } from './places'
 import { contradicts } from './agree'
+import { isSaidKind } from '../retrieval/said'
 import {
   changeContent,
   changeWords,
@@ -748,6 +749,8 @@ function applyVerdict(run: Run, planned: SceneFact, v: Record<string, unknown>, 
   const c = f.change
   const data = updatedPayload(c, v, run, chunk.ids, refs, f.entry.kind)
   if (!data) return
+  // Something said (0.6.29) whose line now reads differently keeps the line as it now reads.
+  if (data.kind === 'knowledge' && data.payload.said) data.payload.said = { ...data.payload.said, words: s.quote }
   if (f.origin === 'adam') return askRefresh(run, f, { change: data }, s)
   const fp = fingerprint({ type: 'change', entryId: c.entryId, change: data })
   if (run.suppressed(fp, s.quote)) return
@@ -1111,6 +1114,24 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const k = str(a.factId, 10).toUpperCase()
       const factId = chunk.ids.known.get(k) ?? mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ?? newId()
       addChange(run, entry, { kind: 'knowledge', payload: { factId, fact, forgets: bool(a.forgets) } }, s)
+      return
+    }
+    case 'said': {
+      // What was said (0.6.29): a promise, threat or secret told, kept as one fact the speaker and each hearer know,
+      // with the spoken line (the quote, exactly as the scene has it) and who said it.
+      const kind = str(a.kind, 20).toLowerCase()
+      const fact = str(a.fact ?? a.about, 300)
+      if (!isSaidKind(kind) || !fact || entry.kind !== 'character') return
+      const hearers: Entry[] = []
+      for (const who of strList(a.heard ?? a.hearers, MAX_INVOLVED)) {
+        const e = run.resolve(who, chunk.ids, refs)
+        if (e && e.kind === 'character' && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && run.ensureHere(e, s)) hearers.push(e)
+      }
+      const k = str(a.factId, 10).toUpperCase()
+      const factId = chunk.ids.known.get(k) ?? mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ?? newId()
+      const said = { kind, by: entry.id, words: s.quote }
+      for (const who of [entry, ...hearers]) addChange(run, who, { kind: 'knowledge', payload: { factId, fact, said } }, s)
+      for (const h of hearers) run.touched.add(h.id)
       return
     }
     case 'voice': {

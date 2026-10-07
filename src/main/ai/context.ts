@@ -34,6 +34,10 @@
 // 11 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
 //    repeated from the briefing right above the closing instruction (the fewest lines that matter most, without the
 //    lead); kept longer than the ties, and back first
+// Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
+// the last two scenes and entries found by searching join block 9; what was said, word for word, is a block at
+// priority 6 (fewer lines when short); earlier passages found by searching are a block at priority 9 (the best two,
+// then the best one). Each goes before the block it sits with.
 //
 // Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
 // their short form from the bottom up (11 to 3, then block 1). Blocks 4 and 8 can shrink further,
@@ -76,6 +80,8 @@ import { finalInstruction, indentMore, instructionsText, type FinalOptions } fro
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, type StageReach } from './mustStay'
+import { recallBlocks, recalledEntries } from '../retrieval/briefing'
+import type { RecallInput } from '../retrieval/types'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -118,6 +124,11 @@ export interface ContextInput {
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
   plan?: { needs: ID[]; text: string } | null
+  /**
+   * Story memory step 5 (src/main/retrieval/): entries from the last two scenes, entries and earlier passages found by
+   * searching, and what was said word for word. Null or left out: none of it (switched off, or a test).
+   */
+  recall?: RecallInput | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -725,6 +736,8 @@ export function selectEntries(input: ContextInput): Selection {
     const got = take(id, WHY.plan, false)
     if (got) others.push(got)
   }
+  // Story memory step 5: entries from the last two scenes, then those found by searching (retrieval/briefing.ts).
+  others.push(...recalledEntries(input.recall, (id, why) => take(id, why, false)))
 
   const tiesAway = absentTies(input, [pov, ...present].filter(some), here, (id) => take(id, WHY.tie, false) ?? chosen.get(id)?.entry ?? null)
 
@@ -1483,6 +1496,10 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
+  // Story memory step 5: what was said, word for word (with block 6), and earlier passages found by searching (with
+  // block 9). retrieval/briefing.ts.
+  for (const b of recallBlocks(input.recall)) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
+
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
 
@@ -1505,6 +1522,8 @@ export const SEND_ORDER = [
   'relationships',
   'ties',
   'mentioned',
+  'said',
+  'recalled',
   'threads',
   'story-so-far',
   'previous-scene',
@@ -1525,8 +1544,11 @@ const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
  */
 const STEADY_UNTIL = SEND_ORDER.indexOf('mentioned')
 
-/** Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). */
-const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK]
+/**
+ * Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). Step 5's blocks
+ * (what was said, earlier passages) go before the block they sit with (relationships, other entries named).
+ */
+const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK, 'relationships', 'mentioned']
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
 /**

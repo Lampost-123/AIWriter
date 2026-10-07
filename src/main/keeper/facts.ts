@@ -88,6 +88,9 @@ export function sceneFacts(db: DB, sceneId: ID): SceneFact[] {
 
 // ---------- In plain words ----------
 
+/** How "What changed" names something said (0.6.29), for the speaker and those who heard it alike. */
+const SAID_WORDS: Record<string, string> = { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }
+
 /** A change in plain words, without the entry's name: "Lost her left hand", "Knows Mara is the heir". */
 export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
   switch (c.kind) {
@@ -102,6 +105,7 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
         : `${upperFirst(p.type || 'linked')}: ${nameOf(p.otherId)}`
     }
     case 'knowledge':
+      if (c.payload.said && !c.payload.forgets) return `${SAID_WORDS[c.payload.said.kind] ?? 'Knows'}: ${c.payload.fact}`
       return `${c.payload.forgets ? 'Forgets' : 'Knows'} ${lowerFirstWord(c.payload.fact)}`
     case 'thread':
       return `Plot thread ${c.payload.status === 'resolved' ? 'resolved' : 'opened'}${c.payload.note ? `: ${c.payload.note}` : ''}`
@@ -151,7 +155,8 @@ export function fingerprint(g: Guess): string {
         return `update:${g.entryId}:${keys.length ? keys.join(',') : 'note'}`
       }
       if (c.kind === 'relationship') return `relationship:${g.entryId}:${c.payload.otherId}`
-      if (c.kind === 'knowledge') return `knowledge:${g.entryId}`
+      // Something said (0.6.29) is its own kind of guess: a "knows" for the same words never stands in for it.
+      if (c.kind === 'knowledge') return c.payload.said ? `said:${g.entryId}` : `knowledge:${g.entryId}`
       if (c.kind === 'thread') return `thread:${g.entryId}`
       return `full:${g.entryId}`
     }

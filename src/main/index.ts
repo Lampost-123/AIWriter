@@ -18,6 +18,7 @@ import { initHistory } from './history'
 import { initSpeech, stopSpeech } from './speech'
 import { purgeOldDeletedWorlds } from './library'
 import { initSpelling } from './spelling'
+import { closeRetrieval, initRetrieval } from './retrieval'
 import { contextMenuFor } from './spelling/menu'
 
 if (process.env.AIWRITE_DATA_DIR) app.setPath('userData', join(process.env.AIWRITE_DATA_DIR, 'app'))
@@ -207,6 +208,11 @@ function flushThenQuit(): void {
     } catch (e) {
       console.error('Could not stop the speech server', e)
     }
+    try {
+      closeRetrieval()
+    } catch (e) {
+      console.error('Could not stop the search model', e)
+    }
     if (win && !win.isDestroyed()) win.destroy()
     app.quit()
   }
@@ -258,6 +264,7 @@ function main(): void {
       initHistory()
       initSpeech()
       initSpelling()
+      initRetrieval()
       // Reopen the last world straight away, so the page is ready as soon as the window shows.
       reopenLastWorld()
       createWindow()
@@ -291,6 +298,7 @@ function main(): void {
     closeRecipes()
     closeWorld()
     stopSpeech()
+    closeRetrieval()
     app.quit()
   })
 }
