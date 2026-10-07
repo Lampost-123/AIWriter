@@ -75,8 +75,8 @@ export interface TrapsConfig {
   log: (line: string) => void
 }
 
-/** Where the search model was downloaded and checked once, on Adam's computer (a scratch folder; read only). */
-const DEFAULT_SEARCH_MODEL = join(tmpdir(), 'claude', 'C--Users-adox1-Documents-AI-Write', '7636dc9a-3a6e-4087-bc5d-e50d78d3e334', 'scratchpad', 'bge-test')
+/** Where the search model's files are looked for when no --search-model is given: beside the reports, not committed. */
+const DEFAULT_SEARCH_MODEL = join('traps-results', 'search-model')
 
 const num = (v: string | undefined, fallback: number): number => {
   const n = Math.round(Number(v))
@@ -107,7 +107,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     story: env.TRAPS_STORY === 'v2' ? 'v2' : 'v3',
     storyFile: resolve(env.TRAPS_STORY_FILE?.trim() || join(harnessRoot, 'tests', 'traps', 'story-v3.json')),
     resume: env.TRAPS_RESUME?.trim() ? resolve(env.TRAPS_RESUME.trim()) : null,
-    searchModel: env.TRAPS_SEARCH_MODEL?.trim() || DEFAULT_SEARCH_MODEL,
+    searchModel: env.TRAPS_SEARCH_MODEL?.trim() || join(harnessRoot, DEFAULT_SEARCH_MODEL),
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
     probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' ? 3 : 4,

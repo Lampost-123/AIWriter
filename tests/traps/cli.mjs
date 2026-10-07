@@ -24,8 +24,8 @@
 //   --from-world <folder>  start from the world an earlier run of the same checkout and story saved before its first
 //                          probe scene (its report folder): the memory isn't built again up to there
 //   --no-save-world        don't save that world beside the report (it is saved by default)
-//   --search-model <folder>  step 5's search model files, as downloaded (default: the copy checked on Adam's computer
-//                          in the session scratch folder); 'none' for keyword search only. Copied, never downloaded.
+//   --search-model <folder>  step 5's search model files, as downloaded (default: traps-results/search-model, not
+//                          committed); 'none' for keyword search only. Copied, never downloaded.
 //   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
 //   --compare <a> <b>      put two runs' report.json (or their folders) side by side; no model calls

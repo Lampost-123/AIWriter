@@ -1697,6 +1697,11 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   words. Its probes sit in chapters 6 and 7, with every fact chapters back or early in a long scene, beyond what
   Continue is shown; most checks are deterministic (`patterns.ts`), the judge only asks what a pattern can't. A hard
   token budget (`budget.ts`, checked before every call) stops writing and scoring cleanly.
+- **Probes v4, chains, the default** (Adam, 2026-10-07: single passages were at the ceiling and not how he writes):
+  after the whole story, a new scene is carried on in 12 steps of Add below and Continue in turn (`chain.ts`); the
+  early steps' directions plant facts (boots off, Ash gone out, the door locked, the case put down, lying down, a cut
+  hand) and every later step is checked against each one still in force, plus facts from chapters back. A change shown
+  on the page ends a plant. `--rescore` scores a saved run again with today's checks, with no model.
 - **Probes v2** (Adam, 2026-10-07, after round 3 left most checks "not touched" and counted mentions as slips): each
   probe is aimed at its traps the way Adam would aim a draft (a direction, a beat's note, the card's beats for
   Continue) without saying what is true; a mention is no longer a slip (riding needs a riding verb with the horse as
