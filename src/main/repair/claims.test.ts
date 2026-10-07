@@ -502,3 +502,68 @@ describe('words shared by an old one-line outfit (review, 2026-10-07)', () => {
   })
 })
 })
+
+describe('nothing is picked up off the page (the trap run’s case, 2026-10-07)', () => {
+  // Wren set the survey case down flat on the sill; a few lines on, the new words had her sit up "with the case against
+  // her hip", and the model said it fit: she could have picked it up off the page ("between": action).
+  const CASE: SceneState = {
+    time: 'night',
+    weather: '',
+    light: '',
+    things: [
+      { name: 'the survey case', state: 'on the windowsill, flat' },
+      { name: 'the back door', state: 'shut and barred from inside' }
+    ],
+    characters: [{ name: 'Wren Hollis', where: 'the back parlour', posture: 'lying on the settle', holding: 'nothing', condition: '', mood: '', lastAction: '', clothes: [] }],
+    said: {
+      [thingKey('the survey case')]: { quote: 'She set the case down flat on the sill', sceneId: 'inn' },
+      [thingKey('the back door')]: { quote: 'Ash dropped the bar across the door', sceneId: 'inn' },
+      'wren hollis|holding': { quote: 'She set the case down flat on the sill', sceneId: 'inn' }
+    }
+  }
+  const LEAD_IN = 'She set the case down flat on the sill. The window was a grey square with the case standing black across the bottom of it. She went back to the settle and lay down on it.'
+  const NEW =
+    'She was not asleep when the door went. It was not a knock, for the bar took that, but the latch lifting and dropping. Wren sat up with the case against her hip and her feet on the floor before she had decided to.'
+  const run = (cs: Claim[], o: { stage?: StageLine[]; text?: string; leadIn?: string } = {}) => {
+    const text = o.text ?? NEW
+    return judgeClaims(cs, { stage: o.stage ?? stageLines(CASE, 'inn'), codex: [], paragraphs: [{ text, from: 0, to: text.length }], aiText: text, leadIn: o.leadIn ?? LEAD_IN })
+  }
+  const lines = stageLines(CASE, 'inn')
+  const sill = lines.find((l) => l.field === 'thing' && l.value.startsWith('the survey case'))!
+  const hand = lines.find((l) => l.field === 'holding')!
+  const door = lines.find((l) => l.field === 'thing' && l.value.startsWith('the back door'))!
+  const caseClaim = (o: Partial<Claim> = {}) =>
+    claim({ quote: 'the case against her hip', who: 'Wren Hollis', about: 'holding', line: sill.code, verdict: 'fits', bothTrue: 'yes', between: 'action', ...o })
+
+  it('says which lines have their words in this scene', () => {
+    expect(sill).toMatchObject({ here: true, quote: 'She set the case down flat on the sill' })
+    expect(stageLines(CASE).some((l) => l.here)).toBe(false)
+    expect(stageLines(CASE, 'another scene').some((l) => l.here)).toBe(false)
+  })
+
+  it('asks, whatever the model said, when the case on the sill is against her hip with nothing showing it picked up', () => {
+    const got = run([caseClaim()])
+    expect(got.fixes).toEqual([])
+    expect(got.slips).toBe(1)
+    expect(got.questions).toHaveLength(1)
+    expect(got.questions[0].quote).toBe('the case against her hip')
+    expect(got.questions[0].message).toBe(
+      'Earlier in this scene: the survey case was on the windowsill, flat ("She set the case down flat on the sill"). Nothing since shows it picked up or moved. Should Wren Hollis take it up on the page first, or should it stay where it was?'
+    )
+    // Against the empty hand too, and as a slip the model thought could be both: still asked, never mended.
+    const fixed = run([caseClaim({ line: hand.code, verdict: 'slip', bothTrue: 'no', fix: { replace: 'the case against her hip', with: 'her hand on her hip' } })])
+    expect(fixed.fixes).toEqual([])
+    expect(fixed.questions).toHaveLength(1)
+    expect(fixed.questions[0].fix).toBe('her hand on her hip')
+  })
+
+  it('lets it pass when the words show it picked up, or the model puts it down to time, or the words are from another scene', () => {
+    expect(run([caseClaim()], { text: 'Wren took the case off the sill and sat up with the case against her hip.' }).questions).toEqual([])
+    expect(run([caseClaim()], { text: 'She picked it up. Wren sat up with the case against her hip.' }).questions).toEqual([])
+    expect(run([caseClaim({ between: 'time' })]).questions).toEqual([])
+    const elsewhere = stageLines(CASE, 'the scene before')
+    expect(run([caseClaim({ line: elsewhere.find((l) => l.field === 'thing')!.code })], { stage: elsewhere }).questions).toEqual([])
+    // A door barred is no thing put somewhere: opened by someone off the page is the model's to judge.
+    expect(run([caseClaim({ quote: 'the door went', line: door.code })]).questions).toEqual([])
+  })
+})

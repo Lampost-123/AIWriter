@@ -13,6 +13,8 @@
 import type { EntryState, FactState, ID } from '@shared/types'
 import {
   clothesOf,
+  heldNotPlaced,
+  pieceClashes,
   pieceSource,
   sourceKey,
   thingKey,
@@ -89,21 +91,23 @@ export interface MustInput {
 }
 
 /**
- * The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. What
- * someone no longer has comes high when the scene names it ("goneNamed"), and right after what they hold otherwise. A
- * piece of clothing that is off, or that the scene names, comes before what people hold ("wearingNamed": boots off by
- * the door are what a writer forgets), and so does a thing the scene names; a piece simply on ("skirt on") comes after
- * the things in the place ("wearing"), so plain clothes never crowd out a held case or a barred door.
+ * The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. A
+ * piece of clothing that is off, or that the scene names, comes first after injuries ("wearingNamed": boots off by the
+ * door are what a writer forgets), then a thing the scene names, what people hold and the things in the place; a piece
+ * simply on ("skirt on") comes after those ("wearing"), so plain clothes never crowd out a held case or a barred door.
+ * What someone no longer has comes after what is in the scene (Adam, 2026-10-07: in a trap run twelve lines of injuries
+ * and "no longer has" left out the survey case on the sill, and the writer put it against Wren's hip), high when the
+ * scene names it ("goneNamed").
  */
 const RANK = {
   dead: 0,
   condition: 1,
-  goneNamed: 2,
-  marks: 3,
-  wearingNamed: 4,
-  thingNamed: 5,
-  holding: 6,
-  thing: 7,
+  wearingNamed: 2,
+  thingNamed: 3,
+  holding: 4,
+  thing: 5,
+  goneNamed: 6,
+  marks: 7,
   wearing: 8,
   gone: 9,
   gotNamed: 10,
@@ -266,9 +270,12 @@ export function mustStayTrue(o: MustInput): string[] {
   const about = o.about ?? ''
 
   // Each person in the scene: what the stage says of them now, their marks, and what changed in their codex entry.
+  // Someone dead by now is said to be dead (below), and nothing else: no marks, no "no longer has".
+  const living = new Set(people.filter((e) => !clean(deathOf(e)?.note)).map((e) => e.id))
   people.forEach((e, who) => {
     const c = stageFor(e, o.stand)
     if (c) stageLines(c, who)
+    if (!living.has(e.id)) return
     const marks = clean(e.fields?.marks)
     if (marks) add('marks', who, `${e.name}: ${marks}`, shortPlace(e.changedWhere?.marks ?? '', o.storyTitle))
     for (const k of e.changed ?? []) {
@@ -284,7 +291,7 @@ export function mustStayTrue(o: MustInput): string[] {
 
   // What someone in the scene gave away, lost or got, however long ago (memory/items.ts): only how it is now, the items
   // the scene names first. "Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2, Sc 7)".
-  const whoOf = new Map(people.map((e, i) => [e.id, i]))
+  const whoOf = new Map(people.map((e, i) => [e.id, i] as const).filter(([id]) => living.has(id)))
   holdingsFirst(
     (o.holdings ?? []).filter((h) => whoOf.has(h.personId)),
     about
@@ -298,13 +305,17 @@ export function mustStayTrue(o: MustInput): string[] {
 
   function stageLines(c: CharacterState, who: number): void {
     const name = clean(c.name)
+    // Never what they hold or have on that a thing in the place says is somewhere else (the case on the sill, not on
+    // her back): the thing's line says where it is.
+    const stand = o.stand ?? { things: [], characters: [] }
     for (const kind of ['condition', 'holding', 'where', 'posture', 'touching', 'sees'] as const) {
-      const v = clean(c[kind])
+      const v = clean(kind === 'holding' ? heldNotPlaced(stand, name, c.holding) : c[kind])
       if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind))
     }
     // What they wear, piece by piece: those the scene names first, then what is off, then what is on in some way.
     if (!keep.has('wearing')) return
-    for (const p of namedFirst(clothesOf(c), about, true).slice(0, MUST_CLOTHES)) {
+    const worn = clothesOf(c).filter((p) => !pieceClashes(stand, name, p))
+    for (const p of namedFirst(worn, about, true).slice(0, MUST_CLOTHES)) {
       const line = pieceLine(name, p)
       if (line) add(namesStageItem(about, p) || isOff(p.state) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
     }

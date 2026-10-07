@@ -10,7 +10,7 @@
 // The system prompt starts with "[AIWRITE-REPAIR v1]", so the fake provider in tests recognises it. Pure.
 
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
-import { clothesOf, pieceSource, STATE_FIELDS, STATE_LABELS, sourceKey, thingKey, thingsOf, type SceneState } from '@shared/continuity'
+import { clothesOf, pieceSource, STATE_FIELDS, STATE_LABELS, sourceKey, thingKey, thingsOf, type SceneState, type StateSource } from '@shared/continuity'
 import { pieceText, thingText } from '@shared/stageItems'
 import { deadBy } from '../ai/context'
 import type { SceneCheckContext } from '../checks/context'
@@ -33,6 +33,8 @@ export interface StageLine {
   quote: string | null
   /** The quote is a whole one-line outfit's, shared by every piece read from it: never enough to mend without asking. */
   shared?: boolean
+  /** The words are in the scene being checked (claims.ts: a thing put down here can't move off the page). */
+  here?: boolean
 }
 
 /** One fact from the memory a claim may be compared with. */
@@ -52,27 +54,31 @@ const MOST_FACTS = 30
 /** The most lines about what people here gave away, lost or got. */
 const MOST_OWNED = 12
 
-/** Where things stand as lines with ids, each with its words: each piece of clothing, and each thing in the place, its own. */
-export function stageLines(stage: SceneState | null): StageLine[] {
+/**
+ * Where things stand as lines with ids, each with its words: each piece of clothing, and each thing in the place, its
+ * own. `sceneId`: the scene being checked, so a line whose words are in it says so (`here`).
+ */
+export function stageLines(stage: SceneState | null, sceneId?: ID): StageLine[] {
   if (!stage) return []
   const out: StageLine[] = []
   const said = stage.said ?? {}
-  const add = (who: string | null, field: string, value: string, quote: string | undefined, shared = false): void => {
+  const add = (who: string | null, field: string, value: string, from: StateSource | undefined, shared = false): void => {
     if (!value.trim()) return
-    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: quote?.trim() || null, ...(shared ? { shared } : {}) })
+    const here = !!sceneId && from?.sceneId === sceneId
+    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: from?.quote?.trim() || null, ...(shared ? { shared } : {}), ...(here ? { here } : {}) })
   }
-  for (const f of ['time', 'weather', 'light'] as const) add(null, f, stage[f], said[sourceKey(null, f)]?.quote)
+  for (const f of ['time', 'weather', 'light'] as const) add(null, f, stage[f], said[sourceKey(null, f)])
   for (const c of stage.characters)
     for (const f of STATE_FIELDS) {
-      add(c.name, f, c[f] ?? '', said[sourceKey(c.name, f)]?.quote)
+      add(c.name, f, c[f] ?? '', said[sourceKey(c.name, f)])
       // What they wear, piece by piece, right after where they are.
       if (f === 'where')
         for (const p of clothesOf(c)) {
           const from = pieceSource(said, c.name, p.name, clothesOf(c).length)
-          add(c.name, 'wearing', pieceText(p), from?.quote, !!from?.line)
+          add(c.name, 'wearing', pieceText(p), from, !!from?.line)
         }
     }
-  for (const t of thingsOf(stage)) add(null, 'thing', thingText(t), said[thingKey(t.name)]?.quote)
+  for (const t of thingsOf(stage)) add(null, 'thing', thingText(t), said[thingKey(t.name)])
   return out
 }
 
@@ -176,6 +182,7 @@ How to check
 - The lines are where things stood BEFORE the new words. Anything the new words show happening first is fine, and so is anything that could have happened in between without being written: time passing, someone going somewhere, getting up, putting something down.
 - "fits": the claim agrees with the line. "shown": the new words themselves show the change happening (she pulls her boots on, he gets up, someone tells her). "slip": the new words treat as already so something that cannot be true together with the line, and nothing in the new words or the words just before shows it changing: a boot back on with no words putting it on, a cup in a hand that put it down, a character knowing what they haven't learnt, a dead character acting.
 - NOT a slip: a detail the line doesn't mention, or a more exact one (a man asleep sitting against a wall whose hand lies open on the floor: both can be true); someone somewhere else after time could have passed or they could have moved (a man last seen crossing the river home, later sitting by his own fire); a door opened or a thing moved when someone could have done it off the page (a door barred at dusk, open when someone walks in at midnight); who can see or hear whom changing as people move; anything the line leaves open. When unsure, it is not a slip.
+- But a thing the words just before put down or set somewhere (a case set flat on the sill) that the new words have in a hand, on someone or somewhere else, with no words showing it picked up or moved, is a slip with "between": "nothing": within the same stretch of a scene nothing is picked up off the page.
 
 Each claim:
 {"quote": "", "who": "", "about": "where|posture|wearing|holding|touching|sees|thing|condition|knows|owns|time", "line": "W2", "verdict": "fits|shown|slip", "bothTrue": "no|yes|maybe", "between": "nothing|time|movement|action|unclear", "why": "", "fix": {"replace": "", "with": ""}, "question": ""}

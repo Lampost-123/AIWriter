@@ -174,6 +174,8 @@ const BE = new Set(['was', 'were', 'is', 'are', 'been', 'being'])
 const TRADES = new Set(['traded', 'trades', 'swapped', 'bartered', 'exchanged', 'sold', 'sells', 'gave', 'gives', 'give'])
 /** "paid the toll with her compass": the compass is given. */
 const PAYS = new Set(['paid', 'pays', 'bought', 'buys', 'purchased', 'bribed', 'bribes'])
+/** Giving words that, after a thing and before "by" someone, say that someone gave it ("a gelding lent by Ash"). */
+const LENT = new Set(['lent', 'loaned', 'given', 'handed', 'sent', 'passed', 'entrusted', 'bequeathed', 'delivered', 'returned'])
 /** Verbs of having, not getting: "kept it hidden from Bryn" takes nothing from Bryn. */
 const HAVING = new Set(['kept', 'keeps', 'carries', 'carried', 'holds', 'held', 'wears', 'wore', 'worn', 'wields', 'wielded', 'owns', 'owned', 'has', 'now'])
 /** Titles, never a first name to know someone by ("Mother Agate" isn't "Mother"). */
@@ -375,6 +377,10 @@ function movesInClause(clause: string, r: Reading, last: ID | null): { moves: Mo
         if (mode === 'pre' && (passive || (v.w === 'given' && v.n === 1 && v.i === 0 && !named) || (by && ['given', 'handed', 'lent', 'sent'].includes(v.w)))) {
           // "was given the compass by Agate", "given a sword by the king": the doer gets it.
           move = who ? { to: who, from: ids([by, source]) } : null
+        } else if (mode === 'post' && by && !to && r.self && LENT.has(v.w)) {
+          // In a character's own note, the thing then "lent by Ash" or "given by Ash": Ash gave it to them (Adam,
+          // 2026-10-07: "now riding Cinder, a grey gelding lent by Ash" was read as Wren no longer having Cinder).
+          move = { to: r.self, from: ids([by]) }
         } else if (mode === 'own') {
           // An item's own note: "given to Mother Agate", "Wren gave it to Mother Agate", "sold by Wren".
           move = { to, from: ids([named, by]) }

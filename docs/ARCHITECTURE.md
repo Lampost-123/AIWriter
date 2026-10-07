@@ -809,6 +809,24 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   - **Cost.** The stand call's instructions are about 300 tokens longer, its reply a little longer (a line for each
     piece or thing that changes, each with its words), and the writer's briefing a few dozen to about 150 tokens longer
     (the pieces and things lines). No new call.
+  - **One place for each thing** (Adam, 2026-10-07, "fix the case slip first"). In a trap run Wren set the survey case
+    down flat on the sill; the stand call put the case there and emptied her hand, but its list of what she wore left out
+    the case strap, so "case strap on, case on her back" carried on beside it, the writer was told both, and had her sit
+    up "with the case against her hip". Now: when a thing is put somewhere (its state says where: "on the windowsill",
+    "hung on the peg"; not "barred" or "lit"), a piece someone has on or anything they hold that names it goes (put down
+    means not worn or held; `onePlace` in `mergeState`); when someone takes it up, with words that show it (that name it,
+    or say it was picked up or slung on), and it wasn't put down in the same change with words that show that, it is no
+    longer where it was. "Ash's coat" only touches Ash; "the mugs" is never "a mug"; a piece already off stays. A piece
+    the stand call simply leaves out keeps its value (leaving out isn't taking off). What must stay true never tells a
+    piece worn or a thing held beside a thing line that puts it elsewhere (`pieceClashes`, `heldNotPlaced`), ranks what
+    is held and the things in the place above "no longer has" (the case had been crowded out by twelve lines of injuries
+    and lost things), and says nothing of the marks or lost things of the dead, or (Continue and the other edit tools) of
+    anyone only named near the words: the list's people were everyone in the briefing, not just those in the scene, so
+    the items lines (#64) passed by #65's people-in-the-scene rule; now only those on the card, speaking, or on the stage
+    as told. "A grey gelding lent by Ash", in Wren's own note, is now hers (it was read as her no longer having Cinder).
+    Check and repair: a claim that has a thing put somewhere in this scene (or an empty hand, with its words in this
+    scene) moved off the page ("between": action) is always a question, whatever the model's verdict, unless the words
+    since show it picked up or moved; never mended without asking. The repair prompt says so too.
 - **Facts to keep to and details to show.** In the writer's briefing (not Ask the world or the checks), a character's
   Basics and distinguishing marks are "Facts to keep to" and the rest of Looks "Details to show now and then, not all
   at once" (`fieldSections` with `split`), so a cheap model stops describing eye colour in every scene.
