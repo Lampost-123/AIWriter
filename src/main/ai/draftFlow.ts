@@ -22,6 +22,7 @@ import {
 import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText } from './gather'
 import type { SceneState } from '../continuity/tracker'
 import { planBeforeWriting } from '../plan'
+import { keepsRoom } from '../plan/plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 
@@ -90,6 +91,8 @@ export interface DraftBriefing {
   thinking: ThinkingLevel
   /** The version of each entry actually sent, for "What the AI saw". */
   entryVersions: Map<ID, string>
+  /** What the briefing was fitted from (its closing instructions), for planning it (withPlan). */
+  prepared?: Pick<PreparedContext, 'finals'>
 }
 
 /**
@@ -99,10 +102,8 @@ export interface DraftBriefing {
  * `catchUp: false` skips that (a later beat of the same draft, say, right after the first).
  * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
- * `plan` (on unless false; Variants turn it off): one short call to the memory model plans the scene first, when
- * Settings › Models says to (plan/), never for long; the entries it asks for come into the briefing, and the plan goes
- * in after the closing instruction as the writer's own notes. A plan that fails, or would make the briefing too long
- * for the model, is left out.
+ * `plan` (on unless false; Variants turn it off, and Beat by beat plans the beat itself with withPlan): one short call
+ * to the memory model plans the scene first, when Settings › Models says to (plan/), never for long (withPlan).
  */
 export async function draftBriefing(
   sceneId: ID,
@@ -117,28 +118,14 @@ export async function draftBriefing(
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
   const made = await assemble(sceneId, options, o.extras, stand)
-  let { input, preview } = made
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const known = choice.contextLength != null && choice.contextLength > 0
-  // Plan before writing (step 4): the briefing again with what the plan asked for and the plan itself, unless that
-  // would leave the model too little room where the briefing without it doesn't.
-  if (o.plan !== false) {
-    const plan = await planBeforeWriting(db, sceneId, made, o.signal)
-    if (o.signal?.aborted) throw stoppedBeforeStart()
-    if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-    if (plan) {
-      const planned = { ...input, plan: { needs: plan.needs, text: plan.text } }
-      const again = await fitted(planned, o.extras)
-      if (!known || !lengthTooLong(again.preview.budget) || lengthTooLong(preview.budget)) {
-        input = planned
-        preview = again.preview
-      }
-    }
-  }
+  let b: DraftBriefing = { ...made, choice, target, thinking, entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks) }
+  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal })
+  const { input, preview } = b
   // A model whose window is known can't take a reply longer than what's left of it: say so
   // before sending, rather than letting the provider turn it down with a message about the briefing.
-  const tooLong = known ? lengthTooLong(preview.budget) : null
+  const tooLong = choice.contextLength != null && choice.contextLength > 0 ? lengthTooLong(preview.budget) : null
   if (tooLong) {
     if (tooLong.maxWords >= 100 && input.options.targetWords == null) {
       // Auto came down as far as it goes (AUTO_LENGTH.min) and still doesn't fit: a set length can.
@@ -158,7 +145,36 @@ export async function draftBriefing(
       'briefing-too-long'
     )
   }
-  return { input, preview, choice, target, thinking, entryVersions: sentEntryVersions(input.memory, preview.blocks) }
+  return b
+}
+
+/**
+ * Plan before writing (step 4, plan/): when Settings › Models says to, one short call to the memory model plans the
+ * scene (or, with `focus`, the one beat), never for long; the entries it asks for come into the briefing, and the plan
+ * goes in after the closing instruction as the writer's own notes. Only when there is room: with what it asked for,
+ * else without it, else no plan, never at the cost of anything the briefing had room for without it (keepsRoom).
+ * Otherwise the briefing comes back as it was.
+ */
+export async function withPlan(
+  sceneId: ID,
+  b: DraftBriefing,
+  o: { extras?: ContextExtras; signal?: AbortSignal; focus?: string } = {}
+): Promise<DraftBriefing> {
+  if (!b.prepared) return b
+  const db = world.db()
+  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, o.focus)
+  if (o.signal?.aborted) throw stoppedBeforeStart()
+  if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+  if (!plan) return b
+  const tries = plan.text && plan.needs.length ? [plan, { ...plan, needs: [] }] : [plan]
+  for (const p of tries) {
+    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text } }
+    const again = await fitted(input, o.extras)
+    if (keepsRoom(b.preview, again.preview)) {
+      return { ...b, input, preview: again.preview, prepared: again.prepared, entryVersions: sentEntryVersions(input.memory, again.preview.blocks) }
+    }
+  }
+  return b
 }
 
 /** Provider bookkeeping every draft does: a key turned down shows in Settings; a provider that writes works again. */

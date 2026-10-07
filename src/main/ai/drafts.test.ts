@@ -13,6 +13,7 @@ import { assembleContext, replyTokenLimit, replyTokens, sentEntryVersions } from
 import { draftCost, isDrafting, onDraftActivity, startDraftJob, stopDraft, stopDraftsFor, type DraftActivity, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
+import { PLAN_GO, PLAN_HEAD } from '../plan/echo'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -439,6 +440,38 @@ describe('drafting', () => {
     expect(rec.response).not.toContain('{')
     expect(rec.params.speakerTags).toMatchObject({ dropped: 0 })
     expect(rec.params.speakerTags!.tagged).toBe(rec.params.speakerTags!.quotes)
+  })
+
+  it('takes the plan’s notes off the start of the draft when the writer says them again (step 4)', async () => {
+    const { emit, done, events } = recorder()
+    const input = gatherContextInput(w.db, w.second.id, { targetWords: 600 }, { prefs: { spelling: 'UK', pov: 'Close third', tense: 'Past', voiceNotes: '', avoidWords: [] }, contextLength: 32000, creativity: 'steady' })
+    const notes = `${PLAN_HEAD}\nWhat happens on the page, in order:\n1. Tobin opens the door.\n${PLAN_GO.start}`
+    const preview = assembleContext({ ...input, plan: { needs: [], text: notes } }, countRaw)
+    expect(preview.messages.at(-1)!.content.endsWith(notes)).toBe(true)
+    const prose = 'Tobin opened the door.\n\nThe rain came in with him.'
+    // The writer says its notes again, in small pieces, before the prose.
+    const reply = `${notes}\n\n${prose}`
+    const pieces = reply.match(/[\s\S]{1,9}/g)!.map((p) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: p }, finish_reason: null }] })}\n\n`)
+    const fetchImpl = (async () =>
+      new Response(`${pieces.join('')}data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' }
+      })) as typeof fetch
+    const { generationId } = startDraftJob({
+      db: w.db,
+      sceneId: w.second.id,
+      options: input.options,
+      preview,
+      provider: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: fake.url, apiKey: 'k' },
+      model: model({ modelId: 'fake/writer' }),
+      entryVersions: sentEntryVersions(input.memory, preview.blocks),
+      emit,
+      fetchImpl,
+      retryDelays: [5]
+    })
+    await done(generationId)
+    expect(gens.getGeneration(w.db, generationId).response).toBe(prose)
+    const sent = events.filter((e) => e.name === 'generation:chunk').map((e) => (e.payload as AppEvents['generation:chunk']).text).join('')
+    expect(sent).toBe(prose)
   })
 
   it('asks with the plain reply room if the model cannot write that much, and records it', async () => {

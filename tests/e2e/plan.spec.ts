@@ -28,9 +28,11 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     const outline = await invoke(win, 'getOutline', story.id)
     const first = outline.scenes[0].id
     await invoke(win, 'saveSceneText', first, null, 'Mara stood at the rail in her grey cloak. Tobin watched.')
+    // The same day, so what Mara wore as the scene before ended still holds as this one begins.
+    await invoke(win, 'updateSceneCard', first, { ...(await invoke(win, 'getScene', first)).card, when: 'Day 1, evening' })
     const next = await invoke(win, 'createScene', outline.chapters[0].id, { title: 'The gate' })
     const card = (await invoke(win, 'getScene', next.id)).card
-    await invoke(win, 'updateSceneCard', next.id, { ...card, povId: mara.id, presentIds: [mara.id, tobin.id], beats: ['They reach the gate.'] })
+    await invoke(win, 'updateSceneCard', next.id, { ...card, when: 'Day 1, night', povId: mara.id, presentIds: [mara.id, tobin.id], beats: ['They reach the gate.'] })
     await useFakeModel(win, fake)
 
     const rec = await draft(win, next.id)
@@ -46,7 +48,8 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     expect(user.indexOf('## Must stay true')).toBeLessThan(user.indexOf('Write the scene now.'))
 
     // The plan: the stage's own words where the planner had them wrong ("a red coat"), its guess left out ("a silver
-    // knife"), the change it plans kept and the one already so left out; sent last, as the writer's own notes.
+    // knife"), the change it plans kept, the one already so and the stranger the card never asks for left out; sent
+    // last, as the writer's own notes.
     const plan = block('plan')!
     expect(plan.text).toContain('My notes before I write')
     expect(plan.text).toContain('- Mara is wearing: grey cloak')
@@ -54,6 +57,7 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     expect(plan.text).not.toContain('silver knife')
     expect(plan.text).toContain('1. Mara takes off the grey cloak and hangs it over the chair.')
     expect(plan.text).not.toContain('puts on')
+    expect(plan.text).not.toContain('stranger')
     expect(user.trimEnd().endsWith('Now the prose itself:')).toBe(true)
     expect(user.indexOf('Write the scene now.')).toBeLessThan(user.indexOf('My notes before I write'))
     // The entry it asked for came into the briefing.

@@ -24,13 +24,14 @@ export function planWanted(): boolean {
 /**
  * The plan for a draft about to be written from this briefing, made with the memory model (and its Thinking, Off unless
  * Adam changed it); null when planning is off, the memory model isn't set up or is paused (the month's spending limit),
- * or the plan failed, was stopped or took too long. Never throws.
+ * or the plan failed, was stopped or took too long. Never throws. `focus`: for Beat by beat, the one beat to plan.
  */
 export async function planBeforeWriting(
   db: Database.Database,
   sceneId: ID,
   b: { input: ContextInput; preview: ContextPreview; prepared: Pick<PreparedContext, 'finals'> },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  focus = ''
 ): Promise<MadePlan | null> {
   try {
     if (!planWanted() || pausedNote()) return null
@@ -42,7 +43,7 @@ export async function planBeforeWriting(
       db,
       model,
       sceneId,
-      material: planMaterial(b.input, b.preview, b.prepared),
+      material: planMaterial(b.input, b.preview, b.prepared, focus),
       check: {
         stand: b.input.continuity,
         entries: b.input.memory.entries,

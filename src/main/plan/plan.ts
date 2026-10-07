@@ -1,24 +1,34 @@
 // Plan before writing (step 4 of the consistency plan, Adam 2026-10-07). Before the prose is written, one short call to
-// the memory model plans the scene: which facts and positions it relies on, what will change on the page (a coat taken
-// off, a move to the window), and any codex entry it needs that isn't in the briefing. The app then fetches what is
-// missing and checks the plan against the stage: a position the plan relies on is told in the stage's own words (or
-// left out when the stage doesn't know it), a fact must be in what the planner was given, and a change that is already
-// so, starts from something the stage says isn't so, or is made by someone dead is left out. What is left goes in as the
-// opening of the writer's own notes, after the closing instruction, so the prose carries on from it rather than from a
-// distant rule: with cheap models (DeepSeek), events given as a rule were ignored 9 times in 9, and followed 3 times in
-// 3 as text the model carried on from. Never holds a draft up: a plan that fails, is stopped or takes too long is no
-// plan. No Electron imports.
+// the memory model plans the scene (or, for Beat by beat, the one beat): which facts and positions it relies on, what
+// will change on the page (a coat taken off, a move to the window), and any codex entry it needs that isn't in the
+// briefing. The app then fetches what is missing and checks the plan:
+// - against the stage, as far as it still holds here (stageReach, as for what must stay true: all of it carrying on
+//   inside a scene; at a new scene's start the same day, injuries, clothes and what people hold; on a later day or
+//   after a gap not known, injuries only; nothing from another story): a position the plan relies on is told in the
+//   stage's own words, and one the stage doesn't vouch for here only when the scene card says it;
+// - a fact only when its words are in what the planner was given (never one kept from someone in the scene);
+// - a change is left out when it is already so, starts from something the stage says isn't so, is made by someone
+//   dead, has someone learn what is kept from them (unless the scene card says so), or is an event the scene card,
+//   the beat or the author's direction doesn't call for (moving, dressing, picking things up need no asking).
+// What is left goes in as the opening of the writer's own notes, after the closing instruction, so the prose carries on
+// from it rather than from a distant rule: with cheap models (DeepSeek), events given as a rule were ignored 9 times in
+// 9, and followed 3 times in 3 as text the model carried on from. Never holds a draft up: a plan that fails, is stopped
+// or takes too long is no plan. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextPreview, EntryState, ID } from '@shared/types'
 import { quoteFound, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
+import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
-import { mentions, MUST_BLOCK, sceneTail, type ContextInput, type PreparedContext } from '../ai/context'
+import { MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
 import { deathOf } from '../ai/deaths'
-import { stageFor, stageLine } from '../ai/mustStay'
+import { secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 import { SO_FAR_BLOCK } from '../beats/instructions'
+import { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
+
+export { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
 
 type DB = Database.Database
 
@@ -29,17 +39,12 @@ export const PLAN_LIMIT_MS = 30_000
 export const PLAN_REPLY_TOKENS = 900
 /** The most of each the plan keeps. */
 export const PLAN_MOST = { relies: 10, changes: 8, needs: 4 }
+/** Only a scene's newest few planning calls keep their whole prompt (each holds much of the briefing). */
+export const KEEP_PLAN_PROMPTS = 10
 /** The most entries named for the planner: those in the briefing, and those it may ask for. */
 const MOST_NAMED = { inBriefing: 40, others: 150 }
 /** About how much of the words just before the planner reads. */
 const BEFORE_WORDS = { min: 200, target: 300, max: 400 }
-
-/** What the plan says first, and last: the writer's own notes, leading into the prose. */
-export const PLAN_HEAD = 'My notes before I write (I keep to them as I go):'
-export const PLAN_GO = {
-  start: 'Now the prose itself:',
-  here: 'Now the prose, carrying straight on from the very end of the scene so far:'
-} as const
 
 // ---------- What the planner is given ----------
 
@@ -47,24 +52,49 @@ export interface PlanMaterial {
   /** What the writer is asked: the closing instruction. */
   ask: string
   card: string
+  /** For Beat by beat: the one beat to plan ("beat 2 of 5: …", with Adam's note for it); '' plans the scene. */
+  focus: string
   /** What must stay true (ai/mustStay.ts), as the writer gets it; '' for none. */
   must: string
-  /** Where things stand, as the writer gets it; '' when not known. */
+  /** How far where things stand still holds here (stageReach). */
+  reach: StageReach
+  /** Where things stand, as the writer gets it, under its own title, with what of it may have changed; '' for none. */
   stand: string
+  standTitle: string
+  standNote: string
   /** The end of the scene so far, or of the previous scene. */
   before: { title: string; text: string } | null
   /** Each entry in the briefing, one line. */
   inBriefing: string[]
   /** The names of entries that exist here but aren't in the briefing, which the plan may ask for. */
   others: string[]
+  /** The people on the scene card, and what some of them know and others don't. */
+  people: string[]
+  secrets: Secret[]
+  /** What an event the plan has happen must answer to: the scene card (with the author's direction), or the beat. */
+  calls: string
 }
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 
-/** What the planner reads, from the writer's briefing as it stands (before the plan). */
-export function planMaterial(input: ContextInput, preview: ContextPreview, prepared: Pick<PreparedContext, 'finals'>): PlanMaterial {
+/** What may have changed of where things stand, by how far it still holds here. */
+const STAND_NOTE: Record<StageReach, string> = {
+  here: '',
+  start:
+    'This was as the scene before ended, earlier the same day. The scene card says where and when this scene is: people may have moved. Injuries, what people wear and what they hold carry on unless the card says otherwise.',
+  later:
+    'This was as the scene before ended, and time has passed since (a later day, or how long is not known). Only injuries surely carry on: where people are, how they are placed and what they wear and hold may all have changed.',
+  none: ''
+}
+
+/**
+ * What the planner reads, from the writer's briefing as it stands (before the plan). `focus`: for Beat by beat, the
+ * one beat to plan.
+ */
+export function planMaterial(input: ContextInput, preview: ContextPreview, prepared: Pick<PreparedContext, 'finals'>, focus = ''): PlanMaterial {
   const sent = preview.blocks.filter((b) => !b.dropped)
-  const text = (id: string): string => sent.find((b) => b.id === id)?.text.trim() ?? ''
+  const block = (id: string) => sent.find((b) => b.id === id)
+  const text = (id: string): string => block(id)?.text.trim() ?? ''
   const soFar = text(SO_FAR_BLOCK)
   const previous = text('previous-scene')
   const before = soFar
@@ -89,22 +119,44 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
       const aka = (e.aliases ?? []).map(clean).filter(Boolean)
       return `${e.name} (${e.kind}${aka.length ? `; also ${aka.join(', ')}` : ''})`
     })
-  return { ask, card: text('scene-card'), must: text(MUST_BLOCK), stand: text('continuity'), before, inBriefing, others }
+  const card = input.scene.card
+  const people = [...new Set([card.povId, ...card.presentIds])]
+    .map((id) => (id ? byId.get(id) : undefined))
+    .filter((e): e is EntryState => !!e && e.kind === 'character')
+  const reach = stageReach(input)
+  const stand = reach === 'none' ? null : block('continuity')
+  return {
+    ask,
+    card: text('scene-card'),
+    focus: clean(focus),
+    must: text(MUST_BLOCK),
+    reach,
+    stand: stand?.text.trim() ?? '',
+    standTitle: stand?.title ?? 'Where things stand',
+    standNote: stand ? STAND_NOTE[reach] : '',
+    before,
+    inBriefing,
+    others,
+    people: people.map((e) => e.name),
+    secrets: secretsAmong(people, input.memory.facts),
+    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : text('scene-card')
+  }
 }
 
 const SYSTEM = `${PLAN_MARKER} plan
-You plan one scene of a novel just before it is written, so the writer keeps to the facts. You don't write any of the scene.
+You plan one scene of a novel (or one beat of it) just before it is written, so the writer keeps to the facts. You don't write any of the scene.
 
 Read what the writer is asked, the scene card, what must stay true, where things stand and the words just before. Then say:
-- relies: the facts and positions the scene relies on: where people are, what they wear and hold, how they are placed, injuries, what someone knows or doesn't know. Copy each value word for word from what you are given. Never guess one.
-- changes: what will change on the page, in the order it happens: a coat taken off, a move to the window, something picked up or put down, someone arriving or leaving, a secret told. For each: how it is now (from), how it is after (to), and how it happens, in one short sentence (how).
-- needs: the names of entries under "Also in the world" that the scene needs and the briefing lacks (a place it moves to, an object or a person it brings in). Only names from that list, at most 4. None is fine.
+- relies: the facts and positions the scene relies on: where people are, what they wear and hold, how they are placed, injuries. Copy each value word for word from what you are given. Never guess one.
+- changes: what will change on the page, in the order it happens: only what the scene card, its beats or the author's direction call for (when you are asked to plan one beat, only that beat), and the moves they need (a coat taken off, a move to the window, something picked up or put down). For each: how it is now (from), how it is after (to), and how it happens, in one short sentence (how). Add no events of your own.
+- needs: the names of entries under "Also in the world" that the scene needs and the briefing lacks (a place it moves to, an object or a person it brings in). Exactly as listed, at most 4. None is fine.
 
 Reply with only a JSON object:
 {"relies": [{"who": "", "what": "", "value": ""}], "changes": [{"who": "", "what": "", "from": "", "to": "", "how": ""}], "needs": [""]}
 - who: a character's name as given, or "" for the scene itself or a fact about the world.
 - what: one of where, wearing, position, holding, condition, mood, time, light, weather, or fact.
 - Keep to what must stay true and to where things stand: nothing changes unless it happens on the page, and each change starts from how things are now.
+- What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
 /** What the memory model is asked. */
@@ -113,12 +165,13 @@ export function planMessages(m: PlanMaterial): ChatMessage[] {
   const user = [
     part('What the writer is asked', m.ask),
     part('The scene card', m.card),
+    part('Plan only this beat', m.focus ? `${m.focus}\nThe beats after it are written later: plan nothing from them.` : ''),
     part('Must stay true', m.must),
-    part('Where things stand', m.stand),
+    part(m.standTitle, m.stand ? [m.standNote, m.stand].filter(Boolean).join('\n') : ''),
     m.before ? part(m.before.title, `"""\n${m.before.text}\n"""`) : '',
     part('In the briefing', m.inBriefing.map((l) => `- ${l}`).join('\n')),
     part('Also in the world (not in the briefing)', m.others.join('; ')),
-    'Plan the scene now, as one JSON object.'
+    `Plan the ${m.focus ? 'beat' : 'scene'} now, as one JSON object.`
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -163,9 +216,10 @@ export function readPlan(reply: string): RawPlan | null {
 // ---------- Checking it against the stage ----------
 
 type SceneField = 'time' | 'light' | 'weather'
+type Field = StateField | SceneField
 
 /** The stage's field for what the planner wrote ("position" is posture); null for a fact. */
-export function fieldOf(what: string): StateField | SceneField | null {
+export function fieldOf(what: string): Field | null {
   const w = what.toLowerCase().replace(/[^a-z]/g, '')
   if (['where', 'place', 'location', 'whereabouts'].includes(w)) return 'where'
   if (['wearing', 'clothes', 'clothing', 'dress', 'outfit'].includes(w)) return 'wearing'
@@ -179,6 +233,15 @@ export function fieldOf(what: string): StateField | SceneField | null {
 }
 
 const SCENE_FIELDS: readonly string[] = ['time', 'light', 'weather']
+/** The stage's fields that still hold here, by how far the stage reaches (as what must stay true keeps them). */
+const IN_REACH: Record<StageReach, readonly Field[]> = {
+  here: ['where', 'wearing', 'posture', 'holding', 'condition', 'mood', 'lastAction', 'time', 'light', 'weather'],
+  start: ['condition', 'wearing', 'holding'],
+  later: ['condition'],
+  none: []
+}
+/** Changes that need no asking: people moving, dressing, picking things up and putting them down, and how they feel. */
+const FREE_MOVES: readonly Field[] = ['where', 'wearing', 'posture', 'holding', 'mood', 'lastAction']
 
 /** Words that say how something is, in pairs that can't both hold. */
 const OPPOSITES: [string, string][] = [
@@ -249,11 +312,48 @@ export function contradicts(a: string, b: string): boolean {
 
 const plainText = (s: string): string => tokens(s).join(' ')
 
+/** Words that say little about what happens. */
+const FILLER = new Set([
+  'the', 'and', 'her', 'his', 'him', 'she', 'they', 'them', 'their', 'its', 'was', 'were', 'are', 'has', 'had', 'have', 'been', 'for',
+  'but', 'not', 'who', 'how', 'did', 'does', 'one', 'out', 'off', 'can', 'may', 'that', 'this', 'with', 'from', 'into', 'onto',
+  'then', 'than', 'there', 'what', 'when', 'where', 'which', 'while', 'about', 'over', 'under', 'after', 'before', 'still', 'just',
+  'only', 'some', 'more', 'most', 'very', 'back', 'down', 'again', 'once', 'each', 'other', 'will', 'would', 'says', 'said', 'tells',
+  'told', 'scene', 'beat', 'now', 'all', 'any', 'too', 'yet', 'own'
+])
+const stem = (w: string): string => (w.length > 5 ? w.replace(/(ing|ed|es|s)$/, '') : w)
+/** The words of a text that say what happens: no filler, no names of the people in the scene, endings taken off. */
+const meaningWords = (s: string, names: ReadonlySet<string>): Set<string> =>
+  new Set(tokens(s).filter((w) => w.length >= 3 && !FILLER.has(w) && !names.has(w)).map(stem))
+const sharedWords = (a: Set<string>, b: Set<string>): number => [...a].filter((w) => b.has(w)).length
+
+/** True when `text` says the secret `fact`: enough of the fact's own words (two, or a third of them) are in it. */
+function says(text: string, fact: string, names: ReadonlySet<string>): boolean {
+  const f = meaningWords(fact, names)
+  if (!f.size) return false
+  return sharedWords(f, meaningWords(text, names)) >= Math.min(f.size, Math.max(2, Math.ceil(f.size / 3)))
+}
+
+/** True when what a change makes happen answers to `calls` (the card, or the beat): a third of its words are there. */
+function calledFor(change: string, calls: string, names: ReadonlySet<string>): boolean {
+  const c = meaningWords(change, names)
+  if (!c.size) return false
+  return sharedWords(c, meaningWords(calls, names)) >= Math.max(1, Math.ceil(c.size / 3))
+}
+
 export interface CheckWith {
   /** Where things stand at the point of writing; null when not known. */
   stand: SceneState | null | undefined
-  /** Everything the planner was given, so a fact it relies on can be found there. */
+  /** How far it still holds here (stageReach). */
+  reach: StageReach
+  /** What the planner was given (without where things stand, unless it all holds here), for the facts it relies on. */
   material: string
+  /** The scene card as the writer gets it: a position the stage doesn't vouch for here only when the card says it. */
+  card: string
+  /** What an event must answer to: the scene card, or the one beat. */
+  calls: string
+  /** The people on the scene card, and what some of them know and others don't. */
+  people: string[]
+  secrets: Secret[]
   /** Every entry that exists here, for what the plan asks for and who is dead. */
   entries: EntryState[]
   /** Entries already in the briefing, and those Adam kept out: never asked for. */
@@ -279,39 +379,51 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   const needs: ID[] = []
   let corrected = 0
   let dropped = 0
+  const reaches = (f: Field): boolean => IN_REACH[w.reach].includes(f)
   const stage = (who: string): CharacterState | null => (who ? stageFor({ name: who, aliases: [] }, w.stand) : null)
-  const nowOf = (who: string, f: StateField | SceneField): string =>
-    SCENE_FIELDS.includes(f) ? clean(w.stand?.[f as SceneField]) : clean(stage(who)?.[f as StateField])
+  /** What the stage says of a field here; '' when it doesn't say, or doesn't hold here. */
+  const nowOf = (who: string, f: Field): string =>
+    !reaches(f) ? '' : SCENE_FIELDS.includes(f) ? clean(w.stand?.[f as SceneField]) : clean(stage(who)?.[f as StateField])
   const nameOf = (who: string): string => clean(stage(who)?.name) || who
   const put = (line: string): void => {
     if (line && !keep.some((l) => l.toLowerCase() === line.toLowerCase())) keep.push(line)
   }
+  const names = new Set(w.people.flatMap((n) => tokens(n)))
+  const onCard = (who: string): boolean => {
+    const n = clean(who).toLowerCase()
+    return !!n && w.people.some((p) => p.toLowerCase() === n || p.toLowerCase().startsWith(`${n} `))
+  }
+  /** Says something kept from someone in the scene that the scene card doesn't bring up. */
+  const tellsSecret = (text: string): boolean => w.secrets.some((s) => says(text, s.fact, names) && !says(w.card, s.fact, names))
 
   for (const r of raw.relies.slice(0, PLAN_MOST.relies)) {
     if (!r.value) continue
     const f = fieldOf(r.what)
     const scene = !!f && SCENE_FIELDS.includes(f)
     if (f && (scene || r.who)) {
-      // A position or the like: the stage's own words, whatever the planner wrote.
+      // A position or the like: the stage's own words, whatever the planner wrote, where the stage still holds.
       const now = nowOf(r.who, f)
       if (now) {
         if (plainText(now) !== plainText(r.value)) corrected++
         put(stageLine(scene ? '' : nameOf(r.who), f, now))
         continue
       }
-      // Not on the stage: only what the planner was given (a mark on the codex page, say), never a guess.
-      if (quoteFound(r.value, w.material)) put(stageLine(r.who || '', f, r.value))
+      // Not on the stage here: only what the planner was given (a mark on the codex page, say); where the stage no
+      // longer holds (a new scene), only what the scene card says, never the scene before's.
+      const source = reaches(f) ? w.material : w.card
+      if (quoteFound(r.value, source)) put(stageLine(r.who || '', f, r.value))
       else dropped++
       continue
     }
-    // A fact: only one in what the planner was given.
-    if (!quoteFound(r.value, w.material)) {
+    // A fact: only one in what the planner was given, and never one kept from someone here.
+    if (!quoteFound(r.value, w.material) || tellsSecret(r.value)) {
       dropped++
       continue
     }
     put(r.who && !r.value.toLowerCase().startsWith(r.who.toLowerCase()) ? `${r.who}: ${r.value}` : r.value)
   }
 
+  const callWords = new Set(tokens(w.calls))
   const dead = w.entries.filter((e) => deathOf(e)).flatMap((e) => [e.name, ...(e.aliases ?? [])].map((n) => clean(n).toLowerCase()))
   const isDead = (who: string): boolean => {
     const n = clean(who).toLowerCase()
@@ -319,14 +431,22 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   }
   for (const c of raw.changes.slice(0, PLAN_MOST.changes)) {
     if (!c.how && !c.to) continue
-    if (isDead(c.who)) {
-      dropped++
-      continue
-    }
     const f = fieldOf(c.what)
     const now = f && (SCENE_FIELDS.includes(f) || c.who) ? nowOf(c.who, f) : ''
-    // Already so: nothing to change. Starting from something the stage says isn't so: planned from a wrong picture.
-    if (now && ((c.to && plainText(c.to) === plainText(now)) || (c.from && contradicts(c.from, now)))) {
+    const said = [c.how, c.to].filter(Boolean).join('. ')
+    // Someone who could move or dress here (on the card, or on the stage carrying on inside the scene); anyone else only
+    // when the card (or the beat) names them.
+    const here = onCard(c.who) || (w.reach === 'here' && !!stage(c.who))
+    const named = !c.who || here || tokens(c.who).every((t) => callWords.has(t))
+    const leave =
+      isDead(c.who) ||
+      // Already so: nothing to change. Starting from something the stage says isn't so: planned from a wrong picture.
+      (!!now && ((!!c.to && plainText(c.to) === plainText(now)) || (!!c.from && contradicts(c.from, now)))) ||
+      // Someone learning what is kept from them, when the scene card doesn't say they do.
+      tellsSecret(said) ||
+      // An event (or an injury, or someone not in the scene) the card or the beat doesn't call for.
+      (!(f && FREE_MOVES.includes(f) && here) && !(named && calledFor(said, w.calls, names)))
+    if (leave) {
       dropped++
       continue
     }
@@ -334,12 +454,21 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     if (!changes.some((l) => l.toLowerCase() === line.toLowerCase())) changes.push(line)
   }
 
-  const open = w.entries.filter((e) => !w.inBriefing.has(e.id) && !w.hidden.has(e.id))
+  // What it asks for: an entry by its name or other name exactly (a note after it in brackets, or "the" before it,
+  // aside), never one the briefing has or Adam kept out.
+  const bare = (s: string): string =>
+    clean(s)
+      .replace(/\s*\([^)]*\)\s*$/, '')
+      .replace(/^the\s+/i, '')
+      .toLowerCase()
+  const byName = new Map<string, EntryState>()
+  for (const e of w.entries) {
+    if (w.inBriefing.has(e.id) || w.hidden.has(e.id)) continue
+    for (const n of [e.name, ...(e.aliases ?? [])]) if (bare(n) && !byName.has(bare(n))) byName.set(bare(n), e)
+  }
   for (const n of raw.needs) {
     if (needs.length >= PLAN_MOST.needs) break
-    const want = clean(n).toLowerCase()
-    const named = (e: EntryState): string[] => [e.name, ...(e.aliases ?? [])].map((x) => clean(x).toLowerCase()).filter(Boolean)
-    const e = open.find((x) => named(x).includes(want)) ?? open.find((x) => [x.name, ...(x.aliases ?? [])].some((a) => mentions(n, a)))
+    const e = byName.get(bare(n))
     if (e && !needs.includes(e.id)) needs.push(e.id)
   }
   return { keep, changes, needs, checked: { corrected, dropped } }
@@ -349,10 +478,26 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
 export function planText(p: Pick<ScenePlan, 'keep' | 'changes'>, carryingOn: boolean): string {
   if (!p.keep.length && !p.changes.length) return ''
   const parts = [PLAN_HEAD]
-  if (p.keep.length) parts.push(`What the scene rests on, as things stand:\n${p.keep.map((l) => `- ${l}`).join('\n')}`)
-  if (p.changes.length) parts.push(`What happens on the page, in order:\n${p.changes.map((l, i) => `${i + 1}. ${l}`).join('\n')}`)
+  if (p.keep.length) parts.push(`${PLAN_PARTS.keep}\n${p.keep.map((l) => `- ${l}`).join('\n')}`)
+  if (p.changes.length) parts.push(`${PLAN_PARTS.changes}\n${p.changes.map((l, i) => `${i + 1}. ${l}`).join('\n')}`)
   parts.push(carryingOn ? PLAN_GO.here : PLAN_GO.start)
   return parts.join('\n')
+}
+
+/**
+ * True when the briefing with the plan (and what it asked for) loses nothing the briefing without it had room for:
+ * every part sent before is still sent, none of it shorter, the reply's room is the same, and it still fits (or didn't
+ * fit before either). Not enough room means no plan.
+ */
+export function keepsRoom(before: Pick<ContextPreview, 'blocks' | 'budget'>, after: Pick<ContextPreview, 'blocks' | 'budget'>): boolean {
+  const now = new Map(after.blocks.map((x) => [x.id, x]))
+  for (const x of before.blocks) {
+    if (x.dropped) continue
+    const y = now.get(x.id)
+    if (!y || y.dropped || y.tokens < x.tokens) return false
+  }
+  if (after.budget.reserved < before.budget.reserved) return false
+  return after.budget.used <= after.budget.available || before.budget.used > before.budget.available
 }
 
 // ---------- The call ----------
@@ -362,7 +507,7 @@ export interface PlanCall {
   model: MemoryModel
   sceneId: ID
   material: PlanMaterial
-  check: Omit<CheckWith, 'material'>
+  check: Pick<CheckWith, 'stand' | 'entries' | 'inBriefing' | 'hidden'>
   /** The writing carries on from words already in the scene (Add below, a later beat). */
   carryingOn: boolean
   /** Adam stopped the draft before it began. */
@@ -382,9 +527,10 @@ export interface MadePlan {
 }
 
 /**
- * Plans the scene with the memory model (as a 'memory' record, so "What the AI saw" shows what it was asked), and
- * checks the plan. Null when there is nothing to go on: the call failed, was stopped, took longer than `limitMs` (it
- * is then stopped too), or said nothing usable. Never throws.
+ * Plans the scene with the memory model (as a 'memory' record, so "What the AI saw" shows what it was asked; only the
+ * scene's newest KEEP_PLAN_PROMPTS keep their whole prompt), and checks the plan. Null when there is nothing to go on:
+ * the call failed, was stopped, took longer than `limitMs` (it is then stopped too), or said nothing usable. Never
+ * throws.
  */
 export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
   if (o.signal?.aborted || o.closed()) return null
@@ -396,7 +542,8 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
   let late: ReturnType<typeof setTimeout> | undefined
   try {
     timer = setTimeout(() => stop.abort(), limit)
-    const messages = planMessages(o.material)
+    const m = o.material
+    const messages = planMessages(m)
     const user = messages[1].content
     const call = callModel({
       db: o.db,
@@ -416,10 +563,14 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
       late = setTimeout(() => resolve(null), limit + 2_000)
     })
     const got = await Promise.race([call, gaveUp])
+    forgetOld(o)
     if (!got || got.status !== 'complete' || stop.signal.aborted || o.closed()) return null
     const raw = readPlan(got.text)
     if (!raw) return null
-    const plan = checkPlan(raw, { ...o.check, material: user })
+    // A fact is taken from what the planner was given, but never from where things stood in a scene before that no
+    // longer holds here.
+    const material = m.reach === 'here' ? user : planMessages({ ...m, stand: '' })[1].content
+    const plan = checkPlan(raw, { ...o.check, reach: m.reach, material, card: m.card, calls: m.calls, people: m.people, secrets: m.secrets })
     const text = planText(plan, o.carryingOn)
     if (!text && !plan.needs.length) return null
     return { needs: plan.needs, text, checked: plan.checked }
@@ -430,5 +581,14 @@ export async function makePlan(o: PlanCall): Promise<MadePlan | null> {
     clearTimeout(timer)
     clearTimeout(late)
     o.signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/** Only the scene's newest few planning calls keep their whole prompt. */
+function forgetOld(o: Pick<PlanCall, 'db' | 'sceneId' | 'closed'>): void {
+  try {
+    if (o.db.open && !o.closed()) gens.forgetOldPrompts(o.db, o.sceneId, PLAN_MARKER, KEEP_PLAN_PROMPTS)
+  } catch (e) {
+    console.warn('Could not let go of older planning prompts', e)
   }
 }

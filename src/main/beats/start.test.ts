@@ -17,7 +17,11 @@ import { isStartingBeat, startBeat } from './index'
 const h = vi.hoisted(() => ({
   db: null as import('better-sqlite3').Database | null,
   url: '',
-  calls: [] as { sceneId: string; options: Partial<import('@shared/types').DraftOptions>; catchUp: boolean }[]
+  calls: [] as { sceneId: string; options: Partial<import('@shared/types').DraftOptions>; catchUp: boolean; plan: unknown }[],
+  /** Plans asked for (withPlan), with the beat each was for. */
+  plans: [] as { sceneId: string; focus: string | undefined }[],
+  /** Run once while the next briefing gets ready (the memory catching up), then forgotten. */
+  whileBriefing: null as (() => void) | null
 }))
 
 vi.mock('../world', () => ({ db: () => h.db }))
@@ -31,9 +35,12 @@ vi.mock('../ai/draftFlow', async () => {
     draftBriefing: async (
       sceneId: string,
       options: Partial<DraftOptions>,
-      o: { extras?: Parameters<typeof prepareContext>[1]; catchUp?: boolean }
+      o: { extras?: Parameters<typeof prepareContext>[1]; catchUp?: boolean; plan?: boolean }
     ) => {
-      h.calls.push({ sceneId, options, catchUp: o.catchUp !== false })
+      h.calls.push({ sceneId, options, catchUp: o.catchUp !== false, plan: o.plan })
+      const run = h.whileBriefing
+      h.whileBriefing = null
+      run?.()
       const prefs = { spelling: 'UK' as const, pov: 'Close third person', tense: 'Past tense', voiceNotes: '', avoidWords: [] }
       const input = gatherContextInput(h.db!, sceneId, options, { prefs, contextLength: 32000, creativity: 'balanced' })
       const prepared = prepareContext(input, o.extras)
@@ -53,6 +60,10 @@ vi.mock('../ai/draftFlow', async () => {
         thinking: 'off',
         entryVersions: sentEntryVersions(input.memory, preview.blocks)
       }
+    },
+    withPlan: async (sceneId: string, b: unknown, o: { focus?: string }) => {
+      h.plans.push({ sceneId, focus: o.focus })
+      return b
     }
   }
 })
@@ -117,6 +128,8 @@ const count = (text: string, part: string): number => text.split(part).length - 
 
 beforeEach(() => {
   h.calls = []
+  h.plans = []
+  h.whileBriefing = null
   fake.reset()
 })
 
@@ -157,8 +170,22 @@ describe('starting a beat', () => {
     expect(rec.response).toContain('The rain had not let up')
     // The memory caught up before the first beat only.
     expect(h.calls.map((c) => c.catchUp)).toEqual([false])
+    // Planned once, after the briefing (never by it), for this beat alone, with Adam's note for it.
+    expect(h.calls.map((c) => c.plan)).toEqual([false])
+    expect(h.plans).toEqual([{ sceneId, focus: "Beat 2 of 3: Tobin asks for the ledger.\nThe author's note for it: Make Tobin stall before he asks." }])
     // The beat is listed with the scene's drafts (the Drafts tab), so its record can be opened from there.
     expect(gens.listGenerations(db, sceneId)).toEqual([expect.objectContaining({ id: generationId, job: 'beat', status: 'complete' })])
+  })
+
+  it('beats changed on the card while the memory caught up: briefed again, and planned once, for the beat as it is now', async () => {
+    const { db, sceneId } = setup()
+    const r = recorder()
+    h.whileBriefing = () => repo.updateSceneCard(db, sceneId, { ...repo.getScene(db, sceneId).card, beats: [BEATS[0], 'Tobin burns the ledger.', BEATS[2]] })
+    const { generationId } = await startBeat(input(sceneId, { steer: '' }), { emit: r.emit })
+    await r.done(generationId)
+    expect(h.calls).toHaveLength(2)
+    expect(h.plans).toEqual([{ sceneId, focus: 'Beat 2 of 3: Tobin burns the ledger.' }])
+    expect(fake.lastRequest()!.body.messages.find((m) => m.role === 'user')!.content).toContain('- Beat 2 (write this one now): Tobin burns the ledger.')
   })
 
   it("with Auto, shares a typical scene's length out between the beats", async () => {
