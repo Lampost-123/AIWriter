@@ -27,6 +27,11 @@
 //
 // Each probe says what is on the page when the app is asked to write (the first `paragraphs` paragraphs of the
 // scene), what to ask for, the facts true at that point (told to the judge, never to the writer) and the checks.
+//
+// Story version 3 is a different, much longer story written by a live model (story3.ts, storyData.ts); this one stays
+// selectable as version 2 (--story v2).
+
+import type { PatternCheck } from './patterns'
 
 /**
  * Bump when the story, the probes or the checks change: scores from different versions don't compare.
@@ -362,7 +367,8 @@ export type ProbeKind = 'generate' | 'addBelow' | 'continue' | 'beat'
 /** A yes/no question for the judge. `bad` is the answer that means the passage broke the truth. */
 export interface Check {
   id: string
-  trap: TrapId
+  /** A trap id of the story being scored (a TrapId for this one). */
+  trap: string
   ask: string
   bad: 'yes' | 'no'
 }
@@ -374,7 +380,10 @@ export interface Check {
 export interface Tripwire {
   check: string
   what: string
+  /** Checked sentence by sentence (patterns.ts), with the same exceptions a PatternCheck has. */
   pattern: RegExp
+  not?: RegExp
+  unlessBefore?: RegExp
 }
 
 export interface Probe {
@@ -391,6 +400,10 @@ export interface Probe {
   facts: string[]
   checks: Check[]
   tripwires: Tripwire[]
+  /** Deterministic checks of their own (story version 3), scored without the judge. */
+  patterns?: PatternCheck[]
+  /** A note on how the probe's page was set up (story version 3: a fact closer than planned). */
+  note?: string
 }
 
 /**

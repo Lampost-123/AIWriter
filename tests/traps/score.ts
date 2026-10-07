@@ -8,17 +8,21 @@
 // Consistency = kept / (kept + broken): of the checks a passage touched, how many it kept to. Pure, so it can be tested.
 
 import type { JudgeAnswer } from './judge'
-import { TRAPS, type Check, type Probe, type ProbeKind, type TrapId, type Tripwire } from './story'
+import { firstBreak, patternVerdict } from './patterns'
+import { TRAPS, type Check, type Probe, type ProbeKind, type Tripwire } from './story'
+
+/** A story's traps, as the report lists them. */
+export type TrapList = { id: string; name: string }[]
 
 export type Verdict = 'kept' | 'broken' | 'unverified' | 'silent'
 
 export interface CheckResult {
   id: string
-  trap: TrapId
+  trap: string
   ask: string
   verdict: Verdict
   /** What decided it. */
-  by: 'judge' | 'tripwire' | 'none'
+  by: 'judge' | 'tripwire' | 'pattern' | 'none'
   answer: string
   quote: string
 }
@@ -49,20 +53,13 @@ export function quoteInPassage(passage: string, quote: string): boolean {
   return words.filter((w) => have.has(w)).length / words.length >= 0.85
 }
 
-/** The words around a tripwire's match, for the report. */
-function around(passage: string, m: RegExpExecArray): string {
-  const from = Math.max(0, m.index - 40)
-  const to = Math.min(passage.length, m.index + m[0].length + 40)
-  return `${from > 0 ? '…' : ''}${passage.slice(from, to).replace(/\s+/g, ' ').trim()}${to < passage.length ? '…' : ''}`
-}
-
 /** One check's verdict from the judge's answer (undefined: no answer) and any tripwires paired with it. */
 export function judgeCheck(check: Check, answer: JudgeAnswer | undefined, passage: string, tripwires: Tripwire[] = []): CheckResult {
   const base = { id: check.id, trap: check.trap, ask: check.ask }
   for (const t of tripwires) {
     if (t.check !== check.id) continue
-    const m = new RegExp(t.pattern.source, t.pattern.flags.replace('g', '')).exec(passage)
-    if (m) return { ...base, verdict: 'broken', by: 'tripwire', answer: answer?.answer ?? '', quote: around(passage, m) }
+    const hit = firstBreak({ broken: t.pattern, not: t.not, unlessBefore: t.unlessBefore }, passage)
+    if (hit) return { ...base, verdict: 'broken', by: 'tripwire', answer: answer?.answer ?? '', quote: hit.text }
   }
   if (!answer || answer.answer === 'unclear') return { ...base, verdict: 'silent', by: answer ? 'judge' : 'none', answer: answer?.answer ?? '', quote: answer?.quote ?? '' }
   const r = { ...base, by: 'judge' as const, answer: answer.answer, quote: answer.quote }
@@ -72,10 +69,18 @@ export function judgeCheck(check: Check, answer: JudgeAnswer | undefined, passag
   return { ...r, verdict: quoteInPassage(passage, answer.quote) ? 'broken' : 'unverified' }
 }
 
-/** Every check of a probe for one passage. `answers` null: the judge's reply couldn't be read. */
-export function scorePassage(probe: Pick<Probe, 'checks' | 'tripwires'>, passage: string, answers: JudgeAnswer[] | null): CheckResult[] {
+/**
+ * Every check of a probe for one passage: the judge's (`answers` null: its reply couldn't be read) and the deterministic
+ * patterns', which need no judge.
+ */
+export function scorePassage(probe: Pick<Probe, 'checks' | 'tripwires' | 'patterns'>, passage: string, answers: JudgeAnswer[] | null): CheckResult[] {
   const byId = new Map((answers ?? []).map((a) => [a.id.toUpperCase(), a]))
-  return probe.checks.map((c) => judgeCheck(c, byId.get(c.id.toUpperCase()), passage, probe.tripwires))
+  const judged = probe.checks.map((c) => judgeCheck(c, byId.get(c.id.toUpperCase()), passage, probe.tripwires))
+  const patterned = (probe.patterns ?? []).map((pc): CheckResult => {
+    const v = patternVerdict(pc, passage)
+    return { id: pc.id, trap: pc.trap, ask: pc.what, verdict: v.verdict, by: 'pattern', answer: '', quote: v.quote }
+  })
+  return [...judged, ...patterned]
 }
 
 export interface Tally {
@@ -137,11 +142,21 @@ export interface ProbeResult {
   scene: string
   kind: ProbeKind
   asks: string
+  /** How the page was set up, when it matters (a fact closer than planned). */
+  note?: string
   samples: SampleResult[]
 }
 
 export interface RunReport {
   storyVersion: number
+  /** Where the story came from (story.ts, or the written story-v3.json with its model and date). */
+  storySource?: string
+  /** The story's traps (absent in reports from before story version 3: version 2's). */
+  traps?: TrapList
+  /** Why the run stopped before the end (the token budget, say); absent when it finished. */
+  stopped?: string
+  /** The token budget and what was used of it. */
+  budget?: { maxIn: number; maxOut: number; usedIn: number; usedOut: number }
   startedAt: string
   finishedAt: string
   fake: boolean
@@ -171,7 +186,7 @@ export interface Summary {
  * The tallies by trap, by probe and in all, from the scored passages: as written, or after check and repair (a
  * passage the repair didn't change, or didn't check, counts as written).
  */
-export function summarise(probes: ProbeResult[], after: 'written' | 'repaired' = 'written'): Summary {
+export function summarise(probes: ProbeResult[], after: 'written' | 'repaired' = 'written', traps: TrapList = TRAPS): Summary {
   const all: CheckResult[] = []
   const byProbe: Record<string, Tally> = {}
   let passages = 0
@@ -183,18 +198,18 @@ export function summarise(probes: ProbeResult[], after: 'written' | 'repaired' =
     all.push(...rs)
   }
   const byTrap: Record<string, Tally> = {}
-  for (const t of TRAPS) byTrap[t.id] = tally(all.filter((r) => r.trap === t.id))
+  for (const t of traps) byTrap[t.id] = tally(all.filter((r) => r.trap === t.id))
   const total = tally(all)
   return { byTrap, byProbe, total: { ...total, passages, brokenPerPassage: passages ? total.broken / passages : null } }
 }
 
 /** The scores after check and repair, with what it did; undefined when no passage went through it. */
-export function summariseRepair(probes: ProbeResult[]): RunReport['repaired'] {
+export function summariseRepair(probes: ProbeResult[], traps: TrapList = TRAPS): RunReport['repaired'] {
   const samples = probes.flatMap((p) => p.samples.filter((s) => s.status === 'complete' && s.repair))
   if (!samples.length) return undefined
   const reps = samples.map((s) => s.repair!)
   return {
-    ...summarise(probes, 'repaired'),
+    ...summarise(probes, 'repaired', traps),
     checked: reps.filter((x) => x.checked).length,
     fixes: reps.reduce((n, x) => n + x.fixes.length, 0),
     made: reps.reduce((n, x) => n + x.fixes.filter((f) => f.made).length, 0),
@@ -219,6 +234,13 @@ export function reportMarkdown(r: RunReport): string {
   out.push(`- Story version ${r.storyVersion}, ${r.samples} sample${r.samples === 1 ? '' : 's'} per probe, ${r.startedAt.slice(0, 16).replace('T', ' ')}${r.fake ? ' — **fake model (a check of the harness, not a score)**' : ''}`)
   out.push(`- Writer: \`${r.models.writer}\`; memory: \`${r.models.memory}\`; judge: \`${r.models.judge}\` (${r.provider})`)
   out.push(`- App code from \`${r.tested.root}\` (version ${r.tested.appVersion}); harness at ${r.harness.commit.slice(0, 9)}`)
+  if (r.storySource) out.push(`- Story: ${r.storySource}`)
+  if (r.budget) {
+    out.push(
+      `- Tokens: ${r.budget.usedIn.toLocaleString('en-GB')} in, ${r.budget.usedOut.toLocaleString('en-GB')} out (budget ${r.budget.maxIn.toLocaleString('en-GB')} in, ${r.budget.maxOut.toLocaleString('en-GB')} out)`
+    )
+  }
+  if (r.stopped) out.push('', `**Stopped before the end: ${r.stopped}** The scores below cover only what was done.`)
   out.push('')
   out.push(
     `**Consistency ${pct(s.total.consistency)}**: ${s.total.kept} kept, ${s.total.broken} broken, ${s.total.unverified} unverified, ${s.total.silent} not touched, over ${s.total.passages} passages (${s.total.brokenPerPassage == null ? '–' : s.total.brokenPerPassage.toFixed(2)} broken per passage).`
@@ -236,8 +258,9 @@ export function reportMarkdown(r: RunReport): string {
   out.push('')
   out.push(`| Trap | Kept | Broken | Unverified | Not touched | Consistency |${rp ? ' Broken after repair | After repair |' : ''}`)
   out.push(`|---|---:|---:|---:|---:|---:|${rp ? '---:|---:|' : ''}`)
-  for (const t of TRAPS) {
+  for (const t of r.traps ?? TRAPS) {
     const x = s.byTrap[t.id]
+    if (!x) continue
     const y = rp?.byTrap[t.id]
     out.push(`| ${t.name} | ${x.kept} | ${x.broken} | ${x.unverified} | ${x.silent} | ${pct(x.consistency)} |${y ? ` ${y.broken} | ${pct(y.consistency)} |` : ''}`)
   }
@@ -248,6 +271,7 @@ export function reportMarkdown(r: RunReport): string {
     const x = s.byProbe[p.id]
     out.push(`### ${p.id}. ${p.asks}`)
     out.push('')
+    if (p.note) out.push(`*${p.note}*`, '')
     out.push(`Consistency ${pct(x.consistency)} (${x.kept} kept, ${x.broken} broken, ${x.unverified} unverified, ${x.silent} not touched).`)
     const done = p.samples.filter((m) => m.status === 'complete')
     const y = rp?.byProbe[p.id]
@@ -348,10 +372,13 @@ export function compareMarkdown(a: RunReport, b: RunReport): string {
   if (a.storyVersion !== b.storyVersion) out.push(`**Different story versions (${a.storyVersion} and ${b.storyVersion}): the scores don't compare.**`, '')
   if (JSON.stringify(a.models) !== JSON.stringify(b.models)) out.push(`Different models: ${JSON.stringify(a.models)} and ${JSON.stringify(b.models)}.`, '')
   if (a.fake || b.fake) out.push('One of the runs used the fake model: not a real score.', '')
+  if ((a.storySource ?? '') !== (b.storySource ?? '')) out.push(`Different stories: ${a.storySource ?? 'version 1 or 2'} and ${b.storySource ?? 'version 1 or 2'}.`, '')
+  for (const r of [a, b]) if (r.stopped) out.push(`${name(r)} stopped before the end: ${r.stopped}`, '')
   out.push(`| | ${name(a)} | ${name(b)} |`, '|---|---:|---:|')
   // A trap an older story version didn't have is shown as a dash.
   const cell = (t: Tally | undefined): string => (t ? `${pct(t.consistency)} (${t.broken} broken of ${t.kept + t.broken})` : '–')
-  for (const t of TRAPS) out.push(`| ${t.name} | ${cell(a.summary.byTrap[t.id])} | ${cell(b.summary.byTrap[t.id])} |`)
+  const traps = [...(a.traps ?? TRAPS), ...(b.traps ?? TRAPS)].filter((t, i, all) => all.findIndex((x) => x.id === t.id) === i)
+  for (const t of traps) out.push(`| ${t.name} | ${cell(a.summary.byTrap[t.id])} | ${cell(b.summary.byTrap[t.id])} |`)
   out.push(`| **All** | ${cell(a.summary.total)} | ${cell(b.summary.total)} |`)
   if (a.repaired || b.repaired) {
     const after = (r: RunReport): string => (r.repaired ? `${cell(r.repaired.total)}; ${r.repaired.made} fixes, ${r.repaired.questions} questions` : 'no repair')

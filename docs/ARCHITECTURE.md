@@ -1687,7 +1687,17 @@ with DeepSeek Flash for every role (writer, memory, judge), connected as the app
 from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provider openrouter` is kept as an option;
 `--fake` checks the harness with the fake provider instead).
 
-- **The story** (`story.ts`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
+- **Story version 3, the default** (Adam, 2026-10-07: version 2 was too short, every fact fitted in what the writer is
+  shown, so every step scored 99%; "make the story much longer and have a live DeepSeek Flash write it"): "The Salt
+  Road", 30 scenes in 7 chapters, written once by a live model through the app's own Generate from a hand-written
+  outline (`story3.ts`; `npm run traps:write`, `write.ts`), each scene's planted events given as the draft's
+  direction, never on the card, and verified before the scene is kept (a matching sentence, else a judge call; early
+  events early; nothing undoing them; nothing breaking what earlier scenes made true), written again twice at most.
+  Frozen in `story-v3.json` with the sentence where each trap became true, so every checkout is scored on the same
+  words. Its probes sit in chapters 6 and 7, with every fact chapters back or early in a long scene, beyond what
+  Continue is shown; most checks are deterministic (`patterns.ts`), the judge only asks what a pattern can't. A hard
+  token budget (`budget.ts`, checked before every call) stops writing and scoring cleanly.
+- **Story version 2** (`story.ts`, `--story v2`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
   make them. Traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
   change of clothes later), a cut on the left palm, people moved between rooms, who knows what (a secret told to only
   one person, a cover story in front of a soldier), a promise made in the first scene and kept later, a hidden packet,

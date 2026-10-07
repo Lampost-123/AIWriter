@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "traps": "node tests/traps/cli.mjs",
+    "traps:write": "node tests/traps/cli.mjs --write",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
     "rebuild:node": "npm rebuild better-sqlite3",

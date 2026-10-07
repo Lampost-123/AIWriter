@@ -1,5 +1,11 @@
 // npm run traps -- [flags]: scores the app's drafting against the trap story (see README.md beside this file).
+// npm run traps:write -- [flags]: has a live model write story version 3 (--write).
 //
+//   --story v3|v2          the written long story (story-v3.json, the default) or the hand-written short one
+//   --story-file <file>    another written story file (version 3)
+//   --max-tokens-in <n> --max-tokens-out <n>   the hard token budget (default 2,000,000 in and 500,000 out, well
+//                          under $1 at DeepSeek Flash's prices): no call is sent once it would be passed
+//   --write                write the story (with --out <file>, default tests/traps/story-v3.json; --resume <partial>)
 //   --fake                 use the fake provider and a stand-in judge (no key, no cost; checks the harness, not a score)
 //   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
@@ -10,7 +16,7 @@
 //   --memory <model id>    memory model (default: the writer model)
 //   --judge <model id>     judge model (default: the memory model)
 //   --words <n>            length asked of Generate (default 600); --add-words (Add below, 400); --beat-scene-words (900)
-//   --out <folder>         where the report goes (default traps-results/<date>-<branch>-<commit>)
+//   --out <folder>         where the report goes (default traps-results/<date>-<branch>-<commit>); never written over
 //   --price-in <usd> --price-out <usd>   per million tokens, for an estimated cost (DeepSeek reports tokens, not cost)
 //   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
@@ -52,7 +58,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -103,7 +109,39 @@ if (flag('--compare')) {
     }
     env.TRAPS_ROOT = r
   }
-  env.TRAPS_RUN = '1'
+  if (flag('--write')) {
+    env.TRAPS_WRITE = '1'
+    delete env.TRAPS_RUN
+    if (root) {
+      console.error("The story is written with this checkout's app code: leave out --root.")
+      process.exit(2)
+    }
+  } else {
+    env.TRAPS_RUN = '1'
+    delete env.TRAPS_WRITE
+  }
+  const story = value('--story')
+  if (story && story !== 'v2' && story !== 'v3') {
+    console.error('--story is v3 (the written story) or v2 (the short hand-written one).')
+    process.exit(2)
+  }
+  if (story) env.TRAPS_STORY = story
+  const storyFile = value('--story-file')
+  if (storyFile) env.TRAPS_STORY_FILE = resolve(storyFile)
+  const resume = value('--resume')
+  if (resume) env.TRAPS_RESUME = resolve(resume)
+  for (const [f, name] of [
+    ['--max-tokens-in', 'TRAPS_MAX_TOKENS_IN'],
+    ['--max-tokens-out', 'TRAPS_MAX_TOKENS_OUT']
+  ]) {
+    const v = value(f)
+    if (v === undefined) continue
+    if (!/^\d+$/.test(v.replace(/[_,]/g, ''))) {
+      console.error(`${f} is a number of tokens.`)
+      process.exit(2)
+    }
+    env[name] = v.replace(/[_,]/g, '')
+  }
   if (fake) env.TRAPS_FAKE = '1'
   else delete env.TRAPS_FAKE
   if (flag('--keep')) env.TRAPS_KEEP = '1'

@@ -1,0 +1,212 @@
+// Story version 3 of the trap harness (tests/traps): the deterministic checks, the outline, where probe pages end in
+// the written story, the plant check that decides whether a written scene is kept, and the token budget. No model.
+import { describe, expect, it } from 'vitest'
+import { Budget, estimateTokens } from '../traps/budget'
+import { firstBreak, patternVerdict, sentences } from '../traps/patterns'
+import { GUARDS3, PATTERNS, PROBES3, SCENES3, TRAPS3, type Scene3 } from '../traps/story3'
+import { probePage, type FixturePlant, type StoryScene } from '../traps/storyData'
+import { checkPlants, paragraphAt } from '../traps/write'
+
+const broken = (key: keyof typeof PATTERNS, text: string): boolean => patternVerdict(PATTERNS[key], text).verdict === 'broken'
+
+describe('sentences and exceptions', () => {
+  it('splits at sentence ends and line breaks, keeping where each starts', () => {
+    const s = sentences('One. "Two!" she said.\nThree')
+    expect(s.map((x) => x.text)).toEqual(['One.', '"Two!"', 'she said.', 'Three'])
+    expect(s[3].start).toBe('One. "Two!" she said.\n'.length)
+  })
+  it('lets a change shown earlier in the passage excuse what follows', () => {
+    const p = { broken: /\bBryn said\b/, unlessBefore: /\bBryn came back\b/ }
+    expect(firstBreak(p, 'Bryn said hello.')).not.toBeNull()
+    expect(firstBreak(p, 'At last Bryn came back. Bryn said hello.')).toBeNull()
+  })
+})
+
+describe('the version 3 checks', () => {
+  it('burn: the right arm is a slip, the left is not', () => {
+    expect(broken('burn', 'The burn on her right forearm had begun to itch.')).toBe(true)
+    expect(broken('burn', 'Her bandaged right arm ached.')).toBe(true)
+    expect(broken('burn', 'She held the reins in her right hand; the burn on her left forearm pulled.')).toBe(false)
+    expect(patternVerdict(PATTERNS.burn, 'The burn on her left forearm itched.').verdict).toBe('kept')
+    expect(patternVerdict(PATTERNS.burn, 'The fire burned low.').verdict).toBe('silent')
+  })
+  it('horse: riding Thistle or a mare is a slip; thinking of Thistle, or riding Cinder, is not', () => {
+    expect(broken('horse', 'Wren swung up onto Thistle and they rode out.')).toBe(true)
+    expect(broken('horse', 'She urged the dun mare up the slope.')).toBe(true)
+    expect(broken('horse', 'She thought of Thistle, lame in the paddock at Hobb’s Farm.')).toBe(false)
+    expect(patternVerdict(PATTERNS.horse, 'Cinder picked his way through the bog.').verdict).toBe('kept')
+  })
+  it('compass: using it is a slip; missing it is not', () => {
+    expect(broken('compass', 'Wren flipped open her compass and watched the needle settle.')).toBe(true)
+    expect(broken('compass', 'She checked the compass in her left hand.')).toBe(true)
+    expect(broken('compass', 'She wished she still had her grandmother’s compass.')).toBe(false)
+    expect(broken('compass', 'Without the compass she had only the wind to go by.')).toBe(false)
+    expect(broken('compass', 'The wind came from every point of the compass.')).toBe(false)
+  })
+  it("scar: Ash's right cheek is a slip", () => {
+    expect(broken('scar', 'The scar on his right cheek showed white in the cold.')).toBe(true)
+    expect(broken('scar', 'Ash touched the cut on his right cheek.')).toBe(true)
+    expect(broken('scar', "Ash's right cheek was red from the wind.")).toBe(false)
+    expect(broken('scar', 'The thin scar on his left cheek showed white.')).toBe(false)
+    expect(broken('scar', 'A tear ran down her right cheek.')).toBe(false)
+  })
+  it('bead: still having it after giving it to Pell is a slip', () => {
+    expect(broken('bead', 'She turned the blue bead over in her pocket.')).toBe(true)
+    expect(broken('bead', 'She thought of Pell holding the bead up to the light.')).toBe(false)
+    expect(broken('bead', 'A bead of sweat ran down her neck.')).toBe(false)
+  })
+  it('Bryn: speaking in the room is a slip unless she is shown coming back', () => {
+    expect(broken('brynBack', '"More ale," Bryn said, sitting down.')).toBe(true)
+    expect(broken('brynBack', 'The door opened and Bryn came back in, smelling of the forge. "Done," Bryn said.')).toBe(false)
+    expect(broken('brynBack', 'Bryn would still be at the smith’s.')).toBe(false)
+    expect(patternVerdict(PATTERNS.brynBack, 'Bryn would still be at the smith’s.').verdict).toBe('kept')
+  })
+  it('boots: walking in them is a slip unless she put them on; drying by the fire is not', () => {
+    expect(broken('bootsOn', 'Her boots rang on the stone floor.')).toBe(true)
+    expect(broken('bootsOn', 'She pulled her coat tighter around her.')).toBe(true)
+    expect(broken('bootsOn', 'She pulled on her boots. Her boots rang on the stone floor.')).toBe(false)
+    expect(broken('bootsOn', 'Her boots were drying by the fire.')).toBe(false)
+  })
+})
+
+describe('the version 3 outline', () => {
+  it('plants each event so its own words would be found, without breaking a guard', () => {
+    for (const s of SCENES3) {
+      for (const p of s.plants) {
+        const said = p.says.replace(/^Make sure this happens[^:]*:\s*/, '')
+        expect(
+          p.find.every((r) => new RegExp(r.source, r.flags).test(said)),
+          `${s.key} ${p.id}`
+        ).toBe(true)
+        const index = SCENES3.indexOf(s)
+        for (const g of GUARDS3) {
+          if (index < SCENES3.findIndex((x) => x.key === g.from) || g.except?.includes(s.key)) continue
+          expect(firstBreak(g.check, said), `${s.key} ${p.id} against ${g.check.id}`).toBeNull()
+        }
+      }
+    }
+  })
+  it('has probes on known scenes and planted events, with checks named once and traps that exist', () => {
+    const ids = new Set<string>()
+    for (const p of PROBES3) {
+      const scene = SCENES3.find((s) => s.key === p.scene)
+      expect(scene, p.id).toBeTruthy()
+      if ('after' in p.at || 'before' in p.at) {
+        const id = 'after' in p.at ? p.at.after : p.at.before
+        expect(scene!.plants.some((x) => x.id === id), `${p.id} ${id}`).toBe(true)
+      }
+      if (p.kind === 'beat') expect(p.beat).toBeLessThanOrEqual(scene!.card.beats.length)
+      for (const c of [...p.checks, ...p.patterns]) {
+        expect(ids.has(c.id), c.id).toBe(false)
+        ids.add(c.id)
+        expect(TRAPS3.some((t) => t.id === c.trap), c.id).toBe(true)
+      }
+    }
+    for (const t of TRAPS3) expect(PROBES3.some((p) => [...p.checks, ...p.patterns].some((c) => c.trap === t.id)), t.id).toBe(true)
+    // Long enough to matter: 30 scenes in 7 chapters, the probes in the last two.
+    expect(SCENES3).toHaveLength(30)
+    expect(new Set(SCENES3.map((s) => s.chapter)).size).toBe(7)
+    for (const p of PROBES3) expect(SCENES3.find((s) => s.key === p.scene)!.chapter).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('probe pages in the written story', () => {
+  const para = (words: number, tag = 'w'): string => Array.from({ length: words }, () => tag).join(' ')
+  const scene: StoryScene = {
+    key: 's24',
+    chapter: 5,
+    title: 'Hut',
+    card: { pov: 'wren', present: [], location: 'moor', when: '', beats: [] },
+    paragraphs: [para(100, 'boots off'), ...Array.from({ length: 15 }, () => para(150))]
+  }
+  const plant: FixturePlant = { id: 'boots-off', trap: 'clothing', scene: 's24', quote: 'boots off', paragraph: 0, by: 'pattern' }
+  const spec = PROBES3.find((p) => p.id === 'C1')!
+
+  it('ends a Continue page near the scene end, far enough from the planted event', () => {
+    expect(probePage(spec, scene, [plant])).toEqual({ paragraphs: 15 })
+  })
+  it('says so when the event is closer than planned', () => {
+    const short = { ...scene, paragraphs: scene.paragraphs.slice(0, 6) }
+    const got = probePage(spec, short, [plant])
+    expect(got.paragraphs).toBe(5)
+    expect(got.note).toMatch(/only 600 words/)
+  })
+  it('stops just before an event, or at a share of the words', () => {
+    const before = PROBES3.find((p) => p.id === 'B1')!
+    expect(probePage(before, { ...scene, key: 's26' }, [{ ...plant, id: 'bead-given', scene: 's26', paragraph: 9 }])).toEqual({ paragraphs: 9 })
+    const half = PROBES3.find((p) => p.id === 'A1')!
+    expect(probePage(half, scene, []).paragraphs).toBe(8)
+  })
+  it('fails plainly when the written story lacks the event', () => {
+    expect(() => probePage(spec, scene, [])).toThrow(/doesn't say/)
+  })
+})
+
+describe('checking a written scene', () => {
+  const s24 = SCENES3.find((s) => s.key === 's24') as Scene3
+  const s7 = SCENES3.find((s) => s.key === 's7') as Scene3
+  const filler = Array.from({ length: 8 }, (_, i) => `The wind moved over the moor and the fire burned low, hour ${i}.`)
+  const noJudge = async (): Promise<null> => {
+    throw new Error('the judge should not be asked')
+  }
+
+  it('keeps a scene whose event happens early and holds, with where it happened', async () => {
+    const text = ['She pulled off her boots and set them by the fire to dry.', ...filler].join('\n\n')
+    const got = await checkPlants(s24, text, noJudge)
+    expect(got).toMatchObject({ ok: true, problems: [] })
+    expect(got.plants).toEqual([{ id: 'boots-off', trap: 'clothing', scene: 's24', quote: 'She pulled off her boots and set them by the fire to dry.', paragraph: 0, by: 'pattern' }])
+  })
+  it('turns down an event that comes too late, or is undone', async () => {
+    const late = await checkPlants(s24, [...filler, 'She pulled off her boots and set them by the fire to dry.'].join('\n\n'), noJudge)
+    expect(late.ok).toBe(false)
+    expect(late.problems.join(' ')).toMatch(/too late/)
+    const undone = await checkPlants(s24, ['She pulled off her boots to dry.', ...filler, 'Her boots rang on the floor as she paced.'].join('\n\n'), noJudge)
+    expect(undone.problems.join(' ')).toMatch(/undone/)
+  })
+  it('asks the judge only when no sentence shows the event, and needs its quote in the scene', async () => {
+    const text = ['Wren had no coin.', 'She left the old keepsake with the bridge-keeper and walked on.', ...filler].join('\n\n')
+    const yes = await checkPlants(s7, text, async (qs) => qs.map((q) => ({ id: q.id, answer: 'yes', quote: 'She left the old keepsake with the bridge-keeper' })))
+    expect(yes.ok).toBe(true)
+    expect(yes.plants[0]).toMatchObject({ id: 'compass', paragraph: 1, by: 'judge' })
+    const made = await checkPlants(s7, text, async (qs) => qs.map((q) => ({ id: q.id, answer: 'yes', quote: 'words that are not there at all' })))
+    expect(made.ok).toBe(false)
+    const no = await checkPlants(s7, text, async (qs) => qs.map((q) => ({ id: q.id, answer: 'no', quote: '' })))
+    expect(no.problems.join(' ')).toMatch(/didn't happen/)
+  })
+  it('turns down a scene that breaks what an earlier scene made true', async () => {
+    const s28 = SCENES3.find((s) => s.key === 's28') as Scene3
+    const got = await checkPlants(s28, ['She checked her compass; the needle swung north.', ...filler].join('\n\n'), noJudge)
+    expect(got.problems.join(' ')).toMatch(/compass/)
+  })
+  it('finds the paragraph of a position in the joined text', () => {
+    expect(paragraphAt(['ab', 'cd', 'ef'], 0)).toBe(0)
+    expect(paragraphAt(['ab', 'cd', 'ef'], 4)).toBe(1)
+    expect(paragraphAt(['ab', 'cd', 'ef'], 8)).toBe(2)
+  })
+})
+
+describe('the token budget', () => {
+  it('lets calls through until the next would pass it, then refuses them all and says why', async () => {
+    let used = { in: 900, out: 10 }
+    const b = new Budget(1000, 100, () => used)
+    const calls: string[] = []
+    const f = b.wrap((async (input: unknown) => {
+      calls.push(String(input))
+      return new Response('{}')
+    }) as typeof fetch)
+    const post = (chars: number): Promise<Response> => f('http://x/v1/chat/completions', { method: 'POST', body: 'x'.repeat(chars) })
+    expect((await post(300)).status).toBe(200)
+    expect((await f('http://x/v1/models')).status).toBe(200)
+    used = { in: 900, out: 10 }
+    expect((await post(4 * 150)).status).toBe(402)
+    expect(b.hit).toMatch(/input/)
+    expect((await post(4)).status).toBe(402)
+    expect(calls).toHaveLength(2)
+    expect(estimateTokens('abcdefgh')).toBe(2)
+  })
+  it('stops at the output budget', () => {
+    const b = new Budget(10_000, 100, () => ({ in: 0, out: 100 }))
+    expect(b.allows(1)).toBe(false)
+    expect(b.hit).toMatch(/output/)
+  })
+})

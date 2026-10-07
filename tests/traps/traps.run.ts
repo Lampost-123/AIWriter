@@ -1,11 +1,15 @@
-// The trap run, as one long Vitest "test", so the app's TypeScript and its import aliases run as they do in the unit
-// tests. Only `npm run traps` runs it (tests/traps/cli.mjs, with vitest.traps.config.ts): the normal `npm test`
-// never picks up a *.run.ts file, and this does nothing unless TRAPS_RUN or TRAPS_COMPARE is set.
-import { readFileSync, writeFileSync } from 'node:fs'
+// The trap run, writing the story and comparing runs, each as one long Vitest "test", so the app's TypeScript and its
+// import aliases run as they do in the unit tests. Only `npm run traps` and `npm run traps:write` run this
+// (tests/traps/cli.mjs, with vitest.traps.config.ts): the normal `npm test` never picks up a *.run.ts file, and this
+// does nothing unless TRAPS_RUN, TRAPS_WRITE or TRAPS_COMPARE is set.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { configFromEnv, runTraps } from './run'
+import { runWrite } from './write'
 import { compareMarkdown, type RunReport } from './score'
+
+const SIX_HOURS = 6 * 60 * 60_000
 
 describe.runIf(process.env.TRAPS_RUN === '1')('trap story', () => {
   it(
@@ -14,7 +18,18 @@ describe.runIf(process.env.TRAPS_RUN === '1')('trap story', () => {
       const { report } = await runTraps(configFromEnv())
       expect(report.probes.length).toBeGreaterThan(0)
     },
-    6 * 60 * 60_000
+    SIX_HOURS
+  )
+})
+
+describe.runIf(process.env.TRAPS_WRITE === '1')('writing the trap story', () => {
+  it(
+    'writes every scene, with its planted events',
+    async () => {
+      const { fixture } = await runWrite(configFromEnv())
+      expect(fixture.complete).toBe(true)
+    },
+    SIX_HOURS
   )
 })
 
@@ -25,7 +40,10 @@ describe.runIf(!!process.env.TRAPS_COMPARE)('trap scores compared', () => {
       return { file, report: JSON.parse(readFileSync(file, 'utf8')) as RunReport }
     })
     const md = compareMarkdown(a.report, b.report)
-    const out = join(dirname(b.file), `compare-with-${a.report.tested.commit.slice(0, 7)}.md`)
+    // Never written over: a second comparison gets a number.
+    const base = join(dirname(b.file), `compare-with-${a.report.tested.commit.slice(0, 7)}`)
+    let out = `${base}.md`
+    for (let n = 2; existsSync(out); n++) out = `${base}-${n}.md`
     writeFileSync(out, md)
     console.log(`${md}\n(written to ${out})`)
   })

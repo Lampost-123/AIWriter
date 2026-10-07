@@ -1,55 +1,90 @@
 # Trap scores
 
 Step 6 of the story memory plan: an invented story with continuity traps planted in it, and a harness that asks the
-app to write at chosen points and scores, claim by claim, whether what it wrote keeps to the truth. Run it on main
-and on each step's branch, with the same model, to see whether a step really helps.
+app to write at chosen points and scores, claim by claim, whether what it wrote keeps to the truth. Run it on each
+step's checkout, with the same model and the same story, to see whether a step really helps.
 
 It runs the app's own main-process code (settings, providers, world, memory keeper, briefing, drafting) in plain
 Node, with a stand-in for Electron and a throwaway data folder, so it measures what Adam gets. It never touches
 Adam's library, settings or keys, and it is never part of `npm test` or CI.
 
-## Running it
+## The stories
+
+- **Version 3 (the default)**: "The Salt Road", 30 scenes in 7 chapters (about 44,000 words), written once by a live
+  DeepSeek Flash through the app's own Generate from a hand-written outline (`story3.ts`), then frozen in
+  `story-v3.json` so every checkout is scored on the very same words. Adam, 2026-10-07: version 2 was too short (every
+  fact fitted in what the writer is shown, so the memory never mattered and every step scored 99%), so make it much
+  longer and have a live model write it. Every fact a probe tests is far from it: chapters back, or early in a long
+  scene, beyond what Continue is shown.
+- **Version 2** (`--story v2`): "The Gannet", nine short hand-written scenes in `story.ts`.
+
+Scores from different story versions don't compare (`--compare` says so).
+
+## Writing story version 3 (once)
 
 ```powershell
-# Check the harness itself: fake provider, stand-in judge, no key, no cost. Not a score.
-npm run traps -- --fake
-
-# A real score of this checkout on DeepSeek Flash, through DeepSeek's own API.
-npm run traps
-
-# The same harness on another checkout's app code (it needs its own node_modules: npm ci there first)
-npm run traps -- --root C:\Users\adox1\Documents\AIWriter-stage
-
-# Step 3 (check and repair): found and used by itself, scored as written and after repair
-npm run traps -- --root C:\Users\adox1\Documents\AIWriter-repair
-
-# Side by side
-npm run traps -- --compare traps-results\<one run> traps-results\<another run>
+npm run traps:write
 ```
 
+Each scene is written in order from its card with this checkout's app code (main), saved and read by the memory
+before the next, as Adam works. Its planted events go to the writer as the draft's direction, never on the card (so a
+later probe's card gives nothing away). After each draft:
+
+- every planted event must really happen: a sentence that matches (for example "left forearm" and "burn" together),
+  else one judge call that must answer yes with a quote that is in the scene; early events in the first third;
+  nothing later in the scene may undo them (her boots stay off, Bryn stays away);
+- the scene must keep to what earlier scenes made true (no right-arm burn, no compass, no riding Thistle, Ash's scar
+  on the left; deterministic checks).
+
+A scene that fails is written again, twice at most; then the writing stops and says why. Progress is saved after
+every scene to `tests/traps/story-v3.partial.json` (not committed); carry on with
+`npm run traps:write -- --resume tests\traps\story-v3.partial.json`. The finished `story-v3.json` holds the scenes,
+the codex, each planted event's exact sentence and paragraph, the model, the date, the app commit and the tokens used.
+Commit it. An existing story file is never written over (`--out <file>` for another).
+
+## Scoring
+
+```powershell
+# Check the harness itself: fake provider, stand-ins, no key, no cost. Not a score.
+npm run traps -- --fake --story-file <a fake-written story> --out <a folder of your own>
+
+# A real score of this checkout (main) on DeepSeek Flash, through DeepSeek's own API.
+npm run traps -- --out C:\Users\adox1\Documents\AIWriter-trap-scores\round3\step1
+
+# The same harness and story on another checkout's app code (it needs its own node_modules: npm ci there first).
+npm run traps -- --root C:\Users\adox1\Documents\AIWriter-stage --out ...\round3\step2
+
+# Side by side
+npm run traps -- --compare <report folder> <report folder>
+```
+
+A report folder that already has a report is never written over.
+
 **The key** is read from `DEEPSEEK_API_KEY` only: from the terminal's environment, or, on Windows, from the user's
-saved environment variables (set with `setx DEEPSEEK_API_KEY ...` or System Properties) when the terminal was opened
-before it was set. It is never printed or written to the report. Without it a real run refuses to start.
+saved environment variables (set with `setx DEEPSEEK_API_KEY ...` or System Properties). It is never printed or written
+to the report. Without it a real run refuses to start.
 
 **The provider** is DeepSeek, set up as the app's DeepSeek preset does it in Settings › Models: an OpenAI-compatible
-provider at `https://api.deepseek.com/v1`. `--provider openrouter` uses OpenRouter instead, with its key from
-`OPENROUTER_API_KEY`.
+provider at `https://api.deepseek.com/v1`. `--provider openrouter` uses OpenRouter instead (`OPENROUTER_API_KEY`).
 
-**The models**: with no `--writer`, the model whose id has "flash" in it in the provider's model list (the list costs
-nothing; on OpenRouter, DeepSeek's own, never a `:free` variant) is the writer, the memory model and the judge. If
-none is listed, the run stops before any paid call and lists the ids it found: pick one with `--writer <id>`.
-`--memory <id>` and `--judge <id>` set the others (the memory model defaults to the writer, the judge to the memory
-model). Thinking stays off, the app's default, so the model is asked not to reason. The report names the exact ids.
+**The models**: with no `--writer`, the model whose id has "flash" in it in the provider's model list (free to ask) is
+the writer, the memory model and the judge. If none is listed, the run stops before any paid call and lists the ids
+it found: pick one with `--writer <id>` (`--memory`, `--judge` for the others). Thinking stays off, the app's default.
 
-Other flags: `--samples N` (default 3), `--probes A,C`, `--words N` (Generate's length, default 600), `--add-words N`
-(Add below, 400), `--beat-scene-words N` (the scene length a beat's share comes from, 900), `--price-in X --price-out Y`
-(USD per million tokens, for an estimated cost: DeepSeek reports tokens, not cost), `--out <folder>`, `--keep` (keep
-the throwaway world, with "What the AI saw" for every call), `--base-url <url>` (only to check the harness against a
-local fake server).
+**The token budget** (`--max-tokens-in`, `--max-tokens-out`; default 2,000,000 in and 500,000 out, well under $1 at
+DeepSeek Flash's prices) applies to writing and to scoring, per command. Before every model call the tokens used so
+far (every call the app made is a record in the throwaway world, plus the judge's) and what the call will send are
+checked; once the budget would be passed, no more calls are sent and the run stops cleanly: scoring writes its report
+so far, marked as stopped; writing saves its progress for `--resume`. The tokens used are printed at the end and kept in
+the report.
 
-Each run writes `traps-results/<date>-<branch>-<commit>/`: `report.md` (the scores), `report.json` (everything,
-including each passage and the judge's answers) and `passages.md` (every passage, for reading). A checkout with no
-branch (an old release) is named by its version. A "Could not start the token worker" warning is expected: token
+Other flags: `--samples N` (default 3), `--probes G1,C1`, `--words N` (Generate's length, default 600), `--add-words N`
+(Add below, 400), `--beat-scene-words N` (900), `--price-in X --price-out Y` (USD per million tokens, for an estimated
+cost), `--out <folder>`, `--keep` (keep the throwaway world, with "What the AI saw" for every call), `--story-file`,
+`--base-url <url>` (only to check the harness against a local fake server).
+
+Each run writes `report.md` (the scores), `report.json` (everything, including each passage and the judge's answers)
+and `passages.md` (every passage, for reading). A "Could not start the token worker" warning is expected: token
 counting falls back to the main thread, with the same counts.
 
 ## Check and repair (step 3)
@@ -57,79 +92,79 @@ counting falls back to the main thread, with the same counts.
 When the checkout has step 3 (`src/main/ipc/repair.ts`), each passage goes through it the way the page sends it as
 the words land: the scene is saved with the new words in, `checkNewWords` is asked with the new paragraphs and the
 lead-in (one memory-model call), the fixes are made on a ProseMirror copy of the page with the app's own page code
-(`features/repair/apply.ts`: `landedParts`, `fixesTr`; a plain-text copy of it, `page.ts`, if a checkout lacks that
-file), and `repairsApplied` is told which were made. Then the scene goes back to how it was and the issues it raised
-are cleared, so every sample starts the same. The passage is scored as written and, when a fix changed it, again
-after the fixes (a second judge call). The report gives both scores by trap and by probe, the fixes and the
-questions; `passages.md` has each question's words and the passage after the fixes. Repair calls are counted as
-their own job. It is switched on for the run (`checkNewWords` in Settings, and `AIWRITE_REPAIR`). Older checkouts run
-exactly as before.
+(`features/repair/apply.ts`; a plain-text copy, `page.ts`, if a checkout lacks it), and `repairsApplied` is told
+which were made. Then the scene goes back to how it was and the issues it raised are cleared, so every sample starts
+the same. The passage is scored as written and, when a fix changed it, again after the fixes. Repair calls are counted
+as their own job. It is switched on for the run (`checkNewWords` in Settings, and `AIWRITE_REPAIR`). Older checkouts
+run exactly as before.
 
 ## Cost (an estimate)
 
-Story version 2, 3 samples: about 95 calls: 18 written passages (6 probes), 18 judge calls, and 50 to 60 memory calls
-(the memory reading each scene, where things stand, scene and chapter summaries). Roughly 135,000 tokens in and
-32,000 out (the step 1 run on version 1, 15 passages, used 116,000 in and 27,000 out in 81 calls). Step 3 adds one
-repair call per passage (18) and a judge call for each passage a fix changed (up to 18): about 35 more calls and
-65,000 tokens in, 15,000 out. DeepSeek's API reports tokens but not cost, so the report always gives the tokens by job,
-and an estimated cost when `--price-in` and `--price-out` are given. At DeepSeek's chat prices (about $0.28 per million
-tokens in and $0.42 out, less for cached input; check their pricing page for Flash) that is about 5 to 10 cents a run.
-Each extra sample adds 12 calls (a passage and a judge call per probe), 24 with check and repair.
+At DeepSeek's chat prices (about $0.28 per million tokens in and $0.42 out, less for cached input; check their
+pricing page for Flash). DeepSeek reports tokens, not cost; the report always gives the tokens by job.
 
-## The traps
+- **Writing story version 3**: about 180 calls (30 scenes, a few written twice; the memory reading each scene, where
+  things stand, summaries; a judge call now and then), roughly 700,000 tokens in and 170,000 out: about $0.30.
+- **Scoring on version 3, 5 samples**: the memory reads all 30 scenes in the checkout being scored (that is what is
+  measured), then 7 probes x 5 passages. Main or 0.6.24: about 200 calls, 550,000 in, 90,000 out (about $0.20). Step 2
+  reads where things stand after every scene too: about 330 calls, 800,000 in, 150,000 out (about $0.30). Step 3 adds a
+  repair call per passage and a judge call when a fix changed one: about 1,000,000 in, 170,000 out (about $0.35).
 
-| Trap | The truth | Where it is tested |
+## Story version 3: the traps
+
+| Trap | The truth (scene it becomes true) | Tested by |
 |---|---|---|
-| Clothes taken off | Mara takes off her grey coat (hook by the hearth) and boots (on the hearthstones) partway through scene 2; later her coat is hidden and she wears Tobin's brown oilcloth jacket | A, B, C, D, E, F |
-| An injury | Her LEFT palm is cut on the harbour wall's glass and stays bandaged | A, B, C, D, E, F (plus a right-hand tripwire) |
-| People in rooms | Scene 3 ends with Mara and Ilse in the cellar, Tobin in the attic, Dask at the door; in scene 7 Tobin is out in the stable; Mara reaches Saltreach alone | B, C, E |
-| Who knows what | Mara tells only Ilse the letters go to the Bishop of Saltreach; Tobin believes Fennick. In scene 6 Ilse passes Mara off to Dask as her cousin from inland, so nobody may name her or call her a courier in front of him | C, D, F |
-| A promise made early | In scene 1 Mara promises to give Tobin's father's knife back before they part; she does at the fork, so she no longer has it | D, E |
-| Where an item is | The packet: in the brandy cask in the cellar (scenes 3 to 7), then inside Mara's jacket | B, C, F |
-| Posture and what is held | Partway through scene 7 Mara sits on the hearth bench with Tobin's knife across her knees | C |
-| A detail from scenes back | In scene 7 the grey mare is lame, so Mara rides the bay; scene 9's card never says which horse (and her grey coat is a decoy) | E (plus a grey-horse tripwire) |
+| An injury chapters back | Wren's LEFT forearm is burned (s2) | G1, C1, C2, G2, A2 (deterministic) |
+| A horse changed and named | Thistle goes lame and stays at Hobb's Farm; Wren rides Ash's grey gelding Cinder (s9) | G1, G2, A1, A2 (deterministic) |
+| An item given away | Wren gives her brass compass to the bridge-keeper as a toll (s7) | G1, B1, A1, A2 (deterministic) |
+| A scar on one side | A knife cuts Ash's LEFT cheek (s8), a scar by s14 | G1, C2, A1, A2 (deterministic) |
+| A promise made in chapter 1 | Wren promises Pell a blue glass bead (s3), buys it (s13), gives it (s26) | B1 (judge), A1 (deterministic) |
+| Who knows what | Only Ash (s6) and Bryn (s15) know the survey shows silver; Sela, Oskar, Pell and Gale never do | B1, G2 (judge) |
+| Clothes off early in a long scene | Early in s24 (2,400 words) Wren takes off her coat and boots; they stay off | C1 (judge and a deterministic tripwire) |
+| Someone gone early in a long scene | Early in s27 (2,400 words) Bryn takes the horses to the smith and doesn't come back | C2 (deterministic) |
 
-## The probes
+## Story version 3: the probes
 
 | Probe | What the app is asked | On the page |
 |---|---|---|
-| A | Add below in scene 2 | The first 3 paragraphs: just after the coat and boots come off |
-| B | Generate scene 4 from its card (Dask at the door) | Empty |
-| C | Continue at the cursor in scene 7 | The first 3 paragraphs: Mara back in the kitchen with the packet, on the hearth bench with the knife across her knees, Tobin out in the stable |
-| D | Beat 2 of scene 8 (the fork, where Tobin turns back) | Beat 1 as written |
-| E | Generate scene 9 from its card (the Bishop's house) | Empty |
-| F | Add below in scene 6 | The first 3 paragraphs: Dask's men searching, Mara at the table passed off as Ilse's cousin |
+| G1 | Generate s28 (fog on the fell) from its card | Empty |
+| C1 | Continue near the end of s24 | All but the last paragraph: the boots came off 1,300+ words back, beyond what Continue is shown |
+| C2 | Continue near the end of s27 | All but the last paragraph: Bryn left 1,300+ words back |
+| B1 | Beat 3 of s26 (goodbye to Pell) | Up to just before the bead is given |
+| G2 | Generate s29 (the Assize) from its card | Empty |
+| A1 | Add below halfway through s30 | Half the scene |
+| A2 | Add below halfway through s25 | Half the scene |
+
+When a written scene is too short for the planned distance, the report says so on the probe.
 
 ## How it scores
 
-Each passage goes to a judge (the memory model unless `--judge` says otherwise) with only the passage, the facts true
-where it begins, and yes/no questions; each question has the answer that means "broken". The judge answers yes, no
-or unclear, quoting the passage. It is told that movement shown on the page counts (a creak on the stairs before
-someone appears is them coming down) and that boots or a coat seen nearby aren't being worn.
+**Deterministic checks** (`patterns.ts`), sentence by sentence, need no judge: a sentence that breaks the truth (her
+burn on the right arm, riding Thistle, using the compass, Bryn speaking in the room) is **broken**, unless the same
+sentence shows it isn't a slip ("the compass she no longer had") or the change was shown earlier in the passage ("Bryn
+came back in"); a passage that mentions the subject without breaking it is **kept**; one that never mentions it is
+**not touched**. They replace the judge questions it misread (version 2's B2 counted Tobin as never coming down
+although every passage had him on the stairs).
 
-- **kept**: the judge gave the good answer.
-- **broken**: the bad answer, with a quote that really is in the passage (or, for something that should happen and
-  doesn't, like the promise, a plain "no"); or a tripwire matched (a deterministic pattern: the cut put on the right
-  hand).
-- **unverified**: the bad answer with a quote the passage doesn't have. Not counted as broken; listed in the report.
-- **not touched**: "unclear", or the judge's reply couldn't be read.
+**Judge questions**, only where a pattern can't do it (who knows what, a promise kept, clothes worn): the judge (the
+memory model unless `--judge`) gets only the passage, the facts true where it begins and yes/no questions, each with
+the answer that means "broken". Broken needs a quote that really is in the passage (or, for something that should
+happen and doesn't, a plain "no"); a bad answer with a quote the passage lacks is **unverified**, not counted.
 
 Consistency is kept / (kept + broken), by trap, by probe and in all; the report also gives broken per passage.
 
-Known weaknesses: the judge is a model and can miss a slip or misread one (the quote rule stops it inventing
-contradictions, not missing them); "not touched" checks don't count, so a passage that avoids a subject scores as
-well as one that gets it right; the promise check counts silence at the parting as broken; samples are few, so a
-difference of one or two broken claims between runs is noise, not a result. Use the same writer, memory and judge
-models, and the same `STORY_VERSION`, for every run you compare.
+Known weaknesses: patterns miss slips worded in ways they don't know (they never invent one); the judge can miss or
+misread; "not touched" checks don't count, so a passage that avoids a subject scores as well as one that gets it right;
+samples are few, so a difference of one or two broken claims is noise. Use the same models and the same story file for
+every run you compare.
 
-**Story versions.** Version 2 (7 October 2026) rewrote the questions the step 1 run showed were misread (B2 counted
-Tobin as never coming down although each passage had him on the stairs; a pair of boots nearby counted as worn), told
-the judge that movement on the page counts, and added harder traps (who knows what in front of Dask, posture and the
-knife in Continue, the horse two scenes back) and probe F. Scores from version 1 (the 0.6.24, main and step 2 runs of
-7 October) don't compare with version 2's: run them again to compare with step 3; `--compare` says so when the
-versions differ.
+## Story version 2
 
-## Changing the story
+Nine short hand-written scenes ("The Gannet") in `story.ts`, probes A to F; see the comments there. Version 2 (7 October
+2026) rewrote the questions version 1 misread and added harder traps; scores from different versions don't compare.
 
-The story, the probes and their checks are data in `story.ts`. Bump `STORY_VERSION` when they change. The checker's
-own tests are in `tests/unit/traps.test.ts` (they also check that every probe fits its scene).
+## Changing the stories
+
+Version 2 lives in `story.ts` (bump `STORY_VERSION`). Version 3's outline, probes and checks live in `story3.ts` (bump
+`OUTLINE_VERSION`: a story written from another outline won't load, so write it again). The checks' own tests are in
+`tests/unit/traps.test.ts` and `tests/unit/traps3.test.ts`.
