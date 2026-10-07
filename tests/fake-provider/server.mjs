@@ -62,6 +62,7 @@
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
+import { planReply } from './plan.mjs'
 import { askToolCalls } from './m4/ask.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
@@ -371,6 +372,8 @@ export async function startFakeProvider(options = {}) {
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
     memory ??= fakeBuilderReply(system, messages, model)
+    // Plan before writing (src/main/plan/), answered by plan.mjs.
+    memory ??= planReply(system, firstUser)
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
     memory ??= continuityReply(system, firstUser)

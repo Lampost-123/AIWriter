@@ -50,8 +50,14 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // look with { env: { AIWRITE_LOOK: 'new' } } (or '' for what Adam gets: the New look, and the note after updating).
   // Run on Adam's PC, the window is see-through and never takes focus (main/index.ts), so he can use his PC
   // meanwhile; AIWRITE_BACKGROUND=off shows it. CI has no one to disturb.
+  // Plan before writing (one more AI call before each draft or beat, src/main/plan/) is left out of app tests that
+  // aren't about it, so the calls they count stay as they were; they ask for it with { env: { AIWRITE_PLAN: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic', AIWRITE_BACKGROUND: background }, opts.env)
+  Object.assign(
+    env,
+    { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic', AIWRITE_BACKGROUND: background, AIWRITE_PLAN: 'off' },
+    opts.env
+  )
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()

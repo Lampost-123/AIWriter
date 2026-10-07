@@ -266,6 +266,32 @@ describe('Continue', () => {
     ).toBe(false)
     expect(ok(editBriefing(input('rewrite'), world({ stand }))).blocks.some((x) => x.id === 'stand')).toBe(false)
   })
+
+  it('what must stay true goes right before the closing ask, for Continue and the other tools alike (step 4)', () => {
+    const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+    const stand = {
+      time: 'night',
+      weather: '',
+      light: '',
+      characters: [{ ...blank, name: 'Mara', where: 'by the hearth', condition: 'soaked through' }],
+      said: { 'mara|condition': { quote: 'water ran off her', sceneId: 'earlier' } }
+    }
+    const marked = world({ entries: [{ ...MARA, fields: { ...MARA.fields, marks: 'no left hand' } }, TOBIN, OLD_ROSE, TAVERN] })
+    const must = { facts: [{ factId: 'f', fact: 'The ledger is forged', knownBy: ['mara'] }], sceneId: 's1', storyTitle: 'Book 1', places: { earlier: 'Book 1, Ch 2, Sc 1' } }
+    const cont = ok(editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), { ...marked, stand, must }))
+    expect(cont.blocks.map((x) => x.id).slice(-3)).toEqual(['stand', 'must', 'ask'])
+    const text = cont.blocks.find((x) => x.id === 'must')!.text
+    expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')
+    expect(text).toContain('- Mara: no left hand')
+    expect(text).toContain('- Where Mara is: by the hearth')
+    expect(text).toContain('- Tobin does not know: The ledger is forged (Mara knows it)')
+    // Another tool, where things stand not known there: the codex's facts still go in.
+    const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...marked, must }))
+    expect(rewrite.blocks.map((x) => x.id).slice(-2)).toEqual(['must', 'ask'])
+    expect(rewrite.blocks.find((x) => x.id === 'must')!.text).not.toContain('Where Mara is')
+    // Nothing to keep to: no such part.
+    expect(ok(editBriefing(input('rewrite'), world({ must: { ...must, facts: [] } }))).blocks.some((x) => x.id === 'must')).toBe(false)
+  })
 })
 
 describe('Fix voice', () => {

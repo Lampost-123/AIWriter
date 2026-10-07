@@ -214,8 +214,11 @@ export function stateAt(
   // ----- Applying changes -----
   /** Where on the walk the change being applied sits (a step index; -1 for the baseline), so views can order history. */
   let at = -1
-  const addChanged = (e: EntryState, k: string): void => {
+  const addChanged = (e: EntryState, k: string, where = ''): void => {
     if (!e.changed.includes(k)) e.changed.push(k)
+    // Since when it holds, for the writer's "must stay true" list; the starting setup has no place.
+    if (where) (e.changedWhere ??= {})[k] = where
+    else if (e.changedWhere) delete e.changedWhere[k]
   }
   const learn = (entryId: ID, factId: ID, fact: string | undefined): void => {
     if (!factId) return
@@ -243,17 +246,17 @@ export function stateAt(
         for (const [k, v] of Object.entries(p.fields ?? {})) {
           touchField(e, k)
           e.fields[k] = v
-          addChanged(e, k)
+          addChanged(e, k, where)
         }
         if (p.description !== undefined) {
           touchValue(e, 'description')
           e.description = p.description
-          addChanged(e, 'description')
+          addChanged(e, 'description', where)
         }
         if (p.summary !== undefined) {
           touchValue(e, 'summary')
           e.summary = p.summary
-          addChanged(e, 'summary')
+          addChanged(e, 'summary', where)
         }
         break
       }
@@ -261,16 +264,16 @@ export function stateAt(
         const p = c.payload
         touchValue(e, 'description')
         e.description = p.description ?? ''
-        addChanged(e, 'description')
+        addChanged(e, 'description', where)
         if (p.summary !== undefined) {
           touchValue(e, 'summary')
           e.summary = p.summary
-          addChanged(e, 'summary')
+          addChanged(e, 'summary', where)
         }
         for (const [k, v] of Object.entries(p.fields ?? {})) {
           touchField(e, k)
           e.fields[k] = v
-          addChanged(e, k)
+          addChanged(e, k, where)
         }
         // What it knows and its relationships (on both sides) start again from this description.
         knows.delete(e.id)

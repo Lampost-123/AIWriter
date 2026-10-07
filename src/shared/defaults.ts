@@ -81,6 +81,7 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
   thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off', sounds: 'off', sample: 'off', polish: 'off' },
   creativity: 'balanced',
+  planFirst: true,
   theme: 'system',
   editor: { fontSize: 19, lineHeight: 1.7, pageWidth: 70, paragraphStyle: 'spaced', smartPunctuation: true, spellCheck: true, typewriter: false },
   goals: { daily: null, days: [] },

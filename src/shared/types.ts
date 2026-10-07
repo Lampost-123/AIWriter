@@ -388,6 +388,12 @@ export interface Settings {
   /** How much each job's model thinks before it answers ('sounds': marking sound effects, with the Read aloud model). */
   thinking: Record<ThinkingJob, ThinkingLevel>
   creativity: Creativity
+  /**
+   * Plan before writing (Settings › Models; on by default; step 4 of the consistency plan): before Generate, Add below
+   * and each beat, one short call to the memory model plans the scene (src/main/plan/). Off: no plan call; the "must
+   * stay true" list still goes in.
+   */
+  planFirst: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
@@ -978,6 +984,11 @@ export interface EntryState extends Entry {
   happened: { note: string; where: string; changeId: ID; at?: number }[]
   /** Field keys (and 'description' / 'summary') a change has set, so views can mark them. */
   changed: string[]
+  /**
+   * Where the change that set each of those happened, in plain words ("Book 1, Ch 3, Sc 2", "the start of Book 2");
+   * left out for the starting setup. The writer's "must stay true" list says since when a fact holds (step 4).
+   */
+  changedWhere?: Record<string, string>
 }
 
 export interface RelationshipState {

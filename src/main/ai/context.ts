@@ -31,6 +31,9 @@
 // 11 ties to people not in this scene: for each character present, the people they're tied to who aren't
 //    there, with where things stand and what has happened between them, newest first (names and relationship
 //    only; smaller: the closest few)
+// 11 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
+//    repeated from the briefing right above the closing instruction (the fewest lines that matter most, without the
+//    lead); kept longer than the ties, and back first
 //
 // Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
 // their short form from the bottom up (11 to 3, then block 1). Blocks 4 and 8 can shrink further,
@@ -65,12 +68,14 @@ import type {
   ThinkingLevel,
   ThreadState
 } from '@shared/types'
-import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
+import { FIELD_GROUPS, KIND_LABELS, type FieldGroup } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 import { SPEAKER_TAG_LINE } from './speakerTags'
+import { deathOf } from './deaths'
+import { MUST_TITLE, mustStayTrue, mustText, type StageReach } from './mustStay'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -106,7 +111,19 @@ export interface ContextInput {
    * stand at the end of them rather than as the previous scene ended.
    */
   continuityAtSoFar?: boolean
+  /** Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by id (ai/gather.ts). */
+  stageWhere?: Record<ID, string>
+  /**
+   * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
+   * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
+   */
+  plan?: { needs: ID[]; text: string } | null
 }
+
+/** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
+export const PLAN_BLOCK = { id: 'plan', title: 'The plan, made before writing' } as const
+/** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
+export const MUST_BLOCK = 'must-stay-true'
 
 /** What block 3b says first. */
 export const STAND_LEAD =
@@ -280,13 +297,40 @@ const clean = (s: string | undefined | null): string => (s ?? '').trim()
 /** Ends a phrase with a full stop unless it already ends with punctuation. */
 const sentence = (s: string): string => (/[.!?…:;]["'”’)\]]*$/.test(s) ? s : `${s}.`)
 
+/** A character's facts to keep to, in the writer's briefing: who they are and the marks anyone would notice. */
+export const FACTS_LABEL = 'Facts to keep to'
+/** A character's details to show: how they look, brought in now and then rather than every one in every scene. */
+export const DETAILS_LABEL = 'Details to show now and then, not all at once'
+
+/**
+ * A character's field groups for the writer (step 4: "a quiet split", so a cheap model stops mentioning eye colour in
+ * every scene): Basics and the distinguishing marks as facts to keep to, the rest of Looks as details to show. Other
+ * kinds, and the other groups, as they are.
+ */
+function splitGroups(kind: Entry['kind']): FieldGroup[] {
+  const groups = FIELD_GROUPS[kind] ?? []
+  if (kind !== 'character') return groups
+  const basics = groups.find((g) => g.id === 'basics')
+  const looks = groups.find((g) => g.id === 'looks')
+  if (!basics || !looks) return groups
+  const marks = looks.fields.filter((f) => f.key === 'marks')
+  return groups.map((g) =>
+    g === basics
+      ? { ...g, label: FACTS_LABEL, fields: [...g.fields, ...marks] }
+      : g === looks
+        ? { ...g, label: DETAILS_LABEL, fields: g.fields.filter((f) => f.key !== 'marks') }
+        : g
+  )
+}
+
 /**
  * Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes.
  * `onlyGroups` keeps just those groups (by id); `short` leaves out the fields marked optionalInShort (backstory);
- * `onlyKeys` keeps just those fields.
+ * `onlyKeys` keeps just those fields. `split`: a character's facts to keep to and details to show (splitGroups), for the
+ * writer.
  */
-export function fieldSections(e: Entry, onlyGroups?: string[], short = false, onlyKeys?: ReadonlySet<string>): string[] {
-  const groups = FIELD_GROUPS[e.kind] ?? []
+export function fieldSections(e: Entry, onlyGroups?: string[], short = false, onlyKeys?: ReadonlySet<string>, split = false): string[] {
+  const groups = split ? splitGroups(e.kind) : (FIELD_GROUPS[e.kind] ?? [])
   const out: string[] = []
   for (const g of groups) {
     if (onlyGroups && !onlyGroups.includes(g.id)) continue
@@ -316,9 +360,9 @@ export function fieldSections(e: Entry, onlyGroups?: string[], short = false, on
 
 /**
  * A profile: name line, aliases, summary, description and every filled field (or only `onlyGroups`).
- * `short` leaves out the backstory fields.
+ * `short` leaves out the backstory fields; `split` gives a character's facts to keep to and details to show (the writer).
  */
-export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`, onlyGroups?: string[], short = false): string {
+export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`, onlyGroups?: string[], short = false, split = false): string {
   const head: string[] = []
   if (heading) head.push(heading)
   const aliases = (e.aliases ?? []).map((a) => a.trim()).filter(Boolean)
@@ -326,7 +370,7 @@ export function formatProfile(e: Entry, heading: string | null = `### ${e.name}`
   if (clean(e.summary)) head.push(`In short: ${clean(e.summary)}`)
   const parts = [head.join('\n')]
   if (clean(e.description)) parts.push(clean(e.description))
-  parts.push(...fieldSections(e, onlyGroups, short))
+  parts.push(...fieldSections(e, onlyGroups, short, undefined, split))
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -378,7 +422,7 @@ function coreProfile(e: Entry, size: 'core' | 'least'): string {
   }
   const lines = (e.fields?.sampleLines ?? '').split(/\r?\n/).filter((l) => l.trim())
   const shown = size === 'least' ? { ...e, fields: { ...e.fields, sampleLines: lines.slice(0, 2).join('\n') } } : e
-  parts.push(...fieldSections(shown, undefined, true, POV_FIELDS[size]))
+  parts.push(...fieldSections(shown, undefined, true, POV_FIELDS[size], true))
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -389,41 +433,15 @@ export function oneLine(e: Entry, note = ''): string {
 }
 
 /**
- * A note in what has happened to a character that says they themselves died: "died in the fire", "presumed dead",
- * "killed by the watch", "was found drowned". Not one about someone else's death ("killed the guard", "learned
- * Anselm was dead", "watched her father die").
- */
-// A note is about its own entry and has no subject ("died in the fire"), so a death counts only where the note's own
-// verb is the dying: at its start, or after "and", "then" or "later" ("fought the watch and was killed"). "Admitted
-// Anselm died in the fire" (a live run) is someone else's.
-const OWN_DEATH = [
-  /^\s*(?:(?:was|were|is|now|then|later|finally)\s+)?(died|dies|perished|drowned|dead)\b/i,
-  /^\s*(?:(?:was|were|is)\s+)?(?:presumed|declared|reported|found|confirmed|left for)\s+(dead|drowned|killed|murdered)\b/i,
-  /^\s*(?:(?:was|were)\s+)?(?:(killed|murdered|drowned|slain|executed|hanged)\s+(by|in|at|on|during|while|when|after|before)\b|burned to death)/i,
-  /\b(?:and|then|later|but)\s+(?:was\s+)?(died|perished|killed by|drowned in|drowned at|murdered by|slain by)\b/i
-]
-/** A note about someone else's death, or news of one. */
-const OTHERS_DEATH =
-  /\b(learn(s|ed|t)?|heard|hears|told|tells|saw|sees|watch(es|ed)|mourn(s|ed)?|bur(y|ies|ied)|news|grieve(s|d)?|avenge(s|d)?|said|says|admit(s|ted)|claim(s|ed)|reveal(s|ed)|confess(es|ed)|believe(s|d)|fear(s|ed))\b/i
-/** Words that undo a death ("not dead after all", "survived"). */
-const ALIVE = /\b(not dead|alive after all|survived|returned alive|was alive|is alive|faked (?:his|her|their) death)\b/i
-const saysDied = (note: string): boolean => OWN_DEATH.some((re) => re.test(note)) && !OTHERS_DEATH.test(note)
-
-/**
  * The characters who are dead by this point (Adam, 2026-10-04: a live run's dead monk was written sleeping, and missed),
- * from what has happened to them: the latest note that says they died, unless a later one says they live. Each with
- * that note ("presumed dead in the Archive fire").
+ * from what has happened to them (deaths.ts): the latest note that says they died, unless a later one says they live.
+ * Each with that note ("presumed dead in the Archive fire").
  */
 export function deadBy(entries: Pick<EntryState, 'kind' | 'name' | 'happened'>[]): { name: string; note: string }[] {
   const out: { name: string; note: string }[] = []
   for (const e of entries) {
-    if (e.kind !== 'character') continue
-    let note = ''
-    for (const h of e.happened ?? []) {
-      if (ALIVE.test(h.note)) note = ''
-      else if (saysDied(h.note)) note = clean(h.note)
-    }
-    if (note) out.push({ name: e.name, note })
+    const died = deathOf(e)
+    if (died?.note) out.push({ name: e.name, note: died.note })
   }
   return out
 }
@@ -548,6 +566,7 @@ export const WHY = {
   direction: 'Named in your direction',
   rule: 'A world rule',
   tie: 'Tied to someone in the scene',
+  plan: 'Asked for by the plan',
   pin: { scene: 'Pinned for this scene', story: 'Pinned for this story', world: 'Pinned for every scene' },
   hide: { scene: 'Kept out of this scene', story: 'Kept out of this story', world: 'Kept out of every scene' }
 } as const
@@ -698,6 +717,12 @@ export function selectEntries(input: ContextInput): Selection {
   for (const p of pins.values()) {
     if (p.action !== 'pin') continue
     const got = take(p.entryId, WHY.pin[p.scope], true)
+    if (got) others.push(got)
+  }
+
+  // What the plan made before writing asked for (src/main/plan/): only what exists here and Adam hasn't kept out.
+  for (const id of input.plan?.needs ?? []) {
+    const got = take(id, WHY.plan, false)
     if (got) others.push(got)
   }
 
@@ -918,6 +943,27 @@ export function timeSincePrevious(input: Pick<ContextInput, 'scene' | 'memory'>)
   return `The previous scene was ${then}.${gap} Make the time that has passed fit (travel, sleep, healing), and don't say more or less of it has gone by.`
 }
 
+/** The day a When gives ("Day 3, dusk" is 3), or null. */
+const dayOf = (when: string | undefined): number | null => {
+  const m = /\bday\s+(\d+)\b/i.exec(clean(when))
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * How much of where things stand the "must stay true" list keeps to (mustStay.ts): all of it carrying on inside the
+ * scene; at a new scene's start, how people are, what they wear and hold (the card sets where and when), or only how
+ * they are on a later day; nothing from another story, or when nothing is known.
+ */
+export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar'>): StageReach {
+  if (!input.continuity) return 'none'
+  if (input.continuityAtSoFar) return 'here'
+  const prev = input.memory.previous
+  if (!prev || prev.otherStory) return 'none'
+  const a = dayOf(prev.when)
+  const b = dayOf(input.scene.card.when)
+  return a != null && b != null && b > a ? 'later' : 'start'
+}
+
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
   // A fresh take doesn't build on the earlier draft: only Adam's own notes for the scene are aims.
@@ -937,7 +983,7 @@ function povText(e: EntryState, input: ContextInput, sel: Selection, level: 0 | 
   const { kept, left } = level >= 2 ? someFacts(known, sel, level === 2 ? 12 : 6) : { kept: known, left: 0 }
   const knows = kept.map((f) => `- ${indentMore(sentence(clean(f.fact)))}`)
   if (left) knows.push(leftOutLine(left))
-  const profile = level >= 2 ? coreProfile(e, level === 2 ? 'core' : 'least') : formatProfile(e, null, undefined, level === 1)
+  const profile = level >= 2 ? coreProfile(e, level === 2 ? 'core' : 'least') : formatProfile(e, null, undefined, level === 1, true)
   // An empty profile still says who it is, so the block (and the Context tab's entry) is there.
   const parts = [profile || `${e.name}.`, happenedText(e, [undefined, 5, 3, 2][level])]
   if (knows.length) parts.push(`What ${e.name} knows:\n${knows.join('\n')}`)
@@ -1247,6 +1293,29 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
+  // What must stay true (mustStay.ts): a short list the app writes from where things stand and the codex entries of
+  // those in the scene, current values only, each with since when. Sent last, right above the closing instruction
+  // (prepareContext), with the full briefing above it. Capped; short: the fewest lines that matter most. Everything in
+  // it is in the briefing above as well, so where room is short it goes first, with the ties (block 11), and comes back
+  // first once everything else has its room.
+  const reach = stageReach(input)
+  const mustFrom = {
+    stand: input.continuity,
+    reach,
+    people: [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character'),
+    named: [...sel.chosen.values()].map((c) => c.entry),
+    facts: input.memory.facts,
+    sceneId: input.memory.sceneId,
+    storyTitle: input.story.title,
+    places: input.stageWhere ?? {}
+  }
+  const must = mustStayTrue(mustFrom)
+  if (must.length) {
+    // Short: the lines that matter most, without the lead (the title says it).
+    const short = mustStayTrue({ ...mustFrom, short: true })
+    add(MUST_BLOCK, TIES_PRIORITY, MUST_TITLE, mustText(must, reach), short.length ? mustText(short, null) : null, [])
+  }
+
   // 4 Point-of-view character (short: without backstory; smaller: the core of the profile, then the least of it).
   const pov = sel.pov
   if (pov) {
@@ -1269,7 +1338,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
       'present',
       5,
       present.length === 1 ? 'Also in the scene' : 'Others in the scene',
-      present.map((e) => [formatProfile(e, heading(e)), happenedText(e)].filter(Boolean).join('\n\n')).join('\n\n'),
+      present.map((e) => [formatProfile(e, heading(e), undefined, false, true), happenedText(e)].filter(Boolean).join('\n\n')).join('\n\n'),
       present
         .map((e) => {
           const head = [heading(e), clean(e.summary) ? `In short: ${clean(e.summary)}` : ''].filter(Boolean).join('\n')
@@ -1387,7 +1456,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
           const head = `### ${e.name} (${note(e)})`
           // Lore and places are short, and their fields are the facts: send them whole.
           // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
-          const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks']) : formatProfile(e, head)
+          const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks'], false, true) : formatProfile(e, head)
           return [profile, happenedText(e, 3)].filter(Boolean).join('\n\n')
         })
         .join('\n\n'),
@@ -1422,7 +1491,8 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
  * end of the previous scene, the scene card (with Adam's direction) and where
  * things stand come last, right above the closing instruction, where the model
  * attends to them most. Blocks a part adds (the scene so far) go after the scene
- * card, and where things stand after them (prepareContext).
+ * card, and where things stand and what must stay true after them (prepareContext).
+ * The plan, when there is one, comes after the closing instruction (finishContext).
  */
 export const SEND_ORDER = [
   'instructions',
@@ -1438,7 +1508,8 @@ export const SEND_ORDER = [
   'story-so-far',
   'previous-scene',
   'scene-card',
-  'continuity'
+  'continuity',
+  MUST_BLOCK
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   const i = SEND_ORDER.indexOf(b.id)
@@ -1454,12 +1525,15 @@ const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
 const STEADY_UNTIL = SEND_ORDER.indexOf('mentioned')
 
 /** Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). */
-const KEEP_ORDER = ['threads', 'setting', 'world-rules']
+const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK]
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
-/** How a block appears in the messages: block 1 as the system message, the others under a heading. */
-export const blockAsSent = (b: Pick<BlockDraft, 'priority' | 'title' | 'text'>, text: string = b.text): string =>
-  b.priority === 1 ? text : `## ${b.title}\n\n${text}`
+/**
+ * How a block appears in the messages: block 1 as the system message, the others under a heading, and the plan as it
+ * is (the writer's own notes, after the closing instruction).
+ */
+export const blockAsSent = (b: Pick<BlockDraft, 'priority' | 'title' | 'text'> & { id?: string }, text: string = b.text): string =>
+  b.priority === 1 || b.id === PLAN_BLOCK.id ? text : `## ${b.title}\n\n${text}`
 
 /** Every entry in the briefing with why, for the Context tab, then the ones Adam kept out. */
 function contextEntries(sel: Selection, blocks: BlockDraft[]): ContextEntry[] {
@@ -1508,9 +1582,14 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
-  // Where things stand goes last, after the scene so far too, right above the closing instruction.
-  const stand = blocks.findIndex((b) => b.id === 'continuity')
-  if (stand >= 0) blocks.push(...blocks.splice(stand, 1))
+  // Where things stand goes last, after the scene so far too, then what must stay true, right above the closing
+  // instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
+  for (const id of ['continuity', MUST_BLOCK]) {
+    const at = blocks.findIndex((b) => b.id === id)
+    if (at >= 0) blocks.push(...blocks.splice(at, 1))
+  }
+  const plan = clean(input.plan?.text)
+  if (plan) blocks.push({ id: PLAN_BLOCK.id, priority: 2, title: PLAN_BLOCK.title, text: plan, short: null, smaller: [], entryIds: [] })
   const targetWords = input.options.targetWords
   // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
   const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined
@@ -1650,8 +1729,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       }
     }
 
-    // 6. Block 11 back, if it fits once everything more important has its room.
-    for (const s of droppable) {
+    // 6. Block 11 back (what must stay true first, then the ties), if it fits once everything more important has its room.
+    for (const s of [...droppable].reverse()) {
       if (!s.dropped || !lowest(s)) continue
       s.dropped = false
       if (fits()) continue
@@ -1705,8 +1784,10 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   const sent = blocks.filter((b) => !b.dropped)
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''
-  const parts = sent.filter((b) => b.priority > 1).map((b) => ({ id: b.id, text: blockAsSent(b) }))
-  const user = [...parts.map((p) => p.text), hasPrev ? finals.withPrevious : finals.withoutPrevious].join('\n\n')
+  const parts = sent.filter((b) => b.priority > 1 && b.id !== PLAN_BLOCK.id).map((b) => ({ id: b.id, text: blockAsSent(b) }))
+  // The plan comes after the closing instruction, as the opening of the writer's own notes that the prose carries on from.
+  const plan = sent.filter((b) => b.id === PLAN_BLOCK.id).map((b) => blockAsSent(b))
+  const user = [...parts.map((p) => p.text), hasPrev ? finals.withPrevious : finals.withoutPrevious, ...plan].join('\n\n')
   // What a redraft sends again unchanged ends before the entries named in the card or direction (STEADY_UNTIL).
   const steady = parts.filter((p) => sendRank(p) < STEADY_UNTIL).map((p) => p.text)
   const cacheUpTo = steady.length ? steady.join('\n\n').length : 0

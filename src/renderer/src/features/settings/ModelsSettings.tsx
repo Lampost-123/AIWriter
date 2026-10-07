@@ -10,6 +10,7 @@ import { isLocalUrl } from '@shared/urls'
 import { Badge, Button, Card, Field, Input, Notice, Select, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
+import { PlanSettings } from '@/features/plan/PlanSettings'
 import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
@@ -171,6 +172,8 @@ export function ModelsSettings(): React.JSX.Element {
         />
       ) : null}
       <DefaultCreativity />
+      {/* Before writing and straight after: the plan, then the check of the new words. */}
+      <PlanSettings />
       <RepairSettings />
     </div>
   )

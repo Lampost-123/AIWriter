@@ -102,6 +102,11 @@ describe('state', () => {
     const s = w.state('b2', 'b2.c1.s1')
     expect(s.entries.get('m')).toMatchObject({ description: 'Young again.', summary: 'Young.', fields: { age: '10' } })
     expect(s.entries.get('m')?.changed.sort()).toEqual(['age', 'description', 'summary'])
+    // Where each became true, for the writer's "must stay true" list (step 4); the starting setup has no place.
+    const where = s.entries.get('m')?.changedWhere ?? {}
+    expect(Object.keys(where).sort()).toEqual(['age', 'description', 'summary'])
+    expect(where.age).toMatch(/^the start of /)
+    expect(w.state('b1').entries.get('m')?.changedWhere).toBeUndefined()
     expect(s.relationships.map((r) => [r.aId, r.bId, r.type])).toEqual([['m', 'k', 'cousin']])
     expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'] }])
   })

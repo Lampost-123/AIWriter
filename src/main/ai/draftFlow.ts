@@ -16,10 +16,12 @@ import {
   prepareContext,
   sentEntryVersions,
   type ContextExtras,
-  type ContextInput
+  type ContextInput,
+  type PreparedContext
 } from './context'
-import { catchUpBeforeDraft, gatherContextInput, standAtText } from './gather'
+import { catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText } from './gather'
 import type { SceneState } from '../continuity/tracker'
+import { planBeforeWriting } from '../plan'
 import { countTokens } from './tokenService'
 import { isLocalUrl, providerWho } from './errors'
 
@@ -50,9 +52,10 @@ export async function assemble(
   options: Partial<DraftOptions> | undefined,
   extras?: ContextExtras,
   stand?: SceneState | null
-): Promise<{ input: ContextInput; preview: ContextPreview }> {
+): Promise<{ input: ContextInput; preview: ContextPreview; prepared: PreparedContext }> {
   const settings = getSettings()
-  const input = gatherContextInput(world.db(), sceneId, options, {
+  const db = world.db()
+  const input = gatherContextInput(db, sceneId, options, {
     prefs: getWritingPrefs(),
     contextLength: settings.models.writer?.contextLength ?? null,
     maxOutput: settings.models.writer?.maxOutput ?? null,
@@ -61,13 +64,19 @@ export async function assemble(
   if (stand) {
     input.continuity = stand
     input.continuityAtSoFar = true
+    input.stageWhere = stageWhere(db, stand)
   }
+  return { input, ...(await fitted(input, extras)) }
+}
+
+/** The briefing from what it is made of, fitted to the writer model. */
+async function fitted(input: ContextInput, extras?: ContextExtras): Promise<{ preview: ContextPreview; prepared: PreparedContext }> {
   // With reading aloud on, the writer says who speaks each line and how as it writes (ai/speakerTags.ts). Only the
   // dialogue: asked for the narration's mood as well, writers tagged a fifth fewer lines (live checks, 4 October 2026).
-  const speech = settings.speech
+  const speech = getSettings().speech
   const prepared = prepareContext(input, { ...extras, speakerTags: !!(speech?.readAloud || speech?.showSpeakers) })
   const counts = await countCached(prepared.texts)
-  return { input, preview: finishContext(prepared, counts) }
+  return { preview: finishContext(prepared, counts), prepared }
 }
 
 /** Adam stopped the draft before it began: nothing more is done or sent. */
@@ -90,11 +99,15 @@ export interface DraftBriefing {
  * `catchUp: false` skips that (a later beat of the same draft, say, right after the first).
  * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
+ * `plan` (on unless false; Variants turn it off): one short call to the memory model plans the scene first, when
+ * Settings › Models says to (plan/), never for long; the entries it asks for come into the briefing, and the plan goes
+ * in after the closing instruction as the writer's own notes. A plan that fails, or would make the briefing too long
+ * for the model, is left out.
  */
 export async function draftBriefing(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; soFar?: string } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; soFar?: string; plan?: boolean } = {}
 ): Promise<DraftBriefing> {
   const { choice, target, thinking } = writerModel()
   const db = world.db()
@@ -103,12 +116,29 @@ export async function draftBriefing(
   const stand = o.soFar?.trim() ? await standAtText(db, sceneId, o.soFar, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
-  const { input, preview } = await assemble(sceneId, options, o.extras, stand)
+  const made = await assemble(sceneId, options, o.extras, stand)
+  let { input, preview } = made
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+  const known = choice.contextLength != null && choice.contextLength > 0
+  // Plan before writing (step 4): the briefing again with what the plan asked for and the plan itself, unless that
+  // would leave the model too little room where the briefing without it doesn't.
+  if (o.plan !== false) {
+    const plan = await planBeforeWriting(db, sceneId, made, o.signal)
+    if (o.signal?.aborted) throw stoppedBeforeStart()
+    if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+    if (plan) {
+      const planned = { ...input, plan: { needs: plan.needs, text: plan.text } }
+      const again = await fitted(planned, o.extras)
+      if (!known || !lengthTooLong(again.preview.budget) || lengthTooLong(preview.budget)) {
+        input = planned
+        preview = again.preview
+      }
+    }
+  }
   // A model whose window is known can't take a reply longer than what's left of it: say so
   // before sending, rather than letting the provider turn it down with a message about the briefing.
-  const tooLong = choice.contextLength != null && choice.contextLength > 0 ? lengthTooLong(preview.budget) : null
+  const tooLong = known ? lengthTooLong(preview.budget) : null
   if (tooLong) {
     if (tooLong.maxWords >= 100 && input.options.targetWords == null) {
       // Auto came down as far as it goes (AUTO_LENGTH.min) and still doesn't fit: a set length can.
