@@ -17,14 +17,25 @@
 //             before they part; she does, at the fork in scene 8, so she no longer has it in scene 9.
 //   item      The oilskin packet: in Mara's waistband (scene 2), in the empty brandy cask, third from the wall, in the
 //             cellar (scenes 3 to 7), then buttoned inside Tobin's brown jacket (from scene 7).
+// Harder ones (story version 2):
+//   cover     In scene 6 Ilse tells Dask that Mara is her cousin from inland: nobody may call her Mara, or a courier,
+//             in front of him, and he must not learn where the letters go.
+//   posture   Partway through scene 7 Mara sits on the hearth bench with Tobin's knife across her knees: Continue has
+//             to keep her there, and the knife there, until the page moves them.
+//   earlier   In scene 7 the grey mare is lame, so Mara rides the bay; scene 9's card never says which horse, so the
+//             detail must come from the memory, two scenes back (with her grey coat as a decoy).
 //
 // Each probe says what is on the page when the app is asked to write (the first `paragraphs` paragraphs of the
 // scene), what to ask for, the facts true at that point (told to the judge, never to the writer) and the checks.
 
-/** Bump when the story, the probes or the checks change: scores from different versions don't compare. */
-export const STORY_VERSION = 1
+/**
+ * Bump when the story, the probes or the checks change: scores from different versions don't compare.
+ * 1: the first six traps. 2 (7 October 2026): clearer questions (movement shown on the page counts; boots seen nearby
+ * aren't boots worn), the cover, posture and earlier traps, and probe F.
+ */
+export const STORY_VERSION = 2
 
-export type TrapId = 'clothing' | 'injury' | 'rooms' | 'secret' | 'promise' | 'item'
+export type TrapId = 'clothing' | 'injury' | 'rooms' | 'secret' | 'promise' | 'item' | 'posture' | 'earlier'
 
 export interface Trap {
   id: TrapId
@@ -37,9 +48,15 @@ export const TRAPS: Trap[] = [
   { id: 'clothing', name: 'Clothes taken off', tests: 'Clothes taken off partway through a scene stay off (and where they went), and a change of clothes sticks.' },
   { id: 'injury', name: 'An injury', tests: 'A cut on one side (the left palm) stays on that side and stays hurt, scene after scene.' },
   { id: 'rooms', name: 'People in rooms', tests: 'People are where the story last put them, and only move when the page shows them move.' },
-  { id: 'secret', name: 'A secret told to one person', tests: 'Only the one person told a secret knows it; the others still believe the cover story.' },
+  {
+    id: 'secret',
+    name: 'Who knows what',
+    tests: 'Only the one person told a secret knows it; the others still believe the cover story, and nobody gives Mara away in front of the soldier.'
+  },
   { id: 'promise', name: 'A promise made early', tests: 'A promise made in the first scene is remembered when it falls due, and once kept it stays kept.' },
-  { id: 'item', name: 'Where an item is', tests: 'A hidden item is where it was last put until the page moves it.' }
+  { id: 'item', name: 'Where an item is', tests: 'A hidden item is where it was last put until the page moves it.' },
+  { id: 'posture', name: 'Posture and what is held', tests: 'How someone sits and what lies across their knees, set partway through a scene, holds until the page changes it.' },
+  { id: 'earlier', name: 'A detail from scenes back', tests: 'A change two scenes back that the scene card never mentions (which horse she rides) is still true.' }
 ]
 
 export type EntryKey = 'mara' | 'tobin' | 'ilse' | 'dask' | 'orrin' | 'gannet' | 'brask' | 'saltreach' | 'fennick' | 'packet' | 'knife'
@@ -287,7 +304,7 @@ export const SCENES: TrapScene[] = [
     paragraphs: [
       `At noon Tobin came in from the yard stamping mud. "The grey mare's lame in the off fore," he said. "The bay will carry you. I'll go and saddle him now and see to his shoes." He went out again across the yard to the stable, and they heard the stable door bang shut behind him.`,
       `Mara looked at Ilse. Ilse nodded. Mara went through to the taproom, lifted the trapdoor behind the bar and climbed down into the cellar alone. She found the third cask from the wall, worked the bung out with Tobin's knife, and shook the oilskin packet out into her right hand.`,
-      `She climbed back up into the kitchen with the packet buttoned inside Tobin's brown jacket. Ilse was at the window, watching the stable door.`,
+      `She climbed back up into the kitchen with the packet buttoned inside Tobin's brown jacket, sat down on the hearth bench with her back to the fire, and laid Tobin's knife across her knees. Ilse was at the window, watching the stable door.`,
       `Tobin came back in a while later with straw in his hair. "The bay's ready. Where are you bound, then? Fennick still?"`,
       `"Fennick," said Mara. "Like I said."`,
       `"I'll take you as far as the fork above the sea, then," said Tobin. "There's soldiers on the Brask road. I know a way round them on the cliff path. Tomorrow, before dawn, when their watch changes."`
@@ -384,6 +401,10 @@ export interface Probe {
 export const RIGHT_HAND_HURT =
   /\bright (?:hand|palm)\b(?:(?!\bleft\b)[^,.!?;\n]){0,40}\b(?:bandag\w*|cut|wound\w*|throb\w*|sting\w*|injur\w*|bled|bleed\w*|linen)\b(?!\s+left\b)|\bright (?:hand|palm),\s+(?:(?!left\b)\w+\s+){0,2}(?:bandag\w*|cut|wound\w*|injur\w*|throb\w*|sting\w*|bleed\w*)\b(?!\s+left\b)|\b(?:bandag\w*|cut|wound\w*|injur\w*|hurt|stinging|throbbing)(?:\s+(?!left\b)\w+){0,3}?\s+right (?:hand|palm)\b/i
 
+/** She rides (or rode, or gets down from) a grey horse: riding words then "grey mare/horse" in the same clause, or the other way round. */
+export const GREY_HORSE =
+  /\b(?:rode|ride|rides|riding|ridden|astride|mounted|dismount\w*|swung down from|slid (?:down )?from|climbed down from)\b[^.!?;\n]{0,40}\b(?:grey|gray) (?:mare|horse|gelding|pony)\b|\b(?:grey|gray) (?:mare|horse|gelding|pony)\b[^.!?;\n]{0,30}\b(?:under her|beneath her|she rode|she had ridden)\b/i
+
 const rightHand = (check: string): Tripwire => ({
   check,
   what: 'The cut or bandage is put on her right hand.',
@@ -400,7 +421,7 @@ const injuryCheck = (id: string): Check => ({
 const greyCoat = (id: string): Check => ({
   id,
   trap: 'clothing',
-  ask: 'Is Mara shown wearing her grey wool coat (rather than Tobin’s brown oilcloth jacket)?',
+  ask: 'Is Mara described as actually wearing her grey wool coat (rather than Tobin’s brown oilcloth jacket)? A grey coat only mentioned, remembered or seen somewhere doesn’t count.',
   bad: 'yes'
 })
 
@@ -421,7 +442,7 @@ export const PROBES: Probe[] = [
       {
         id: 'A1',
         trap: 'clothing',
-        ask: 'Is Mara shown wearing her boots or her grey coat at any point, without the passage first showing her put it back on?',
+        ask: 'Is Mara described as actually wearing her boots (on her feet) or her grey coat (on her body) at any point, without the passage first showing her put it back on? Boots or a coat only seen, mentioned, lying or drying nearby don’t count.',
         bad: 'yes'
       },
       injuryCheck('A2'),
@@ -456,13 +477,13 @@ export const PROBES: Probe[] = [
       {
         id: 'B2',
         trap: 'rooms',
-        ask: 'Does Tobin appear downstairs (in the taproom, kitchen or cellar) without the passage first showing him come down from the attic?',
+        ask: 'Does Tobin appear downstairs (in the taproom, kitchen or cellar) with no sign at all that he came down from the attic? Footsteps or a creak on the stairs, his tread, or him coming down or arriving from the back stairs or the kitchen all count as coming down.',
         bad: 'yes'
       },
       {
         id: 'B3',
         trap: 'clothing',
-        ask: 'Is Mara shown wearing boots or a coat at any point, without the passage first showing her put them on?',
+        ask: 'Is Mara described as actually wearing boots (on her feet) or a coat (on her body) at any point, without the passage first showing her put them on? Boots or a coat only mentioned, or seen lying or drying somewhere, don’t count.',
         bad: 'yes'
       },
       injuryCheck('B4'),
@@ -480,12 +501,13 @@ export const PROBES: Probe[] = [
     scene: 's7',
     kind: 'continue',
     paragraphs: 3,
-    asks: 'Continue at the cursor in scene 7, just after Mara climbs back into the kitchen with the packet while Tobin is out in the stable.',
+    asks: 'Continue at the cursor in scene 7, just after Mara sits down on the hearth bench with the packet and the knife while Tobin is out in the stable.',
     facts: [
       'Tobin has gone out across the yard to the stable to saddle the bay; he is not in the kitchen. Only Mara and Ilse are in the kitchen.',
       'Mara wears her boots and Tobin’s old brown oilcloth jacket. Her grey coat is hidden in the cold bread oven.',
       'The oilskin packet is buttoned inside the brown jacket Mara is wearing.',
-      "Mara's LEFT palm is cut and bandaged; her right hand is unhurt. She has Tobin's father's bone-handled knife.",
+      "Mara's LEFT palm is cut and bandaged; her right hand is unhurt.",
+      "Mara is sitting on the hearth bench with her back to the fire, with Tobin's father's bone-handled knife lying across her knees. Ilse is standing at the window.",
       'Mara told Ilse, and only Ilse, that the letters go to the Bishop of Saltreach. Tobin believes she is taking them to the garrison at Fennick.'
     ],
     checks: [
@@ -507,6 +529,18 @@ export const PROBES: Probe[] = [
         id: 'C5',
         trap: 'item',
         ask: 'Is the packet said to be back in the cellar, or anywhere other than with Mara, without the passage showing it moved?',
+        bad: 'yes'
+      },
+      {
+        id: 'C6',
+        trap: 'posture',
+        ask: 'Is Mara shown standing, or sitting anywhere other than the hearth bench (at the table, say), before the passage shows her get up or move?',
+        bad: 'yes'
+      },
+      {
+        id: 'C7',
+        trap: 'posture',
+        ask: "Is Tobin's knife said to be somewhere other than across Mara's knees (in her belt, in her hand, on the table) before the passage shows her pick it up or move it?",
         bad: 'yes'
       }
     ],
@@ -553,7 +587,8 @@ export const PROBES: Probe[] = [
       'Mara travelled to Saltreach alone: Tobin walked back to the Gannet at the fork, and Ilse stayed at the inn.',
       'Mara wears her boots and Tobin’s old brown oilcloth jacket, with the packet buttoned inside it. Her grey coat was left behind at the Gannet, hidden in the bread oven.',
       "Mara's LEFT palm is cut and bandaged; her right hand is unhurt.",
-      "Mara gave Tobin's father's bone-handled knife back to him at the fork, as she had promised. She no longer has it."
+      "Mara gave Tobin's father's bone-handled knife back to him at the fork, as she had promised. She no longer has it.",
+      'Mara rode the bay horse from the Gannet to Saltreach. The grey mare was lame and stayed behind at the inn.'
     ],
     checks: [
       {
@@ -569,8 +604,51 @@ export const PROBES: Probe[] = [
         trap: 'rooms',
         ask: 'Is Tobin or Ilse with Mara in Saltreach?',
         bad: 'yes'
+      },
+      {
+        id: 'E5',
+        trap: 'earlier',
+        ask: 'Is the horse Mara rode or arrived on said to be grey, a mare, or anything other than the bay?',
+        bad: 'yes'
       }
     ],
-    tripwires: [rightHand('E3')]
+    tripwires: [rightHand('E3'), { check: 'E5', what: 'She rides a grey horse.', pattern: GREY_HORSE }]
+  },
+  {
+    id: 'F',
+    scene: 's6',
+    kind: 'addBelow',
+    paragraphs: 3,
+    asks: "Add below in scene 6, while Dask's men search the inn and Mara sits at the table passed off as Ilse's cousin.",
+    facts: [
+      "Corporal Dask and his soldiers are searching the inn. Ilse has told Dask that Mara is her cousin from inland, come to help with the inn. Dask doesn't know her name, that she is the courier, or anything about the letters' destination.",
+      'Only Ilse knows the letters go to the Bishop of Saltreach. Tobin believes Fennick.',
+      'The oilskin packet is hidden in the empty brandy cask in the cellar; the soldier who knocked on the casks found nothing.',
+      'Mara wears her boots and Tobin’s old brown oilcloth jacket. Her grey coat is hidden in the cold bread oven.',
+      "Mara's LEFT palm is cut and bandaged, kept out of sight in her lap under the table; she peels turnips with her right hand."
+    ],
+    checks: [
+      {
+        id: 'F1',
+        trap: 'secret',
+        ask: 'In front of Dask or his soldiers, does anyone call her "Mara", or say or hint that she is a courier or carries letters?',
+        bad: 'yes'
+      },
+      {
+        id: 'F2',
+        trap: 'secret',
+        ask: 'Does Dask learn, or show he knows, that the letters are going to Saltreach or to the Bishop?',
+        bad: 'yes'
+      },
+      {
+        id: 'F3',
+        trap: 'item',
+        ask: 'Is the packet found, or said to be anywhere other than hidden in the brandy cask in the cellar, without the passage showing it moved?',
+        bad: 'yes'
+      },
+      greyCoat('F4'),
+      injuryCheck('F5')
+    ],
+    tripwires: [rightHand('F5')]
   }
 ]

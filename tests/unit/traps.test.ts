@@ -3,8 +3,9 @@
 import { describe, expect, it } from 'vitest'
 import { JUDGE_MARKER, judgeMessages, readJudgeReply } from '../traps/judge'
 import { pickFlash } from '../traps/models'
-import { estimatedCost, judgeCheck, quoteInPassage, scorePassage, summarise, tally, type ProbeResult, type SampleResult } from '../traps/score'
-import { PROBES, RIGHT_HAND_HURT, SCENES, TRAPS, type Check, type Probe } from '../traps/story'
+import { landedPage, mirrorFixes, paragraphsOf, wordsFrom } from '../traps/page'
+import { estimatedCost, judgeCheck, quoteInPassage, scorePassage, summarise, summariseRepair, tally, type ProbeResult, type SampleResult } from '../traps/score'
+import { GREY_HORSE, PROBES, RIGHT_HAND_HURT, SCENES, TRAPS, type Check, type Probe } from '../traps/story'
 
 const passage = `Mara flexed her bandaged left hand and winced. "Not yet," she said.\n\nShe pulled her boots back on, wincing at the cold leather, and buttoned her grey coat to the throat.`
 
@@ -150,6 +151,93 @@ describe('scores', () => {
   })
 })
 
+describe('the grey-horse tripwire', () => {
+  it('catches her riding a grey', () => {
+    for (const t of ['She rode the grey mare into Saltreach at dusk.', 'Mara swung down from the grey horse.', 'The grey mare under her was blown.'])
+      expect(GREY_HORSE.test(t), t).toBe(true)
+  })
+  it('leaves the bay, and the lame mare left at home, alone', () => {
+    for (const t of ['She rode the bay into Saltreach.', 'She thought of the grey mare, lame in her stall at the Gannet.', 'Her grey coat was far behind her.'])
+      expect(GREY_HORSE.test(t), t).toBe(false)
+  })
+})
+
+describe('after check and repair', () => {
+  const probe: Pick<Probe, 'checks' | 'tripwires'> = { checks: [contradiction, promise], tripwires: [] }
+  const passageOf = (index: number, repaired: boolean): SampleResult => {
+    const results = scorePassage(probe, passage, [
+      { id: 'X1', answer: 'yes', quote: 'buttoned her grey coat to the throat' },
+      { id: 'X2', answer: 'yes', quote: '' }
+    ])
+    return {
+      index,
+      status: 'complete',
+      error: null,
+      generationId: null,
+      words: 10,
+      text: passage,
+      judge: { status: 'ok', raw: '' },
+      results,
+      ...(repaired
+        ? {
+            repair: {
+              checked: true,
+              claims: 2,
+              slips: 1,
+              fixes: [{ was: 'buttoned her grey coat', now: 'buttoned Tobin’s jacket', why: 'The coat is hidden.', made: true }],
+              questions: ['Should Tobin come in first?'],
+              text: passage.replace('her grey coat', 'Tobin’s jacket'),
+              judge: { status: 'ok' as const, raw: '' },
+              results: results.map((r) => (r.id === 'X1' ? { ...r, verdict: 'kept' as const } : r))
+            }
+          }
+        : {})
+    }
+  }
+
+  it('scores the repaired passages, counting a passage the repair left alone as written', () => {
+    const probes: ProbeResult[] = [{ id: 'P', scene: 's1', kind: 'generate', asks: '', samples: [passageOf(0, true), passageOf(1, false)] }]
+    expect(summarise(probes).total).toMatchObject({ kept: 2, broken: 2 })
+    const r = summariseRepair(probes)!
+    expect(r.total).toMatchObject({ kept: 3, broken: 1, passages: 2 })
+    expect(r.byTrap.clothing).toMatchObject({ kept: 1, broken: 1 })
+    expect(r).toMatchObject({ checked: 1, fixes: 1, made: 1, questions: 1 })
+  })
+
+  it('is absent when no passage went through the repair', () => {
+    expect(summariseRepair([{ id: 'P', scene: 's1', kind: 'generate', asks: '', samples: [passageOf(0, false)] }])).toBeUndefined()
+  })
+})
+
+describe('the page', () => {
+  it('splits a passage into paragraphs at blank lines, keeping a single line break inside', () => {
+    expect(paragraphsOf('One.\nStill one.\n\n\nTwo.\r\n\r\nThree.')).toEqual(['One.\nStill one.', 'Two.', 'Three.'])
+  })
+  it('puts the new paragraphs after the old, and reads them back', () => {
+    const page = landedPage(['Old.'], ['New one.\nLine.', 'New two.'], (i) => `p${i}`)
+    expect(page.before).toBe(1)
+    expect(page.state.doc.childCount).toBe(3)
+    expect(page.from).toBe(page.state.doc.child(0).nodeSize)
+    expect(wordsFrom(page.state.doc, page.before)).toBe('New one.\nLine.\n\nNew two.')
+    expect(page.state.doc.child(1).attrs.pid).toBe('p1')
+  })
+  it('makes fixes only on the AI’s words as they landed, never two in one place', () => {
+    const parts = [
+      { text: 'Adam wrote this. She kept her hood low.', from: 17, to: 39 },
+      { text: 'Then she sat.', from: 0, to: 13 }
+    ]
+    const got = mirrorFixes(parts, [
+      { id: 'a', para: 0, start: 26, end: 34, was: 'her hood', now: 'her hood down,' },
+      { id: 'b', para: 0, start: 0, end: 4, was: 'Adam', now: 'Eve' },
+      { id: 'c', para: 0, start: 30, end: 34, was: 'hood', now: 'cap' },
+      { id: 'd', para: 1, start: 9, end: 12, was: 'sat', now: 'stood' },
+      { id: 'e', para: 1, start: 0, end: 4, was: 'When', now: 'Then' }
+    ])
+    expect(got.made).toEqual(['a', 'd'])
+    expect(got.texts).toEqual(['Adam wrote this. She kept her hood down, low.', 'Then she stood.'])
+  })
+})
+
 describe('pickFlash', () => {
   it("takes DeepSeek Flash from DeepSeek's own list, newest first, never a variant", () => {
     expect(pickFlash(['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4.1-flash'], 'deepseek')).toBe('deepseek-v4.1-flash')
@@ -182,7 +270,8 @@ describe('the trap story', () => {
       for (const w of p.tripwires) expect(p.checks.some((c) => c.id === w.check)).toBe(true)
     }
     // The story's own words keep to the truth: no tripwire fires on them.
-    for (const s of SCENES) for (const para of s.paragraphs) expect(RIGHT_HAND_HURT.test(para), para).toBe(false)
+    const wires = PROBES.flatMap((p) => p.tripwires.map((w) => w.pattern))
+    for (const s of SCENES) for (const para of s.paragraphs) for (const w of wires) expect(w.test(para), para).toBe(false)
     // Every trap is checked somewhere.
     for (const t of TRAPS) expect(PROBES.some((p) => p.checks.some((c) => c.trap === t.id)), t.id).toBe(true)
   })

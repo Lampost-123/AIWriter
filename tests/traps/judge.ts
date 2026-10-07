@@ -5,7 +5,7 @@
 import type { Probe } from './story'
 
 /** Starts the judge's system prompt, so a stand-in model can tell its requests apart. */
-export const JUDGE_MARKER = '[AIWRITE-TRAPS-JUDGE v1]'
+export const JUDGE_MARKER = '[AIWRITE-TRAPS-JUDGE v2]'
 
 export type JudgeWord = 'yes' | 'no' | 'unclear'
 
@@ -27,6 +27,8 @@ You check a passage of fiction against facts of its story that it must keep to. 
 For each question, answer from the passage alone:
 - "yes" or "no" when the passage shows the answer.
 - "unclear" when the passage doesn't show it either way (it never mentions the thing asked about). Never guess from what is likely.
+- What the passage shows happening counts. If it shows someone moving (going down the stairs, coming in, footsteps or a creak on the stairs before they appear, arriving from another room), taking something off or putting it on, picking something up or putting it down, then what follows from that is not a contradiction.
+- Only what is really so counts: a coat or boots seen, mentioned or lying nearby are not being worn; a place only thought of or talked about is not where someone is.
 - With "yes" or "no", give "quote": the exact words of the passage that show it, copied exactly, at most 30 words. For a "no" that rests on something the passage never does, quote "".
 
 Reply with only a JSON object:

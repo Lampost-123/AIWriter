@@ -1688,9 +1688,12 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
 `--fake` checks the harness with the fake provider instead).
 
 - **The story** (`story.ts`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
-  make them. Six traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
-  change of clothes later), a cut on the left palm, people moved between rooms, a secret told to only one person, a
-  promise made in the first scene and kept later, and a hidden packet. `STORY_VERSION` says when scores stop comparing.
+  make them. Traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
+  change of clothes later), a cut on the left palm, people moved between rooms, who knows what (a secret told to only
+  one person, a cover story in front of a soldier), a promise made in the first scene and kept later, a hidden packet,
+  a posture and a held knife set partway through a scene, and a horse two scenes back that the card never mentions.
+  `STORY_VERSION` says when scores stop comparing: version 2 (7 October 2026) tightened the questions the step 1 run
+  showed were misread and added the harder traps, so version 1's scores don't compare with it.
 - **Probes** ask the app to write as Adam would, through the window's own entry points with the app's real
   settings, world, memory keeper and briefing (`run.ts`; Electron is a stand-in, `fakeElectron.ts`): Add below in a
   half-written scene, Generate a scene from its card, Continue at a cursor, and a beat of Beat by beat. Scenes are
@@ -1703,6 +1706,10 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   with what broke, the calls and the cost, the commit and the models (`traps-results/`, not committed).
 - **Scoring another branch:** `--root` points the harness at another checkout's app code, so main and a step's
   branch are scored by the same harness and story; `--compare` puts two reports side by side.
+- **Check and repair (step 3)**, when the checkout has it: each passage goes through `checkNewWords` as the page
+  sends it, the fixes are made with the page's own code (`features/repair/apply.ts`, on a ProseMirror copy of the
+  page, `page.ts`), and the passage is scored as written and after the fixes, with the fixes, the questions and the
+  repair's own calls in the report. Older checkouts run exactly as before.
 
 ## Milestone 1 scope
 
