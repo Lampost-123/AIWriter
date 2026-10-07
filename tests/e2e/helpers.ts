@@ -43,6 +43,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // Check and repair (new AI words checked claim by claim as they land) is one more AI call after every draft: app tests
   // that aren't about it leave it out, and ask for it with { env: { AIWRITE_REPAIR: 'on' } }.
   env.AIWRITE_REPAIR = 'off'
+  // Story memory step 5 (sticky entries, what was said, earlier passages found by searching) changes what a briefing
+  // holds: app tests that aren't about it leave it out, and ask for it with { env: { AIWRITE_RECALL: 'on' } }.
+  env.AIWRITE_RECALL = 'off'
   // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
   // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
