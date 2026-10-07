@@ -913,12 +913,13 @@ describe('after a read', () => {
 })
 
 describe('someone new found in the text', () => {
-  it('is told after the run, and the memory model fills in their empty fields as the AI’s, from the scene', async () => {
+  it('is told after the run, and the memory model fills in what the scene says of them as the AI’s, and nothing else', async () => {
     const w = world()
     save(w.db, w.sceneId, [
       ['p1', 'Kell lost his hat.'],
       ['p2', 'The wind was cold.'],
-      ['p3', "Kell's eyes were grey."]
+      ['p3', "Kell's eyes were grey."],
+      ['p4', "Kell's hair was black and cut short."]
     ])
     const found: ID[][] = []
     const filled: ID[][] = []
@@ -944,9 +945,13 @@ describe('someone new found in the text', () => {
 
     const after = repo.getEntries(w.db, [kell.id])[0]
     expect(after.name).toBe('Kell')
-    expect(after.description).toBe('Description of Kell, filled in from the story.')
-    expect(after.fields.traits).toBe('Core traits of Kell, filled in from the story.')
-    expect(after.fieldOrigins.description).toBe('ai')
+    // What the scene says (the keeper's fake doesn't read hair), with the words it rests on; the fake model's guesses
+    // for every other field had no words from the story, so they were left out (Adam, 2026-10-07).
+    expect(after.fields.hair).toBe('black and cut short')
+    expect(after.fieldOrigins.hair).toBe('ai')
+    expect(after.description).toBe('')
+    expect(after.fields.traits ?? '').toBe('')
+    expect(after.fields.arcEnd ?? '').toBe('')
     // What the text said stays as it was, and the text's.
     expect(after.fields.eyes).toBe(kell.fields.eyes)
     expect(after.fieldOrigins.eyes ?? after.origin).toBe('text')
@@ -959,7 +964,8 @@ describe('someone new found in the text', () => {
       ['p1', 'Kell lost his hat.'],
       ['p2', 'The wind was cold.'],
       ['p3', "Kell's eyes were grey."],
-      ['p4', 'Kell lost his boots.']
+      ['p4', "Kell's hair was black and cut short."],
+      ['p5', 'Kell lost his boots.']
     ])
     await k.catchUpBefore(s2)
     expect(found).toHaveLength(1)
@@ -976,6 +982,66 @@ describe('someone new found in the text', () => {
     const out = await read(w.db, w.sceneId)
     if (out.status !== 'done') throw new Error('The read failed')
     expect(out.newEntryIds).toEqual([entryNamed(w.db, 'Tobin')!.id])
+  })
+
+  it('a thing the model calls a character is made as an item, with what the text said of it, and gets no voice or person’s fields', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [
+      ['p1', 'The ferry bumped against the far bank.'],
+      ['p2', '“There’s a man at Harrowgate sells glass beads. Blue ones.”'],
+      ['p3', '“I’ll bring you one,” Wren said.']
+    ])
+    const out = await readWith(w.db, w.sceneId, [
+      // The reply a real model gave (an invented test story), word for word where it matters.
+      {
+        type: 'entry',
+        ref: 'N7',
+        kind: 'character',
+        name: 'Pell’s blue bead',
+        aliases: ['the blue bead'],
+        summary: 'A glass bead sold by a man at Harrowgate market, wanted by Pell and promised by Wren.',
+        fields: { description: 'blue glass beads sold at Harrowgate market by a man' },
+        quote: 'There’s a man at Harrowgate sells glass beads. Blue ones.'
+      },
+      { type: 'entry', ref: 'N8', kind: 'character', name: 'Wren', summary: 'A surveyor’s apprentice.', quote: '“I’ll bring you one,” Wren said.' },
+      { type: 'relationship', entry: 'N8', other: 'N7', rel: 'promised', feels: 'means to keep her word', otherFeels: '', quote: '“I’ll bring you one,” Wren said.' }
+    ])
+    if (out.status !== 'done') throw new Error('The read failed')
+    const bead = entryNamed(w.db, 'Pell’s blue bead')!
+    expect(bead.kind).toBe('item')
+    expect(bead.origin).toBe('text')
+    // The description the text gave is kept, and the text's (it was dropped before, leaving room for a guess).
+    expect(bead.description).toBe('blue glass beads sold at Harrowgate market by a man')
+    expect(hist.linksForEntry(w.db, bead.id).some((l) => l.factKind === 'field' && l.field === 'description' && l.state === 'ok')).toBe(true)
+    expect(entryNamed(w.db, 'Wren')!.kind).toBe('character')
+    const log = kdb.listLog(w.db, {}).map((l) => `${l.entryName}: ${l.text}`)
+    expect(log).toContain('Pell’s blue bead: New item')
+    expect(log).toContain('Wren: New character')
+
+    // Its fill-in is from the scene's words only: the fake model's guesses have none, so nothing is added.
+    const result = await fillFound(w.db, out.newEntryIds ?? [], modelFor(), { prefs: defaultWritingPrefs(), retryDelays: [0] })
+    expect(result.filled).toEqual([])
+    const after = repo.getEntries(w.db, [bead.id])[0]
+    expect(after.fields).toEqual({})
+    expect(after.description).toBe(bead.description)
+  })
+
+  it('never changes an entry already in the world, however it is described: it stays as Adam made it', async () => {
+    const w = world()
+    // Adam's character that is a thing in all but name, and a thing the memory once filed as a character.
+    const owl = repo.createEntry(w.db, 'character', { name: 'the brass owl', summary: 'A clockwork owl on the mantel.', fields: { pronouns: 'it' } })
+    const old = repo.createEntry(w.db, 'character', { name: 'the old lamp', summary: 'A lamp.' }, { origin: 'text' })
+    save(w.db, w.sceneId, [['p1', 'The brass owl sat by the old lamp.']])
+    const thing = (name: string) => ({ type: 'entry', kind: 'character', name, summary: `A ${name.replace('the ', '')}.`, quote: 'The brass owl sat by the old lamp.' })
+    const out = await readWith(w.db, w.sceneId, [
+      { ...thing('the brass owl'), ref: 'N1' },
+      { ...thing('the old lamp'), ref: 'N2' }
+    ])
+    if (out.status !== 'done') throw new Error('The read failed')
+    expect(out.newEntryIds).toEqual([])
+    expect(repo.getEntry(w.db, owl.id)).toEqual(owl)
+    expect(repo.getEntry(w.db, old.id).kind).toBe('character')
+    expect(repo.listEntries(w.db).filter((e) => e.kind === 'item')).toEqual([])
   })
 
   it('leaves the fields empty when the fill fails, and the memory as it was', async () => {

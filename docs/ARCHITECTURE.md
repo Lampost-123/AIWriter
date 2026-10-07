@@ -234,6 +234,30 @@ approval step and no Review inbox.
   opens (`keeper/wordingClashes.ts`, meta `clashRule`), so they can be reopened; one a consistency
   check also found stays.
 
+### Things are items, and what the memory finds holds only what the story says (Adam, 2026-10-07)
+
+A trap test with a real model found the memory filing a blue glass bead (promised to a child, later bought for
+her) as a character, and the follow-on fill then wrote it eyes, fears and lines of dialogue, some of them from
+later in the story ("It lies in Wren's palm at the Assize… still promised"). The model chose "character"; the
+fill was told to choose "what fits" where the story says nothing, and was given the whole world and the story's
+plan to choose from.
+
+- **Kinds.** The memory model is told that a thing someone has, wants, gives or buys is an item, and an animal
+  in its own right is a character. As a guard (`keeper/kinds.ts`), a new entry it calls a character is made as an
+  item when its name or summary says it is a thing (or it is "it"), nothing says it is a person or an animal, and
+  nothing shows it acting: no line of the scene has it speak, think or feel, and the model's reply gives it no
+  words, knowledge or feelings. A description the model reads with a new entry is now kept (it was dropped).
+- **Filling in what the memory found** (`fillFound`, `fromStory`) uses only the scene's words about the entry:
+  the paragraphs that name it or that it was read from. No world list and no premise. Each value must come with
+  words copied from those paragraphs, and is kept only when the words are there and the value rests on them
+  (half of what it says is in them); "none" and guesses are dropped, so a field the story doesn't fill stays
+  empty. The arc, role, sample lines and "never says" are never filled this way. With nothing about it in the
+  scene, nothing is asked. The World builder's own fill still drafts what fits the world, as before.
+- **Adam's entries and old worlds.** Only entries the keeper is making are ever re-kinded; an entry already in the
+  world, Adam's above all, is matched by name and left as it is. Facts Adam typed are never overwritten. Worlds
+  made before this keep their entries as they are: nothing is rewritten automatically and nothing new is offered
+  on screen. The fix applies to what the memory finds from now on.
+
 ### Who builds what (parallel build, milestone 2)
 
 | Part | Owns |
@@ -578,7 +602,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   which hands the entries a run made from scene text (`newEntryIds`) to `fillFound` on the memory model
   after the run, so it never slows or breaks the memory. Then the build gives each character it made a
   read-aloud voice description, as Suggest would (job `speech`, `readAloud/voiceStore.ts`), unless one
-  is set; it is saved even when read aloud isn't set up.
+  is set; it is saved even when read aloud isn't set up. Since 2026-10-07 the memory keeper's fill is from
+  the story alone (see "Things are items" under milestone 2).
 - **Who says each line, from the writer.** With read aloud on (or "Show speakers and tone"), a draft's closing
   instruction asks the writer to put the speaker, and how the line is said, in curly braces just before each quote
   (`SPEAKER_TAG_LINE`, `ai/speakerTags.ts`). `SpeakerTagFilter` takes the tags out as the draft streams (always, a

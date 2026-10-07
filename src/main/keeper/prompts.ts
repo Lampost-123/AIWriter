@@ -2,6 +2,7 @@
 // facts whose words changed, add new facts, report clashes with the memory) and writing summaries.
 // Since 0.6.29 (story memory step 5) it also picks up what was said: promises, threats and secrets told, with the line
 // itself and who heard it ("said" items, kept as facts the speaker and hearers know: keeper/apply.ts).
+// Since 2026-10-07 it is told that a thing someone has or wants is an item, never a character (keeper/kinds.ts checks).
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -28,6 +29,7 @@ Rules
 - Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words.
 - Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry you add can be referred to in later items by the "ref" you give it (N1, N2 ...).
+- A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives, buys or makes (a bead, a letter, a sword, a cart) is an item, however much it matters to them, and gets item fields. Give a new entry only fields the words show.
 - Changes are what is now different: injuries, possessions, looks, where someone is, goals, someone's death. Write a "note" as a short phrase without the name, such as "lost her left hand" or "now carries the Duke's seal".
 - Details are facts about an entry that don't change in the scene (a newcomer's eye colour, what a place smells like).
 - What was said that later scenes must keep to: a promise or vow, a threat or warning of harm, or a secret told. Give each as a "said" item: who says it, everyone in the scene who hears it, and the spoken line itself as the quote, copied exactly. A secret told is something the hearers now know: give it as "said" only, not also as "knows".
@@ -57,7 +59,7 @@ New facts, by "type":
 Clashes:
 {"entry": "E1", "about": "eyes", "memory": "blue", "text": "green", "quote": "..."}
 
-Field keys. ${keysLine('character', 'Characters')} ${keysLine('place', 'Places')} ${keysLine('lore', 'Lore')} Any kind: summary, description.
+Field keys. ${keysLine('character', 'Characters')} ${keysLine('item', 'Items')} ${keysLine('place', 'Places')} ${keysLine('lore', 'Lore')} Any kind: summary, description.
 
 If there is nothing to report, reply {"facts": [], "add": [], "clashes": []}.`
 
