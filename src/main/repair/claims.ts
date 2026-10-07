@@ -5,14 +5,29 @@
 //   - a claim whose quote isn't in the new words (the AI's own words that just landed) is dropped: every flag quotes
 //     words that are really there;
 //   - a claim about a line that doesn't exist is dropped: there is nothing to compare it with;
-//   - only "slip" counts. A slip is mended in place only when the line it breaks is on the stage with the story's own
-//     words for it (never a value with no words behind it, nor one from the memory's notes), the fix changes a few of
-//     the AI's own words (at most a dozen, inside or overlapping the quote, in one paragraph, written in the record of
-//     the AI's words), and it doesn't overlap another fix. Anything else is asked as one question.
+//   - only "slip" counts, and a slip the model itself says could be true together with the stage ("bothTrue": yes) is
+//     no slip at all: nothing is said.
+//   - A slip is mended in place only when it plainly can't be true at that moment (Adam, 2026-10-07, after the trap
+//     story showed the repair too eager: a hand on the floor "fixed" for a man asleep against a wall, a man who went
+//     home "fixed" when later seen by his own fire, someone gone for the night "fixed" when seen in the yard):
+//       - the model says the two can't both be true ("bothTrue": no) and that nothing could have happened in between
+//         ("between": nothing: no time passing, no one moving, no action off the page);
+//       - the line it breaks is what someone wears or holds, or an injury (`MENDABLE`), never where someone is, how
+//         they are placed, what they did, the time or the mood: moving, getting up and time passing can explain those;
+//       - the line is on the stage with the story's own words for it (never a value with no words behind it, nor one
+//         from the memory's notes), and the fix is about the thing that line names (a word such as "pipe" or "hat" in
+//         both: `sameThing`);
+//       - it is the same moment (`sameMoment`): the line's words are just before the claim, within about a hundred
+//         words, with no scene break between. A hat put on at the ford and held in a hand by the fire later is no
+//         contradiction: people take hats off, put things down, go indoors and sleep;
+//       - the fix changes at most a few of the AI's own words (`FIX_MOST_WORDS`, inside or overlapping the quote, in one
+//         paragraph), adds at most `FIX_MORE_WORDS`, brings in no new name, and doesn't overlap another fix.
+//     Anything else is asked as one question, with the model's rewrite to review.
 //   - "the AI's own words": only a paragraph whose AI part is all in the record of what the AI wrote, in order, and that
 //     Adam didn't type in while it streamed (`allTheAis`); the fix's words are whole words there (never "up" in "cup").
 
 import { findSceneQuote, plainQuote } from '../checks/quote'
+import { findQuote } from '../keeper/text'
 import { parseLenient, str } from '../keeper/json'
 import { plain, wordCount } from '../keeper/text'
 import type { LandedParagraph } from '@shared/contracts/repair'
@@ -27,6 +42,10 @@ export interface Claim {
   about: About | 'other'
   line: string
   verdict: 'fits' | 'shown' | 'slip'
+  /** Could the new words and the stage's value both be true at the same moment? */
+  bothTrue: 'yes' | 'no' | 'maybe'
+  /** What could have happened between the stage's moment and the new words' to explain the change. */
+  between: 'nothing' | 'time' | 'movement' | 'action' | 'unclear'
   why: string
   fix: { replace: string; with: string } | null
   question: string
@@ -45,6 +64,8 @@ export function readClaims(reply: string): Claim[] | null {
   return list.filter(isObj).map((c) => {
     const about = str(c.about, 20).toLowerCase()
     const verdict = str(c.verdict, 10).toLowerCase()
+    const both = str(c.bothTrue ?? c.both_true, 10).toLowerCase()
+    const between = str(c.between, 12).toLowerCase()
     const fix = isObj(c.fix) ? { replace: typeof c.fix.replace === 'string' ? c.fix.replace : '', with: typeof c.fix.with === 'string' ? c.fix.with : '' } : null
     return {
       quote: typeof c.quote === 'string' ? c.quote.trim().slice(0, 600) : '',
@@ -52,6 +73,8 @@ export function readClaims(reply: string): Claim[] | null {
       about: (ABOUT as readonly string[]).includes(about) ? (about as About) : 'other',
       line: str(c.line, 12).toUpperCase().replace(/[^A-Z0-9]/g, ''),
       verdict: verdict === 'slip' ? 'slip' : verdict === 'shown' ? 'shown' : 'fits',
+      bothTrue: both === 'yes' || both === 'no' ? both : 'maybe',
+      between: (['nothing', 'time', 'movement', 'action'] as const).find((b) => b === between) ?? 'unclear',
       why: str(c.why, 400),
       fix: fix && fix.replace.trim() ? fix : null,
       question: str(c.question, 400)
@@ -76,9 +99,75 @@ function placeOf(paragraphs: LandedParagraph[], at: number): { para: number; off
   return null
 }
 
-/** The most words a fix may change, and how many more words it may put in their place. */
-export const FIX_MOST_WORDS = 12
-const FIX_MORE_WORDS = 6
+/** The most words a fix made without asking may change, and how many more words it may put in their place. */
+export const FIX_MOST_WORDS = 6
+export const FIX_MORE_WORDS = 2
+
+/**
+ * The stage's values a slip may be mended in place against: what someone wears or holds, and an injury. Where someone
+ * is, how they are placed, what they did, the time and the mood can be changed by moving, getting up or time passing,
+ * so a slip against them is always asked.
+ */
+export const MENDABLE: ReadonlySet<string> = new Set(['wearing', 'holding', 'condition'])
+
+/** Little words that say nothing about what a thing is. */
+const LITTLE = new Set(
+  'the and with his her hers their its was were had has have from into onto over under back off out down then that this them they she him still just own not nothing both all some any before after again away round around about across through upon while when where what which who been being for but one now there here very each other until once too'.split(
+    ' '
+  )
+)
+
+/**
+ * The words that name things in some words: three letters or more, not little words, and not names (a capital letter:
+ * the same person in both says nothing about the same thing); "hands" is "hand".
+ */
+function things(s: string): Set<string> {
+  return new Set(
+    (s.match(/\p{L}+/gu) ?? [])
+      .filter((w) => w.length >= 3 && !/^\p{Lu}/u.test(w) && !LITTLE.has(w.toLowerCase()))
+      .map((w) => w.toLowerCase())
+      .map((w) => (w.length > 3 ? w.replace(/s$/, '') : w))
+  )
+}
+
+/** How far apart (characters) the stage's words and the claim may be for the two to be the same moment: about 100 words. */
+export const SAME_MOMENT_CHARS = 600
+
+/** A scene break on a line of its own ("* * *", "***"). */
+const SCENE_BREAK = /(^|\n)[ \t]*(?:\*[ \t]*){3,}[ \t]*(?=\n|$)/
+
+/** Where a stage value's words last appear in `text` (the last piece, when they join places with "…"), or null. */
+function lastPlace(text: string, quote: string): { start: number; end: number } | null {
+  const piece = quote.split(/\u2026|\.{3}/).map((p) => p.trim()).filter(Boolean).at(-1) ?? ''
+  if (!piece) return null
+  let found: { start: number; end: number } | null = null
+  for (let at = 0; at <= text.length; ) {
+    const r = findQuote(text.slice(at), piece)
+    if (!r) break
+    found = { start: at + r.start, end: at + r.end }
+    at = found.start + 1
+  }
+  return found
+}
+
+/**
+ * True when a claim at `claimStart` in the new words is at the same moment as the stage's value: the value's own words
+ * are in the words just before (`leadIn`), and between them and the claim there are at most `SAME_MOMENT_CHARS`
+ * characters and no scene break. Otherwise time may have passed, or people moved, slept or put things down.
+ */
+export function sameMoment(stageQuote: string | null, leadIn: string, newWords: string, claimStart: number): boolean {
+  if (!stageQuote?.trim()) return false
+  const r = lastPlace(leadIn, stageQuote)
+  if (!r) return false
+  const between = `${leadIn.slice(r.end)}\n\n${newWords.slice(0, Math.max(0, claimStart))}`
+  return between.length <= SAME_MOMENT_CHARS && !SCENE_BREAK.test(between)
+}
+
+/** True when the words a fix is about name the thing the stage's line names (its value or its words): the same pipe, the same hat. */
+export function sameThing(words: string, line: Pick<StageLine, 'value' | 'quote'>): boolean {
+  const there = things(`${line.value} ${line.quote ?? ''}`)
+  return [...things(words)].some((w) => there.has(w))
+}
 
 /** A slip mended in place: in paragraph `para`, `start` to `end` (`was`) becomes `now`. */
 export interface FoundFix {
@@ -127,7 +216,7 @@ export function questionOf(c: Pick<Claim, 'question' | 'why'>): string {
  */
 export function judgeClaims(
   claims: Claim[],
-  ctx: { stage: StageLine[]; codex: CodexLine[]; paragraphs: LandedParagraph[]; aiText: string }
+  ctx: { stage: StageLine[]; codex: CodexLine[]; paragraphs: LandedParagraph[]; aiText: string; leadIn?: string }
 ): Judged {
   const newWords = newWordsOf(ctx.paragraphs)
   const stage = new Map(ctx.stage.map((l) => [l.code, l]))
@@ -142,11 +231,19 @@ export function judgeClaims(
     const line = stage.get(c.line) ?? null
     if (!line && !codex.has(c.line)) continue
     out.claims++
-    if (c.verdict !== 'slip') continue
+    // A "slip" the model itself says could be true together with the stage is no slip.
+    if (c.verdict !== 'slip' || c.bothTrue === 'yes') continue
     out.slips++
     const qStart = found.start
     const qEnd = found.start + found.quote.length
-    const fix = line?.quote && found.whole ? fixFor(c, newWords, qStart, qEnd, ctx.paragraphs, ai, ours) : null
+    // Mended without asking only when it plainly can't be true at that moment (see the top of this file).
+    const plainly =
+      !!line?.quote &&
+      MENDABLE.has(line.field) &&
+      c.bothTrue === 'no' &&
+      c.between === 'nothing' &&
+      sameMoment(line.quote, ctx.leadIn ?? '', newWords, qStart)
+    const fix = line && plainly && found.whole ? fixFor(c, newWords, qStart, qEnd, ctx.paragraphs, ai, ours, line, found.quote) : null
     if (fix && !out.fixes.some((f) => f.para === fix.para && f.start < fix.end && fix.start < f.end)) {
       out.fixes.push({ ...fix, claim: c, quote: found.quote, quoteStart: qStart })
       continue
@@ -182,9 +279,12 @@ function wholeWords(text: string, i: number, len: number): boolean {
   return true
 }
 
+/** Capitalised words in `s` (names, mostly). */
+const names = (s: string): string[] => s.match(/\b\p{Lu}\p{L}+/gu) ?? []
+
 /**
  * The fix where the model put it: exact whole words in the AI part of one paragraph that is all the AI's own (`ours`),
- * overlapping the quote, and small.
+ * overlapping the quote, small, about the thing the stage's line names, and bringing in no new name.
  */
 function fixFor(
   c: Claim,
@@ -193,7 +293,9 @@ function fixFor(
   qEnd: number,
   paragraphs: LandedParagraph[],
   ai: string,
-  ours: boolean[]
+  ours: boolean[],
+  line: StageLine,
+  quote: string
 ): Omit<FoundFix, 'claim' | 'quote' | 'quoteStart'> | null {
   const f = c.fix
   if (!f) return null
@@ -202,6 +304,9 @@ function fixFor(
   if (!was.trim() || was === now || /\n/.test(was) || !now.trim()) return null
   if (wordCount(was) > FIX_MOST_WORDS || wordCount(now) > wordCount(was) + FIX_MORE_WORDS) return null
   if (plain(was) === plain(now)) return null
+  if (!sameThing(`${quote} ${was}`, line)) return null
+  const known = new Set(names(`${quote} ${was} ${line.who ?? ''} ${line.value} ${line.quote ?? ''}`))
+  if (names(now).some((n) => !known.has(n))) return null
   // Only words the AI wrote are changed.
   if (!ai.includes(plain(was))) return null
   for (let i = newWords.indexOf(was); i >= 0; i = newWords.indexOf(was, i + 1)) {

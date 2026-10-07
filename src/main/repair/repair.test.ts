@@ -60,6 +60,8 @@ const SLIPS = {
       about: 'wearing',
       line: 'W2',
       verdict: 'slip',
+      bothTrue: 'no',
+      between: 'nothing',
       why: 'Mara pushed her hood back earlier, so it is down.',
       fix: { replace: 'kept her hood low', with: 'kept her hood down' }
     },

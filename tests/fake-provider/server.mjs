@@ -100,8 +100,9 @@ const SENTENCES = [
  * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v2]"): each
  * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
  * wears it ("<Name> took off her hood." takes it off: "hood off"); "<Name> left for the docks." puts them "gone to the
- * docks". The scene's time is "evening". Each value comes with words from the scene that show it, as asked: the
- * sentence that names the character, the words about the cloak, and the scene's first words for the time.
+ * docks"; "<Name> put his cup on the shelf." leaves them holding "nothing; his cup on the shelf". The scene's time
+ * is "evening". Each value comes with words from the scene that show it, as asked: the sentence that names the
+ * character, the words about the cloak, and the scene's first words for the time.
  * Null for any other request.
  */
 function continuityReply(system, user) {
@@ -113,9 +114,10 @@ function continuityReply(system, user) {
   const characters = cast
     .filter((n) => scene.includes(n))
     .map((name) => {
-      // Check and repair's tests: "<Name> took off her hood." and "<Name> left for the docks."
+      // Check and repair's tests: "<Name> took off her hood.", "<Name> left for the docks." and "<Name> put his cup on the shelf."
       const took = new RegExp(`${name} took off (?:her|his) ([a-z ]+?)[.,]`).exec(scene)
       const left = new RegExp(`${name} left for the ([a-z ]+?)[.,]`).exec(scene)
+      const put = new RegExp(`${name} put (his|her) ([a-z ]+?) on the ([a-z ]+?)[.,]`).exec(scene)
       return {
         name,
         where: left
@@ -125,7 +127,8 @@ function continuityReply(system, user) {
           ? { wearing: { value: cloak[1], quote: cloak[0] } }
           : took
             ? { wearing: { value: `${took[1]} off`, quote: took[0].slice(0, -1) } }
-            : {})
+            : {}),
+        ...(put ? { holding: { value: `nothing; ${put[1]} ${put[2]} on the ${put[3]}`, quote: put[0].slice(0, -1) } } : {})
       }
     })
   const opening = scene.split(/\s+/).slice(0, 3).join(' ')

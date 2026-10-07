@@ -315,7 +315,7 @@ async function checkWith(
   if (got.status !== 'complete' || o.closed() || !o.db.open) return NOTHING
   const claims = readClaims(got.text)
   if (!claims) return NOTHING
-  const judged = judgeClaims(claims, { stage, codex: codex.lines, paragraphs: input.paragraphs, aiText })
+  const judged = judgeClaims(claims, { stage, codex: codex.lines, paragraphs: input.paragraphs, aiText, leadIn: input.leadIn })
   const where = {
     sceneId: input.sceneId,
     storyId: ctx.storyId,

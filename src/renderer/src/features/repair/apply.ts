@@ -11,6 +11,8 @@ import type { LandedParagraph, RepairFix } from '@shared/contracts/repair'
 /** One paragraph the new words are in, with its id so it can be found again. */
 export interface LandedPart extends LandedParagraph {
   pid: string | null
+  /** Where the AI's words in it begin in the page (a position). */
+  at: number
 }
 
 /** A paragraph's words, one character for each position inside it (a line break is "\n"). */
@@ -38,7 +40,7 @@ export function landedParts(doc: PMNode, from: number, to: number, typed: Set<st
     const b = Math.min(to, start + node.content.size) - start
     const text = paragraphText(node)
     const pid = typeof node.attrs.pid === 'string' && node.attrs.pid ? node.attrs.pid : null
-    if (b > a && text.slice(a, b).trim()) out.push({ pid, text, from: a, to: b, ...(!pid || typed.has(pid) ? { edited: true } : {}) })
+    if (b > a && text.slice(a, b).trim()) out.push({ pid, text, from: a, to: b, at: start + a, ...(!pid || typed.has(pid) ? { edited: true } : {}) })
     return false
   })
   return out
