@@ -1677,6 +1677,61 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.
 
+## Trap scores (story memory plan, step 6)
+
+Adam's consistency plan (October 2026) is scored, not judged by impression: "A made-up test story is built with
+continuity traps planted in it ... Every change is scored on DeepSeek Flash, before and after, by an automatic
+checker." Built first and run after every step. It lives in `tests/traps/` (its README says how to run it and what
+it costs) and never runs in `npm test` or CI: only `npm run traps`. Adam's choice (7 October 2026): DeepSeek's own API
+with DeepSeek Flash for every role (writer, memory, judge), connected as the app's DeepSeek preset; the key is read
+from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provider openrouter` is kept as an option;
+`--fake` checks the harness with the fake provider instead).
+
+- **Story version 3, the default** (Adam, 2026-10-07: version 2 was too short, every fact fitted in what the writer is
+  shown, so every step scored 99%; "make the story much longer and have a live DeepSeek Flash write it"): "The Salt
+  Road", 30 scenes in 7 chapters, written once by a live model through the app's own Generate from a hand-written
+  outline (`story3.ts`; `npm run traps:write`, `write.ts`), each scene's planted events given as the draft's
+  direction, never on the card, and verified before the scene is kept (a matching sentence, else a judge call; early
+  events early; nothing undoing them; nothing breaking what earlier scenes made true), written again twice at most.
+  Frozen in `story-v3.json` with the sentence where each trap became true, so every checkout is scored on the same
+  words. Its probes sit in chapters 6 and 7, with every fact chapters back or early in a long scene, beyond what
+  Continue is shown; most checks are deterministic (`patterns.ts`), the judge only asks what a pattern can't. A hard
+  token budget (`budget.ts`, checked before every call) stops writing and scoring cleanly.
+- **Probes v4, chains, the default** (Adam, 2026-10-07: single passages were at the ceiling and not how he writes):
+  after the whole story, a new scene is carried on in 12 steps of Add below and Continue in turn (`chain.ts`); the
+  early steps' directions plant facts (boots off, Ash gone out, the door locked, the case put down, lying down, a cut
+  hand) and every later step is checked against each one still in force, plus facts from chapters back. A change shown
+  on the page ends a plant. `--rescore` scores a saved run again with today's checks, with no model.
+- **Probes v2** (Adam, 2026-10-07, after round 3 left most checks "not touched" and counted mentions as slips): each
+  probe is aimed at its traps the way Adam would aim a draft (a direction, a beat's note, the card's beats for
+  Continue) without saying what is true; a mention is no longer a slip (riding needs a riding verb with the horse as
+  what is ridden; the compass must be in her hand or used); the judge decides the horse and the compass, the patterns
+  stay as tripwires. `PROBES_VERSION` goes in the report. Each run saves the world before the first probe scene, and
+  `--from-world` starts a later run of the same app code (git's id for `src`) and story there, without the memory build.
+- **Story version 2** (`story.ts`, `--story v2`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
+  make them. Traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
+  change of clothes later), a cut on the left palm, people moved between rooms, who knows what (a secret told to only
+  one person, a cover story in front of a soldier), a promise made in the first scene and kept later, a hidden packet,
+  a posture and a held knife set partway through a scene, and a horse two scenes back that the card never mentions.
+  `STORY_VERSION` says when scores stop comparing: version 2 (7 October 2026) tightened the questions the step 1 run
+  showed were misread and added the harder traps, so version 1's scores don't compare with it.
+- **Probes** ask the app to write as Adam would, through the window's own entry points with the app's real
+  settings, world, memory keeper and briefing (`run.ts`; Electron is a stand-in, `fakeElectron.ts`): Add below in a
+  half-written scene, Generate a scene from its card, Continue at a cursor, and a beat of Beat by beat. Scenes are
+  written in order and left (so the memory reads them, as it would for Adam); what the AI writes is scored and thrown
+  away, and the story goes on with its own words. Several samples per probe (3 by default).
+- **The checker** (`judge.ts`, `score.ts`): per passage, one judge call (the memory model unless told otherwise) is
+  given only the passage, the facts true where it begins and yes/no questions, each with the answer that means
+  "broken". A broken claim needs a quote the passage really has; a few deterministic tripwires (the cut put on the
+  right hand) back the judge up. Consistency = kept / (kept + broken); the report gives it by trap and by probe,
+  with what broke, the calls and the cost, the commit and the models (`traps-results/`, not committed).
+- **Scoring another branch:** `--root` points the harness at another checkout's app code, so main and a step's
+  branch are scored by the same harness and story; `--compare` puts two reports side by side.
+- **Check and repair (step 3)**, when the checkout has it: each passage goes through `checkNewWords` as the page
+  sends it, the fixes are made with the page's own code (`features/repair/apply.ts`, on a ProseMirror copy of the
+  page, `page.ts`), and the passage is scored as written and after the fixes, with the fixes, the questions and the
+  repair's own calls in the report. Older checkouts run exactly as before.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
