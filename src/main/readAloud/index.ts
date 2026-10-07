@@ -29,7 +29,7 @@ import * as providers from '../ai/providers'
 import { jobModel, type JobModel } from '../ai/jobModel'
 import { runTask, stopTask } from '../ai/tasks'
 import { isDrafting, type DraftActivity } from '../ai/drafts'
-import { voicesInstalled } from '../speech'
+import { studioVoicesDir, voicesInstalled } from '../speech'
 import { speechFetch } from '../speech/client'
 import { AudioCache, GB } from './audioCache'
 import { everyone, type CastMember } from './cast'
@@ -39,12 +39,14 @@ import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
 import { labelOf, markedEnough } from './labels'
 import { Marker, MarkStore, textHash, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
-import { speak, VOICES_NOT_READY } from './speak'
+import { clipKey, speak, VOICES_NOT_READY } from './speak'
+import { TakeStore } from './takes'
 import { quoteKey } from './speakers'
 import type { WriterSpeaker } from '../ai/speakerTags'
 import { linesSpokenBy, paragraphsOfDoc } from './suggest'
 import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
+import { castableCharacters, castFromStudio, readStudioVoices } from './studio'
 import { writerBlocks } from './writerBlocks'
 import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
 
@@ -57,6 +59,10 @@ export function audioCache(): AudioCache {
   audio ??= new AudioCache(join(speechCacheDir(), 'audio'), () => Math.max(0.5, getSettings().speech.cacheLimitGb || 5) * GB)
   return audio
 }
+
+let takes: TakeStore | null = null
+/** Redo this line: the take each redone line is read as (takes.ts). */
+const theTakes = (): TakeStore => (takes ??= new TakeStore(join(speechCacheDir(), 'takes.json')))
 
 let marks: MarkStore | null = null
 const markStore = (): MarkStore => (marks ??= new MarkStore(join(speechCacheDir(), 'marks')))
@@ -406,7 +412,8 @@ export function planReading(req: ReadingRequest): ReadingPlan {
     settings: s,
     cast: rc.cast,
     lexicon: rc.lexicon,
-    marks: kept
+    marks: kept,
+    takes: (key: string) => theTakes().get(key)
   }
   const first = planClips(base)
   // Sound effects (src/main/sounds): their marking starts beside the speakers', and each clip gets its sounds. They
@@ -462,10 +469,25 @@ export function clipOf(c: ClipRequest): ClipRequest {
     voiceDesign: str(c?.voiceDesign, 2000),
     instruct: str(c?.instruct, 2000),
     delivery: str(c?.delivery, 600),
-    pace: c?.pace === 'slow' || c?.pace === 'fast' ? c.pace : '',
+    pace: c?.pace === 'slow' || c?.pace === 'fast' || c?.pace === 'lively' ? c.pace : '',
     gentle: c?.gentle === true,
-    sounds: c?.sounds === true
+    sounds: c?.sounds === true,
+    ...(typeof c?.mood === 'string' && /^[a-z]{1,20}$/.test(c.mood) ? { mood: c.mood } : {}),
+    ...(Number.isInteger(c?.take) && c.take! > 0 ? { take: Math.min(99, c.take!) } : {}),
+    ...(c?.check === true ? { check: true } : {})
   }
+}
+
+/**
+ * Redo this line: the clip, as first planned (without its take), is read as one more take from now on. Returns the clip
+ * as it is asked for now, and its key.
+ */
+export function redoClip(c: ClipRequest): { key: string; clip: ClipRequest } {
+  const { take: _take, ...first } = clipOf(c)
+  if (!first.input.trim()) throw new UserError('There are no words to read there.')
+  const engine = speech().engine
+  const clip = { ...first, take: theTakes().next(clipKey(first, engine)) }
+  return { key: clipKey(clip, engine), clip }
 }
 
 /** One clip's audio (WAV), from the disk cache when it was heard before. */
@@ -626,12 +648,83 @@ export function voiceLater(db: ReturnType<typeof world.db>, entryIds: ID[], opts
     live: () => world.maybeCurrentWorld()?.db === db,
     lines: (e) => linesFor(db, e),
     delayMs: opts.delayMs,
+    castAfter: (ids) => (speech().studioVoices ? castStudio(db, ids) : Promise.resolve([])),
     onVoiced: (ids) => {
       // Their pages show the voice, and backups see the world changed.
       repo.touchWorld(db)
       emit('memory:changed', { sceneId: null, entryIds: ids })
     }
   })
+}
+
+/** Gives these characters studio voices, when they are downloaded (studio.ts). Never throws; returns those given one. */
+async function castStudio(db: ReturnType<typeof world.db>, entryIds: ID[]): Promise<ID[]> {
+  const voices = readStudioVoices(studioVoicesDir())
+  if (!voices.length) return []
+  let model: JobModel | null = null
+  try {
+    model = jobModel('speech', modelSources())
+  } catch {
+    /* No Read aloud model: the rules cast alone. */
+  }
+  const s = speech()
+  return castFromStudio(
+    {
+      db,
+      voices,
+      narrator: s.narratorDescription.trim() ? '' : s.narratorVoice,
+      model,
+      emit,
+      onKeyRejected: model ? () => providers.markCheck(model.target.id, false) : undefined,
+      stopped: () => world.maybeCurrentWorld()?.db !== db
+    },
+    entryIds
+  ).catch((e) => {
+    console.warn('[read aloud] could not give studio voices', e)
+    return []
+  })
+}
+
+/**
+ * "Give characters studio voices": every character in the open world without a voice picked from the list gets a
+ * studio voice that fits them. Their descriptions are kept, so clearing the pick goes back to them. Undo is
+ * `restoreStudioVoices` with what this returns.
+ */
+export async function giveStudioVoices(): Promise<{ given: number; before: Record<ID, EntryReadAloud> }> {
+  const db = world.db()
+  if (!readStudioVoices(studioVoicesDir()).length) {
+    throw new UserError('Download the studio voices first, in Settings › Read aloud and dictation.')
+  }
+  const ids = castableCharacters(db)
+  const before = Object.fromEntries(ids.map((id) => [id, getEntryReadAloud(db, id)]))
+  const given = await castStudio(db, ids)
+  if (given.length) {
+    repo.touchWorld(db)
+    emit('memory:changed', { sceneId: null, entryIds: given })
+  }
+  return { given: given.length, before: Object.fromEntries(given.map((id) => [id, before[id]!])) }
+}
+
+/** Undo for giveStudioVoices: puts back what those characters had, unless one was changed since. */
+export function restoreStudioVoices(before: Record<ID, EntryReadAloud>): number {
+  const db = world.db()
+  const back: ID[] = []
+  for (const [id, was] of Object.entries(before ?? {})) {
+    try {
+      const now = getEntryReadAloud(db, id)
+      // Only a studio voice this gave, still as it was given.
+      if (!/^clip:library\//.test(now.voice.voice) || now.voice.design !== was.voice.design) continue
+      setEntryReadAloud(db, id, was)
+      back.push(id)
+    } catch {
+      /* gone meanwhile */
+    }
+  }
+  if (back.length) {
+    repo.touchWorld(db)
+    emit('memory:changed', { sceneId: null, entryIds: back })
+  }
+  return back.length
 }
 
 export async function cacheStats(): Promise<AudioCacheStats> {

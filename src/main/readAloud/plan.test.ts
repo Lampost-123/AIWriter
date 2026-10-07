@@ -112,9 +112,9 @@ describe('how each clip is said', () => {
     expect(narration).toMatchObject({ how: 'hushed, dread building' })
     expect(narration.clip).toMatchObject({ delivery: 'hushed, dread building', pace: '' })
     expect(line.clip).toMatchObject({ delivery: 'wary', pace: 'slow' })
-    // A quickening is kept, and a note that was only about slowing leaves the narration plain.
+    // A quickening is kept, only a touch quicker ('lively'), and a note that was only about slowing leaves the narration plain.
     const quick = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'urgent', pace: 'fast' } } }]])
-    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: 'urgent', pace: 'fast' })
+    expect(plan('The stairs went on.', { marks: quick }).clips[0].clip).toMatchObject({ delivery: 'urgent', pace: 'lively' })
     const slowOnly = new Map<string, ParagraphMarks>([['p1', { delivery: { '~the stairs went on': { tone: 'slowly, measured', pace: 'slow' } } }]])
     expect(plan('The stairs went on.', { marks: slowOnly }).clips[0].clip).toMatchObject({ delivery: '', pace: '' })
   })
@@ -248,5 +248,36 @@ describe('a character who speaks in italics', () => {
     const { para } = asSpoken({ pid: 'p1', text, italics: [[0, 15]] })
     const clips = planClips({ paragraphs: [para], settings, cast: ringCast, lexicon: [], marks: new Map() }).clips
     expect(clips[0]).toMatchObject({ who: 'Ring', clip: { input: 'She can feel it', voiceDesign: 'An old, dry, amused voice.' } })
+  })
+})
+
+describe('studio voices, feelings, takes and the word check', () => {
+  const studioCast = everyone(
+    castOf([
+      { id: 'iris', name: 'Iris', aliases: [], about: '', voice: { design: 'A bright young woman.', voice: 'clip:library/p001.wav' } },
+      { id: 'tom', name: 'Tomas', aliases: [], about: '', voice: { design: '', voice: 'clip:tomas.wav' } }
+    ])
+  )
+  const studio = (text: string, more: Partial<PlanInput> = {}) =>
+    planClips({ paragraphs: [{ pid: 'p1', text }], settings, cast: studioCast, lexicon: [], marks: new Map(), ...more }).clips
+
+  it('reads a studio voice’s line from their acted clip of its feeling, a whisper or a shout', () => {
+    expect(studio('“Get out,” Iris snapped.')[0].clip.mood).toBe('angry')
+    expect(studio('“Over here,” Iris whispered.')[0].clip.mood).toBe('whisper')
+    // Their own clip, or a voice made from a description, has no acted clips.
+    expect(studio('“Get out,” Tomas snapped.')[0].clip.mood).toBeUndefined()
+    // Act out feelings off: the calm clip.
+    expect(studio('“Get out,” Iris snapped.', { settings: { ...settings, actFeelings: false } })[0].clip.mood).toBeUndefined()
+    // A line with nothing said of how: no feeling, so it keeps the key it had before feelings were acted.
+    expect(studio('“Yes,” said Iris.')[0].clip).not.toHaveProperty('mood')
+  })
+
+  it('reads a redone line as its latest take, and asks for the word check when it is on', () => {
+    const first = studio('“Yes,” said Iris.')[0]
+    const again = studio('“Yes,” said Iris.', { takes: (key) => (key === first.key ? 2 : 0) })[0]
+    expect(again.clip.take).toBe(2)
+    expect(again.key).not.toBe(first.key)
+    expect(first.clip).not.toHaveProperty('check')
+    expect(studio('“Yes,” said Iris.', { settings: { ...settings, checkWords: true } })[0].clip.check).toBe(true)
   })
 })

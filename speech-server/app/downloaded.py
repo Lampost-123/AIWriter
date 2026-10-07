@@ -10,6 +10,8 @@ can't load. So:
   place); Whisper when all of its files are in one snapshot.
 * The sound effects (Stable Audio Open, ranked by CLAP) count the way Breeze does: once their last download
   step has checked them and left a mark (models/sound/.ready), with both models' files in place.
+* The studio voices (voices/library/) and the word check's listener (distil-whisper) count once their last
+  download step has checked them and left a mark (voices/library/.ready).
 
 AI Write's main process makes the same checks (src/main/speech/installed.ts). Standard library only:
 the download steps run this before anything else is installed.
@@ -158,3 +160,35 @@ def clap_dir(root: Path) -> Path | None:
 def sound_complete(root: Path) -> bool:
     """The sound effects at `root` can be loaded: their last download step left its mark, and both models are whole."""
     return sound_mark(root).is_file() and sound_dir(root) is not None and clap_dir(root) is not None
+
+
+# The studio voices: the EARS dataset's native English speakers (CC BY-NC 4.0), fetched by tools/install.py studio-voices.
+# The word check listens back to a clip with this (Breeze's environment runs it, on the graphics card).
+CHECK_REPO = "distil-whisper/distil-small.en"
+# normalizer.json: Whisper's English spelling list, which its text normaliser reads ("gray" for "grey").
+CHECK_FILES = (
+    "config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json",
+    "normalizer.json", "model.safetensors",
+)
+
+
+def studio_dir(root: Path) -> Path:
+    return Path(root) / "voices" / "library"
+
+
+def studio_mark(root: Path) -> Path:
+    """Left by the studio voices' last download step once everything checked out."""
+    return studio_dir(root) / ".ready"
+
+
+def check_dir(root: Path) -> Path | None:
+    """The word check's listener in Breeze's Hugging Face cache, when it is all there."""
+    weights = Path(root) / "models" / "hf" / "hub" / hub_folder(CHECK_REPO)
+    if _half_downloaded(weights):
+        return None
+    return snapshot_dir(weights, CHECK_FILES)
+
+
+def studio_complete(root: Path) -> bool:
+    """The studio voices at `root` can be used: their last download step left its mark, and their list is there."""
+    return studio_mark(root).is_file() and (studio_dir(root) / "index.json").is_file()

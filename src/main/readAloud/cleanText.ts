@@ -6,8 +6,14 @@
  * speech engine will happily say "asterisk" for a `*`, which is exactly the thing this exists to prevent.
  */
 export function cleanForSpeech(text: string): string {
-  return (
+  return calmPunctuation(
     text
+      // Characters a page carries that a voice stumbles on: accents in two pieces, invisible joiners and soft hyphens
+      // (inside a word they split it), odd spaces, and the ligatures of text copied from a PDF.
+      .normalize('NFC')
+      .replace(/[­​-‍⁠﻿]/g, '')
+      .replace(/[  -   　]/g, ' ')
+      .replace(/[ﬀ-ﬆ]/g, (c) => c.normalize('NFKC'))
       // Fenced and inline code: keep the words, drop the fences.
       .replace(/```[\s\S]*?```/g, ' ')
       .replace(/`([^`]+)`/g, '$1')
@@ -30,4 +36,20 @@ export function cleanForSpeech(text: string): string {
       .replace(/\n(?:[ \t]*\n)+/g, '\n\n')
       .trim()
   )
+}
+
+/**
+ * Punctuation the voice can't read as written: Breeze turned ". . .", "????" and "!?!?" into gibberish. Spaced or long
+ * runs of dots become one ellipsis, runs of ? and ! one mark (or "?!"), a clip doesn't open on dots, and a clip with no
+ * words at all ("...", "?!") says nothing rather than something made up.
+ */
+export function calmPunctuation(text: string): string {
+  const out = text
+    .replace(/\.(?:\s+\.)+|\.{4,}/g, '…')
+    .replace(/[?!]{2,}/g, (run) => (run.includes('?') && run.includes('!') ? '?!' : run[0]!))
+    .replace(/([,;:])(?:\s*[,;:])+/g, '$1')
+    .replace(/^([\s"“”'‘’(]*)(?:\.{2,}|…)\s*/, '$1')
+    .replace(/\s+([,.;:?!…])/g, '$1')
+    .trim()
+  return /[\p{L}\p{N}]/u.test(out) ? out : ''
 }

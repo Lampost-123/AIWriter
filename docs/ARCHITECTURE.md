@@ -509,6 +509,34 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   given a speaker but no note on how it is said is asked about once more (`Ask.again`); marks files from before (v1)
   drop the empty notes on named speakers' lines that Mark who says what never filled in.
   Everything installs and runs on Windows with no terminal (Python itself through Windows' own installer).
+- **MCreader's newer speech (Adam, 7 October 2026).** The Breeze worker is MCreader's current one: a voice designed
+  from a description is made as a clean studio recording (`STUDIO` after the description), the first of three takes
+  that says its whole line, saved whole or not at all; a hurried line is read only a touch quicker (pace `lively`,
+  `calmed` in `readAloud/emotion.ts` takes the note's words for hurrying out); `calmPunctuation` (`cleanText.ts`)
+  tames ". . .", "?!?!" and clips with no words. The **studio voices** are their own download (`SpeechDownloadKind`
+  `'studio'`, run with the voices' environment, which comes first): `tools/install.py studio-voices` reads each native
+  English speaker of the EARS dataset (CC BY-NC 4.0) out of its zip by HTTP range, never copied from another app, into
+  `voices/library/` (calm clip, ten acted feelings, whispering and reading loudly; `index.json` with name, gender, age
+  band and pitch, named as MCreader names them), and `check-model` fetches the word check's listener
+  (distil-whisper small English, into `models/hf`); `studio-check` leaves `voices/library/.ready`. The server lists
+  them as `clip:library/<id>.wav` voices, which the window marks Studio. With "Studio voices for new characters"
+  (`speech.studioVoices`, on) the background voices (`voiceLater`, `castAfter`) also give each new character a studio
+  voice: one call to the Read aloud model casts them, all different and none another character or the narrator has,
+  and `pickVoices` (`readAloud/studio.ts`) fills in by gender, age and pitch. Their description stays, so clearing the
+  pick goes back to it; a voice picked from the list is never replaced. Settings' "Give characters studio voices"
+  casts every character in the open world without a list voice (Undo restores those not changed since). With "Act out
+  feelings" (`speech.actFeelings`, on) a studio voice's line of dialogue goes out with `mood` (`moodFor`: whisper for a
+  hushed note, loud for a shout, else the feeling `emotionOf` reads in the note; none for calm or a hint of one), and
+  the worker copies that line from the speaker's acted clip (`MOOD_CLIPS`). "Redo this line" (the reading bar) reads
+  the line again as another take, kept per clip in `speech-cache/takes.json` (`readAloud/takes.ts`) and applied when
+  planning. "Check each line's words" (`speech.checkWords`, off) has the worker listen back with the word check and
+  voice a line once more past 15% words wrong. `mood`, `take` and `check` go in a clip's request (and its cache key)
+  only when set, so audio kept before still plays.
+  Adam's own MCreader voices (7 October 2026, "everything") were copied once into his speech folder on his computer,
+  never into git: voices made in MCreader's voice studio in `voices/library/` with `custom.json` (listed as his, "your
+  voice", and never cast by the AI), the four Expresso voices added to `index.json`, and the voices MCreader designed
+  from descriptions in `voices/mcreader/` (listed "From MCreader ·" and the start of the description, which the server
+  reads; also in `voices/breeze/` where that description wasn't designed here yet). `Remove downloads` removes them too.
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model (at most `OVERVIEW_PART_TOKENS` each), reads each part again
   for what its list left out (`overviewMoreUser`, up to `MORE_LOOKS` times, stopping when a look finds nothing

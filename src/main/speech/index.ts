@@ -24,7 +24,18 @@ import { speechFetch } from './client'
 import { Downloads } from './downloads'
 import { installedNow, readManifest, writeManifest } from './installed'
 import { PYTHON_PAGE, type Failure } from './output'
-import { breezeMark, clapWeightsDir, soundMark, soundWeightsDir, speechPaths, venvPython, type SpeechPaths } from './paths'
+import {
+  breezeMark,
+  checkWeightsDir,
+  clapWeightsDir,
+  soundMark,
+  soundWeightsDir,
+  speechPaths,
+  studioDir,
+  studioMark,
+  venvPython,
+  type SpeechPaths
+} from './paths'
 import { DROP_ENV, planFor, pythonStep, stepEnv, type Step } from './plan'
 import { childEnv } from './processes'
 import { StepRunner } from './runner'
@@ -279,6 +290,13 @@ async function plan(kind: SpeechDownloadKind): Promise<{ steps: Step[] } | { fai
     rmSync(soundMark(p.home), { force: true })
     if (fresh && health) {
       await speechFetch('/unload', { method: 'POST', timeoutMs: 15_000 }).catch(() => undefined)
+    }
+  }
+  if (kind === 'studio') {
+    // They count again once this download's last step has checked them. They are fetched with the voices' environment.
+    rmSync(studioMark(p.home), { force: true })
+    if (installedNow(p, manifest).voices !== 'own') {
+      return { failure: { error: 'Download the voices first; the studio voices are read by them.', need: null, link: '' } }
     }
   }
   const breezePython = venvPython(join(p.home, 'venvs', 'breeze'))
@@ -630,6 +648,16 @@ export function voicesInstalled(): boolean {
   }
 }
 
+/** The studio voices' folder (with their index.json) when they are downloaded on this computer, else null. Never throws. */
+export function studioVoicesDir(): string | null {
+  try {
+    const p = paths()
+    return installedNow(p, readManifest(manifestFile())).studio ? studioDir(p.home) : null
+  } catch {
+    return null
+  }
+}
+
 /** The sound effects are downloaded on this computer, whether or not the server runs now. Never throws. */
 export function soundsInstalled(): boolean {
   try {
@@ -737,7 +765,7 @@ export async function setDictationEngine(engine: 'none' | DictationModel): Promi
 }
 
 export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechStatus> {
-  if (!['server', 'voices', 'parakeet', 'whisper', 'sounds'].includes(kind)) throw new UserError('That isn’t something to download.')
+  if (!['server', 'voices', 'parakeet', 'whisper', 'sounds', 'studio'].includes(kind)) throw new UserError('That isn’t something to download.')
   const p = paths()
   const installed = installedNow(p, readManifest(p.manifest))
   if (kind === 'server') {
@@ -761,6 +789,8 @@ export async function downloadSpeech(kind: SpeechDownloadKind): Promise<SpeechSt
       downloads.start('server')
     }
   }
+  // The studio voices are read by the voices: those download first when they aren't here yet.
+  if (kind === 'studio' && installed.voices !== 'own' && !downloads.pending('voices')) downloads.start('voices')
   downloads.start(kind)
   return status()
 }
@@ -845,7 +875,7 @@ async function folderBytes(dir: string): Promise<number> {
 
 export async function getSpeechStorage(): Promise<SpeechStorage> {
   const p = paths()
-  const [all, breezeEnv, breezeModels, hf, parakeet, whisper, soundEnv, soundModels, soundWeights, clapWeights] = await Promise.all([
+  const [all, breezeEnv, breezeModels, hf, parakeet, whisper, soundEnv, soundModels, soundWeights, clapWeights, library, checker] = await Promise.all([
     folderBytes(p.home),
     folderBytes(join(p.home, 'venvs', 'breeze')),
     folderBytes(join(p.home, 'models', 'breeze')),
@@ -855,19 +885,24 @@ export async function getSpeechStorage(): Promise<SpeechStorage> {
     folderBytes(join(p.home, 'venvs', 'sound')),
     folderBytes(join(p.home, 'models', 'sound')),
     folderBytes(soundWeightsDir(p.home)),
-    folderBytes(clapWeightsDir(p.home))
+    folderBytes(clapWeightsDir(p.home)),
+    folderBytes(studioDir(p.home)),
+    folderBytes(checkWeightsDir(p.home))
   ])
   // The sound effects' models share the Hugging Face cache (models/hf) with the voices.
   const sounds = soundEnv + soundModels + soundWeights + clapWeights
-  const voices = breezeEnv + breezeModels + Math.max(0, hf - soundWeights - clapWeights)
+  const voices = breezeEnv + breezeModels + Math.max(0, hf - soundWeights - clapWeights - checker)
+  // The studio voices, and the word check's listener in the same cache.
+  const studio = library + checker
   return {
     folder: p.home,
     parts: [
-      { kind: 'server', bytes: Math.max(0, all - voices - sounds - parakeet - whisper) },
+      { kind: 'server', bytes: Math.max(0, all - voices - sounds - studio - parakeet - whisper) },
       { kind: 'voices', bytes: voices },
       { kind: 'parakeet', bytes: parakeet },
       { kind: 'whisper', bytes: whisper },
-      { kind: 'sounds', bytes: sounds }
+      { kind: 'sounds', bytes: sounds },
+      { kind: 'studio', bytes: studio }
     ],
     total: all
   }

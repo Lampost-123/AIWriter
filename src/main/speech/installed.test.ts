@@ -16,7 +16,18 @@ import {
   whisperFiles,
   writeManifest
 } from './installed'
-import { breezeCodeDir, breezeMark, breezeWeightsDir, clapWeightsDir, soundMark, soundWeightsDir, speechPaths, venvPython } from './paths'
+import {
+  breezeCodeDir,
+  breezeMark,
+  breezeWeightsDir,
+  clapWeightsDir,
+  soundMark,
+  soundWeightsDir,
+  speechPaths,
+  studioDir,
+  studioMark,
+  venvPython
+} from './paths'
 
 let dir = ''
 beforeEach(() => {
@@ -95,7 +106,7 @@ describe('the speech folder', () => {
 describe('what is downloaded', () => {
   it('is nothing at first', () => {
     const p = speechPaths(dir, '/src')
-    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false })
+    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false, studio: false })
   })
 
   it('is each download that finished and whose files are still there', () => {
@@ -106,16 +117,21 @@ describe('what is downloaded', () => {
     whisperIn(p.whisper)
     soundsIn(p.home)
     // Files without a finished download (one stopped part way) don't count.
-    expect(installedNow(p, {})).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false })
+    expect(installedNow(p, {})).toEqual({ server: false, voices: null, parakeet: false, whisper: false, sounds: false, studio: false })
     const at = new Date().toISOString()
     writeManifest(p.manifest, {
       server: { at, python: '/usr/bin/python3.13' },
       voices: { at, from: 'own', root: p.home, gpu: 'RTX' },
       parakeet: { at },
       whisper: { at },
-      sounds: { at }
+      sounds: { at },
+      studio: { at }
     })
-    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: true, voices: 'own', parakeet: true, whisper: true, sounds: true })
+    // The studio voices count only once their last step left its mark.
+    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: true, voices: 'own', parakeet: true, whisper: true, sounds: true, studio: false })
+    touch(join(studioDir(p.home), 'index.json'))
+    touch(studioMark(p.home))
+    expect(installedNow(p, readManifest(p.manifest))).toEqual({ server: true, voices: 'own', parakeet: true, whisper: true, sounds: true, studio: true })
   })
 
   it('is not what was deleted by hand', () => {

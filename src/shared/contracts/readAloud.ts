@@ -23,6 +23,8 @@ export interface ReadAloudVoice {
   about: string
   /** One of Adam's own clips (the server lists them; they never leave his computer). */
   clip: boolean
+  /** One of the studio voices (real people recorded in a studio, with their acted feelings). */
+  studio?: boolean
   /** One of the best to try first. */
   recommended: boolean
 }
@@ -79,11 +81,21 @@ export interface ClipRequest {
   instruct: string
   /** How this line is said ("sharp and irritated"); '' for none. */
   delivery: string
-  pace: '' | 'slow' | 'fast'
+  /** 'lively': a hurried line, read only a touch quicker (Breeze follows "fast" far too far). */
+  pace: '' | 'slow' | 'fast' | 'lively'
   /** Narration read with its note but held close to the narrator's voice (Keep the narrator's voice steady). */
   gentle: boolean
   /** Written sounds are performed (sighs, laughs), not read out. */
   sounds: boolean
+  /**
+   * A studio voice's line read from their own acted clip of its feeling ("angry", "afraid"), or whispering or reading
+   * loudly ("whisper", "loud"), with Act out feelings on. Left out for the calm clip.
+   */
+  mood?: string
+  /** Another take of the line (Redo this line): 1 and up. Left out for the first. */
+  take?: number
+  /** Check each line's words: the voice listens back and reads the line again when words came out wrong. */
+  check?: boolean
 }
 
 /** One clip of a reading: where it is on the page, who says it and how, and what to ask the speech server for. */
@@ -210,6 +222,19 @@ export interface ReadAloudApi {
    * draft landed, or by reading aloud). Paragraphs not marked yet, or being marked now, are left out.
    */
   speakerLabels(req: SpeakerLabelsRequest): Promise<SpeakerLabel[]>
+  /**
+   * "Give characters studio voices": every character in the open world without a voice picked from the list gets a
+   * studio voice that fits them (their descriptions are kept). `before` is for Undo (restoreStudioVoices). A plain-words
+   * error when the studio voices aren't downloaded.
+   */
+  giveStudioVoices(): Promise<{ given: number; before: Record<ID, EntryReadAloud> }>
+  /** Undo for giveStudioVoices: those characters get back what they had, unless changed since. Returns how many. */
+  restoreStudioVoices(before: Record<ID, EntryReadAloud>): Promise<number>
+  /**
+   * "Redo this line": the line is voiced again as another take, kept for it from now on (a reading asks for its clips
+   * again to hear it). Returns the clip as it is asked for now.
+   */
+  redoReadingClip(clip: ClipRequest): Promise<{ key: string; clip: ClipRequest }>
   /** How much spoken audio is kept. */
   getReadAloudCache(): Promise<AudioCacheStats>
   /** Deletes the spoken audio kept on disk. */

@@ -199,6 +199,11 @@ export interface VoiceLaterOptions {
   lines?: (e: Entry) => string[]
   /** Told the characters given voices, so their pages show them. */
   onVoiced?: (entryIds: ID[]) => void
+  /**
+   * Once their descriptions are in, gives these characters a voice from the list where one fits (the studio voices,
+   * studio.ts), and returns the ones given one. Never throws.
+   */
+  castAfter?: (entryIds: ID[]) => Promise<ID[]>
   /** How long to wait before asking again for a voice whose request failed (by default, a minute). */
   againAfterMs?: number
   /** For tests. */
@@ -259,7 +264,10 @@ async function voiceNow(entryIds: ID[], o: VoiceLaterOptions): Promise<void> {
     { db: o.db, model, lines: o.lines, stopped: () => !live(), fetchImpl: o.fetchImpl, retryDelays: o.retryDelays },
     todo.map((e) => e.id)
   )
-  if (result.voiced.length && live()) o.onVoiced?.(result.voiced)
+  // The studio voices, picked to fit what was just written about them (and their pages), when they are downloaded.
+  const cast = o.castAfter && live() ? await o.castAfter(todo.map((e) => e.id)).catch(() => [] as ID[]) : []
+  const shown = [...new Set([...result.voiced, ...cast])]
+  if (shown.length && live()) o.onVoiced?.(shown)
   // One that still has no voice (Adam hasn't set one meanwhile) is asked for again a little later, a few times.
   if (!live()) return
   const tries = failed.get(o.db) ?? new Map<ID, number>()

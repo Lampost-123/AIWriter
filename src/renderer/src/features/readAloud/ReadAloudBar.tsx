@@ -12,7 +12,7 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
-import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
+import { Check, ChevronDown, CircleAlert, Drama, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
 import { Button, Spinner } from '@/components/ui'
@@ -30,6 +30,7 @@ import {
   openHowItReads,
   openSpeechSettings,
   pauseReading,
+  redoLine,
   resumeReading,
   saveSpeech,
   sceneShown,
@@ -234,6 +235,9 @@ function Transport({ bar }: { bar: ReadingBar }): React.JSX.Element {
       </button>
       <RoundButton label="Next line" onClick={stepNext} disabled={!step}>
         <SkipForward size={16} fill="currentColor" strokeWidth={1.75} />
+      </RoundButton>
+      <RoundButton label="Redo this line" onClick={redoLine} disabled={!step} quiet>
+        <RotateCcw size={15} strokeWidth={2} />
       </RoundButton>
       <RoundButton label={withShortcut('Stop reading', 'stopReading')} onClick={stopReading} disabled={stopped}>
         <Square size={13} fill="currentColor" />

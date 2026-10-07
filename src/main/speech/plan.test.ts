@@ -164,6 +164,19 @@ describe('the download steps', () => {
     expect(DOWNLOAD_NAMES.sounds).toBe('the sound effects')
   })
 
+  it('fetch the studio voices and the word check with the voices’ environment, never with the Hugging Face key', () => {
+    const i = input({ hfKey: KEY })
+    const steps = planFor('studio', i)
+    const python = venvPython(join(i.paths.home, 'venvs', 'breeze'), 'win32')
+    expect(ids(steps)).toEqual(['voices', 'listener', 'check'])
+    expect(steps.every((s) => s.command === python)).toBe(true)
+    expect(steps[0].args).toEqual([join(source, 'tools', 'install.py'), 'studio-voices', '--root', i.paths.home])
+    expect(steps[1].env?.HF_HOME).toBe(join(userData, 'speech', 'models', 'hf'))
+    expect(steps[2].args).toEqual([join(source, 'tools', 'install.py'), 'studio-check', '--root', i.paths.home])
+    expect(JSON.stringify(steps)).not.toContain(KEY)
+    expect(DOWNLOAD_NAMES.studio).toBe('the studio voices')
+  })
+
   it('skip the sound effects’ environment when it is there, and use PyTorch’s own build on a Mac', () => {
     expect(ids(planFor('sounds', input({ soundVenv: true })))).toEqual(['pip', 'torch', 'packages', 'torch-check', 'weights', 'check'])
     const mac = planFor('sounds', input({ platform: 'darwin', paths: speechPaths(userData, source, 'darwin') }))

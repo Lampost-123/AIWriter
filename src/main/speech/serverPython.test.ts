@@ -252,6 +252,84 @@ print(json.dumps({
   })
 })
 
+describe.skipIf(!python)('the studio voices (tools/install.py, app/downloaded.py)', () => {
+  let dir = ''
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'aiwrite-studio-py-'))
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('names each voice once, by gender, and sorts them into low, mid and high for their gender', () => {
+    const code = `
+import json, sys
+sys.argv = ['install.py']
+sys.path.insert(0, 'tools')
+import install
+index = {v['id']: v for v in json.loads(sys.stdin.read())}
+install.name_voices(index)
+install.classify_pitch(index)
+print(json.dumps({k: [v['name'], v['pitch']] for k, v in sorted(index.items())}))
+`
+    const voices = [
+      { id: 'p001', gender: 'female', age: '18-25', hz: 180 },
+      { id: 'p002', gender: 'female', age: '26-35', hz: 220 },
+      { id: 'p003', gender: 'female', age: '36-45', hz: 260, name: 'Clara' },
+      { id: 'p005', gender: 'female', age: '46-55', hz: 300 },
+      { id: 'p004', gender: 'male', age: '46-55', hz: 110 }
+    ]
+    expect(py(code, voices)).toEqual({
+      p001: ['Maya', 'low'],
+      p002: ['Iris', 'mid'],
+      p003: ['Clara', 'mid'],
+      p004: ['Arthur', 'mid'],
+      p005: ['Nora', 'high']
+    })
+  })
+
+  it('count as downloaded only once their last step left its mark', () => {
+    const code = `
+import json, sys
+from pathlib import Path
+from app import downloaded as d
+root = Path(json.loads(sys.stdin.read()))
+out = [d.studio_complete(root)]
+(root / 'voices' / 'library').mkdir(parents=True)
+(root / 'voices' / 'library' / 'index.json').write_text('[]')
+out.append(d.studio_complete(root))
+d.studio_mark(root).write_text('1')
+out.append(d.studio_complete(root))
+print(json.dumps(out))
+`
+    expect(py(code, dir)).toEqual([false, false, true])
+  })
+})
+
+describe.skipIf(!numpyPython)('the word check and the voice’s notes (app/workers/breeze.py)', () => {
+  it('counts a line wrong only past one word, and reads a hurried line a touch quicker', () => {
+    const code = `
+import json
+from app.workers import _common, breeze as b
+# The worker hands the real stdout to its protocol on import.
+print(file=_common._OUT)
+print(file=_common._OUT, end=json.dumps({
+  'same': b.misheard('I found the letter under the floor.', 'I found the letter under the floor'),
+  'one word': b.misheard('I found the letter under the floor.', 'I found a letter under the floor'),
+  'skipped': b.misheard('I found the letter under the floor.', 'I found the floor'),
+  'short': b.misheard('Go now.', 'No'),
+  'lively': b.instruction({'pace': 'lively'}),
+  'mood': b.MOOD_CLIPS['sad'],
+}))
+`
+    const out = py<Record<string, unknown>>(code, null, numpyPython)
+    expect(out.same).toBe(0)
+    expect(out['one word']).toBe(0)
+    expect(out.skipped as number).toBeGreaterThan(0.15)
+    expect(out.short).toBe(0)
+    expect(out.lively).toBe('Read this a touch quicker than usual, every word still clear.')
+    expect(out.mood).toBe('sadness')
+  })
+})
+
 describe.skipIf(!python)('who the server answers (app/guard.py)', () => {
   it('only programs on this computer that mean to talk to it, never a web page', () => {
     const code = `

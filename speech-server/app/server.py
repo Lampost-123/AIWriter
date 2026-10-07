@@ -140,13 +140,18 @@ class SpeechBody(BaseModel):
     delivery: str | None = None
     # Breeze: narration read with its note, but held close to the voice (a lower CFG).
     gentle: bool | None = None
+    # Breeze: which take of the line (another seed past 0: "Redo this line"), and whether to listen back for wrong words.
+    take: int | None = None
+    check: bool | None = None
+    # Breeze, studio voices: the line's feeling, read from the speaker's own acted clip of it.
+    mood: str | None = None
 
     def payload(self) -> str:
         return (self.text if self.text is not None else self.input) or ""
 
     def params(self) -> dict:
         out = {}
-        for name in ("lang", "exaggeration", "cfg_weight", "temperature", "sentence_pause", "clause_pause", "instruct", "emotion", "pace", "sfx", "voice_design", "delivery", "gentle"):
+        for name in ("lang", "exaggeration", "cfg_weight", "temperature", "sentence_pause", "clause_pause", "instruct", "emotion", "pace", "sfx", "voice_design", "delivery", "gentle", "take", "check", "mood"):
             value = getattr(self, name)
             if value is not None:
                 out["sentencePause" if name == "sentence_pause" else "clausePause" if name == "clause_pause" else name] = value
