@@ -1,9 +1,8 @@
-<!-- version: 0.6.27 -->
-What's new in 0.6.27:
+<!-- version: 0.6.28 -->
+What's new in 0.6.28:
 
-- As soon as a draft, a beat or Continue lands, the AI checks the new words against where everyone is, what they wear and hold, who knows what, and the timeline.
-- Small slips are fixed straight away, shown in amber, with Undo.
-- Anything that needs your choice is asked as one question in the Issues tab.
-- You can turn this off in Settings › Models.
+- Right before the AI writes, it gets a short list of what must stay true: where everyone is, what they wear and hold, injuries and who knows what, each with the scene it became true in.
+- Before Generate, Add below or a beat, the AI first plans the scene in one short step, then writes from its plan. You can turn this off in Settings › Models.
+- The AI keeps to the facts about each character, and mentions looks like eye colour only now and then.
 
-Also in 0.6.26: the AI keeps track of where everyone is at every point in a scene.
+Also in 0.6.27: the AI checks new words as they land and fixes small slips in amber, with Undo.

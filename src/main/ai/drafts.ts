@@ -13,6 +13,7 @@ import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TAG_ALLOWANCE, TOKENS_PER_WORD } from './context'
 import { isKeyFailure, strongContentRefusal } from './errors'
+import { carriesPlan, PlanEchoFilter } from '../plan/echo'
 
 type DB = Database.Database
 type GenerationParams = GenerationRecord['params']
@@ -191,8 +192,10 @@ export function startDraftJob(req: DraftRequest): { generationId: ID } {
 async function run(job: Job, req: DraftRequest, params: GenerationParams, fallbackMaxTokens: number): Promise<void> {
   const { db, emit } = req
   let pending = ''
-  // The writer's speaker tags never reach the page, the record or the word count.
+  // The writer's speaker tags never reach the page, the record or the word count, and nor do the plan's notes if the
+  // writer says them again before its prose (plan/echo.ts).
   const tags = new SpeakerTagFilter()
+  const echo = new PlanEchoFilter(carriesPlan(req.preview.messages))
   let chunkTimer: ReturnType<typeof setTimeout> | null = null
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -229,7 +232,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       cache: (req.partOf?.variant?.index ?? 1) === 1,
       signal: job.controller.signal,
       onText: (raw) => {
-        const t = tags.push(raw)
+        const t = tags.push(echo.push(raw))
         if (!t) return
         job.text += t
         pending += t
@@ -266,7 +269,7 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
 
   if (chunkTimer) clearTimeout(chunkTimer)
   if (saveTimer) clearTimeout(saveTimer)
-  const rest = tags.flush()
+  const rest = tags.push(echo.flush()) + tags.flush()
   job.text += rest
   pending += rest
   outcome = { ...outcome, text: job.text }

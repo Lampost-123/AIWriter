@@ -6,13 +6,14 @@
 // Each part is also a block of the record, so "What the AI saw" shows exactly what was sent.
 // Pure (no database), so it can be tested.
 
-import type { ChatMessage, ContextBlock, Creativity, EntryState, ID, SceneCard, StyleGuide } from '@shared/types'
+import type { ChatMessage, ContextBlock, Creativity, EntryState, FactState, ID, SceneCard, StyleGuide } from '@shared/types'
 import { keepsLineBreaks, type EditInput } from '@shared/contracts/edits'
 import { CREATIVITY_PRESETS, countWords } from '@shared/defaults'
 import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, TAG_ALLOWANCE, TOKENS_PER_WORD } from '../ai/context'
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
+import { MUST_TITLE, mustStayTrue, mustText } from '../ai/mustStay'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
 
@@ -27,8 +28,16 @@ export interface EditWorld {
   contextLength: number | null
   /** Ask the writer to tag who says each line and how (ai/speakerTags.ts). */
   speakerTags?: boolean
-  /** For Continue: where things stand at the point it carries on from (continuity/tracker.ts), or null when not known. */
+  /**
+   * Where things stand at the point of the words (continuity/tracker.ts), or null when not known: for Continue, at the
+   * point it carries on from (sent whole, and in what must stay true); for the other tools, only in what must stay true.
+   */
   stand?: SceneState | null
+  /**
+   * What must stay true (ai/mustStay.ts) is made from these and the characters in the briefing: who knows what, the
+   * scene and its story, and where the stage's words are (by scene id). Left out: no list.
+   */
+  must?: { facts: FactState[]; sceneId: ID; storyTitle: string; places: Record<ID, string> }
 }
 
 export type EditBriefing =
@@ -232,6 +241,12 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   for (const e of characters) if ([e.name, ...(e.aliases ?? [])].some((n) => mentions(near, n))) add(e.id)
   const keys = tool === 'voice' ? KEYS.voice : isContinue ? KEYS.continue : KEYS.other
   const people = order.slice(0, tool === 'voice' ? MAX_CHARACTERS.voice : MAX_CHARACTERS.other).map((id) => byId.get(id)!)
+  // What must stay true at this point (step 4): where things stand, when known here, and the codex facts of the people
+  // in the briefing. Sent right before the closing ask: in full, then short with less room, and left out on the last
+  // try, so an edit a small model could do before still fits.
+  const mustOf = (short: boolean): string[] =>
+    world.must ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must, short }) : []
+  const must = { full: mustOf(false), short: mustOf(true) }
 
   const o: PromptOptions = {
     direction,
@@ -315,6 +330,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     }
     const stand = isContinue && world.stand ? stateText(world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
+    const mustLines = scale === 0 ? [] : withPeople ? must.full : must.short
+    if (mustLines.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(mustLines, withPeople ? 'here' : null), entryIds: [] })
     parts.push({ id: 'ask', priority: 1, title: 'What the AI was asked', text: finalAsk(tool, o), entryIds: [] })
     return parts
   }

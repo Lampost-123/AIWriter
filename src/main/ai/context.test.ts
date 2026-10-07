@@ -32,7 +32,10 @@ import {
   deadBy,
   type ContextInput,
   type PreparedContext,
-  STAND_LEAD_SO_FAR
+  STAND_LEAD_SO_FAR,
+  MUST_BLOCK,
+  DETAILS_LABEL,
+  FACTS_LABEL
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
 import { countRaw } from './tokens'
@@ -627,7 +630,8 @@ describe('blocks', () => {
       ['threads', 7],
       ['story-so-far', 8],
       ['previous-scene', 3],
-      ['scene-card', 2]
+      ['scene-card', 2],
+      ['must-stay-true', 11]
     ])
   })
 
@@ -810,7 +814,7 @@ describe('blocks', () => {
     expect(pov.text).toContain('Also called: the Heir')
     expect(pov.text).toContain('In short: A disgraced heir turned smuggler.')
     expect(pov.text).toContain('Lost her left hand in the siege.')
-    expect(pov.text).toContain('Basics\n- Pronouns: she/her')
+    expect(pov.text).toContain(`${FACTS_LABEL}\n- Pronouns: she/her`)
     expect(pov.text).toContain('Backstory\n- Origin: Born in the Narrows.')
     expect(pov.text).toContain('Voice\n- How they speak: Short, dry sentences.')
     expect(pov.text).toContain('- Sample lines of dialogue:\n    "Don\'t."\n    "I\'ve had worse."')
@@ -897,6 +901,8 @@ describe('blocks', () => {
   it('block 3b: where things stand as the previous scene ended; short: only the characters on the card', () => {
     const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
     const inp = input()
+    // The same day as the scene before, so what Mara wears and holds is in what must stay true too.
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, noon' }
     inp.continuity = {
       time: 'dusk',
       weather: 'rain',
@@ -913,9 +919,10 @@ describe('blocks', () => {
     expect(block.text).toContain('- The Duke: where: his tower; mood: suspicious')
     expect(block.short).toContain('- Mara Venn: ')
     expect(block.short).not.toContain('The Duke')
-    // Sent last, right above the closing instruction, after the scene card and any block a part adds.
+    // Sent last but for what must stay true, right above the closing instruction, after the scene card and any block a
+    // part adds.
     const ids = prepareContext(inp, { extraBlocks: [{ id: 'scene-so-far', title: 'The scene so far', text: 'Words.' }] }).blocks.map((b) => b.id)
-    expect(ids.at(-1)).toBe('continuity')
+    expect(ids.slice(-2)).toEqual(['continuity', 'must-stay-true'])
     expect(ids.indexOf('scene-card')).toBeLessThan(ids.indexOf('scene-so-far'))
     expect(ids.indexOf('previous-scene')).toBeLessThan(ids.indexOf('scene-card'))
     // A new scene isn't told to keep to it in the closing instruction (time may have passed): only the lead says so.
@@ -1130,7 +1137,7 @@ describe('blocks', () => {
     )
     expect(block.text).toContain('### The Fish Market (place)\n\n- Atmosphere: Gulls, brine and shouting.')
     expect(block.text).toContain('### Will (character)\nIn short: A stable boy.')
-    expect(block.text).toContain('Looks\n- Build: Wiry\n- Hair: Red')
+    expect(block.text).toContain(`${DETAILS_LABEL}\n- Build: Wiry\n- Hair: Red`)
     expect(block.text).not.toContain('Nosy')
     expect(block.text).not.toContain('Born in a barn')
     expect(block.short).toBe('- The Tide Laws (lore): Boats and bells.\n- The Fish Market (place)\n- Will (character): A stable boy.')
@@ -1183,6 +1190,12 @@ function counts(
   return [...out, 0, 0]
 }
 
+/** The briefing without what must stay true (its own tests are in mustStay.test.ts), so the numbers here stay simple. */
+function withoutMust(p: PreparedContext): PreparedContext {
+  const blocks = p.blocks.filter((b) => b.id !== MUST_BLOCK)
+  return { ...p, blocks, texts: [...blocks.flatMap((b) => formsOf(b).map((t) => blockAsSent(b, t))), p.finals.withPrevious, p.finals.withoutPrevious] }
+}
+
 /** A context length that leaves exactly `available` tokens for the briefing. */
 function lengthFor(available: number, targetWords: number | null): number {
   let length = Math.floor((available + replyTokens(targetWords)) / 0.9) - 5
@@ -1198,8 +1211,9 @@ describe('fitting the briefing to the model', () => {
     p.blocks.filter(test).map((b) => b.id)
 
   // 12 blocks of 1,100 tokens each (1,000 plus the 10% allowance), short forms of 110; 10 have a short form.
-  // Block 11 (ties to people not in the scene) is left out here, so the numbers stay simple; see its own tests.
-  const prepared = prepareContext(withoutTies(richInput()))
+  // Block 11 (ties to people not in the scene) and what must stay true are left out here, so the numbers stay simple;
+  // see their own tests.
+  const prepared = withoutMust(prepareContext(withoutTies(richInput())))
   const c = counts(prepared, () => 1000)
   const total = 12 * 1100 + 8
 
@@ -1373,7 +1387,7 @@ describe('fitting the briefing to the model', () => {
 
     const large = assembleContext(scene(128_000), countRaw)
     expect(large.blocks.filter((b) => b.dropped || b.short)).toEqual([])
-    expect(large.blocks).toHaveLength(13)
+    expect(large.blocks).toHaveLength(14)
     expect(large.messages[1].content).toContain('## Ties to people not in this scene')
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
@@ -1586,7 +1600,7 @@ describe('a small-context model and a large-context model both get a sensible br
   function sensible(b: ReturnType<typeof briefing>): void {
     expect(b.p.budget.used).toBeLessThanOrEqual(b.p.budget.available)
     // Every part is listed, sent or not, so the Context tab and "What the AI saw" show what was left out.
-    expect(b.p.blocks).toHaveLength(13)
+    expect(b.p.blocks).toHaveLength(14)
     for (const id of ['instructions', 'scene-card', 'pov', 'previous-scene']) expect(b.sent(id), id).toBe(true)
     expect(b.p.messages[0].content).toContain('Style guide\n- Point of view: Close third person')
     expect(b.p.messages[0].content).toContain('Sample passage')
@@ -1686,7 +1700,9 @@ describe('a small-context model and a large-context model both get a sensible br
     const big = assembleContext({ ...inp, contextLength: 200_000 }, countRaw)
     expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
     expect(big.messages[1].content).not.toContain('left out here to save space')
-    expect(big.messages[1].content.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+    expect(big.blocks.find((b) => b.id === 'relationships')!.text.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+    // What must stay true repeats only the latest few, right above the closing instruction.
+    expect(big.blocks.find((b) => b.id === MUST_BLOCK)!.text.match(/^- Kept from Tobin: /gm)).toHaveLength(3)
   })
 
   it("Auto on a big model: room for Auto's longest scene, and the briefing in full", () => {
@@ -1983,7 +1999,7 @@ describe('ties to people not in this scene', () => {
   })
 
   it('goes short first, and is left out before any block is made smaller than its short form', () => {
-    const prepared = prepareContext(richInput())
+    const prepared = withoutMust(prepareContext(richInput()))
     const fit = (available: number, c: number[]) =>
       finishContext({ ...prepared, contextLength: lengthFor(available, prepared.targetWords) }, c)
     const total = 13 * 1100 + 8

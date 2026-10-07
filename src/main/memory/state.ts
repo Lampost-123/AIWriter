@@ -135,6 +135,8 @@ export function stateAt(
   const rels = new Map<string, RelationshipState>()
   const knows = new Map<ID, Set<ID>>()
   const factText = new Map<ID, string>()
+  /** Where on the line someone last learned each fact (a step index; -1 for the starting setup). */
+  const learnedAt = new Map<ID, number>()
   const threads = new Map<ID, ThreadWork>()
 
   // ----- The clash rule: remember what each side story added whole changes, and settle clashes when it ends -----
@@ -142,20 +144,33 @@ export function stateAt(
   const touch = (key: string, entryId: ID, aspect: string, otherId: ID | null, restore: () => void): void => {
     for (const f of frames) if (!f.touched.has(key)) f.touched.set(key, { entryId, aspect, otherId, restore })
   }
+  /** Puts back where a value was last set (changedWhere) as it is now, when the host wins a clash. */
+  const whereBack = (e: EntryState, k: string): (() => void) => {
+    const had = !!e.changedWhere && Object.prototype.hasOwnProperty.call(e.changedWhere, k)
+    const was = e.changedWhere?.[k]
+    return () => {
+      if (had && was !== undefined) (e.changedWhere ??= {})[k] = was
+      else if (e.changedWhere) delete e.changedWhere[k]
+    }
+  }
   const touchValue = <K extends 'description' | 'summary'>(e: EntryState, k: K): void => {
     if (!frames.length) return
     const was = e[k]
+    const where = whereBack(e, k)
     touch(`${e.id}|${k}`, e.id, k, null, () => {
       e[k] = was
+      where()
     })
   }
   const touchField = (e: EntryState, k: string): void => {
     if (!frames.length) return
     const had = Object.prototype.hasOwnProperty.call(e.fields, k)
     const was = e.fields[k]
+    const where = whereBack(e, k)
     touch(`${e.id}|${k}`, e.id, k, null, () => {
       if (had) e.fields[k] = was
       else delete e.fields[k]
+      where()
     })
   }
   const touchRel = (a: ID, b: ID): void => {
@@ -214,14 +229,18 @@ export function stateAt(
   // ----- Applying changes -----
   /** Where on the walk the change being applied sits (a step index; -1 for the baseline), so views can order history. */
   let at = -1
-  const addChanged = (e: EntryState, k: string): void => {
+  const addChanged = (e: EntryState, k: string, where = ''): void => {
     if (!e.changed.includes(k)) e.changed.push(k)
+    // Since when it holds, for the writer's "must stay true" list; the starting setup has no place.
+    if (where) (e.changedWhere ??= {})[k] = where
+    else if (e.changedWhere) delete e.changedWhere[k]
   }
   const learn = (entryId: ID, factId: ID, fact: string | undefined): void => {
     if (!factId) return
     let set = knows.get(entryId)
     if (!set) knows.set(entryId, (set = new Set()))
     set.add(factId)
+    learnedAt.set(factId, Math.max(learnedAt.get(factId) ?? -1, at))
     if (fact) factText.set(factId, fact)
     else if (!factText.has(factId)) factText.set(factId, '')
   }
@@ -243,17 +262,17 @@ export function stateAt(
         for (const [k, v] of Object.entries(p.fields ?? {})) {
           touchField(e, k)
           e.fields[k] = v
-          addChanged(e, k)
+          addChanged(e, k, where)
         }
         if (p.description !== undefined) {
           touchValue(e, 'description')
           e.description = p.description
-          addChanged(e, 'description')
+          addChanged(e, 'description', where)
         }
         if (p.summary !== undefined) {
           touchValue(e, 'summary')
           e.summary = p.summary
-          addChanged(e, 'summary')
+          addChanged(e, 'summary', where)
         }
         break
       }
@@ -261,16 +280,16 @@ export function stateAt(
         const p = c.payload
         touchValue(e, 'description')
         e.description = p.description ?? ''
-        addChanged(e, 'description')
+        addChanged(e, 'description', where)
         if (p.summary !== undefined) {
           touchValue(e, 'summary')
           e.summary = p.summary
-          addChanged(e, 'summary')
+          addChanged(e, 'summary', where)
         }
         for (const [k, v] of Object.entries(p.fields ?? {})) {
           touchField(e, k)
           e.fields[k] = v
-          addChanged(e, k)
+          addChanged(e, k, where)
         }
         // What it knows and its relationships (on both sides) start again from this description.
         knows.delete(e.id)
@@ -399,7 +418,7 @@ export function stateAt(
   for (const id of entries.keys()) {
     for (const factId of knows.get(id) ?? []) {
       let f = facts.get(factId)
-      if (!f) facts.set(factId, (f = { factId, fact: factText.get(factId) ?? '', knownBy: [] }))
+      if (!f) facts.set(factId, (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1 }))
       f.knownBy.push(id)
     }
   }

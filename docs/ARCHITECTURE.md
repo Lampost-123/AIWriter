@@ -631,8 +631,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   For the scene's saved words it is the scene's own state (kept, shown in Recall); for other words it is kept as a
   checkpoint (below); when the model can't say, nothing is told rather than the previous scene's state under the
   wrong title. Add below also gets the scene so far as a block (`soFarBlock`, as Beat by beat) and a closing
-  instruction to carry it on rather than start the scene (`finalInstruction` with `addBelow`). Block 3b is sent last,
-  right above the closing instruction, after the scene so far. The tracker asks for every piece of clothing and how it
+  instruction to carry it on rather than start the scene (`finalInstruction` with `addBelow`). Block 3b is sent last
+  but for what must stay true (below), right above the closing instruction, after the scene so far. The tracker asks
+  for every piece of clothing and how it
   sits, the whole pose, and nothing guessed; a value may be up to `LONGEST_VALUE` (400) characters.
 - **The live stage** (Adam, 2026-10-07: "a comprehensive framework that ensures consistency instead of the model
   guessing"; step 2 of the consistency plan). Changes, not guesses: the memory model gives each value as
@@ -652,6 +653,63 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   up to date on its own and Recall reloads (`recall:changed`). Recall has Scene end and At the cursor: the latter
   follows the cursor (`wordsToCursor`, edits/session.ts) and shows the checkpoint at or before it
   (`storedStateAt`), worked out exactly there on request (`refreshRecallAt`); it is for reading, not changing.
+- **What must stay true** (Adam, 2026-10-07: step 4 of the consistency plan; `ai/mustStay.ts`). The app, not the
+  model, writes a short list of the facts that matter right now, sent right above the closing instruction with the
+  full briefing above it (block `must-stay-true`, "Must stay true"). Only current values, each with where it became
+  true ("Mara: left arm in a sling (since Ch 3, Sc 2)"; "earlier in this scene"; another story's place keeps its
+  title): from the stage at the point of writing (each value's words, `said`, name the scene: `stageWhere` in
+  ai/gather.ts), and from the codex entries of the people in the scene: their distinguishing marks, a Basics or Looks
+  field a change set during the story (`EntryState.changedWhere`, memory/state.ts; when a side story added whole
+  loses a clash, the host's place goes back with the host's value), anyone in the briefing who is dead, and up to
+  three things kept from someone in the scene, the most lately learned first (`FactState.at`): "Kept from Tobin: …
+  (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so" (`secretsAmong`). How
+  much of the stage (`stageReach`): all of it carrying on inside a scene (Add below, a later beat, Continue); at a
+  new scene's start on the same day by both cards' When ("Day 3"), injuries and what people wear and hold (the card
+  sets where and when); on a later day, or when how long has passed isn't known (no When, "Three weeks later"), only
+  injuries; nothing from another story. Mood and the last thing done are not facts to keep to. At most 12 lines, a
+  long value cut short before its "(since …)"; the short form has 6, without who knows what, changed looks or the
+  lead. It repeats what the briefing says, so in the fitting it sits with block 11: it goes short, then out, first
+  when room is short, and comes back first (before the ties). AI edits and Continue get it too, right before the
+  closing ask (`edits/briefing.ts`; short when the people are left out to fit, and out on the last try): Continue
+  with where things stand at the cursor; the other tools don't wait for the memory model, so only a checkpoint kept at
+  exactly that point (`standKept`), else the codex's facts alone. Variants get it with the rest of Generate's briefing.
+- **Facts to keep to and details to show.** In the writer's briefing (not Ask the world or the checks), a character's
+  Basics and distinguishing marks are "Facts to keep to" and the rest of Looks "Details to show now and then, not all
+  at once" (`fieldSections` with `split`), so a cheap model stops describing eye colour in every scene.
+- **Plan before writing** (Adam, 2026-10-07: step 4; `src/main/plan/`). Before Generate, Add below and each beat, one
+  short call to the memory model (its own Thinking, Off by default; job 'memory', marker `[AIWRITE-PLAN v1]`; only a
+  scene's newest 10 keep their whole prompt, `forgetOldPrompts`) plans the scene from the scene card, what must stay
+  true, where things stand (under its own title, with what of it may have changed since the scene before: the same
+  `stageReach` as the list, and none of it from another story), the end of the scene so far or of the previous scene,
+  the closing instruction the writer will get, and the entries in the briefing and the names of those that aren't.
+  Beat by beat plans only the beat (`withPlan` with `focus`, once the beats are settled, so never twice). It says what
+  the scene relies on, what will change on the page (from, to and how) and up to four entries it needs. The app checks
+  it (`checkPlan`, pure). A position it relies on is told in the stage's own words where the stage holds here; one the
+  stage doesn't vouch for here only when the scene card says it (never where people were in the scene before). A fact
+  only when its words are in what the planner was given, and never one kept from someone in the scene. A change is left
+  out when it is already so, starts from something the stage says isn't so (`contradicts`: the word nearest a thing
+  that says how it is, in pairs such as on/off, open/shut, sitting/standing), is made by someone dead, says something
+  kept from someone in the scene that the card doesn't bring up, or is an event (an injury, someone not on the card
+  turning up) the scene card, the beat or the author's direction doesn't call for (`calledFor`: a third of its words
+  there); moving, dressing and picking things up need no asking. The entries it asks for, by name or other name exactly,
+  come into block 9 ("Asked for by the plan"; only what exists here and Adam didn't keep out). What is left goes in
+  after the closing instruction as the opening of the writer's own notes ("My notes before I write…", ending "Now the
+  prose itself:"), so the prose carries on from it rather than from a distant rule (cheap models ignored required
+  events given as a rule 9 times in 9, and followed them 3 times in 3 as text they carried on from). It is block `plan`
+  of the record, so What the AI saw shows it; the planner's own call is a memory record. Notes the writer says again
+  before its prose are taken off the start of the draft as it streams (`plan/echo.ts`, in drafts.ts), so they never
+  reach the page. Not a prefilled reply: DeepSeek's API takes one only at its beta address with `prefix: true`,
+  OpenRouter's support depends on the model and its provider, models that think may ignore it, and a model carrying
+  on from notes in its own reply could put more notes on the page; the end of the user's turn works the same with
+  every provider. It never holds a draft up: a plan that fails, is stopped (Stop while the draft gets ready), says
+  nothing usable or takes over 30 s (`PLAN_LIMIT_MS`; the call is stopped) is no plan. It goes in only where there is
+  room (`keepsRoom`): with the entries it asked for, else without them, else not at all, never at the cost of a part
+  the briefing had room for without it, the reply's room or the budget. Not for Variants (one plan for the set would
+  make its drafts alike), Continue (a paragraph or two, and meant to be quick) or the AI edits (they keep what
+  happens). Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
+  straight away"; `features/plan/PlanSettings.tsx`): off, no call, and the list still goes in. `AIWRITE_PLAN=off`
+  always turns it off: app tests set it (tests/e2e/helpers.ts) and ask for planning with `AIWRITE_PLAN=on`; the fake
+  provider answers in `tests/fake-provider/plan.mjs`.
 - **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report

@@ -3,13 +3,14 @@
 // No Electron imports, so it can be tested against an in-memory database.
 
 import type Database from 'better-sqlite3'
-import { keptStateBefore, type SceneState } from '../continuity/tracker'
+import { keptStateBefore, storedStateAt, type SceneState } from '../continuity/tracker'
 import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { effectiveStyle } from '@shared/style'
 import * as repo from '../db/repo'
 import { getBlockModes, pinsForScene } from '../db/memory'
 import { sceneMemory } from '../memory/scene'
+import { loadShapeSafe, sceneWords } from '../keeper/places'
 import type { ContextInput } from './context'
 
 type DB = Database.Database
@@ -57,6 +58,7 @@ export function gatherContextInput(
   const scene = repo.getScene(db, sceneId)
   const { story } = repo.sceneLocation(db, sceneId)
   const series = story.seriesId ? repo.listSeries(db).find((s) => s.id === story.seriesId) : undefined
+  const stand = keptStateBefore(db, sceneId)
   return {
     style: effectiveStyle(extra.prefs, repo.getWorldStyle(db), story.style),
     scene: { title: scene.title, card: scene.card },
@@ -70,8 +72,25 @@ export function gatherContextInput(
     contextLength: extra.contextLength,
     maxOutput: extra.maxOutput ?? null,
     // Where things stand as the previous scene ended, if it still stands (brought up to date before a draft).
-    continuity: keptStateBefore(db, sceneId)
+    continuity: stand,
+    stageWhere: stageWhere(db, stand)
   }
+}
+
+/**
+ * Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by id: the "must stay true"
+ * list says since when each value holds (ai/mustStay.ts). Empty when nothing is known.
+ */
+export function stageWhere(db: DB, state: SceneState | null | undefined): Record<ID, string> {
+  const ids = [...new Set(Object.values(state?.said ?? {}).map((s) => s.sceneId))]
+  if (!ids.length) return {}
+  const shape = loadShapeSafe(db)
+  const out: Record<ID, string> = {}
+  for (const id of ids) {
+    const where = sceneWords(db, shape, id)
+    if (where) out[id] = where
+  }
+  return out
 }
 
 // ---------- Catching the memory up before a draft ----------
@@ -143,6 +162,17 @@ let standAt: StandAt | null = null
 /** Registers how where things stand at the end of a scene so far is worked out (the memory keeper's continuityAt). */
 export function setStandAt(fn: StandAt | null): void {
   standAt = fn
+}
+
+/**
+ * Where things stand at the end of `text` (the words before an AI edit's selection) as already kept, with no call to
+ * the memory model: a checkpoint worked out at exactly that point and still standing. Null otherwise, and at the very
+ * start of a scene (how the scene before ended needn't hold there; an edit doesn't wait to find out).
+ */
+export function standKept(db: DB, sceneId: ID, text: string): SceneState | null {
+  if (!text.trim()) return null
+  const kept = storedStateAt(db, sceneId, text)
+  return kept?.exact && kept.current ? kept.state : null
 }
 
 /** How long writing waits for where things stand in the scene so far before going ahead without it. */

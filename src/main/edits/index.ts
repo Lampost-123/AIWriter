@@ -19,7 +19,7 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing } from './briefing'
 import { editInput } from './input'
-import { standAtText } from '../ai/gather'
+import { stageWhere, standAtText, standKept } from '../ai/gather'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteStage } from '../repair'
 import { UserError } from '../util'
@@ -49,7 +49,8 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
   const memory = sceneMemory(db, input.sceneId)
-  const stand = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : null
+  // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
+  const stand = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
@@ -60,7 +61,8 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     entries: memory.entries,
     contextLength: model.choice.contextLength ?? null,
     speakerTags,
-    stand
+    stand,
+    must: { facts: memory.facts, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand) }
   })
   if (!briefing.ok) return briefing
 

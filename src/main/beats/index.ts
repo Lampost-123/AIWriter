@@ -12,7 +12,8 @@ import { newId, UserError } from '../util'
 import * as world from '../world'
 import { getSettings } from '../settings'
 import { cleanOptions } from '../ai/gather'
-import { draftBriefing, providerNotes, type DraftBriefing } from '../ai/draftFlow'
+import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../ai/draftFlow'
+import type { ContextExtras } from '../ai/context'
 import { noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
 import { beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
@@ -72,20 +73,17 @@ export async function startBeat(
     // The scene's length (from the draft options, else the scene card) is shared out between the beats.
     // With Auto, each beat gets its share of a typical scene's length.
     const scene = cleanOptions(input.options, { targetWords: cardLength(repo.getScene(db, sceneId).card), creativity: 'balanced' })
+    const extras = (): ContextExtras => ({
+      final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds }),
+      extraBlocks: block ? [block] : []
+    })
+    // Planned below, once the beats are settled (so never twice), and only this beat.
     const briefing = (catchUp: boolean): Promise<DraftBriefing> => {
       const options: Partial<DraftOptions> = {
         ...input.options,
         targetWords: beatWords(scene.targetWords ?? AUTO_LENGTH.typical, beats.length)
       }
-      return draftBriefing(sceneId, options, {
-        extras: {
-          final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds }),
-          extraBlocks: block ? [block] : []
-        },
-        signal: stop.signal,
-        catchUp,
-        ...(block ? { soFar: standText } : {})
-      })
+      return draftBriefing(sceneId, options, { extras: extras(), signal: stop.signal, catchUp, plan: false, ...(block ? { soFar: standText } : {}) })
     }
     let b = await briefing(index === 1)
     // The beats were changed on the card while the memory caught up: ask for the beat as the card has it now.
@@ -94,6 +92,9 @@ export async function startBeat(
       beats = now
       b = await briefing(false)
     }
+    // Plan before writing (step 4): this beat alone, never the beats after it.
+    const focus = `Beat ${index} of ${beats.length}: ${beats[index - 1]}${steer ? `\nThe author's note for it: ${steer}` : ''}`
+    b = await withPlan(sceneId, b, { extras: extras(), signal: stop.signal, focus })
     const { generationId } = startDraftJob({
       db,
       sceneId,

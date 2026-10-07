@@ -53,7 +53,12 @@ describe('state', () => {
         ]
       )
     )
-    expect(w.state('b1', 'b1.c3.s1').facts).toEqual([{ factId: 'f', fact: 'Mara is the true heir.', knownBy: ['t'] }])
+    expect(w.state('b1', 'b1.c3.s1').facts).toMatchObject([{ factId: 'f', fact: 'Mara is the true heir.', knownBy: ['t'] }])
+    // Where it was last learned, so the newest come first in what must stay true.
+    const [first] = w.state('b1', 'b1.c2.s1').facts
+    const [again] = w.state('b1', 'b1.c3.s1').facts
+    expect(first.at).toBeGreaterThanOrEqual(0)
+    expect(again.at).toBeGreaterThan(first.at!)
     expect(w.state('b2').facts).toEqual([])
   })
 
@@ -102,8 +107,13 @@ describe('state', () => {
     const s = w.state('b2', 'b2.c1.s1')
     expect(s.entries.get('m')).toMatchObject({ description: 'Young again.', summary: 'Young.', fields: { age: '10' } })
     expect(s.entries.get('m')?.changed.sort()).toEqual(['age', 'description', 'summary'])
+    // Where each became true, for the writer's "must stay true" list (step 4); the starting setup has no place.
+    const where = s.entries.get('m')?.changedWhere ?? {}
+    expect(Object.keys(where).sort()).toEqual(['age', 'description', 'summary'])
+    expect(where.age).toMatch(/^the start of /)
+    expect(w.state('b1').entries.get('m')?.changedWhere).toBeUndefined()
     expect(s.relationships.map((r) => [r.aId, r.bId, r.type])).toEqual([['m', 'k', 'cousin']])
-    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'] }])
+    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'], at: -1 }])
   })
 
   it('applies changes at one place by position, then creation time', () => {
@@ -198,6 +208,12 @@ describe('state', () => {
       const s = pureWorld(world(entries, changes)).state('b2')
       expect(s.entries.get('m')?.description).toBe('From the host.')
       expect(s.entries.get('m')?.fields.eyes).toBe('blue')
+      // Since when each holds goes with the value that won: the host's scene for the description, the side story's
+      // for the eyes.
+      const where = s.entries.get('m')?.changedWhere ?? {}
+      expect(where.description).toMatch(/, Ch 2, Sc 1$/)
+      expect(where.eyes).toMatch(/, Ch 1, Sc 1$/)
+      expect(where.description?.split(',')[0]).not.toBe(where.eyes?.split(',')[0])
       expect(s.relationships.map((r) => r.type)).toEqual(['enemy'])
       // Inside Book 1 after the side story ended, the same.
       expect(pureWorld(world(entries, changes)).state('b1', 'b1.c3.s1').entries.get('m')?.description).toBe('From the host.')

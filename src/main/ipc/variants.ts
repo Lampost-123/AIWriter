@@ -17,7 +17,9 @@ export const variantsHandlers: Handlers<keyof VariantsApi> = {
     startVariantSet(input, {
       db: world.db(),
       emit,
-      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal }),
+      // No plan before writing (step 4): one plan for the whole set would make its drafts alike, and choice is what they
+      // are for. They still get what must stay true.
+      briefing: (sceneId, options, signal) => draftBriefing(sceneId, options, { signal, plan: false }),
       // Generate's draft or a beat of Beat by beat getting ready.
       startingElsewhere: (sceneId) => isStartingDraft(sceneId) || isStartingBeat(sceneId),
       providerNotes,
