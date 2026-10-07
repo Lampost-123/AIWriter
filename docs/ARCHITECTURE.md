@@ -658,7 +658,8 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`checks/report.ts`, `meta` 'check_reports') and shown collapsed at the top of the Issues tab (`CheckReportCard`).
   When check and repair (below) checked the draft's words as they landed, the critic leaves out what that covered
   (continuity, who knows what, the timeline: `REPAIR_COVERS`, `repairedSince`) and checks facts, voices and style;
-  when it didn't (no memory model, the draft finished in another scene, the call failed), the critic checks it all.
+  when it didn't (switched off, no memory model, the draft finished in another scene, the call failed), the critic
+  checks it all.
 - **Check and repair** (Adam, 2026-10-07: step 3 of the consistency plan, "check and repair, straight away";
   `src/main/repair/`, `contracts/repair.ts`, `features/repair/`). As soon as a draft, Add below, a beat or Continue
   lands (Continue once accepted; a polished draft once Adam accepts the polished version), the page sends the new
@@ -685,8 +686,12 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   make (Adam was in those words) become questions (`repairsApplied`); made ones are kept as fixed issues. The page
   saves first, so a question's words are in the saved scene. Not checked: a draft that finished while Adam was in
   another scene, a picked variant (Adam read and chose those words), and Polish after drafting's draft before it is
-  accepted. App tests leave it out unless they set `AIWRITE_REPAIR=on` (tests/e2e/helpers.ts), since it is one more
-  call after every draft; the fake provider answers it in `tests/fake-provider/repair.mjs`.
+  accepted. **The off switch** (Adam, 2026-10-07): Settings › Models, "Check new words straight away"
+  (`settings.checkNewWords`, on by default; `features/repair/RepairSettings.tsx`). Off, the page sends nothing, no call
+  is made, and the critic after a draft checks all six as before (`criticChecks`). One rule (`repairWanted`):
+  `AIWRITE_REPAIR=off` always turns it off, whatever the switch says; otherwise the switch decides. App tests set it off
+  (tests/e2e/helpers.ts), since it is one more call after every draft, and ask for it with `AIWRITE_REPAIR=on`; the
+  fake provider answers it in `tests/fake-provider/repair.mjs`.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice

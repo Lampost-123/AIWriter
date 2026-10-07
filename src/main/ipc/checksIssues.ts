@@ -2,8 +2,7 @@
 // db/checks.ts; this file connects them to the open world, the settings, the memory keeper and the window.
 import type { Handlers } from './index'
 import type { Issue } from '@shared/contracts/checks'
-import { ALL_CHECKS } from '@shared/contracts/checks'
-import { REPAIR_COVERS, repairedSince } from '../repair'
+import { criticChecks } from '../repair'
 import type { EntryInput, ID } from '@shared/types'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
@@ -65,7 +64,8 @@ world.onWorldClosing((w) => closeRunsFor(w.db))
 // (so its words are saved into the scene first); another draft starting there meanwhile waits for that one instead.
 // Variants put nothing in the scene until one is picked. Check and repair (Adam, 2026-10-07): when the page had the
 // draft's words checked claim by claim as they landed (repair/index.ts), the critic leaves out what that covered
-// (continuity, who knows what, the timeline) and checks the rest (facts, voices, style); otherwise it checks it all.
+// (continuity, who knows what, the timeline) and checks the rest (facts, voices, style); otherwise (Adam's switch
+// off, or the check couldn't run) it checks it all.
 const AFTER_DRAFT_MS = 15_000
 const afterDraft = new Map<ID, ReturnType<typeof setTimeout>>()
 onDraftActivity((e) => {
@@ -80,7 +80,7 @@ onDraftActivity((e) => {
   const t = setTimeout(() => {
     afterDraft.delete(e.sceneId)
     if (world.maybeCurrentWorld()?.db !== db || !db.open) return
-    const checks = repairedSince(e.sceneId, ended) ? ALL_CHECKS.filter((c) => !REPAIR_COVERS.includes(c)) : ALL_CHECKS
+    const checks = criticChecks(e.sceneId, ended)
     // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.
     runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId, checks))
   }, Number(process.env.AIWRITE_AFTER_DRAFT_MS) || AFTER_DRAFT_MS)

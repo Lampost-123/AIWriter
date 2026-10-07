@@ -4,7 +4,7 @@
 // then says "Mara kept her hood low" and "Tobin was where he had promised to be". The first is mended in place, in
 // amber, with Undo; the second needs Adam's choice, so it is asked as a question in the Issues tab.
 import type { Page } from '@playwright/test'
-import { createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
 // Repair on; the memory reads the scene once there is a model and not again on its own; the critic waits.
 const ON = { env: { AIWRITE_REPAIR: 'on', AIWRITE_KEEPER_QUIET_MS: '600000', AIWRITE_AFTER_DRAFT_MS: '600000' } }
@@ -88,6 +88,43 @@ test('Continue’s words are checked once accepted: a slip that needs a choice i
     await expect(question).toContainText('“Tobin set his cup down at last”')
     await expect(prose(win).locator('.aw-repair')).toHaveCount(0)
     await expect(prose(win).locator('p').first()).toHaveText(ADAMS)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Settings › Models has the off switch: off, a draft that slips is left as written and nothing is asked', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(ON)
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
+    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    const [story] = await invoke(win, 'listStories')
+    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+    await invoke(win, 'saveSceneText', sceneId, null, ADAMS)
+    await useFakeModel(win, fake)
+
+    // On by default; turned off in Settings › Models.
+    await openSettings(win, 'Models')
+    const toggle = win.getByRole('switch', { name: 'Check new words straight away' })
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await expect(win.getByText('After a draft, beat or Continue, fix small slips in amber and ask about the rest.')).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).checkNewWords).toBe(false)
+
+    await win.reload()
+    await expect(prose(win)).toContainText(ADAMS)
+    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.getByRole('button', { name: 'Add below', exact: true }).click()
+    await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status ?? null, { timeout: 60_000 }).toBe('complete')
+    await expect(prose(win)).toContainText('Mara kept her hood low and her left sleeve pinned')
+    // Time enough for a check to have come back, had there been one.
+    await win.waitForTimeout(2000)
+    await expect(prose(win).locator('.aw-repair')).toHaveCount(0)
+    expect(await invoke(win, 'listIssues', sceneId)).toEqual([])
+    await expect(toasts(win).getByText(/Issues tab|Mended/)).toHaveCount(0)
   } finally {
     await fake.close()
   }

@@ -12,7 +12,8 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import * as cdb from '../db/checks'
 import type { MemoryModel } from '../keeper/model'
-import { checkNewWords, noteStage, repairedSince, repairsApplied, resetRepairsForTests } from './index'
+import { ALL_CHECKS } from '@shared/contracts/checks'
+import { checkIfWanted, checkNewWords, criticChecks, noteStage, repairedSince, repairsApplied, repairWanted, resetRepairsForTests } from './index'
 import { REPAIR_MARKER } from './prompts'
 
 const model: MemoryModel = {
@@ -194,5 +195,32 @@ describe('check and repair', () => {
     const out = await checkNewWords(opts(db, fetchImpl), { ...landed(sceneId, recordId), paragraphs: [{ text: 'Yes.', from: 0, to: 4 }] })
     expect(out.repairId).toBeNull()
     expect(fetchImpl.asked).toHaveLength(0)
+  })
+})
+
+describe('the off switch', () => {
+  it('is on unless Adam turns it off, and AIWRITE_REPAIR=off always turns it off', () => {
+    expect(repairWanted({ checkNewWords: true }, {})).toBe(true)
+    expect(repairWanted({}, {})).toBe(true)
+    expect(repairWanted({ checkNewWords: true }, { AIWRITE_REPAIR: 'on' })).toBe(true)
+    expect(repairWanted({ checkNewWords: false }, { AIWRITE_REPAIR: 'on' })).toBe(false)
+    expect(repairWanted({ checkNewWords: true }, { AIWRITE_REPAIR: 'off' })).toBe(false)
+  })
+
+  it('off, no call is made and the critic after the draft checks everything; on, it leaves out what was checked', async () => {
+    const { db, sceneId, recordId } = world()
+    noteStage(recordId, sceneId, STAGE)
+    const ended = Date.now()
+    const off = answering(SLIPS)
+    const out = await checkIfWanted(opts(db, off), landed(sceneId, recordId), { checkNewWords: false }, {})
+    expect(out).toMatchObject({ repairId: null, fixes: [], questions: 0 })
+    expect(off.asked).toHaveLength(0)
+    expect(cdb.sceneIssueRows(db, sceneId)).toEqual([])
+    expect(criticChecks(sceneId, ended)).toEqual(ALL_CHECKS)
+
+    const on = answering(SLIPS)
+    await checkIfWanted(opts(db, on), landed(sceneId, recordId), { checkNewWords: true }, {})
+    expect(on.asked).toHaveLength(1)
+    expect(criticChecks(sceneId, ended)).toEqual(['facts', 'voice', 'style'])
   })
 })

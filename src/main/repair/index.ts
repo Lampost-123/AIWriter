@@ -11,7 +11,8 @@
 import type Database from 'better-sqlite3'
 import type { RepairFix, RepairInput, RepairOutcome } from '@shared/contracts/repair'
 import type { CheckKind, IssueSource } from '@shared/contracts/checks'
-import type { ID, WritingPrefs } from '@shared/types'
+import { ALL_CHECKS } from '@shared/contracts/checks'
+import type { ID, Settings, WritingPrefs } from '@shared/types'
 import type { SceneState } from '@shared/continuity'
 import type { ContextInput } from '../ai/context'
 import * as cdb from '../db/checks'
@@ -64,6 +65,20 @@ export const REPAIR_COVERS: CheckKind[] = ['continuity', 'knowledge', 'timeline'
 
 /** True when the new words of a scene were checked claim by claim at or after `since` (ms). */
 export const repairedSince = (sceneId: ID, since: number): boolean => (repairedAt.get(sceneId) ?? -1) >= since
+
+/**
+ * The checks the critic runs after a draft that ended at `since` (ms): all but what the repair covered when the draft's
+ * words were checked claim by claim as they landed; all six when they weren't (switched off, or it couldn't run).
+ */
+export const criticChecks = (sceneId: ID, since: number): CheckKind[] =>
+  repairedSince(sceneId, since) ? ALL_CHECKS.filter((c) => !REPAIR_COVERS.includes(c)) : [...ALL_CHECKS]
+
+/**
+ * Whether new words are checked as they land: Adam's switch (Settings › Models, "Check new words straight away", on
+ * by default), except that AIWRITE_REPAIR=off always turns it off (app tests that aren't about it).
+ */
+export const repairWanted = (settings: Partial<Pick<Settings, 'checkNewWords'>>, env: Record<string, string | undefined> = process.env): boolean =>
+  env.AIWRITE_REPAIR !== 'off' && settings.checkNewWords !== false
 
 // ---------- Checking ----------
 
@@ -242,6 +257,19 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
     while (pending.size > MOST_PENDING) pending.delete(pending.keys().next().value!)
   }
   return { repairId, fixes: fixes.map((x) => x.fix), questions: raised, claims: judged.claims, slips: judged.slips }
+}
+
+/**
+ * Checks new words when Adam wants it (`repairWanted`: his switch, and AIWRITE_REPAIR); otherwise nothing is asked,
+ * nothing is found, and the critic after a draft checks it all, as before.
+ */
+export async function checkIfWanted(
+  o: RepairOptions,
+  input: RepairInput,
+  settings: Partial<Pick<Settings, 'checkNewWords'>>,
+  env: Record<string, string | undefined> = process.env
+): Promise<RepairOutcome> {
+  return repairWanted(settings, env) ? checkNewWords(o, input) : NOTHING
 }
 
 /**

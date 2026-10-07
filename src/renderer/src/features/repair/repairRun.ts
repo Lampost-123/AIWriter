@@ -13,6 +13,7 @@ import { closeHistory } from '@tiptap/pm/history'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
+import { useApp } from '@/lib/store'
 import { activeStream, sceneText } from '@/features/editor/streamDoc'
 import { activeSuggestion } from '@/features/edits/suggestions'
 import { WORDS_META } from '@/features/goals/wordsMeta'
@@ -45,6 +46,8 @@ export function repairLanded(l: Landing): void {
 }
 
 async function run(l: Landing): Promise<void> {
+  // Adam's switch (Settings › Models, "Check new words straight away"): off, nothing is checked.
+  if (useApp.getState().settings?.checkNewWords === false) return
   const bridge = editorBridge()
   const ed = bridge?.editor
   if (!bridge || !ed || ed.isDestroyed || bridge.sceneId !== l.sceneId) return
