@@ -45,7 +45,10 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
   // The New look: app tests start in Classic (today's layout), with no one-time note, unless they ask for the New
   // look with { env: { AIWRITE_LOOK: 'new' } } (or '' for what Adam gets: the New look, and the note after updating).
-  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic' }, opts.env)
+  // Run on Adam's PC, the window is see-through and never takes focus (main/index.ts), so he can use his PC
+  // meanwhile; AIWRITE_BACKGROUND=off shows it. CI has no one to disturb.
+  const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
+  Object.assign(env, { AIWRITE_DATA_DIR: dataDir, AIWRITE_SETUP: 'off', AIWRITE_START: 'off', AIWRITE_LOOK: 'classic', AIWRITE_BACKGROUND: background }, opts.env)
   const args = process.platform === 'linux' ? ['.', '--no-sandbox'] : ['.']
   const app = await electron.launch({ args, cwd: ROOT, env, timeout: 60_000 })
   const win = await app.firstWindow()
