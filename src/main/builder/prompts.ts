@@ -74,15 +74,20 @@ function aboutText(b: WorldBrief): string {
     about.push(`- The story being written: ${clip(b.story.title, 120)}.${premise}`)
   }
   if (about.length) parts.push(`About the world\n${about.join('\n')}`)
-  const s = b.style
+  const style = styleText(b.style)
+  if (style) parts.push(style)
+  return parts.join('\n\n')
+}
+
+/** The style guide in effect, as the model is told it ('' when it says nothing). */
+export function styleText(s: StyleGuide): string {
   const style: string[] = []
   if (s.spelling) style.push(`- Spelling: ${SPELLING[s.spelling]}`)
   if (s.proseStyle.trim()) style.push(`- Prose style: ${clip(s.proseStyle, 800)}`)
   if (s.contentLimits.trim()) style.push(`- Content limits (always respect these): ${clip(s.contentLimits, 800)}`)
   if (s.notes.trim()) style.push(`- Other notes from the author: ${clip(s.notes, 800)}`)
   if (s.avoidPhrases.length) style.push(`- Words and phrases never to use: ${clip(s.avoidPhrases.join('; '), 600)}`)
-  if (style.length) parts.push(`Style guide\n${style.join('\n')}`)
-  return parts.join('\n\n')
+  return style.length ? `Style guide\n${style.join('\n')}` : ''
 }
 
 /**
@@ -287,6 +292,34 @@ Reply with {"key": "what goes in it", ...}, one for each empty field you are ask
 export function fillGapsUser(kind: BuilderKind, values: BuilderValues, targets: string[], world: string, said: string): string {
   const story = said.trim() ? `\n\nWhat the story says about the ${NOUN[kind]}:\n"""\n${said.trim()}\n"""` : ''
   return `${world}${story}\n\nThe ${NOUN[kind]}'s profile so far:\n${profileText(kind, values)}\n\nEmpty fields to fill in (key: what it holds):\n${fieldList(kind, targets)}\n\nReply now, as one JSON object.`
+}
+
+/**
+ * The memory keeper's follow-on (Adam, 2026-10-07): someone or something just found in the story gets only what the
+ * story's words say about it, up to where it was found, each with the words that show it (builder/fill.ts keeps a
+ * value only when its words are in the story and it rests on them). No world, no plan of the story: nothing to guess
+ * from, and nothing about what comes later. A field the words don't fill stays empty.
+ */
+export function fillFoundSystem(kind: BuilderKind): string {
+  const noun = NOUN[kind]
+  return `${BUILDER_MARKER} fill-found
+You help an author keep the memory of a novel's world. A ${noun} has just been found in the story, and its page has empty fields. Fill in only what the story's words below say about the ${noun}, and reply with one JSON object and nothing else.
+
+Rules
+- Use only the story's words below. Nothing from anywhere else, no guesses, no reading between the lines, and nothing about what might happen later in the story.
+- Every field you fill needs "quote": words copied exactly, character for character, from the story's words below, that show it.
+- Where the words say nothing about a field, leave that field out. An empty field is right: never write "none", "unknown" or a guess.
+- Never contradict the page so far.
+- Write plain words in the style guide's spelling, as short as the field allows. No headings, bullet points or markdown.
+
+Reply with {"key": {"value": "what goes in it", "quote": "the story's words that show it"}, ...}: only the fields the story's words fill, from those you are asked about.`
+}
+
+/** `said`: the story's words about it, word for word (never ''); `style`: the style guide (styleText), or ''. */
+export function fillFoundUser(kind: BuilderKind, values: BuilderValues, targets: string[], style: string, said: string): string {
+  const noun = NOUN[kind]
+  const guide = style.trim() ? `${style.trim()}\n\n` : ''
+  return `${guide}What the story says about the ${noun}, word for word:\n"""\n${said.trim()}\n"""\n\nThe ${noun}'s profile so far:\n${profileText(kind, values)}\n\nEmpty fields (key: what it holds):\n${fieldList(kind, targets)}\n\nReply now, as one JSON object.`
 }
 
 // ---------- Asking again ----------

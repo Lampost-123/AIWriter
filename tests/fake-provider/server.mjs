@@ -47,6 +47,8 @@
 //   - "<Name> lost her|his|their <thing>."          a change for <Name>: "lost her <thing>" (marks: "<thing> lost")
 //   - "<Name>'s eyes are|were <colour>."            a detail: eyes
 //   - "<Name> learned|learns|discovered that <x>."  <Name> knows <x>
+//   - "<Name> wanted the <word> <thing>."           a new entry "<Name>'s <word> <thing>", filed as a character with
+//                                                    pronouns "it/its" (the slip a real model made with a bead)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -197,6 +199,8 @@ function readSentence(s) {
   if (m) return { kind: 'detail', name: m[1], field: 'eyes', value: m[2] }
   m = s.match(/\b([A-Z][a-z]+) (?:learns|learned|learnt|discovers|discovered) that ([^.!?]+)/)
   if (m) return { kind: 'knows', name: m[1], fact: m[2].trim() }
+  m = s.match(/\b([A-Z][a-z]+) wanted the ([a-z]+) ([a-z]+)\.$/)
+  if (m) return { kind: 'wants', name: m[1], what: m[2], thing: m[3] }
   return null
 }
 
@@ -229,6 +233,24 @@ export function fakeMemoryReply(user) {
     if (r.kind === 'change') add.push({ type: 'change', entry, note: r.note, fields: r.fields, quote: s })
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })
     if (r.kind === 'knows') add.push({ type: 'knows', entry, fact: r.fact, quote: s })
+    if (r.kind === 'wants') {
+      // Filed as a character, as a careless memory model once did with a bead (the app makes it an item).
+      const name = `${r.name}'s ${r.what} ${r.thing}`
+      if (!known.has(name.toLowerCase()) && !refs.has(name.toLowerCase())) {
+        const n = `N${refs.size + 1}`
+        refs.set(name.toLowerCase(), n)
+        add.push({
+          type: 'entry',
+          ref: n,
+          kind: 'character',
+          name,
+          aliases: [`the ${r.what} ${r.thing}`],
+          summary: `A ${r.what} ${r.thing} ${r.name} wanted.`,
+          fields: { pronouns: 'it/its' },
+          quote: s
+        })
+      }
+    }
   }
   const facts = []
   for (const l of lines) {
@@ -641,6 +663,10 @@ export function fakeStoryFlowReply(system, user) {
 //   flesh-out    "Suggested <label> for <name>." for each empty field it is asked about.
 //   fill-gaps    "<Label> of <name>, filled in from the story." for each empty field it is asked about ("minor"
 //                for the role).
+//   fill-found   From the story's words alone: a sentence "<Name>'s <field> was|were|is|are <value>." fills that field
+//                (by key or label), with the sentence as its words. Every other field it is asked about comes back
+//                as "<Label> of <name>, as I imagine it." with no words from the story, as a careless model's guess
+//                would (the app drops those).
 //   options      Three options: "<Label>, first option: ...", "second", "third".
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
 //                and I pay my debts." The model fake/empty sends back nothing for any of these.
@@ -692,6 +718,29 @@ export function fakeBuilderReply(system, messages, model = '') {
     const wanted = [...(profile.split('Empty fields to fill in')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
     const value = (key, label) => (key === 'role' ? 'minor' : `${label} of ${name}, filled in from the story.`)
     return JSON.stringify(Object.fromEntries(wanted.map((m) => [m[1], value(m[1], m[2].trim())])), null, 1)
+  }
+  if (job === 'fill-found') {
+    const story = user.match(/word for word:\n"""\n([\s\S]*?)\n"""/)?.[1] ?? ''
+    const profile = user.split("'s profile so far:")[1] ?? ''
+    const name = nameIn(profile)
+    const wanted = [...(profile.split('Empty fields (key: what it holds):')[1] ?? '').matchAll(/^- ([A-Za-z]+): ([^(\n]+?)(?: \(|$)/gm)]
+    const sentences = story
+      .split(/\n+/)
+      .flatMap((p) => p.match(/[^.!?]+[.!?]+/g) ?? [])
+      .map((s) => s.trim())
+    // Who a sentence is about: the name, its first word (a person's first name) or another name.
+    const plainName = (s) => s.toLowerCase().replace(/’/g, "'")
+    const aliases = (profile.match(/^Aliases: (.+)$/m)?.[1] ?? '').split(',').map((a) => plainName(a.trim()))
+    const owners = new Set([plainName(name), plainName(name.split(' ')[0]), ...aliases].filter(Boolean))
+    const reply = {}
+    for (const [, key, rawLabel] of wanted) {
+      const label = rawLabel.trim()
+      const said = sentences
+        .map((s) => s.match(/^(.+?)['’]s ([a-z ]+?) (?:was|were|is|are) ([^.!?]+)/))
+        .find((m) => m && owners.has(plainName(m[1])) && [key.toLowerCase(), label.toLowerCase()].includes(m[2]))
+      reply[key] = said ? { value: said[3].trim(), quote: said[0] } : { value: `${label} of ${name}, as I imagine it.` }
+    }
+    return JSON.stringify(reply, null, 1)
   }
   if (job === 'options') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'

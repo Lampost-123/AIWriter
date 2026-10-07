@@ -111,6 +111,42 @@ test('Settings › Models: the memory can have a model of its own, and go back t
   }
 })
 
+// Adam, 2026-10-07: a real model once filed a bead a child wanted as a character, and the page was then filled with
+// eyes, fears and lines the story never wrote. The fake files "Pell wanted the blue bead." the same way.
+test('a thing the memory finds is kept as an item, and only what the story says is filled in', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '700' } })
+    await createWorldFromWelcome(win, 'Alpha')
+    await useModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type("Pell's hair was in two plaits. Pell wanted the blue bead. The blue bead's origin was a stall at Harrowgate.")
+
+    const entry = async (name: string) => (await invoke(win, 'listEntries')).find((e) => e.name === name) ?? null
+    await expect.poll(async () => (await entry("Pell's blue bead"))?.kind, { timeout: 30_000 }).toBe('item')
+    expect((await entry('Pell'))?.kind).toBe('character')
+    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await expect(win.locator('main').getByRole('button', { name: "Undo: Pell's blue bead, New item" })).toBeVisible()
+
+    // Then each gets what the scene says of it, as the AI's; the fake model's guesses for the rest had no words from
+    // the story, and are left out.
+    await expect.poll(async () => (await entry("Pell's blue bead"))?.fields.origin, { timeout: 30_000 }).toBe('a stall at Harrowgate')
+    await expect.poll(async () => (await entry('Pell'))?.fields.hair, { timeout: 30_000 }).toBe('in two plaits')
+    const bead = (await entry("Pell's blue bead"))!
+    expect(bead.fieldOrigins.origin).toBe('ai')
+    expect(bead.description).toBe('')
+    expect(bead.fields.powers ?? '').toBe('')
+    expect(bead.fields.eyes ?? '').toBe('')
+    const pell = (await entry('Pell'))!
+    expect(pell.fieldOrigins.hair).toBe('ai')
+    expect(pell.description).toBe('')
+    expect(pell.fields.traits ?? '').toBe('')
+    expect(pell.fields.arcEnd ?? '').toBe('')
+  } finally {
+    await fake.close()
+  }
+})
+
 test('without a model the memory waits, and says how to choose one', async ({ launch }) => {
   const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '500' } })
   await createWorldFromWelcome(win, 'Alpha')

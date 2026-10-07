@@ -27,6 +27,7 @@ import { findMention, spotIn, type ReadPlan, type Spot } from './track'
 import { existedEarlier } from './places'
 import { contradicts } from './agree'
 import { isSaidKind } from '../retrieval/said'
+import { thingNotCharacter } from './kinds'
 import {
   changeContent,
   changeWords,
@@ -781,17 +782,26 @@ function applyVerdict(run: Run, planned: SceneFact, v: Record<string, unknown>, 
 
 function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs: Map<string, ID>): void {
   const name = str(a.name, 120)
-  const kind = kindOf(a.kind)
-  if (!name || !kind) return
+  const asked = kindOf(a.kind)
+  if (!name || !asked) return
   const s = run.place(a.quote, chunk.paras) ?? findMention([name], chunk.paras)
   if (!s) return
   const ref = str(a.ref, 10).toUpperCase()
-  // Never a duplicate: a name already in the world is that entry (first seen elsewhere if need be).
+  const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
+  // A thing the model called a character (a bead someone wants) is made as an item (keeper/kinds.ts, Adam 2026-10-07).
+  let kind: EntryKind = asked
+  if (asked === 'character') {
+    const asGiven = Object.fromEntries(Object.entries(given).map(([k, v]) => [k, str(v, 200)]))
+    const e = { name, aliases: strList(a.aliases), summary: str(a.summary, 300), fields: asGiven, ref }
+    if (thingNotCharacter(e, run.plan.paras.map((p) => p.text), chunk.reply.add)) kind = 'item'
+  }
+  // Never a duplicate: a name already in the world is that entry (first seen elsewhere if need be), whichever kind
+  // the model gave it.
   const existing =
     run.byName(name, kind) ??
     run.byName(name) ??
     strList(a.aliases)
-      .map((x) => run.byName(x, kind))
+      .map((x) => run.byName(x, kind) ?? (kind !== asked ? run.byName(x, asked) : null))
       .find(Boolean) ??
     null
   if (existing) {
@@ -807,22 +817,27 @@ function addEntry(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
   }
   const fp = fingerprint({ type: 'entry', kind, name })
   if (run.suppressed(fp, s.quote) || run.deletedByAdam(kind, name, s)) return
+  // Undone or deleted by Adam when it was made as the kind the model gave: not made again from these words either.
+  if (kind !== asked && (run.suppressed(fingerprint({ type: 'entry', kind: asked, name }), s.quote) || run.deletedByAdam(asked, name, s))) return
   const fields: Record<string, string> = {}
-  const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
+  let description = ''
   for (const [k, v] of Object.entries(given)) {
     const key = fieldKey(kind, k)
-    if (key && key !== 'summary' && key !== 'description' && str(v)) fields[key] = str(v)
+    if (key === 'description') description = str(v, 2000)
+    else if (key && key !== 'summary' && str(v)) fields[key] = str(v)
   }
   const aliases = strList(a.aliases).filter((x) => plain(x) !== plain(name))
   const e = repo.createEntry(
     run.db,
     kind,
-    { name, aliases, summary: str(a.summary, 300), fields },
+    { name, aliases, summary: str(a.summary, 300), description, fields },
     { origin: 'text', originStoryId: run.scene.storyId, originSceneId: run.scene.sceneId, runId: run.ctx.runId }
   )
   run.entryMade(e)
   if (ref) refs.set(ref, e.id)
   run.addLink('entry', e.id, null, s)
+  // What the text says it is, read with it, is the text's too (it was dropped before 2026-10-07, leaving room for a guess).
+  if (description) run.addLink('field', e.id, 'description', s)
   for (const key of Object.keys(fields)) run.addLink('field', e.id, key, s)
   run.log({
     action: 'added',
