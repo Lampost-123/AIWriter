@@ -12,9 +12,11 @@ import {
   isOff,
   itemKey,
   itemsFromText,
+  matching,
   mergeItems,
   MOST_CLOTHES,
   MOST_THINGS,
+  offState,
   pieceText,
   readItem,
   thingText,
@@ -60,6 +62,11 @@ export interface SceneState {
 export interface StateSource {
   quote: string
   sceneId: string
+  /**
+   * The words of a whole one-line outfit (kept before step 2b, or given the old way), shared by every piece read from it:
+   * they show the line, not this piece, so a slip against the piece is never mended without asking.
+   */
+  line?: boolean
 }
 export type StateSources = Record<string, StateSource>
 /** Where a value's words are kept: the character's name (lower case) and the field, or '' and the scene's field. */
@@ -92,6 +99,19 @@ const blankCharacter = (name: string): CharacterState => ({
   ...(Object.fromEntries(STATE_FIELDS.map((f) => [f, ''])) as Record<StateField, string>),
   clothes: []
 })
+/** The same, as a state kept before step 2b had them (its hash must not change): all they wear in one line. */
+const oldBlankCharacter = (name: string): CharacterState => ({
+  name,
+  where: '',
+  wearing: '',
+  posture: '',
+  holding: '',
+  condition: '',
+  mood: '',
+  lastAction: ''
+})
+/** True for a state kept before step 2b: no one in it kept piece by piece, and no things. */
+const keptBefore2b = (s: SceneState): boolean => !s.things && s.characters.every((c) => !c.clothes)
 
 // ---------- Piece by piece ----------
 
@@ -112,9 +132,15 @@ export function clothesOf(c: Pick<CharacterState, 'clothes' | 'wearing'> | null 
 /** The things in the place; none in a state kept before step 2b. */
 export const thingsOf = (s: Pick<SceneState, 'things'> | null | undefined): StageItem[] => s?.things ?? []
 
-/** The words behind one piece of someone's clothing: its own, or, read from an old one-line "wearing", that line's. */
-export function pieceSource(said: StateSources | undefined, character: string, item: string): StateSource | undefined {
-  return said?.[pieceKey(character, item)] ?? said?.[sourceKey(character, 'wearing')]
+/**
+ * The words behind one piece of someone's clothing: its own, or, read from an old one-line "wearing", that line's
+ * (shared, `line`, when the line holds more pieces than this one: `pieces`, how many it was read as).
+ */
+export function pieceSource(said: StateSources | undefined, character: string, item: string, pieces = 2): StateSource | undefined {
+  const own = said?.[pieceKey(character, item)]
+  if (own) return own
+  const line = said?.[sourceKey(character, 'wearing')]
+  return line && (pieces > 1 ? { ...line, line: true } : line)
 }
 
 /** A character as step 2b keeps them: what they wear piece by piece, the words of an old one-line "wearing" on each piece. */
@@ -123,16 +149,32 @@ function asPieces(c: CharacterState, said: StateSources): CharacterState {
   const { wearing, ...rest } = c
   const clothes = itemsFromText(wearing ?? '')
   const old = said[sourceKey(c.name, 'wearing')]
-  if (old) for (const p of clothes) said[pieceKey(c.name, p.name)] ??= old
+  if (old) for (const p of clothes) said[pieceKey(c.name, p.name)] ??= clothes.length > 1 ? { ...old, line: true } : old
   delete said[sourceKey(c.name, 'wearing')]
   return { ...rest, clothes }
 }
 
+/**
+ * Which piece or thing an edit of Adam's is about, by the name it had when he made it: the one `matching` finds ("boots"
+ * is the "riding boots" read again from the same words), or the one an old long name says ("a white shirt unbuttoned to
+ * the waist" is the "shirt"), when there is just one; else the one with that very name; -1 for none.
+ */
+function editedAt(list: StageItem[], key: string, clothing: boolean): number {
+  const found = matching(list, key, clothing)
+  if (found.length === 1) return found[0]
+  // A long name, as old lines had ("white shirt unbuttoned to the waist"): the one piece its words name.
+  if (key.split(' ').length > 2) {
+    const back = list.map((x, i) => (matching([{ name: key, state: '' }], x.name, clothing).length ? i : -1)).filter((i) => i >= 0)
+    if (back.length === 1) return back[0]
+  }
+  return list.findIndex((x) => itemKey(x.name) === key)
+}
+
 /** A list with Adam's changes laid over it, each by the name of the piece or thing it was (null: taken out; new: added). */
-function itemEdits(list: StageItem[], edits: Record<string, StageItem | null>, forget: (name: string) => void): StageItem[] {
+function itemEdits(list: StageItem[], edits: Record<string, StageItem | null>, forget: (name: string) => void, clothing: boolean): StageItem[] {
   let out = list.map((x) => ({ ...x }))
   for (const [key, now] of Object.entries(edits)) {
-    const at = out.findIndex((x) => itemKey(x.name) === key)
+    const at = editedAt(out, key, clothing)
     if (at >= 0) forget(out[at].name)
     if (now) forget(now.name)
     if (at >= 0 && now) out[at] = { ...now }
@@ -172,7 +214,7 @@ export function withEdits(state: SceneState, edits: StateEdits | undefined): Sce
   for (const [name, values] of Object.entries(edits.characters ?? {})) {
     if (removed.has(name)) continue
     let at = out.characters.findIndex((x) => x.name.toLowerCase() === name)
-    if (at < 0) at = out.characters.push(blankCharacter(values.name ?? name)) - 1
+    if (at < 0) at = out.characters.push((keptBefore2b(state) ? oldBlankCharacter : blankCharacter)(values.name ?? name)) - 1
     let c = out.characters[at]
     for (const f of STATE_FIELDS)
       if (values[f] !== undefined) {
@@ -191,10 +233,10 @@ export function withEdits(state: SceneState, edits: StateEdits | undefined): Sce
     if (values.clothes) {
       c = out.characters[at] = asPieces(c, said)
       const who = c.name
-      c.clothes = itemEdits(c.clothes!, values.clothes, (p) => delete said[pieceKey(who, p)])
+      c.clothes = itemEdits(c.clothes!, values.clothes, (p) => delete said[pieceKey(who, p)], true)
     }
   }
-  if (edits.things) out.things = itemEdits(thingsOf(out), edits.things, (t) => delete said[thingKey(t)])
+  if (edits.things) out.things = itemEdits(thingsOf(out), edits.things, (t) => delete said[thingKey(t)], false)
   if (state.said) out.said = keepSaid(said, out)
   return out
 }
@@ -399,9 +441,11 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
       if (!it) continue
       // A piece with nothing said of how it is, is on; a thing with nothing said of it says nothing.
       if (nameKey === 'item' && !it.state) it.state = 'on'
+      // A piece "removed" or "no longer worn" is off, and stays on the list as off.
+      if (nameKey === 'item') it.state = offState(it.state)
       if (!it.state) continue
       const q = quoted(raw)
-      if (!q && !isGone(it.state) && !(nameKey === 'item' && isOff(it.state))) continue
+      if (!q && !isGone(it.state, nameKey === 'item') && !(nameKey === 'item' && isOff(it.state))) continue
       if (q) said[keyOf(it.name)] = { quote: q, sceneId }
       out.push(it)
     }
@@ -493,7 +537,7 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
         for (const p of worn) delete said[pieceKey(who, p.name)]
         had.clothes = itemsFromText(line).slice(-MOST_CLOTHES)
         const from = now.said?.[key]
-        if (from) for (const p of had.clothes) said[pieceKey(who, p.name)] = from
+        if (from) for (const p of had.clothes) said[pieceKey(who, p.name)] = had.clothes.length > 1 ? { ...from, line: true } : from
       }
     }
   }
@@ -567,6 +611,27 @@ export function newSceneStage(state: SceneState, same: boolean): SceneState {
   return out
 }
 
+/** The most of one piece's or thing's words told, and of all a person wears and of all the things, in characters. */
+const TOLD_ONE = 160
+const TOLD_WORN = 400
+const TOLD_THINGS = 600
+
+/** Lines cut to TOLD_ONE each, as many as fit in `most` characters; the most lately changed (the last) kept first. */
+function capped(lines: string[], most: number): string[] {
+  const out: string[] = []
+  let used = 0
+  for (const l of [...lines].reverse()) {
+    const one = l.length > TOLD_ONE ? `${l.slice(0, TOLD_ONE - 1).trimEnd()}…` : l
+    if (used + one.length > most) break
+    used += one.length
+    out.unshift(one)
+  }
+  return out
+}
+
+/** What someone wears as lines under them, as much as fits (TOLD_WORN). */
+const wornLines = (pieces: StageItem[]): string[] => capped(pieces.map(pieceText), TOLD_WORN).map((p) => `  - wearing: ${p}`)
+
 /**
  * The state as lines: for the writer, the checks and What the AI saw. `only`: just these characters (names). Each piece
  * of clothing is a line of its own under its person ("  - wearing: boots off, by the door"), and the things in the place
@@ -583,15 +648,11 @@ export function stateText(state: SceneState, only?: string[]): string {
     .filter((c) => !wanted || wanted.some((n) => c.name.toLowerCase() === n || c.name.toLowerCase().startsWith(`${n} `)))
     .map((c) => {
       const parts = STATE_FIELDS.filter((f) => c[f]).map((f) => `${STATE_LABELS[f]}: ${c[f]}`)
-      const worn = clothesOf(c)
-        .slice(-MOST_CLOTHES)
-        .map((p) => `  - wearing: ${pieceText(p)}`)
+      const worn = wornLines(clothesOf(c).slice(-MOST_CLOTHES))
       if (!parts.length && !worn.length) return ''
       return [`- ${c.name}${parts.length ? `: ${parts.join('; ')}` : ''}`, ...worn].join('\n')
     })
     .filter(Boolean)
-  const things = thingsOf(state)
-    .slice(-MOST_THINGS)
-    .map((t) => `- ${thingText(t)}`)
+  const things = capped(thingsOf(state).slice(-MOST_THINGS).map(thingText), TOLD_THINGS).map((t) => `- ${t}`)
   return [scene.join('. '), ...people, ...(things.length ? ['Things here:', ...things] : [])].filter(Boolean).join('\n')
 }

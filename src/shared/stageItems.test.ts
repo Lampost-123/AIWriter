@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   itemKey,
+  isGone,
   itemsFromText,
   matching,
   mergeItems,
@@ -126,5 +127,23 @@ describe('the stage piece by piece', () => {
     expect(namesItem('She pulled her boot on.', piece('boots', 'off'))).toBe(true)
     expect(namesItem('cloak and dagger', piece('cloak off (over the beam)', ''))).toBe(true)
     expect(namesItem('a door', piece('the case', 'here'))).toBe(false)
+  })
+
+  it('a piece "removed" or "no longer worn" is off, not gone; only "gone" takes it off the list (review, 2026-10-07)', () => {
+    expect(isGone('removed, by the door', true)).toBe(false)
+    expect(isGone('no longer worn', true)).toBe(false)
+    expect(isGone('gone (given to Tobin)', true)).toBe(true)
+    expect(isGone('no longer theirs', true)).toBe(true)
+    // A thing removed from the place is gone from it.
+    expect(isGone('removed', false)).toBe(true)
+    const kept = mergeItems([piece('coat', 'on'), piece('boots', 'on')], [piece('boots', 'removed, by the door')], true, MOST_CLOTHES).items
+    expect(kept.map((x) => x.name)).toEqual(['coat', 'boots'])
+  })
+
+  it('only a bare plural is about every piece that has the word: "boot" is not both boots (review, 2026-10-07)', () => {
+    const pair = [piece('left boot', 'on'), piece('right boot', 'on')]
+    expect(matching(pair, 'boot', true)).toEqual([])
+    expect(matching(pair, 'boots', true)).toEqual([0, 1])
+    expect(mergeItems(pair, [piece('boot', 'off')], true, MOST_CLOTHES).items.map((x) => x.name)).toEqual(['left boot', 'right boot', 'boot'])
   })
 })

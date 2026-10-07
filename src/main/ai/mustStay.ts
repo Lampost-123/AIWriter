@@ -91,7 +91,9 @@ export interface MustInput {
 /**
  * The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. What
  * someone no longer has comes high when the scene names it ("goneNamed"), and right after what they hold otherwise. A
- * piece of clothing or a thing the scene names comes before the rest of what is worn ("wearingNamed", "thingNamed").
+ * piece of clothing that is off, or that the scene names, comes before what people hold ("wearingNamed": boots off by
+ * the door are what a writer forgets), and so does a thing the scene names; a piece simply on ("skirt on") comes after
+ * the things in the place ("wearing"), so plain clothes never crowd out a held case or a barred door.
  */
 const RANK = {
   dead: 0,
@@ -100,9 +102,9 @@ const RANK = {
   marks: 3,
   wearingNamed: 4,
   thingNamed: 5,
-  wearing: 6,
-  holding: 7,
-  thing: 8,
+  holding: 6,
+  thing: 7,
+  wearing: 8,
   gone: 9,
   gotNamed: 10,
   gap: 11,
@@ -236,11 +238,11 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
 
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */
 export function mustStayTrue(o: MustInput): string[] {
-  const out: { rank: number; who: number; text: string }[] = []
+  const out: { rank: number; who: number; text: string; piece: boolean }[] = []
   /** A line: its words (cut short when long, unless `whole`), then since when it holds, never cut. */
   const add = (kind: Kind, who: number, text: string, where = '', whole = false): void => {
     const since = where ? ` (since ${where})` : ''
-    out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}` })
+    out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}`, piece: kind === 'wearing' || kind === 'wearingNamed' })
   }
   /** Where a stage value's words are: this scene, or another one's place. */
   const sinceOf = (from: StateSource | undefined): string => {
@@ -304,7 +306,7 @@ export function mustStayTrue(o: MustInput): string[] {
     if (!keep.has('wearing')) return
     for (const p of namedFirst(clothesOf(c), about, true).slice(0, MUST_CLOTHES)) {
       const line = pieceLine(name, p)
-      if (line) add(namesStageItem(about, p) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
+      if (line) add(namesStageItem(about, p) || isOff(p.state) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
     }
   }
 
@@ -349,7 +351,12 @@ export function mustStayTrue(o: MustInput): string[] {
 
   // The most that matter, then in order: person by person, then the scene, then who knows what.
   const room = o.short ? out.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : out
-  const chosen = [...room].sort((a, b) => a.rank - b.rank || a.who - b.who).slice(0, o.short ? MUST_SHORT : MUST_MOST)
+  // The short form: one piece of clothing a person at most, the one that matters most.
+  const dressed = new Set<number>()
+  const ranked = [...room]
+    .sort((a, b) => a.rank - b.rank || a.who - b.who)
+    .filter((l) => !o.short || !l.piece || (!dressed.has(l.who) && !!dressed.add(l.who)))
+  const chosen = ranked.slice(0, o.short ? MUST_SHORT : MUST_MOST)
   return chosen.sort((a, b) => a.who - b.who || a.rank - b.rank).map((l) => l.text)
 }
 

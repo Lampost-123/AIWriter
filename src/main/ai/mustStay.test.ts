@@ -366,6 +366,43 @@ describe('what must stay true', () => {
     ).toHaveLength(4)
   })
 
+  it('plain clothes never crowd out what people hold or the things in the place; the short form has one piece a person', () => {
+    // The review of step 2b (2026-10-07): two people each with a cloak and boots off and a shirt on, a held case and a
+    // barred door, and the short list was six clothing lines.
+    const dressed = (name: string, more: Partial<SceneState['characters'][number]> = {}) => ({
+      ...blank,
+      name,
+      clothes: [
+        { name: 'cloak', state: 'off, over the chair' },
+        { name: 'boots', state: 'off, by the door' },
+        { name: 'shirt', state: 'on' }
+      ],
+      ...more
+    })
+    const s: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      things: [{ name: 'the door', state: 'barred from inside' }],
+      characters: [dressed('Wren', { holding: 'the survey case' }), dressed('Osric Hale'), dressed('Tobin')]
+    }
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const tobin = entry('character', 'Tobin')
+    const short = mustStayTrue(base({ stand: s, people: [wren, osric], short: true }))
+    expect(short.length).toBeLessThanOrEqual(MUST_SHORT)
+    expect(short).toContain('Wren is holding: the survey case')
+    expect(short).toContain('The door: barred from inside')
+    expect(short.filter((l) => l.startsWith('Wren: ') || l.startsWith('Wren is wearing'))).toHaveLength(1)
+    expect(short.filter((l) => l.startsWith('Osric Hale: ') || l.startsWith('Osric Hale is wearing'))).toHaveLength(1)
+    // The full list with three people, each placed too: what is held and the door stay, above plain clothes.
+    const placed: SceneState = { ...s, characters: s.characters.map((c) => ({ ...c, where: 'the parlour' })) }
+    const full = mustStayTrue(base({ stand: placed, people: [wren, osric, tobin] }))
+    expect(full).toHaveLength(MUST_MOST)
+    expect(full).toContain('Wren is holding: the survey case')
+    expect(full).toContain('The door: barred from inside')
+  })
+
   it('reads with its lead, or none in the short form', () => {
     expect(mustText(['A', 'B'], 'here')).toBe(`${MUST_LEAD.here}\n- A\n- B`)
     expect(mustText(['A'], 'start')).toBe(`${MUST_LEAD.start}\n- A`)

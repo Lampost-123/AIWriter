@@ -797,6 +797,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     with its words when the pointer rests on it; Adam can change one, take it out (leave it empty) or add one ("Add a
     piece of clothing", "Add a thing"), kept until the scene's words change like any other value (`StateEdits.clothes`,
     `StateEdits.things`, by the piece's or thing's name).
+  - **After review** (2026-10-07): a piece that is off, or that the scene names, ranks above what people hold, but a
+    piece simply on ("shirt on") ranks below the things in the place, and the short list has at most one piece a
+    person, so plain clothes never crowd out a held case or a barred door. A piece "removed" or "no longer worn" is off
+    and stays listed; only "gone" or "no longer theirs" takes it off. "Boot" is never both boots (only a bare plural is
+    about every piece with the word). Adam's piece edits find their piece again when it is read under another name
+    ("boots" and "riding boots", an old long name), so a piece he took out stays out. An old edit for someone missing
+    from a state kept before step 2b builds them the old way, so the hash holds. Words shared by an old one-line outfit
+    (`StateSource.line`) never let repair mend a piece without asking. The stage block tells at most about 400
+    characters of what each person wears and 600 of the things, the most lately changed first, each line 160 at most.
   - **Cost.** The stand call's instructions are about 300 tokens longer, its reply a little longer (a line for each
     piece or thing that changes, each with its words), and the writer's briefing a few dozen to about 150 tokens longer
     (the pieces and things lines). No new call.

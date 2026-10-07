@@ -31,6 +31,8 @@ export interface StageLine {
   value: string
   /** The story's own words that show it; null for a value with no words kept (Adam's own, say). */
   quote: string | null
+  /** The quote is a whole one-line outfit's, shared by every piece read from it: never enough to mend without asking. */
+  shared?: boolean
 }
 
 /** One fact from the memory a claim may be compared with. */
@@ -55,16 +57,20 @@ export function stageLines(stage: SceneState | null): StageLine[] {
   if (!stage) return []
   const out: StageLine[] = []
   const said = stage.said ?? {}
-  const add = (who: string | null, field: string, value: string, quote: string | undefined): void => {
+  const add = (who: string | null, field: string, value: string, quote: string | undefined, shared = false): void => {
     if (!value.trim()) return
-    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: quote?.trim() || null })
+    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: quote?.trim() || null, ...(shared ? { shared } : {}) })
   }
   for (const f of ['time', 'weather', 'light'] as const) add(null, f, stage[f], said[sourceKey(null, f)]?.quote)
   for (const c of stage.characters)
     for (const f of STATE_FIELDS) {
       add(c.name, f, c[f] ?? '', said[sourceKey(c.name, f)]?.quote)
       // What they wear, piece by piece, right after where they are.
-      if (f === 'where') for (const p of clothesOf(c)) add(c.name, 'wearing', pieceText(p), pieceSource(said, c.name, p.name)?.quote)
+      if (f === 'where')
+        for (const p of clothesOf(c)) {
+          const from = pieceSource(said, c.name, p.name, clothesOf(c).length)
+          add(c.name, 'wearing', pieceText(p), from?.quote, !!from?.line)
+        }
     }
   for (const t of thingsOf(stage)) add(null, 'thing', thingText(t), said[thingKey(t.name)]?.quote)
   return out

@@ -20,7 +20,8 @@ const STAGE: SceneState = {
   ],
   said: {
     '|time': { quote: 'the light was going', sceneId: 's1' },
-    'mara|wearing': { quote: 'pushed her hood back', sceneId: 's1' },
+    // Her hood's own words (the old line's pieces share none of them).
+    [pieceKey('Mara', 'hood')]: { quote: 'pushed her hood back', sceneId: 's1' },
     'mara|posture': { quote: 'lay down on the bench', sceneId: 's1' },
     'tobin|where': { quote: 'Tobin left for the docks', sceneId: 's1' }
     // Tobin's lamp has no words kept (Adam set it himself).
@@ -53,12 +54,11 @@ const judge = (claims: Claim[], paragraphs = PARAS, aiText = AI) => judgeClaims(
 
 describe('the stage as lines', () => {
   it('gives each value an id and the words that show it', () => {
-    // Each piece of clothing its own line (step 2b; here read from a state kept before it, in one line, whose words go
-    // with each piece).
+    // Each piece of clothing its own line (step 2b; here read from a state kept before it, in one line).
     const worn = stage.filter((l) => l.who === 'Mara' && l.field === 'wearing').map(stageLineText)
     expect(worn).toEqual([
       `- [${code('Mara', 'wearing')}] Mara · wearing: hood off · words: "pushed her hood back"`,
-      `- [W4] Mara · wearing: wet cloak · words: "pushed her hood back"`
+      `- [W4] Mara · wearing: wet cloak · no words kept`
     ])
     expect(stage.map(stageLineText)).toContain(`- [${code('Tobin', 'holding')}] Tobin · holding: a lamp · no words kept`)
     expect(stage[0]).toMatchObject({ code: 'W1', who: null, field: 'time', value: 'dusk', quote: 'the light was going' })
@@ -479,4 +479,26 @@ describe('piece by piece (step 2b)', () => {
     expect(got.fixes).toEqual([])
     expect(got.questions).toHaveLength(1)
   })
+
+describe('words shared by an old one-line outfit (review, 2026-10-07)', () => {
+  it('never mend a piece without asking: they show the line, not that piece', () => {
+    const old: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [{ name: 'Mara', where: '', wearing: 'dark trousers, grey cloak off', posture: '', holding: '', condition: '', mood: '', lastAction: '' }],
+      said: { 'mara|wearing': { quote: 'took her grey cloak off', sceneId: 's1' } }
+    }
+    const lines = stageLines(old)
+    const trousers = lines.find((l) => l.value === 'dark trousers')!
+    expect(trousers).toMatchObject({ quote: 'took her grey cloak off', shared: true })
+    const words = 'Mara hitched up her dark trousers.'
+    const got = judgeClaims(
+      [claim({ quote: 'hitched up her dark trousers', who: 'Mara', line: trousers.code, fix: { replace: 'hitched up', with: 'smoothed' } })],
+      { stage: lines, codex: [], paragraphs: [{ text: words, from: 0, to: words.length }], aiText: words, leadIn: 'Mara took her grey cloak off.' }
+    )
+    expect(got.fixes).toEqual([])
+    expect(got.questions).toHaveLength(1)
+  })
+})
 })

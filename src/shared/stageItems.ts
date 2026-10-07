@@ -28,10 +28,17 @@ export const LONGEST_STATE = 200
 /** What a change's state says when a piece or a thing is no longer there at all (given away, burnt, picked up, carried off). */
 export const GONE = 'gone'
 
-/** True when a state says the piece or thing is gone: it is taken off the list. */
-export const isGone = (state: string): boolean => /^(?:gone|no longer (?:here|there|worn|theirs)|removed)\b/i.test(state.trim())
+/**
+ * True when a state says the piece or thing is gone: it is taken off the list. A piece of clothing is gone only when it
+ * is no longer theirs ("gone", given away, burnt); "removed" or "no longer worn" says it is off, and it stays, off
+ * (offState). A thing in the place is gone when it is no longer there (picked up, carried off, removed).
+ */
+export const isGone = (state: string, clothing = false): boolean =>
+  (clothing ? /^(?:gone|no longer theirs)\b/i : /^(?:gone|no longer (?:here|there)|removed)\b/i).test(state.trim())
 /** True when a piece of clothing is off (taken off, wherever it is now). */
 export const isOff = (state: string): boolean => /^off\b/i.test(state.trim())
+/** A piece's state with "removed", "taken off" or "no longer worn" said as "off" ("removed, by the door" is "off, by the door"). */
+export const offState = (state: string): string => state.replace(/^\s*(?:removed|taken off|pulled off|kicked off|no longer worn)\b/i, 'off')
 
 /** Words before a name that don't say which it is: "her grey cloak" is "grey cloak". */
 const LEAD = new Set(['a', 'an', 'the', 'her', 'his', 'their', 'its', 'my', 'your', 'our', 'one', 'some'])
@@ -92,7 +99,8 @@ export function matching(list: readonly StageItem[], name: string, clothing: boo
     near.push(i)
   })
   if (near.length <= 1) return near
-  return clothing && !key.includes(' ') ? near : []
+  // Only a bare plural ("boots") is about every piece that has it: "boot" is one of them, not knowing which.
+  return clothing && !key.includes(' ') && singular(key) !== key ? near : []
 }
 
 /** The name a piece or thing keeps when a change is about it: the change's for one read from an old line, else the fuller. */
@@ -118,7 +126,7 @@ export function mergeItems(before: readonly StageItem[], changes: readonly Stage
   const fresh = new Set<StageItem>()
   for (const c of changes) {
     const at = matching(items, c.name, clothing)
-    if (isGone(c.state)) {
+    if (isGone(c.state, clothing)) {
       items = items.filter((_, i) => !at.includes(i))
       continue
     }

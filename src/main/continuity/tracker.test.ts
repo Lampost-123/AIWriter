@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
-import { clothesOf, layGone, pieceKey, quoteFound, saysGone, thingKey, type CharacterState } from '@shared/continuity'
+import { clothesOf, layGone, pieceKey, quoteFound, saysGone, thingKey, withEdits, type CharacterState } from '@shared/continuity'
 import { itemKey, MOST_CLOTHES, MOST_THINGS, pieceText } from '@shared/stageItems'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
@@ -772,7 +772,8 @@ describe('where things stand', () => {
     expect(later.said?.[pieceKey('Mara', 'a wet shirt')]).toBeUndefined()
     // Read before Adam's line, its words go with each piece.
     const fromWords = mergeState(old as SceneState, { characters: [person('Mara', { posture: 'standing' })], said: {} })
-    expect(fromWords.said?.[pieceKey('Mara', 'cloak over the chair')]).toEqual({ quote: 'hung her cloak over the chair', sceneId: w.one })
+    // Shared by the line's pieces: they show the line, not one piece (never enough to mend without asking).
+    expect(fromWords.said?.[pieceKey('Mara', 'cloak over the chair')]).toEqual({ quote: 'hung her cloak over the chair', sceneId: w.one, line: true })
     // Adam puts one piece right in Recall: only that piece is his.
     editState(w.db, w.one, (e) => {
       e.characters = { ...e.characters, mara: { ...e.characters?.mara, clothes: { [itemKey('boots')]: { name: 'boots', state: 'on' } } } }
@@ -819,5 +820,67 @@ describe('where things stand', () => {
     // No place on a card: not known to be the same place.
     place(w.two, '')
     expect(keptStateBefore(w.db, w.two)?.things).toEqual([])
+  })
+
+  // ---------- From the review of step 2b (2026-10-07) ----------
+
+  it('keeps Adam’s piece edits on the piece when it is read again under another name, an old long one too', () => {
+    const state: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [person('Mara', { clothes: [{ name: 'riding boots', state: 'on' }, { name: 'shirt', state: 'on' }] })]
+    }
+    // Made when the pieces were "boots" and an old line's "a white shirt unbuttoned to the waist".
+    const gone = withEdits(state, { characters: { mara: { clothes: { [itemKey('boots')]: null, [itemKey('a white shirt unbuttoned to the waist')]: null } } } })
+    expect(clothesOf(gone.characters[0])).toEqual([])
+    const changed = withEdits(state, { characters: { mara: { clothes: { [itemKey('boots')]: { name: 'boots', state: 'off, by the door' } } } } })
+    expect(clothesOf(changed.characters[0]).map(pieceText)).toEqual(['boots off, by the door', 'shirt on'])
+    // A new piece he adds is added.
+    const added = withEdits(state, { characters: { mara: { clothes: { [itemKey('grey cloak')]: { name: 'grey cloak', state: 'on' } } } } })
+    expect(clothesOf(added.characters[0])).toHaveLength(3)
+  })
+
+  it('reads a piece "removed" as off, kept with no words, not taken off the list', () => {
+    const read = readChanges(
+      JSON.stringify({ characters: [{ name: 'Mara', clothes: [{ item: 'boots', state: 'removed, by the door', quote: '' }, { item: 'scarf', state: 'no longer worn', quote: '' }] }] }),
+      'Mara sat by the fire.',
+      'inn'
+    )!
+    expect(read.characters?.[0].clothes).toEqual([
+      { name: 'boots', state: 'off, by the door' },
+      { name: 'scarf', state: 'off' }
+    ])
+    const after = mergeState({ time: '', weather: '', light: '', characters: [person('Mara', { clothes: [{ name: 'coat', state: 'on' }, { name: 'boots', state: 'on' }] })] }, read)
+    expect(clothesOf(after.characters[0]).map(pieceText)).toEqual(['coat on', 'boots off, by the door', 'scarf off'])
+  })
+
+  it('an old edit for someone not in a state kept before step 2b is laid over exactly as then: the hash stays the same', () => {
+    const old = { time: '', weather: '', light: '', characters: [{ name: 'Mara', where: 'the inn', wearing: 'a grey cloak', posture: '', holding: '', condition: '', mood: '', lastAction: '' }] }
+    const edits = { characters: { tobin: { name: 'Tobin', where: 'the door' } } }
+    // As the version before step 2b laid it over.
+    const then = { ...old, characters: [...old.characters, { name: 'Tobin', where: 'the door', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }] }
+    expect(JSON.stringify(withEdits(old as SceneState, edits))).toBe(JSON.stringify(then))
+    // In a state kept piece by piece, the new one is kept piece by piece too.
+    const now = withEdits(mergeState(null, { characters: [person('Mara')] }), edits)
+    expect(now.characters.find((c) => c.name === 'Tobin')?.clothes).toEqual([])
+  })
+
+  it('tells at most so much of what someone wears, and of the things in the place', () => {
+    const long = (i: number) => ({ name: `ring ${i}`, state: `on, ${'very '.repeat(40)}tight` })
+    const s = mergeState(null, {
+      things: Array.from({ length: 12 }, (_, i) => ({ name: `stone ${i + 1}`, state: `on the floor, ${'grey '.repeat(30)}` })),
+      characters: [person('Mara', { clothes: Array.from({ length: 12 }, (_, i) => long(i + 1)) })]
+    })
+    const text = stateText(s)
+    const worn = text.split('\n').filter((l) => l.startsWith('  - wearing: '))
+    expect(worn.length).toBeGreaterThan(0)
+    expect(worn.join('').length).toBeLessThan(400 + worn.length * 14)
+    expect(worn.every((l) => l.length <= 160 + 13)).toBe(true)
+    // The most lately changed kept.
+    expect(worn.at(-1)).toContain('ring 12')
+    const things = text.slice(text.indexOf('Things here:'))
+    expect(things.length).toBeLessThan(700)
+    expect(things).toContain('stone 12')
   })
 })

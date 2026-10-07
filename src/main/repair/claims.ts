@@ -241,6 +241,8 @@ export function judgeClaims(
     // Mended without asking only when it plainly can't be true at that moment (see the top of this file).
     const plainly =
       !!line?.quote &&
+      // Words shared by a whole one-line outfit show the line, not this piece.
+      !line.shared &&
       MENDABLE.has(line.field) &&
       c.bothTrue === 'no' &&
       c.between === 'nothing' &&
