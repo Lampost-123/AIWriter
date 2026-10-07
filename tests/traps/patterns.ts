@@ -180,6 +180,8 @@ export interface Referent {
   name: RegExp
   pronoun: RegExp
   others: RegExp
+  /** The pronoun stands for them before anyone is named (the point-of-view character). */
+  assumed?: boolean
 }
 
 /**
@@ -189,7 +191,7 @@ export interface Referent {
  */
 export function refersTo(paragraphs: string[], who: Referent): boolean[] {
   const all = (r: RegExp): RegExp => new RegExp(r.source, r.flags.includes('g') ? r.flags : `${r.flags}g`)
-  let last: 'them' | 'other' | null = null
+  let last: 'them' | 'other' | null = who.assumed ? 'them' : null
   return paragraphs.map((p) => {
     const narration = outsideQuotes(p)
     const seen: { at: number; kind: 'them' | 'other' | 'pronoun' }[] = []

@@ -2,7 +2,7 @@
 // lines, the slips and the lines that only look like slips (said aloud, a mention, a negation), and the bookkeeping
 // of which plants are in force. No model.
 import { describe, expect, it } from 'vitest'
-import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, endedBy, endedIn, inForce, landed, landedByJudge, landingChecks, stepChecks, type ChainPlant } from '../traps/chain'
+import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, changeAt, endedBy, endedIn, excusedByChange, inForce, landed, landedByJudge, landingChecks, stepChecks, type ChainPlant } from '../traps/chain'
 import { findAcross, patternVerdict, refersTo } from '../traps/patterns'
 import { firstBreak } from '../traps/patterns'
 import { summariseChains, type ChainResult, type CheckResult } from '../traps/score'
@@ -257,6 +257,46 @@ describe('round 7: plants that landed but were not found', () => {
     const madeUp = landedByJudge(land, checks, [{ id: 'L1', answer: 'yes', quote: 'he went out to the stable' }, { id: 'L2', answer: 'yes', quote: 'she locked the door' }], text)
     expect(madeUp).toMatchObject({ ok: false, missing: ['ash-out', 'door-locked'], planted: [] })
     expect(landedByJudge(land, checks, null, text).ok).toBe(false)
+  })
+})
+
+describe('round 7 (b): Wren getting up is the change, not a slip', () => {
+  const brokenAt = (quote: string): CheckResult => ({ id: 'lie-down', trap: 'lie-down', ask: plant('lie-down').judge!.ask, verdict: 'broken', by: 'judge', answer: 'yes', quote })
+  const judged = (text: string, quote: string): string => excusedByChange([plant('lie-down')], [brokenAt(quote)], text)[0].verdict
+  const chain4 = [
+    '‘It’s me,’ he said through the door. ‘Unless you’ve a fancy to keep me in the yard.’',
+    'She got up and turned the key and drew the bolts, and he came in with his hat dripping and his shoulders dark with wet, and stood on the flags and shook himself like a dog, carefully, so that the water went on the stones and not on her.'
+  ].join('\n\n')
+  const chain5 = [
+    "She woke to the lamp guttering and Ash's voice low at the door, talking to someone on the far side of it. She lay still and listened. A man's voice, not Mother Rook's, asking whether the young one with the case had come in yet.",
+    'Ash shot the bolt again, quietly, and came back and sat. He did not say anything, and after a moment she sat up, and they looked at each other across the red core of the fire.'
+  ].join('\n\n')
+  it('the judge quoting the getting up itself is kept', () => {
+    expect(judged(chain4, 'She got up and turned the key and drew the bolts')).toBe('kept')
+    expect(judged(chain5, 'she sat up, and they looked at each other across the red core of the fire')).toBe('kept')
+    expect(endedBy(chain4, [plant('lie-down')])).toEqual(['lie-down'])
+    expect(endedBy(chain5, [plant('lie-down')])).toEqual(['lie-down'])
+  })
+  it('getting up in other words, and "she" followed across paragraphs', () => {
+    for (const t of [
+      'Wren swung her feet to the floor and crossed to the window.',
+      'She was up before she had her eyes open, the case off the floor and against her chest.',
+      'Wren lay and listened to the rain.\n\nThe fire settled.\n\nThen she got to her feet.',
+      'She pushed herself up on the settle and put her feet to the flags.',
+      'Wren threw off the blanket and went to the door.'
+    ])
+      expect(changeAt(t, plant('lie-down')), t).toBeGreaterThanOrEqual(0)
+  })
+  it('someone else getting up, or a getting up said aloud or after the slip, is not hers', () => {
+    expect(endedBy('Ash got up and went to the door.', [plant('lie-down')])).toEqual([])
+    expect(endedBy('Wren lay still.\n\nMother Rook came in with a candle. She got up from the table and set it down.', [plant('lie-down')])).toEqual([])
+    expect(endedBy('‘Get up,’ Ash said. ‘She sat up all night at the last inn.’', [plant('lie-down')])).toEqual([])
+    expect(judged('Wren stood at the window and looked out at the rain.', 'Wren stood at the window')).toBe('broken')
+    expect(judged('Wren stood at the window and looked out at the rain. Later she sat up.', 'Wren stood at the window')).toBe('broken')
+  })
+  it('the judge question says a shown get-up is not a slip', () => {
+    expect(plant('lie-down').judge!.ask).toMatch(/getting up, sitting up, rising/)
+    expect(plant('lie-down').judge!.ask).toMatch(/never quote it/)
   })
 })
 

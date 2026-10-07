@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { checkout, countWords, git, openApp, standInDirections, whenEnded, type App, type TrapsConfig } from './app'
 import { paragraphsOf } from './page'
-import { findAcross, outsideQuotes, refersTo, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
+import { findAcross, outsideQuotes, refersTo, sentences, type PatternCheck, type Referent, type SpreadPlace } from './patterns'
 import { quoteInPassage } from './score'
 import { repairLanded, storyFor, storyId, findSavedWorld, type SavedWorld } from './run'
 import {
@@ -63,6 +63,11 @@ export interface ChainPlant {
   runsOn?: boolean
   /** A change shown on the page that ends it (she pulls her boots back on): checked no further after that step. */
   change?: RegExp
+  /**
+   * Whose change it is: it counts only where that person makes it, by name or by a pronoun standing for them (the
+   * first person named in the sentence, or the nearest before the change), so "Ash got up" doesn't get Wren up.
+   */
+  changeBy?: Referent
   /** A deterministic check of each later step (the narration only). */
   drift?: Omit<PatternCheck, 'id' | 'trap'>
   /** The judge's question for each later step, where a pattern can't decide, with a pattern as its tripwire. */
@@ -119,7 +124,19 @@ export const DOOR_LOCKED =
 const ASH = /\bAsh\b/
 /** Others "he" could stand for in the chain's scene: the story's men, Cinder (a gelding), the inn's boy. */
 const OTHER_MEN = /\b(?:Cinder|Hobb|Gale|Oskar|Ide|Vey|Corran|Edric)\b|\b(?:the|Rook['’]s) (?:boy|ostler|man)\b/i
-const GOT_UP = /\b(?:got up|sat up|rose|stood up|swung (?:her )?(?:legs|feet)|got off the settle|pushed herself up|came off the settle|left the settle|struggled up|was on her feet|got to her feet|climbed off|levered herself up)\b/i
+/**
+ * Others "she" could stand for: the story's women and the inn's. Not in the possessive: "a man's voice, not Mother
+ * Rook's" doesn't make Mother Rook the one "she" stands for next.
+ */
+const OTHER_WOMEN = /\b(?:Mother Rook|Rook|Bryn|Pell|Sela|Mother Agate|Agate)\b(?!['’]s\b)|\bthe (?:landlady|woman|girl)\b(?!['’]s\b)/i
+/** Wren, the point-of-view character: "she" is taken as Wren until another woman is named. */
+const WREN: Referent = { name: /\bWren\b/, pronoun: /\bshe\b/i, others: OTHER_WOMEN, assumed: true }
+/**
+ * Getting up from lying, in any wording round 7 found or might ("She got up and turned the key", "she sat up, and they
+ * looked at each other"). Standing somewhere ("she stood at the window") is the slip itself, never the change.
+ */
+const GOT_UP =
+  /\b(?:got up|sat up|sat upright|sat forward|rose|rising|stood up|swung (?:her )?(?:legs|feet)|got off the settle|pushed herself up|came off the settle|left the settle|struggled up|was on her feet|got to her feet|came to her feet|found her feet|climbed off|levered herself up|up off the settle|rolled off the settle|sat on the edge of the settle|put her feet (?:down|to the floor|on the floor|to the flags)|(?:threw|pushed|flung) (?:off |back )?the blanket(?: off| back| aside)?|was up (?:before|and|off|from|out))\b/i
 const CASE_MOVED = /\b(?:took|picked up|fetched|lifted|got|reached for|snatched|gathered up) the (?:survey )?case\b|\bcase (?:from|off) the (?:window)?sill\b/i
 
 /** A cut on the left hand or palm (the cut is on the right): the mirror of the version 2 check, with the sides swapped. */
@@ -220,8 +237,9 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     find: [/\b(?:lay|lies|lying|lain|stretched out|lie down)\b/i, /\bsettle\b/i],
     happens: 'Does Wren lie down on the settle?',
     change: GOT_UP,
+    changeBy: WREN,
     judge: {
-      ask: 'Wren was last lying on the settle by the fire. Is she described as standing, walking about, or sitting somewhere else, without the passage first showing her get up or move? Lying, or sitting up on the settle itself, doesn’t count.',
+      ask: 'Wren was last lying on the settle by the fire. Is she described as standing, walking about, or sitting somewhere else, without the passage first showing her get up or move? Answer no when the passage shows her getting up, sitting up, rising or getting to her feet (in any words) before that: getting up is not a slip, so never quote it. Lying, or sitting up on the settle itself, doesn’t count.',
       tripwire: /\b(?:she|Wren) (?:was standing|stood (?:at|by|in|near|beside|with)|paced|was pacing|walked (?:to|across)|crossed (?:to|the room))\b/i
     }
   },
@@ -329,8 +347,62 @@ export function stepChecks(plants: ChainPlant[]): { facts: string[]; checks: Che
 
 /** The plants a step's words end by a change shown in the narration (not in what someone says). */
 export function endedBy(text: string, plants: ChainPlant[]): string[] {
+  return plants.filter((p) => changeAt(text, p) >= 0).map((p) => p.id)
+}
+
+/** Anyone a sentence could be about, to tell whose the change is. */
+const SOMEONE = new RegExp(`\\b(?:she|he|they|Wren|Ash)\\b|${OTHER_MEN.source}|${OTHER_WOMEN.source}`, 'gi')
+
+/**
+ * Where the narration first shows a plant's change (not in what someone says), or -1. With `changeBy`, only a sentence
+ * whose first person, or the nearest person before the change, is them by name or by a pronoun standing for them
+ * counts; the pronoun is followed from sentence to sentence, so "Wren lay still. ... Then she got up" is hers.
+ */
+export function changeAt(text: string, p: ChainPlant): number {
+  if (!p.change) return -1
+  const re = new RegExp(p.change.source, p.change.flags.replace('g', ''))
   const narration = outsideQuotes(text)
-  return plants.filter((p) => p.change && new RegExp(p.change.source, p.change.flags.replace('g', '')).test(narration)).map((p) => p.id)
+  const ss = sentences(narration)
+  const who = p.changeBy
+  const refers = who ? refersTo(ss.map((s) => s.text), who) : null
+  for (const [k, s] of ss.entries()) {
+    const m = re.exec(s.text)
+    if (!m) continue
+    if (!who) return s.start + m.index
+    const isThem = (w: string | undefined): boolean => !!w && (new RegExp(who.name.source, who.name.flags.replace('g', '')).test(w) || (new RegExp(who.pronoun.source, who.pronoun.flags.replace('g', '')).test(w) && !!refers![k]))
+    const people = [...s.text.slice(0, m.index).matchAll(SOMEONE)].map((x) => x[0])
+    if (isThem(people[0]) || isThem(people[people.length - 1])) return s.start + m.index
+  }
+  return -1
+}
+
+/** Where a quote is in a passage (case, spacing and quote marks aside), and where it ends; null when it isn't found. */
+function quoteSpan(text: string, quote: string): { start: number; end: number } | null {
+  const fold = (s: string): string => s.toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+  const t = fold(text)
+  const q = fold(quote.replace(/^\.{3}|\.{3}$/g, '').trim())
+  if (!q) return null
+  let at = t.indexOf(q)
+  if (at >= 0) return { start: at, end: at + q.length }
+  // A quote with its spacing changed: find its first words, and take the quote's length from there.
+  at = t.indexOf(q.slice(0, Math.min(30, q.length)))
+  return at >= 0 ? { start: at, end: at + q.length } : null
+}
+
+/**
+ * A slip the judge or a tripwire found for a plant with a change, where the step's own narration shows that change at
+ * or before the slip's words (round 7: the judge quoted "She got up and turned the key" and "she sat up" as Wren up
+ * without getting up): the plant ended there, so the slip is none and it counts as kept.
+ */
+export function excusedByChange(plants: ChainPlant[], results: CheckResult[], text: string): CheckResult[] {
+  return results.map((r) => {
+    if (r.verdict !== 'broken' || r.by === 'pattern') return r
+    const p = plants.find((x) => x.id === r.trap)
+    if (!p?.judge || !p.change) return r
+    const at = changeAt(text, p)
+    const span = at >= 0 && r.quote ? quoteSpan(text, r.quote) : null
+    return span && at < span.end ? { ...r, verdict: 'kept', ask: r.ask.startsWith('Ended?') ? r.ask : `Ended? ${r.ask}` } : r
+  })
 }
 
 /**
@@ -462,7 +534,7 @@ export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: Cha
             const answers = was && was.by !== 'none' && was.answer ? [{ id, answer: was.answer as 'yes' | 'no' | 'unclear', quote: was.quote }] : null
             const v = scorePassage({ checks: [check], tripwires: sc.tripwires.filter((t) => t.check === id), patterns: [] }, text, answers)[0]
             if (listNeeds && !was) needJudge.push({ sample: m.index + 1, step: st.step, plant: p.id, quote: '' })
-            out.push({ ...v, id: p.id, trap: p.id })
+            out.push(excusedByChange([p], [{ ...v, id: p.id, trap: p.id }], text)[0])
           }
         }
         return out
@@ -561,7 +633,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     const sc = stepChecks(plants)
     const j = await app.askJudge({ facts: sc.facts, checks: sc.checks }, got.text)
     const rename = (rs: CheckResult[]): CheckResult[] => rs.map((r) => ({ ...r, id: sc.judgeIds.get(r.id) ?? r.id, trap: sc.judgeIds.get(r.id) ?? r.trap }))
-    const results = await confirmSlips(app, plants, rename(scorePassage(sc, got.text, j.answers)), got.text)
+    const results = excusedByChange(plants, await confirmSlips(app, plants, rename(scorePassage(sc, got.text, j.answers)), got.text), got.text)
     // Lands in the page as the window puts it there; step 3 checks it and mends what it can, as the page does.
     const added = paragraphsOf(got.text)
     let text = got.text
@@ -570,7 +642,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       const r = await repairLanded(app, spec.scene, sceneId, page, { generationId: got.generationId, text: got.text }, { keep: true })
       if (r.text !== got.text) {
         const again = await app.askJudge({ facts: sc.facts, checks: sc.checks }, r.text)
-        repair = { ...r, judge: { status: again.status, raw: again.raw }, results: await confirmSlips(app, plants, rename(scorePassage(sc, r.text, again.answers)), r.text) }
+        repair = { ...r, judge: { status: again.status, raw: again.raw }, results: excusedByChange(plants, await confirmSlips(app, plants, rename(scorePassage(sc, r.text, again.answers)), r.text), r.text) }
         text = r.text
       } else repair = { ...r, judge: { status: j.status, raw: j.raw }, results }
     }
