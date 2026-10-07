@@ -15,8 +15,9 @@ export const MUST_MOST = 12
 export const MUST_SHORT = 6
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
-/** The longest a line is kept, in characters. */
+/** The longest a line's words are kept, in characters (since when it holds comes after, whole), and a secret's. */
 const LONGEST_LINE = 320
+const LONGEST_FACT = 200
 
 export const MUST_TITLE = 'Must stay true'
 
@@ -29,9 +30,9 @@ export const MUST_LEAD = {
 
 /**
  * How much of the stage the list keeps to. 'here': the writing carries on inside the scene (everything that holds
- * there). 'start': a new scene following on the same day, or at a time not known (no positions or time of day: the
- * scene card sets those). 'later': a later day (only how each person is: injuries and the like). 'none': the stage
- * isn't this story's, or isn't known.
+ * there). 'start': a new scene on the same day as the one before, by both cards' When (no positions or time of day:
+ * the scene card sets those). 'later': a later day, or a gap not known ("Three weeks later", no When): only how each
+ * person is, injuries and the like. 'none': the stage isn't this story's, or isn't known.
  */
 export type StageReach = 'here' | 'start' | 'later' | 'none'
 
@@ -67,9 +68,35 @@ const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basic
 const FIELD_LABEL = new Map(FACT_FIELDS.map((f) => [f.key, f.label]))
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
-const clip = (s: string): string => (s.length > LONGEST_LINE ? `${s.slice(0, LONGEST_LINE - 1).trimEnd()}…` : s)
+const clipTo = (s: string, most: number): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
 const joinAnd = (items: string[]): string =>
   items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+
+/** Something some of the people in a scene know and others don't. */
+export interface Secret {
+  fact: string
+  /** Names of those who know it, and of those it is kept from. */
+  knownBy: string[]
+  keptFrom: string[]
+}
+
+/**
+ * What some of these people know and others don't, the most lately learned first (FactState.at; among facts learned at
+ * the same point, or with no place, the last listed first).
+ */
+export function secretsAmong(people: Pick<EntryState, 'id' | 'name' | 'kind'>[], facts: FactState[]): Secret[] {
+  const here = people.filter((p) => p.kind === 'character')
+  if (here.length < 2) return []
+  const order = facts.map((f, i) => ({ f, i })).sort((a, b) => (b.f.at ?? -2) - (a.f.at ?? -2) || b.i - a.i)
+  const out: Secret[] = []
+  for (const { f } of order) {
+    const fact = clean(f.fact).replace(/[.]$/, '')
+    const knowers = here.filter((p) => f.knownBy.includes(p.id))
+    if (!fact || !knowers.length || knowers.length === here.length) continue
+    out.push({ fact, knownBy: knowers.map((p) => p.name), keptFrom: here.filter((p) => !f.knownBy.includes(p.id)).map((p) => p.name) })
+  }
+  return out
+}
 
 /** A place without this story's title ("Book 1, Ch 3, Sc 2" in Book 1 is "Ch 3, Sc 2"). */
 export function shortPlace(where: string, storyTitle: string): string {
@@ -93,9 +120,10 @@ export function stageFor(e: Pick<EntryState, 'name' | 'aliases'>, stand: SceneSt
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */
 export function mustStayTrue(o: MustInput): string[] {
   const out: { rank: number; who: number; text: string }[] = []
-  const add = (kind: Kind, who: number, text: string, where = ''): void => {
+  /** A line: its words (cut short when long, unless `whole`), then since when it holds, never cut. */
+  const add = (kind: Kind, who: number, text: string, where = '', whole = false): void => {
     const since = where ? ` (since ${where})` : ''
-    out.push({ rank: RANK[kind], who, text: clip(`${text}${since}`) })
+    out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}` })
   }
   /** Where a stage value's words are: this scene, or another one's place. */
   const stageSince = (name: string | null, field: string): string => {
@@ -157,20 +185,15 @@ export function mustStayTrue(o: MustInput): string[] {
     if (note) add('dead', i, `${e.name} is dead: ${note}`, shortPlace(died?.where ?? '', o.storyTitle))
   })
 
-  // What some of those in the scene know and others don't, the latest first.
-  let gaps = 0
-  if (people.length > 1) {
-    for (const f of [...o.facts].reverse()) {
-      if (gaps >= MUST_GAPS) break
-      const fact = clean(f.fact).replace(/[.]$/, '')
-      if (!fact) continue
-      const knowers = people.filter((p) => f.knownBy.includes(p.id))
-      if (!knowers.length || knowers.length === people.length) continue
-      const not = people.filter((p) => !f.knownBy.includes(p.id))
-      const knows = knowers.length === 1 ? `${knowers[0].name} knows it` : `${joinAnd(knowers.map((p) => p.name))} know it`
-      add('gap', 2000 + gaps++, `${joinAnd(not.map((p) => p.name))} ${not.length === 1 ? 'does' : 'do'} not know: ${fact} (${knows})`)
-    }
-  }
+  // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
+  // must not learn, guess or think it here (when the point-of-view character is one of them, not even in thought).
+  secretsAmong(people, o.facts)
+    .slice(0, MUST_GAPS)
+    .forEach((s, i) => {
+      const not = joinAnd(s.keptFrom)
+      const knows = s.knownBy.length === 1 ? `${s.knownBy[0]} knows it` : `${joinAnd(s.knownBy)} know it`
+      add('gap', 2000 + i, `Kept from ${not}: ${clipTo(s.fact, LONGEST_FACT)} (${knows}). ${not} must not learn, guess or think it here unless the scene card says so`, '', true)
+    })
 
   // The most that matter, then in order: person by person, then the scene, then who knows what.
   const room = o.short ? out.filter((l) => l.rank !== RANK.gap && l.rank !== RANK.changed) : out

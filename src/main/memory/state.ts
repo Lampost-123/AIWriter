@@ -135,6 +135,8 @@ export function stateAt(
   const rels = new Map<string, RelationshipState>()
   const knows = new Map<ID, Set<ID>>()
   const factText = new Map<ID, string>()
+  /** Where on the line someone last learned each fact (a step index; -1 for the starting setup). */
+  const learnedAt = new Map<ID, number>()
   const threads = new Map<ID, ThreadWork>()
 
   // ----- The clash rule: remember what each side story added whole changes, and settle clashes when it ends -----
@@ -238,6 +240,7 @@ export function stateAt(
     let set = knows.get(entryId)
     if (!set) knows.set(entryId, (set = new Set()))
     set.add(factId)
+    learnedAt.set(factId, Math.max(learnedAt.get(factId) ?? -1, at))
     if (fact) factText.set(factId, fact)
     else if (!factText.has(factId)) factText.set(factId, '')
   }
@@ -415,7 +418,7 @@ export function stateAt(
   for (const id of entries.keys()) {
     for (const factId of knows.get(id) ?? []) {
       let f = facts.get(factId)
-      if (!f) facts.set(factId, (f = { factId, fact: factText.get(factId) ?? '', knownBy: [] }))
+      if (!f) facts.set(factId, (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1 }))
       f.knownBy.push(id)
     }
   }

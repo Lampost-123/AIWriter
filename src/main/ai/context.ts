@@ -950,9 +950,10 @@ const dayOf = (when: string | undefined): number | null => {
 }
 
 /**
- * How much of where things stand the "must stay true" list keeps to (mustStay.ts): all of it carrying on inside the
- * scene; at a new scene's start, how people are, what they wear and hold (the card sets where and when), or only how
- * they are on a later day; nothing from another story, or when nothing is known.
+ * How much of where things stand the "must stay true" list and the plan keep to (mustStay.ts): all of it carrying on
+ * inside the scene; at a new scene's start on the same day by both cards' When, how people are, what they wear and hold
+ * (the card sets where and when); on a later day, or when how long has passed isn't known, only how they are; nothing
+ * from another story, or when nothing is known.
  */
 export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar'>): StageReach {
   if (!input.continuity) return 'none'
@@ -961,7 +962,7 @@ export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'conti
   if (!prev || prev.otherStory) return 'none'
   const a = dayOf(prev.when)
   const b = dayOf(input.scene.card.when)
-  return a != null && b != null && b > a ? 'later' : 'start'
+  return a != null && a === b ? 'start' : 'later'
 }
 
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {

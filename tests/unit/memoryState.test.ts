@@ -53,7 +53,12 @@ describe('state', () => {
         ]
       )
     )
-    expect(w.state('b1', 'b1.c3.s1').facts).toEqual([{ factId: 'f', fact: 'Mara is the true heir.', knownBy: ['t'] }])
+    expect(w.state('b1', 'b1.c3.s1').facts).toMatchObject([{ factId: 'f', fact: 'Mara is the true heir.', knownBy: ['t'] }])
+    // Where it was last learned, so the newest come first in what must stay true.
+    const [first] = w.state('b1', 'b1.c2.s1').facts
+    const [again] = w.state('b1', 'b1.c3.s1').facts
+    expect(first.at).toBeGreaterThanOrEqual(0)
+    expect(again.at).toBeGreaterThan(first.at!)
     expect(w.state('b2').facts).toEqual([])
   })
 
@@ -108,7 +113,7 @@ describe('state', () => {
     expect(where.age).toMatch(/^the start of /)
     expect(w.state('b1').entries.get('m')?.changedWhere).toBeUndefined()
     expect(s.relationships.map((r) => [r.aId, r.bId, r.type])).toEqual([['m', 'k', 'cousin']])
-    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'] }])
+    expect(s.facts).toEqual([{ factId: 'f2', fact: 'Kell knows this.', knownBy: ['k'], at: -1 }])
   })
 
   it('applies changes at one place by position, then creation time', () => {

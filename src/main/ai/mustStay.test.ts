@@ -148,11 +148,29 @@ describe('what must stay true', () => {
       { factId: 'f3', fact: 'Osric owes the abbey', knownBy: [osric.id] }
     ]
     const lines = mustStayTrue(base({ people: [wren, osric], named: [abbot], facts, stand: null, reach: 'none' }))
+    // Kept from the others, who must not learn it here (the point-of-view character not even in thought).
     expect(lines).toEqual([
       'Abbot Fen is dead: Died of the fever (since Ch 2, Sc 1)',
-      'Wren does not know: Osric owes the abbey (Osric Hale knows it)',
-      'Osric Hale does not know: The flour tax was forged (Wren knows it)'
+      'Kept from Wren: Osric owes the abbey (Osric Hale knows it). Wren must not learn, guess or think it here unless the scene card says so',
+      'Kept from Osric Hale: The flour tax was forged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so'
     ])
+    // The most lately learned first, whatever order the people or the facts come in.
+    const learned = mustStayTrue(
+      base({
+        people: [wren, osric],
+        facts: [{ ...facts[0], at: 9 }, facts[1], { ...facts[2], at: 4 }, { factId: 'f4', fact: 'The mill is mortgaged', knownBy: [wren.id], at: 12 }],
+        stand: null,
+        reach: 'none'
+      })
+    )
+    expect(learned.map((l) => l.split(':')[1].trim())).toEqual(['The mill is mortgaged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'The flour tax was forged (Wren knows it). Osric Hale must not learn, guess or think it here unless the scene card says so', 'Osric owes the abbey (Osric Hale knows it). Wren must not learn, guess or think it here unless the scene card says so'])
+  })
+
+  it('cuts a long value short, never since when it holds', () => {
+    const wren = entry('character', 'Wren', { fields: { marks: `scars ${'and more scars '.repeat(40)}`.trim() }, changedWhere: { marks: 'The Mill, Ch 4, Sc 1' } })
+    const [line] = mustStayTrue(base({ people: [wren], stand: null, reach: 'none' }))
+    expect(line.endsWith('… (since Ch 4, Sc 1)')).toBe(true)
+    expect(line.length).toBeLessThan(360)
   })
 
   it(`is capped at ${MUST_MOST} lines, keeping what matters most; the short form holds ${MUST_SHORT}, none of who knows what`, () => {
@@ -170,10 +188,10 @@ describe('what must stay true', () => {
     for (let i = 0; i < 8; i++) expect(lines).toContain(`Person ${i}: bruised ${i}`)
     expect(lines.join('\n')).not.toContain('sitting')
     expect(lines.join('\n')).not.toContain('Time: ')
-    expect(lines.filter((l) => l.includes(' not know: '))).toHaveLength(1)
+    expect(lines.filter((l) => l.startsWith('Kept from '))).toHaveLength(1)
     const short = mustStayTrue(base({ people, stand, facts, short: true }))
     expect(short).toHaveLength(MUST_SHORT)
-    expect(short.join('\n')).not.toContain(' not know: ')
+    expect(short.join('\n')).not.toContain('Kept from ')
     // At most a few "does not know" lines.
     const many = Array.from({ length: 6 }, (_, i) => ({ factId: `k${i}`, fact: `Secret ${i}`, knownBy: [people[0].id] }))
     expect(mustStayTrue(base({ people: people.slice(0, 2), stand: null, reach: 'none', facts: many }))).toHaveLength(MUST_GAPS)
@@ -244,16 +262,35 @@ describe('what must stay true in a draft', () => {
   })
 
   it('a new scene keeps to how people are as the scene before ended; nothing at all when nothing is known', () => {
+    // The same day by both cards' When: injuries, clothes and what people hold.
     const fresh = draftInput({ continuityAtSoFar: false })
+    fresh.scene.card.when = 'Day 3, midnight'
+    fresh.memory.previous = { ...fresh.memory.previous!, when: 'Day 3, dusk' }
     expect(stageReach(fresh)).toBe('start')
     const text = assembleContext(fresh, countRaw).blocks.find((b) => b.id === MUST_BLOCK)!.text
     expect(text.startsWith(MUST_LEAD.start)).toBe(true)
     expect(text).not.toContain('Where Wren is')
-    // A later day: only how people are.
+    expect(text).toContain('Wren is wearing: ')
+    // A later day, or a gap that isn't known: only how people are.
     const later = draftInput({ continuityAtSoFar: false })
     later.scene.card.when = 'Day 4'
     later.memory.previous = { ...later.memory.previous!, when: 'Day 2, night' }
     expect(stageReach(later)).toBe('later')
+    for (const [now, then] of [
+      ['Three weeks later', 'Day 2, night'],
+      ['', ''],
+      ['Spring', 'Winter'],
+      ['Day 2', '']
+    ]) {
+      const gap = draftInput({ continuityAtSoFar: false })
+      gap.scene.card.when = now
+      gap.memory.previous = { ...gap.memory.previous!, when: then }
+      expect(stageReach(gap), `${now} after ${then}`).toBe('later')
+    }
+    const unknown = draftInput({ continuityAtSoFar: false })
+    const lines = assembleContext(unknown, countRaw).blocks.find((b) => b.id === MUST_BLOCK)!.text
+    expect(lines).toContain('Wren: left arm in a sling')
+    expect(lines).not.toContain('Wren is wearing')
     // Another story before this one: none of its stage.
     const other = draftInput({ continuityAtSoFar: false })
     other.memory.previous = { ...other.memory.previous!, otherStory: { ended: true, timeGap: '' } }

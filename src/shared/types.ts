@@ -1009,6 +1009,11 @@ export interface FactState {
   fact: string
   /** Characters who know it at this point. */
   knownBy: ID[]
+  /**
+   * Where on the line someone last learned it (a step index of the walk; -1 for the starting setup), so the newest
+   * come first in what must stay true (step 4). Left out by anything older.
+   */
+  at?: number
 }
 
 export interface ThreadState {

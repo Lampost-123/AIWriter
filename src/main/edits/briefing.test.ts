@@ -284,7 +284,7 @@ describe('Continue', () => {
     expect(text).toContain('- Mara: soaked through (since Ch 2, Sc 1)')
     expect(text).toContain('- Mara: no left hand')
     expect(text).toContain('- Where Mara is: by the hearth')
-    expect(text).toContain('- Tobin does not know: The ledger is forged (Mara knows it)')
+    expect(text).toContain('- Kept from Tobin: The ledger is forged (Mara knows it). Tobin must not learn, guess or think it here unless the scene card says so')
     // Another tool, where things stand not known there: the codex's facts still go in.
     const rewrite = ok(editBriefing(input('rewrite', { direction: 'Sadder' }), { ...marked, must }))
     expect(rewrite.blocks.map((x) => x.id).slice(-2)).toEqual(['must', 'ask'])

@@ -901,6 +901,8 @@ describe('blocks', () => {
   it('block 3b: where things stand as the previous scene ended; short: only the characters on the card', () => {
     const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
     const inp = input()
+    // The same day as the scene before, so what Mara wears and holds is in what must stay true too.
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, noon' }
     inp.continuity = {
       time: 'dusk',
       weather: 'rain',
@@ -1700,7 +1702,7 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(big.messages[1].content).not.toContain('left out here to save space')
     expect(big.blocks.find((b) => b.id === 'relationships')!.text.match(/^- Tobin does not know: /gm)).toHaveLength(120)
     // What must stay true repeats only the latest few, right above the closing instruction.
-    expect(big.blocks.find((b) => b.id === MUST_BLOCK)!.text.match(/^- Tobin does not know: /gm)).toHaveLength(3)
+    expect(big.blocks.find((b) => b.id === MUST_BLOCK)!.text.match(/^- Kept from Tobin: /gm)).toHaveLength(3)
   })
 
   it("Auto on a big model: room for Auto's longest scene, and the briefing in full", () => {

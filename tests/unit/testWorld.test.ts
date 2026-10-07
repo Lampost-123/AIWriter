@@ -140,7 +140,7 @@ describe.each(routes)('the test world %s', (_, make) => {
     expect(s.relationships).toEqual([
       expect.objectContaining({ aId: w.id('mara'), bId: w.id('tobin'), type: 'neighbour', where: 'the start of Young Mara' })
     ])
-    expect(s.facts).toEqual([{ factId: 'f-weir', fact: 'The river can be crossed at the weir.', knownBy: [w.id('mara')] }])
+    expect(s.facts).toMatchObject([{ factId: 'f-weir', fact: 'The river can be crossed at the weir.', knownBy: [w.id('mara')] }])
     // Book 1 never sees it.
     const b1 = w.state('b1', 'b1.c1.s1')
     expect(entry(b1, w, 'mara')?.description).toBe("A smith's daughter with a quick temper.")
