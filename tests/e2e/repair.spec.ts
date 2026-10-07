@@ -1,8 +1,12 @@
 // Check and repair (Adam, 2026-10-07; step 3 of the consistency plan): as soon as a draft lands, its words are checked
-// claim by claim against where things stood. Here Adam's own words take Mara's hood off and send Tobin to the docks
-// (the fake memory model reads "hood off" and "gone to the docks", each with its words), and Add below's fake draft
-// then says "Mara kept her hood low" and "Tobin was where he had promised to be". The first is mended in place, in
-// amber, with Undo; the second needs Adam's choice, so it is asked as a question in the Issues tab.
+// claim by claim against where things stood. Only what plainly can't be true at that same moment is mended without
+// asking (Adam, 2026-10-07, after the trap story showed the repair too eager); the rest is asked.
+// - Add below: Adam's words take Mara's hood off and send Tobin to the docks (the fake memory model reads "hood off"
+//   and "gone to the docks", each with its words), and the fake draft, below a scene break, says "Mara kept her hood
+//   low" and "Tobin was where he had promised to be". Across a scene break anything may have happened, so both are
+//   asked, the first with its fix to review; nothing is changed.
+// - Continue: Adam's words put Tobin's cup on the shelf, and Continue's words, straight after, have him "set his cup
+//   down at last": a plain contradiction about something held, at the same moment, mended in amber with Undo.
 import type { Page } from '@playwright/test'
 import { createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
@@ -13,66 +17,56 @@ const prose = (win: Page) => win.locator('.scene-prose')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
 const ADAMS = 'Mara took off her hood. Tobin left for the docks.'
+const CUP = 'Mara took off her hood. Tobin put his cup on the shelf.'
 
-test('a draft that slips is mended in amber with Undo as it lands, and a slip that needs a choice is asked', async ({ launch }) => {
+async function setUp(win: Page, fake: Awaited<ReturnType<typeof startFake>>, text: string): Promise<string> {
+  await createWorldFromWelcome(win, 'Harbour')
+  await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
+  await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+  const [story] = await invoke(win, 'listStories')
+  const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
+  await invoke(win, 'saveSceneText', sceneId, null, text)
+  await useFakeModel(win, fake)
+  await expect(prose(win)).toContainText(text)
+  return sceneId
+}
+
+test('a draft below a scene break that slips is asked about, never changed: each slip one question, with its fix to review', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch(ON)
-    await createWorldFromWelcome(win, 'Harbour')
-    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
-    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
-    const [story] = await invoke(win, 'listStories')
-    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
-    await invoke(win, 'saveSceneText', sceneId, null, ADAMS)
-    await useFakeModel(win, fake)
-    await expect(prose(win)).toContainText(ADAMS)
+    const sceneId = await setUp(win, fake, ADAMS)
 
-    // Add below: the draft carries on from Adam's words.
+    // Add below: the draft goes below a scene break.
     await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
 
-    // The slip is mended in place as the draft lands, shown in amber, and said with Undo.
-    const mended = prose(win).locator('.aw-repair')
-    await expect(mended).toHaveText('kept her hood down', { timeout: 60_000 })
-    await expect(mended).toHaveAttribute('title', /the AI had written “kept her hood low”\. Mara took her hood off earlier/)
-    await expect(prose(win)).toContainText('Mara kept her hood down and her left sleeve pinned')
-    await expect(prose(win).locator('p').first()).toHaveText(ADAMS)
-    const note = toasts(win).getByText(/^Mended a slip in the new words, in amber: Mara took her hood off earlier.*A question about them is in the Issues tab\.$/)
-    await expect(note).toBeVisible()
-    // Saved with the scene, as any change is.
-    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text, { timeout: 15_000 }).toContain('Mara kept her hood down')
-
-    // The slip that needs a choice is one question in the Issues tab, on the draft's own words.
-    await toasts(win).getByRole('button', { name: 'Show' }).click()
-    const question = scenePanel(win).getByRole('article', { name: /Tobin left for the docks earlier in the scene\. Should he come back first/ })
-    await expect(question).toBeVisible()
-    await expect(question).toContainText('“Tobin was where he had promised to be”')
-
-    // Undo puts back what the AI wrote, and that slip isn't mended or raised again.
-    await toasts(win).getByRole('button', { name: 'Undo' }).click()
-    await expect(prose(win)).toContainText('Mara kept her hood low and her left sleeve pinned')
+    await expect(toasts(win).getByText('2 questions about the new words are in the Issues tab.')).toBeVisible({ timeout: 60_000 })
     await expect(prose(win).locator('.aw-repair')).toHaveCount(0)
-    await expect(toasts(win).getByText('Put back as the AI wrote it. It won’t be changed again.')).toBeVisible()
-    await expect.poll(async () => (await invoke(win, 'listIssues', sceneId)).find((i) => i.quote === 'Mara kept her hood low')?.status ?? null).toBe('ignored')
+    await expect(prose(win)).toContainText('Mara kept her hood low and her left sleeve pinned')
+    await expect(prose(win).locator('p').first()).toHaveText(ADAMS)
+
+    // Each slip is one question in the Issues tab, on the draft's own words.
+    await toasts(win).getByRole('button', { name: 'Show' }).click()
+    const hood = scenePanel(win).getByRole('article', { name: /Mara took her hood off earlier, so it isn't low over her face now\. Change it, or keep it as it is\?/ })
+    await expect(hood).toContainText('“Mara kept her hood low”')
+    await expect(hood.locator('[data-suggested-fix]')).toContainText('“Mara kept her hood down”')
+    await expect(hood.getByRole('button', { name: 'Review the fix' })).toBeVisible()
+    const tobin = scenePanel(win).getByRole('article', { name: /Tobin left for the docks earlier in the scene\. Should he come back first/ })
+    await expect(tobin).toContainText('“Tobin was where he had promised to be”')
+    expect((await invoke(win, 'listIssues', sceneId)).filter((i) => i.status === 'open')).toHaveLength(2)
   } finally {
     await fake.close()
   }
 })
 
-test('Continue’s words are checked once accepted: a slip that needs a choice is asked, and Adam’s words are left as they are', async ({ launch }) => {
+test('Continue’s words are checked once accepted: a plain slip about something held is mended in amber, with Undo', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch(ON)
-    await createWorldFromWelcome(win, 'Harbour')
-    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the ferry.' })
-    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
-    const [story] = await invoke(win, 'listStories')
-    const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
-    await invoke(win, 'saveSceneText', sceneId, null, ADAMS)
-    await useFakeModel(win, fake)
-    await expect(prose(win)).toContainText(ADAMS)
+    const sceneId = await setUp(win, fake, CUP)
 
-    // Continue at the end of Adam's words, then Accept: the fake Continue brings Tobin back with no words doing it.
+    // Continue at the end of Adam's words, then Accept.
     await prose(win).locator('p').first().click()
     await win.keyboard.press('End')
     await win.keyboard.press('Control+k')
@@ -80,14 +74,22 @@ test('Continue’s words are checked once accepted: a slip that needs a choice i
     await win.getByRole('option', { name: /Continue from the cursor/ }).click()
     const change = win.getByRole('group', { name: 'The AI’s change' })
     await change.getByRole('button', { name: /^Accept/ }).click()
-    await expect(prose(win)).toContainText('Tobin set his cup down at last.')
 
-    await expect(toasts(win).getByText('A question about the new words is in the Issues tab.')).toBeVisible({ timeout: 60_000 })
-    await toasts(win).getByRole('button', { name: 'Show' }).click()
-    const question = scenePanel(win).getByRole('article', { name: /Tobin left for the docks earlier in the scene\. Should he come back first/ })
-    await expect(question).toContainText('“Tobin set his cup down at last”')
+    // Mended in place as the words go in, shown in amber, and said with Undo; Adam's words are as they were.
+    const mended = prose(win).locator('.aw-repair')
+    await expect(mended).toHaveText('looked at his cup', { timeout: 60_000 })
+    await expect(mended).toHaveAttribute('title', /the AI had written “set his cup down”\. Tobin had just put his cup on the shelf/)
+    await expect(prose(win)).toContainText('Tobin looked at his cup at last.')
+    await expect(prose(win).locator('p').first()).toHaveText(CUP)
+    await expect(toasts(win).getByText(/^Mended a slip in the new words, in amber: Tobin had just put his cup on the shelf/)).toBeVisible()
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text, { timeout: 15_000 }).toContain('Tobin looked at his cup at last.')
+
+    // Undo puts back what the AI wrote, and that slip isn't mended or raised again.
+    await toasts(win).getByRole('button', { name: 'Undo' }).click()
+    await expect(prose(win)).toContainText('Tobin set his cup down at last.')
     await expect(prose(win).locator('.aw-repair')).toHaveCount(0)
-    await expect(prose(win).locator('p').first()).toHaveText(ADAMS)
+    await expect(toasts(win).getByText('Put back as the AI wrote it. It won’t be changed again.')).toBeVisible()
+    await expect.poll(async () => (await invoke(win, 'listIssues', sceneId)).find((i) => i.quote === 'Tobin set his cup down at last')?.status ?? null).toBe('ignored')
   } finally {
     await fake.close()
   }

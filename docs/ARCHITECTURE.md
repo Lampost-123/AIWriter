@@ -733,11 +733,25 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   the new words make (where, position, each item worn, what is held, injuries, who knows what, what is owned, time),
   each with its exact quote, the line it touches and a verdict: fits, shown (the words show the change) or slip. The
   app then judges them one at a time (`judgeClaims`, pure): a claim whose quote isn't in the new words, or whose line
-  doesn't exist, is dropped. A slip is **mended in place** only when the line it breaks is on the stage with its own
-  words (never a value with no words behind it, nor a memory fact), the fix changes at most a dozen whole words
-  (never "up" inside "cup") overlapping the quote, in a paragraph that is all the AI's own (`allTheAis`: Adam didn't
-  type in it while it streamed in, and all of its AI part is in the record of what the AI wrote, in order), and no
-  other fix is there; anything else becomes **one question** (an open issue whose message is the question, with
+  doesn't exist, is dropped, and so is one the model says could be true together with the line (`bothTrue` yes). A slip
+  is **mended in place** only when it plainly can't be true at that same moment (Adam, 2026-10-07, after the trap
+  story's real runs showed the repair too eager: a sleeping man's hand on the floor, a man who went home later by his
+  own fire, someone gone for the night seen in the yard, hats put on hours before and held later, all "fixed"):
+  - the model says the two can't both be true (`bothTrue` no) with nothing that could have happened between
+    (`between` nothing: no time passing, no one moving, no action off the page), and the prompt says what is not a
+    slip, with those examples;
+  - the line is what someone wears or holds, or an injury (`MENDABLE`), never where someone is, how they are placed,
+    what they did, the time or the mood;
+  - it is the same moment (`sameMoment`): the line's own words are just before the claim, within `SAME_MOMENT_CHARS`
+    (600, about a hundred words), with no scene break between (Add below's draft goes below one, so its slips are
+    asked);
+  - the fix is about the thing the line names (`sameThing`: a word such as "pipe" or "hat" in both, names aside),
+    changes at most `FIX_MOST_WORDS` (6) whole words (never "up" inside "cup") overlapping the quote, adds at most
+    `FIX_MORE_WORDS` (2), brings in no new name, sits in a paragraph that is all the AI's own (`allTheAis`: Adam didn't
+    type in it while it streamed in, and all of its AI part is in the record of what the AI wrote, in order), and no
+    other fix is there.
+
+  Anything else becomes **one question** (an open issue whose message is the question, with
   the model's rewrite as "Review the fix" when it has one; it points at the new words, never the same words earlier in
   the scene: `placeInScene` from `beforeChars`). A slip Adam ignored is neither mended nor asked again.
   In the page (`features/repair/apply.ts`, pure), the fixes go in as one undo step (`WORDS_META` 'ai-net'), only in

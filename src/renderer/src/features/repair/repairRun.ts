@@ -100,7 +100,9 @@ async function run(l: Landing): Promise<void> {
   // Paragraphs Adam typed in while the words streamed in are marked: nothing in them is mended.
   const parts = landedParts(doc, Math.max(0, l.from), to, typedWhileStreaming(ed.state))
   if (!parts.length) return
-  const before = sceneText(doc.cut(0, Math.max(0, l.from)))
+  // Everything before the new words' first paragraph, a scene break put in before them included (the check tells a
+  // slip from a change across a scene break by it).
+  const before = sceneText(doc.cut(0, parts[0].at))
   const leadIn = before.slice(-LEAD_IN)
   // Saved first: a question raised on words the saved scene doesn't have yet would be put away as gone.
   await bridge.flush().catch(() => undefined)
