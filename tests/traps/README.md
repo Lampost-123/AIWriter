@@ -163,6 +163,48 @@ were read from the cache where the app records it (drafts and Continue; not the 
 | Clothes off early in a long scene | Early in s24 (2,400 words) Wren takes off her coat and boots; they stay off | C1 (judge and a deterministic tripwire) |
 | Someone gone early in a long scene | Early in s27 (2,400 words) Bryn takes the horses to the smith and doesn't come back | C2 (deterministic) |
 
+## Probes v4: chains (the default)
+
+Adam, 2026-10-07: probes v3 were at the ceiling (0.6.24 scored 100%), and they asked once at a chosen point, which is
+not how he writes. He writes long stories on DeepSeek Flash mostly with Continue and Add below, carrying a scene on
+step by step, and his complaint was the AI forgetting where people are, how they are placed and what they wear, within
+a scene and across scenes. A chain does what he does (`chain.ts`, `--probes-version 4`, the default on story version 3):
+
+- **The world**: the whole written story (30 scenes), read by the memory as Adam's would be; saved after the last scene
+  (`world-before-chain.db`), and each chain sample starts from a fresh copy of it, so every sample starts the same and
+  the start of each is read from DeepSeek's cache.
+- **The chain** (K1, "The inn on the coast road"): a new scene with two paragraphs as Adam would type them, then 12 AI
+  steps in the same scene, Add below and Continue in turn, through the window's own entry points (`startDraft` with
+  `addBelow`, about 350 words; `startEdit` Continue at the end of the text, the app's own 120 to 250 words). Each Add
+  below has at most a short direction as Adam would type it; Continue takes none.
+- **Plants**, in the early steps' directions and never said again: boots off by the hearth and coat on the peg (step
+  1); Ash goes out to the stable and Wren locks the door, key in her pocket (3); the survey case on the windowsill and
+  Wren lying down on the settle (5); a shard cuts her RIGHT palm (7). Steps 9 and 11 are bait without the truth ("Someone
+  knocks at the door.", "Wren wonders which way the coast road runs from here in the dark."). Each plant must land in
+  its step (a paragraph that shows it), else the step is drafted again, twice at most, else the chain is given up and
+  the report says so. Facts from chapters back are checked from the first step: the compass given away, the burn on her
+  LEFT forearm.
+- **Between steps**, as when Adam pauses: the step lands in the page (saved), step 3's check and repair runs on the
+  landing and its fixes go into the page, then the memory reads the scene and everything that follows a read finishes
+  (where things stand, the live stage's checkpoints, step 4's and 5's upkeep), and step 5's index catches up.
+  Approximated: the memory's read comes straight after the repair (in the app, after 30 seconds of quiet); every
+  Continue is accepted as it comes; a step whose plant didn't land is drafted again before it reaches the page.
+- **Checks at every later step**, for every plant still in force: boots or coat on with no words, the gone person
+  speaking or acting in the room, the locked door opening or someone coming in without unlocking, the cut on the left
+  hand, the compass in use, the burn on the right (deterministic, the narration only: dialogue, mentions, memories and
+  negations aren't slips); standing or walking when last lying down, and the case in her arms when last on the sill
+  (the judge, with precise questions and a pattern as tripwire). A change shown on the page (she pulls her boots back
+  on, unlocks the door, Ash comes back in) ends that plant: it isn't checked after that step.
+- **The report**: consistency over every later-step check, by plant and by step, "chains slipped by step N" (when drift
+  starts), what drifted with the words, check and repair's fixes and questions, and the evidence: each chain's world
+  (`evidence-K1-<n>.db`) and `evidence-index.json` (each step's records).
+
+Cost, 3 chains (36 AI steps), estimated from round 4's real runs: 0.6.24 about 1,000,000 tokens in and 180,000 out
+(about $0.24 with DeepSeek's cache); main with steps 1 to 5 about 1,700,000 in and 250,000 out (about $0.39: step 2's
+checkpoints, step 3's repair on every step, step 4's plan for every Add below). Starting from a world an earlier run
+of the same checkout saved (`--from-world <its report folder>`) leaves out most of the story's memory build: about
+$0.18 and $0.31. Give main `--max-tokens-in 2500000` so the default budget doesn't stop it.
+
 ## Story version 3: the probes (v3)
 
 Probes v3 (7 October 2026, after round 4's diagnosis): B1's page ended after the bead was given (the bead was handed

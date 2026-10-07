@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { configFromEnv, runTraps } from './run'
+import { runChains } from './chain'
 import { runWrite } from './write'
 import { compareMarkdown, type RunReport } from './score'
 
@@ -15,8 +16,10 @@ describe.runIf(process.env.TRAPS_RUN === '1')('trap story', () => {
   it(
     'writes at every probe and scores it',
     async () => {
-      const { report } = await runTraps(configFromEnv())
-      expect(report.probes.length).toBeGreaterThan(0)
+      const cfg = configFromEnv()
+      // Probes v4 (chains) unless --probes-version 3 or the hand-written story asks for one passage per probe.
+      const { report } = cfg.probesVersion === 4 ? await runChains(cfg) : await runTraps(cfg)
+      expect(report.probes.length + (report.chains?.length ?? 0)).toBeGreaterThan(0)
     },
     SIX_HOURS
   )

@@ -2,6 +2,8 @@
 // npm run traps:write -- [flags]: has a live model write story version 3 (--write).
 //
 //   --story v3|v2          the written long story (story-v3.json, the default) or the hand-written short one
+//   --probes-version 4|3   4 (the default): chains of Continue and Add below in one scene, checked at every step;
+//                          3: one passage per probe
 //   --story-file <file>    another written story file (version 3)
 //   --max-tokens-in <n> --max-tokens-out <n>   the hard token budget (default 2,000,000 in and 500,000 out, well
 //                          under $1 at DeepSeek Flash's prices): no call is sent once it would be passed
@@ -64,7 +66,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--probes-version', '--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -160,6 +162,12 @@ if (flag('--compare')) {
   set('--price-in', 'TRAPS_PRICE_IN')
   set('--price-out', 'TRAPS_PRICE_OUT')
   set('--price-cached', 'TRAPS_PRICE_CACHED')
+  const pv = value('--probes-version')
+  if (pv && pv !== '3' && pv !== '4') {
+    console.error('--probes-version is 4 (chains) or 3.')
+    process.exit(2)
+  }
+  if (pv) env.TRAPS_PROBES_VERSION = pv
   const searchModel = value('--search-model')
   if (searchModel) env.TRAPS_SEARCH_MODEL = searchModel === 'none' ? 'none' : resolve(searchModel)
   const fromWorld = value('--from-world')

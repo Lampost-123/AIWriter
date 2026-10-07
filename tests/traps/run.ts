@@ -36,7 +36,7 @@ export function storyFor(cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): StoryDa
 }
 
 /** Which words the story is: version 2's own, or a hash of the written story file. */
-const storyId = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): string =>
+export const storyId = (cfg: Pick<TrapsConfig, 'story' | 'storyFile'>): string =>
   cfg.story === 'v2' ? 'story.ts v2' : createHash('sha1').update(readFileSync(cfg.storyFile)).digest('hex')
 
 /** What a saved world was saved from: it is only used again for the same checkout, story and models. */
@@ -53,24 +53,38 @@ export interface SavedWorld {
   savedAt: string
 }
 
-/** A saved world's file and what it was saved from (`path`: the .db file, or a report folder holding one). */
-export function findSavedWorld(path: string): { file: string; saved: SavedWorld } {
-  const file = existsSync(path) && statSync(path).isDirectory() ? readdirSync(path).filter((f) => /^world-before-.+\.db$/.test(f)).map((f) => join(path, f))[0] : path
+/**
+ * A saved world's file and what it was saved from (`path`: the .db file, or a report folder holding one). In a folder,
+ * `prefer` picks the world saved before the chain scene ('chain') or before the first probe scene ('probe') when both
+ * are there.
+ */
+export function findSavedWorld(path: string, prefer: 'chain' | 'probe' = 'probe'): { file: string; saved: SavedWorld } {
+  const all = existsSync(path) && statSync(path).isDirectory() ? readdirSync(path).filter((f) => /^world-before-.+\.db$/.test(f)).sort() : []
+  const pick = all.find((f) => (prefer === 'chain' ? f === 'world-before-chain.db' : f !== 'world-before-chain.db')) ?? all[0]
+  const file = existsSync(path) && statSync(path).isDirectory() ? (pick ? join(path, pick) : '') : path
   if (!file || !existsSync(file)) throw new Error(`No saved world at ${path}.`)
   const meta = file.replace(/\.db$/, '.json')
   if (!existsSync(meta)) throw new Error(`${file} has no ${meta} saying what it was saved from.`)
   return { file, saved: JSON.parse(readFileSync(meta, 'utf8')) as SavedWorld }
 }
 
-type Written = Omit<SampleResult, 'judge' | 'results' | 'index'>
+export type Written = Omit<SampleResult, 'judge' | 'results' | 'index'>
 
 /**
  * Step 3's check and repair, the way the page does it as new words land (features/repair/repairRun.ts): the scene
  * saved with the new words in, the main side asked (one memory-model call), the fixes made in the page with the app's
  * own page code, the page telling which it made. Then the scene goes back to how it was before the words landed, and
- * the issues the repair raised are cleared, so every sample starts the same.
+ * the issues the repair raised are cleared, so every sample starts the same; with `keep` (a chain, where the page goes
+ * on), the page keeps the new words as mended and the issues stay, as in the app.
  */
-async function repairLanded(app: App, scene: StoryScene, sceneId: string, before: string[], written: { generationId: string | null; text: string }): Promise<Omit<RepairResult, 'judge' | 'results'>> {
+export async function repairLanded(
+  app: App,
+  scene: Pick<StoryScene, 'key'>,
+  sceneId: string,
+  before: string[],
+  written: { generationId: string | null; text: string },
+  o: { keep?: boolean } = {}
+): Promise<Omit<RepairResult, 'judge' | 'results'>> {
   const nothing = { checked: false, claims: 0, slips: 0, fixes: [], questions: [], text: written.text }
   const { repairMod, applyMod, db } = app
   if (!repairMod || !written.generationId) return nothing
@@ -125,15 +139,17 @@ async function repairLanded(app: App, scene: StoryScene, sceneId: string, before
       ...(drops ? { drops } : {})
     }
   } finally {
-    // Back as it was before the words landed, with nothing the repair raised left behind.
-    const fresh = (db.prepare('SELECT id FROM issues WHERE scene_id = ?').all(sceneId) as { id: string }[]).map((r) => r.id).filter((x) => !issueIds.has(x))
-    for (const x of fresh) db.prepare('DELETE FROM issues WHERE id = ?').run(x)
-    app.save(scene.key, sceneId, before)
+    // Back as it was before the words landed, with nothing the repair raised left behind (not in a chain).
+    if (!o.keep) {
+      const fresh = (db.prepare('SELECT id FROM issues WHERE scene_id = ?').all(sceneId) as { id: string }[]).map((r) => r.id).filter((x) => !issueIds.has(x))
+      for (const x of fresh) db.prepare('DELETE FROM issues WHERE id = ?').run(x)
+      app.save(scene.key, sceneId, before)
+    }
   }
 }
 
 /** One sample of a probe, through the window's own entry point. */
-async function writeSample(app: App, cfg: TrapsConfig, probe: Probe, sceneId: string, soFar: string, index: number): Promise<Written> {
+export async function writeSample(app: App, cfg: TrapsConfig, probe: Probe, sceneId: string, soFar: string, index: number): Promise<Written> {
   const draft = async (generationId: string): Promise<Written> => {
     const done = await whenEnded<{ status: 'complete' | 'error' | 'stopped'; error: string | null }>(generationId)
     const text = app.gens.getGeneration(app.db, generationId).response

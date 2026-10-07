@@ -67,6 +67,8 @@ export interface TrapsConfig {
   saveWorld: boolean
   /** Start from a saved world (a world-before-*.db from an earlier run of the same checkout and story): no memory build. */
   fromWorld: string | null
+  /** 4: chains in one scene (the default, story version 3 only); 3: probes v3, one passage each. */
+  probesVersion: 3 | 4
   /** The hard token budget: no call is sent once it would be passed. */
   maxIn: number
   maxOut: number
@@ -108,6 +110,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     searchModel: env.TRAPS_SEARCH_MODEL?.trim() || DEFAULT_SEARCH_MODEL,
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
+    probesVersion: env.TRAPS_PROBES_VERSION === '3' || env.TRAPS_STORY === 'v2' ? 3 : 4,
     maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
     maxOut: num(env.TRAPS_MAX_TOKENS_OUT, DEFAULT_BUDGET.out),
     log: (line) => console.log(`[traps] ${line}`)
@@ -261,9 +264,13 @@ const FILLER = [
  * them, each in a sentence of its own (early ones first, a last-part one near the end), among plain sentences that
  * break nothing, at about the length asked.
  */
+/** Directions a fake run's stand-in writer carries out word for word (a chain's: probes v4), set by the chain runner. */
+export const standInDirections: string[] = []
+
 function standInWriter(body: string): Response {
   const content = contentOf(body)
   const asks = [...content.matchAll(/Make sure this happens([^:]*):\s*(.*?)(?=\s*Make sure this happens|\n|"|$)/g)].map((m) => ({ when: m[1], what: m[2].trim() }))
+  for (const d of standInDirections) if (content.includes(d)) asks.push({ when: 'early', what: d })
   const words = Number((/about ([\d,]+) words/.exec(content)?.[1] ?? '1500').replace(/,/g, '')) || 1500
   const paras = Math.max(4, Math.round(words / 90))
   const out: string[] = []
@@ -281,7 +288,7 @@ function withStandIns(next: typeof fetch): typeof fetch {
     const body = typeof init?.body === 'string' ? init.body : ''
     if (body.includes('[AIWRITE-REPAIR v')) return standInRepair(body)
     if (body.includes(JUDGE_MARKER)) return standInJudge(body)
-    if (body.includes('Make sure this happens')) return standInWriter(body)
+    if (body.includes('Make sure this happens') || standInDirections.some((d) => body.includes(JSON.stringify(d).slice(1, -1)))) return standInWriter(body)
     return next(input, init)
   }) as typeof fetch
 }
@@ -440,6 +447,12 @@ export interface App {
   setBeats(sceneId: string, beats: string[]): void
   /** A saved world's scenes, by title, in story order (empty for a new world). */
   existing: { id: string; title: string }[]
+  /** Waits until the memory keeper is idle and no call is unfinished (what follows a read included). */
+  quiet(limitMs?: number): Promise<void>
+  /** Adam pauses in a scene: the memory reads it now (the quiet timer's read) and all that follows a read finishes. */
+  pause(sceneId: string): Promise<void>
+  /** Opens a fresh copy of a saved world in place of the open one; the calls so far still count. */
+  reopen(file: string): Promise<void>
   /** Saves the world as it stands (a consistent copy of its database). */
   snapshot(file: string): Promise<void>
   /**
@@ -501,11 +514,13 @@ export async function openApp(
   let dbRef: Database.Database | null = null
   let sinceRow = 0
   const judgeUsage = noUsage()
+  /** The calls of worlds this run has already closed (a chain reopens a saved world for each sample), by job. */
+  const closedUsage: { job: string; calls: number; p: number; c: number; cost: number | null; k: number; i: number; o: number }[] = []
 
   /** Tokens used so far: every call the app made is a generation record (its own count, else its text at 4 a token). */
   const used = (): { in: number; out: number } => {
-    let inT = judgeUsage.promptTokens
-    let outT = judgeUsage.completionTokens
+    let inT = judgeUsage.promptTokens + closedUsage.reduce((t, r) => t + r.i, 0)
+    let outT = judgeUsage.completionTokens + closedUsage.reduce((t, r) => t + r.o, 0)
     if (dbRef?.open) {
       const r = dbRef
         .prepare(
@@ -623,46 +638,59 @@ export async function openApp(
     keeper.initKeeper()
     retrieval?.initRetrieval()
     closeRecall = retrieval?.closeRetrieval ?? null
-    if (worldFile) {
-      // A copy of the saved world, opened as Adam would open a world in his library.
-      const folder = join(settings.getSettings().libraryPath, 'Saved trap world')
-      mkdirSync(folder, { recursive: true })
-      copyFileSync(worldFile, join(folder, 'world.db'))
-      const found = world.listWorlds().find((w) => resolve(w.folder) === resolve(folder))
-      if (!found) throw new Error(`Couldn't open the saved world ${worldFile}.`)
-      world.openWorld(found.id)
-    } else world.createWorld(worldName)
-    const db = world.db()
-    dbRef = db
-    // Only this run's calls count (a saved world holds the records of the run that built it).
-    sinceRow = (db.prepare('SELECT COALESCE(MAX(rowid), 0) AS m FROM generations').get() as { m: number }).m
+    // The open world, and what the harness keeps of it. A chain opens a fresh copy of a saved world for each sample
+    // (reopen), so these change with it.
+    let db = null as unknown as Database.Database
+    let entryIds = new Map<string, string>()
+    let story = null as unknown as ReturnType<typeof repo.listStories>[number]
+    let first = null as unknown as ReturnType<typeof repo.getOutline>
+    let chapterIds: string[] = []
+    let firstUsed = false
+    let existing: { id: string; title: string }[] = []
+    let opened = 0
 
-    // Adam's codex and the story's frame (a saved world has them already).
-    const entryIds = new Map<string, string>()
-    if (worldFile) {
-      const all = repo.listEntries(db)
-      for (const e of data.entries) {
-        const found = all.find((x) => x.name === e.name && x.kind === e.kind)
-        if (found) entryIds.set(e.key, found.id)
+    /** Opens a world: a new one with the story's codex, or a copy of a saved one, opened as Adam opens a world in his library. */
+    const bind = (file: string | null): void => {
+      if (file) {
+        const folder = join(settings.getSettings().libraryPath, `Saved trap world ${++opened}`)
+        mkdirSync(folder, { recursive: true })
+        copyFileSync(file, join(folder, 'world.db'))
+        const found = world!.listWorlds().find((w) => resolve(w.folder) === resolve(folder))
+        if (!found) throw new Error(`Couldn't open the saved world ${file}.`)
+        world!.openWorld(found.id)
+      } else world!.createWorld(worldName)
+      db = world!.db()
+      dbRef = db
+      // Only this run's calls count (a saved world holds the records of the run that built it).
+      sinceRow = (db.prepare('SELECT COALESCE(MAX(rowid), 0) AS m FROM generations').get() as { m: number }).m
+      // Adam's codex and the story's frame (a saved world has them already).
+      entryIds = new Map<string, string>()
+      if (file) {
+        const all = repo.listEntries(db)
+        for (const e of data.entries) {
+          const found = all.find((x) => x.name === e.name && x.kind === e.kind)
+          if (found) entryIds.set(e.key, found.id)
+        }
+      } else {
+        for (const e of data.entries) {
+          const made = repo.createEntry(db, e.kind, { name: e.name, aliases: e.aliases ?? [], summary: e.summary, description: e.description ?? '', fields: e.fields ?? {} })
+          entryIds.set(e.key, made.id)
+        }
       }
-    } else {
-      for (const e of data.entries) {
-        const made = repo.createEntry(db, e.kind, { name: e.name, aliases: e.aliases ?? [], summary: e.summary, description: e.description ?? '', fields: e.fields ?? {} })
-        entryIds.set(e.key, made.id)
-      }
+      story = repo.listStories(db)[0]
+      if (!file) repo.updateStory(db, story.id, { title: data.story.title, premise: data.story.premise })
+      first = repo.getOutline(db, story.id)
+      // A saved world goes on where it stopped: its chapters (in order) and scenes are there already.
+      chapterIds = file ? first.chapters.map((c) => c.id) : []
+      firstUsed = !!file
+      existing = file ? first.chapters.flatMap((c) => first.scenes.filter((x) => x.chapterId === c.id)).map((x) => ({ id: x.id, title: x.title })) : []
     }
+    bind(worldFile)
     const id = (k: string): string => {
       const v = entryIds.get(k)
       if (!v) throw new Error(`The story's codex has no entry "${k}".`)
       return v
     }
-    const story = repo.listStories(db)[0]
-    if (!worldFile) repo.updateStory(db, story.id, { title: data.story.title, premise: data.story.premise })
-    const first = repo.getOutline(db, story.id)
-    // A saved world goes on where it stopped: its chapters (in order) and scenes are there already.
-    const chapterIds: string[] = worldFile ? first.chapters.map((c) => c.id) : []
-    let firstUsed = !!worldFile
-    const existing = worldFile ? first.chapters.flatMap((c) => first.scenes.filter((x) => x.chapterId === c.id)).map((x) => ({ id: x.id, title: x.title })) : []
 
     /** The chapter and scene, made when the story reaches them (the writer never sees cards ahead of the scene). */
     const makeScene = (s: Pick<StoryScene, 'key' | 'chapter' | 'title' | 'card'>): string => {
@@ -732,6 +760,38 @@ export async function openApp(
     const memoryIdle = async (): Promise<void> => {
       await keeper.currentKeeper()?.whenIdle()
     }
+    /**
+     * The app gone quiet: the memory keeper idle and no call of the open world unfinished, three looks running (what
+     * follows a read, like where things stand being brought up to date, starts just after it). At most `limitMs`.
+     */
+    const quiet = async (limitMs = 5 * 60_000): Promise<void> => {
+      const until = Date.now() + limitMs
+      let calm = 0
+      while (Date.now() < until) {
+        await memoryIdle()
+        const open = (db.prepare('SELECT COUNT(*) AS n FROM generations WHERE finished_at IS NULL AND rowid > ?').get(sinceRow) as { n: number }).n
+        if (open === 0) {
+          if (++calm >= 3) return
+        } else calm = 0
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    }
+    /**
+     * Adam pauses in the scene: as when his typing has stopped for a while, the memory reads the scene now (the quiet
+     * timer's read, without the wait), and everything that follows a read finishes.
+     */
+    const pause = async (sceneId: string): Promise<void> => {
+      keeper.currentKeeper()?.updateNow(sceneId)
+      await quiet()
+    }
+    /** A fresh copy of a saved world in place of the open one (each chain sample starts from the same world). */
+    const reopen = async (file: string): Promise<void> => {
+      await quiet()
+      closedUsage.push(...usageRows())
+      world!.closeWorld()
+      bind(file)
+    }
+
     /** Adam leaves the scene: the memory reads it before the story goes on. */
     const leave = async (sceneId: string): Promise<void> => {
       keeper.currentKeeper()?.sceneLeft(sceneId)
@@ -772,17 +832,27 @@ export async function openApp(
      * Every call the app made is a generation record in the world. Check and repair's calls are memory-model calls
      * ('memory' records); they are counted on their own, by the marker their request starts with.
      */
-    const usage = (): { byJob: Record<string, Usage>; judge: Usage; total: Usage } => {
-      const byJob: Record<string, Usage> = {}
-      const rows = db
+    /** The open world's calls since it was opened, by job (with the fallback counts the budget uses). */
+    const usageRows = (): { job: string; calls: number; p: number; c: number; cost: number | null; k: number; i: number; o: number }[] =>
+      db
         .prepare(
           `SELECT CASE WHEN instr(messages_json, '[AIWRITE-REPAIR v') > 0 THEN 'repair' WHEN instr(messages_json, '[AIWRITE-PLAN v') > 0 THEN 'plan' ELSE job END AS job, COUNT(*) AS calls,
              COALESCE(SUM(prompt_tokens), 0) AS p, COALESCE(SUM(completion_tokens), 0) AS c, SUM(cost) AS cost,
-             COALESCE(SUM(CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cachedTokens') END), 0) AS k
+             COALESCE(SUM(CASE WHEN json_valid(params_json) THEN json_extract(params_json, '$.cachedTokens') END), 0) AS k,
+             COALESCE(SUM(COALESCE(prompt_tokens, length(messages_json) / 4)), 0) AS i, COALESCE(SUM(COALESCE(completion_tokens, length(response) / 4)), 0) AS o
            FROM generations WHERE rowid > ? GROUP BY 1 ORDER BY 1`
         )
-        .all(sinceRow) as { job: string; calls: number; p: number; c: number; cost: number | null; k: number }[]
-      for (const r of rows) byJob[r.job] = { calls: r.calls, promptTokens: r.p, cachedTokens: r.k, completionTokens: r.c, cost: r.cost }
+        .all(sinceRow) as { job: string; calls: number; p: number; c: number; cost: number | null; k: number; i: number; o: number }[]
+    const usage = (): { byJob: Record<string, Usage>; judge: Usage; total: Usage } => {
+      const byJob: Record<string, Usage> = {}
+      for (const r of [...closedUsage, ...usageRows()]) {
+        const u = (byJob[r.job] ??= { calls: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: null })
+        u.calls += r.calls
+        u.promptTokens += r.p
+        u.cachedTokens = (u.cachedTokens ?? 0) + r.k
+        u.completionTokens += r.c
+        if (r.cost != null) u.cost = (u.cost ?? 0) + r.cost
+      }
       const total = noUsage()
       for (const u of [...Object.values(byJob), judgeUsage]) {
         total.calls += u.calls
@@ -795,7 +865,9 @@ export async function openApp(
     }
 
     return {
-      db,
+      get db() {
+        return db
+      },
       budget,
       models: { writer: writer.modelId, memory: memory.modelId, judge: judge.modelId },
       providerName: cfg.fake ? 'fake provider' : cfg.provider === 'deepseek' ? `DeepSeek API (${cfg.baseUrl ?? DEEPSEEK_BASE_URL})` : 'OpenRouter',
@@ -807,8 +879,13 @@ export async function openApp(
       applyMod,
       makeScene,
       setBeats,
-      existing,
+      get existing() {
+        return existing
+      },
       snapshot,
+      quiet,
+      pause,
+      reopen,
       recallReady,
       lastRow: () => (db.prepare('SELECT COALESCE(MAX(rowid), 0) AS m FROM generations').get() as { m: number }).m,
       recordsSince: (row: number) =>

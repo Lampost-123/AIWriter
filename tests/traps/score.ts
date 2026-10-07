@@ -226,6 +226,9 @@ export interface RunReport {
   recall?: { meaning: boolean; probes: number; withMeaning: number; engine: string | null; indexed: { done: number; total: number } | null; notes: string[] }
   /** The world's database (every record of the run) and the index of which records belong to which sample. */
   evidence?: { world: string; index: string }
+  /** Probes v4: chains of AI steps in one scene, with drift checked at every step (absent for probes v1 to v3). */
+  chains?: ChainResult[]
+  chainSummary?: ChainSummary
   /** The token budget and what was used of it. */
   budget?: { maxIn: number; maxOut: number; usedIn: number; usedOut: number }
   startedAt: string
@@ -313,13 +316,163 @@ const pct = (v: number | null): string => (v == null ? '–' : `${Math.round(v *
 const usd = (v: number | null): string => (v == null ? 'not reported' : `$${v.toFixed(v < 0.1 ? 4 : 2)}`)
 const MARK: Record<Verdict, string> = { kept: 'kept', broken: '**BROKEN**', unverified: 'unverified', silent: '·' }
 
+// ---------- Chains (probes v4) ----------
+
+/** One AI step of a chain: what it wrote, what it planted, and every check still in force when it landed. */
+export interface ChainStepResult {
+  step: number
+  kind: 'continue' | 'addBelow'
+  direction: string
+  status: 'complete' | 'error' | 'stopped' | 'skipped'
+  error: string | null
+  /** Drafts it took for the step's planted events to land (1 to 3). */
+  tries: number
+  generationId: string | null
+  words: number
+  text: string
+  /** The plants this step was asked for, and the words where each landed. */
+  planted: { id: string; quote: string }[]
+  /** The checks of every earlier plant still in force, and of the facts from chapters back. */
+  results: CheckResult[]
+  judge: SampleResult['judge']
+  repair?: RepairResult
+  /** Plants a change shown in this step ended (she pulled her boots back on): not checked after it. */
+  resolved: string[]
+  records?: { id: string; job: string; kind: string }[]
+}
+
+export interface ChainSample {
+  index: number
+  /** Step 5: whether finding by meaning was on for this chain (read before its first step). */
+  recall?: ProbeResult['recall']
+  status: 'complete' | 'abandoned' | 'stopped' | 'error'
+  why: string | null
+  steps: ChainStepResult[]
+  /** The first step with a broken check (as written), or null. */
+  firstSlip: number | null
+}
+
+export interface ChainResult {
+  id: string
+  scene: string
+  title: string
+  opening: string[]
+  plants: { id: string; name: string; step: number | null }[]
+  steps: number
+  samples: ChainSample[]
+}
+
+export interface ChainSummary {
+  total: Tally & { steps: number; samples: number }
+  byPlant: Record<string, Tally & { resolved: number }>
+  byStep: Record<string, Tally>
+  /** For each step, how many chains had slipped by then (of those that got that far). */
+  firstSlip: { step: number; slipped: number; of: number }[]
+  /** The same, after check and repair mended what it could (step 3 on). */
+  repaired?: Tally
+  repair: { checked: number; fixes: number; made: number; questions: number }
+}
+
+/** The chains' checks, in all, by plant and by step, and when drift starts. */
+export function summariseChains(chains: ChainResult[]): ChainSummary {
+  const all: CheckResult[] = []
+  const after: CheckResult[] = []
+  const byStepR: Record<string, CheckResult[]> = {}
+  const resolved: Record<string, number> = {}
+  let steps = 0
+  let samples = 0
+  const repair = { checked: 0, fixes: 0, made: 0, questions: 0 }
+  let anyRepair = false
+  for (const c of chains) {
+    for (const m of c.samples) {
+      samples++
+      for (const st of m.steps.filter((x) => x.status === 'complete')) {
+        steps++
+        all.push(...st.results)
+        ;(byStepR[String(st.step)] ??= []).push(...st.results)
+        for (const id of st.resolved) resolved[id] = (resolved[id] ?? 0) + 1
+        after.push(...(st.repair ? st.repair.results : st.results))
+        if (st.repair) {
+          anyRepair = true
+          if (st.repair.checked) repair.checked++
+          repair.fixes += st.repair.fixes.length
+          repair.made += st.repair.fixes.filter((f) => f.made).length
+          repair.questions += st.repair.questions.length
+        }
+      }
+    }
+  }
+  const byPlant: ChainSummary['byPlant'] = {}
+  for (const id of [...new Set(all.map((r) => r.trap))]) byPlant[id] = { ...tally(all.filter((r) => r.trap === id)), resolved: resolved[id] ?? 0 }
+  const byStep: Record<string, Tally> = {}
+  for (const [k, v] of Object.entries(byStepR)) byStep[k] = tally(v)
+  const most = Math.max(0, ...chains.map((c) => c.steps))
+  const firstSlip: ChainSummary['firstSlip'] = []
+  for (let n = 1; n <= most; n++) {
+    const reached = chains.flatMap((c) => c.samples).filter((m) => m.steps.some((x) => x.step >= n && x.status === 'complete') || (m.firstSlip != null && m.firstSlip <= n))
+    firstSlip.push({ step: n, slipped: reached.filter((m) => m.firstSlip != null && m.firstSlip <= n).length, of: reached.length })
+  }
+  return { total: { ...tally(all), steps, samples }, byPlant, byStep, firstSlip, ...(anyRepair ? { repaired: tally(after) } : {}), repair }
+}
+
+/** The chains as the report's usual summary: by plant (as traps), by chain (as probes), in all. */
+export function chainsAsSummary(chains: ChainResult[]): Summary {
+  const cs = summariseChains(chains)
+  const byProbe: Record<string, Tally> = {}
+  for (const c of chains) byProbe[c.id] = tally(c.samples.flatMap((m) => m.steps.flatMap((x) => x.results)))
+  return { byTrap: cs.byPlant, byProbe, total: { ...cs.total, passages: cs.total.steps, brokenPerPassage: cs.total.steps ? cs.total.broken / cs.total.steps : null } }
+}
+
+/** The chains' section of the report. */
+function chainsMarkdown(r: RunReport): string[] {
+  const out: string[] = []
+  const cs = r.chainSummary
+  if (!r.chains || !cs) return out
+  out.push('## Chains: drift step by step (probes v4)', '')
+  out.push(
+    `${cs.total.samples} chain${cs.total.samples === 1 ? '' : 's'}, ${cs.total.steps} AI steps checked. Consistency over every later-step check: **${pct(cs.total.consistency)}** (${cs.total.kept} kept, ${cs.total.broken} broken, ${cs.total.unverified} unverified, ${cs.total.silent} not touched).${cs.repaired ? ` After check and repair: ${pct(cs.repaired.consistency)} (${cs.repaired.broken} broken); the repair checked ${cs.repair.checked} steps, sent ${cs.repair.fixes} fixes (${cs.repair.made} made) and raised ${cs.repair.questions} questions.` : ''}`,
+    ''
+  )
+  for (const c of r.chains) {
+    out.push(`### ${c.id}. ${c.title}`, '')
+    for (const m of c.samples) {
+      const done = m.steps.filter((x) => x.status === 'complete').length
+      out.push(
+        `- Chain ${m.index + 1}: ${m.status === 'complete' ? `${done} steps` : `${m.status} after ${done} steps${m.why ? ` (${m.why})` : ''}`}; ${m.firstSlip == null ? 'no slip' : `first slip at step ${m.firstSlip}`}.`
+      )
+    }
+    out.push('')
+    out.push('| Plant | Planted at step | Kept | Broken | Not touched | Ended on the page | Consistency |', '|---|---:|---:|---:|---:|---:|---:|')
+    for (const pl of c.plants) {
+      const x = cs.byPlant[pl.id]
+      if (!x) continue
+      out.push(`| ${pl.name} | ${pl.step ?? 'from the story'} | ${x.kept} | ${x.broken} | ${x.silent} | ${x.resolved} | ${pct(x.consistency)} |`)
+    }
+    out.push('')
+  }
+  out.push('### When drift starts', '')
+  out.push('| Step | Checks | Broken | Consistency | Chains slipped by this step |', '|---:|---:|---:|---:|---:|')
+  for (const f of cs.firstSlip) {
+    const t = cs.byStep[String(f.step)]
+    out.push(`| ${f.step} | ${t ? t.kept + t.broken + t.silent + t.unverified : 0} | ${t?.broken ?? 0} | ${pct(t?.consistency ?? null)} | ${f.slipped} of ${f.of} |`)
+  }
+  out.push('')
+  const broken = r.chains.flatMap((c) => c.samples.flatMap((m) => m.steps.flatMap((st) => st.results.filter((x) => x.verdict === 'broken' || x.verdict === 'unverified').map((x) => ({ c, m, st, x })))))
+  if (broken.length) {
+    out.push('### What drifted', '')
+    for (const { c, m, st, x } of broken) out.push(`- ${c.id} chain ${m.index + 1}, step ${st.step} (${st.kind}), ${x.trap}${x.verdict === 'unverified' ? ' (unverified)' : x.by === 'tripwire' ? ' (tripwire)' : ''}: ${x.ask}${x.quote ? ` — “${x.quote}”` : ''}`)
+    out.push('')
+  }
+  return out
+}
+
 /** The short Markdown report. */
 export function reportMarkdown(r: RunReport): string {
   const out: string[] = []
   const s = r.summary
   out.push(`# Trap scores: ${r.tested.branch} @ ${r.tested.commit.slice(0, 9)}${r.tested.dirty ? ' (app code with uncommitted changes)' : ''}`)
   out.push('')
-  out.push(`- Story version ${r.storyVersion}${r.probesVersion ? `, probes v${r.probesVersion}` : ''}, ${r.samples} sample${r.samples === 1 ? '' : 's'} per probe, ${r.startedAt.slice(0, 16).replace('T', ' ')}${r.fake ? ' — **fake model (a check of the harness, not a score)**' : ''}`)
+  out.push(`- Story version ${r.storyVersion}${r.probesVersion ? `, probes v${r.probesVersion}` : ''}, ${r.samples} ${r.chains ? 'chain ' : ''}sample${r.samples === 1 ? '' : 's'}${r.chains ? '' : ' per probe'},${r.startedAt.slice(0, 16).replace('T', ' ')}${r.fake ? ' — **fake model (a check of the harness, not a score)**' : ''}`)
   out.push(`- Writer: \`${r.models.writer}\`; memory: \`${r.models.memory}\`; judge: \`${r.models.judge}\` (${r.provider})`)
   out.push(`- App code from \`${r.tested.root}\` (version ${r.tested.appVersion}); harness at ${r.harness.commit.slice(0, 9)}`)
   if (r.storySource) out.push(`- Story: ${r.storySource}`)
@@ -331,7 +484,7 @@ export function reportMarkdown(r: RunReport): string {
     for (const n of x.notes) out.push(`  - ${n}`)
   }
   if (r.world?.from) out.push(`- Started from the saved world ${r.world.from} (no memory build before it)`)
-  if (r.world?.saved) out.push(`- World saved before the first probe scene: ${r.world.saved} (reuse with --from-world)`)
+  if (r.world?.saved) out.push(`- World saved for later runs: ${r.world.saved} (reuse with --from-world)`)
   if (r.budget) {
     out.push(
       `- Tokens: ${r.budget.usedIn.toLocaleString('en-GB')} in, ${r.budget.usedOut.toLocaleString('en-GB')} out (budget ${r.budget.maxIn.toLocaleString('en-GB')} in, ${r.budget.maxOut.toLocaleString('en-GB')} out)`
@@ -351,7 +504,8 @@ export function reportMarkdown(r: RunReport): string {
     if (rp.checked === 0) out.push('', '**The repair checked nothing**: no memory model, switched off, or every call failed. See the log.')
   }
   out.push('')
-  out.push('## By trap')
+  out.push(...chainsMarkdown(r))
+  out.push(r.chains ? '## By plant' : '## By trap')
   out.push('')
   out.push(`| Trap | Kept | Broken | Unverified | Not touched | Consistency |${rp ? ' Broken after repair | After repair |' : ''}`)
   out.push(`|---|---:|---:|---:|---:|---:|${rp ? '---:|---:|' : ''}`)
@@ -446,6 +600,29 @@ export function reportMarkdown(r: RunReport): string {
 /** Every passage written, for reading. */
 export function passagesMarkdown(r: RunReport): string {
   const out = [`# Passages: ${r.tested.branch} @ ${r.tested.commit.slice(0, 9)}`, '']
+  for (const c of r.chains ?? []) {
+    for (const m of c.samples) {
+      out.push(`## ${c.id} chain ${m.index + 1}: ${c.title}${m.status === 'complete' ? '' : ` (${m.status}${m.why ? `: ${m.why}` : ''})`}`, '')
+      out.push('*The opening, as Adam would type it:*', '', ...c.opening.flatMap((x) => [x, '']))
+      for (const st of m.steps) {
+        out.push(`### Step ${st.step}: ${st.kind === 'addBelow' ? 'Add below' : 'Continue'}${st.direction ? ` — “${st.direction}”` : ''}${st.tries > 1 ? ` (${st.tries} tries)` : ''}`, '')
+        if (st.status !== 'complete') {
+          out.push(`(not written: ${st.error ?? st.status})`, '')
+          continue
+        }
+        out.push(st.text.trim(), '')
+        const bad = st.results.filter((x) => x.verdict === 'broken' || x.verdict === 'unverified')
+        if (st.planted.length) out.push(`- Planted: ${st.planted.map((x) => x.id).join(', ')}`)
+        for (const x of bad) out.push(`- ${x.verdict === 'broken' ? 'Broken' : 'Unverified'}: ${x.trap} — ${x.ask}${x.quote ? ` “${x.quote}”` : ''}`)
+        if (st.resolved.length) out.push(`- Ended on the page: ${st.resolved.join(', ')}`)
+        if (st.repair?.checked) {
+          for (const f of st.repair.fixes) out.push(`- Repair fix${f.made ? '' : ' (not made)'}: “${f.was}” → “${f.now}”: ${f.why}`)
+          for (const q of st.repair.questions) out.push(`- Repair question: ${q}`)
+        }
+        if (st.planted.length || bad.length || st.resolved.length || st.repair?.fixes.length || st.repair?.questions.length) out.push('')
+      }
+    }
+  }
   for (const p of r.probes) {
     for (const m of p.samples) {
       out.push(`## ${p.id} #${m.index + 1}: ${p.asks}`, '')
