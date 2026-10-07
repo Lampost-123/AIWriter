@@ -16,6 +16,8 @@ interface ServerVoice {
   traits?: unknown
   recommended?: unknown
   studio?: unknown
+  /** One of Adam's own voices brought over from MCreader (made in its voice studio, or designed there). */
+  own?: unknown
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
@@ -26,6 +28,7 @@ function aboutOf(v: ServerVoice, clip: boolean, studio: boolean): string {
     .replace(/^designed · /, '')
     .replace(/^your clip(?: · )?/i, '')
     .replace(/^studio recording(?: · )?/i, '')
+    .replace(/^your voice(?: · )?/i, '')
   return [studio ? 'Studio recording' : clip ? 'Your own clip' : str(v.gender), traits].filter(Boolean).join(' · ')
 }
 
@@ -38,13 +41,15 @@ export function voicesFrom(list: unknown, engine: string): ReadAloudVoice[] {
     if (!id || seen.has(id) || (str(v.engine) && str(v.engine) !== engine)) return []
     seen.add(id)
     // The studio voices are clips too, but not Adam's own.
-    const studio = v.studio === true || id.startsWith('clip:library/')
+    // Adam's own voices brought over from MCreader sit with them, but are his: shown as his clips.
+    const own = v.own === true
+    const studio = !own && (v.studio === true || id.startsWith('clip:library/'))
     const clip = id.startsWith('clip:') && !studio
     return [
       {
         id,
         // "Clara · Woman, 26-35 · mid voice": Settings marks it as a studio voice itself.
-        name: (studio ? str(v.name).replace(/\s*\(studio\)$/, '') : str(v.name)) || id.replace(/^clip:/, ''),
+        name: str(v.name).replace(/\s*\((?:studio|your voice)\)$/, '') || id.replace(/^clip:/, ''),
         about: aboutOf(v, clip, studio),
         clip,
         recommended: v.recommended === true,

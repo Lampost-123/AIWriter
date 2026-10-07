@@ -532,6 +532,11 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   planning. "Check each line's words" (`speech.checkWords`, off) has the worker listen back with the word check and
   voice a line once more past 15% words wrong. `mood`, `take` and `check` go in a clip's request (and its cache key)
   only when set, so audio kept before still plays.
+  Adam's own MCreader voices (7 October 2026, "everything") were copied once into his speech folder on his computer,
+  never into git: voices made in MCreader's voice studio in `voices/library/` with `custom.json` (listed as his, "your
+  voice", and never cast by the AI), the four Expresso voices added to `index.json`, and the voices MCreader designed
+  from descriptions in `voices/mcreader/` (listed "From MCreader ·" and the start of the description, which the server
+  reads; also in `voices/breeze/` where that description wasn't designed here yet). `Remove downloads` removes them too.
 - **World builder.** "Build the world from a summary" (`src/main/worldBuilder/`, `features/worldBuilder/`)
   reads Adam's summary in parts that fit the model (at most `OVERVIEW_PART_TOKENS` each), reads each part again
   for what its list left out (`overviewMoreUser`, up to `MORE_LOOKS` times, stopping when a look finds nothing

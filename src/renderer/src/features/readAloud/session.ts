@@ -228,7 +228,7 @@ export class Session {
     } catch (e) {
       if (!this.alive) return
       toast(e instanceof Error && e.message ? e.message : 'That line couldn’t be read again. Try again.', { tone: 'danger' })
-      this.player.resume()
+      if (!this.paused) this.player.resume()
       this.show({ ...this.bar, phase: this.paused ? 'paused' : 'playing', note: '' })
     } finally {
       this.redoing = false

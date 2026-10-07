@@ -14,7 +14,7 @@ can stop it; pip steps it runs directly. This tool does the rest:
     python tools/install.py sound-weights --root <folder>     Stable Audio Open and CLAP (about 6 GB), HF_TOKEN
     python tools/install.py sound-check --root <folder>       checks it all, then leaves models/sound/.ready
     python tools/install.py studio-voices --root <folder>     the studio voices (about 3 GB from the EARS dataset)
-    python tools/install.py check-model --root <folder>       the word check's listener (distil-whisper, about 670 MB)
+    python tools/install.py check-model --root <folder>       the word check's listener (distil-whisper, about 340 MB)
     python tools/install.py studio-check --root <folder>      checks them, then leaves voices/library/.ready
     python tools/install.py parakeet-model --home <folder>
     python tools/install.py whisper-model --home <folder>
