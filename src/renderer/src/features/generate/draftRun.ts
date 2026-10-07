@@ -18,6 +18,7 @@ import { activeStream } from '@/features/editor/streamDoc'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
+import { repairLanded } from '@/features/repair/repairRun'
 import { cardLength } from '@shared/defaults'
 
 export type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
@@ -130,11 +131,14 @@ function finish(p: AppEvents['generation:done']): void {
   // Polishing a draft that came in full needs where it begins in the page, read before its stream ends.
   const toPolish = r.polish && p.status === 'complete' && !p.cutOff
   const editor = r.bridge.editor
-  const stream = toPolish && editor && r.bridge.sceneId === r.sceneId ? activeStream(editor.state) : null
+  const shown = editor && r.bridge.sceneId === r.sceneId ? activeStream(editor.state) : null
+  const stream = shown && shown.generationId === p.generationId ? shown : null
   const start =
-    stream && editor && stream.generationId === p.generationId
+    toPolish && stream && editor
       ? { index: blockIndexAt(editor.state.doc, stream.from), breakAdded: !!stream.breakAdded, replace: !!stream.replace }
       : null
+  // Check and repair: where the draft's words begin, for checking them as soon as they are in.
+  const landed = stream && !(stream.replace && !stream.before) ? stream.from : null
   const { replaced, away } = r.bridge.endStream(p.generationId, { failed })
   run = null
   useDraft.setState(idle())
@@ -166,7 +170,13 @@ function finish(p: AppEvents['generation:done']): void {
     toast(done + unpolished + oldText, { action: { label: 'Show', run: showScene(r.sceneId) } })
   } else if (toPolish && start && polishable(start.replace, replaced)) {
     const place = editor && !editor.isDestroyed ? draftPlace(editor.state.doc, start.index, start.breakAdded) : null
-    if (place) void startPolish({ sceneId: r.sceneId, draftId: p.generationId, place })
+    // Polished, the draft's words are checked once Adam accepts the polished version (polishRun.ts).
+    if (place) return void startPolish({ sceneId: r.sceneId, draftId: p.generationId, place })
+  }
+  // The draft's words are in the page: checked claim by claim now, slips mended in amber (features/repair). Not a draft
+  // that went wrong, nor one that finished while Adam was in another scene (the check after the draft covers those).
+  if (landed !== null && !away && p.status !== 'error' && editor && !editor.isDestroyed && r.bridge.sceneId === r.sceneId) {
+    repairLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: editor.state.doc.content.size })
   }
 }
 

@@ -656,6 +656,37 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report
   (`checks/report.ts`, `meta` 'check_reports') and shown collapsed at the top of the Issues tab (`CheckReportCard`).
+  When check and repair (below) checked the draft's words as they landed, the critic leaves out what that covered
+  (continuity, who knows what, the timeline: `REPAIR_COVERS`, `repairedSince`) and checks facts, voices and style;
+  when it didn't (no memory model, the draft finished in another scene, the call failed), the critic checks it all.
+- **Check and repair** (Adam, 2026-10-07: step 3 of the consistency plan, "check and repair, straight away";
+  `src/main/repair/`, `contracts/repair.ts`, `features/repair/`). As soon as a draft, Add below, a beat or Continue
+  lands (Continue once accepted; a polished draft once Adam accepts the polished version), the page sends the new
+  words (each paragraph, with which part of it the AI wrote) to `checkNewWords`. One call on the memory model (its own
+  Thinking, Off by default), marker `[AIWRITE-REPAIR v1]`, job 'memory'. It is told where things stood just before the
+  new words, exactly as the writer was told it (`noteStage`, kept by record as each draft, beat or Continue starts:
+  the live stage's checkpoint, so no extra call), each value with an id (W1...) and the story's words for it; the
+  memory's facts as of the scene's start (E entries named in the new words or on the card, K who knows what, D who is
+  dead, S the scenes just before, from `checks/context.ts`); a lead-in; and the new words. The model lists the claims
+  the new words make (where, position, each item worn, what is held, injuries, who knows what, what is owned, time),
+  each with its exact quote, the line it touches and a verdict: fits, shown (the words show the change) or slip. The
+  app then judges them one at a time (`judgeClaims`, pure): a claim whose quote isn't in the new words, or whose line
+  doesn't exist, is dropped. A slip is **mended in place** only when the line it breaks is on the stage with its own
+  words (never a value with no words behind it, nor a memory fact), the fix changes at most a dozen of the AI's own
+  words (found in the record of what the AI wrote, inside the AI's part of one paragraph, overlapping the quote), and
+  no other fix is there; anything else becomes **one question** (an open issue whose message is the question, with
+  the model's rewrite as "Review the fix" when it has one). A slip Adam ignored is neither mended nor asked again.
+  In the page (`features/repair/apply.ts`, pure), the fixes go in as one undo step (`WORDS_META` 'ai-net'), only in
+  paragraphs exactly as they landed (found by paragraph id), never where Adam's cursor or selection is, nor in a
+  draft being written or under a waiting AI change; his cursor maps with his words. Each fix shows in amber
+  (`features/repair/marks.ts`, a decoration, never in the document; hovering says what the AI had written and why)
+  until its words are edited or another scene opens. A message says what was mended, with Undo (the AI's words back,
+  and the fixed issue becomes ignored) and, when there are questions, Show (the Issues tab). Fixes the page couldn't
+  make (Adam was in those words) become questions (`repairsApplied`); made ones are kept as fixed issues. The page
+  saves first, so a question's words are in the saved scene. Not checked: a draft that finished while Adam was in
+  another scene, a picked variant (Adam read and chose those words), and Polish after drafting's draft before it is
+  accepted. App tests leave it out unless they set `AIWRITE_REPAIR=on` (tests/e2e/helpers.ts), since it is one more
+  call after every draft; the fake provider answers it in `tests/fake-provider/repair.mjs`.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice

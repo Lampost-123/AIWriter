@@ -1,0 +1,9 @@
+/* A slip mended as new AI words landed (features/repair/marks.ts): the new words in the AI's amber, as an AI change
+   shows them, until Adam edits them or opens another scene. Colours come from the theme tokens. */
+.scene-prose .aw-repair {
+  background: var(--ai-soft);
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  box-shadow: 0 0 0 1.5px var(--ai-soft), inset 0 -1.5px 0 color-mix(in srgb, var(--ai) 55%, transparent);
+}

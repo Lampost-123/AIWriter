@@ -13,6 +13,7 @@ import * as world from '../world'
 import { getSettings } from '../settings'
 import { cleanOptions } from '../ai/gather'
 import { draftBriefing, providerNotes, type DraftBriefing } from '../ai/draftFlow'
+import { noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
 import { beatDirection, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
 import { noteWriterSpeakers } from '../readAloud'
@@ -109,6 +110,8 @@ export async function startBeat(
       onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
       ...providerNotes(b.target.id)
     })
+    // Check and repair: the beat's words are checked against where things stood as the writer was told it.
+    noteStage(generationId, sceneId, stageTold(b, !!block))
     return { generationId, of: beats.length }
   } finally {
     if (starting.get(sceneId) === stop) starting.delete(sceneId)

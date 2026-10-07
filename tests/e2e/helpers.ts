@@ -40,6 +40,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
+  // Check and repair (new AI words checked claim by claim as they land) is one more AI call after every draft: app tests
+  // that aren't about it leave it out, and ask for it with { env: { AIWRITE_REPAIR: 'on' } }.
+  env.AIWRITE_REPAIR = 'off'
   // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
   // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.

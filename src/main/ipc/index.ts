@@ -40,6 +40,7 @@ import { findHandlers } from './find'
 import { spellingHandlers } from './spelling'
 import { soundsHandlers } from './sounds'
 import { recallHandlers } from './recall'
+import { repairHandlers } from './repair'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -90,7 +91,9 @@ const all: Handlers<ApiMethod> = {
   ...spellingHandlers,
   // AI sound effects under Read aloud
   ...soundsHandlers,
-  ...recallHandlers
+  ...recallHandlers,
+  // Check and repair: new AI words checked claim by claim as they land
+  ...repairHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

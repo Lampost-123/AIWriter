@@ -56,6 +56,7 @@ import {
   type PageMark
 } from './sessionLogic'
 import { WORDS_META } from '@/features/goals/wordsMeta'
+import { repairLanded } from '@/features/repair/repairRun'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -578,7 +579,14 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
   note(r)
   const failed = (p.status === 'error' && !!p.error) || !!p.cutOff
   const bridge = editorBridge()
+  // Check and repair: where the beat's words begin, for checking them as soon as they are in.
+  const shown = bridge?.editor && bridge.sceneId === r.sceneId ? activeStream(bridge.editor.state) : null
+  const landed = shown && shown.generationId === p.generationId && !(shown.replace && !shown.before) ? shown.from : null
   const { replaced } = bridge?.endStream(p.generationId, { failed }) ?? { replaced: false }
+  // The beat's words are in the page: checked claim by claim now, slips mended in amber (features/repair).
+  if (landed !== null && r.wrote && p.status !== 'error' && bridge?.editor && !bridge.editor.isDestroyed && bridge.sceneId === r.sceneId) {
+    repairLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: bridge.editor.state.doc.content.size })
+  }
   run = null
   // The page as this beat left it, so Write it again can tell whether it is still the newest undo step.
   if (r.wrote && bridge?.sceneId === r.sceneId && bridge.editor) marks.set(p.generationId, markPage(bridge.editor.state))

@@ -440,6 +440,37 @@ export function saveFound(db: DB, existing: Row[], found: FoundIssue[], replaces
   return raised
 }
 
+/**
+ * Keeps a slip that was mended as it landed (check and repair, repair/index.ts) as a fixed issue, so the page's Undo
+ * can mark it ignored (never raised or mended again). The same key found before is brought up to date in place.
+ * Returns its id.
+ */
+export function saveFixed(db: DB, f: FoundIssue): ID {
+  const t = now()
+  const p: IssuePayload = { ...f.payload, key: f.key }
+  const mine = (db.prepare('SELECT * FROM issues WHERE scene_id = ?').all(f.sceneId ?? '') as Row[]).find((r) => json<IssuePayload>(r.payload_json, {}).key === f.key)
+  if (mine) {
+    db.prepare("UPDATE issues SET status = 'fixed', severity = ?, quote = ?, message = ?, payload_json = ?, kind = ?, updated_at = ? WHERE id = ?").run(
+      f.severity,
+      f.quote,
+      f.message,
+      JSON.stringify(p),
+      f.kind,
+      t,
+      mine.id
+    )
+    issuesTouched(f.storyId, f.sceneId)
+    return mine.id as ID
+  }
+  const id = newId()
+  db.prepare(
+    `INSERT INTO issues (id, scene_id, story_id, kind, severity, status, quote, message, payload_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'fixed', ?, ?, ?, ?, ?)`
+  ).run(id, f.sceneId ?? '', f.storyId, f.kind, f.severity, f.quote, f.message, JSON.stringify(p), t, t)
+  issuesTouched(f.storyId, f.sceneId)
+  return id
+}
+
 /** Every issue row in these scenes (any status). */
 export function rowsInScenes(db: DB, sceneIds: ID[]): Row[] {
   if (!sceneIds.length) return []

@@ -33,6 +33,7 @@ import {
 } from './suggestions'
 import { TOOL_NAMES } from './names'
 import { cleanReply, continuePlace, parseAlternatives, selectedWords, textOf, wordsIn, type Target } from './text'
+import { repairLanded } from '@/features/repair/repairRun'
 
 /** Why a suggestion went without Adam accepting or rejecting it, in plain words. */
 const DROPPED: Partial<Record<GoneReason | 'scene', string>> = {
@@ -82,8 +83,11 @@ let listening = false
 let hooks: { focusPicker(): void; reveal(): void } | null = null
 /** The "Change rejected" message with its Undo, while it shows: it goes once the change is back or another starts. */
 let rejectedToast: number | null = null
-/** What to do once a change is accepted, by its id (milestone 5: the issue it fixes is marked fixed). */
-const onAccepted = new Map<ID, () => void>()
+/**
+ * What to do once a change is accepted, by its id (milestone 5: the issue it fixes is marked fixed; a polished draft's
+ * words are checked), told where the new words are in the page.
+ */
+const onAccepted = new Map<ID, (words: { from: number; to: number }) => void>()
 /** History's label for the snapshot taken before a ready-made change goes in, by its id ("Before the polish pass"). */
 const snapshotLabels = new Map<ID, string>()
 
@@ -445,6 +449,10 @@ export async function accept(id?: ID): Promise<void> {
   }
   clearLive()
   known = null
+  // Where the new words are once in: from where the change starts (a paragraph's start, for new paragraphs ahead of
+  // it) to where it ends, mapped through the change.
+  const at = now.mode === 'before' ? v2.state.doc.resolve(now.from).before() : now.from
+  const words = { from: tr.mapping.map(at, -1), to: tr.mapping.map(now.mode === 'before' ? at : now.to, 1) }
   v2.dispatch(tr)
   // Typing straight after is a step of its own.
   v2.dispatch(closeHistory(v2.state.tr))
@@ -452,7 +460,9 @@ export async function accept(id?: ID): Promise<void> {
   const then = onAccepted.get(s.id)
   onAccepted.delete(s.id)
   snapshotLabels.delete(s.id)
-  then?.()
+  then?.(words)
+  // Check and repair: Continue's words are checked claim by claim as they go in, slips mended in amber (features/repair).
+  if (now.tool === 'continue' && now.generationId) repairLanded({ sceneId: now.sceneId, recordId: now.generationId, ...words })
 }
 
 /**
@@ -467,7 +477,7 @@ export function showReplacement(o: {
   to: number
   text: string
   note?: string | null
-  onAccepted?: () => void
+  onAccepted?: (words: { from: number; to: number }) => void
   label?: string
   snapshot?: string
   generationId?: ID | null

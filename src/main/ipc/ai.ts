@@ -13,6 +13,7 @@ import { soFarBlock } from '../beats/instructions'
 import * as repo from '../db/repo'
 import { getSettings } from '../settings'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
+import { noteStage, stageTold } from '../repair'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
@@ -64,7 +65,7 @@ export const aiHandlers: Handlers<AiMethods> = {
         block ? options : { ...options, addBelow: false },
         block ? { signal: stop.signal, soFar, extras: { extraBlocks: [block] } } : { signal: stop.signal }
       )
-      return startDraftJob({
+      const started = startDraftJob({
         db,
         sceneId,
         options: b.input.options,
@@ -78,6 +79,9 @@ export const aiHandlers: Handlers<AiMethods> = {
         onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
         ...providerNotes(b.target.id)
       })
+      // Check and repair: the draft's words are checked against where things stood as the writer was told it.
+      noteStage(started.generationId, sceneId, stageTold(b, !!block))
+      return started
     } finally {
       if (starting.get(sceneId) === stop) starting.delete(sceneId)
     }

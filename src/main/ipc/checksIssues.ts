@@ -2,6 +2,8 @@
 // db/checks.ts; this file connects them to the open world, the settings, the memory keeper and the window.
 import type { Handlers } from './index'
 import type { Issue } from '@shared/contracts/checks'
+import { ALL_CHECKS } from '@shared/contracts/checks'
+import { REPAIR_COVERS, repairedSince } from '../repair'
 import type { EntryInput, ID } from '@shared/types'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
@@ -61,7 +63,9 @@ world.onWorldClosing((w) => closeRunsFor(w.db))
 
 // The critic (Adam, 2026-10-04): a draft that lands in a scene is checked in the background, a little after it ends
 // (so its words are saved into the scene first); another draft starting there meanwhile waits for that one instead.
-// Variants put nothing in the scene until one is picked.
+// Variants put nothing in the scene until one is picked. Check and repair (Adam, 2026-10-07): when the page had the
+// draft's words checked claim by claim as they landed (repair/index.ts), the critic leaves out what that covered
+// (continuity, who knows what, the timeline) and checks the rest (facts, voices, style); otherwise it checks it all.
 const AFTER_DRAFT_MS = 15_000
 const afterDraft = new Map<ID, ReturnType<typeof setTimeout>>()
 onDraftActivity((e) => {
@@ -72,11 +76,13 @@ onDraftActivity((e) => {
   if (e.phase !== 'end') return
   const db = world.maybeCurrentWorld()?.db
   if (!db) return
+  const ended = Date.now()
   const t = setTimeout(() => {
     afterDraft.delete(e.sceneId)
     if (world.maybeCurrentWorld()?.db !== db || !db.open) return
+    const checks = repairedSince(e.sceneId, ended) ? ALL_CHECKS.filter((c) => !REPAIR_COVERS.includes(c)) : ALL_CHECKS
     // While this month's AI spending has reached Adam's limit, it waits until he carries on, as Mark done's does.
-    runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId))
+    runOrWait(`draft-check:${e.sceneId}`, db, () => checkAfterDraft(db, e.sceneId, checks))
   }, Number(process.env.AIWRITE_AFTER_DRAFT_MS) || AFTER_DRAFT_MS)
   t.unref?.()
   afterDraft.set(e.sceneId, t)
