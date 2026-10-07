@@ -22,6 +22,8 @@
 //   --from-world <folder>  start from the world an earlier run of the same checkout and story saved before its first
 //                          probe scene (its report folder): the memory isn't built again up to there
 //   --no-save-world        don't save that world beside the report (it is saved by default)
+//   --search-model <folder>  step 5's search model files, as downloaded (default: the copy checked on Adam's computer
+//                          in the session scratch folder); 'none' for keyword search only. Copied, never downloaded.
 //   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
 //   --compare <a> <b>      put two runs' report.json (or their folders) side by side; no model calls
@@ -62,7 +64,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -158,6 +160,8 @@ if (flag('--compare')) {
   set('--price-in', 'TRAPS_PRICE_IN')
   set('--price-out', 'TRAPS_PRICE_OUT')
   set('--price-cached', 'TRAPS_PRICE_CACHED')
+  const searchModel = value('--search-model')
+  if (searchModel) env.TRAPS_SEARCH_MODEL = searchModel === 'none' ? 'none' : resolve(searchModel)
   const fromWorld = value('--from-world')
   if (fromWorld) env.TRAPS_FROM_WORLD = resolve(fromWorld)
   if (flag('--no-save-world')) env.TRAPS_SAVE_WORLD = '0'

@@ -146,6 +146,8 @@ export interface ProbeResult {
   asks: string
   /** How the page was set up, when it matters (a fact closer than planned). */
   note?: string
+  /** Step 5: whether its briefings could search by meaning when the probe began. */
+  recall?: { available: boolean; meaning: boolean; state: string; engine: string | null; indexed: { done: number; total: number } | null; note: string | null }
   samples: SampleResult[]
 }
 
@@ -161,6 +163,8 @@ export interface RunReport {
   traps?: TrapList
   /** Why the run stopped before the end (the token budget, say); absent when it finished. */
   stopped?: string
+  /** Step 5 (recall by meaning), when the checkout has it: whether finding by meaning was in use for the probes. */
+  recall?: { meaning: boolean; probes: number; withMeaning: number; engine: string | null; indexed: { done: number; total: number } | null; notes: string[] }
   /** The token budget and what was used of it. */
   budget?: { maxIn: number; maxOut: number; usedIn: number; usedOut: number }
   startedAt: string
@@ -209,6 +213,21 @@ export function summarise(probes: ProbeResult[], after: 'written' | 'repaired' =
   return { byTrap, byProbe, total: { ...total, passages, brokenPerPassage: passages ? total.broken / passages : null } }
 }
 
+/** Step 5 over the run: how many probes searched by meaning, the most passages read, and anything worth knowing. */
+export function recallSummary(probes: ProbeResult[]): NonNullable<RunReport['recall']> {
+  const with_ = probes.filter((p) => p.recall)
+  const meaning = with_.filter((p) => p.recall!.meaning)
+  const indexed = with_.map((p) => p.recall!.indexed).filter((x): x is { done: number; total: number } => !!x)
+  return {
+    meaning: meaning.length > 0 && meaning.length === with_.length,
+    probes: with_.length,
+    withMeaning: meaning.length,
+    engine: meaning[0]?.recall?.engine ?? null,
+    indexed: indexed.length ? indexed[indexed.length - 1] : null,
+    notes: [...new Set(with_.map((p) => p.recall!.note).filter((n): n is string => !!n))]
+  }
+}
+
 /** The scores after check and repair, with what it did; undefined when no passage went through it. */
 export function summariseRepair(probes: ProbeResult[], traps: TrapList = TRAPS): RunReport['repaired'] {
   const samples = probes.flatMap((p) => p.samples.filter((s) => s.status === 'complete' && s.repair))
@@ -243,6 +262,13 @@ export function reportMarkdown(r: RunReport): string {
   out.push(`- Writer: \`${r.models.writer}\`; memory: \`${r.models.memory}\`; judge: \`${r.models.judge}\` (${r.provider})`)
   out.push(`- App code from \`${r.tested.root}\` (version ${r.tested.appVersion}); harness at ${r.harness.commit.slice(0, 9)}`)
   if (r.storySource) out.push(`- Story: ${r.storySource}`)
+  if (r.recall) {
+    const x = r.recall
+    out.push(
+      `- Recall by meaning (step 5): ${x.meaning ? `on for every probe (${x.engine ?? '?'} engine)` : x.withMeaning ? `on for ${x.withMeaning} of ${x.probes} probes` : '**off**: keyword search, sticky entries and what was said only'}${x.indexed ? `; ${x.indexed.done} of ${x.indexed.total} passages read for meaning by the last probe` : ''}`
+    )
+    for (const n of x.notes) out.push(`  - ${n}`)
+  }
   if (r.world?.from) out.push(`- Started from the saved world ${r.world.from} (no memory build before it)`)
   if (r.world?.saved) out.push(`- World saved before the first probe scene: ${r.world.saved} (reuse with --from-world)`)
   if (r.budget) {

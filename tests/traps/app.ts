@@ -4,9 +4,9 @@
 // checkout being run (--root).
 
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState, Transaction } from '@tiptap/pm/state'
@@ -57,6 +57,12 @@ export interface TrapsConfig {
   storyFile: string
   /** A partly written story to carry on from (writing only). */
   resume: string | null
+  /**
+   * Step 5's search model for "Find by meaning": a folder holding the model's files as downloaded (config.json,
+   * vocab.txt, onnx/model.onnx and/or model.safetensors), copied into the run's app data folder; 'none' for none (keyword
+   * search, sticky entries and what was said only). Never downloaded.
+   */
+  searchModel: string
   /** Save the world as it stands just before the first probe scene, beside the report, for --from-world. */
   saveWorld: boolean
   /** Start from a saved world (a world-before-*.db from an earlier run of the same checkout and story): no memory build. */
@@ -66,6 +72,9 @@ export interface TrapsConfig {
   maxOut: number
   log: (line: string) => void
 }
+
+/** Where the search model was downloaded and checked once, on Adam's computer (a scratch folder; read only). */
+const DEFAULT_SEARCH_MODEL = join(tmpdir(), 'claude', 'C--Users-adox1-Documents-AI-Write', '7636dc9a-3a6e-4087-bc5d-e50d78d3e334', 'scratchpad', 'bge-test')
 
 const num = (v: string | undefined, fallback: number): number => {
   const n = Math.round(Number(v))
@@ -96,6 +105,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     story: env.TRAPS_STORY === 'v2' ? 'v2' : 'v3',
     storyFile: resolve(env.TRAPS_STORY_FILE?.trim() || join(harnessRoot, 'tests', 'traps', 'story-v3.json')),
     resume: env.TRAPS_RESUME?.trim() ? resolve(env.TRAPS_RESUME.trim()) : null,
+    searchModel: env.TRAPS_SEARCH_MODEL?.trim() || DEFAULT_SEARCH_MODEL,
     saveWorld: env.TRAPS_SAVE_WORLD !== '0',
     fromWorld: env.TRAPS_FROM_WORLD?.trim() ? resolve(env.TRAPS_FROM_WORLD.trim()) : null,
     maxIn: num(env.TRAPS_MAX_TOKENS_IN, DEFAULT_BUDGET.in),
@@ -304,6 +314,71 @@ export interface ApplyModule {
   fixesTr(state: EditorState, parts: LandedPartLike[], fixes: RepairFixLike[]): { tr: Transaction; made: { id: string }[] } | null
 }
 
+/** Step 5's retrieval (src/main/retrieval/index.ts), when the checkout has it. */
+interface SearchStatusLike {
+  state: string
+  problem: string | null
+  indexed: { done: number; total: number } | null
+  engine?: string | null
+}
+interface RetrievalModule {
+  initRetrieval(): void
+  closeRetrieval?(): void
+  searchModelStatus(): SearchStatusLike
+  findByMeaningChanged(on: boolean): void
+}
+interface ModelFilesModule {
+  SEARCH_MODEL: string
+  SEARCH_MODEL_REVISION: string
+  COMMON_FILES: { name: string; bytes: number }[]
+  WEIGHTS: Record<'onnx' | 'ts', { name: string; bytes: number }>
+  modelDir(userData: string): string
+  writeManifest(dir: string, m: { model: string; revision: string; at: string }): void
+}
+
+/** What step 5 had for the run: its search model, and how much of the story it had read for meaning. */
+export interface RecallState {
+  /** The checkout has step 5. */
+  available: boolean
+  /** Finding by meaning was in use (the model was ready). */
+  meaning: boolean
+  /** The model's state as the app reports it ('ready', 'none', 'broken', 'starting'), and its engine. */
+  state: string
+  engine: string | null
+  /** Passages read for meaning, of all the world's passages, when the probe began. */
+  indexed: { done: number; total: number } | null
+  /** Why finding by meaning wasn't in use, or anything worth knowing; null when all is well. */
+  note: string | null
+}
+
+/**
+ * The search model's files from `source`, into the app data folder as the app's own download leaves them (with its
+ * installed.json), so the app finds it downloaded. Only files of the expected size are copied; nothing is downloaded.
+ */
+function installSearchModel(files: ModelFilesModule, userData: string, source: string): { ok: boolean; note: string } {
+  if (!source || source === 'none') return { ok: false, note: 'No search model was given (--search-model none): keyword search, sticky entries and what was said only.' }
+  const at = (name: string): string => join(source, ...name.split('/'))
+  const fits = (f: { name: string; bytes: number }): boolean => {
+    try {
+      return statSync(at(f.name)).size === f.bytes
+    } catch {
+      return false
+    }
+  }
+  const weights = (['onnx', 'ts'] as const).map((e) => files.WEIGHTS[e]).filter(fits)
+  if (!files.COMMON_FILES.every(fits) || !weights.length) {
+    return { ok: false, note: `The search model isn't in ${source} (its files are missing or not the right size): keyword search, sticky entries and what was said only.` }
+  }
+  const dir = files.modelDir(userData)
+  for (const f of [...files.COMMON_FILES, ...weights]) {
+    const to = join(dir, ...f.name.split('/'))
+    mkdirSync(dirname(to), { recursive: true })
+    copyFileSync(at(f.name), to)
+  }
+  files.writeManifest(dir, { model: files.SEARCH_MODEL, revision: files.SEARCH_MODEL_REVISION, at: new Date().toISOString() })
+  return { ok: true, note: '' }
+}
+
 /** One of the app's modules (`src/<rel>.ts` in the checkout), or null when this checkout doesn't have it. */
 async function optional<T>(root: string, rel: string): Promise<T | null> {
   if (!existsSync(join(root, 'src', `${rel}.ts`))) return null
@@ -367,6 +442,11 @@ export interface App {
   existing: { id: string; title: string }[]
   /** Saves the world as it stands (a consistent copy of its database). */
   snapshot(file: string): Promise<void>
+  /**
+   * Step 5: brings the search index up to date with the scenes and waits (at most `limitMs`) until the search model has
+   * read every passage, so a probe's briefing really searches by meaning; says how it stands.
+   */
+  recallReady(limitMs?: number): Promise<RecallState>
   save(sceneKey: string, sceneId: string, paragraphs: string[]): void
   memoryIdle(): Promise<void>
   leave(sceneId: string): Promise<void>
@@ -412,9 +492,11 @@ export async function openApp(
   }
   const budget = new Budget(cfg.maxIn, cfg.maxOut, used)
 
+  let closeRecall: (() => void) | null = null
   const close = async (): Promise<void> => {
     try {
       world?.closeWorld()
+      closeRecall?.()
     } catch (e) {
       console.warn('Could not close the trap world', e)
     }
@@ -447,6 +529,17 @@ export async function openApp(
     // for making its fixes.
     const repairMod = await optional<RepairModule>(cfg.root, 'main/ipc/repair')
     const applyMod = repairMod ? await optional<ApplyModule>(cfg.root, 'renderer/src/features/repair/apply') : null
+    // Step 5 (recall by meaning): on for the run, with the search model copied in where the app keeps its download.
+    const retrieval = await optional<RetrievalModule>(cfg.root, 'main/retrieval/index')
+    let modelNote: string | null = null
+    if (retrieval) {
+      process.env.AIWRITE_RECALL = 'on'
+      const files = await optional<ModelFilesModule>(cfg.root, 'main/retrieval/model/files')
+      const { userDataDir } = await import('@app/main/paths')
+      const got = files ? installSearchModel(files, userDataDir(), cfg.searchModel) : { ok: false, note: "This checkout's search model files aren't where the harness expects them." }
+      if (!got.ok) modelNote = got.note
+      cfg.log(`recall by meaning: found; ${got.ok ? `search model copied from ${cfg.searchModel}` : got.note}`)
+    }
     if (repairMod) {
       // On for the run, whatever the app's default: AIWRITE_REPAIR=off turns it off for app tests.
       process.env.AIWRITE_REPAIR = 'on'
@@ -495,11 +588,14 @@ export async function openApp(
     const judge = choose(cfg.judge ?? memory.modelId)
     settings.updateSettings({ models: { writer, memory } })
     if (repairMod) switchOnRepair(settings, cfg.log)
+    if (retrieval) settings.updateSettings({ findByMeaning: true } as never)
     cfg.log(`writer ${writer.modelId}, memory ${memory.modelId}, judge ${judge.modelId}; budget ${cfg.maxIn.toLocaleString('en-GB')} tokens in, ${cfg.maxOut.toLocaleString('en-GB')} out`)
 
     // The app as it starts: drafting, and the memory keeper (which registers the catch-up before a draft).
     initAi()
     keeper.initKeeper()
+    retrieval?.initRetrieval()
+    closeRecall = retrieval?.closeRetrieval ?? null
     if (worldFile) {
       // A copy of the saved world, opened as Adam would open a world in his library.
       const folder = join(settings.getSettings().libraryPath, 'Saved trap world')
@@ -572,6 +668,34 @@ export async function openApp(
     }
     const snapshot = async (file: string): Promise<void> => {
       await db.backup(file)
+    }
+
+    const recallReady = async (limitMs = 20 * 60_000): Promise<RecallState> => {
+      if (!retrieval) return { available: false, meaning: false, state: 'none', engine: null, indexed: null, note: null }
+      // As Adam turning "Find by meaning" on: the model starts when it is here, and the open world's index catches up.
+      retrieval.findByMeaningChanged(true)
+      const until = Date.now() + limitMs
+      let st = retrieval.searchModelStatus()
+      let steady = 0
+      for (;;) {
+        st = retrieval.searchModelStatus()
+        const all = !!st.indexed && st.indexed.total > 0 && st.indexed.done >= st.indexed.total
+        if (st.state === 'ready' && all) {
+          if (++steady >= 2) break
+        } else steady = 0
+        // Nothing to wait for: no model, or one that couldn't start.
+        if (st.state === 'none' || st.state === 'broken') break
+        if (Date.now() > until) break
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      const meaning = st.state === 'ready'
+      const done = !!st.indexed && st.indexed.done >= st.indexed.total
+      const note = meaning
+        ? done
+          ? null
+          : `The search model hadn't read every passage in ${Math.round(limitMs / 60_000)} minutes (${st.indexed?.done ?? 0} of ${st.indexed?.total ?? '?'}).`
+        : (modelNote ?? `Finding by meaning was off: the search model was ${st.state}${st.problem ? ` (${st.problem})` : ''}. Keyword search, sticky entries and what was said only.`)
+      return { available: true, meaning, state: st.state, engine: st.engine ?? null, indexed: st.indexed, note }
     }
 
     /** Saves the scene's words as the window does (the memory keeper hears of the save). */
@@ -658,6 +782,7 @@ export async function openApp(
       setBeats,
       existing,
       snapshot,
+      recallReady,
       save,
       memoryIdle,
       leave,

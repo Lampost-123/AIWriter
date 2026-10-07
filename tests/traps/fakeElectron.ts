@@ -67,4 +67,9 @@ export const Menu = nothing
 export const nativeTheme = { shouldUseDarkColors: false, on: (): void => {}, themeSource: 'system' }
 export const protocol = nothing
 
-export default { app, BrowserWindow, safeStorage, ipcMain, dialog, shell, session, Menu, nativeTheme, protocol }
+/** The app downloads with net.fetch (step 5's search model): a trap run never downloads anything. */
+export const net = {
+  fetch: (): Promise<Response> => Promise.reject(new Error('A trap run never downloads anything.'))
+}
+
+export default { app, BrowserWindow, safeStorage, ipcMain, dialog, shell, session, Menu, nativeTheme, protocol, net }

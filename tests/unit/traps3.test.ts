@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadFixture, probePage, storyV3, type FixturePlant, type StoryScene } from '../traps/storyData'
 import { checkPlants, paragraphAt } from '../traps/write'
+import { recallSummary, type ProbeResult } from '../traps/score'
 
 const broken = (key: keyof typeof PATTERNS, text: string): boolean => patternVerdict(PATTERNS[key], text).verdict === 'broken'
 
@@ -272,5 +273,23 @@ describe('the token budget', () => {
     const b = new Budget(10_000, 100, () => ({ in: 0, out: 100 }))
     expect(b.allows(1)).toBe(false)
     expect(b.hit).toMatch(/output/)
+  })
+})
+
+describe('recall by meaning in the report', () => {
+  const probe = (meaning: boolean, done: number, note: string | null): ProbeResult => ({
+    id: 'P',
+    scene: 's24',
+    kind: 'generate',
+    asks: '',
+    samples: [],
+    recall: { available: true, meaning, state: meaning ? 'ready' : 'none', engine: meaning ? 'onnx' : null, indexed: { done, total: 400 }, note }
+  })
+  it('says it was on for every probe, with the passages read by the last', () => {
+    expect(recallSummary([probe(true, 380, null), probe(true, 400, null)])).toEqual({ meaning: true, probes: 2, withMeaning: 2, engine: 'onnx', indexed: { done: 400, total: 400 }, notes: [] })
+  })
+  it('says when it was off, and why, once', () => {
+    const r = recallSummary([probe(false, 0, 'No search model.'), probe(false, 0, 'No search model.')])
+    expect(r).toMatchObject({ meaning: false, withMeaning: 0, notes: ['No search model.'] })
   })
 })

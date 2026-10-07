@@ -14,6 +14,7 @@ import { checkout, countWords, git, openApp, whenEnded, type App, type TrapsConf
 import { landedPage, mirrorFixes, paragraphsOf, wordsFrom } from './page'
 import {
   passagesMarkdown,
+  recallSummary,
   reportMarkdown,
   scorePassage,
   summarise,
@@ -222,6 +223,15 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
         const result: ProbeResult = { id: probe.id, scene: scene.key, kind: probe.kind, asks: probe.asks, ...(probe.note ? { note: probe.note } : {}), samples: [] }
         probeResults.push(result)
         if (probe.note) cfg.log(`probe ${probe.id}: ${probe.note}`)
+        // Step 5: the search index caught up and read for meaning before the probe, so its briefings really search.
+        await app.memoryIdle()
+        const recall = await app.recallReady()
+        if (recall.available) {
+          result.recall = recall
+          cfg.log(
+            `probe ${probe.id}: find by meaning ${recall.meaning ? `on (${recall.engine ?? '?'}), ${recall.indexed?.done ?? 0} of ${recall.indexed?.total ?? 0} passages read` : 'off'}${recall.note ? `; ${recall.note}` : ''}`
+          )
+        }
         for (let i = 0; i < cfg.samples; i++) {
           await app.memoryIdle()
           if (app.budget.hit) {
@@ -301,6 +311,7 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       probes: probeResults,
       usage: app.usage(),
       summary: summarise(probeResults, 'written', data.traps),
+      ...(probeResults.some((x) => x.recall) ? { recall: recallSummary(probeResults) } : {}),
       ...(app.repairMod ? { repaired: summariseRepair(probeResults, data.traps) } : {})
     }
 

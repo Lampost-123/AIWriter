@@ -110,6 +110,20 @@ the same. The passage is scored as written and, when a fix changed it, again aft
 as their own job. It is switched on for the run (`checkNewWords` in Settings, and `AIWRITE_REPAIR`). Older checkouts
 run exactly as before.
 
+## Recall by meaning (step 5)
+
+When the checkout has step 5 (`src/main/retrieval/`), the run gives it what Adam's app has after its own download:
+the search model's files (bge-small-en-v1.5) are copied from `--search-model <folder>` (default: the copy checked on
+Adam's computer, in the session's scratch folder; never downloaded) into the run's app data folder with the record
+the app's download leaves; "Find by meaning" is on, and so is step 5 (`AIWRITE_RECALL`). Before each probe the
+search index is brought up to date and the harness waits until the model has read every passage, so the briefing
+really searches by meaning. The report says whether finding by meaning was on for every probe, with which engine,
+and how many passages had been read; without the model (missing, or `--search-model none`) it runs with keyword
+search, sticky entries and what was said only, and says so. The model reads on worker threads, as in the app: the
+trap config bundles the app's `?nodeWorker` scripts with esbuild into the temp folder and starts them as real worker
+threads (onnxruntime-node loads from the checkout's own node_modules), which also lets token counting run on its
+worker as in the app.
+
 ## Cost (an estimate)
 
 At DeepSeek's chat prices (about $0.28 per million tokens in, $0.028 for input it reads from its cache, and $0.42 out;
@@ -125,7 +139,10 @@ were read from the cache where the app records it (drafts and Continue; not the 
   versions about $1.55 at full price; the samples of one probe send the same briefing, so DeepSeek's cache takes it
   nearer $1.35.
 - **Again from a saved world** (`--from-world`): only scenes 24 to 29 are read: about 40% of the above.
-- Round 3 (5 samples, probes v1) used 0.87 to 1.54 million tokens in a run.
+- Round 3 (5 samples, probes v1) used 0.87 to 1.54 million tokens in a run. Round 4's 0.6.24 run (probes v2, 3
+  samples) used 698,000 in (352,000 of them from DeepSeek's cache) and 118,000 out: about $0.16.
+- Main with steps 1 to 5: about 1,250,000 in and 175,000 out (step 5's recall adds passages to each briefing; its
+  search model runs on this computer, no tokens): about $0.25 to $0.30 with the cache.
 
 ## Story version 3: the traps (probes v2)
 
