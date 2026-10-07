@@ -312,6 +312,42 @@ describe('Continue', () => {
     expect(text).toContain('- Mara: no longer has the forged ledger (handed the forged ledger to Tobin; since Ch 1, Sc 3)')
     expect(text).toContain('- Tobin: has the forged ledger (Mara handed the forged ledger to Tobin; since Ch 1, Sc 3)')
   })
+
+  it('what must stay true says nothing of the marks or lost things of someone only named near the words, only that the dead are dead', () => {
+    // The trap run (Adam, 2026-10-07): Continue's list spent five of its twelve lines on a dead master and a horse in
+    // the stable, both only named in the scene so far.
+    const ledger = entry('ledger', 'The forged ledger', { kind: 'item' })
+    const seal = entry('seal', 'The harbour seal', { kind: 'item' })
+    const rose = {
+      ...OLD_ROSE,
+      fields: { ...OLD_ROSE.fields, marks: 'a burn scar on her wrist' },
+      happened: [{ note: 'lost the harbour seal', where: 'Book 1, Ch 1, Sc 2', changeId: 'c0', at: 2 }]
+    }
+    const edric = entry('edric', 'Edric', {
+      fields: { marks: 'burned in his chair' },
+      happened: [
+        { note: 'handed the forged ledger to Mara', where: 'Book 1, Ch 1, Sc 1', changeId: 'c1', at: 1 },
+        { note: 'died in his chair', where: 'Book 1, Ch 1, Sc 1', changeId: 'c2', at: 2 }
+      ]
+    })
+    const must = { facts: [], sceneId: 's1', storyTitle: 'Book 1', places: {}, relationships: [] }
+    const before = 'Mara thought of Rose, and of the ledger Edric had left her.'
+    const b = ok(
+      editBriefing(input('continue', { selection: '', before, after: '' }), world({ entries: [MARA, TOBIN, rose, edric, TAVERN, ledger, seal], must }))
+    )
+    const text = b.blocks.find((x) => x.id === 'must')!.text
+    expect(text).toContain('- Mara: has the forged ledger (Edric handed the forged ledger to Mara; since Ch 1, Sc 1)')
+    expect(text).toContain('- Edric is dead: died in his chair (since Ch 1, Sc 1)')
+    expect(text).not.toContain('Edric: burned in his chair')
+    expect(text).not.toContain('Edric: no longer has')
+    expect(text).not.toContain('Rose:')
+    // On the scene card, she is in the scene: her lines come back.
+    const there = world({ entries: [MARA, TOBIN, rose, edric, TAVERN, ledger, seal], must })
+    there.scene.card.presentIds = ['tobin', 'rose']
+    const withRose = ok(editBriefing(input('continue', { selection: '', before, after: '' }), there)).blocks.find((x) => x.id === 'must')!.text
+    expect(withRose).toContain('- Rose: a burn scar on her wrist')
+    expect(withRose).toContain('- Rose: no longer has the harbour seal (lost the harbour seal; since Ch 1, Sc 2)')
+  })
 })
 
 describe('Fix voice', () => {

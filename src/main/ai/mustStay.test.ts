@@ -403,6 +403,59 @@ describe('what must stay true', () => {
     expect(full).toContain('The door: barred from inside')
   })
 
+  it('the case slip: the case on the sill comes before what people no longer have, and never beside a strap still on', () => {
+    // The trap run (Adam, 2026-10-07): twelve lines of injuries and "no longer has" left out the survey case on the
+    // sill, and a case strap still "on, case on her back" was told beside it; the writer put the case against her hip.
+    const wren = entry('character', 'Wren Hollis', { fields: { marks: 'burn from wrist to elbow' } })
+    const ash = entry('character', 'Ash Penrose', { fields: { marks: 'thin pink line from cheekbone to jaw' } })
+    const s: SceneState = {
+      time: 'night',
+      weather: 'rain',
+      light: 'low firelight',
+      things: [{ name: 'the survey case', state: 'on the windowsill, flat' }],
+      characters: [
+        {
+          ...blank,
+          name: 'Wren Hollis',
+          condition: 'burned arm',
+          holding: 'the case under her arm; a candle',
+          clothes: [
+            { name: 'case strap', state: 'on, case on her back, strap buckled' },
+            { name: 'bandage', state: 'on, over the burn' }
+          ]
+        },
+        { ...blank, name: 'Ash Penrose', condition: 'wet through' }
+      ],
+      said: { [thingKey('the survey case')]: { quote: 'She set the case down flat on the sill', sceneId: 'here' } }
+    }
+    const lost = (person: EntryState, item: string, at: number): Holding => ({
+      personId: person.id,
+      person: person.name,
+      itemId: item,
+      item: `the ${item}`,
+      words: [item],
+      has: false,
+      again: false,
+      how: `lost the ${item}`,
+      where: `The Mill, Ch 1, Sc ${at}`,
+      at
+    })
+    const holdings = [lost(wren, 'survey', 1), lost(wren, 'watch', 2), lost(wren, 'compass', 3), lost(ash, 'pony', 4)]
+    const about = 'Wren sleeps an hour with the survey and the watch and the compass on her mind; the pony is at the farrier.'
+    const lines = mustStayTrue(base({ stand: s, people: [wren, ash], holdings, about }))
+    expect(lines).toContain('The survey case: on the windowsill, flat (since earlier in this scene)')
+    expect(lines).toContain('Wren Hollis is holding: a candle')
+    expect(lines.join('\n')).not.toContain('case strap')
+    expect(lines.join('\n')).not.toContain('under her arm')
+    // Short, with less room: what is held and the case on the sill come before what is gone, and that before old marks.
+    const short = mustStayTrue(base({ stand: s, people: [wren, ash], holdings, about, short: true }))
+    expect(short).toHaveLength(MUST_SHORT)
+    expect(short).toContain('The survey case: on the windowsill, flat (since earlier in this scene)')
+    expect(short).toContain('Wren Hollis is holding: a candle')
+    expect(short.filter((l) => l.includes('no longer has'))).toHaveLength(2)
+    expect(short.join('\n')).not.toContain('burn from wrist to elbow')
+  })
+
   it('reads with its lead, or none in the short form', () => {
     expect(mustText(['A', 'B'], 'here')).toBe(`${MUST_LEAD.here}\n- A\n- B`)
     expect(mustText(['A'], 'start')).toBe(`${MUST_LEAD.start}\n- A`)

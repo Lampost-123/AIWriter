@@ -680,6 +680,175 @@ describe('where things stand', () => {
     expect(open.said?.[thingKey('the survey case')]).toBeUndefined()
   })
 
+  it('keeps each thing in one place: the case set on the sill is no longer worn (the trap run’s case strap)', () => {
+    // The trap run (Adam, 2026-10-07): Wren set the case down flat on the sill. The memory model put the case there and
+    // emptied her hand, but its list of what she wore left out the case strap, so "case strap on, case on her back"
+    // carried on, and the writer had her sit up with the case against her hip.
+    const words = 'She undid the strap and lifted the flap. Then she set the case down flat on the sill and lay down on the settle.'
+    const read = readChanges(
+      JSON.stringify({
+        things: [{ thing: 'the survey case', state: 'on the windowsill, flat', quote: 'She set the case down flat on the sill' }],
+        characters: [
+          {
+            name: 'Wren Hollis',
+            holding: { value: 'nothing', quote: 'She set the case down flat on the sill' },
+            clothes: [{ item: 'hat', state: 'on', quote: 'lay down on the settle' }]
+          }
+        ]
+      }),
+      words,
+      'inn'
+    )!
+    const before: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [
+        person('Wren Hollis', {
+          holding: 'the survey case',
+          clothes: [
+            { name: 'case strap', state: 'on, case on her back, strap buckled' },
+            { name: 'jumper', state: 'on' },
+            { name: 'hat', state: 'on' }
+          ]
+        })
+      ],
+      said: {
+        [pieceKey('Wren Hollis', 'case strap')]: { quote: 'She undid the strap and lifted the flap', sceneId: 'inn' },
+        [pieceKey('Wren Hollis', 'jumper')]: { quote: 'pulled the jumper down', sceneId: 'road' }
+      }
+    }
+    const after = mergeState(before, read)
+    const wren = after.characters[0]
+    expect(after.things).toEqual([{ name: 'the survey case', state: 'on the windowsill, flat' }])
+    expect(wren.holding).toBe('nothing')
+    // The strap goes, its words with it; the jumper the reply left out keeps its value and words (leaving out isn't taking off).
+    expect(wren.clothes).toEqual([
+      { name: 'jumper', state: 'on' },
+      { name: 'hat', state: 'on' }
+    ])
+    expect(after.said?.[pieceKey('Wren Hollis', 'case strap')]).toBeUndefined()
+    expect(after.said?.[pieceKey('Wren Hollis', 'jumper')]?.quote).toBe('pulled the jumper down')
+    const text = stateText(after)
+    expect(text).toContain('- the survey case: on the windowsill, flat')
+    expect(text).not.toContain('case strap')
+
+    // Something still held that names it goes too, and only that: "the case; the lamp" is "the lamp".
+    const holding = mergeState(
+      { ...before, characters: [person('Wren Hollis', { holding: 'the case under her arm; the lamp' })] },
+      { things: read.things, said: read.said }
+    )
+    expect(holding.characters[0].holding).toBe('the lamp')
+
+    // Taken up again, with words that show it: no longer on the sill.
+    const two = 'Wren took the case off the sill and slung it on her back.'
+    const up = mergeState(
+      after,
+      readChanges(
+        JSON.stringify({
+          characters: [
+            {
+              name: 'Wren Hollis',
+              clothes: [{ item: 'case strap', state: 'on, case on her back', quote: 'slung it on her back' }]
+            }
+          ]
+        }),
+        two,
+        'inn'
+      )!
+    )
+    expect(up.things).toEqual([])
+    expect(up.characters[0].clothes!.map((p) => p.name)).toContain('case strap')
+  })
+
+  it('keeps each thing in one place: a piece told again with words that don’t show it on leaves the thing where it was put', () => {
+    // A reply that repeats "case strap on" from the state before, with words about something else, never takes the case
+    // off the sill; the thing put down in the same reply wins over a piece told with no words naming it.
+    const words = 'She set the case down flat on the sill. Her head was on the rolled edge of the cushion.'
+    const after = mergeState(
+      { time: '', weather: '', light: '', characters: [person('Wren Hollis', { holding: 'the survey case' })] },
+      readChanges(
+        JSON.stringify({
+          things: [{ thing: 'the survey case', state: 'on the windowsill, flat', quote: 'She set the case down flat on the sill' }],
+          characters: [
+            {
+              name: 'Wren Hollis',
+              clothes: [
+                { item: 'case strap', state: 'on, case on her back', quote: 'on the rolled edge of the cushion' },
+                { item: 'hat', state: 'on', quote: 'on the rolled edge of the cushion' }
+              ]
+            }
+          ]
+        }),
+        words,
+        'inn'
+      )!
+    )
+    expect(after.things).toEqual([{ name: 'the survey case', state: 'on the windowsill, flat' }])
+    expect(after.characters[0].clothes).toEqual([{ name: 'hat', state: 'on' }])
+    expect(after.characters[0].holding).toBe('nothing')
+    // Held now, with words that name it, after it was put down before: it is in her hand, not on the sill.
+    const held = mergeState(
+      after,
+      readChanges(
+        JSON.stringify({ characters: [{ name: 'Wren Hollis', holding: { value: 'the survey case', quote: 'Wren snatched up the case' } }] }),
+        'Wren snatched up the case.',
+        'inn'
+      )!
+    )
+    expect(held.things).toEqual([])
+    expect(held.characters[0].holding).toBe('the survey case')
+  })
+
+  it('keeps each thing in one place only for that thing: a door, two mugs, a piece already off and someone else’s coat stay', () => {
+    const before: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [
+        person('Wren Hollis', {
+          holding: 'a mug of tea; the door key',
+          clothes: [
+            { name: 'oilskin coat', state: 'on' },
+            { name: 'boots', state: 'off, by the hearth' },
+            { name: 'fire-scorched shirt', state: 'on' }
+          ]
+        }),
+        person('Ash Penrose', {
+          clothes: [
+            { name: 'coat', state: 'on' },
+            { name: 'spurs', state: 'on' },
+            { name: 'hat', state: 'on' }
+          ]
+        }),
+        person('Tobin', { clothes: [{ name: 'hat', state: 'on' }] })
+      ]
+    }
+    const after = mergeState(before, {
+      things: [
+        { name: 'the door', state: 'shut and barred from inside' },
+        { name: "Ash's coat", state: 'on the peg behind the door' },
+        { name: 'the mugs', state: 'on the floor' },
+        // Wren's, taken off: never Ash's, still on.
+        { name: 'the boots', state: 'by the hearth' },
+        { name: 'the fire', state: 'burned down to a red core' },
+        // On someone, not put anywhere.
+        { name: "Ash's spurs", state: "on Ash's feet" },
+        // Whose? Two have a hat on.
+        { name: 'a hat', state: 'on the table' }
+      ],
+      said: { [thingKey("Ash's coat")]: { quote: 'Ash hung his coat on the peg', sceneId: 'inn' } }
+    })
+    const [wren, ash, tobin] = after.characters
+    // Not a place ("barred", "burned down"), one mug of two, a piece already off, someone else's coat: all stay.
+    expect(wren.holding).toBe('a mug of tea; the door key')
+    expect(wren.clothes!.map((p) => p.name)).toEqual(['oilskin coat', 'boots', 'fire-scorched shirt'])
+    // Ash hung his own coat on the peg: he no longer has it on. His spurs and hat, and Tobin's hat, stay.
+    expect(ash.clothes!.map((p) => p.name)).toEqual(['spurs', 'hat'])
+    expect(tobin.clothes!.map((p) => p.name)).toEqual(['hat'])
+    expect(after.things).toHaveLength(7)
+  })
+
   it('says who touches whom and who can see or hear whom only when the words say so', () => {
     const words = 'Tobin took her hand. From the stairs, Ash watched them.'
     const read = readChanges(

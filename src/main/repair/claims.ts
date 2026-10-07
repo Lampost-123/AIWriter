@@ -32,6 +32,7 @@ import { findQuote } from '../keeper/text'
 import { parseLenient, str } from '../keeper/json'
 import { plain, wordCount } from '../keeper/text'
 import type { LandedParagraph } from '@shared/contracts/repair'
+import { isPlaced } from '@shared/continuity'
 import type { CodexLine, StageLine } from './prompts'
 
 export const ABOUT = ['where', 'posture', 'wearing', 'holding', 'touching', 'sees', 'thing', 'condition', 'knows', 'owns', 'time'] as const
@@ -233,6 +234,15 @@ export function judgeClaims(
     const line = stage.get(c.line) ?? null
     if (!line && !codex.has(c.line)) continue
     out.claims++
+    // A thing put down in this scene, moved off the page: always asked, whatever the model made of it (see below).
+    if (line && pickedUpOffPage(c, line, found.quote, newWords.slice(0, found.start + found.quote.length), ctx.leadIn ?? '')) {
+      out.slips++
+      const key = plainQuote(found.quote)
+      if (asked.has(key)) continue
+      asked.add(key)
+      out.questions.push({ quote: found.quote, start: found.start, message: offPageQuestion(c, line), fix: c.fix && found.whole ? rewriteOf(found.quote, c.fix) : null, claim: c })
+      continue
+    }
     // A "slip" the model itself says could be true together with the stage is no slip.
     if (c.verdict !== 'slip' || c.bothTrue === 'yes') continue
     out.slips++
@@ -260,6 +270,53 @@ export function judgeClaims(
     out.questions.push({ quote: found.quote, start: qStart, message: questionOf(c), fix: rewrite, claim: c })
   }
   return out
+}
+
+// ---------- Nothing is picked up off the page ----------
+// Adam, 2026-10-07: in a trap run Wren set the survey case down flat on the sill, and a few lines later the new words
+// had her sit up "with the case against her hip". The model compared them with the sill line and said they fit: she
+// could have picked it up off the page ("between": action). Within one stretch of a scene that is no excuse. When the
+// line is a thing put somewhere, or an empty hand, with its words in this scene, and the claim names the same thing as
+// moved there by something off the page, and nothing in the words since shows it picked up or moved, it is asked as a
+// question, whatever the model's verdict: never mended without asking, and never let pass.
+
+/** Words that show a thing picked up or moved: "picked the case up", "took it from the sill", "slung it on". */
+const MOVED =
+  /\b(?:pick(?:s|ed|ing)?|took|takes|taking|lift(?:s|ed|ing)?|snatch(?:es|ed|ing)?|grab(?:s|bed|bing)?|caught|catch(?:es)?|gather(?:s|ed)?|sl(?:ing|ings|ung)|shoulder(?:s|ed)|hoist(?:s|ed)?|fetch(?:es|ed)?|seiz(?:es|ed)|scoop(?:s|ed)?|reach(?:es|ed)|carr(?:y|ies|ied)|br(?:ing|ings|ought)|mov(?:es|ed)|dragg(?:ed)?|drags?|haul(?:s|ed)?|pull(?:s|ed)|tuck(?:s|ed)|clutch(?:es|ed)|hugg(?:ed)?|hugs?|retriev(?:es|ed)|recover(?:s|ed)|collect(?:s|ed)|got|gets)\b/i
+
+/** The same, with "it" or "them" right after: "picked it up", "took them from the sill". */
+const MOVED_IT = new RegExp(`${MOVED.source}\\s+(?:it|them)\\b`, 'i')
+
+/**
+ * True when a stage line says a thing is put somewhere ("the survey case: on the windowsill, flat"; not a door barred),
+ * or that a hand is empty: something a claim can't move off the page.
+ */
+const putSomewhere = (line: StageLine): boolean =>
+  line.field === 'thing'
+    ? /:\s/.test(line.value) && isPlaced(line.value.slice(line.value.indexOf(':') + 1))
+    : line.field === 'holding' && /^(?:nothing|none|empty[- ]?handed|(?:(?:his|her|their|both) )?hands? (?:are |is )?(?:empty|free))\b/i.test(line.value)
+
+/**
+ * True when a claim has a thing put down earlier in this scene picked up or moved off the page (see above): the line is
+ * a thing put somewhere or an empty hand, with words in this scene (`here`); the model put the change down to something
+ * done off the page ("between": action); the claim names the same thing (sameThing); and no sentence since the line's
+ * words (in `leadIn`, then the new words up to the claim's end, `upTo`) shows that thing (or "it") picked up or moved.
+ */
+export function pickedUpOffPage(c: Pick<Claim, 'between'>, line: StageLine, quote: string, upTo: string, leadIn: string): boolean {
+  if (c.between !== 'action' || !line.here || !line.quote || !putSomewhere(line)) return false
+  const shared = [...things(quote)].filter((w) => things(`${line.value} ${line.quote}`).has(w))
+  if (!shared.length) return false
+  const r = lastPlace(leadIn, line.quote)
+  const since = `${r ? leadIn.slice(r.end) : ''}\n\n${upTo}`
+  const sentences = since.split(/(?<=[.!?…])\s+|\n+/)
+  return !sentences.some((s) => MOVED_IT.test(s) || (MOVED.test(s) && [...things(s)].some((w) => shared.includes(w))))
+}
+
+/** The question for a thing picked up off the page: what the line says, and the choice. */
+function offPageQuestion(c: Pick<Claim, 'who'>, line: StageLine): string {
+  const what = line.field === 'thing' ? `${line.value.replace(/:\s*/, ' was ')} ("${line.quote}")` : `"${line.quote}"`
+  const who = c.who.trim() || 'someone'
+  return `Earlier in this scene: ${what}. Nothing since shows it picked up or moved. Should ${who} take it up on the page first, or should it stay where it was?`
 }
 
 const WORD_CHAR = /[\p{L}\p{N}]/u

@@ -13,7 +13,7 @@ import { fieldSections, mentions, openingSentences, REPLY_LIMIT_CAP, sceneTail, 
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
-import { MUST_TITLE, mustStayTrue, mustText } from '../ai/mustStay'
+import { MUST_TITLE, mustStayTrue, mustText, stageFor } from '../ai/mustStay'
 import { holdingsOf } from '../memory/items'
 import { CONTINUE_WORDS, finalAsk, systemPrompt, type PromptOptions } from './prompts'
 import { whoSpeaks, type SpokenLine } from './speakers'
@@ -247,10 +247,20 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   // in the briefing. Sent right before the closing ask: in full, then short with less room, and left out on the last
   // try, so an edit a small model could do before still fits. With what those people gave away, lost or got, however
   // long ago (memory/items.ts), the items named near the words first.
-  const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: people.map((e) => e.id) }) : []
+  // Only those in the scene (Adam, 2026-10-07): on the scene card, speaking, or on the stage as told here (stageInScene,
+  // #65). Someone only named near the words (a dead master's survey, a horse in the stable) is in the briefing, but the
+  // list says nothing of their marks or what they no longer have: only that they are dead, when they are. With no one
+  // known to be here, everyone in the briefing.
+  const inScene = new Set<ID>([card.povId, ...(card.presentIds ?? []), ...lines.map((l) => l.speakerId)].filter((id): id is ID => !!id))
+  const known = people.filter((e) => inScene.has(e.id) || !!stageFor(e, world.stand))
+  const here = known.length ? known : people
+  const away = people.filter((e) => !here.includes(e))
+  const holdings = world.must ? holdingsOf({ entries: world.entries, relationships: world.must.relationships ?? [], people: here.map((e) => e.id) }) : []
   const about = [near, card.goal, card.conflict, card.outcome, card.notes, ...(card.beats ?? []), direction].filter((t) => t?.trim()).join('\n')
   const mustOf = (short: boolean): string[] =>
-    world.must ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must, holdings, about, short }) : []
+    world.must
+      ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people: here, named: away, ...world.must, holdings, about, short })
+      : []
   const must = { full: mustOf(false), short: mustOf(true) }
 
   const o: PromptOptions = {

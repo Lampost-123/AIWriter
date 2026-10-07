@@ -19,6 +19,7 @@ import {
   offState,
   pieceText,
   readItem,
+  singular,
   thingText,
   type StageItem
 } from './stageItems'
@@ -479,13 +480,156 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
   }
 }
 
+// ---------- One place for each thing ----------
+// A thing is in one place at a time (Adam, 2026-10-07, "fix the case slip first"). In a trap run Wren set the survey
+// case down flat on the sill; the memory model put the case there and emptied her hand, but its list of what she wore
+// left out the case strap, so "case strap on, case on her back" carried on beside "the survey case: on the windowsill".
+// Told both, the writer had her sit up with the case against her hip. So when a thing is put somewhere, a piece someone
+// has on or anything they hold that names it goes: put down means not worn or held. When someone takes it up (holds it
+// or puts it on, with words that show it), it is no longer where it was. A piece a change simply leaves out keeps its
+// value (leaving out isn't taking off); only one that names a thing now put somewhere else goes.
+
+/** A thing's state that says where it was put, so it isn't worn or held: "on the windowsill, flat", "hung on the peg". */
+const PLACED =
+  /^(?:on|onto|upon|in|inside|into|under|underneath|beneath|by|beside|against|at|across|over|behind|near|next to|propped|leaning|lying|standing|resting|hung|hanging|set|laid|left|put|placed|dropped|stowed|tucked|stood|sitting)\b/i
+/** A state that says the thing is on or with someone ("on Ash's feet", "in her pocket", "at her side"): not put down. */
+const ON_SOMEONE =
+  /\b(?:feet|foot|head|back|shoulders?|hands?|arms?|wrists?|fingers?|neck|hips?|waist|belt|lap|knees?|thighs?|side|body|pocket|pack|saddle|worn|wearing|carried|held|holding)\b/i
+/**
+ * True when a thing's state says where it was put ("on the windowsill, flat"), not how it is ("barred from inside") nor
+ * that someone has it ("on Ash's feet").
+ */
+export const isPlaced = (state: string): boolean => PLACED.test(state.trim()) && !ON_SOMEONE.test(state)
+/** Words that show something taken up: "snatched up the case", "lifted it off the sill", "slung it on". */
+const TAKE_UP =
+  /\b(?:pick(?:s|ed|ing)? up|took|takes|taken|lift(?:s|ed)?|snatch(?:es|ed)?|grab(?:s|bed)?|caught up|catch(?:es)? up|gather(?:s|ed)? up|sl(?:ing|ings|ung)|shoulder(?:s|ed)|hoist(?:s|ed)?|fetch(?:es|ed)?|seiz(?:es|ed)|swept up|scoop(?:s|ed)? up|reach(?:es|ed)? for|buckl(?:es|ed)|strapp(?:ed)?|put (?:it|them) on|pull(?:s|ed) (?:it|them) on)\b/i
+/** Words that show something put down: "set the case down flat on the sill", "hung it on the peg". */
+const PUT_WORDS = /\b(?:set|sets|put|puts|laid|lays|lay|hung|hangs|placed|places|dropped|drops|propped|props|stood|stands|left|leaves|stowed|tucked|leaned|leant|rested)\b/i
+
+/** The word a thing is known by: "case" for "the survey case", "plate" for "the plate of bread and dripping". */
+function objectWord(name: string): string {
+  const key = itemKey(name).split(/\s+(?:of|from|for|with|in|on|at|to)\s+/)[0] ?? ''
+  const w = key.split(' ').at(-1) ?? ''
+  return w.length >= 3 ? w : ''
+}
+
+/** Whose a thing is, when its name says ("Ash's coat": "ash"); '' otherwise. */
+const ownerOf = (name: string): string => /^(?:the\s+)?(\p{Lu}[\p{L}-]*)['’]s\s/u.exec(name.trim())?.[1]?.toLowerCase() ?? ''
+
+/** Words as told apart here: lower case, a hyphenated word one word ("fire-scorched" isn't "fire"), "Ash's" as "ash". */
+const tokens = (s: string): string[] =>
+  s
+    .toLowerCase()
+    .replace(/['’]s\b/g, '')
+    .split(/[^\p{L}\p{N}-]+/u)
+    .filter(Boolean)
+
+/** True when `text` names a thing known by `word`: the word, or one of many for one ("cases"), never one for many ("mug" isn't "the mugs"). */
+function namesObject(text: string, word: string): boolean {
+  if (!word) return false
+  const many = singular(word) !== word
+  return tokens(text).some((w) => (many ? w === word : singular(w) === word))
+}
+
+/** The words of a piece of clothing that say what it is: its name ("case strap"), or an old line's words before "on" or "off". */
+const pieceWords = (p: StageItem): string => (p.state ? p.name : (p.name.split(/\s+(?:on|off)\b|[(,;]/i)[0] ?? ''))
+/** True when a piece is on them (not off, wherever it is). */
+const isOn = (p: StageItem): boolean => (p.state ? !isOff(p.state) : !/\boff\b/i.test(p.name))
+/** The words of a held piece that say what it is: "the case" in "the case under her arm, strap wound round her wrist". */
+const heldWords = (piece: string): string => piece.split(',')[0] ?? ''
+
+/** What a change set says each person took up: whether it gave what they hold, and the pieces of clothing it gave. */
+type Given = Map<CharacterState, { holding: boolean; pieces: Set<string> }>
+
+/** The pieces someone wears (on or off) that name a thing known by `word`. */
+const wornNaming = (c: CharacterState, word: string): StageItem[] => clothesOf(c).filter((x) => namesObject(pieceWords(x), word))
+/** The parts of what someone holds that name it ("the case under her arm" in "the case under her arm; a candle"). */
+const heldNaming = (c: CharacterState, word: string): string[] =>
+  piecesOf('holding', c.holding).filter((h) => !gonePiece('holding', h) && namesObject(heldWords(h), word))
+
+/**
+ * Whom a thing put somewhere is about: the one its name says ("Ash's coat" is only Ash's); else the one person who has on
+ * or holds something that names it. Nobody when someone has such a piece off (the boots by the hearth are the ones taken
+ * off) or more than one person has one on or in hand (whose would it be?).
+ */
+function whoseIt(people: CharacterState[], t: StageItem, word: string): CharacterState[] {
+  const owner = ownerOf(t.name)
+  if (owner) return people.filter((c) => tokens(c.name).includes(owner))
+  if (people.some((c) => wornNaming(c, word).some((p) => !isOn(p)))) return []
+  const some = people.filter((c) => wornNaming(c, word).some(isOn) || heldNaming(c, word).length > 0)
+  return some.length === 1 ? some : []
+}
+
+/**
+ * One place for each thing (see above): for each thing put somewhere, the pieces worn and the things held that name it,
+ * by whomever it is about (whoseIt). When this change set has them take it up, with words that show it (that name it, or
+ * say it was picked up or put on), and it wasn't put down in the same change with words that show that, the thing is no
+ * longer where it was; otherwise they no longer wear or hold it, and the words of what they held go.
+ */
+function onePlace(out: SceneState, said: StateSources, placedNow: Set<string>, given: Given): void {
+  const quoteOf = (key: string): string => said[key]?.quote ?? ''
+  const takenUp = new Set<StageItem>()
+  for (const t of thingsOf(out)) {
+    const word = objectWord(t.name)
+    if (!word || !isPlaced(t.state)) continue
+    const tq = quoteOf(thingKey(t.name))
+    const putHere = placedNow.has(t.name) && (namesObject(tq, word) || PUT_WORDS.test(tq))
+    const shown = (q: string): boolean => namesObject(q, word) || TAKE_UP.test(q)
+    const clashes: (() => void)[] = []
+    for (const c of whoseIt(out.characters, t, word)) {
+      const mine = given.get(c)
+      for (const p of wornNaming(c, word).filter(isOn)) {
+        if (mine?.pieces.has(p.name) && shown(quoteOf(pieceKey(c.name, p.name))) && !putHere) takenUp.add(t)
+        else clashes.push(() => (c.clothes = clothesOf(c).filter((x) => x !== p)))
+      }
+      const named = heldNaming(c, word)
+      if (!named.length) continue
+      if (mine?.holding && shown(quoteOf(sourceKey(c.name, 'holding'))) && !putHere) takenUp.add(t)
+      else
+        clashes.push(() => {
+          const kept = piecesOf('holding', c.holding).filter((h) => !named.includes(h))
+          c.holding = kept.length ? kept.join('; ') : 'nothing'
+          delete said[sourceKey(c.name, 'holding')]
+        })
+    }
+    if (!takenUp.has(t)) for (const clear of clashes) clear()
+  }
+  if (takenUp.size) out.things = thingsOf(out).filter((t) => !takenUp.has(t))
+}
+
+/** The thing the stage has put somewhere that `words` (what `who` wears or holds) name, when it is about them (whoseIt). */
+function placedThing(state: Pick<SceneState, 'things' | 'characters'>, who: string, words: string): StageItem | null {
+  const me = (c: CharacterState): boolean => c.name.toLowerCase() === who.toLowerCase()
+  return (
+    thingsOf(state).find((t) => {
+      const word = objectWord(t.name)
+      return isPlaced(t.state) && namesObject(words, word) && whoseIt(state.characters, t, word).some(me)
+    }) ?? null
+  )
+}
+
+/**
+ * True when a piece someone has on names a thing the stage has put somewhere ("case strap on" with the survey case on the
+ * windowsill): the two can't both be told (ai/mustStay.ts tells the thing). Never for a piece that is off.
+ */
+export const pieceClashes = (state: Pick<SceneState, 'things' | 'characters'>, who: string, p: StageItem): boolean =>
+  isOn(p) && !!placedThing(state, who, pieceWords(p))
+
+/** What someone holds without anything the stage has put somewhere ("the case; the lamp" with the case on the sill is "the lamp"); '' for nothing left. */
+export function heldNotPlaced(state: Pick<SceneState, 'things' | 'characters'>, who: string, holding: string): string {
+  const parts = piecesOf('holding', holding)
+  const kept = parts.filter((h) => gonePiece('holding', h) || !placedThing(state, who, heldWords(h)))
+  return kept.length === parts.length ? holding : kept.join('; ')
+}
+
 /**
  * The state after a scene: the one before it with what the scene says laid over it. A value the scene gives
  * replaces the old one (Adam: the old is discarded, not kept beside it); what it doesn't mention carries on. A holding
  * or wearing value that only says something is gone (`gone`, from readChanges) is laid over the old one (layGone): an
  * empty hand clears what was held, and its words with it. Piece by piece (step 2b): a change to one piece of clothing,
  * or one thing in the place, touches only that one (boots off leaves the coat as it was); "gone" takes it off the list.
- * The result is always kept piece by piece, whatever the state before was.
+ * Each thing is in one place (onePlace): a thing put somewhere is no longer worn or held, and one taken up is no longer
+ * where it was. The result is always kept piece by piece, whatever the state before was.
  */
 export function mergeState(before: SceneState | null, now: Partial<SceneState> & { gone?: string[] }): SceneState {
   const said: StateSources = { ...(before?.said ?? {}) }
@@ -503,15 +647,24 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
       out[k] = now[k]!
       take(sourceKey(null, k))
     }
+  // The things this change set put somewhere, by the name each is kept under (onePlace).
+  const placedNow = new Set<string>()
   if (now.things?.length) {
     const m = mergeItems(thingsOf(out), now.things, false, MOST_THINGS)
     out.things = m.items
-    for (const { from, to } of m.changed) take(thingKey(from), thingKey(to))
+    for (const { from, to } of m.changed) {
+      take(thingKey(from), thingKey(to))
+      placedNow.add(to)
+    }
   }
   const gone = new Set(now.gone ?? [])
+  /** What this change set says each person (by the name kept) took up: what they hold now, the pieces they have on now. */
+  const given: Given = new Map()
   for (const c of now.characters ?? []) {
     let had = out.characters.find((x) => x.name.toLowerCase() === c.name.toLowerCase())
     if (!had) out.characters.push((had = blankCharacter(c.name)))
+    const mine = { holding: false, pieces: new Set<string>() }
+    given.set(had, mine)
     for (const f of STATE_FIELDS) {
       const value = c[f]
       if (!value) continue
@@ -520,7 +673,10 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
         const laid = layGone(f, had[f], value)
         if (laid === null) continue
         had[f] = laid
-      } else had[f] = value
+      } else {
+        had[f] = value
+        if (f === 'holding') mine.holding = true
+      }
       take(key, sourceKey(had.name, f))
     }
     const who = had.name
@@ -528,7 +684,10 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
     if (c.clothes?.length) {
       const m = mergeItems(worn, c.clothes, true, MOST_CLOTHES)
       had.clothes = m.items
-      for (const { from, to } of m.changed) take(pieceKey(c.name, from), pieceKey(who, to))
+      for (const { from, to } of m.changed) {
+        take(pieceKey(c.name, from), pieceKey(who, to))
+        mine.pieces.add(to)
+      }
     } else if (c.wearing) {
       // Given the old way: the whole outfit in one line, or only what came off (laid over what was worn).
       const key = sourceKey(c.name, 'wearing')
@@ -536,11 +695,13 @@ export function mergeState(before: SceneState | null, now: Partial<SceneState> &
       if (line !== null) {
         for (const p of worn) delete said[pieceKey(who, p.name)]
         had.clothes = itemsFromText(line).slice(-MOST_CLOTHES)
+        if (!gone.has(key)) for (const p of had.clothes) mine.pieces.add(p.name)
         const from = now.said?.[key]
         if (from) for (const p of had.clothes) said[pieceKey(who, p.name)] = had.clothes.length > 1 ? { ...from, line: true } : from
       }
     }
   }
+  onePlace(out, said, placedNow, given)
   // The characters seen most lately first, so a long story keeps the ones that matter.
   const named = new Set((now.characters ?? []).map((c) => c.name.toLowerCase()))
   out.characters.sort((a, b) => Number(named.has(b.name.toLowerCase())) - Number(named.has(a.name.toLowerCase())))

@@ -102,6 +102,31 @@ describe('reading what moved', () => {
     ])
   })
 
+  it('reads a thing "lent by" or "given by" someone, in a character’s own note, as theirs now (the trap run’s gelding)', () => {
+    // Adam, 2026-10-07: "now riding Cinder, a grey gelding lent by Ash" was read as Wren no longer having Cinder.
+    const wrenH = entry('character', 'Wren Hollis')
+    const ashP = entry('character', 'Ash Penrose')
+    const cinder = entry('item', 'Cinder', { aliases: ['the grey gelding'] })
+    const h = itemHeads([wrenH, ashP, cinder])
+    const read = {
+      self: wrenH.id,
+      itemSelf: null,
+      items: [{ id: cinder.id, names: namesOf(cinder, h) }],
+      people: [
+        { id: wrenH.id, names: ['Wren Hollis', 'Wren'] },
+        { id: ashP.id, names: ['Ash Penrose', 'Ash'] }
+      ]
+    }
+    expect(movesIn('now riding Cinder, a grey gelding lent by Ash', read)).toEqual([{ item: cinder.id, to: wrenH.id, from: [ashP.id] }])
+    expect(movesIn('Cinder, given by Ash', read)).toEqual([{ item: cinder.id, to: wrenH.id, from: [ashP.id] }])
+    // Riding is neither getting nor losing; given on to someone named is still given away.
+    expect(movesIn('rode Cinder to the ford', read)).toEqual([])
+    expect(movesIn('Cinder, handed by Wren to Ash', read)).toEqual([{ item: cinder.id, to: ashP.id, from: [wrenH.id] }])
+    wrenH.happened = [note('now riding Cinder, a grey gelding lent by Ash', 5)]
+    const got = holdingsOf({ entries: [wrenH, ashP, cinder], relationships: [], people: [wrenH.id] })
+    expect(got.map((x) => holdingLine(x))).toEqual(['Wren Hollis: has Cinder (now riding Cinder, a grey gelding lent by Ash; since Fell Road, Ch 2, Sc 5)'])
+  })
+
   it('reads nothing into what did not happen, or what is no item', () => {
     for (const text of [
       'did not give her compass to Mother Agate',

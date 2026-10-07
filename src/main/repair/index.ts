@@ -264,7 +264,7 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
   } catch {
     aiText = ''
   }
-  const stage = stageLines(stageAt(input))
+  const stage = stageLines(stageAt(input), input.sceneId)
   const codex = codexLines(ctx, newWords)
   // The critic after the draft waits for this check, and leaves out what it covered once it has (criticChecks).
   let settle!: () => void
