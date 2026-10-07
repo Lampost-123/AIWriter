@@ -2,7 +2,8 @@
 // (src/main/continuity/tracker.ts), shown in the scene panel so Adam can browse it and put it right: change a value,
 // take a character out, or read the scene again. What he changes is kept until the scene's words change; a state
 // whose words (or an earlier scene's state) changed is shown as out of date, never used as it is. At the cursor
-// (Adam, 2026-10-07): where things stand at any point in the scene, from the checkpoints kept inside it.
+// (Adam, 2026-10-07): where things stand at any point in the scene, from the checkpoints kept inside it. Piece by piece
+// (step 2b, Adam 2026-10-07): each piece of clothing and each thing in the place is its own line to put right.
 import type { ID } from '../types'
 import type { SceneState, StateField } from '../continuity'
 
@@ -25,10 +26,17 @@ export interface RecallAtView {
   exact: boolean
 }
 
-/** A value to change: one of a character's (`character` is their name), or the scene's time, weather or light. */
+/**
+ * A value to change: one of a character's (`character` is their name), or the scene's time, weather or light; or one
+ * piece of what a character wears, or one thing in the place: `item` is its name as shown ('' for a new one), and
+ * `value` the piece as Adam writes it ("boots off, by the door") or the thing's state ("barred from inside"; a new
+ * thing as "the lamp: lit"); '' takes it out.
+ */
 export type RecallChange =
   | { character: string; field: StateField; value: string }
   | { character?: undefined; field: 'time' | 'weather' | 'light'; value: string }
+  | { character: string; field: 'clothes'; item: string; value: string }
+  | { character?: undefined; field: 'things'; item: string; value: string }
 
 export interface RecallApi {
   getRecall(sceneId: ID): Promise<RecallView>

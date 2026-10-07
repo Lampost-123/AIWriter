@@ -8,7 +8,7 @@ import type { LandedParagraph } from '@shared/contracts/repair'
 import { allTheAis, judgeClaims, newWordsOf, questionOf, readClaims, sameMoment, sameThing, SAME_MOMENT_CHARS, type Claim } from './claims'
 import { plain as plainOf } from '../keeper/text'
 import { stageLines, stageLineText, type CodexLine, type StageLine } from './prompts'
-import type { SceneState } from '@shared/continuity'
+import { pieceKey, thingKey, type SceneState } from '@shared/continuity'
 
 const STAGE: SceneState = {
   time: 'dusk',
@@ -20,7 +20,8 @@ const STAGE: SceneState = {
   ],
   said: {
     '|time': { quote: 'the light was going', sceneId: 's1' },
-    'mara|wearing': { quote: 'pushed her hood back', sceneId: 's1' },
+    // Her hood's own words (the old line's pieces share none of them).
+    [pieceKey('Mara', 'hood')]: { quote: 'pushed her hood back', sceneId: 's1' },
     'mara|posture': { quote: 'lay down on the bench', sceneId: 's1' },
     'tobin|where': { quote: 'Tobin left for the docks', sceneId: 's1' }
     // Tobin's lamp has no words kept (Adam set it himself).
@@ -53,7 +54,12 @@ const judge = (claims: Claim[], paragraphs = PARAS, aiText = AI) => judgeClaims(
 
 describe('the stage as lines', () => {
   it('gives each value an id and the words that show it', () => {
-    expect(stage.map(stageLineText)).toContain(`- [${code('Mara', 'wearing')}] Mara · wearing: hood off, wet cloak · words: "pushed her hood back"`)
+    // Each piece of clothing its own line (step 2b; here read from a state kept before it, in one line).
+    const worn = stage.filter((l) => l.who === 'Mara' && l.field === 'wearing').map(stageLineText)
+    expect(worn).toEqual([
+      `- [${code('Mara', 'wearing')}] Mara · wearing: hood off · words: "pushed her hood back"`,
+      `- [W4] Mara · wearing: wet cloak · no words kept`
+    ])
     expect(stage.map(stageLineText)).toContain(`- [${code('Tobin', 'holding')}] Tobin · holding: a lamp · no words kept`)
     expect(stage[0]).toMatchObject({ code: 'W1', who: null, field: 'time', value: 'dusk', quote: 'the light was going' })
     expect(stageLines(null)).toEqual([])
@@ -197,7 +203,15 @@ describe('judging claim by claim', () => {
 
 describe('fixing only what plainly can’t be true (the trap story’s real runs, 2026-10-07)', () => {
   /** One claim against one stage line, with the words just before and the new words: what is made of it. */
-  function judgeOne(o: { line: Omit<StageLine, 'code'>; leadIn: string; text: string; quote: string; was: string; now: string; c?: Partial<Claim> }) {
+  function judgeOne(o: {
+    line: Omit<StageLine, 'code'>
+    leadIn: string
+    text: string
+    quote: string
+    was: string
+    now: string
+    c?: Partial<Claim>
+  }) {
     const line: StageLine = { code: 'W1', ...o.line }
     const paragraphs: LandedParagraph[] = [{ text: o.text, from: 0, to: o.text.length }]
     return judgeClaims([claim({ quote: o.quote, line: 'W1', who: o.line.who ?? '', fix: { replace: o.was, with: o.now }, ...o.c })], {
@@ -349,4 +363,142 @@ describe('fixing only what plainly can’t be true (the trap story’s real runs
     expect(sameThing('with his hat in his hands', { value: 'hat on', quote: 'put his hat back on' })).toBe(true)
     expect(sameThing("the case lying across Wren's knees", { value: 'her left arm through the rein', quote: 'put her left arm through the rein' })).toBe(false)
   })
+})
+
+describe('piece by piece (step 2b)', () => {
+  // Adam, 2026-10-07: a door barred and then opened from outside with nothing keeping track of it, and a case put on a
+  // windowsill back in someone's hand.
+  const STAGE2: SceneState = {
+    time: '',
+    weather: '',
+    light: '',
+    things: [
+      { name: 'the door', state: 'shut and barred from inside' },
+      { name: 'the survey case', state: 'on the windowsill' }
+    ],
+    characters: [
+      {
+        name: 'Wren',
+        where: 'the parlour',
+        posture: '',
+        touching: "her hand on Ash's arm",
+        sees: '',
+        holding: 'nothing',
+        condition: '',
+        mood: '',
+        lastAction: '',
+        clothes: [
+          { name: 'grey coat', state: 'on' },
+          { name: 'boots', state: 'off, by the hearth' }
+        ]
+      }
+    ],
+    said: {
+      [thingKey('the door')]: { quote: 'Ash dropped the bar across the door', sceneId: 's1' },
+      [thingKey('the survey case')]: { quote: 'set the survey case on the windowsill', sceneId: 's1' },
+      [pieceKey('Wren', 'boots')]: { quote: 'kicked off her boots by the hearth', sceneId: 's1' },
+      'wren|touching': { quote: "laid her hand on Ash's arm", sceneId: 's1' }
+    }
+  }
+  const lines2 = stageLines(STAGE2)
+  const at = (field: string, value: string): string => lines2.find((l) => l.field === field && l.value.startsWith(value))!.code
+  const LEAD2 =
+    "Ash dropped the bar across the door. Wren laid her hand on Ash's arm, kicked off her boots by the hearth and set the survey case on the windowsill."
+  const AI2 = 'Wren gripped the survey case in both hands. Someone hammered on the door from outside, and it swung open.'
+  const PARAS2: LandedParagraph[] = [{ text: AI2, from: 0, to: AI2.length }]
+  const judge2 = (claims: Claim[], leadIn = LEAD2) =>
+    judgeClaims(claims, { stage: lines2, codex: [], paragraphs: PARAS2, aiText: AI2, leadIn })
+
+  it('gives each piece of clothing, each thing in the place, and who touches whom a line of its own with its words', () => {
+    const text = lines2.map(stageLineText)
+    expect(text).toContain(
+      `- [${at('wearing', 'boots')}] Wren · wearing: boots off, by the hearth · words: "kicked off her boots by the hearth"`
+    )
+    expect(text).toContain(`- [${at('wearing', 'grey coat')}] Wren · wearing: grey coat on · no words kept`)
+    expect(text).toContain(
+      `- [${at('thing', 'the door')}] thing in the place: the door: shut and barred from inside · words: "Ash dropped the bar across the door"`
+    )
+    expect(text).toContain(`- [${at('touching', 'her hand')}] Wren · touching: her hand on Ash's arm · words: "laid her hand on Ash's arm"`)
+    expect(lines2.find((l) => l.field === 'thing')).toMatchObject({ who: null })
+    expect(
+      readClaims('{"claims": [{"quote": "q", "about": "thing", "line": "W6"}, {"quote": "q", "about": "sees"}]}')!.map((c) => c.about)
+    ).toEqual(['thing', 'sees'])
+  })
+
+  it('mends a thing in the place only when it plainly can’t be so at that moment; a door opened from outside is a question', () => {
+    const got = judge2([
+      claim({
+        quote: 'Wren gripped the survey case in both hands',
+        who: 'Wren',
+        about: 'thing',
+        line: at('thing', 'the survey case'),
+        why: 'Wren had just set the survey case on the windowsill.',
+        fix: { replace: 'gripped the survey case', with: 'eyed the survey case' }
+      }),
+      // Someone outside could have lifted the bar: something could have happened in between.
+      claim({
+        quote: 'it swung open',
+        about: 'thing',
+        line: at('thing', 'the door'),
+        between: 'action',
+        why: 'The door was barred from inside.',
+        question: 'The door was barred from inside. Should someone unbar it first, or was it never barred?',
+        fix: { replace: 'it swung open', with: 'the bar held' }
+      })
+    ])
+    expect(got.fixes.map((f) => [f.was, f.now])).toEqual([['gripped the survey case', 'eyed the survey case']])
+    expect(got.questions.map((q) => q.message)).toEqual([
+      'The door was barred from inside. Should someone unbar it first, or was it never barred?'
+    ])
+    // The same slip after a scene break: time has passed, so it is asked, never mended.
+    const later = judge2(
+      [
+        claim({
+          quote: 'Wren gripped the survey case in both hands',
+          about: 'thing',
+          line: at('thing', 'the survey case'),
+          fix: { replace: 'gripped the survey case', with: 'eyed the survey case' }
+        })
+      ],
+      `${LEAD2}\n\n* * *\n\nMorning came.`
+    )
+    expect(later.fixes).toEqual([])
+    expect(later.questions).toHaveLength(1)
+  })
+
+  it('never mends who touches whom: hands move', () => {
+    const got = judge2([
+      claim({
+        quote: 'Wren gripped the survey case in both hands',
+        who: 'Wren',
+        about: 'touching',
+        line: at('touching', 'her hand'),
+        fix: { replace: 'in both hands', with: 'in one hand' }
+      })
+    ])
+    expect(got.fixes).toEqual([])
+    expect(got.questions).toHaveLength(1)
+  })
+
+describe('words shared by an old one-line outfit (review, 2026-10-07)', () => {
+  it('never mend a piece without asking: they show the line, not that piece', () => {
+    const old: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [{ name: 'Mara', where: '', wearing: 'dark trousers, grey cloak off', posture: '', holding: '', condition: '', mood: '', lastAction: '' }],
+      said: { 'mara|wearing': { quote: 'took her grey cloak off', sceneId: 's1' } }
+    }
+    const lines = stageLines(old)
+    const trousers = lines.find((l) => l.value === 'dark trousers')!
+    expect(trousers).toMatchObject({ quote: 'took her grey cloak off', shared: true })
+    const words = 'Mara hitched up her dark trousers.'
+    const got = judgeClaims(
+      [claim({ quote: 'hitched up her dark trousers', who: 'Mara', line: trousers.code, fix: { replace: 'hitched up', with: 'smoothed' } })],
+      { stage: lines, codex: [], paragraphs: [{ text: words, from: 0, to: words.length }], aiText: words, leadIn: 'Mara took her grey cloak off.' }
+    )
+    expect(got.fixes).toEqual([])
+    expect(got.questions).toHaveLength(1)
+  })
+})
 })

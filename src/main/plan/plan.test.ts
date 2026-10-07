@@ -163,7 +163,8 @@ describe('checking the plan against the stage', () => {
       world({ material: `${MATERIAL}\nOsric Hale carries the abbey keys.` })
     )
     expect(p.keep).toEqual([
-      'Wren is wearing: linen shirt, boots off by the hatch',
+      // Read from a state kept before step 2b, in one line: the pieces, each as it reads.
+      'Wren is wearing: linen shirt; boots off by the hatch',
       'How Wren is placed: sitting on a sack',
       'Wren: left arm in a sling',
       'Osric Hale is holding: the abbey keys',
@@ -195,9 +196,80 @@ describe('checking the plan against the stage', () => {
       }),
       world({ reach: 'start', card, calls: card })
     )
-    expect(p.keep).toEqual(['Wren is wearing: linen shirt, boots off by the hatch', 'Where Wren is: the market square', 'Time: Day 3, midnight'])
+    expect(p.keep).toEqual([
+      'Wren is wearing: linen shirt; boots off by the hatch',
+      'Where Wren is: the market square',
+      'Time: Day 3, midnight'
+    ])
     expect(p.changes).toEqual(['Wren walks back towards the mill.', 'Wren sits on a sack.'])
     expect(p.checked).toEqual({ corrected: 1, dropped: 2 })
+  })
+
+  it("piece by piece: each piece and each thing in the place in the stage's own words, and a change that starts wrong left out", () => {
+    // Step 2b (Adam, 2026-10-07): a door barred and then opened from outside with nothing keeping track of it, and a case
+    // put on a windowsill back in someone's hand.
+    const stand: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      things: [
+        { name: 'the door', state: 'shut and barred from inside' },
+        { name: 'the survey case', state: 'on the windowsill' }
+      ],
+      characters: [
+        {
+          name: 'Wren',
+          where: 'the inn parlour',
+          posture: 'sitting on the settle',
+          touching: '',
+          sees: '',
+          holding: 'nothing',
+          condition: '',
+          mood: '',
+          lastAction: '',
+          clothes: [
+            { name: 'grey coat', state: 'on, buttoned' },
+            { name: 'boots', state: 'off, by the hearth' }
+          ]
+        }
+      ]
+    }
+    const p = checkPlan(
+      raw({
+        relies: [
+          // The piece it names, in the stage's words.
+          { who: 'Wren', what: 'wearing', value: 'her boots on' },
+          // A thing in the place, in the stage's words; one the stage doesn't have and nothing gave it: left out.
+          { who: '', what: 'thing', value: 'the door: open' },
+          { who: '', what: 'object', value: 'the lamp: lit' }
+        ],
+        changes: [
+          // Moves that need no asking: dressing, picking things up, a hand on an arm.
+          { who: 'Wren', what: 'wearing', from: 'boots off', to: 'boots on, laced', how: 'Wren pulls her boots on and laces them.' },
+          { who: 'Wren', what: 'thing', from: 'the survey case: on the windowsill', to: 'gone', how: 'Wren picks up the survey case.' },
+          { who: 'Wren', what: 'touching', from: '', to: "a hand on Osric's arm", how: "Wren lays a hand on Osric's arm." },
+          // Already so: her coat is on.
+          { who: 'Wren', what: 'wearing', from: '', to: 'grey coat', how: 'Wren puts on her grey coat.' },
+          // Starts from a door that isn't open.
+          { who: 'Wren', what: 'thing', from: 'the door: open', to: 'the door: shut', how: 'Wren shuts the door.' },
+          // Seeing someone can be what happens: only when the card calls for it.
+          { who: 'Wren', what: 'sees', from: '', to: 'sees a stranger at the window', how: 'Wren sees a stranger at the window.' }
+        ]
+      }),
+      world({ stand })
+    )
+    expect(p.keep).toEqual(['Wren: boots off, by the hearth', 'The door: shut and barred from inside'])
+    expect(p.changes).toEqual([
+      'Wren pulls her boots on and laces them.',
+      'Wren picks up the survey case.',
+      "Wren lays a hand on Osric's arm."
+    ])
+    expect(p.checked).toEqual({ corrected: 2, dropped: 4 })
+    expect(fieldOf('touching')).toBe('touching')
+    expect(fieldOf('sees')).toBe('sees')
+    expect(fieldOf('thing')).toBe('thing')
+    expect(contradicts('the door: barred', 'the door: open')).toBe(true)
+    expect(contradicts('the lamp lit', 'the lamp out')).toBe(true)
   })
 
   it('a later day, or a gap not known: only injuries; another story: none of the stage', () => {
@@ -458,7 +530,7 @@ describe('making the plan', () => {
     expect(f.asked[0].system.startsWith(PLAN_MARKER)).toBe(true)
     expect(plan).toEqual({
       needs: [w.weir.id],
-      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt, boots off by the hatch\nWhat happens on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
+      text: `${PLAN_HEAD}\nWhat the scene rests on, as things stand:\n- Wren is wearing: linen shirt; boots off by the hatch\nWhat happens on the page, in order:\n1. Wren stands to meet him.\n${PLAN_GO.start}`,
       checked: { corrected: 1, dropped: 0 }
     })
     expect(db.prepare('SELECT job, scene_id, status FROM generations').all()).toEqual([{ job: 'memory', scene_id: sceneId, status: 'complete' }])

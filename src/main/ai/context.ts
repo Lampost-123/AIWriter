@@ -148,7 +148,7 @@ export const STAND_LEAD =
   'Keep to this unless the scene card or the author says otherwise: a change (a coat taken off, a move to another room) happens on the page.'
 /** What block 3b says first when it is where things stand at the end of the scene so far (Add below, a later beat). */
 export const STAND_LEAD_SO_FAR =
-  'Carry on from exactly this: where each person is, what they wear and how it sits, how they are placed and what they hold. Nothing changes unless it happens on the page, in the words (a coat taken off, a move to another room), or the author says so.'
+  'Carry on from exactly this: where each person is, each piece of what they wear and how it sits, how they are placed and what they hold, and where the things in the place are (a door barred, a case on the sill). Nothing changes unless it happens on the page, in the words (a coat taken off, a move to another room, a door opened), or the author says so.'
 
 export interface BlockDraft {
   id: string

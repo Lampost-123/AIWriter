@@ -1,25 +1,58 @@
 // Where things stand (Adam, 2026-10-04): what the continuity tracker keeps for each character as a scene ends, and
 // for the scene (src/main/continuity/tracker.ts), in plain data, with how it reads and how a scene's changes are
 // laid over the state before. Changes, not guesses (Adam, 2026-10-07): every value the memory model gives comes with
-// the words that show it, and one whose words aren't in the text is left out. Shared by the main process and the
-// Recall panel. Pure.
+// the words that show it, and one whose words aren't in the text is left out. Piece by piece (step 2b, Adam
+// 2026-10-07): each piece of clothing someone has on or took off is its own entry with its own words, and so is each
+// thing in the place (a door barred, a case on the windowsill), and who touches whom and who can see or hear whom are
+// kept as the words say them (shared/stageItems.ts). A state kept before step 2b, with all that was worn in one line,
+// is read as pieces with nothing lost (clothesOf). Shared by the main process and the Recall panel. Pure.
+
+import {
+  isGone,
+  isOff,
+  itemKey,
+  itemsFromText,
+  matching,
+  mergeItems,
+  MOST_CLOTHES,
+  MOST_THINGS,
+  offState,
+  pieceText,
+  readItem,
+  thingText,
+  type StageItem
+} from './stageItems'
+
+export type { StageItem } from './stageItems'
 
 /** One character as a scene ends. '' where the story hasn't said. */
 export interface CharacterState {
   name: string
   where: string
-  wearing: string
   posture: string
   holding: string
   condition: string
   mood: string
   lastAction: string
+  /** Who they are touching and how, only as the words say it (step 2b; not in states kept before it). */
+  touching?: string
+  /** Who they can or can't see or hear, only as the words say it (step 2b; not in states kept before it). */
+  sees?: string
+  /** Each piece of clothing they have on or took off, with how it is now (step 2b). States kept before it have `wearing`. */
+  clothes?: StageItem[]
+  /** Before step 2b: all they wore, in one line. Read as pieces (clothesOf); never written now. */
+  wearing?: string
 }
 
 export interface SceneState {
   time: string
   weather: string
   light: string
+  /**
+   * The things in the place that matter, each with where and how it is now (step 2b): only what the words put there. Not
+   * in states kept before it.
+   */
+  things?: StageItem[]
   characters: CharacterState[]
   /** The words behind each value, by sourceKey; a value carried on from before keeps its words. */
   said?: StateSources
@@ -29,19 +62,26 @@ export interface SceneState {
 export interface StateSource {
   quote: string
   sceneId: string
+  /**
+   * The words of a whole one-line outfit (kept before step 2b, or given the old way), shared by every piece read from it:
+   * they show the line, not this piece, so a slip against the piece is never mended without asking.
+   */
+  line?: boolean
 }
 export type StateSources = Record<string, StateSource>
 /** Where a value's words are kept: the character's name (lower case) and the field, or '' and the scene's field. */
 export const sourceKey = (character: string | null, field: string): string => `${character ? character.toLowerCase() : ''}|${field}`
 
-export const STATE_FIELDS = ['where', 'wearing', 'posture', 'holding', 'condition', 'mood', 'lastAction'] as const
+/** The values kept for each character in a line of their own; what they wear is kept piece by piece (`clothes`). */
+export const STATE_FIELDS = ['where', 'posture', 'touching', 'sees', 'holding', 'condition', 'mood', 'lastAction'] as const
 /** One of the values kept for each character. */
 export type StateField = (typeof STATE_FIELDS)[number]
 /** Words for each field, as the writer and Adam read them. */
 export const STATE_LABELS: Record<(typeof STATE_FIELDS)[number], string> = {
   where: 'where',
-  wearing: 'wearing',
   posture: 'position',
+  touching: 'touching',
+  sees: 'sees or hears',
   holding: 'holding',
   condition: 'condition',
   mood: 'mood',
@@ -49,19 +89,120 @@ export const STATE_LABELS: Record<(typeof STATE_FIELDS)[number], string> = {
 }
 /** The most characters kept. */
 export const MOST_TRACKED = 40
-/** The longest a value is kept: room for every piece of clothing and how it sits, or a full description of a pose. */
+/** The longest a value is kept: room for a full description of a pose. */
 export const LONGEST_VALUE = 400
 const clip = (v: unknown): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, LONGEST_VALUE) : '')
-const empty = (): SceneState => ({ time: '', weather: '', light: '', characters: [] })
+const empty = (): SceneState => ({ time: '', weather: '', light: '', things: [], characters: [] })
+/** A character with nothing known yet. */
+const blankCharacter = (name: string): CharacterState => ({
+  name,
+  ...(Object.fromEntries(STATE_FIELDS.map((f) => [f, ''])) as Record<StateField, string>),
+  clothes: []
+})
+/** The same, as a state kept before step 2b had them (its hash must not change): all they wear in one line. */
+const oldBlankCharacter = (name: string): CharacterState => ({
+  name,
+  where: '',
+  wearing: '',
+  posture: '',
+  holding: '',
+  condition: '',
+  mood: '',
+  lastAction: ''
+})
+/** True for a state kept before step 2b: no one in it kept piece by piece, and no things. */
+const keptBefore2b = (s: SceneState): boolean => !s.things && s.characters.every((c) => !c.clothes)
+
+// ---------- Piece by piece ----------
+
+/** Where the words of one piece of someone's clothing are kept. */
+export const pieceKey = (character: string, item: string): string => sourceKey(character, `clothes:${itemKey(item)}`)
+/** Where the words of one thing in the place are kept. */
+export const thingKey = (thing: string): string => sourceKey(null, `thing:${itemKey(thing)}`)
+
+/**
+ * What someone wears, piece by piece: as kept, or, in a state kept before step 2b, their one line read as pieces
+ * (itemsFromText), with nothing lost.
+ */
+export function clothesOf(c: Pick<CharacterState, 'clothes' | 'wearing'> | null | undefined): StageItem[] {
+  if (!c) return []
+  return c.clothes ?? itemsFromText(c.wearing ?? '')
+}
+
+/** The things in the place; none in a state kept before step 2b. */
+export const thingsOf = (s: Pick<SceneState, 'things'> | null | undefined): StageItem[] => s?.things ?? []
+
+/**
+ * The words behind one piece of someone's clothing: its own, or, read from an old one-line "wearing", that line's
+ * (shared, `line`, when the line holds more pieces than this one: `pieces`, how many it was read as).
+ */
+export function pieceSource(said: StateSources | undefined, character: string, item: string, pieces = 2): StateSource | undefined {
+  const own = said?.[pieceKey(character, item)]
+  if (own) return own
+  const line = said?.[sourceKey(character, 'wearing')]
+  return line && (pieces > 1 ? { ...line, line: true } : line)
+}
+
+/** A character as step 2b keeps them: what they wear piece by piece, the words of an old one-line "wearing" on each piece. */
+function asPieces(c: CharacterState, said: StateSources): CharacterState {
+  if (c.clothes) return c
+  const { wearing, ...rest } = c
+  const clothes = itemsFromText(wearing ?? '')
+  const old = said[sourceKey(c.name, 'wearing')]
+  if (old) for (const p of clothes) said[pieceKey(c.name, p.name)] ??= clothes.length > 1 ? { ...old, line: true } : old
+  delete said[sourceKey(c.name, 'wearing')]
+  return { ...rest, clothes }
+}
+
+/**
+ * Which piece or thing an edit of Adam's is about, by the name it had when he made it: the one `matching` finds ("boots"
+ * is the "riding boots" read again from the same words), or the one an old long name says ("a white shirt unbuttoned to
+ * the waist" is the "shirt"), when there is just one; else the one with that very name; -1 for none.
+ */
+function editedAt(list: StageItem[], key: string, clothing: boolean): number {
+  const found = matching(list, key, clothing)
+  if (found.length === 1) return found[0]
+  // A long name, as old lines had ("white shirt unbuttoned to the waist"): the one piece its words name.
+  if (key.split(' ').length > 2) {
+    const back = list.map((x, i) => (matching([{ name: key, state: '' }], x.name, clothing).length ? i : -1)).filter((i) => i >= 0)
+    if (back.length === 1) return back[0]
+  }
+  return list.findIndex((x) => itemKey(x.name) === key)
+}
+
+/** A list with Adam's changes laid over it, each by the name of the piece or thing it was (null: taken out; new: added). */
+function itemEdits(list: StageItem[], edits: Record<string, StageItem | null>, forget: (name: string) => void, clothing: boolean): StageItem[] {
+  let out = list.map((x) => ({ ...x }))
+  for (const [key, now] of Object.entries(edits)) {
+    const at = editedAt(out, key, clothing)
+    if (at >= 0) forget(out[at].name)
+    if (now) forget(now.name)
+    if (at >= 0 && now) out[at] = { ...now }
+    else if (at >= 0) out = out.filter((_, i) => i !== at)
+    else if (now) out.push({ ...now })
+  }
+  return out
+}
+
+/** Adam's own changes to one character: values, and pieces of clothing by the name of the piece they were. */
+export type CharacterEdits = Partial<Record<StateField | 'name' | 'wearing', string>> & {
+  /** By the piece's name as compared (itemKey): its new name and state, or null when he took it out. */
+  clothes?: Record<string, StageItem | null>
+}
 
 /** Adam's own changes to a scene's state: values by character (name, lower case) or for the scene, and who he took out. */
 export interface StateEdits {
   scene?: Partial<Record<'time' | 'weather' | 'light', string>>
-  characters?: Record<string, Partial<Record<(typeof STATE_FIELDS)[number] | 'name', string>>>
+  characters?: Record<string, CharacterEdits>
+  /** The things in the place, by the thing's name as compared (itemKey): its new name and state, or null when taken out. */
+  things?: Record<string, StageItem | null>
   removed?: string[]
 }
 
-/** A kept state with Adam's edits laid over it. */
+/**
+ * A kept state with Adam's edits laid over it. A state kept before step 2b, with only the edits made then, comes back
+ * exactly as it was laid over then (the scenes after it are checked against its hash).
+ */
 export function withEdits(state: SceneState, edits: StateEdits | undefined): SceneState {
   if (!edits) return state
   const out: SceneState = { ...state, ...(edits.scene ?? {}), characters: state.characters.map((c) => ({ ...c })) }
@@ -72,25 +213,50 @@ export function withEdits(state: SceneState, edits: StateEdits | undefined): Sce
   out.characters = out.characters.filter((c) => !removed.has(c.name.toLowerCase()))
   for (const [name, values] of Object.entries(edits.characters ?? {})) {
     if (removed.has(name)) continue
-    let c = out.characters.find((x) => x.name.toLowerCase() === name)
-    if (!c) {
-      c = { name: values.name ?? name, ...Object.fromEntries(STATE_FIELDS.map((f) => [f, ''])) } as CharacterState
-      out.characters.push(c)
-    }
+    let at = out.characters.findIndex((x) => x.name.toLowerCase() === name)
+    if (at < 0) at = out.characters.push((keptBefore2b(state) ? oldBlankCharacter : blankCharacter)(values.name ?? name)) - 1
+    let c = out.characters[at]
     for (const f of STATE_FIELDS)
       if (values[f] !== undefined) {
         c[f] = (values[f] ?? '').slice(0, LONGEST_VALUE)
         delete said[sourceKey(c.name, f)]
       }
+    // An edit made before step 2b: all they wore, in one line.
+    if (values.wearing !== undefined) {
+      const line = (values.wearing ?? '').slice(0, LONGEST_VALUE)
+      if (c.clothes) {
+        for (const p of c.clothes) delete said[pieceKey(c.name, p.name)]
+        c.clothes = itemsFromText(line)
+      } else c.wearing = line
+      delete said[sourceKey(c.name, 'wearing')]
+    }
+    if (values.clothes) {
+      c = out.characters[at] = asPieces(c, said)
+      const who = c.name
+      c.clothes = itemEdits(c.clothes!, values.clothes, (p) => delete said[pieceKey(who, p)], true)
+    }
   }
+  if (edits.things) out.things = itemEdits(thingsOf(out), edits.things, (t) => delete said[thingKey(t)], false)
   if (state.said) out.said = keepSaid(said, out)
   return out
 }
 
-/** Only the words behind values still there. */
+/** Only the words behind values still there: a piece of clothing or a thing whose words they are must still be there. */
 function keepSaid(said: StateSources, state: SceneState): StateSources {
-  const names = new Set(['', ...state.characters.map((c) => c.name.toLowerCase())])
-  return Object.fromEntries(Object.entries(said).filter(([k]) => names.has(k.slice(0, k.lastIndexOf('|')))))
+  const people = new Map(state.characters.map((c) => [c.name.toLowerCase(), c]))
+  const things = new Set(thingsOf(state).map((t) => itemKey(t.name)))
+  return Object.fromEntries(
+    Object.entries(said).filter(([k]) => {
+      const cut = k.lastIndexOf('|')
+      const who = k.slice(0, cut)
+      const field = k.slice(cut + 1)
+      if (!who) return !field.startsWith('thing:') || things.has(field.slice(6))
+      const c = people.get(who)
+      if (!c) return false
+      if (field.startsWith('clothes:')) return clothesOf(c).some((p) => itemKey(p.name) === field.slice(8))
+      return true
+    })
+  )
 }
 
 /** Text as compared for a quote: lower case, letters and numbers only, single spaces. */
@@ -187,7 +353,7 @@ function gonePiece(field: 'holding' | 'wearing', piece: string): boolean {
  * True when a holding or wearing value only says what is gone: nothing at all ("nothing", "empty-handed",
  * "nothing; the case on the sill"), or every piece of it a thing put down or given away (held) or taken off (worn).
  */
-export function saysGone(field: StateField | 'time' | 'weather' | 'light', value: string): boolean {
+export function saysGone(field: StateField | 'wearing' | 'time' | 'weather' | 'light', value: string): boolean {
   if (field !== 'holding' && field !== 'wearing') return false
   const v = value.trim()
   if (!v) return false
@@ -235,6 +401,11 @@ export function layGone(field: 'holding' | 'wearing', before: string, now: strin
  * value given without words, or with words the text doesn't have, is left out. Null when the reply isn't JSON at all.
  * The one exception: a holding or wearing value that only says something is gone (saysGone) is kept even without
  * words, and listed in `gone` with any that do have words, so mergeState lays it over what was there (layGone).
+ *
+ * Piece by piece (step 2b): each piece of clothing ({"item", "state", "quote"}, under a character's "clothes") and each
+ * thing in the place ({"thing", "state", "quote"}, under "things") is kept with its own words; one that only says it
+ * is off or gone (boots off; the case picked up) is kept without words too, as an empty hand is. Clothes given the old
+ * way, all in one line ("wearing"), are still read, as the whole outfit.
  */
 export function readChanges(reply: string, words: string, sceneId: string): (Partial<SceneState> & { said: StateSources; gone: string[] }) | null {
   const body = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)
@@ -247,30 +418,61 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
   if (!v || typeof v !== 'object') return null
   const said: StateSources = {}
   const gone: string[] = []
-  const backed = (x: unknown, key: string, field: StateField | 'time' | 'weather' | 'light'): string => {
-    if (!x || typeof x !== 'object') return ''
-    const { value, quote } = x as { value?: unknown; quote?: unknown }
-    const val = clip(value)
+  /** A quote's words, when they are in what was read. */
+  const quoted = (x: unknown): string => {
+    const quote = x && typeof x === 'object' ? (x as { quote?: unknown }).quote : undefined
     const q = typeof quote === 'string' ? quote.replace(/\s+/g, ' ').trim().slice(0, LONGEST_QUOTE) : ''
-    const found = !!val && !!q && quoteFound(q, words)
+    return q && quoteFound(q, words) ? q : ''
+  }
+  const backed = (x: unknown, key: string, field: StateField | 'wearing' | 'time' | 'weather' | 'light'): string => {
+    if (!x || typeof x !== 'object') return ''
+    const val = clip((x as { value?: unknown }).value)
+    const q = val ? quoted(x) : ''
     if (val && saysGone(field, val)) gone.push(key)
-    else if (!found) return ''
-    if (found) said[key] = { quote: q, sceneId }
+    else if (!q) return ''
+    if (q) said[key] = { quote: q, sceneId }
     return val
+  }
+  /** Pieces of clothing or things: each with its words, or without when it only says it is off or gone. */
+  const listed = (x: unknown, nameKey: 'item' | 'thing', keyOf: (name: string) => string): StageItem[] => {
+    const out: StageItem[] = []
+    for (const raw of Array.isArray(x) ? x : []) {
+      const it = readItem(raw, nameKey)
+      if (!it) continue
+      // A piece with nothing said of how it is, is on; a thing with nothing said of it says nothing.
+      if (nameKey === 'item' && !it.state) it.state = 'on'
+      // A piece "removed" or "no longer worn" is off, and stays on the list as off.
+      if (nameKey === 'item') it.state = offState(it.state)
+      if (!it.state) continue
+      const q = quoted(raw)
+      if (!q && !isGone(it.state, nameKey === 'item') && !(nameKey === 'item' && isOff(it.state))) continue
+      if (q) said[keyOf(it.name)] = { quote: q, sceneId }
+      out.push(it)
+    }
+    return out
   }
   const characters = Array.isArray(v.characters)
     ? (v.characters as Record<string, unknown>[])
         .filter((c) => c && typeof c === 'object' && clip(c.name))
         .map((c) => {
           const name = clip(c.name)
-          return { name, ...Object.fromEntries(STATE_FIELDS.map((f) => [f, backed(c[f], sourceKey(name, f), f)])) } as CharacterState
+          const out = { name, ...Object.fromEntries(STATE_FIELDS.map((f) => [f, backed(c[f], sourceKey(name, f), f)])) } as CharacterState
+          const clothes = listed(c.clothes, 'item', (item) => pieceKey(name, item))
+          if (clothes.length) out.clothes = clothes
+          else {
+            // The old way: all they wear in one line.
+            const line = backed(c.wearing, sourceKey(name, 'wearing'), 'wearing')
+            if (line) out.wearing = line
+          }
+          return out
         })
-        .filter((c) => STATE_FIELDS.some((f) => c[f]))
+        .filter((c) => STATE_FIELDS.some((f) => c[f]) || c.clothes?.length || c.wearing)
     : []
   return {
     time: backed(v.time, sourceKey(null, 'time'), 'time'),
     weather: backed(v.weather, sourceKey(null, 'weather'), 'weather'),
     light: backed(v.light, sourceKey(null, 'light'), 'light'),
+    things: listed(v.things, 'thing', thingKey),
     characters,
     said,
     gone
@@ -281,35 +483,62 @@ export function readChanges(reply: string, words: string, sceneId: string): (Par
  * The state after a scene: the one before it with what the scene says laid over it. A value the scene gives
  * replaces the old one (Adam: the old is discarded, not kept beside it); what it doesn't mention carries on. A holding
  * or wearing value that only says something is gone (`gone`, from readChanges) is laid over the old one (layGone): an
- * empty hand clears what was held, and its words with it.
+ * empty hand clears what was held, and its words with it. Piece by piece (step 2b): a change to one piece of clothing,
+ * or one thing in the place, touches only that one (boots off leaves the coat as it was); "gone" takes it off the list.
+ * The result is always kept piece by piece, whatever the state before was.
  */
 export function mergeState(before: SceneState | null, now: Partial<SceneState> & { gone?: string[] }): SceneState {
-  const out: SceneState = before ? { ...before, characters: before.characters.map((c) => ({ ...c })) } : empty()
   const said: StateSources = { ...(before?.said ?? {}) }
+  const out: SceneState = before
+    ? { ...before, things: thingsOf(before).map((t) => ({ ...t })), characters: before.characters.map((c) => asPieces({ ...c }, said)) }
+    : empty()
   // A new value takes its own words, or none: never the old value's.
-  const take = (key: string): void => {
+  const take = (key: string, as = key): void => {
     const from = now.said?.[key]
-    if (from) said[key] = from
-    else delete said[key]
+    if (from) said[as] = from
+    else delete said[as]
   }
   for (const k of ['time', 'weather', 'light'] as const)
     if (now[k]) {
       out[k] = now[k]!
       take(sourceKey(null, k))
     }
+  if (now.things?.length) {
+    const m = mergeItems(thingsOf(out), now.things, false, MOST_THINGS)
+    out.things = m.items
+    for (const { from, to } of m.changed) take(thingKey(from), thingKey(to))
+  }
   const gone = new Set(now.gone ?? [])
   for (const c of now.characters ?? []) {
     let had = out.characters.find((x) => x.name.toLowerCase() === c.name.toLowerCase())
-    if (!had) out.characters.push((had = { ...c, ...Object.fromEntries(STATE_FIELDS.map((f) => [f, ''])) }))
+    if (!had) out.characters.push((had = blankCharacter(c.name)))
     for (const f of STATE_FIELDS) {
-      if (!c[f]) continue
+      const value = c[f]
+      if (!value) continue
       const key = sourceKey(c.name, f)
-      if ((f === 'holding' || f === 'wearing') && gone.has(key)) {
-        const laid = layGone(f, had[f], c[f])
+      if (f === 'holding' && gone.has(key)) {
+        const laid = layGone(f, had[f], value)
         if (laid === null) continue
         had[f] = laid
-      } else had[f] = c[f]
-      take(sourceKey(had.name, f))
+      } else had[f] = value
+      take(key, sourceKey(had.name, f))
+    }
+    const who = had.name
+    const worn = clothesOf(had)
+    if (c.clothes?.length) {
+      const m = mergeItems(worn, c.clothes, true, MOST_CLOTHES)
+      had.clothes = m.items
+      for (const { from, to } of m.changed) take(pieceKey(c.name, from), pieceKey(who, to))
+    } else if (c.wearing) {
+      // Given the old way: the whole outfit in one line, or only what came off (laid over what was worn).
+      const key = sourceKey(c.name, 'wearing')
+      const line = gone.has(key) ? layGone('wearing', worn.map(pieceText).join('; '), c.wearing) : c.wearing
+      if (line !== null) {
+        for (const p of worn) delete said[pieceKey(who, p.name)]
+        had.clothes = itemsFromText(line).slice(-MOST_CLOTHES)
+        const from = now.said?.[key]
+        if (from) for (const p of had.clothes) said[pieceKey(who, p.name)] = had.clothes.length > 1 ? { ...from, line: true } : from
+      }
     }
   }
   // The characters seen most lately first, so a long story keeps the ones that matter.
@@ -350,7 +579,64 @@ export function withoutSceneTime(state: SceneState): SceneState {
   return out
 }
 
-/** The state as lines: for the writer, the checks and What the AI saw. `only`: just these characters (names). */
+// ---------- A new scene starts with that moment over ----------
+// Who touches whom and who can see or hear whom belong to the moment, so a new scene never starts with them (step 2b,
+// Adam 2026-10-07). The things in the place (a door barred, a case on the windowsill) carry into the next scene only
+// when it is in the same place: both scene cards name the same place (continuity/tracker.ts startFrom).
+
+/** True when two scene cards name the same place; never when either names none. */
+export const samePlace = (a: string | null | undefined, b: string | null | undefined): boolean => !!a && a === b
+
+/**
+ * The state as a new scene starts from it: without who touches whom or can see or hear whom, and without the things in
+ * the place unless it is the same place, their words going with them. The same state, untouched, when there is nothing
+ * to take out (so a state kept before step 2b keeps its hash).
+ */
+export function newSceneStage(state: SceneState, same: boolean): SceneState {
+  const things = !same && thingsOf(state).length > 0
+  const moment = state.characters.some((c) => c.touching || c.sees)
+  if (!things && !moment) return state
+  const said: StateSources = { ...(state.said ?? {}) }
+  const out: SceneState = {
+    ...state,
+    characters: state.characters.map((c) => {
+      if (!c.touching && !c.sees) return c
+      delete said[sourceKey(c.name, 'touching')]
+      delete said[sourceKey(c.name, 'sees')]
+      return { ...c, touching: '', sees: '' }
+    })
+  }
+  if (things) out.things = []
+  if (state.said) out.said = keepSaid(said, out)
+  return out
+}
+
+/** The most of one piece's or thing's words told, and of all a person wears and of all the things, in characters. */
+const TOLD_ONE = 160
+const TOLD_WORN = 400
+const TOLD_THINGS = 600
+
+/** Lines cut to TOLD_ONE each, as many as fit in `most` characters; the most lately changed (the last) kept first. */
+function capped(lines: string[], most: number): string[] {
+  const out: string[] = []
+  let used = 0
+  for (const l of [...lines].reverse()) {
+    const one = l.length > TOLD_ONE ? `${l.slice(0, TOLD_ONE - 1).trimEnd()}…` : l
+    if (used + one.length > most) break
+    used += one.length
+    out.unshift(one)
+  }
+  return out
+}
+
+/** What someone wears as lines under them, as much as fits (TOLD_WORN). */
+const wornLines = (pieces: StageItem[]): string[] => capped(pieces.map(pieceText), TOLD_WORN).map((p) => `  - wearing: ${p}`)
+
+/**
+ * The state as lines: for the writer, the checks and What the AI saw. `only`: just these characters (names). Each piece
+ * of clothing is a line of its own under its person ("  - wearing: boots off, by the door"), and the things in the place
+ * follow, one a line, under "Things here:".
+ */
 export function stateText(state: SceneState, only?: string[]): string {
   const scene = [
     state.time && `Time: ${state.time}`,
@@ -362,8 +648,11 @@ export function stateText(state: SceneState, only?: string[]): string {
     .filter((c) => !wanted || wanted.some((n) => c.name.toLowerCase() === n || c.name.toLowerCase().startsWith(`${n} `)))
     .map((c) => {
       const parts = STATE_FIELDS.filter((f) => c[f]).map((f) => `${STATE_LABELS[f]}: ${c[f]}`)
-      return parts.length ? `- ${c.name}: ${parts.join('; ')}` : ''
+      const worn = wornLines(clothesOf(c).slice(-MOST_CLOTHES))
+      if (!parts.length && !worn.length) return ''
+      return [`- ${c.name}${parts.length ? `: ${parts.join('; ')}` : ''}`, ...worn].join('\n')
     })
     .filter(Boolean)
-  return [scene.join('. '), ...people].filter(Boolean).join('\n')
+  const things = capped(thingsOf(state).slice(-MOST_THINGS).map(thingText), TOLD_THINGS).map((t) => `- ${t}`)
+  return [scene.join('. '), ...people, ...(things.length ? ['Things here:', ...things] : [])].filter(Boolean).join('\n')
 }

@@ -17,13 +17,14 @@
 
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ContextPreview, EntryState, ID } from '@shared/types'
-import { quoteFound, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
+import { clothesOf, quoteFound, thingsOf, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
+import { isOff, itemKey, namesItem, parsePiece, pieceText, thingText, type StageItem } from '@shared/stageItems'
 import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { estimateTokens } from '../keeper/text'
 import { MUST_BLOCK, sceneTail, stageReach, type ContextInput, type PreparedContext } from '../ai/context'
 import { deathOf } from '../ai/deaths'
-import { secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
+import { pieceLine, secretsAmong, stageFor, stageLine, type Secret, type StageReach } from '../ai/mustStay'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 import { SO_FAR_BLOCK } from '../beats/instructions'
 import { PLAN_GO, PLAN_HEAD, PLAN_PARTS } from './echo'
@@ -81,7 +82,7 @@ const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g
 const STAND_NOTE: Record<StageReach, string> = {
   here: '',
   start:
-    'This was as the scene before ended, earlier the same day. The scene card says where and when this scene is: people may have moved. Injuries, what people wear and what they hold carry on unless the card says otherwise.',
+    'This was as the scene before ended, earlier the same day. The scene card says where and when this scene is: people may have moved. Injuries, what people wear and what they hold carry on unless the card says otherwise, and so do the things in the place, given only when this scene is in the same place.',
   later:
     'This was as the scene before ended, and time has passed since (a later day, or how long is not known). Only injuries surely carry on: where people are, how they are placed and what they wear and hold may all have changed.',
   none: ''
@@ -147,14 +148,15 @@ const SYSTEM = `${PLAN_MARKER} plan
 You plan one scene of a novel (or one beat of it) just before it is written, so the writer keeps to the facts. You don't write any of the scene.
 
 Read what the writer is asked, the scene card, what must stay true, where things stand and the words just before. Then say:
-- relies: the facts and positions the scene relies on: where people are, what they wear and hold, how they are placed, injuries. Copy each value word for word from what you are given. Never guess one.
+- relies: the facts and positions the scene relies on: where people are, each piece of clothing they wear or took off, what they hold, how they are placed, injuries, and the things in the place (a door barred, a case on the windowsill). Copy each value word for word from what you are given. Never guess one.
 - changes: what will change on the page, in the order it happens: only what the scene card, its beats or the author's direction call for (when you are asked to plan one beat, only that beat), and the moves they need (a coat taken off, a move to the window, something picked up or put down). For each: how it is now (from), how it is after (to), and how it happens, in one short sentence (how). Add no events of your own.
 - needs: the names of entries under "Also in the world" that the scene needs and the briefing lacks (a place it moves to, an object or a person it brings in). Exactly as listed, at most 4. None is fine.
 
 Reply with only a JSON object:
 {"relies": [{"who": "", "what": "", "value": ""}], "changes": [{"who": "", "what": "", "from": "", "to": "", "how": ""}], "needs": [""]}
 - who: a character's name as given, or "" for the scene itself or a fact about the world.
-- what: one of where, wearing, position, holding, condition, mood, time, light, weather, or fact.
+- what: one of where, wearing, position, touching, sees, holding, condition, mood, time, light, weather, thing, or fact.
+- A piece of clothing: what is "wearing", and the value, from and to name the piece and how it is ("boots off, by the door"). A thing in the place: what is "thing", who is whoever changes it (or ""), and the value, from and to name the thing and how it is ("the door: barred from inside").
 - Keep to what must stay true and to where things stand: nothing changes unless it happens on the page, and each change starts from how things are now.
 - What is kept from someone stays kept: never have them learn, guess or be told it, unless the scene card says so.
 - At most ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
@@ -216,7 +218,7 @@ export function readPlan(reply: string): RawPlan | null {
 // ---------- Checking it against the stage ----------
 
 type SceneField = 'time' | 'light' | 'weather'
-type Field = StateField | SceneField
+type Field = StateField | SceneField | 'wearing' | 'thing'
 
 /** The stage's field for what the planner wrote ("position" is posture); null for a fact. */
 export function fieldOf(what: string): Field | null {
@@ -224,6 +226,9 @@ export function fieldOf(what: string): Field | null {
   if (['where', 'place', 'location', 'whereabouts'].includes(w)) return 'where'
   if (['wearing', 'clothes', 'clothing', 'dress', 'outfit'].includes(w)) return 'wearing'
   if (['position', 'posture', 'pose', 'placed'].includes(w)) return 'posture'
+  if (['touching', 'touch', 'touches', 'contact'].includes(w)) return 'touching'
+  if (['sees', 'seeing', 'sight', 'hears', 'hearing', 'seesorhears', 'senses'].includes(w)) return 'sees'
+  if (['thing', 'things', 'object', 'objects', 'item', 'items', 'door', 'prop'].includes(w)) return 'thing'
   if (['holding', 'carrying', 'held', 'holds'].includes(w)) return 'holding'
   if (['condition', 'injury', 'injuries', 'health', 'body'].includes(w)) return 'condition'
   if (['mood', 'feeling', 'feelings'].includes(w)) return 'mood'
@@ -233,15 +238,35 @@ export function fieldOf(what: string): Field | null {
 }
 
 const SCENE_FIELDS: readonly string[] = ['time', 'light', 'weather']
-/** The stage's fields that still hold here, by how far the stage reaches (as what must stay true keeps them). */
+/**
+ * The stage's fields that still hold here, by how far the stage reaches (as what must stay true keeps them). The things
+ * in the place reach a new scene's start only when it is the same place: the stage has none otherwise.
+ */
 const IN_REACH: Record<StageReach, readonly Field[]> = {
-  here: ['where', 'wearing', 'posture', 'holding', 'condition', 'mood', 'lastAction', 'time', 'light', 'weather'],
-  start: ['condition', 'wearing', 'holding'],
+  here: [
+    'where',
+    'wearing',
+    'posture',
+    'touching',
+    'sees',
+    'holding',
+    'condition',
+    'mood',
+    'lastAction',
+    'time',
+    'light',
+    'weather',
+    'thing'
+  ],
+  start: ['condition', 'wearing', 'holding', 'thing'],
   later: ['condition'],
   none: []
 }
-/** Changes that need no asking: people moving, dressing, picking things up and putting them down, and how they feel. */
-const FREE_MOVES: readonly Field[] = ['where', 'wearing', 'posture', 'holding', 'mood', 'lastAction']
+/**
+ * Changes that need no asking: people moving, dressing, touching, picking things up and putting them down, opening a
+ * door, and how they feel. Who sees whom is not among them: someone being seen can be what happens.
+ */
+const FREE_MOVES: readonly Field[] = ['where', 'wearing', 'posture', 'touching', 'holding', 'mood', 'lastAction', 'thing']
 
 /** Words that say how something is, in pairs that can't both hold. */
 const OPPOSITES: [string, string][] = [
@@ -256,7 +281,13 @@ const OPPOSITES: [string, string][] = [
   ['standing', 'kneeling'],
   ['asleep', 'awake'],
   ['locked', 'unlocked'],
+  ['locked', 'open'],
+  ['barred', 'open'],
+  ['barred', 'unbarred'],
+  ['bolted', 'open'],
+  ['bolted', 'unbolted'],
   ['lit', 'unlit'],
+  ['lit', 'out'],
   ['dry', 'wet'],
   ['dry', 'soaked'],
   ['buttoned', 'unbuttoned'],
@@ -381,9 +412,32 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   let dropped = 0
   const reaches = (f: Field): boolean => IN_REACH[w.reach].includes(f)
   const stage = (who: string): CharacterState | null => (who ? stageFor({ name: who, aliases: [] }, w.stand) : null)
-  /** What the stage says of a field here; '' when it doesn't say, or doesn't hold here. */
-  const nowOf = (who: string, f: Field): string =>
-    !reaches(f) ? '' : SCENE_FIELDS.includes(f) ? clean(w.stand?.[f as SceneField]) : clean(stage(who)?.[f as StateField])
+  /**
+   * The pieces someone wears, or the things in the place, that `about` names (for clothing with none named, all of them;
+   * a thing has to be named), where the stage still holds here.
+   */
+  const itemsOf = (who: string, f: 'wearing' | 'thing', about: string): StageItem[] => {
+    if (!reaches(f)) return []
+    const all = f === 'thing' ? thingsOf(w.stand) : clothesOf(stage(who))
+    const named = all.filter((x) => namesItem(about, x))
+    return named.length || f === 'thing' ? named : all
+  }
+  /** What the stage says of a field here (of the pieces or things `about` names); '' when it doesn't say, or doesn't hold here. */
+  const nowOf = (who: string, f: Field, about = ''): string => {
+    if (f === 'wearing') return itemsOf(who, f, about).map(pieceText).join('; ')
+    if (f === 'thing') return itemsOf(who, f, about).map(thingText).join('; ')
+    return !reaches(f) ? '' : SCENE_FIELDS.includes(f) ? clean(w.stand?.[f as SceneField]) : clean(stage(who)?.[f as StateField])
+  }
+  /** True when a change's `to` is how it already is: the same words, or putting on a piece already on. */
+  const alreadySo = (who: string, f: Field, to: string, now: string): boolean => {
+    if (plainText(to) === plainText(now)) return true
+    if (f !== 'wearing') return false
+    const want = parsePiece(to)
+    return itemsOf(who, f, to).some(
+      (p) =>
+        plainText(pieceText(p)) === plainText(to) || (!!want && !isOff(p.state) && !want.state && itemKey(want.name) === itemKey(p.name))
+    )
+  }
   const nameOf = (who: string): string => clean(stage(who)?.name) || who
   const put = (line: string): void => {
     if (line && !keep.some((l) => l.toLowerCase() === line.toLowerCase())) keep.push(line)
@@ -399,13 +453,17 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   for (const r of raw.relies.slice(0, PLAN_MOST.relies)) {
     if (!r.value) continue
     const f = fieldOf(r.what)
-    const scene = !!f && SCENE_FIELDS.includes(f)
+    // The scene's time and the like, and a thing in the place, belong to no one.
+    const scene = !!f && (SCENE_FIELDS.includes(f) || f === 'thing')
     if (f && (scene || r.who)) {
       // A position or the like: the stage's own words, whatever the planner wrote, where the stage still holds.
-      const now = nowOf(r.who, f)
+      const now = nowOf(r.who, f, r.value)
       if (now) {
         if (plainText(now) !== plainText(r.value)) corrected++
-        put(stageLine(scene ? '' : nameOf(r.who), f, now))
+        // What someone wears: each piece it names on its own line, or, naming none, the whole of it.
+        const named = f === 'wearing' && reaches(f) ? clothesOf(stage(r.who)).filter((x) => namesItem(r.value, x)) : []
+        if (named.length) for (const p of named) put(pieceLine(nameOf(r.who), p))
+        else put(stageLine(scene ? '' : nameOf(r.who), f, now))
         continue
       }
       // Not on the stage here: only what the planner was given (a mark on the codex page, say); where the stage no
@@ -432,7 +490,7 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
   for (const c of raw.changes.slice(0, PLAN_MOST.changes)) {
     if (!c.how && !c.to) continue
     const f = fieldOf(c.what)
-    const now = f && (SCENE_FIELDS.includes(f) || c.who) ? nowOf(c.who, f) : ''
+    const now = f && (SCENE_FIELDS.includes(f) || f === 'thing' || c.who) ? nowOf(c.who, f, [c.from, c.to, c.how].join(' ')) : ''
     const said = [c.how, c.to].filter(Boolean).join('. ')
     // Someone who could move or dress here (on the card, or on the stage carrying on inside the scene); anyone else only
     // when the card (or the beat) names them.
@@ -441,7 +499,7 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     const leave =
       isDead(c.who) ||
       // Already so: nothing to change. Starting from something the stage says isn't so: planned from a wrong picture.
-      (!!now && ((!!c.to && plainText(c.to) === plainText(now)) || (!!c.from && contradicts(c.from, now)))) ||
+      (!!now && ((!!c.to && alreadySo(c.who, f!, c.to, now)) || (!!c.from && contradicts(c.from, now)))) ||
       // Someone learning what is kept from them, when the scene card doesn't say they do.
       tellsSecret(said) ||
       // An event (or an injury, or someone not in the scene) the card or the beat doesn't call for.

@@ -957,7 +957,8 @@ describe('blocks', () => {
     const block = blockOf(inp, 'continuity')!
     expect(block.title).toBe('Where things stand as the previous scene ended')
     expect(block.text).toContain('Time: dusk. Weather: rain')
-    expect(block.text).toContain('- Mara Venn: where: the tavern door; wearing: a soaked grey cloak; holding: a lamp')
+    // Each piece of clothing on its own line (step 2b), here read from a state kept before it, in one line.
+    expect(block.text).toContain('- Mara Venn: where: the tavern door; holding: a lamp\n  - wearing: a soaked grey cloak')
     expect(block.text).toContain('- The Duke: where: his tower; mood: suspicious')
     expect(block.short).toContain('- Mara Venn: ')
     expect(block.short).not.toContain('The Duke')
@@ -1052,7 +1053,9 @@ describe('blocks', () => {
     const block = blockOf(inp, 'continuity')!
     expect(block.title).toBe('Where things stand at the end of the scene so far')
     expect(block.text.startsWith(STAND_LEAD_SO_FAR)).toBe(true)
-    expect(block.text).toContain('wearing: white shirt unbuttoned, boots off (by the door); position: sitting on the bed')
+    expect(block.text).toContain(
+      '- Mara Venn: position: sitting on the bed\n  - wearing: white shirt unbuttoned\n  - wearing: boots off (by the door)'
+    )
     expect(prepareContext(inp).finals.withPrevious).toContain('Keep to where things stand at the end of the scene so far')
   })
 

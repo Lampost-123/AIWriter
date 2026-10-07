@@ -755,6 +755,60 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     went out to see to the horses") are already in the scene so far, so they are no longer listed as what the scene
     should bring about (Ash went out twice). Adam's own notes stay, "only what the scene so far hasn't already"; the
     card's goal, outcome and beats stay as they are.
+- **The stage piece by piece: every piece of clothing, the things in the place, who touches or sees whom** (Adam,
+  2026-10-07: step 2b of the consistency plan, after checking the plan's "The stage" against what was built. What
+  someone wore was one line with one quote, and the scene had only its time, weather and light; a real-model test had a
+  door barred and then opened from outside with nothing keeping track of it, and a case put on a windowsill back in
+  someone's hand). `shared/stageItems.ts` (pure), `shared/continuity.ts`, `continuity/tracker.ts`:
+  - **Each piece of clothing is its own entry** (`CharacterState.clothes`: a name and how it is now, "on" or "off" first,
+    where it is when off, then how it sits: "boots off, by the hearth", "grey coat on, buttoned to the throat"), each
+    with its own words (`pieceKey`). The memory model is asked only for the pieces the words show or change (marker
+    `[AIWRITE-CONTINUITY v3]`), and a change finds the piece it is about (`matching`: the same name, or one with its last
+    word that says no more or less, so "cloak" is the "grey cloak" but a "blue dress" is another dress; never left for
+    right) and touches only that one: boots off never touches the coat. "Gone" takes a piece off the list (given away,
+    burnt). A piece that only says it came off is kept even without words, as an empty hand is.
+  - **The things in the place** (`SceneState.things`: "the door: shut and barred from inside", "the survey case: on the
+    windowsill", "the lamp: lit"), only what the words put there or change, each with its words; picked up or carried
+    off is "gone" (it is then what someone holds). They carry on through the scene, and into the next scene only when
+    both scene cards name the same place in the same story (`samePlace`, tracker `startFrom`), so a door barred at the
+    inn is never told to a scene in the yard. A place changed on a card means the scene is read again.
+  - **Who touches whom, and who can see or hear whom** (`touching`, `sees`): only when the words say so, never worked
+    out from where people are; they belong to the moment, so a new scene never starts with them (`newSceneStage`).
+  - **At most** 12 pieces a person and 12 things (`MOST_CLOTHES`, `MOST_THINGS`; those changed longest ago go first).
+  - **States kept before this read as pieces, with nothing lost** (`clothesOf`, `itemsFromText`): the one line is split
+    where a comma or semicolon starts another piece, words that only say how or where the piece before is ("unbuttoned
+    to the waist", "over the chair") staying with it, and each piece reads exactly as the line did ("boots off (by the
+    door)"); the line's words go with each piece. world.db is unchanged (the stage stays in `meta`). An old state, and
+    Adam's old edits, are laid over exactly as before, so their hashes match and nothing is read again on their account.
+    A model that answers the old way (one "wearing" line) is still read, as the whole outfit.
+  - **How it is told.** The stage block (and the tracker's own "before") gives each piece a line of its own under its
+    person ("  - wearing: boots off, by the hearth") and the things under "Things here:". What must stay true holds at most
+    `MUST_CLOTHES` (3) pieces a person (those the card, beats, direction or scene so far name first, then what is off,
+    then what is on in some way: "Wren: boots off, by the hearth", "Wren is wearing: grey coat on, buttoned") and
+    `MUST_THINGS` (3) things (named first, then those changed most lately), within the list's 12; who touches and sees
+    whom only carrying on inside a scene; things at a new scene's start only when they carried (the same place). The
+    plan's check (`checkPlan`) puts a piece or a thing it relies on in the stage's own words, leaves out putting on a
+    piece already on and a change that starts wrong ("the door: open" when it is barred), and lets dressing, touching
+    and picking things up or opening a door through without asking (seeing someone can be what happens, so it isn't).
+    Check and repair has a W line for each piece and each thing; a thing is mended in place only under the same cautious
+    rules as clothes (plainly impossible at that same moment, with its words just before), and a door opened when
+    someone could have unbarred it off the page is a question. Who touches or sees whom is never mended.
+  - **Recall** shows each piece ("Wearing: boots off, by the hearth") and each thing ("the door: barred") on its own line,
+    with its words when the pointer rests on it; Adam can change one, take it out (leave it empty) or add one ("Add a
+    piece of clothing", "Add a thing"), kept until the scene's words change like any other value (`StateEdits.clothes`,
+    `StateEdits.things`, by the piece's or thing's name).
+  - **After review** (2026-10-07): a piece that is off, or that the scene names, ranks above what people hold, but a
+    piece simply on ("shirt on") ranks below the things in the place, and the short list has at most one piece a
+    person, so plain clothes never crowd out a held case or a barred door. A piece "removed" or "no longer worn" is off
+    and stays listed; only "gone" or "no longer theirs" takes it off. "Boot" is never both boots (only a bare plural is
+    about every piece with the word). Adam's piece edits find their piece again when it is read under another name
+    ("boots" and "riding boots", an old long name), so a piece he took out stays out. An old edit for someone missing
+    from a state kept before step 2b builds them the old way, so the hash holds. Words shared by an old one-line outfit
+    (`StateSource.line`) never let repair mend a piece without asking. The stage block tells at most about 400
+    characters of what each person wears and 600 of the things, the most lately changed first, each line 160 at most.
+  - **Cost.** The stand call's instructions are about 300 tokens longer, its reply a little longer (a line for each
+    piece or thing that changes, each with its words), and the writer's briefing a few dozen to about 150 tokens longer
+    (the pieces and things lines). No new call.
 - **Facts to keep to and details to show.** In the writer's briefing (not Ask the world or the checks), a character's
   Basics and distinguishing marks are "Facts to keep to" and the rest of Looks "Details to show now and then, not all
   at once" (`fieldSections` with `split`), so a cheap model stops describing eye colour in every scene.

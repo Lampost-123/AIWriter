@@ -3,8 +3,22 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryKind, EntryState, FactState } from '@shared/types'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
-import type { SceneState } from '@shared/continuity'
-import { MUST_GAPS, MUST_ITEMS, MUST_LEAD, MUST_MOST, MUST_SHORT, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type MustInput } from './mustStay'
+import { pieceKey, thingKey, type SceneState } from '@shared/continuity'
+import {
+  MUST_CLOTHES,
+  MUST_THINGS,
+  MUST_GAPS,
+  MUST_ITEMS,
+  MUST_LEAD,
+  MUST_MOST,
+  MUST_SHORT,
+  mustStayTrue,
+  mustText,
+  shortPlace,
+  stageFor,
+  stageInScene,
+  type MustInput
+} from './mustStay'
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
@@ -81,7 +95,10 @@ describe('what must stay true', () => {
   it('holds the stage as it is now, each value with where it became true', () => {
     const lines = mustStayTrue(base())
     expect(lines).toContain('Wren: left arm in a sling (since Ch 2, Sc 4)')
-    expect(lines).toContain('Wren is wearing: linen shirt, wool skirt, cloak off (over the beam) (since earlier in this scene)')
+    // Each piece its own line (step 2b; here read from a state kept before it, in one line), what is off first.
+    expect(lines).toContain('Wren: cloak off (over the beam) (since earlier in this scene)')
+    expect(lines).toContain('Wren is wearing: linen shirt (since earlier in this scene)')
+    expect(lines).toContain('Wren is wearing: wool skirt (since earlier in this scene)')
     expect(lines).toContain('Wren is holding: a lantern in her right hand (since Ch 3, Sc 2)')
     expect(lines).toContain('Where Wren is: the mill loft, by the hatch (since Ch 3, Sc 2)')
     // No words kept for it (Adam set it, or it carried on from before step 2): no since.
@@ -121,7 +138,7 @@ describe('what must stay true', () => {
     expect(shortPlace('River Days, Ch 9, Sc 1', 'The Mill')).toBe('River Days, Ch 9, Sc 1')
   })
 
-  it("from the codex: marks always, and a look changed during the story only as it is now, with where it changed", () => {
+  it('from the codex: marks always, and a look changed during the story only as it is now, with where it changed', () => {
     const wren = entry('character', 'Wren', {
       // The profile's typical clothing is a detail to show, not a fact: the stage says what she wears now.
       fields: { marks: 'a burn scar across the back of her right hand', hair: 'cropped short', eyes: 'grey', clothing: 'a blue cloak' },
@@ -280,6 +297,110 @@ describe('what must stay true', () => {
     expect(lines).not.toContain('Time: ')
     expect(s).toEqual(kept)
     expect(stageInScene(null, scope)).toBeNull()
+  })
+
+  it('piece by piece: a few pieces of clothing a person and a few things in the place, those the scene names first', () => {
+    // Step 2b (Adam, 2026-10-07).
+    const s: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      things: [
+        { name: 'the stove', state: 'lit' },
+        { name: 'the survey case', state: 'on the windowsill' },
+        { name: 'the trapdoor', state: 'shut' },
+        { name: 'the back door', state: 'barred from inside' }
+      ],
+      characters: [
+        {
+          ...blank,
+          name: 'Wren',
+          touching: "her hand on Osric's arm",
+          sees: "can't see the yard",
+          clothes: [
+            { name: 'linen shirt', state: 'on' },
+            { name: 'wool skirt', state: 'on' },
+            { name: 'grey coat', state: 'on, buttoned to the throat' },
+            { name: 'boots', state: 'off, by the hatch' },
+            { name: 'scarf', state: 'on' }
+          ]
+        }
+      ],
+      said: {
+        [pieceKey('Wren', 'boots')]: { quote: 'kicked her boots off by the hatch', sceneId: 'here' },
+        [thingKey('the survey case')]: { quote: 'set the case on the windowsill', sceneId: 'sc-3-2' }
+      }
+    }
+    const lines = mustStayTrue(base({ stand: s, about: 'Wren pulls her scarf up and reaches for the case.' }))
+    const worn = lines.filter((l) => l.startsWith('Wren is wearing') || l.startsWith('Wren: '))
+    // At most MUST_CLOTHES a person: the one named, then what is off, then what is on in some way.
+    expect(worn).toEqual([
+      'Wren is wearing: scarf on',
+      'Wren: boots off, by the hatch (since earlier in this scene)',
+      'Wren is wearing: grey coat on, buttoned to the throat'
+    ])
+    expect(worn).toHaveLength(MUST_CLOTHES)
+    // At most MUST_THINGS things: the one named, then those changed most lately.
+    const things = lines.filter((l) => /^The /.test(l))
+    expect(things).toEqual([
+      'The survey case: on the windowsill (since Ch 3, Sc 2)',
+      'The back door: barred from inside',
+      'The trapdoor: shut'
+    ])
+    expect(things).toHaveLength(MUST_THINGS)
+    expect(lines).toContain("Who Wren is touching: her hand on Osric's arm")
+    expect(lines).toContain("What Wren can see or hear: can't see the yard")
+    // A new scene's start: clothes and the things in the place (the stage has things only when it is the same place),
+    // never who touched or saw whom.
+    const start = mustStayTrue(base({ stand: s, reach: 'start' })).join('\n')
+    expect(start).toContain('The back door: barred from inside')
+    expect(start).toContain('Wren: boots off, by the hatch')
+    expect(start).not.toContain('touching')
+    expect(start).not.toContain('see or hear')
+    expect(mustStayTrue(base({ stand: s, reach: 'later' })).join('\n')).not.toContain('The back door')
+    // Told only the people in the scene, the things in the place keep their words.
+    const told = stageInScene(s, { sceneId: 'here', timeCarries: false, onCard: [{ name: 'Wren', aliases: [] }], cast: [], words: '' })!
+    expect(told.said?.[thingKey('the survey case')]?.quote).toBe('set the case on the windowsill')
+    expect(
+      stageInScene({ ...s, characters: [] }, { sceneId: 'here', timeCarries: false, onCard: [], cast: [], words: '' })?.things
+    ).toHaveLength(4)
+  })
+
+  it('plain clothes never crowd out what people hold or the things in the place; the short form has one piece a person', () => {
+    // The review of step 2b (2026-10-07): two people each with a cloak and boots off and a shirt on, a held case and a
+    // barred door, and the short list was six clothing lines.
+    const dressed = (name: string, more: Partial<SceneState['characters'][number]> = {}) => ({
+      ...blank,
+      name,
+      clothes: [
+        { name: 'cloak', state: 'off, over the chair' },
+        { name: 'boots', state: 'off, by the door' },
+        { name: 'shirt', state: 'on' }
+      ],
+      ...more
+    })
+    const s: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      things: [{ name: 'the door', state: 'barred from inside' }],
+      characters: [dressed('Wren', { holding: 'the survey case' }), dressed('Osric Hale'), dressed('Tobin')]
+    }
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale')
+    const tobin = entry('character', 'Tobin')
+    const short = mustStayTrue(base({ stand: s, people: [wren, osric], short: true }))
+    expect(short.length).toBeLessThanOrEqual(MUST_SHORT)
+    expect(short).toContain('Wren is holding: the survey case')
+    expect(short).toContain('The door: barred from inside')
+    expect(short.filter((l) => l.startsWith('Wren: ') || l.startsWith('Wren is wearing'))).toHaveLength(1)
+    expect(short.filter((l) => l.startsWith('Osric Hale: ') || l.startsWith('Osric Hale is wearing'))).toHaveLength(1)
+    // The full list with three people, each placed too: what is held and the door stay, above plain clothes.
+    const placed: SceneState = { ...s, characters: s.characters.map((c) => ({ ...c, where: 'the parlour' })) }
+    const full = mustStayTrue(base({ stand: placed, people: [wren, osric, tobin] }))
+    expect(full).toHaveLength(MUST_MOST)
+    expect(full).toContain('Wren is holding: the survey case')
+    expect(full).toContain('The door: barred from inside')
   })
 
   it('reads with its lead, or none in the short form', () => {

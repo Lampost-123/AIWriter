@@ -99,20 +99,22 @@ const SENTENCES = [
 ]
 
 /**
- * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v2]"): each
+ * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v3]"): each
  * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
- * wears it ("<Name> took off her hood." takes it off: "hood off"); "<Name> left for the docks." puts them "gone to the
- * docks"; "<Name> put his cup on the shelf." leaves them holding "nothing; his cup on the shelf". The scene's time
+ * wears it, a piece of clothing "on" ("<Name> took off her hood." takes it off: the hood "off"); "<Name> left for the
+ * docks." puts them "gone to the docks"; "<Name> put his cup on the shelf." leaves them holding "nothing; his cup on the
+ * shelf". "The door was barred." (or a window or gate locked, open or shut) is a thing in the place. The scene's time
  * is "evening". Each value comes with words from the scene that show it, as asked: the sentence that names the
- * character, the words about the cloak, and the scene's first words for the time.
+ * character, the words about the cloak or the door, and the scene's first words for the time.
  * Null for any other request.
  */
 function continuityReply(system, user) {
-  if (!system.includes('[AIWRITE-CONTINUITY v2]')) return null
+  if (!system.includes('[AIWRITE-CONTINUITY v3]')) return null
   const cast = (/^Characters in this story: (.+)$/m.exec(user)?.[1] ?? '').split(', ').filter(Boolean)
   const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
   const sentences = scene.split(/(?<=[.!?])\s+/)
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
+  const door = /[Tt]he (door|window|gate) was (barred|locked|open|shut)/.exec(scene)
   const characters = cast
     .filter((n) => scene.includes(n))
     .map((name) => {
@@ -126,15 +128,16 @@ function continuityReply(system, user) {
           ? { value: `gone to the ${left[1]}`, quote: left[0].slice(0, -1) }
           : { value: 'in the scene', quote: sentences.find((s) => s.includes(name)) ?? name },
         ...(cloak
-          ? { wearing: { value: cloak[1], quote: cloak[0] } }
+          ? { clothes: [{ item: cloak[1], state: 'on', quote: cloak[0] }] }
           : took
-            ? { wearing: { value: `${took[1]} off`, quote: took[0].slice(0, -1) } }
+            ? { clothes: [{ item: took[1], state: 'off', quote: took[0].slice(0, -1) }] }
             : {}),
         ...(put ? { holding: { value: `nothing; ${put[1]} ${put[2]} on the ${put[3]}`, quote: put[0].slice(0, -1) } } : {})
       }
     })
   const opening = scene.split(/\s+/).slice(0, 3).join(' ')
-  return JSON.stringify({ time: { value: 'evening', quote: opening }, characters })
+  const things = door ? [{ thing: `the ${door[1]}`, state: door[2], quote: door[0] }] : []
+  return JSON.stringify({ time: { value: 'evening', quote: opening }, things, characters })
 }
 
 /** Deterministic prose of about `words` words, in paragraphs. */

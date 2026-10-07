@@ -11,13 +11,13 @@ export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
 /** What each check looks for, in the model's instructions. */
 const WHAT: Record<CheckKind, string> = {
   facts:
-    'facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world\'s rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision.',
+    "facts: the scene against each entry as the memory has it at the start of the scene: looks (eye and hair colour, scars, missing limbs, how many fingers), injuries, what someone carries or owns, where people and things are, and the world's rules. Above all, who is dead: a character who died earlier (in what has happened to them, or in the story so far) who speaks, acts or is treated as alive in this scene is a must-fix, unless the scene shows a ghost, a memory or a vision.",
   knowledge:
     "knowledge: a character who acts on or mentions something they could not know yet: it happens in a later scene, or it happened where they were not and nothing (the story so far, the scenes before, this scene) shows them learning it. The memory's list of who knows what is far from complete: something it doesn't list is NOT a problem by itself, and things said or shown in the story so far or in this scene count as known by those who were there. Also a character who forgets something they clearly know.",
   timeline:
     "timeline: where the characters were in the scenes before and when (the in-world dates and times), so someone is never in two places at once, travels further than the time allows, or has an age that doesn't add up.",
   continuity:
-    "continuity: where things stood as the previous scene ended (where each character is, what they wear and hold, how they are placed, their condition, the time, weather and light) and how the scene carries them on: a coat taken off earlier still worn, someone sitting who was standing with no move between, something in a hand that was put down, a character who left still speaking, the light or the time of day changing for no reason.",
+    'continuity: where things stood as the previous scene ended (where each character is, each piece of what they wear, what they hold, how they are placed, their condition, the things in the place such as a door barred or a case put down, the time, weather and light) and how the scene carries them on: a coat taken off earlier still worn, someone sitting who was standing with no move between, something in a hand that was put down, a barred door opened with no one unbarring it, a character who left still speaking, the light or the time of day changing for no reason.',
   voice:
     "voice: each character's dialogue against how they speak (their voice notes, verbal tics, what they never say). Flag only a line that clearly breaks them (someone who never swears swearing, a terse character making a speech); a line merely unlike their sample lines, or more emotional at an emotional moment, is not an issue.",
   style:
@@ -74,7 +74,9 @@ You compare two stories set in the same world, for their author, and find where 
 
 Rules
 - Report only real contradictions: someone in two places at once, someone dead in one and alive in the other, ${
-    how === 'side' ? 'an event told differently in each' : 'a character, place or thing at the end of the prequel that doesn\'t match how the book finds it'
+    how === 'side'
+      ? 'an event told differently in each'
+      : "a character, place or thing at the end of the prequel that doesn't match how the book finds it"
   }, a relationship that can't be both. Nothing about quality, nothing either story leaves open.
 - Leave out anything listed under "Already asked" (the author is asked about those separately).
 - "quote": words copied exactly from the first story's text when it is given and shows the problem; otherwise "".

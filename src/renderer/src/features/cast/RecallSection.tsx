@@ -4,13 +4,28 @@
 // have the scene read again. A state whose words changed since is shown as out of date, and the writer isn't given it
 // until it is read again, so nothing outlives the words it came from. At the cursor (Adam, 2026-10-07): the same at
 // any point in the scene, following the cursor, from the checkpoints kept inside it (worked out there on request).
-// Each value's words show when the pointer rests on it.
+// Each value's words show when the pointer rests on it. Piece by piece (step 2b, Adam 2026-10-07): each piece of
+// clothing is its own line ("Wearing: boots off, by the door"), and so is each thing in the place ("the door: barred
+// from inside"); each can be changed, taken out (left empty) or added, like any other value.
 import { useCallback, useEffect, useState } from 'react'
 import type { RecallAtView, RecallChange, RecallView } from '@shared/contracts/recall'
-import { STATE_FIELDS, STATE_LABELS, sourceKey, type CharacterState, type StateField, type StateSources } from '@shared/continuity'
+import {
+  clothesOf,
+  pieceSource,
+  STATE_FIELDS,
+  STATE_LABELS,
+  sourceKey,
+  thingKey,
+  thingsOf,
+  type CharacterState,
+  type StateField,
+  type StateSource,
+  type StateSources
+} from '@shared/continuity'
+import { pieceText } from '@shared/stageItems'
 import type { ID } from '@shared/types'
 import { Button, Input, Notice, Spinner } from '@/components/ui'
-import { RefreshCw, X } from '@/components/ui/icons'
+import { Plus, RefreshCw, X } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { wordsToCursor } from '@/features/edits/session'
@@ -27,7 +42,8 @@ const FOLLOW_MS = 700
 /** A field's label for Adam: "Where", "Wearing", "Position"... */
 const labelOf = (f: StateField): string => STATE_LABELS[f].charAt(0).toUpperCase() + STATE_LABELS[f].slice(1)
 
-const plainError = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (\w+Error: )?/, '') : String(e))
+const plainError = (e: unknown): string =>
+  e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (\w+Error: )?/, '') : String(e)
 
 type Mode = 'end' | 'cursor'
 
@@ -206,6 +222,7 @@ function StateView({
   onChange?: (c: RecallChange) => Promise<void>
   onRemove?: (name: string) => Promise<void>
 }): React.JSX.Element {
+  const things = thingsOf(state)
   return (
     <>
       <dl className="mb-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
@@ -214,11 +231,32 @@ function StateView({
             key={f}
             label={label}
             value={state[f]}
-            from={wordsOf(state.said, sourceKey(null, f), sceneId)}
+            from={wordsOf(state.said?.[sourceKey(null, f)], sceneId)}
             onSave={onChange && ((value) => onChange({ field: f, value }))}
           />
         ))}
       </dl>
+      {things.length || onChange ? (
+        <div className="mb-2" data-recall-things>
+          <p className="mb-0.5 text-[11.5px] font-medium text-faint">Things here</p>
+          {things.length ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
+              {things.map((t) => (
+                <Row
+                  key={t.name}
+                  label={t.name}
+                  value={t.state}
+                  from={wordsOf(state.said?.[thingKey(t.name)], sceneId)}
+                  onSave={onChange && ((value) => onChange({ field: 'things', item: t.name, value }))}
+                />
+              ))}
+            </dl>
+          ) : null}
+          {onChange ? (
+            <AddRow label="Add a thing" placeholder="the door: locked" onAdd={(value) => onChange({ field: 'things', item: '', value })} />
+          ) : null}
+        </div>
+      ) : null}
       <ul className="flex flex-col gap-2">
         {state.characters.map((c) => (
           <li key={c.name}>
@@ -227,6 +265,7 @@ function StateView({
               said={state.said}
               sceneId={sceneId}
               onChange={onChange && ((field, value) => onChange({ character: c.name, field, value }))}
+              onPiece={onChange && ((item, value) => onChange({ character: c.name, field: 'clothes', item, value }))}
               onRemove={onRemove && (() => onRemove(c.name))}
             />
           </li>
@@ -237,8 +276,7 @@ function StateView({
 }
 
 /** The words a value came from, for its tooltip. */
-function wordsOf(said: StateSources | undefined, key: string, sceneId: ID): string | undefined {
-  const s = said?.[key]
+function wordsOf(s: StateSource | undefined, sceneId: ID): string | undefined {
   return s ? `From the words: “${s.quote}”${s.sceneId === sceneId ? '' : ' (in an earlier scene)'}` : undefined
 }
 
@@ -247,14 +285,27 @@ function CharacterCard({
   said,
   sceneId,
   onChange,
+  onPiece,
   onRemove
 }: {
   character: CharacterState
   said: StateSources | undefined
   sceneId: ID
   onChange?: (field: StateField, value: string) => Promise<void>
+  /** A piece of clothing changed (`item` its name, '' for a new one; value '' takes it out). */
+  onPiece?: (item: string, value: string) => Promise<void>
   onRemove?: () => Promise<void>
 }): React.JSX.Element {
+  const row = (f: StateField): React.JSX.Element => (
+    <Row
+      key={f}
+      label={labelOf(f)}
+      value={character[f] ?? ''}
+      from={wordsOf(said?.[sourceKey(character.name, f)], sceneId)}
+      onSave={onChange && ((value) => onChange(f, value))}
+    />
+  )
+  const [first, ...rest] = STATE_FIELDS
   return (
     <div className="rounded-lg border border-line px-2.5 py-2" data-recall-character={character.name}>
       <div className="mb-1 flex items-center gap-2">
@@ -272,17 +323,71 @@ function CharacterCard({
         ) : null}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12.5px]">
-        {STATE_FIELDS.map((f) => (
+        {row(first)}
+        {/* Each piece of clothing on its own line, right after where they are. */}
+        {clothesOf(character).map((p) => (
           <Row
-            key={f}
-            label={labelOf(f)}
-            value={character[f]}
-            from={wordsOf(said, sourceKey(character.name, f), sceneId)}
-            onSave={onChange && ((value) => onChange(f, value))}
+            key={`piece:${p.name}`}
+            label="Wearing"
+            value={pieceText(p)}
+            from={wordsOf(pieceSource(said, character.name, p.name), sceneId)}
+            onSave={onPiece && ((value) => onPiece(p.name, value))}
           />
         ))}
+        {rest.map(row)}
       </dl>
+      {onPiece ? (
+        <AddRow label="Add a piece of clothing" placeholder="boots off, by the door" onAdd={(value) => onPiece('', value)} />
+      ) : null}
     </div>
+  )
+}
+
+/** A button that turns into a box to add one more line (Enter adds it, Esc doesn't). */
+function AddRow({
+  label,
+  placeholder,
+  onAdd
+}: {
+  label: string
+  placeholder: string
+  onAdd: (value: string) => Promise<void>
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const save = (): void => {
+    setOpen(false)
+    const v = draft.trim()
+    setDraft('')
+    if (v) void onAdd(v)
+  }
+  return open ? (
+    <Input
+      autoFocus
+      aria-label={label}
+      placeholder={placeholder}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') save()
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          setDraft('')
+          setOpen(false)
+        }
+      }}
+      className="mt-1 h-6 px-1.5 text-[12.5px]"
+    />
+  ) : (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="mt-1 inline-flex items-center gap-1 rounded px-1 -mx-1 text-[12px] text-faint hover:bg-surface-2 hover:text-fg"
+    >
+      <Plus size={12} />
+      {label}
+    </button>
   )
 }
 
