@@ -12,8 +12,9 @@
 //     home "fixed" when later seen by his own fire, someone gone for the night "fixed" when seen in the yard):
 //       - the model says the two can't both be true ("bothTrue": no) and that nothing could have happened in between
 //         ("between": nothing: no time passing, no one moving, no action off the page);
-//       - the line it breaks is what someone wears or holds, or an injury (`MENDABLE`), never where someone is, how
-//         they are placed, what they did, the time or the mood: moving, getting up and time passing can explain those;
+//       - the line it breaks is what someone wears or holds, a thing in the place (a case set on the sill a moment
+//         before; step 2b), or an injury (`MENDABLE`), never where someone is, how they are placed, who they touch or
+//         can see, what they did, the time or the mood: moving, getting up and time passing can explain those;
 //       - the line is on the stage with the story's own words for it (never a value with no words behind it, nor one
 //         from the memory's notes), and the fix is about the thing that line names (a word such as "pipe" or "hat" in
 //         both: `sameThing`);
@@ -33,7 +34,7 @@ import { plain, wordCount } from '../keeper/text'
 import type { LandedParagraph } from '@shared/contracts/repair'
 import type { CodexLine, StageLine } from './prompts'
 
-export const ABOUT = ['where', 'posture', 'wearing', 'holding', 'condition', 'knows', 'owns', 'time'] as const
+export const ABOUT = ['where', 'posture', 'wearing', 'holding', 'touching', 'sees', 'thing', 'condition', 'knows', 'owns', 'time'] as const
 export type About = (typeof ABOUT)[number]
 
 export interface Claim {
@@ -104,11 +105,12 @@ export const FIX_MOST_WORDS = 6
 export const FIX_MORE_WORDS = 2
 
 /**
- * The stage's values a slip may be mended in place against: what someone wears or holds, and an injury. Where someone
- * is, how they are placed, what they did, the time and the mood can be changed by moving, getting up or time passing,
- * so a slip against them is always asked.
+ * The stage's values a slip may be mended in place against: what someone wears or holds, a thing in the place, and an
+ * injury, and then only at the same moment (sameMoment: a door barred a hundred words before can't be open with nothing
+ * between). Where someone is, how they are placed, who they touch or can see, what they did, the time and the mood can
+ * be changed by moving, getting up or time passing, so a slip against them is always asked.
  */
-export const MENDABLE: ReadonlySet<string> = new Set(['wearing', 'holding', 'condition'])
+export const MENDABLE: ReadonlySet<string> = new Set(['wearing', 'holding', 'thing', 'condition'])
 
 /** Little words that say nothing about what a thing is. */
 const LITTLE = new Set(

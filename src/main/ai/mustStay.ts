@@ -5,11 +5,25 @@
 // became true: "Mara: left arm in a sling (since Ch 3, Sc 2)". Older values that no longer hold are never sent: near-miss
 // facts confuse models. Capped, so it stays short. Since 2026-10-07 it also says what the people in the scene gave
 // away, lost or got however long ago ("Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2,
-// Sc 7)", memory/items.ts), the items the scene names first. Pure.
+// Sc 7)", memory/items.ts), the items the scene names first. Piece by piece (step 2b, Adam 2026-10-07): each piece of
+// clothing is its own line ("Wren: boots off, by the door"), at most MUST_CLOTHES a person, those the scene names first;
+// so is each thing in the place ("The door: barred from inside"), at most MUST_THINGS; and, carrying on inside a scene,
+// who touches whom and who can see or hear whom. Pure.
 
 import type { EntryState, FactState, ID } from '@shared/types'
-import { sourceKey, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
+import {
+  clothesOf,
+  pieceSource,
+  sourceKey,
+  thingKey,
+  thingsOf,
+  type CharacterState,
+  type SceneState,
+  type StateField,
+  type StateSource
+} from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
+import { isOff, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
 import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
 
@@ -20,6 +34,9 @@ export const MUST_SHORT = 6
 export const MUST_GAPS = 3
 /** The most lines among them about what someone gave away, lost or got. */
 export const MUST_ITEMS = 4
+/** The most pieces of clothing a person, and things in the place, among them (those the scene names first). */
+export const MUST_CLOTHES = 3
+export const MUST_THINGS = 3
 /** The longest a line's words are kept, in characters (since when it holds comes after, whole), and a secret's. */
 const LONGEST_LINE = 320
 const LONGEST_FACT = 200
@@ -73,25 +90,31 @@ export interface MustInput {
 
 /**
  * The order lines are chosen in when there are more than MUST_MOST: what goes wrong most and matters most first. What
- * someone no longer has comes high when the scene names it ("goneNamed"), and right after what they hold otherwise.
+ * someone no longer has comes high when the scene names it ("goneNamed"), and right after what they hold otherwise. A
+ * piece of clothing or a thing the scene names comes before the rest of what is worn ("wearingNamed", "thingNamed").
  */
 const RANK = {
   dead: 0,
   condition: 1,
   goneNamed: 2,
   marks: 3,
-  wearing: 4,
-  holding: 5,
-  gone: 6,
-  gotNamed: 7,
-  gap: 8,
-  where: 9,
-  posture: 10,
-  changed: 11,
-  got: 12,
-  time: 13,
-  light: 14,
-  weather: 15
+  wearingNamed: 4,
+  thingNamed: 5,
+  wearing: 6,
+  holding: 7,
+  thing: 8,
+  gone: 9,
+  gotNamed: 10,
+  gap: 11,
+  where: 12,
+  posture: 13,
+  touching: 14,
+  sees: 15,
+  changed: 16,
+  got: 17,
+  time: 18,
+  light: 19,
+  weather: 20
 } as const
 type Kind = keyof typeof RANK
 
@@ -202,11 +225,13 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
     out.said = Object.fromEntries(
       Object.entries(stand.said).filter(([k]) => {
         const who = k.slice(0, k.lastIndexOf('|'))
-        return names.has(who) && (who || out[k.slice(k.lastIndexOf('|') + 1) as 'time' | 'weather' | 'light'])
+        const field = k.slice(k.lastIndexOf('|') + 1)
+        // A thing in the place keeps its words (step 2b).
+        return names.has(who) && (who || field.startsWith('thing:') || out[field as 'time' | 'weather' | 'light'])
       })
     )
   }
-  return out.time || out.weather || out.light || characters.length ? out : null
+  return out.time || out.weather || out.light || characters.length || thingsOf(out).length ? out : null
 }
 
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */
@@ -218,22 +243,25 @@ export function mustStayTrue(o: MustInput): string[] {
     out.push({ rank: RANK[kind], who, text: `${whole ? text : clipTo(text, LONGEST_LINE)}${since}` })
   }
   /** Where a stage value's words are: this scene, or another one's place. */
-  const stageSince = (name: string | null, field: string): string => {
-    const from = o.stand?.said?.[sourceKey(name, field)]
+  const sinceOf = (from: StateSource | undefined): string => {
     if (!from) return ''
     if (from.sceneId === o.sceneId) return 'earlier in this scene'
     return shortPlace(o.places[from.sceneId] ?? '', o.storyTitle)
   }
+  const stageSince = (name: string | null, field: string): string => sinceOf(o.stand?.said?.[sourceKey(name, field)])
+  // The things in the place reach a new scene's start only when it is the same place: the stage has none otherwise
+  // (continuity/tracker.ts startFrom).
   const keep = new Set<Kind>(
     o.reach === 'here'
-      ? ['condition', 'wearing', 'holding', 'where', 'posture', 'time', 'light', 'weather']
+      ? ['condition', 'wearing', 'holding', 'thing', 'where', 'posture', 'touching', 'sees', 'time', 'light', 'weather']
       : o.reach === 'start'
-        ? ['condition', 'wearing', 'holding']
+        ? ['condition', 'wearing', 'holding', 'thing']
         : o.reach === 'later'
           ? ['condition']
           : []
   )
   const people = o.people.filter((e) => e.kind === 'character')
+  const about = o.about ?? ''
 
   // Each person in the scene: what the stage says of them now, their marks, and what changed in their codex entry.
   people.forEach((e, who) => {
@@ -255,8 +283,10 @@ export function mustStayTrue(o: MustInput): string[] {
   // What someone in the scene gave away, lost or got, however long ago (memory/items.ts): only how it is now, the items
   // the scene names first. "Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2, Sc 7)".
   const whoOf = new Map(people.map((e, i) => [e.id, i]))
-  const about = o.about ?? ''
-  holdingsFirst((o.holdings ?? []).filter((h) => whoOf.has(h.personId)), about)
+  holdingsFirst(
+    (o.holdings ?? []).filter((h) => whoOf.has(h.personId)),
+    about
+  )
     .slice(0, MUST_ITEMS)
     .forEach((h) => {
       const named = namesItem(about, h)
@@ -266,19 +296,37 @@ export function mustStayTrue(o: MustInput): string[] {
 
   function stageLines(c: CharacterState, who: number): void {
     const name = clean(c.name)
-    for (const kind of ['condition', 'wearing', 'holding', 'where', 'posture'] as const) {
+    for (const kind of ['condition', 'holding', 'where', 'posture', 'touching', 'sees'] as const) {
       const v = clean(c[kind])
       if (v && keep.has(kind)) add(kind, who, stageLine(name, kind, v), stageSince(name, kind))
     }
+    // What they wear, piece by piece: those the scene names first, then what is off, then what is on in some way.
+    if (!keep.has('wearing')) return
+    for (const p of namedFirst(clothesOf(c), about, true).slice(0, MUST_CLOTHES)) {
+      const line = pieceLine(name, p)
+      if (line) add(namesStageItem(about, p) ? 'wearingNamed' : 'wearing', who, line, sinceOf(pieceSource(o.stand?.said, name, p.name)))
+    }
   }
 
-  // The scene's time, light and weather, carrying on inside it (a new scene's are on its card).
+  // The scene's time, light and weather, carrying on inside it (a new scene's are on its card); and the things in the
+  // place, those the scene names first, then those changed most lately.
   const scene = o.stand
   if (scene) {
     for (const kind of ['time', 'light', 'weather'] as const) {
       const v = clean(scene[kind])
       if (v && keep.has(kind)) add(kind, 1000, stageLine('', kind, v), stageSince(null, kind))
     }
+    if (keep.has('thing'))
+      for (const t of namedFirst([...thingsOf(scene)].reverse(), about, false).slice(0, MUST_THINGS)) {
+        const text = clean(thingText(t))
+        if (text)
+          add(
+            namesStageItem(about, t) ? 'thingNamed' : 'thing',
+            1000,
+            stageLine('', 'thing', text),
+            sinceOf(o.stand?.said?.[thingKey(t.name)])
+          )
+      }
   }
 
   // Anyone in the briefing who is dead by now.
@@ -305,13 +353,39 @@ export function mustStayTrue(o: MustInput): string[] {
   return chosen.sort((a, b) => a.who - b.who || a.rank - b.rank).map((l) => l.text)
 }
 
+/**
+ * Pieces of clothing or things, those `about` names first; for clothing then what is off (boots off by the door are
+ * what a writer forgets), then what is on in some way ("on, unbuttoned"), then the rest; else as listed.
+ */
+function namedFirst(list: StageItem[], about: string, clothing: boolean): StageItem[] {
+  const order = (x: StageItem): number =>
+    namesStageItem(about, x) ? 0 : !clothing ? 1 : isOff(x.state) ? 1 : x.state && clean(x.state).toLowerCase() !== 'on' ? 2 : 3
+  return list
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => order(a.x) - order(b.x) || a.i - b.i)
+    .map(({ x }) => x)
+}
+
+/** One piece of what someone wears, as the list (and the plan) says it: "Mara: boots off, by the door", "Mara is wearing: grey cloak on". */
+export function pieceLine(name: string, p: StageItem): string {
+  const text = clean(pieceText(p))
+  if (!text) return ''
+  return isOff(p.state) ? stageLine(name, 'condition', text) : stageLine(name, 'wearing', text)
+}
+
 /** One value of where things stand, as the list (and the plan) says it: "Mara is wearing: a grey cloak". */
-export function stageLine(name: string, field: StateField | 'time' | 'light' | 'weather', value: string): string {
+export function stageLine(name: string, field: StateField | 'wearing' | 'thing' | 'time' | 'light' | 'weather', value: string): string {
   switch (field) {
     case 'condition':
       return `${name}: ${value}`
     case 'wearing':
       return `${name} is wearing: ${value}`
+    case 'touching':
+      return `Who ${name} is touching: ${value}`
+    case 'sees':
+      return `What ${name} can see or hear: ${value}`
+    case 'thing':
+      return value.charAt(0).toUpperCase() + value.slice(1)
     case 'holding':
       return `${name} is holding: ${value}`
     case 'where':

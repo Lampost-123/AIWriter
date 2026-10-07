@@ -11,12 +11,25 @@
 // - Adam can browse and change it (Recall, in the scene panel): a value he sets or a character he takes out is kept
 //   until that scene's words change, and is then read again too.
 // - Told to the writer as "Where things stand" (context.ts, block 3b) and to the consistency checks (checks/context).
+// - Piece by piece (step 2b, Adam 2026-10-07): each piece of clothing, each thing in the place (a door barred, a case
+//   on the windowsill), who touches whom and who can see or hear whom, each with its own words (@shared/stageItems).
 // No Electron imports.
 
 import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ID } from '@shared/types'
-import { mergeState, readChanges, sameWhen, stateText, withEdits, withoutSceneTime, type SceneState, type StateEdits } from '@shared/continuity'
+import {
+  mergeState,
+  newSceneStage,
+  readChanges,
+  samePlace,
+  sameWhen,
+  stateText,
+  withEdits,
+  withoutSceneTime,
+  type SceneState,
+  type StateEdits
+} from '@shared/continuity'
 
 export { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 import * as repo from '../db/repo'
@@ -28,7 +41,7 @@ import { estimateTokens } from '../keeper/text'
 type DB = Database.Database
 
 export const META_KEY = 'continuity'
-const MARKER = '[AIWRITE-CONTINUITY v2]'
+const MARKER = '[AIWRITE-CONTINUITY v3]'
 
 /** The most of a scene sent at once (characters); a longer one is read from its end, where it finishes. */
 const SCENE_CHARS = 60_000
@@ -66,17 +79,21 @@ function finalOf(all: Stored, sceneId: ID | undefined): SceneState | null {
   return k ? withEdits(k.state, k.edits) : null
 }
 
-/** A scene's card's When and its story, read without its words; null when the scene is gone. */
-function whenOf(db: DB, sceneId: ID): { when: string; storyId: string } | null {
+/** A scene's card's When and place, and its story, read without its words; null when the scene is gone. */
+function whenOf(db: DB, sceneId: ID): { when: string; place: string; storyId: string } | null {
   const r = db
     .prepare('SELECT s.card_json AS card, c.story_id AS story FROM scenes s LEFT JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?')
     .get(sceneId) as { card: string | null; story: string | null } | undefined
   if (!r) return null
   try {
-    const card = JSON.parse(r.card ?? '{}') as { when?: unknown }
-    return { when: typeof card?.when === 'string' ? card.when : '', storyId: r.story ?? '' }
+    const card = JSON.parse(r.card ?? '{}') as { when?: unknown; locationId?: unknown }
+    return {
+      when: typeof card?.when === 'string' ? card.when : '',
+      place: typeof card?.locationId === 'string' ? card.locationId : '',
+      storyId: r.story ?? ''
+    }
   } catch {
-    return { when: '', storyId: r.story ?? '' }
+    return { when: '', place: '', storyId: r.story ?? '' }
   }
 }
 
@@ -84,14 +101,18 @@ function whenOf(db: DB, sceneId: ID): { when: string; storyId: string } | null {
  * The state a scene starts from, given the one the scene before it (`prevId`) ends with: all of it, but the time of
  * day, the light and the weather only when both cards give the same When in the same story (sameWhen). A new time
  * starts fresh (Adam, 2026-10-07): "morning" from the scene before was carried through a night scene and told to the
- * writer, who had a man say "Morning". Part of what the scene's reading builds on (its hash), so a When changed on a
- * card means the scene is read again.
+ * writer, who had a man say "Morning". Who touches whom and who can see or hear whom never carry into a new scene, and
+ * the things in the place (a door barred, a case on the windowsill) only when both cards name the same place, in the
+ * same story (step 2b, newSceneStage). Part of what the scene's reading builds on (its hash), so a When or a place
+ * changed on a card means the scene is read again.
  */
 function startFrom(db: DB, sceneId: ID, prevId: ID | undefined, state: SceneState | null): SceneState | null {
   if (!state || !prevId) return state
   const now = whenOf(db, sceneId)
   const then = whenOf(db, prevId)
-  return now && then && now.storyId === then.storyId && sameWhen(now.when, then.when) ? state : withoutSceneTime(state)
+  const story = !!now && !!then && now.storyId === then.storyId
+  const timed = story && sameWhen(now!.when, then!.when) ? state : withoutSceneTime(state)
+  return newSceneStage(timed, story && samePlace(now!.place, then!.place))
 }
 
 /**
@@ -115,7 +136,10 @@ function startsFresh(db: DB, all: Stored, sceneId: ID): boolean {
     const k = all[id]
     if (!k) return true
     const i = line.indexOf(id)
-    return k.hash === hashOf(kdb.keeperScene(db, id)?.text ?? '') && k.base === stateHash(i > 0 ? startFrom(db, id, line[i - 1], finalOf(all, line[i - 1])) : null)
+    return (
+      k.hash === hashOf(kdb.keeperScene(db, id)?.text ?? '') &&
+      k.base === stateHash(i > 0 ? startFrom(db, id, line[i - 1], finalOf(all, line[i - 1])) : null)
+    )
   })
 }
 
@@ -155,13 +179,16 @@ function save(db: DB, all: Stored): void {
   repo.setMeta(db, META_KEY, JSON.stringify(all))
 }
 
-/** Adam changes a scene's state: a value, or a character taken out. Kept until the scene's words change. */
-export function editState(db: DB, sceneId: ID, change: (edits: StateEdits) => void): boolean {
+/**
+ * Adam changes a scene's state: a value, a piece of clothing or a thing, or a character taken out. Kept until the
+ * scene's words change. `change` is given the state as he sees it (with his edits so far).
+ */
+export function editState(db: DB, sceneId: ID, change: (edits: StateEdits, state: SceneState) => void): boolean {
   const all = load(db)
   const k = all[sceneId]
   if (!k) return false
   const edits: StateEdits = k.edits ?? {}
-  change(edits)
+  change(edits, withEdits(k.state, k.edits))
   k.edits = edits
   save(db, all)
   // When the scene goes on from here, the reading starts from his version.
@@ -184,24 +211,29 @@ export interface StateAsk {
 /** What the memory model is asked for one scene, or for the rest of a scene from a checkpoint. */
 export function stateMessages(before: SceneState | null, sceneText: string, cast: string[], ask: StateAsk = {}): ChatMessage[] {
   const field = '{"value": "", "quote": ""}'
+  const piece = '{"item": "", "state": "", "quote": ""}'
+  const thing = '{"thing": "", "state": "", "quote": ""}'
   const system = `${MARKER} state
 You keep track of continuity for a novel, so the next scenes are written consistently. Given where things stood before a scene and the scene's text, say what the scene changes, so it is known where things stand at the END of it.
 
 Reply with only a JSON object. Each value is ${field}: the value as it is at the end, and the quote: the exact words in the scene that show it, copied word for word (a few words to a sentence; join two places with …):
-{"time": ${field}, "weather": ${field}, "light": ${field}, "characters": [{"name": "", "where": ${field}, "wearing": ${field}, "posture": ${field}, "holding": ${field}, "condition": ${field}, "mood": ${field}, "lastAction": ${field}}]}
+{"time": ${field}, "weather": ${field}, "light": ${field}, "things": [${thing}], "characters": [{"name": "", "where": ${field}, "clothes": [${piece}], "posture": ${field}, "touching": ${field}, "sees": ${field}, "holding": ${field}, "condition": ${field}, "mood": ${field}, "lastAction": ${field}}]}
 
 - Only values the scene's words show or change, each with its quote. Leave out anything you can't quote: it carries on from before, or stays unknown. Never guess or fill a gap with what is likely. A value without its words is thrown away.
 - time: time of day (and date, if the story gives one); weather; light (lamplight, dusk, harsh sun).
+- things: the things in the place that matter, only where the words put them there or change them: a door or a window shut, open, locked or barred; something put down somewhere (the case on the windowsill, the cup on the table); a lamp lit or out; a fire banked. "thing": a short name, the same as before for the same thing ("the back door"); "state": where it is and how it is now ("on the windowsill"; "shut and barred from inside"). When someone picks it up or carries it off, its state is "gone" (it is then what they hold). Not people, nothing anyone wears, not the room itself.
 - One entry for each character who is in the scene or whose situation it changes, by their name as the cast list has it.
 - where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth; on the bed, by the window).
-- wearing: everything they have on, item by item, each with how it is now: done up or open, pushed up or down, tucked in or loose, torn, soaked, half off (a white shirt unbuttoned to the waist with the sleeves rolled up, dark trousers, boots off). Anything taken off and where it is now (cloak over the chair). Jewellery, a pack, a sword belt. Always the whole outfit as it is now, not only what changed (what carries on comes from before; the quote is the words that change it). Never their hair, beard or body: those aren't worn.
-- posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing; anyone they are touching or holding (sitting on the edge of the bed facing the window, hands in her lap, knee against Tobin's).
+- clothes: one entry for each piece of clothing the scene shows them wearing, putting on, taking off or changing, each with its own quote. Jewellery, a pack and a sword belt count; hair, beard and body don't. "item": a short name, the same as before for the same piece ("grey cloak", "left boot"); "state": "on" or "off" first, then where it is when off, then how it sits: done up or open, pushed up, tucked in, torn, soaked ("off, over the chair"; "on, unbuttoned to the waist, sleeves rolled up"); "gone" when it is no longer theirs (given away, burnt). Only the pieces the scene shows or changes: boots taken off is one entry, and the coat carries on from before.
+- posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing (sitting on the edge of the bed facing the window, hands in her lap).
+- touching: who they are touching and how, only when the words say so (her knee against Tobin's; holding Ash's hand); "nobody" when the words show it ending.
+- sees: who they can or can't see or hear, only when the words say so (watching Tobin from the stairs; can't see Mara behind the screen; out of earshot of the yard). Never work it out from where people are.
 - holding: what they hold or carry now, and in which hand when the text says. Something put down, hung up or given away is no longer held: say "nothing" (or what they still hold), and quote the words where they put it down.
 - condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
 - mood: how they feel at the end.
 - lastAction: the last thing they did, in a few words.
 - When something has changed, give only the new state, never the old one. When something stops (a thing put down, a coat or boots taken off), the quote is the words where it happens.
-- Keep each value short, but leave out no detail the text gives: wearing and posture may take a full line.`
+- Keep each value short, but leave out no detail the text gives: posture may take a full line.`
   const from = ask.after?.trim()
   const user = [
     cast.length ? `Characters in this story: ${cast.join(', ')}` : '',

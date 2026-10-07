@@ -2,7 +2,8 @@
 // continuity tracker (continuity/tracker.ts), to browse, put right and read again.
 import type { Handlers } from './index'
 import type { RecallApi, RecallAtView, RecallView } from '@shared/contracts/recall'
-import { LONGEST_VALUE, STATE_FIELDS } from '@shared/continuity'
+import { clothesOf, LONGEST_VALUE, STATE_FIELDS, thingsOf } from '@shared/continuity'
+import { itemKey, LONGEST_STATE, parsePiece, parseThing } from '@shared/stageItems'
 import type { ID } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
@@ -54,8 +55,29 @@ export const recallHandlers: Handlers<keyof RecallApi> = {
   setRecallValue: (sceneId, change) => {
     const value = String(change?.value ?? '').slice(0, LONGEST_VALUE)
     const db = world.db()
-    const ok = editState(db, sceneId, (e) => {
-      if (change.character) {
+    const ok = editState(db, sceneId, (e, state) => {
+      if (change.field === 'clothes' && change.character) {
+        // One piece of what someone wears: changed as Adam writes it ("boots off, by the door"), taken out when empty,
+        // or a new one.
+        const k = key(change.character)
+        const had = clothesOf(state.characters.find((c) => c.name.toLowerCase() === k))
+        const item = String(change.item ?? '')
+        const was = item ? had.find((p) => itemKey(p.name) === itemKey(item)) : undefined
+        const now = parsePiece(value)
+        if (!was && !now) return
+        const c = e.characters?.[k] ?? {}
+        c.name = change.character.trim()
+        c.clothes = { ...(c.clothes ?? {}), [itemKey(was?.name ?? now!.name)]: now }
+        e.characters = { ...(e.characters ?? {}), [k]: c }
+        e.removed = (e.removed ?? []).filter((n) => n !== k)
+      } else if (change.field === 'things' && !change.character) {
+        // One thing in the place: its state changed, taken out when empty, or a new one ("the lamp: lit").
+        const item = String(change.item ?? '')
+        const was = item ? thingsOf(state).find((t) => itemKey(t.name) === itemKey(item)) : undefined
+        const now = was ? (value.trim() ? { name: was.name, state: value.trim().slice(0, LONGEST_STATE) } : null) : parseThing(value)
+        if (!was && !now) return
+        e.things = { ...(e.things ?? {}), [itemKey(was?.name ?? now!.name)]: now }
+      } else if (change.character) {
         if (!(STATE_FIELDS as readonly string[]).includes(change.field)) return
         const k = key(change.character)
         e.characters = { ...(e.characters ?? {}), [k]: { ...(e.characters?.[k] ?? {}), name: change.character.trim(), [change.field]: value } }

@@ -21,25 +21,55 @@ test('Recall: worked out, changed by hand, a character taken out, and out of dat
     await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
-    await invoke(win, 'saveSceneText', sceneId, null, 'Mara stood at the rail in her grey cloak. Tobin watched.')
+    await invoke(win, 'saveSceneText', sceneId, null, 'Mara stood at the rail in her grey cloak. Tobin watched. The door was barred.')
     await useFakeModel(win, fake)
 
-    // Worked out on its own once the memory has read the scene, each value with the words it came from.
+    // Worked out on its own once the memory has read the scene, each value with the words it came from: each piece of
+    // clothing and each thing in the place on its own line.
     await scenePanel(win).getByRole('tab', { name: 'Cast' }).click()
     const mara = recall(win).locator('[data-recall-character="Mara"]')
     await expect(mara).toContainText('in the scene', { timeout: 30_000 })
-    await expect(mara).toContainText('grey cloak')
-    await expect(mara.getByRole('button', { name: /^Wearing: grey cloak/ })).toHaveAttribute('title', 'From the words: “in her grey cloak”')
+    await expect(mara.getByRole('button', { name: /^Wearing: grey cloak on/ })).toHaveAttribute(
+      'title',
+      'From the words: “in her grey cloak”'
+    )
     await expect(recall(win).locator('[data-recall-character="Tobin"]')).toBeVisible()
     await expect(recall(win)).toContainText('evening')
+    const things = recall(win).locator('[data-recall-things]')
+    await expect(things.getByRole('button', { name: /^the door: barred/ })).toHaveAttribute(
+      'title',
+      'From the words: “The door was barred”'
+    )
 
-    // Adam changes what Mara wears: kept, and said to be his.
+    // Adam changes one piece of what Mara wears, and adds another: kept, and said to be his.
     await mara.getByRole('button', { name: /^Wearing: grey cloak/ }).click()
-    await mara.getByRole('textbox', { name: 'Wearing' }).fill('a red coat')
+    await mara.getByRole('textbox', { name: 'Wearing' }).fill('grey cloak off, over the rail')
     await mara.getByRole('textbox', { name: 'Wearing' }).press('Enter')
-    await expect(mara).toContainText('a red coat')
+    await expect(mara.getByRole('button', { name: /^Wearing: grey cloak off, over the rail/ })).toBeVisible()
     await expect(recall(win)).toContainText('Includes your changes.')
-    expect((await invoke(win, 'getRecall', sceneId)).state?.characters.find((c) => c.name === 'Mara')?.wearing).toBe('a red coat')
+    await mara.getByRole('button', { name: 'Add a piece of clothing' }).click()
+    await mara.getByRole('textbox', { name: 'Add a piece of clothing' }).fill('boots on')
+    await mara.getByRole('textbox', { name: 'Add a piece of clothing' }).press('Enter')
+    await expect(mara.getByRole('button', { name: /^Wearing: boots on/ })).toBeVisible()
+    expect((await invoke(win, 'getRecall', sceneId)).state?.characters.find((c) => c.name === 'Mara')?.clothes).toEqual([
+      { name: 'grey cloak', state: 'off, over the rail' },
+      { name: 'boots', state: 'on' }
+    ])
+
+    // And a thing in the place: the door unbarred, a lamp added, and taken out again (left empty).
+    await things.getByRole('button', { name: /^the door: barred/ }).click()
+    await things.getByRole('textbox', { name: 'the door' }).fill('open')
+    await things.getByRole('textbox', { name: 'the door' }).press('Enter')
+    await expect(things.getByRole('button', { name: /^the door: open/ })).toBeVisible()
+    await things.getByRole('button', { name: 'Add a thing' }).click()
+    await things.getByRole('textbox', { name: 'Add a thing' }).fill('the lamp: lit')
+    await things.getByRole('textbox', { name: 'Add a thing' }).press('Enter')
+    await expect(things.getByRole('button', { name: /^the lamp: lit/ })).toBeVisible()
+    await things.getByRole('button', { name: /^the lamp: lit/ }).click()
+    await things.getByRole('textbox', { name: 'the lamp' }).fill('')
+    await things.getByRole('textbox', { name: 'the lamp' }).press('Enter')
+    await expect(things.getByRole('button', { name: /^the lamp/ })).toHaveCount(0)
+    expect((await invoke(win, 'getRecall', sceneId)).state?.things).toEqual([{ name: 'the door', state: 'open' }])
 
     // Tobin taken out.
     await recall(win).getByRole('button', { name: 'Take Tobin out' }).click()

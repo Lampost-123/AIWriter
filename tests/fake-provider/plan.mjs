@@ -21,10 +21,11 @@ function part(user, title) {
 export function planReply(system, user) {
   if (!system.includes(PLAN_MARKER)) return null
   if (part(user, 'The scene card').includes('PLAN-BROKEN')) return 'I think the scene should be tense.'
-  // "- Mara: where: in the scene; wearing: grey cloak"
-  const first = /^- ([^:\n]+): (.+)$/m.exec(part(user, 'Where things stand'))
+  // "- Mara: where: in the scene", then each piece she wears on a line of its own: "  - wearing: grey cloak on"
+  const stand = part(user, 'Where things stand')
+  const first = /^- ([^:\n]+): (.+)$/m.exec(stand)
   const name = first?.[1]?.trim() ?? ''
-  const wearing = first ? (/(?:^|; )wearing: ([^;]+)/.exec(first[2])?.[1]?.trim() ?? '') : ''
+  const wearing = first ? (/^ +- wearing: (.+?)(?: (?:on|off)\b.*)?$/m.exec(stand.slice(first.index))?.[1]?.trim() ?? '') : ''
   const other = /^([^(;\n]+?) \(/.exec(part(user, 'Also in the world (not in the briefing)').trim())?.[1]?.trim()
   const relies = name
     ? [

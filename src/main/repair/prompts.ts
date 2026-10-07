@@ -1,6 +1,7 @@
 // What the memory model is told when it checks new words claim by claim (check and repair, step 3 of the consistency
 // plan). Every line it may compare a claim with has an id the reply refers to:
-//   W1...  where things stand just before the new words (the live stage), each value with the story's words for it
+//   W1...  where things stand just before the new words (the live stage), each value with the story's words for it:
+//          each piece of clothing on its own line, and each thing in the place (step 2b)
 //   E1...  the memory's entries named in the new words or on the scene card (looks, injuries, what they own...)
 //   K1...  who knows what at the start of the scene
 //   O1...  what the people here gave away, lost or got, however long ago (memory/items.ts), as it is now
@@ -9,7 +10,8 @@
 // The system prompt starts with "[AIWRITE-REPAIR v1]", so the fake provider in tests recognises it. Pure.
 
 import type { ChatMessage, ContextBlock, ID } from '@shared/types'
-import { STATE_FIELDS, STATE_LABELS, sourceKey, type SceneState } from '@shared/continuity'
+import { clothesOf, pieceSource, STATE_FIELDS, STATE_LABELS, sourceKey, thingKey, thingsOf, type SceneState } from '@shared/continuity'
+import { pieceText, thingText } from '@shared/stageItems'
 import { deadBy } from '../ai/context'
 import type { SceneCheckContext } from '../checks/context'
 import { entryText, factsThatMatter, headsAt, holdingsHere } from '../checks/context'
@@ -18,7 +20,10 @@ import { holdingLine, nameIn, namesOf } from '../memory/items'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
-/** One line of where things stand: a character's value (`who` set) or the scene's time, weather or light. */
+/**
+ * One line of where things stand: a character's value (`who` set; each piece of clothing is its own 'wearing' line) or
+ * the scene's time, weather or light, or a thing in the place ('thing').
+ */
 export interface StageLine {
   code: string
   who: string | null
@@ -45,21 +50,34 @@ const MOST_FACTS = 30
 /** The most lines about what people here gave away, lost or got. */
 const MOST_OWNED = 12
 
-/** Where things stand as lines with ids, each with its words. */
+/** Where things stand as lines with ids, each with its words: each piece of clothing, and each thing in the place, its own. */
 export function stageLines(stage: SceneState | null): StageLine[] {
   if (!stage) return []
   const out: StageLine[] = []
   const said = stage.said ?? {}
-  const add = (who: string | null, field: string, value: string): void => {
+  const add = (who: string | null, field: string, value: string, quote: string | undefined): void => {
     if (!value.trim()) return
-    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: said[sourceKey(who, field)]?.quote?.trim() || null })
+    out.push({ code: `W${out.length + 1}`, who, field, value: value.trim(), quote: quote?.trim() || null })
   }
-  for (const f of ['time', 'weather', 'light'] as const) add(null, f, stage[f])
-  for (const c of stage.characters) for (const f of STATE_FIELDS) add(c.name, f, c[f])
+  for (const f of ['time', 'weather', 'light'] as const) add(null, f, stage[f], said[sourceKey(null, f)]?.quote)
+  for (const c of stage.characters)
+    for (const f of STATE_FIELDS) {
+      add(c.name, f, c[f] ?? '', said[sourceKey(c.name, f)]?.quote)
+      // What they wear, piece by piece, right after where they are.
+      if (f === 'where') for (const p of clothesOf(c)) add(c.name, 'wearing', pieceText(p), pieceSource(said, c.name, p.name)?.quote)
+    }
+  for (const t of thingsOf(stage)) add(null, 'thing', thingText(t), said[thingKey(t.name)]?.quote)
   return out
 }
 
-const FIELD_WORDS: Record<string, string> = { time: 'time', weather: 'weather', light: 'light', ...STATE_LABELS }
+const FIELD_WORDS: Record<string, string> = {
+  time: 'time',
+  weather: 'weather',
+  light: 'light',
+  wearing: 'wearing',
+  thing: 'thing in the place',
+  ...STATE_LABELS
+}
 
 /** One stage line as the model reads it: `- [W2] Mara · wearing: hood off · words: "took off her hood"`. */
 export const stageLineText = (l: StageLine): string =>
@@ -144,23 +162,23 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
 /** The instructions: the same every time, so providers that cache repeated prompts can reuse them. */
 export function repairSystem(): string {
   return `${REPAIR_MARKER} claims
-You check newly written words of a novel, claim by claim, against what is already known, for the author. You are given where things stand just before the new words (each line with an id, W1..., and the story's own words that show it), facts from the story's memory (E entries, K who knows what, O what people here gave away, lost or got, D who is dead, S the scenes just before), the words just before the new ones, and the new words. Reply with one JSON object and nothing else.
+You check newly written words of a novel, claim by claim, against what is already known, for the author. You are given where things stand just before the new words (each line with an id, W1..., and the story's own words that show it: where each person is and how they are placed, each piece of clothing on its own line, what they hold, who they touch and who they can see or hear, and each thing in the place), facts from the story's memory (E entries, K who knows what, O what people here gave away, lost or got, D who is dead, S the scenes just before), the words just before the new ones, and the new words. Reply with one JSON object and nothing else.
 
 How to check
-- Go through the new words one claim at a time: each place where they say, or take for granted, where someone is; how they are placed (standing, sitting, lying, on what); what they wear, item by item; what they hold or carry; an injury or how their body is; what they know; what they own; or the time of day and how much time has passed.
+- Go through the new words one claim at a time: each place where they say, or take for granted, where someone is; how they are placed (standing, sitting, lying, on what); what they wear, item by item; what they hold or carry; who they touch; who they can see or hear; where a thing in the place is or how it is (a door shut, locked or barred; something put down somewhere; a lamp lit); an injury or how their body is; what they know; what they own; or the time of day and how much time has passed.
 - For each claim, find the line it touches (a W, E, K, O, D or S id) and compare the two. Leave out claims that touch no line. Someone using, holding or carrying a thing an O line says they no longer have is a slip, unless the new words show them getting it back.
 - The lines are where things stood BEFORE the new words. Anything the new words show happening first is fine, and so is anything that could have happened in between without being written: time passing, someone going somewhere, getting up, putting something down.
 - "fits": the claim agrees with the line. "shown": the new words themselves show the change happening (she pulls her boots on, he gets up, someone tells her). "slip": the new words treat as already so something that cannot be true together with the line, and nothing in the new words or the words just before shows it changing: a boot back on with no words putting it on, a cup in a hand that put it down, a character knowing what they haven't learnt, a dead character acting.
-- NOT a slip: a detail the line doesn't mention, or a more exact one (a man asleep sitting against a wall whose hand lies open on the floor: both can be true); someone somewhere else after time could have passed or they could have moved (a man last seen crossing the river home, later sitting by his own fire); anything the line leaves open. When unsure, it is not a slip.
+- NOT a slip: a detail the line doesn't mention, or a more exact one (a man asleep sitting against a wall whose hand lies open on the floor: both can be true); someone somewhere else after time could have passed or they could have moved (a man last seen crossing the river home, later sitting by his own fire); a door opened or a thing moved when someone could have done it off the page (a door barred at dusk, open when someone walks in at midnight); who can see or hear whom changing as people move; anything the line leaves open. When unsure, it is not a slip.
 
 Each claim:
-{"quote": "", "who": "", "about": "where|posture|wearing|holding|condition|knows|owns|time", "line": "W2", "verdict": "fits|shown|slip", "bothTrue": "no|yes|maybe", "between": "nothing|time|movement|action|unclear", "why": "", "fix": {"replace": "", "with": ""}, "question": ""}
+{"quote": "", "who": "", "about": "where|posture|wearing|holding|touching|sees|thing|condition|knows|owns|time", "line": "W2", "verdict": "fits|shown|slip", "bothTrue": "no|yes|maybe", "between": "nothing|time|movement|action|unclear", "why": "", "fix": {"replace": "", "with": ""}, "question": ""}
 - "quote": the shortest words that make the claim, copied exactly, character for character, from the new words.
-- "who": the character's name, or "" for the time, weather or light.
+- "who": the character's name, or "" for the time, weather or light, or a thing in the place.
 - "bothTrue": could the claim and the line both be true at the same moment? "no" only for a plain contradiction (her pipe between her teeth, and the pipe in her hand); "yes" when they can (then it is no slip); "maybe" when you can't tell.
 - "between": what could have happened between the line and the new words to explain it: "nothing" (the same moment, no gap), "time" (time has passed), "movement" (someone could have gone somewhere), "action" (something could have been done off the page), or "unclear".
 - "why": for a slip, one plain sentence for the author, with names and no ids, such as "Mara took her boots off by the door, but here she walks out in them."
-- "fix": only for a slip that is a plain contradiction ("bothTrue": "no", "between": "nothing") about something worn or held, or an injury, mended by changing a few words in place without changing what happens (her pipe in her hand becomes her pipe between her teeth; his hat in his hands becomes his hat on his head). "replace": the fewest words that must change, at most six, copied exactly from the new words, inside or overlapping the quote; "with": those words changed as little as possible, in the same style. Never a fix that moves someone, changes who is where, or changes what happened (someone gone to the farrier for the night but seen in the yard is a question, not "had left word at the yard").
+- "fix": only for a slip that is a plain contradiction ("bothTrue": "no", "between": "nothing") about something worn or held, a thing in the place, or an injury, mended by changing a few words in place without changing what happens (her pipe in her hand becomes her pipe between her teeth; his hat in his hands becomes his hat on his head). "replace": the fewest words that must change, at most six, copied exactly from the new words, inside or overlapping the quote; "with": those words changed as little as possible, in the same style. Never a fix that moves someone, changes who is where, or changes what happened (someone gone to the farrier for the night but seen in the yard is a question, not "had left word at the yard").
 - "question": for any other slip, one short question for the author with the choices in it, such as "Tobin left for the docks earlier. Should he come back first, or is someone else waiting here?". Leave it out when "fix" mends the slip.
 
 Reply with {"claims": [...]}, and {"claims": []} when the new words make no claim that touches a line.`
@@ -173,7 +191,13 @@ export interface RepairRequest {
 }
 
 /** The request: where things stand, the memory's facts, the scene card, the words just before, and the new words. */
-export function repairRequest(o: { stage: StageLine[]; codex: ReturnType<typeof codexLines>; card: string; leadIn: string; newWords: string }): RepairRequest {
+export function repairRequest(o: {
+  stage: StageLine[]
+  codex: ReturnType<typeof codexLines>
+  card: string
+  leadIn: string
+  newWords: string
+}): RepairRequest {
   const sections = [
     {
       id: 'stage',

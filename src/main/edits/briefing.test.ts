@@ -259,7 +259,7 @@ describe('Continue', () => {
     const at = b.blocks.findIndex((x) => x.id === 'stand')
     expect(at).toBe(b.blocks.length - 2)
     expect(b.blocks[at].text.startsWith(STAND_LEAD_HERE)).toBe(true)
-    expect(user(b)).toContain('- Mara: where: by the hearth; wearing: shirt untucked, boots off; position: kneeling')
+    expect(user(b)).toContain('- Mara: where: by the hearth; position: kneeling\n  - wearing: shirt untucked\n  - wearing: boots off')
     // Not known, or another tool: no such part.
     expect(
       ok(editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), world())).blocks.some((x) => x.id === 'stand')

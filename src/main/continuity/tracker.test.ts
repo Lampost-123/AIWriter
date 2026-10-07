@@ -1,11 +1,14 @@
 // Where things stand: the memory model's reply laid over the state before, only the latest of each kept, each value
 // with the words that show it (one without is left out), Adam's edits kept until the words change, checkpoints inside
 // scenes so only new words are read, and nothing used once the words it came from (or an earlier scene's state)
-// changed. The model is a stand-in that answers with the state each test gives it.
+// changed. The model is a stand-in that answers with the state each test gives it (what someone wears in one line, the
+// way models were asked before step 2b; step 2b's own replies, piece by piece, are written out in its tests).
+import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
-import { layGone, quoteFound, saysGone } from '@shared/continuity'
+import { clothesOf, layGone, pieceKey, quoteFound, saysGone, thingKey, type CharacterState } from '@shared/continuity'
+import { itemKey, MOST_CLOTHES, MOST_THINGS, pieceText } from '@shared/stageItems'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
@@ -95,14 +98,54 @@ const mara = (more: Partial<SceneState['characters'][number]>) => ({
   ...more
 })
 
+/** A character as kept since step 2b: what they wear piece by piece. */
+const person = (name: string, more: Partial<CharacterState> = {}): CharacterState => ({
+  name,
+  where: '',
+  posture: '',
+  touching: '',
+  sees: '',
+  holding: '',
+  condition: '',
+  mood: '',
+  lastAction: '',
+  clothes: [],
+  ...more
+})
+
+/** A character as these tests read them: what they wear in one line, each piece as it reads, "; " between. */
+const seen = (c: CharacterState | null | undefined) => c && { ...c, wearing: clothesOf(c).map(pieceText).join('; ') }
+
+/** A reply from the memory model, as it comes over the wire. */
+const reply = (content: unknown): Response => {
+  const chunk = { choices: [{ index: 0, delta: { content: JSON.stringify(content) }, finish_reason: 'stop' }] }
+  return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+}
+
+/** A stand-in model that answers each request with the next reply given, as it is, and counts the requests. */
+function replying(...replies: unknown[]): typeof fetch & { asked: string[] } {
+  const asked: string[] = []
+  const f = (async (_input: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { messages: { content: string }[] }
+    asked.push(body.messages[1].content)
+    return reply(replies[Math.min(asked.length - 1, replies.length - 1)])
+  }) as typeof fetch & { asked: string[] }
+  f.asked = asked
+  return f
+}
+
+const hashOf = (text: string): string => createHash('sha1').update(text).digest('hex').slice(0, 16)
+
 describe('where things stand', () => {
   it('lays what a scene changes over the state before, keeping only the latest of each', () => {
     const before: SceneState = { time: 'dusk', weather: 'rain', light: '', characters: [mara({ wearing: 'a grey cloak', holding: 'a lamp' })] }
     const after = mergeState(before, { time: 'night', characters: [mara({ wearing: 'a dry shirt', posture: 'sitting by the fire' })] })
     expect(after.time).toBe('night')
     expect(after.weather).toBe('rain')
-    expect(after.characters[0]).toMatchObject({ wearing: 'a dry shirt', holding: 'a lamp', posture: 'sitting by the fire' })
-    expect(stateText(after)).toBe('Time: night. Weather: rain\n- Mara: wearing: a dry shirt; position: sitting by the fire; holding: a lamp')
+    expect(seen(after.characters[0])).toMatchObject({ wearing: 'a dry shirt', holding: 'a lamp', posture: 'sitting by the fire' })
+    expect(stateText(after)).toBe(
+      'Time: night. Weather: rain\n- Mara: position: sitting by the fire; holding: a lamp\n  - wearing: a dry shirt'
+    )
     expect(readChanges('not json', '', 's1')).toBeNull()
   })
 
@@ -120,7 +163,18 @@ describe('where things stand', () => {
     // No such words: no time. A value given without words: left out. Case, spacing and punctuation don't matter.
     expect(read.time).toBe('')
     expect(read.characters).toEqual([
-      { name: 'Tobin', where: 'the dock', wearing: 'a coat, collar up', posture: 'standing', holding: '', condition: '', mood: '', lastAction: '' }
+      {
+        name: 'Tobin',
+        where: 'the dock',
+        wearing: 'a coat, collar up',
+        posture: 'standing',
+        touching: '',
+        sees: '',
+        holding: '',
+        condition: '',
+        mood: '',
+        lastAction: ''
+      }
     ])
     expect(read.said?.['tobin|wearing']).toEqual({ quote: 'pulled his COLLAR up!', sceneId: 's1' })
     // Carried on: the words stay with the value until a new value replaces it.
@@ -161,7 +215,7 @@ describe('where things stand', () => {
       ],
       said: {
         'wren hollis|holding': { quote: 'the case against her thigh', sceneId: 'inn' },
-        "ash penrose|holding": { quote: "took Cinder's lead down", sceneId: 'inn' },
+        'ash penrose|holding': { quote: "took Cinder's lead down", sceneId: 'inn' },
         'ash penrose|wearing': { quote: 'pulled his collar up', sceneId: 'inn' }
       }
     }
@@ -171,7 +225,9 @@ describe('where things stand', () => {
     expect(wren.holding).toBe('nothing')
     expect(ash.holding).toBe('nothing')
     // What he still wears stays; what came off says so, in place of how it was.
-    expect(ash.wearing).toBe('a coat with a knife-hole in the collar, collar up; hat off, set on the table brim up; boots off, set by the hearth')
+    expect(seen(ash)!.wearing).toBe(
+      'a coat with a knife-hole in the collar, collar up; hat off, set on the table brim up; boots off, set by the hearth'
+    )
     // The old words go with the old values: none are left standing behind an empty hand.
     expect(after.said?.['wren hollis|holding']).toBeUndefined()
     expect(after.said?.['ash penrose|holding']).toBeUndefined()
@@ -215,13 +271,13 @@ describe('where things stand', () => {
     write(w.db, w.two, 'Mara sat by the fire.')
     const f = answering({ characters: [mara({ wearing: 'a grey cloak' })] }, { characters: [mara({ posture: 'sitting by the fire' })] })
     const start = await stateBefore(opts(w.db, f), w.three)
-    expect(start?.characters[0]).toMatchObject({ wearing: 'a grey cloak', posture: 'sitting by the fire' })
+    expect(seen(start?.characters[0])).toMatchObject({ wearing: 'a grey cloak', posture: 'sitting by the fire' })
     expect(f.asked).toHaveLength(2)
     // The second scene was told how the first ended.
     expect(f.asked[1]).toContain('wearing: a grey cloak')
     await stateBefore(opts(w.db, f), w.three)
     expect(f.asked).toHaveLength(2)
-    expect(keptStateBefore(w.db, w.three)?.characters[0].wearing).toBe('a grey cloak')
+    expect(seen(keptStateBefore(w.db, w.three)?.characters[0])?.wearing).toBe('a grey cloak')
   })
 
   it('never tells a ghost: an edit to the words, or to an earlier scene, sets the state aside until it is read again', async () => {
@@ -237,7 +293,7 @@ describe('where things stand', () => {
     const f = answering({ characters: [mara({ wearing: 'no cloak' })] }, { characters: [mara({ posture: 'sitting' })] })
     const start = await stateBefore(opts(w.db, f), w.three)
     expect(f.asked).toHaveLength(2)
-    expect(start?.characters[0]).toMatchObject({ wearing: 'no cloak', posture: 'sitting' })
+    expect(seen(start?.characters[0])).toMatchObject({ wearing: 'no cloak', posture: 'sitting' })
   })
 
   it('keeps Adam’s edits until the words change, then reads them afresh', async () => {
@@ -251,15 +307,15 @@ describe('where things stand', () => {
     })
     const edited = storedState(w.db, w.one)!
     expect(edited).toMatchObject({ current: true, edited: true })
-    expect(edited.state.characters.map((c) => [c.name, c.wearing])).toEqual([['Mara', 'a red cloak']])
+    expect(edited.state.characters.map((c) => [c.name, seen(c)!.wearing])).toEqual([['Mara', 'a red cloak']])
     expect(edited.state.weather).toBe('snow')
     // The scene after starts from Adam's version.
-    expect(keptStateBefore(w.db, w.two)?.characters[0].wearing).toBe('a red cloak')
+    expect(seen(keptStateBefore(w.db, w.two)?.characters[0])?.wearing).toBe('a red cloak')
     // New words: read afresh, his edits go with the old words.
     write(w.db, w.one, 'Mara took her cloak off.')
     await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a shirt' })] })), w.one)
     expect(storedState(w.db, w.one)).toMatchObject({ edited: false })
-    expect(storedState(w.db, w.one)!.state.characters.map((c) => c.wearing)).toEqual(['a shirt'])
+    expect(storedState(w.db, w.one)!.state.characters.map((c) => seen(c)!.wearing)).toEqual(['a shirt'])
   })
 
   it('works out where things stand at the end of the scene so far, built on the scene before, once for the same words', async () => {
@@ -272,10 +328,10 @@ describe('where things stand', () => {
     )
     const soFar = 'Mara came in out of the rain. She hung her cloak over the chair and kicked off her boots.'
     const here = await stateAtText(opts(w.db, f), w.two, soFar)
-    expect(here?.characters[0]).toMatchObject({ wearing: 'a wet shirt, boots off (by the door)', posture: 'sitting on the bed' })
+    expect(seen(here?.characters[0])).toMatchObject({ wearing: 'a wet shirt; boots off (by the door)', posture: 'sitting on the bed' })
     expect(f.asked).toHaveLength(2)
     // Told how the scene before ended, and that this is the scene so far, not a finished scene.
-    expect(f.asked[1]).toContain('wearing: a grey cloak, boots')
+    expect(f.asked[1]).toContain('  - wearing: a grey cloak\n  - wearing: boots')
     expect(f.asked[1]).toContain('this is the scene so far')
     expect(f.asked[1]).toContain(soFar)
     // The same words again: not asked for again; and the scene's own state (for the scene after) is untouched.
@@ -292,7 +348,7 @@ describe('where things stand', () => {
     expect(here?.characters[0].posture).toBe('sitting on the bed')
     expect(f.asked).toHaveLength(1)
     expect(f.asked[0]).not.toContain('this is the scene so far')
-    expect(keptStateBefore(w.db, w.two)?.characters[0].wearing).toBe('a shirt, unbuttoned')
+    expect(seen(keptStateBefore(w.db, w.two)?.characters[0])?.wearing).toBe('a shirt, unbuttoned')
   })
 
   it('says nothing rather than the state before when the model can’t say', async () => {
@@ -325,7 +381,10 @@ describe('where things stand', () => {
     // The scene's end reads on from the second checkpoint; asked again, nothing is read again.
     const end = await stateAfter(opts(w.db, f), w.one)
     expect(wordsAsked(f.asked[2])).toBe('\n\nThen she lay back and closed her eyes.')
-    expect(end?.characters[0]).toMatchObject({ wearing: 'a wet shirt; cloak over the chair; boots off', posture: 'lying on the bed, eyes closed' })
+    expect(seen(end?.characters[0])).toMatchObject({
+      wearing: 'a wet shirt; cloak over the chair; boots off',
+      posture: 'lying on the bed, eyes closed'
+    })
     await stateAtText(opts(w.db, f), w.one, second)
     expect(f.asked).toHaveLength(3)
     // Kept, without asking: at the end, at a checkpoint, and after one (the nearest before, not exact).
@@ -364,7 +423,7 @@ describe('where things stand', () => {
     const f = answering({ characters: [mara({ posture: 'sitting' })] })
     const end = await stateAfter(opts(w.db, f), w.one)
     expect(f.asked[0]).toContain('wearing: a red cloak')
-    expect(end?.characters[0]).toMatchObject({ wearing: 'a red cloak', posture: 'sitting' })
+    expect(seen(end?.characters[0])).toMatchObject({ wearing: 'a red cloak', posture: 'sitting' })
   })
 
   it('leaves out a value whose words aren’t in the scene: it carries on from before instead', async () => {
@@ -374,8 +433,8 @@ describe('where things stand', () => {
     await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] })), w.one)
     const guess = answering({ characters: [mara({ wearing: 'a blue dress' })], quote: 'in her blue dress' })
     const end = await stateAfter(opts(w.db, guess), w.two)
-    expect(end?.characters[0].wearing).toBe('a grey cloak')
-    expect(end?.said?.['mara|wearing']).toEqual({ quote: 'Mara pulled on', sceneId: w.one })
+    expect(seen(end?.characters[0])?.wearing).toBe('a grey cloak')
+    expect(end?.said?.[pieceKey('Mara', 'a grey cloak')]).toEqual({ quote: 'Mara pulled on', sceneId: w.one })
   })
 
   it('carries on into the scene so far while a scene far back waits to be read again', async () => {
@@ -406,9 +465,9 @@ describe('where things stand', () => {
     // The scenes before are kept at their ends (no new reading), and the scene so far builds on them; so does a
     // draft of the scene from its start, and a check of it.
     expect(f.asked).toHaveLength(5)
-    expect(keptStateBefore(w.db, five)?.characters[0]).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs' })
+    expect(seen(keptStateBefore(w.db, five)?.characters[0])).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs' })
     expect(f.asked[4]).toContain('wearing: a grey cloak')
-    expect(here?.characters[0]).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs', posture: 'sitting on the bed' })
+    expect(seen(here?.characters[0])).toMatchObject({ wearing: 'a grey cloak', where: 'upstairs', posture: 'sitting on the bed' })
     // Recall at the cursor finds that checkpoint, and the scene's end reads on from it.
     expect(storedStateAt(w.db, five, soFar)?.state.characters[0].posture).toBe('sitting on the bed')
     await stateAfter(opts(w.db, f), five)
@@ -450,7 +509,7 @@ describe('where things stand', () => {
       return inner(input as string, init)
     }) as typeof fetch
     const end = await stateAfter(opts(w.db, f), w.two)
-    expect(end?.characters[0]).toMatchObject({ wearing: 'a red cloak', posture: 'sitting by the fire', mood: 'tired' })
+    expect(seen(end?.characters[0])).toMatchObject({ wearing: 'a red cloak', posture: 'sitting by the fire', mood: 'tired' })
     expect(storedState(w.db, w.two)).toMatchObject({ edited: true, current: true })
   })
 
@@ -465,10 +524,16 @@ describe('where things stand', () => {
     expect(storedStateAt(w.db, w.one, words.slice(0, 2).join('\n\n'))).toMatchObject({ exact: true })
   })
 
-  it('asks for every piece of clothing and how it sits, and the whole pose', () => {
+  it('asks for every piece of clothing and how it sits, the things in the place, and the whole pose', () => {
     const [system] = stateMessages(null, 'Words.', ['Mara'])
-    expect(system.content).toContain('everything they have on, item by item')
-    expect(system.content).toContain('Always the whole outfit as it is now')
+    expect(system.content).toContain(
+      'one entry for each piece of clothing the scene shows them wearing, putting on, taking off or changing'
+    )
+    expect(system.content).toContain('boots taken off is one entry, and the coat carries on from before')
+    expect(system.content).toContain('"things": [{"thing": "", "state": "", "quote": ""}]')
+    expect(system.content).toContain('When someone picks it up or carries it off, its state is "gone"')
+    expect(system.content).toContain('touching: who they are touching and how, only when the words say so')
+    expect(system.content).toContain('Never work it out from where people are')
     expect(system.content).toContain('what their hands, arms and legs are doing')
     expect(system.content).toContain('Never guess')
     // Something put down or taken off: the words of the act.
@@ -506,5 +571,253 @@ describe('where things stand', () => {
     // A scene with no When after one with a time: unknown how long has passed, so it starts fresh too.
     when(w.two, '')
     expect(keptStateBefore(w.db, w.two)?.time).toBe('')
+  })
+
+  // ---------- Piece by piece (step 2b, Adam 2026-10-07) ----------
+
+  it('changes one piece of clothing at a time, each with its own words: boots off never touches the coat', () => {
+    const words = 'Mara came in out of the rain. She kicked off her boots by the hearth and hung her hat on the peg.'
+    const read = readChanges(
+      JSON.stringify({
+        characters: [
+          {
+            name: 'Mara',
+            clothes: [
+              { item: 'boots', state: 'off, by the hearth', quote: 'kicked off her boots by the hearth' },
+              // Words the scene doesn't have: left out. Taken off with no words: kept, as an empty hand is.
+              { item: 'scarf', state: 'on, wound twice', quote: 'her scarf wound twice' },
+              { item: 'hat', state: 'off, on the peg', quote: '' }
+            ]
+          }
+        ]
+      }),
+      words,
+      'inn'
+    )!
+    expect(read.characters?.[0].clothes).toEqual([
+      { name: 'boots', state: 'off, by the hearth' },
+      { name: 'hat', state: 'off, on the peg' }
+    ])
+    expect(read.said[pieceKey('Mara', 'boots')]).toEqual({ quote: 'kicked off her boots by the hearth', sceneId: 'inn' })
+    expect(read.said[pieceKey('Mara', 'hat')]).toBeUndefined()
+    const before: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [
+        person('Mara', {
+          clothes: [
+            { name: 'grey coat', state: 'on, buttoned to the throat' },
+            { name: 'boots', state: 'on' },
+            { name: 'hat', state: 'on' }
+          ]
+        })
+      ],
+      said: {
+        [pieceKey('Mara', 'grey coat')]: { quote: 'buttoned her grey coat', sceneId: 'road' },
+        [pieceKey('Mara', 'hat')]: { quote: 'jammed her hat on', sceneId: 'road' }
+      }
+    }
+    const after = mergeState(before, read)
+    expect(after.characters[0].clothes).toEqual([
+      { name: 'grey coat', state: 'on, buttoned to the throat' },
+      { name: 'boots', state: 'off, by the hearth' },
+      { name: 'hat', state: 'off, on the peg' }
+    ])
+    // The coat keeps its own words; the boots have theirs; the hat's old words go with the old value.
+    expect(after.said?.[pieceKey('Mara', 'grey coat')]).toEqual({ quote: 'buttoned her grey coat', sceneId: 'road' })
+    expect(after.said?.[pieceKey('Mara', 'boots')]?.quote).toBe('kicked off her boots by the hearth')
+    expect(after.said?.[pieceKey('Mara', 'hat')]).toBeUndefined()
+    expect(stateText(after)).toBe(
+      '- Mara\n  - wearing: grey coat on, buttoned to the throat\n  - wearing: boots off, by the hearth\n  - wearing: hat off, on the peg'
+    )
+    // Given away: off the list, and its words with it.
+    const gone = mergeState(after, { characters: [person('Mara', { clothes: [{ name: 'hat', state: 'gone' }] })] })
+    expect(gone.characters[0].clothes!.map((p) => p.name)).toEqual(['grey coat', 'boots'])
+  })
+
+  it('keeps the things in the place: a door barred then opened from outside, a case put down then picked up', () => {
+    const one = 'Ash dropped the bar across the door. Wren set the case on the windowsill and sat down.'
+    const first = readChanges(
+      JSON.stringify({
+        things: [
+          { thing: 'the door', state: 'shut and barred from inside', quote: 'dropped the bar across the door' },
+          { thing: 'the survey case', state: 'on the windowsill', quote: 'set the case on the windowsill' },
+          // Not in the words: left out.
+          { thing: 'the lamp', state: 'lit', quote: 'the lamp glowed' }
+        ],
+        characters: [{ name: 'Wren', holding: { value: 'nothing', quote: '' } }]
+      }),
+      one,
+      'inn'
+    )!
+    const before: SceneState = { time: '', weather: '', light: '', characters: [person('Wren', { holding: 'the survey case' })] }
+    const barred = mergeState(before, first)
+    expect(barred.things).toEqual([
+      { name: 'the door', state: 'shut and barred from inside' },
+      { name: 'the survey case', state: 'on the windowsill' }
+    ])
+    expect(barred.characters[0].holding).toBe('nothing')
+    expect(barred.said?.[thingKey('the door')]).toEqual({ quote: 'dropped the bar across the door', sceneId: 'inn' })
+    expect(stateText(barred)).toContain('Things here:\n- the door: shut and barred from inside\n- the survey case: on the windowsill')
+    const two = 'Someone lifted the bar from outside, and the door swung open. Wren snatched up the case.'
+    const second = readChanges(
+      JSON.stringify({
+        things: [
+          { thing: 'the door', state: 'unbarred and open', quote: 'the door swung open' },
+          // Picked up: gone from the place (now held), words or none.
+          { thing: 'the case', state: 'gone', quote: '' }
+        ],
+        characters: [{ name: 'Wren', holding: { value: 'the survey case', quote: 'Wren snatched up the case' } }]
+      }),
+      two,
+      'inn'
+    )!
+    const open = mergeState(barred, second)
+    expect(open.things).toEqual([{ name: 'the door', state: 'unbarred and open' }])
+    expect(open.characters[0].holding).toBe('the survey case')
+    expect(open.said?.[thingKey('the door')]?.quote).toBe('the door swung open')
+    expect(open.said?.[thingKey('the survey case')]).toBeUndefined()
+  })
+
+  it('says who touches whom and who can see or hear whom only when the words say so', () => {
+    const words = 'Tobin took her hand. From the stairs, Ash watched them.'
+    const read = readChanges(
+      JSON.stringify({
+        characters: [
+          {
+            name: 'Mara',
+            touching: { value: "holding Tobin's hand", quote: 'Tobin took her hand' },
+            sees: { value: 'can see Ash on the stairs', quote: '' }
+          },
+          { name: 'Ash', sees: { value: 'watching Mara and Tobin from the stairs', quote: 'From the stairs, Ash watched them' } }
+        ]
+      }),
+      words,
+      'inn'
+    )!
+    expect(read.characters?.map((c) => [c.name, c.touching, c.sees])).toEqual([
+      ['Mara', "holding Tobin's hand", ''],
+      ['Ash', '', 'watching Mara and Tobin from the stairs']
+    ])
+    const text = stateText(mergeState(null, read))
+    expect(text).toContain("- Mara: touching: holding Tobin's hand")
+    expect(text).toContain('- Ash: sees or hears: watching Mara and Tobin from the stairs')
+  })
+
+  it('keeps at most so many pieces a person and things in the place, letting go of those changed longest ago', () => {
+    const many = (n: number, what: string) => Array.from({ length: n }, (_, i) => ({ name: `${what} ${i + 1}`, state: 'on' }))
+    const after = mergeState(null, {
+      things: many(MOST_THINGS + 2, 'stone'),
+      characters: [person('Mara', { clothes: many(MOST_CLOTHES + 3, 'ring') })]
+    })
+    expect(after.things).toHaveLength(MOST_THINGS)
+    expect(after.characters[0].clothes).toHaveLength(MOST_CLOTHES)
+    expect(after.characters[0].clothes!.at(-1)!.name).toBe(`ring ${MOST_CLOTHES + 3}`)
+  })
+
+  it('reads a state kept before step 2b, all that was worn in one line, as pieces with nothing lost, and it still stands', async () => {
+    const w = world()
+    const words = 'Mara hung her cloak over the chair and kicked her boots off by the door.'
+    write(w.db, w.one, words)
+    write(w.db, w.two, 'Mara sat by the fire.')
+    // As a version before step 2b kept them: one line of what she wore, and Adam's own line in place of it.
+    const old = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [
+        {
+          name: 'Mara',
+          where: 'her room',
+          wearing: 'a wet shirt, cloak over the chair',
+          posture: '',
+          holding: '',
+          condition: '',
+          mood: '',
+          lastAction: ''
+        }
+      ],
+      said: { 'mara|wearing': { quote: 'hung her cloak over the chair', sceneId: w.one } }
+    }
+    const edits = { characters: { mara: { wearing: 'a wet shirt, cloak over the chair, boots off (by the door)' } } }
+    // As that version laid Adam's line over it (and with it, the words of the line it replaced gone).
+    const oldEnd = { ...old, characters: [{ ...old.characters[0], wearing: edits.characters.mara.wearing }], said: {} }
+    const twoState = { time: '', weather: '', light: '', characters: [{ ...oldEnd.characters[0], posture: 'sitting by the fire' }] }
+    repo.setMeta(
+      w.db,
+      'continuity',
+      JSON.stringify({
+        [w.one]: { hash: hashOf(words), base: '', state: old, edits },
+        [w.two]: { hash: hashOf('Mara sat by the fire.'), base: hashOf(JSON.stringify(oldEnd)), state: twoState }
+      })
+    )
+    // It still stands: nothing is read again.
+    expect(storedState(w.db, w.two)?.current).toBe(true)
+    const end = storedState(w.db, w.one)!.state
+    expect(clothesOf(end.characters[0])).toEqual([
+      { name: 'a wet shirt', state: '' },
+      { name: 'cloak over the chair', state: '' },
+      { name: 'boots', state: 'off (by the door)' }
+    ])
+    expect(stateText(end)).toBe(
+      '- Mara: where: her room\n  - wearing: a wet shirt\n  - wearing: cloak over the chair\n  - wearing: boots off (by the door)'
+    )
+    // A change to one piece finds it by its own word; the line's words stay with the rest.
+    const later = mergeState(end, { characters: [person('Mara', { clothes: [{ name: 'boots', state: 'on, laced' }] })], said: {} })
+    expect(clothesOf(later.characters[0]).map(pieceText)).toEqual(['a wet shirt', 'cloak over the chair', 'boots on, laced'])
+    expect(later.characters[0].wearing).toBeUndefined()
+    expect(later.said?.['mara|wearing']).toBeUndefined()
+    // The old line's words were Adam's own: none are kept with them.
+    expect(later.said?.[pieceKey('Mara', 'a wet shirt')]).toBeUndefined()
+    // Read before Adam's line, its words go with each piece.
+    const fromWords = mergeState(old as SceneState, { characters: [person('Mara', { posture: 'standing' })], said: {} })
+    expect(fromWords.said?.[pieceKey('Mara', 'cloak over the chair')]).toEqual({ quote: 'hung her cloak over the chair', sceneId: w.one })
+    // Adam puts one piece right in Recall: only that piece is his.
+    editState(w.db, w.one, (e) => {
+      e.characters = { ...e.characters, mara: { ...e.characters?.mara, clothes: { [itemKey('boots')]: { name: 'boots', state: 'on' } } } }
+      e.things = { [itemKey('the door')]: { name: 'the door', state: 'locked' } }
+    })
+    const mine = storedState(w.db, w.one)!.state
+    expect(clothesOf(mine.characters[0]).map(pieceText)).toEqual(['a wet shirt', 'cloak over the chair', 'boots on'])
+    expect(mine.things).toEqual([{ name: 'the door', state: 'locked' }])
+    // Taken out by Adam: gone.
+    editState(w.db, w.one, (e) => {
+      e.characters!.mara.clothes![itemKey('cloak over the chair')] = null
+      e.things![itemKey('the door')] = null
+    })
+    expect(clothesOf(storedState(w.db, w.one)!.state.characters[0]).map(pieceText)).toEqual(['a wet shirt', 'boots on'])
+    expect(storedState(w.db, w.one)!.state.things).toEqual([])
+  })
+
+  it('a new scene starts without who touched whom, and with the things in the place only in the same place', async () => {
+    const w = world()
+    const inn = repo.createEntry(w.db, 'place', { name: 'The Gull' }).id
+    const yard = repo.createEntry(w.db, 'place', { name: 'The yard' }).id
+    const place = (id: ID, at: ID): void => void repo.updateSceneCard(w.db, id, { ...repo.getScene(w.db, id).card, locationId: at })
+    place(w.one, inn)
+    place(w.two, inn)
+    write(w.db, w.one, 'Ash barred the door. Tobin took her hand.')
+    write(w.db, w.two, 'Mara sat by the fire.')
+    const f = replying(
+      {
+        things: [{ thing: 'the door', state: 'barred', quote: 'Ash barred the door' }],
+        characters: [{ name: 'Mara', touching: { value: "holding Tobin's hand", quote: 'Tobin took her hand' } }]
+      },
+      { characters: [{ name: 'Mara', posture: { value: 'sitting by the fire', quote: 'Mara sat by the fire' } }] }
+    )
+    const here = await stateAtText(opts(w.db, f), w.two, 'Mara sat by the fire.')
+    // The scene after, in the same place: the door is still barred; her hand in his was that moment's.
+    expect(f.asked[1]).toContain('- the door: barred')
+    expect(f.asked[1]).not.toContain('touching')
+    expect(here?.things).toEqual([{ name: 'the door', state: 'barred' }])
+    expect(here?.characters[0]).toMatchObject({ touching: '', posture: 'sitting by the fire' })
+    expect(storedState(w.db, w.one)?.state.characters[0].touching).toBe("holding Tobin's hand")
+    // Somewhere else: none of the things there.
+    place(w.two, yard)
+    expect(keptStateBefore(w.db, w.two)?.things).toEqual([])
+    // No place on a card: not known to be the same place.
+    place(w.two, '')
+    expect(keptStateBefore(w.db, w.two)?.things).toEqual([])
   })
 })

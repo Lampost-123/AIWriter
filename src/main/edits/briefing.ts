@@ -60,7 +60,7 @@ export type EditBriefing =
 
 /** What Continue's "Where things stand" says first. */
 export const STAND_LEAD_HERE =
-  'Where things stand at the point you carry on from. Keep to it exactly: where each person is, what they wear and how it sits, how they are placed and what they hold. Nothing changes unless it happens on the page, in your words.'
+  'Where things stand at the point you carry on from. Keep to it exactly: where each person is, each piece of what they wear and how it sits, how they are placed and what they hold, and where the things in the place are. Nothing changes unless it happens on the page, in your words.'
 
 /** The longest selection each tool works on, in words. */
 export const MAX_WORDS = { alternatives: 1200, other: 3000 }

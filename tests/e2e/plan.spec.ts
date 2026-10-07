@@ -42,7 +42,8 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     // What must stay true: where things stand as the scene before ended, with since when, and Mara's mark.
     const must = block('must-stay-true')!
     expect(must.dropped).toBe(false)
-    expect(must.text).toContain('- Mara is wearing: grey cloak (since Ch 1, Sc 1)')
+    // Each piece of clothing its own line (step 2b).
+    expect(must.text).toContain('- Mara is wearing: grey cloak on (since Ch 1, Sc 1)')
     expect(must.text).toContain('- Mara: No left hand')
     expect(user.indexOf('## Must stay true')).toBeGreaterThan(user.indexOf('## Scene card'))
     expect(user.indexOf('## Must stay true')).toBeLessThan(user.indexOf('Write the scene now.'))
