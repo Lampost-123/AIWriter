@@ -86,8 +86,10 @@ export function firstBreak(p: Pick<PatternCheck, 'broken' | 'not' | 'unlessBefor
   for (const s of sentences(text)) {
     if (s.start < from) continue
     const tried = p.outsideQuotes ? narration.slice(s.start, s.start + s.text.length) : s.text
-    if (!broken.test(tried) || not?.test(s.text)) continue
-    if (unless?.test(text.slice(0, s.start))) continue
+    const m = broken.exec(tried)
+    if (!m || not?.test(s.text)) continue
+    // The change shown earlier in the passage, or earlier in this very sentence ("the bar lifting ... while he came in").
+    if (unless?.test(text.slice(0, s.start + m.index))) continue
     return s
   }
   return null

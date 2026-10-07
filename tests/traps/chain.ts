@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { checkout, countWords, git, openApp, standInDirections, whenEnded, type App, type TrapsConfig } from './app'
 import { paragraphsOf } from './page'
 import { findPlace, outsideQuotes, type PatternCheck } from './patterns'
+import { quoteInPassage } from './score'
 import { repairLanded, storyFor, storyId, findSavedWorld, type SavedWorld } from './run'
 import {
   chainsAsSummary,
@@ -54,6 +55,11 @@ export interface ChainPlant {
   drift?: Omit<PatternCheck, 'id' | 'trap'>
   /** The judge's question for each later step, where a pattern can't decide, with a pattern as its tripwire. */
   judge?: { ask: string; tripwire?: RegExp }
+  /**
+   * When the deterministic check finds a slip but no pattern saw the change that would excuse it, the judge is asked
+   * this (good answer "yes": the change is on the page before the slip); a yes ends the plant and the slip is none.
+   */
+  endedAsk?: string
 }
 
 export interface ChainStep {
@@ -80,10 +86,17 @@ export interface ChainSpec {
 // ---------- The chain's checks ----------
 
 const BOOTS_ON = /\b(?:pulled|tugged|put|drew|laced|forced|struggled|shoved)\s+(?:on\s+)?(?:her\s+)?(?:wet\s+|damp\s+|cold\s+|dry\s+)?boots\b|\bboots\s+back\s+on\b/i
-const COAT_ON = /\b(?:shrugged|pulled|put|drew|struggled)\s+(?:on\s+|into\s+)?(?:her\s+)?(?:wet\s+|damp\s+)?(?:coat|oilskin)\b|\b(?:took|lifted|unhooked) (?:her|the) (?:coat|oilskin)\b/i
+const COAT_ON = /\b(?:shrugged|pulled|put|drew|struggled)\s+(?:on\s+|into\s+)?(?:her\s+)?(?:wet\s+|damp\s+)?(?:coat|oilskin)\b(?!\s+pockets?)|\b(?:took|lifted|unhooked|fetched|got) (?:her|the) (?:coat|oilskin) (?:down|off|from)\b/i
+/**
+ * Ash back in the room, in any wording round 6 found or might: Ash coming in (anywhere in the sentence: "She heard Ash
+ * cross the cobbles, then his step at the door, then the bar lifting ... while he came in"), his step or knock at the
+ * door, someone letting him in.
+ */
 const ASH_BACK =
-  /\bAsh\b[^.!?\n]{0,80}\b(?:came back|came in|returned|back in|walked in|stepped in|was back|ducked in|reappeared|pushed in|let himself in)\b|\b(?:let|lets|letting) Ash in\b|\bAsh\b[^.!?\n]{0,30}\b(?:at|outside) the door\b/i
-const UNLOCKED = /\b(?:unlock\w*|turned the key|turn the key|key (?:in|turned in|grated in|scraped in) the lock|drew (?:back )?the bolt|slid the bolt|unbolted|undid the (?:lock|bolt))\b/i
+  /\bAsh\b[^.!?\n]*\b(?:came back|came in|come in|comes in|returned|back in|walked in|stepped in|was back|ducked in|reappeared|pushed in|let himself in|in from the (?:yard|stable|rain|dark|wet))\b|\b(?:let|lets|letting) (?:Ash|him) in\b|\b(?:his|Ash's|Ash’s) (?:step|steps|tread|boots|knock|voice) (?:at|outside|on|in|through) the (?:door|passage)\b|\b(?:he|Ash) came (?:through|in through|in at)\b/i
+/** The door unlocked, unbarred or unbolted, in any wording; or someone let in (which needs it). */
+const UNLOCKED =
+  /\b(?:unlock\w*|unbarred|unbolted|turned the key|turn the key|key (?:in|turned in|grated in|scraped in|rattled in) the lock|undid the (?:lock|bolt|bar))\b|\bthe (?:bar|bolt) (?:lifting|lifted|was lifted|drawn|drew back|slid back|went up|scraped back|came up|came off|was drawn)\b|\b(?:lifted|drew|slid|raised|took) (?:back |up |off )?the (?:bar|bolt)\b|\b(?:let|lets|letting) (?:him|her|them|Ash|Mother Rook|the landlady) in\b|\bkey\b[^.!?\n]{0,80}\bturned it(?: back)?\b|\bturned (?:it|the key) back\b/i
 const GOT_UP = /\b(?:got up|sat up|rose|stood up|swung (?:her )?(?:legs|feet)|got off the settle|pushed herself up|came off the settle|left the settle|struggled up|was on her feet|got to her feet|climbed off|levered herself up)\b/i
 const CASE_MOVED = /\b(?:took|picked up|fetched|lifted|got|reached for|snatched|gathered up) the (?:survey )?case\b|\bcase (?:from|off) the (?:window)?sill\b/i
 
@@ -115,8 +128,11 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     change: COAT_ON,
     drift: {
       what: 'Wren wears her coat again without putting it on.',
-      broken: /\b(?:buttoned|fastened|pulled|drew|tugged|hugged|clutched) (?:her|the) (?:oilskin|coat)\b[^.!?\n]{0,20}\b(?:tighter|closer|around|about|round)\b|\bin her (?:oilskin|coat)\b|\b(?:oilskin|coat) collar\b/i,
-      not: /\b(?:peg|hook|door|hung|hanging|dripping|steam\w*|off)\b/i,
+      // Wearing needs a wearing cue: a coat pocket isn't the coat on her ("she put it in her coat pocket" while the coat
+      // hangs on the peg, round 6).
+      broken:
+        /\b(?:wore|was wearing|wearing|had on|shivered in|huddled in|sat in|stood in|waited in|slept in|lay in) her (?:wet |damp |soaked |heavy )?(?:oilskin|coat)\b(?!\s+pockets?)|\b(?:buttoned|fastened|pulled|drew|tugged|hugged|clutched) (?:her|the) (?:oilskin|coat)\b(?!\s+pockets?)[^.!?\n]{0,20}\b(?:tighter|closer|around|about|round)\b|\b(?:oilskin|coat) collar (?:up|turned up|against)\b/i,
+      not: /\b(?:peg|hook|door|hung|hanging|dripping|steam\w*|off|pockets?)\b/i,
       unlessBefore: COAT_ON,
       outsideQuotes: true,
       touches: /\b(?:coat|oilskin)\b/i
@@ -128,11 +144,13 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     fact: 'Ash went out to the stable to see to the horses; he has not come back.',
     find: [/\bAsh\b/, /\b(?:stable|horses)\b/i, /\b(?:went|goes|out|left|gone|go)\b/i],
     change: ASH_BACK,
+    endedAsk: 'Before the words quoted, does the passage show Ash coming back into the room (his step at the door, the door unbarred or unlocked for him, someone letting him in, or him coming in)?',
     drift: {
       what: 'Ash speaks or acts in the room without coming back first.',
       broken:
         /\bAsh (?:said|says|asked|called|muttered|answered|replied|whispered|told|laughed|snapped|grinned|nodded|shrugged|sat|stood|leaned|poured|drank|smiled|reached|looked up)\b|\b(?:said|asked|called|muttered|answered|replied|whispered|snapped) Ash\b/i,
-      not: /\b(?:would|might|hoped|wondered|thought|remember\w*|stable|horses|when|until|before|if|outside|yard)\b/i,
+      // Words Ash said before or elsewhere, told in the narration, aren't Ash speaking now ("which was what Ash said").
+      not: /\b(?:would|might|hoped|wondered|thought|remember\w*|stable|horses|when|until|before|if|outside|yard)\b|\b(?:what|as|like|whatever|how) Ash (?:said|says|had said|would say|used to say)\b|\bAsh had (?:said|told|asked|called|answered)\b|\bAsh (?:used to|would always) say\b/i,
       unlessBefore: ASH_BACK,
       outsideQuotes: true,
       touches: /\bAsh\b/
@@ -144,6 +162,7 @@ export const CHAIN_PLANTS: ChainPlant[] = [
     fact: 'Wren locked the parlour door and put the key in her pocket; it stays locked until someone unlocks it.',
     find: [/\b(?:locked|lock(?:s|ed)? the door|turned the key|key in the lock|shot the bolt|bolted)\b/i],
     change: UNLOCKED,
+    endedAsk: 'Before the words quoted, does the passage show the door being unlocked, unbarred or unbolted, or someone letting a person in?',
     drift: {
       what: 'The door opens, or someone comes in, without it being unlocked.',
       broken:
@@ -281,6 +300,20 @@ export function endedBy(text: string, plants: ChainPlant[]): string[] {
   return plants.filter((p) => p.change && new RegExp(p.change.source, p.change.flags.replace('g', '')).test(narration)).map((p) => p.id)
 }
 
+/**
+ * The plants a step ends: those in force before it, by a change anywhere in its words, and those it planted itself, by
+ * a change after the paragraph that planted them (Ash goes out and comes back within one Add below; the key turned to
+ * lock the door is not an unlocking).
+ */
+export function endedIn(text: string, before: ChainPlant[], planted: ChainPlant[]): string[] {
+  const paras = paragraphsOf(text)
+  const late = planted.filter((p) => {
+    const place = findPlace(paras, p.find, p.none ?? [])
+    return place ? endedBy(paras.slice(place.paragraph + 1).join('\n\n'), [p]).length > 0 : false
+  })
+  return [...new Set([...endedBy(text, before), ...late.map((p) => p.id)])]
+}
+
 /** Whether a step's planted events landed: each in a paragraph of its words, with that paragraph's words. */
 export function landed(spec: ChainSpec, ids: string[], text: string): { ok: boolean; planted: { id: string; quote: string }[]; missing: string[] } {
   const paras = paragraphsOf(text)
@@ -293,6 +326,79 @@ export function landed(spec: ChainSpec, ids: string[], text: string): { ok: bool
     else missing.push(id)
   }
   return { ok: !missing.length, planted, missing }
+}
+
+/**
+ * A slip a pattern found, checked once more where the plant has `endedAsk`: the judge is asked whether the change that
+ * excuses it (Ash coming back, the door unbarred) is on the page before it, in words no pattern knew. A yes with a
+ * quote that is in the passage turns the slip into a kept check (by the judge) and ends the plant at this step.
+ */
+async function confirmSlips(app: App, plants: ChainPlant[], results: CheckResult[], text: string): Promise<CheckResult[]> {
+  const doubtful = results.filter((r) => r.verdict === 'broken' && r.by !== 'judge' && plants.find((p) => p.id === r.trap)?.endedAsk)
+  if (!doubtful.length) return results
+  const checks: Check[] = doubtful.map((r, i) => ({ id: `E${i + 1}`, trap: r.trap, ask: `${plants.find((p) => p.id === r.trap)!.endedAsk!} (The words: “${r.quote}”)`, bad: 'no' }))
+  const j = await app.askJudge({ facts: ['The passage carries on a scene; answer only from what it shows.'], checks }, text)
+  return results.map((r) => {
+    const i = doubtful.indexOf(r)
+    if (i < 0) return r
+    const a = j.answers?.find((x) => x.id.toUpperCase() === `E${i + 1}`)
+    return a?.answer === 'yes' && a.quote && quoteInPassage(text, a.quote) ? { ...r, verdict: 'kept', by: 'judge', answer: 'yes', ask: `Ended? ${r.ask}`, quote: a.quote } : r
+  })
+}
+
+/** Probe results by plant, from a step's saved results (to re-score with the judge's saved answers). */
+const byPlant = (rs: CheckResult[]): Map<string, CheckResult> => new Map(rs.map((r) => [r.trap, r]))
+
+/**
+ * Re-scores a chain run's saved steps with the checks as they are now, offline: every deterministic check again, the
+ * judge's questions from its saved answers (with today's tripwires), which plants are in force from today's change
+ * patterns. What would need a new judge call (a slip a pattern found where `endedAsk` would ask whether the change is
+ * on the page) is listed, and the slip counted as it stands.
+ */
+export function rescoreChain(chain: ChainResult, spec: ChainSpec): { result: ChainResult; needJudge: { sample: number; step: number; plant: string; quote: string }[] } {
+  const needJudge: { sample: number; step: number; plant: string; quote: string }[] = []
+  const samples = chain.samples.map((m) => {
+    const landedAt = new Map<string, number>()
+    const ended = new Set<string>()
+    let firstSlip: number | null = null
+    const steps = m.steps.map((st) => {
+      if (st.status !== 'complete') return st
+      const plants = inForce(spec, landedAt, ended, st.step)
+      const sc = stepChecks(plants)
+      const score = (text: string, saved: CheckResult[], listNeeds: boolean): CheckResult[] => {
+        const old = byPlant(saved)
+        const out: CheckResult[] = []
+        for (const p of plants) {
+          if (p.drift) {
+            const v = scorePassage({ checks: [], tripwires: [], patterns: [{ ...p.drift, id: p.id, trap: p.id }] }, text, null)[0]
+            out.push(v)
+            if (listNeeds && v.verdict === 'broken' && p.endedAsk) needJudge.push({ sample: m.index + 1, step: st.step, plant: p.id, quote: v.quote })
+          }
+          if (p.judge) {
+            const id = [...sc.judgeIds.entries()].find(([, plant]) => plant === p.id)![0]
+            const was = old.get(p.id)
+            const check = sc.checks.find((c) => c.id === id)!
+            const answers = was && was.by !== 'none' && was.answer ? [{ id, answer: was.answer as 'yes' | 'no' | 'unclear', quote: was.quote }] : null
+            const v = scorePassage({ checks: [check], tripwires: sc.tripwires.filter((t) => t.check === id), patterns: [] }, text, answers)[0]
+            if (listNeeds && !was) needJudge.push({ sample: m.index + 1, step: st.step, plant: p.id, quote: '' })
+            out.push({ ...v, id: p.id, trap: p.id })
+          }
+        }
+        return out
+      }
+      const results = score(st.text, st.results, true)
+      const after = st.repair ? score(st.repair.text, st.repair.results, false) : null
+      const newly = spec.plants.filter((p) => st.planted.some((x) => x.id === p.id))
+      for (const p of st.planted) landedAt.set(p.id, st.step)
+      const text = st.repair?.text ?? st.text
+      const resolved = endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly)
+      for (const id of resolved) ended.add(id)
+      if (firstSlip == null && results.some((r) => r.verdict === 'broken')) firstSlip = st.step
+      return { ...st, results, resolved, ...(st.repair && after ? { repair: { ...st.repair, results: after } } : {}) }
+    })
+    return { ...m, steps, firstSlip }
+  })
+  return { result: { ...chain, samples }, needJudge }
 }
 
 // ---------- Running chains ----------
@@ -367,7 +473,7 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
     const sc = stepChecks(plants)
     const j = await app.askJudge({ facts: sc.facts, checks: sc.checks }, got.text)
     const rename = (rs: CheckResult[]): CheckResult[] => rs.map((r) => ({ ...r, id: sc.judgeIds.get(r.id) ?? r.id, trap: sc.judgeIds.get(r.id) ?? r.trap }))
-    const results = rename(scorePassage(sc, got.text, j.answers))
+    const results = await confirmSlips(app, plants, rename(scorePassage(sc, got.text, j.answers)), got.text)
     // Lands in the page as the window puts it there; step 3 checks it and mends what it can, as the page does.
     const added = paragraphsOf(got.text)
     let text = got.text
@@ -376,14 +482,20 @@ async function runChain(app: App, cfg: TrapsConfig, spec: ChainSpec, index: numb
       const r = await repairLanded(app, spec.scene, sceneId, page, { generationId: got.generationId, text: got.text }, { keep: true })
       if (r.text !== got.text) {
         const again = await app.askJudge({ facts: sc.facts, checks: sc.checks }, r.text)
-        repair = { ...r, judge: { status: again.status, raw: again.raw }, results: rename(scorePassage(sc, r.text, again.answers)) }
+        repair = { ...r, judge: { status: again.status, raw: again.raw }, results: await confirmSlips(app, plants, rename(scorePassage(sc, r.text, again.answers)), r.text) }
         text = r.text
       } else repair = { ...r, judge: { status: j.status, raw: j.raw }, results }
     }
     page = [...page, ...(text === got.text ? added : paragraphsOf(text))]
     app.save(spec.scene.key, sceneId, page)
+    const newly = spec.plants.filter((p) => land.planted.some((x) => x.id === p.id))
     for (const p of land.planted) landedAt.set(p.id, n)
-    const resolved = endedBy(text, plants.filter((p) => landedAt.has(p.id)))
+    const resolved = [
+      ...new Set([
+        ...endedIn(text, plants.filter((p) => spec.plants.includes(p)), newly),
+        ...results.filter((r) => r.by === 'judge' && r.answer === 'yes' && r.verdict === 'kept' && r.ask.startsWith('Ended?')).map((r) => r.trap)
+      ])
+    ]
     for (const id of resolved) ended.add(id)
     if (sample.firstSlip == null && results.some((r) => r.verdict === 'broken')) sample.firstSlip = n
     // Adam pauses: the memory reads the scene, what follows a read finishes, and step 5's index catches up.

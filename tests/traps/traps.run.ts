@@ -6,7 +6,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { configFromEnv, runTraps } from './run'
-import { runChains } from './chain'
+import { CHAINS, rescoreChain, runChains } from './chain'
+import { chainsAsSummary, passagesMarkdown, reportMarkdown, summariseChains } from './score'
+import { mkdirSync } from 'node:fs'
 import { runWrite } from './write'
 import { compareMarkdown, type RunReport } from './score'
 
@@ -34,6 +36,45 @@ describe.runIf(process.env.TRAPS_WRITE === '1')('writing the trap story', () => 
     },
     SIX_HOURS
   )
+})
+
+describe.runIf(!!process.env.TRAPS_RESCORE)('trap scores re-scored offline', () => {
+  it('scores a chain run again with the checks as they are now, without a model', () => {
+    const from = process.env.TRAPS_RESCORE!
+    const out = process.env.TRAPS_OUT
+    if (!out) throw new Error('Re-scoring needs --out, a folder of its own (the report it reads is never written over).')
+    if (existsSync(join(out, 'report.json'))) throw new Error(`${out} already has a report; give another --out folder.`)
+    const old = JSON.parse(readFileSync(join(from, 'report.json'), 'utf8')) as RunReport
+    if (!old.chains) throw new Error(`${from} isn't a chain run (probes v4).`)
+    const need: { chain: string; sample: number; step: number; plant: string; quote: string }[] = []
+    const chains = old.chains.map((c) => {
+      const spec = CHAINS.find((x) => x.id === c.id)
+      if (!spec) throw new Error(`No chain ${c.id} in this harness.`)
+      const r = rescoreChain(c, spec)
+      need.push(...r.needJudge.map((n) => ({ chain: c.id, ...n })))
+      return r.result
+    })
+    const report: RunReport = { ...old, chains, chainSummary: summariseChains(chains), summary: chainsAsSummary(chains), rescored: { from, at: new Date().toISOString(), needJudge: need } }
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, 2))
+    writeFileSync(join(out, 'report.md'), reportMarkdown(report))
+    writeFileSync(join(out, 'passages.md'), passagesMarkdown(report))
+    // Old against new, by plant.
+    const a = old.chainSummary!.byPlant
+    const b = report.chainSummary!.byPlant
+    const lines = [`# Re-scored offline: ${old.tested.branch} @ ${old.tested.commit.slice(0, 9)}`, '', `From ${from}; the judge's saved answers reused, every deterministic check run again, nothing sent to a model.`, '']
+    lines.push('| Plant | Kept (old → new) | Broken (old → new) | Not touched (old → new) | Ended on the page (old → new) |', '|---|---|---|---|---|')
+    for (const id of [...new Set([...Object.keys(a), ...Object.keys(b)])]) {
+      const x = a[id]
+      const y = b[id]
+      const f = (k: 'kept' | 'broken' | 'silent' | 'resolved'): string => `${x?.[k] ?? 0} → ${y?.[k] ?? 0}`
+      lines.push(`| ${id} | ${f('kept')} | ${f('broken')} | ${f('silent')} | ${f('resolved')} |`)
+    }
+    lines.push('', need.length ? `Would need the judge (a slip a pattern found, where the judge would now be asked whether the change was on the page before it; counted as broken here):` : 'Nothing would need the judge.')
+    for (const n of need) lines.push(`- ${n.chain} chain ${n.sample}, step ${n.step}, ${n.plant}${n.quote ? `: “${n.quote}”` : ' (newly in force, never asked)'}`)
+    writeFileSync(join(out, 'rescore.md'), lines.join('\n') + '\n')
+    console.log(lines.join('\n'))
+  })
 })
 
 describe.runIf(!!process.env.TRAPS_COMPARE)('trap scores compared', () => {

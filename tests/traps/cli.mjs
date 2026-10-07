@@ -29,6 +29,8 @@
 //   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
 //   --compare <a> <b>      put two runs' report.json (or their folders) side by side; no model calls
+//   --rescore <folder>     score a chain run's saved steps again with the checks as they are now, into --out; no model
+//                          calls (the judge's saved answers are reused)
 //
 // A real run reads the key from DEEPSEEK_API_KEY (OPENROUTER_API_KEY with --provider openrouter): from this
 // process's environment, or on Windows from the user's saved environment variables (as set with setx or System
@@ -66,7 +68,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--probes-version', '--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--rescore', '--probes-version', '--search-model', '--from-world', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -74,7 +76,18 @@ for (const a of args) {
   }
 }
 
-if (flag('--compare')) {
+if (flag('--rescore')) {
+  const from = value('--rescore')
+  const out = value('--out')
+  if (!out) {
+    console.error('--rescore needs --out, a folder of its own.')
+    process.exit(2)
+  }
+  env.TRAPS_RESCORE = resolve(from)
+  env.TRAPS_OUT = resolve(out)
+  delete env.TRAPS_RUN
+  delete env.TRAPS_WRITE
+} else if (flag('--compare')) {
   const i = args.indexOf('--compare')
   const [a, b] = [args[i + 1], args[i + 2]]
   if (!a || !b) {

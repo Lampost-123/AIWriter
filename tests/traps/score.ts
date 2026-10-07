@@ -229,6 +229,8 @@ export interface RunReport {
   /** Probes v4: chains of AI steps in one scene, with drift checked at every step (absent for probes v1 to v3). */
   chains?: ChainResult[]
   chainSummary?: ChainSummary
+  /** Re-scored offline (npm run traps -- --rescore): from which report, and what would have needed the judge. */
+  rescored?: { from: string; at: string; needJudge: { chain: string; sample: number; step: number; plant: string; quote: string }[] }
   /** The token budget and what was used of it. */
   budget?: { maxIn: number; maxOut: number; usedIn: number; usedOut: number }
   startedAt: string

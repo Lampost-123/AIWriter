@@ -2,7 +2,7 @@
 // lines, the slips and the lines that only look like slips (said aloud, a mention, a negation), and the bookkeeping
 // of which plants are in force. No model.
 import { describe, expect, it } from 'vitest'
-import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, endedBy, inForce, landed, stepChecks, type ChainPlant } from '../traps/chain'
+import { CHAINS, CHAIN_FAR, CHAIN_PLANTS, endedBy, endedIn, inForce, landed, stepChecks, type ChainPlant } from '../traps/chain'
 import { patternVerdict } from '../traps/patterns'
 import { firstBreak } from '../traps/patterns'
 import { summariseChains, type ChainResult, type CheckResult } from '../traps/score'
@@ -150,5 +150,45 @@ describe('chain summary', () => {
       { step: 2, slipped: 1, of: 2 },
       { step: 3, slipped: 1, of: 2 }
     ])
+  })
+})
+
+describe('round 6 false positives', () => {
+  const steps = 'She heard Ash cross the cobbles, then his step at the door, then the bar lifting, and she shut her eyes and kept them shut while he came in and stood a moment over the settle.'
+  it('Ash coming back, and the door unbarred, in that wording, end their plants', () => {
+    expect(endedBy(steps, [plant('ash-out'), plant('door-locked')])).toEqual(['ash-out', 'door-locked'])
+    // The unbarring comes before "he came in" in the same sentence: the door check is excused.
+    expect(drift('door-locked', steps)).not.toBe('broken')
+    expect(endedBy('Someone let him in from the yard.', [plant('ash-out')])).toEqual(['ash-out'])
+    expect(endedBy('There was a knock, and Mother Rook drew back the bolt.', [plant('door-locked')])).toEqual(['door-locked'])
+  })
+  it('words Ash said before, told in the narration, are not Ash speaking now', () => {
+    expect(drift('ash-out', '‘Ah,’ she said, which was what Ash said, and she stood with her hand open and the blood coming up out of it in a line and running down to her wrist.')).not.toBe('broken')
+    expect(drift('ash-out', 'Ash had said the same at the ford.')).not.toBe('broken')
+    // Still a slip when Ash speaks in the room.
+    expect(drift('ash-out', '‘It’s your right hand,’ Ash said.')).toBe('broken')
+  })
+  it('a coat pocket is not the coat on her; wearing needs a wearing cue', () => {
+    expect(drift('coat-off', 'It was a small key with a ring on it and she put it in her coat pocket, in the pocket on the inside, and stood with her hand in there a moment, feeling the cold of it against her fingers.')).not.toBe('broken')
+    expect(drift('coat-off', 'She shivered in her coat by the window.')).toBe('broken')
+    expect(drift('coat-off', 'She pulled her coat tighter around her.')).toBe('broken')
+    expect(endedBy('She took her coat from the peg and put it on.', [plant('coat-off')])).toEqual(['coat-off'])
+  })
+})
+
+describe('plants ended in the step that planted them', () => {
+  it('ends a plant by a change after its own paragraph, never by the planting itself', () => {
+    const goneAndBack = "Ash went out to the stable to see to the horses.\n\nA while later Ash came back in, shaking off the rain."
+    expect(endedIn(goneAndBack, [], [plant('ash-out')])).toEqual(['ash-out'])
+    // Locking with the key isn't unlocking: the planting paragraph itself is never read as the change.
+    expect(endedIn('She locked the door and turned the key, and put it in her pocket.', [], [plant('door-locked')])).toEqual([])
+  })
+})
+
+describe('round 6: Ash at the door and let in', () => {
+  it('his voice through the door, the key turned back, him coming through', () => {
+    const t = "The knock came, three raps, unhurried, and then Ash's voice through the door, mild. She got up and crossed the flags in her stockings and took the key from her coat pocket and turned it back, and the door came in on a slant of rain before he did. He came through sideways, hat first."
+    expect(endedBy(t, [plant('ash-out'), plant('door-locked')])).toEqual(['ash-out', 'door-locked'])
+    expect(drift('door-locked', t)).not.toBe('broken')
   })
 })
