@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { ChatMessage, ID } from '@shared/types'
-import { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
+import { mergeState, readChanges, sameWhen, stateText, withEdits, withoutSceneTime, type SceneState, type StateEdits } from '@shared/continuity'
 
 export { mergeState, readChanges, stateText, withEdits, type SceneState, type StateEdits } from '@shared/continuity'
 import * as repo from '../db/repo'
@@ -66,11 +66,43 @@ function finalOf(all: Stored, sceneId: ID | undefined): SceneState | null {
   return k ? withEdits(k.state, k.edits) : null
 }
 
+/** A scene's card's When and its story, read without its words; null when the scene is gone. */
+function whenOf(db: DB, sceneId: ID): { when: string; storyId: string } | null {
+  const r = db
+    .prepare('SELECT s.card_json AS card, c.story_id AS story FROM scenes s LEFT JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?')
+    .get(sceneId) as { card: string | null; story: string | null } | undefined
+  if (!r) return null
+  try {
+    const card = JSON.parse(r.card ?? '{}') as { when?: unknown }
+    return { when: typeof card?.when === 'string' ? card.when : '', storyId: r.story ?? '' }
+  } catch {
+    return { when: '', storyId: r.story ?? '' }
+  }
+}
+
 /**
- * The state a scene's own reading builds on: the one kept for the scene before it on the story's line. The scene's
- * end and its checkpoints are all keyed to it, so every reading of the scene finds the same checkpoints.
+ * The state a scene starts from, given the one the scene before it (`prevId`) ends with: all of it, but the time of
+ * day, the light and the weather only when both cards give the same When in the same story (sameWhen). A new time
+ * starts fresh (Adam, 2026-10-07): "morning" from the scene before was carried through a night scene and told to the
+ * writer, who had a man say "Morning". Part of what the scene's reading builds on (its hash), so a When changed on a
+ * card means the scene is read again.
  */
-const startOf = (db: DB, all: Stored, sceneId: ID): SceneState | null => finalOf(all, scenesBefore(db, sceneId).at(-1))
+function startFrom(db: DB, sceneId: ID, prevId: ID | undefined, state: SceneState | null): SceneState | null {
+  if (!state || !prevId) return state
+  const now = whenOf(db, sceneId)
+  const then = whenOf(db, prevId)
+  return now && then && now.storyId === then.storyId && sameWhen(now.when, then.when) ? state : withoutSceneTime(state)
+}
+
+/**
+ * The state a scene's own reading builds on: the one kept for the scene before it on the story's line (with a new time
+ * starting fresh, startFrom). The scene's end and its checkpoints are all keyed to it, so every reading of the scene
+ * finds the same checkpoints.
+ */
+const startOf = (db: DB, all: Stored, sceneId: ID): SceneState | null => {
+  const prev = scenesBefore(db, sceneId).at(-1)
+  return startFrom(db, sceneId, prev, finalOf(all, prev))
+}
 
 /**
  * True when the scenes a draft brings up to date (the last few before this one) are each kept from their words as
@@ -83,7 +115,7 @@ function startsFresh(db: DB, all: Stored, sceneId: ID): boolean {
     const k = all[id]
     if (!k) return true
     const i = line.indexOf(id)
-    return k.hash === hashOf(kdb.keeperScene(db, id)?.text ?? '') && k.base === stateHash(i > 0 ? finalOf(all, line[i - 1]) : null)
+    return k.hash === hashOf(kdb.keeperScene(db, id)?.text ?? '') && k.base === stateHash(i > 0 ? startFrom(db, id, line[i - 1], finalOf(all, line[i - 1])) : null)
   })
 }
 
@@ -103,7 +135,7 @@ function stands(db: DB, all: Stored, sceneId: ID): boolean {
       continue
     }
     const scene = kdb.keeperScene(db, line[i])
-    const before = i > 0 && all[line[i - 1]] ? finalOf(all, line[i - 1]) : null
+    const before = i > 0 && all[line[i - 1]] ? startFrom(db, line[i], line[i - 1], finalOf(all, line[i - 1])) : null
     ok = ok && !!scene && k.hash === hashOf(scene.text) && k.base === stateHash(before)
   }
   return !!all[sceneId] && ok
@@ -164,11 +196,11 @@ Reply with only a JSON object. Each value is ${field}: the value as it is at the
 - where: where they are at the end, as exactly as the text allows (the inn's back room, by the hearth; on the bed, by the window).
 - wearing: everything they have on, item by item, each with how it is now: done up or open, pushed up or down, tucked in or loose, torn, soaked, half off (a white shirt unbuttoned to the waist with the sleeves rolled up, dark trousers, boots off). Anything taken off and where it is now (cloak over the chair). Jewellery, a pack, a sword belt. Always the whole outfit as it is now, not only what changed (what carries on comes from before; the quote is the words that change it). Never their hair, beard or body: those aren't worn.
 - posture: how their body is placed: standing, sitting, kneeling or lying, and on what; which way they face; what their hands, arms and legs are doing; anyone they are touching or holding (sitting on the edge of the bed facing the window, hands in her lap, knee against Tobin's).
-- holding: what they hold or carry, and in which hand when the text says.
+- holding: what they hold or carry now, and in which hand when the text says. Something put down, hung up or given away is no longer held: say "nothing" (or what they still hold), and quote the words where they put it down.
 - condition: injuries, exhaustion, hunger, drunkenness: how their body is now, not how it always is (a scar or a missing finger belongs to who they are, not here, unless the scene changes it).
 - mood: how they feel at the end.
 - lastAction: the last thing they did, in a few words.
-- When something has changed, give only the new state, never the old one.
+- When something has changed, give only the new state, never the old one. When something stops (a thing put down, a coat or boots taken off), the quote is the words where it happens.
 - Keep each value short, but leave out no detail the text gives: wearing and posture may take a full line.`
   const from = ask.after?.trim()
   const user = [
@@ -384,7 +416,7 @@ export async function stateBefore(o: TrackOptions, sceneId: ID): Promise<SceneSt
     if (!prev) return null
     const all = load(o.db)
     // Only a state that still stands is told; otherwise nothing, rather than a ghost.
-    return stands(o.db, all, prev) ? finalOf(all, prev) : last
+    return stands(o.db, all, prev) ? startOf(o.db, all, sceneId) : startFrom(o.db, sceneId, prev, last)
   } catch (e) {
     console.warn('Could not work out where things stand', e)
     return null

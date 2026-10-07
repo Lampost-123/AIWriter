@@ -10,7 +10,7 @@
 import type { EntryState, FactState, ID } from '@shared/types'
 import { sourceKey, type CharacterState, type SceneState, type StateField } from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
-import { holdingLine, holdingsFirst, namesItem, type Holding } from '../memory/items'
+import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
 import { deathOf } from './deaths'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
@@ -147,6 +147,66 @@ export function stageFor(e: Pick<EntryState, 'name' | 'aliases'>, stand: SceneSt
     return !!n && names.some((x) => x.startsWith(`${n} `) || n.startsWith(`${x} `))
   }
   return stand.characters.find(same) ?? stand.characters.find(partly) ?? null
+}
+
+// ---------- Only the people in the scene, and a time that still holds ----------
+// Where things stand is kept for everyone the story has met, and with the time, light and weather as last read. What
+// the writer, this list, the plan and the check of new words are told is narrower (Adam, 2026-10-07, after a trap run
+// where Bryn, Gale, Oskar and "the boy" from earlier scenes sat in an inn scene's stage, and a stale line about the boy
+// raised a wrong question): only the people in this scene, and the time, light and weather only from this scene's own
+// words or when they carry over from the scene before (both cards' When the same). The stage as kept is left whole.
+
+/** Who and what of the stage belongs in the scene being written. */
+export interface StageScope {
+  /** The scene being written: a time, light or weather read from its own words always holds. */
+  sceneId: ID
+  /** Whether the time, light and weather as the scene before ended still hold (both cards' When the same, same story). */
+  timeCarries: boolean
+  /** The characters on the scene card (point of view and those present). */
+  onCard: Pick<EntryState, 'name' | 'aliases'>[]
+  /** The characters the memory knows here, for each stage name's other names. */
+  cast: Pick<EntryState, 'name' | 'aliases'>[]
+  /** The scene's own words that can name someone: its card's beats, notes and aims, Adam's direction, the scene so far. */
+  words: string
+}
+
+/** The names a stage person goes by: as the stage has them, their codex entry's names, and their first name when no one else here shares it. */
+function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): string[] {
+  const e = scope.cast.find((x) => stageFor(x, { ...stand, characters: [c] }))
+  const names = [c.name, ...(e ? [e.name, ...(e.aliases ?? [])] : [])].map(clean).filter((n) => n.length >= 2)
+  const first = (n: string): string => (/^\p{Lu}/u.test(n) && /\s/.test(n) ? n.split(/\s+/)[0] : '')
+  const others = [...stand.characters.filter((x) => x !== c).map((x) => x.name), ...scope.cast.filter((x) => x !== e).map((x) => x.name)]
+  for (const n of [...names]) {
+    const f = first(n)
+    if (f.length >= 2 && !others.some((o) => clean(o).split(/\s+/)[0]?.toLowerCase() === f.toLowerCase())) names.push(f)
+  }
+  return [...new Set(names)]
+}
+
+/**
+ * Where things stand as told for one scene: only the people in it (on its card, or named in its card's words, Adam's
+ * direction or the scene so far), and the scene's time, light and weather only from its own words or when they carry
+ * over (scope.timeCarries). Each value keeps its words. Null when nothing is known.
+ */
+export function stageInScene(stand: SceneState | null | undefined, scope: StageScope): SceneState | null {
+  if (!stand) return null
+  const here = (c: CharacterState): boolean =>
+    scope.onCard.some((e) => stageFor(e, { ...stand, characters: [c] })) || namesFor(c, scope, stand).some((n) => nameIn(scope.words, n))
+  const characters = stand.characters.filter(here)
+  const out: SceneState = { ...stand, characters }
+  for (const f of ['time', 'weather', 'light'] as const) {
+    if (!scope.timeCarries && stand.said?.[sourceKey(null, f)]?.sceneId !== scope.sceneId) out[f] = ''
+  }
+  if (stand.said) {
+    const names = new Set(['', ...characters.map((c) => c.name.toLowerCase())])
+    out.said = Object.fromEntries(
+      Object.entries(stand.said).filter(([k]) => {
+        const who = k.slice(0, k.lastIndexOf('|'))
+        return names.has(who) && (who || out[k.slice(k.lastIndexOf('|') + 1) as 'time' | 'weather' | 'light'])
+      })
+    )
+  }
+  return out.time || out.weather || out.light || characters.length ? out : null
 }
 
 /** The lines of the list, without their dashes, in the order they are sent. Empty when nothing is known. */

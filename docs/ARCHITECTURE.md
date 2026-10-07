@@ -728,6 +728,33 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     "eye"). An item is also found by its name without "the" ("brass compass"). So "the compass" on the card, in the
     beats, the direction, the end of the previous scene or the scene so far (`ContextInput.soFar`, "Named in the scene so
     far") brings the entry into block 9 within its usual priority and room, and the checks find it in the scene's words.
+- **Where things stand: an empty hand clears what was held; a new time starts fresh; only people in the scene**
+  (Adam, 2026-10-07, after the trap run's 12-step Add below/Continue chains):
+  - **Something gone** (`saysGone`, `layGone` in shared/continuity.ts). Wren put the survey case on the sill and the
+    memory model said she held "nothing" with no words, so it was left out and "holding: the survey case" carried on
+    into the writer's must-stay list and repair. Now a holding or wearing value that only says something is gone
+    ("nothing", "empty-handed", a thing set down, hung up or given away; a coat or boots off, barefoot) is kept even
+    without words (`readChanges` lists it in `gone`) and laid over the old value piece by piece (`mergeState`): what was
+    put down goes ("nothing" when the hand is empty), what came off replaces how it was worn, the rest of the outfit
+    stays, and the old value's words go with it. "Not put down" never counts. The tracker's prompt asks for "nothing"
+    and the words where it was put down or taken off.
+  - **A new time starts fresh** (`sameWhen`, `withoutSceneTime`; tracker `startFrom`; `timeCarries` in ai/context.ts).
+    "Morning, the sun has come up" from a "Day 23" scene was carried through "Day 23, night, rain" and the writer had
+    a man say "Morning". The time of day, light and weather carry into the next scene only when both cards give the same
+    When in the same story (stricter than `stageReach`'s same day); otherwise the scene starts without them, before its
+    first checkpoint, and that start is part of the state's hash (a When changed on a card means a fresh read). What is
+    told also leaves out a time, light or weather whose words come from another scene unless it carries over, so a
+    reading kept from before this fix is never told either.
+  - **Only the people in the scene** (`stageInScene`, ai/mustStay.ts; `stageScope`, `toldStage` in ai/context.ts).
+    Bryn, Gale, Oskar and "the boy" from earlier scenes sat in an inn scene's stage, and a stale line about the boy
+    raised a wrong question. The stage block, what must stay true, the plan and repair's W lines (`stageTold`) hold
+    only those on the scene card, or named (by name, alias, or a first name no one else here shares) in its card's
+    words, Adam's direction or the scene so far; Continue and AI edits the same, from the words around them
+    (edits/index.ts). The stage as kept, and Recall, stay whole.
+  - **No aims already on the page.** Carrying on (Add below, a later beat), the memory's notes on this scene ("Ash:
+    went out to see to the horses") are already in the scene so far, so they are no longer listed as what the scene
+    should bring about (Ash went out twice). Adam's own notes stay, "only what the scene so far hasn't already"; the
+    card's goal, outcome and beats stay as they are.
 - **Facts to keep to and details to show.** In the writer's briefing (not Ask the world or the checks), a character's
   Basics and distinguishing marks are "Facts to keep to" and the rest of Looks "Details to show now and then, not all
   at once" (`fieldSections` with `split`), so a cheap model stops describing eye colour in every scene.

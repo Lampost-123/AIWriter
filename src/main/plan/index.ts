@@ -8,7 +8,7 @@ import { getSettings } from '../settings'
 import * as world from '../world'
 import { memoryModel } from '../keeper'
 import { pausedNote } from '../usage/gate'
-import type { ContextInput, PreparedContext } from '../ai/context'
+import { toldStage, type ContextInput, type PreparedContext } from '../ai/context'
 import { SO_FAR_BLOCK } from '../beats/instructions'
 import { makePlan, planMaterial, type MadePlan } from './plan'
 
@@ -45,7 +45,8 @@ export async function planBeforeWriting(
       sceneId,
       material: planMaterial(b.input, b.preview, b.prepared, focus),
       check: {
-        stand: b.input.continuity,
+        // The stage as the writer is told it: only the people in the scene, and a time that still holds.
+        stand: toldStage(b.input),
         entries: b.input.memory.entries,
         inBriefing: new Set(entries.filter((e) => !e.hidden && e.blockId).map((e) => e.entryId)),
         hidden: new Set(entries.filter((e) => e.hidden).map((e) => e.entryId))

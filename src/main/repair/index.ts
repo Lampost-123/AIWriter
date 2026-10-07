@@ -14,7 +14,7 @@ import type { CheckKind, IssueSource } from '@shared/contracts/checks'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { ID, Settings, WritingPrefs } from '@shared/types'
 import type { SceneState } from '@shared/continuity'
-import type { ContextInput } from '../ai/context'
+import { toldStage, type ContextInput } from '../ai/context'
 import * as cdb from '../db/checks'
 import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
@@ -42,10 +42,13 @@ export function noteStage(recordId: ID, sceneId: ID, stage: SceneState | null): 
 
 /**
  * Where things stood as a draft's or a beat's writer was told it: the end of the scene so far for one that carries on
- * from it (`soFar`; nothing when that couldn't be worked out in time), else where the scene starts.
+ * from it (`soFar`; nothing when that couldn't be worked out in time), else where the scene starts. Only the people in
+ * the scene and a time that still holds (ai/context.ts toldStage), so no W line is about someone from another scene.
  */
-export const stageTold = (b: { input: Pick<ContextInput, 'continuity' | 'continuityAtSoFar'> }, soFar: boolean): SceneState | null =>
-  soFar ? (b.input.continuityAtSoFar ? (b.input.continuity ?? null) : null) : (b.input.continuity ?? null)
+export const stageTold = (
+  b: { input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'continuityAtSoFar' | 'options' | 'soFar'> },
+  soFar: boolean
+): SceneState | null => (soFar && !b.input.continuityAtSoFar ? null : toldStage(b.input))
 
 /**
  * Where things stood just before the new words, as noted when they were asked for. Null when that isn't known (then

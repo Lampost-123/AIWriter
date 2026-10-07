@@ -76,11 +76,11 @@ import type {
 import { FIELD_GROUPS, KIND_LABELS, type FieldGroup } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
-import { stateText, type SceneState } from '@shared/continuity'
+import { sameWhen, stateText, type SceneState } from '@shared/continuity'
 import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustStayTrue, mustText, type StageReach } from './mustStay'
+import { MUST_TITLE, mustStayTrue, mustText, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
@@ -942,9 +942,11 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
   parts.push(shape.join('\n'))
   const aims = bringAboutLines(input, sel)
   if (aims.length) {
-    parts.push(
-      `What this scene should bring about (aims for this draft, not facts yet):\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`
-    )
+    // Carrying on, the scene so far may have met some of them already.
+    const lead = carriesOn(input)
+      ? 'What this scene should bring about (aims, not facts yet; bring about only what the scene so far hasn’t already)'
+      : 'What this scene should bring about (aims for this draft, not facts yet)'
+    parts.push(`${lead}:\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`)
   }
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
   if (clean(input.options.direction)) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
@@ -993,10 +995,55 @@ export function stageReach(input: Pick<ContextInput, 'scene' | 'memory' | 'conti
   return a != null && a === b ? 'start' : 'later'
 }
 
+/**
+ * Whether the time of day, the light and the weather as the previous scene ended still hold as this one starts (Adam,
+ * 2026-10-07): only when both cards give the same When, in this story. Stricter than stageReach's "same day": "Day 23"
+ * then "Day 23, night, rain" is the same day, but "morning" no longer holds. A new time starts fresh, as the continuity
+ * tracker reads it (continuity/tracker.ts startFrom).
+ */
+export function timeCarries(card: Pick<SceneCard, 'when'>, previous: SceneMemory['previous']): boolean {
+  return !!previous && !previous.otherStory && sameWhen(previous.when, card.when)
+}
+
+/**
+ * Who of where things stand is in this scene (mustStay.ts stageInScene): those on its card, and anyone its card's words,
+ * Adam's direction or `words` (the scene so far, the words around an edit) name.
+ */
+export function stageScope(
+  card: SceneCard,
+  memory: Pick<SceneMemory, 'sceneId' | 'entries' | 'elsewhere' | 'previous'>,
+  words: (string | null | undefined)[]
+): StageScope {
+  const byId = new Map<ID, EntryState>([...memory.elsewhere.map((x) => [x.entry.id, x.entry] as const), ...memory.entries.map((e) => [e.id, e] as const)])
+  const onCard = [...new Set([card.povId, ...card.presentIds])].map((id) => (id ? byId.get(id) : undefined)).filter((e): e is EntryState => !!e)
+  return {
+    sceneId: memory.sceneId,
+    timeCarries: timeCarries(card, memory.previous),
+    onCard,
+    cast: [...byId.values()].filter((e) => e.kind === 'character'),
+    words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n')
+  }
+}
+
+/**
+ * Where things stand as told for this draft (the stage block, what must stay true, the plan and the check of the new
+ * words): only the people in the scene, and a time, light and weather that still hold (stageInScene). Null when nothing
+ * is known. `input.continuity` itself, as kept, is left whole.
+ */
+export function toldStage(input: Pick<ContextInput, 'scene' | 'memory' | 'continuity' | 'options' | 'soFar'>): SceneState | null {
+  if (!input.continuity) return null
+  return stageInScene(input.continuity, stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar]))
+}
+
+/** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */
+const carriesOn = (input: ContextInput): boolean => !!input.continuityAtSoFar || !!input.options.addBelow || !!clean(input.soFar)
+
 function bringAboutLines(input: ContextInput, sel: Selection): string[] {
   const name = (id: ID): string => sel.known.get(id)?.name ?? 'Someone'
-  // A fresh take doesn't build on the earlier draft: only Adam's own notes for the scene are aims.
-  const changes = (input.memory.bringAbout ?? []).filter((c) => !input.options.fresh || c.origin === 'adam')
+  // A fresh take doesn't build on the earlier draft, and carrying on (Add below, a later beat) the memory's notes on this
+  // scene are already on the page (Adam, 2026-10-07: told "Ash: went out to see to the horses" as an aim, the writer sent
+  // him out twice): only Adam's own notes for the scene are aims.
+  const changes = (input.memory.bringAbout ?? []).filter((c) => !(input.options.fresh || carriesOn(input)) || c.origin === 'adam')
   return changes.map((c) => bringAboutLine(c, name)).filter((l): l is string => !!l)
 }
 
@@ -1305,8 +1352,9 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
   //    wear and hold, how they are placed and how they are; or, carrying on from the scene so far (Add below, a later
   //    beat), at the end of it. Short: only the characters on the scene card. Sent last, right above the closing
-  //    instruction (prepareContext), where the model attends to it most.
-  const stand = input.continuity
+  //    instruction (prepareContext), where the model attends to it most. Only the people in this scene, and the time,
+  //    light and weather only where they still hold (toldStage, Adam 2026-10-07).
+  const stand = toldStage(input)
   const full = stand ? stateText(stand) : ''
   if (full) {
     const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
@@ -1331,7 +1379,7 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   const people = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e && e.kind === 'character')
   const card = input.scene.card
   const mustFrom = {
-    stand: input.continuity,
+    stand,
     reach,
     people,
     named: [...sel.chosen.values()].map((c) => c.entry),

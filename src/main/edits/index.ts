@@ -20,6 +20,8 @@ import { sceneMemory } from '../memory/scene'
 import { editBriefing } from './briefing'
 import { editInput } from './input'
 import { stageWhere, standAtText, standKept } from '../ai/gather'
+import { stageScope } from '../ai/context'
+import { stageInScene } from '../ai/mustStay'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteStage } from '../repair'
 import { UserError } from '../util'
@@ -50,8 +52,10 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const { story } = repo.sceneLocation(db, input.sceneId)
   const memory = sceneMemory(db, input.sceneId)
   // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
-  const stand = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
+  const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
+  // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
+  const stand = stageInScene(kept, stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after]))
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
