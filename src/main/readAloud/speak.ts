@@ -23,6 +23,9 @@ export interface SpeechPayload {
   voice_design?: string
   delivery?: string
   gentle?: boolean
+  mood?: string
+  take?: number
+  check?: boolean
 }
 
 /** Plain words for the speech server answering that it can't speak yet (the voices aren't downloaded, or won't load). */
@@ -55,6 +58,11 @@ export function speechPayload(clip: ClipRequest, engine = 'breeze'): SpeechPaylo
   if (clip.delivery) payload.delivery = clip.delivery
   // Narration read with its note, held close to the narrator's voice.
   if (clip.gentle) payload.gentle = true
+  // A studio voice's acted clip of the line's feeling, another take of the line, and the word check: only when set, so
+  // the lines kept before them are still found by the same key.
+  if (clip.mood) payload.mood = clip.mood
+  if (clip.take) payload.take = clip.take
+  if (clip.check) payload.check = true
   return payload
 }
 

@@ -9,12 +9,15 @@ Weights and self-hosted output are research and non-commercial.
 Three things the model takes, and where each comes from:
 
 * The voice. A clip from voices/ (with the words it says in a .txt beside it) is cloned.
+  The studio voices (voices/library/, tools/install.py studio-voices) are clips too: real
+  people recorded in a studio, each with acted clips of the feelings reading aloud uses.
   A description ("a gravelly man in his sixties, slow and warm") is designed once into
   a clip of its own under voices/breeze/, and every later line clones that clip, with a
   seed fixed per voice: designing afresh for every sentence would give a slightly
   different person each time. The clip is named by the description, so a character keeps
   one voice through the whole book, and across books in the same world, until the
-  description changes.
+  description changes. The clip's recording (microphone, room, hiss) carries into every
+  line, so a voice is designed as a studio recording (STUDIO).
 * An instruction: the standing style, plus the delivery the performer wrote for this
   line ("hushed, close to tears"), plus the older director's emotion and pace.
 * Vocal events inline in the text, in parentheses, spelled as the breeze-tts README spells them: (laugh), (sigh), (clears throat).
@@ -66,7 +69,8 @@ CFG = float(os.environ.get("AIWRITE_BREEZE_CFG", "5"))
 # Narration with the writer's note while the narrator is kept steady: one below the lines, and above the 1 to 2
 # Breeze's prompting guide starts narration at. At 2 the author heard the notes too little ("still flat").
 GENTLE_CFG = float(os.environ.get("AIWRITE_BREEZE_NARRATION_CFG", "4"))
-PACE = {"slow": "slowly and deliberately", "fast": "briskly"}
+# "lively" is a hurried line read a little faster: "briskly" at CFG 5 came out far too fast to listen to (MCreader).
+PACE = {"slow": "slowly and deliberately", "lively": "a touch quicker than usual, every word still clear", "fast": "briskly"}
 # A delivery that already tells the voice what to do; anything else ("coldly, barely above a whisper") is
 # put as "Say it ...", the form Breeze's own guide writes its performance notes in. "Start ... At '...', shift to"
 # is narration that turns partway through the clip; "Put clear emphasis on" is a word set in italics.
@@ -78,8 +82,34 @@ EVENT_NAMES = {"breathe heavily": "heavy breathing", "clears throat": "throat cl
 # The level a designed voice clip is saved at. Every line cloned from it follows its loudness, and the
 # codec clamps at full scale, so a loud clip makes the loud words of every line after it crackle.
 DESIGN_PEAK = 0.6
+# Said after every description a voice is designed from. Left to itself, Breeze picks a recording along with the
+# person (a phone line, a far microphone, a hissy tape, a room), and every line copied from the clip sounds the same.
+STUDIO = "Recorded close-up on a high-end studio condenser microphone in a treated vocal booth: full, crisp and clear, completely dry, with no room echo and no background noise."
+# The feelings reading aloud names (src/main/readAloud/emotion.ts) and the EARS emotion a studio voice acts each
+# from (tools/install.py studio-voices saves them). In a blind round on ten lines by four voices, the acted clip beat the calm
+# one 33 to 7 and kept the speaker sounding like themselves. Sad lost that round with notes as plain as "with a feeling of
+# sad"; with an actor's note it won 2 of 2 blind (MCreader's lab), so sad copies the speaker's sadness clip.
+# Neutral lines read from the calm clip.
+MOOD_CLIPS = {
+    "angry": "anger", "afraid": "fear", "happy": "amusement", "playful": "amusement", "tender": "adoration", "sad": "sadness",
+    "contemptuous": "disgust", "surprised": "amazement", "excited": "amazement", "anxious": "distress",
+    "tense": "distress", "longing": "disappointment", "warm": "contentment",
+    # Not feelings but ways of speaking, read from the same speaker whispering or reading loudly: reading aloud sends
+    # these for a hushed line and for a shout (moodFor in src/main/readAloud/emotion.ts).
+    "whisper": "whisper", "loud": "loud",
+}
+# Takes tried for a voice until one says the whole line. Which take sounds best is left to the ear (MCreader's
+# redesign tool): over 96 clips rated by ear, no measure (DNSMOS, SQUIM, bandwidth, hiss, room) agreed with the ear
+# better than a rank correlation of 0.4, and the takes such a score picked lost to the first seed as often as they won.
+DESIGN_TAKES = 3
+# How long LINE takes to say, give or take: outside it, a take skipped words or ran on.
+LINE_SECONDS = (4.0, 20.0)
 # "off" reads with Breeze's plain eager loop, if the CUDA graphs below ever misbehave on a card.
 FAST = os.environ.get("AIWRITE_BREEZE_FAST", "on").strip().lower() not in ("0", "off", "no", "false")
+# The word check ("Check each line's words" in Settings): a speech recogniser listens back to a new clip, and a clip
+# with more of its words wrong than this (a skipped phrase, a repeat, babble) is voiced once more with another seed.
+CHECK_MODEL = os.environ.get("AIWRITE_CHECK_MODEL", "distil-whisper/distil-small.en")
+CHECK_WER = float(os.environ.get("AIWRITE_CHECK_WER", "0.15"))
 
 
 def events(text: str) -> str:
@@ -134,6 +164,76 @@ def spoken(text: str) -> str:
 
 def seed_for(key: str) -> int:
     return zlib.crc32(key.encode("utf-8")) & 0x7FFFFFFF
+
+
+# Sounds aren't words: Breeze's tags in what was sent, and what a recogniser writes for a laugh ("[laughs]", "(sighs)").
+NOT_WORDS = re.compile(r"\([^)]*\)|\[[^\]]*\]")
+
+
+def words(text: str) -> list[str]:
+    """The words of a line, for comparing what was sent with what was heard: no case, no apostrophes, no sounds.
+
+    Numbers are left out: Breeze says "three" for a 3 and a recogniser may write either."""
+    t = NOT_WORDS.sub(" ", text).lower().replace("’", "").replace("'", "")
+    return [w for w in re.findall(r"[^\W_]+", t) if not any(c.isdigit() for c in w)]
+
+
+def misheard(said: str, heard: str, norm=None) -> float:
+    """The share of the line's words that came out wrong (word error rate), or 0 for a line too short to judge, or
+    only one word off (a name the recogniser doesn't know, "okay" heard as "ok"). `norm` is the recogniser's own
+    spelling normaliser, run on both sides: it writes "gray" for "grey" and "mister" for "Mr."."""
+    if norm is not None:
+        try:
+            said, heard = norm(said), norm(heard)
+        except Exception:  # noqa: BLE001 — a normaliser missing its spelling list: compared as they are
+            pass
+    a, b = words(said), words(heard)
+    if len(a) < 4:
+        return 0.0
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, y in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y))
+        prev = cur
+    errors = prev[-1]
+    return errors / len(a) if errors >= 2 else 0.0
+
+
+def heard(state: dict, audio, sr: int) -> str | None:
+    """What the recogniser hears in a clip, or None when it can't listen (it failed to load: clips go unchecked)."""
+    if state.get("asr_failed"):
+        return None
+    if "asr" not in state:
+        try:
+            import torch
+            from transformers import pipeline
+
+            # Downloaded with the studio voices (tools/install.py check-model); the server runs offline, so never here.
+            print(f"Breeze: loading the word check ({CHECK_MODEL}).", file=sys.stderr)
+            gpu = torch.cuda.is_available()
+            state["asr"] = pipeline("automatic-speech-recognition", model=CHECK_MODEL, device=0 if gpu else -1, dtype=torch.float16 if gpu else torch.float32)
+        except Exception as exc:  # noqa: BLE001 — no check is better than no reading
+            state["asr_failed"] = True
+            print(f"Breeze: the word check could not load ({exc}); clips go unchecked until Breeze restarts.", file=sys.stderr)
+            return None
+    import librosa
+    import numpy as np
+
+    x = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if sr != 16000:
+        x = librosa.resample(x, orig_sr=sr, target_sr=16000).astype(np.float32)
+    try:
+        out = state["asr"]({"raw": x, "sampling_rate": 16000}, chunk_length_s=30)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Breeze: the word check failed on a clip ({exc.__class__.__name__}); it plays unchecked.", file=sys.stderr)
+        return None
+    return str(out.get("text") or "")
+
+
+def spelling(state: dict):
+    """The recogniser's English normaliser (Whisper's: American spelling, "Mr." as "mister"), or None."""
+    return getattr(getattr(state.get("asr"), "tokenizer", None), "normalize", None)
 
 
 def graphs_without_compile() -> None:
@@ -257,6 +357,50 @@ def generate(state: dict, text: str, *, instruction_text: str = "", ref: tuple[P
     return audio, int(runtime.sample_rate)
 
 
+def design_key(desc: str) -> str:
+    """The name a description's clip is saved under."""
+    return f"{seed_for(desc):08x}"
+
+
+def design_seed(desc: str, take: int) -> int:
+    """The seed of a description's take; the first is the seed every voice was designed with before takes."""
+    return seed_for(desc if take == 0 else f"{desc}|{take}")
+
+
+def design_take(state: dict, desc: str, take: int):
+    """(audio, sr) of one take of a voice: the description as a studio recording (STUDIO), saying LINE."""
+    return generate(state, LINE, instruction_text=f"{desc} {STUDIO}", seed=design_seed(desc, take))
+
+
+def design(state: dict, desc: str) -> None:
+    """Design `desc` into its clip under DESIGNS: the first of DESIGN_TAKES takes that says the whole line."""
+    for take in range(DESIGN_TAKES):
+        audio, sr = design_take(state, desc, take)
+        # A take far shorter or longer than the line skipped words or ran on past them.
+        if LINE_SECONDS[0] < audio.size / sr < LINE_SECONDS[1]:
+            break
+        print(f"Breeze: take {take + 1} of voice {design_key(desc)} ran {audio.size / sr:.1f} s; trying another.", file=sys.stderr)
+    save_design(desc, audio, sr)
+
+
+def save_design(desc: str, audio, sr: int) -> None:
+    """Save `audio` as the clip a description's voice is cloned from."""
+    import soundfile as sf
+
+    key = design_key(desc)
+    # Every line is cloned from this clip, so it is saved clean and with headroom (DESIGN_PEAK).
+    peak = float(abs(audio).max()) if audio.size else 0.0
+    if peak > 0:
+        audio = audio * (DESIGN_PEAK / peak)
+    # Each written beside and renamed into place, the clip last: a half-written file is never taken for a voice.
+    txt, wav, part = DESIGNS / f"{key}.txt", DESIGNS / f"{key}.wav", DESIGNS / f"{key}.part"
+    part.write_text(LINE, encoding="utf-8")
+    os.replace(part, txt)
+    (DESIGNS / f"{key}.description.txt").write_text(desc, encoding="utf-8")
+    sf.write(str(part), audio, sr, format="WAV", subtype="PCM_16")
+    os.replace(part, wav)
+
+
 def reference(state: dict, voice: str, params: dict) -> tuple[Path, str]:
     """(clip, the words in it) for this voice: the designed clip for a description (made once), else a clip from voices/.
 
@@ -265,33 +409,40 @@ def reference(state: dict, voice: str, params: dict) -> tuple[Path, str]:
     """
     if voice.startswith("clip:") and not str(params.get("voice_design") or "").strip():
         clip = (VOICES / voice.split(":", 1)[1]).resolve()
+        # A studio library voice (voices/library/<id>.wav) with this line's feeling: the speaker's own acted clip of it
+        # (voices/library/<id>/<emotion>.wav), so the line is copied from them already feeling it.
+        acted = MOOD_CLIPS.get(str(params.get("mood") or ""))
+        if acted and clip.parent == (VOICES / "library").resolve():
+            mood_clip = clip.parent / clip.stem / f"{acted}.wav"
+            if mood_clip.is_file() and mood_clip.with_suffix(".txt").is_file():
+                return mood_clip, mood_clip.with_suffix(".txt").read_text(encoding="utf-8").strip()
         if VOICES.resolve() in clip.parents and clip.is_file():
             side = clip.with_suffix(".txt")
             if not side.is_file():
                 raise RuntimeError(f"Breeze copies a voice from a clip only with its words: put what {clip.name} says in {side.name} beside it.")
-            return clip, side.read_text(encoding="utf-8").strip()
+            said = side.read_text(encoding="utf-8").strip()
+            # An empty one reaches Breeze as no words at all ("ref_audio_path and ref_text must be provided together").
+            if not said:
+                raise RuntimeError(f"Breeze copies a voice from a clip only with its words: {side.name} beside {clip.name} is empty.")
+            return clip, said
     desc = design_for(voice, params)
-    key = f"{seed_for(desc):08x}"
+    key = design_key(desc)
     wav, txt = DESIGNS / f"{key}.wav", DESIGNS / f"{key}.txt"
     import soundfile as sf
 
-    if not wav.is_file():
-        print(f"Breeze: designing a voice — {desc}", file=sys.stderr)
-        audio, sr = generate(state, LINE, instruction_text=desc, seed=seed_for(desc))
-        # Every line is cloned from this clip, so it is saved clean and with headroom (DESIGN_PEAK).
-        peak = float(abs(audio).max()) if audio.size else 0.0
-        if peak > 0:
-            audio = audio * (DESIGN_PEAK / peak)
-        sf.write(str(wav), audio, sr, subtype="PCM_16")
-        txt.write_text(LINE, encoding="utf-8")
-        (DESIGNS / f"{key}.description.txt").write_text(desc, encoding="utf-8")
+    # Both files, or the voice is designed again: a clip whose words never got written beside it (Breeze stopped
+    # between the two) failed every line in that voice from then on.
+    if not (wav.is_file() and txt.is_file()):
+        design(state, desc)
     elif key not in state.setdefault("levelled", set()):
         # A clip designed before DESIGN_PEAK (saved at full scale) is turned down once, in place: the same voice, quieter.
         state["levelled"].add(key)
         audio, sr = sf.read(str(wav), dtype="float32")
         peak = float(abs(audio).max()) if audio.size else 0.0
         if peak > DESIGN_PEAK + 0.05:
-            sf.write(str(wav), audio * (DESIGN_PEAK / peak), sr, subtype="PCM_16")
+            part = DESIGNS / f"{key}.part"
+            sf.write(str(part), audio * (DESIGN_PEAK / peak), sr, format="WAV", subtype="PCM_16")
+            os.replace(part, wav)
             print(f"Breeze: turned the designed voice {wav.name} down from peak {peak:.2f} to {DESIGN_PEAK}.", file=sys.stderr)
     return wav, txt.read_text(encoding="utf-8").strip()
 
@@ -300,10 +451,27 @@ def synth(state, text: str, voice: str, speed: float, params: dict):
     ref = reference(state, voice or "", params)
     t0 = time.perf_counter()
     cfg = GENTLE_CFG if params.get("gentle") else CFG
+
+    def voiced(key: str):
+        audio, sr = generate(state, spoken(text), instruction_text=instruction(params, text), ref=ref, seed=seed_for(key), cfg=cfg)
+        return trim_stray_tail(audio, sr), sr
+
     # The voice is the clip; the seed only picks among the ways it could say this line, so each line has its own
-    # rather than every line of a voice sharing one. The same line still comes back the same.
-    audio, sr = generate(state, spoken(text), instruction_text=instruction(params, text), ref=ref, seed=seed_for(f"{ref[0].name}|{text}"), cfg=cfg)
-    audio = trim_stray_tail(audio, sr)
+    # rather than every line of a voice sharing one. The same line still comes back the same, unless it is asked for
+    # as another take (the reader redid it).
+    take = max(0, int(params.get("take") or 0))
+    key = f"{ref[0].name}|{text}" + (f"|{take}" if take else "")
+    audio, sr = voiced(key)
+    if params.get("check"):
+        said = heard(state, audio, sr)
+        wrong = misheard(text, said, spelling(state)) if said is not None else 0.0
+        if wrong > CHECK_WER:
+            again, sr2 = voiced(f"{key}|again")
+            said2 = heard(state, again, sr2)
+            wrong2 = misheard(text, said2, spelling(state)) if said2 is not None else 1.0
+            print(f"Breeze: the word check heard {wrong:.0%} of a line wrong; the second take {wrong2:.0%}.", file=sys.stderr)
+            if wrong2 < wrong:
+                audio, sr = again, sr2
     took, secs = time.perf_counter() - t0, audio.size / sr
     # Under 1 keeps up with reading aloud; above it, the reader waits between sentences. Samples at full scale were
     # clamped by the codec: more than a few, and the line crackles.

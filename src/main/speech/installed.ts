@@ -13,6 +13,8 @@ import {
   clapWeightsDir,
   soundMark,
   soundWeightsDir,
+  studioDir,
+  studioMark,
   venvPython,
   type SpeechPaths
 } from './paths'
@@ -26,6 +28,8 @@ export interface SpeechManifest {
   whisper?: { at: string }
   /** The sound effects (Stable Audio Open and CLAP, in their own environment). */
   sounds?: { at: string }
+  /** The studio voices and the word check (they run in the voices' environment). */
+  studio?: { at: string }
 }
 
 export const readManifest = (file: string): SpeechManifest => readJson<SpeechManifest>(file, {})
@@ -142,6 +146,14 @@ export function soundsComplete(root: string, platform: NodeJS.Platform = process
   return !halfDownloaded(clap) && CLAP_WEIGHTS.some((w) => snapshotWith(clap, [...CLAP_FILES, w], true) !== null)
 }
 
+/**
+ * The studio voices at `root` can be used: their last download step checked them and the word check and left its mark,
+ * and their list is there. They run with the voices, so they count only while the voices do.
+ */
+export function studioComplete(root: string): boolean {
+  return isFile(studioMark(root)) && isFile(join(studioDir(root), 'index.json'))
+}
+
 /** All four of Parakeet's files are in one folder under `dir` (itself, or one folder down as its archive unpacks). */
 export function parakeetFiles(dir: string): boolean {
   let folders: string[]
@@ -175,6 +187,7 @@ export function installedNow(
     voices,
     parakeet: !!manifest.parakeet && parakeetFiles(paths.parakeet),
     whisper: !!manifest.whisper && whisperFiles(paths.whisper),
-    sounds: !!manifest.sounds && soundsComplete(paths.home, platform)
+    sounds: !!manifest.sounds && soundsComplete(paths.home, platform),
+    studio: !!manifest.studio && !!voices && studioComplete(paths.home)
   }
 }

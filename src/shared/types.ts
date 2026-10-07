@@ -481,6 +481,15 @@ export interface SpeechSettings {
   speed: number
   /** "Give characters their own voices". */
   castVoices: boolean
+  /**
+   * "Studio voices for new characters": once the studio voices are downloaded, a character the AI gives a voice gets one
+   * of them, picked to fit (their description is kept too). Never replaces a voice already set.
+   */
+  studioVoices: boolean
+  /** "Act out feelings": a character with a studio voice reads a line from their own acted recording of its feeling. */
+  actFeelings: boolean
+  /** "Check each line's words": the voice listens back to each new line and reads it again when words came out wrong. */
+  checkWords: boolean
   /** "How to read": a standing note for the narrator in plain words. */
   style: string
   /** "Keep the narrator's voice steady": narration read plainly, only dialogue acted. */

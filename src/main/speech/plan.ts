@@ -314,6 +314,42 @@ function soundsPlan(i: PlanInput): Step[] {
   return steps
 }
 
+/**
+ * The studio voices (real voices recorded in a studio, from the EARS dataset, with their acted feelings) and the word
+ * check's listener, in the voices' environment: about 3.7 GB to download, about 2 GB on disk. Always into AI Write's own
+ * speech folder, fetched from where they are published (never copied from another app).
+ */
+function studioPlan(i: PlanInput): Step[] {
+  const { paths } = i
+  const root = paths.home
+  const python = venvPython(join(root, 'venvs', 'breeze'), i.platform)
+  return [
+    {
+      id: 'voices',
+      label: 'Downloading the studio voices',
+      ...tool(paths, python, 'studio-voices', ['--root', root]),
+      progress: 'whole',
+      fails: 'The studio voices didn’t finish downloading. Check the internet connection and that there’s about 4 GB free, then Try again.'
+    },
+    {
+      id: 'listener',
+      label: 'Downloading the word check',
+      ...tool(paths, python, 'check-model', ['--root', root]),
+      env: { HF_HOME: join(root, 'models', 'hf') },
+      progress: 'whole',
+      fails: `The word check didn’t finish downloading. ${TRY_AGAIN}`
+    },
+    {
+      id: 'check',
+      label: 'Checking the studio voices',
+      // Leaves the mark that says they are complete (voices/library/.ready).
+      ...tool(paths, python, 'studio-check', ['--root', root]),
+      progress: 'whole',
+      fails: 'The studio voices didn’t download properly. Try again; those already downloaded are kept.'
+    }
+  ]
+}
+
 /** Parakeet or Whisper: its engine in the server's environment, then its English model. */
 function dictationPlan(kind: 'parakeet' | 'whisper', i: PlanInput): Step[] {
   const { paths } = i
@@ -350,6 +386,7 @@ export function planFor(kind: SpeechDownloadKind, input: PlanInput): Step[] {
   if (kind === 'server') return serverPlan(input)
   if (kind === 'voices') return voicesPlan(input)
   if (kind === 'sounds') return soundsPlan(input)
+  if (kind === 'studio') return studioPlan(input)
   return dictationPlan(kind, input)
 }
 
@@ -372,5 +409,6 @@ export const DOWNLOAD_NAMES: Record<SpeechDownloadKind, string> = {
   voices: 'the voices',
   parakeet: 'Parakeet',
   whisper: 'Whisper',
-  sounds: 'the sound effects'
+  sounds: 'the sound effects',
+  studio: 'the studio voices'
 }

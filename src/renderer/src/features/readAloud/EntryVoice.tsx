@@ -172,7 +172,7 @@ function VoiceBox({ entry }: { entry: Entry }): React.JSX.Element {
   const own = !!(v.voice.design.trim() || v.voice.voice)
   const listed = voices ?? []
   const voiceOptions = [
-    ...listed.map((x) => ({ value: x.id, label: x.name, hint: x.clip ? 'your clip' : undefined })),
+    ...listed.map((x) => ({ value: x.id, label: x.name, hint: x.clip ? 'your clip' : x.studio ? 'studio' : undefined })),
     ...(v.voice.voice && !listed.some((x) => x.id === v.voice.voice) ? [{ value: v.voice.voice, label: v.voice.voice }] : [])
   ]
 

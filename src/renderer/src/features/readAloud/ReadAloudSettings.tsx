@@ -321,7 +321,13 @@ function VoiceRow({
         <span className="block truncate text-[13.5px] font-medium text-fg">{voice.name}</span>
         {voice.about ? <span className="block truncate text-[12px] text-muted">{voice.about}</span> : null}
       </span>
-      {voice.clip ? <Badge>Your clip</Badge> : voice.recommended ? <Badge tone="accent">Suggested</Badge> : null}
+      {voice.clip ? (
+        <Badge>Your clip</Badge>
+      ) : voice.studio ? (
+        <Badge>Studio</Badge>
+      ) : voice.recommended ? (
+        <Badge tone="accent">Suggested</Badge>
+      ) : null}
       <span className="flex w-4 shrink-0 justify-center">{on ? <Check size={15} className="text-accent" aria-hidden /> : null}</span>
     </div>
   )
@@ -434,7 +440,7 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
   const { voices } = useVoices(true)
   const list = voices ?? []
   const dialogueOptions = [
-    ...list.map((v) => ({ value: v.id, label: v.name, hint: v.clip ? 'your clip' : undefined })),
+    ...list.map((v) => ({ value: v.id, label: v.name, hint: v.clip ? 'your clip' : v.studio ? 'studio' : undefined })),
     // A voice picked before that the server doesn't list now stays picked.
     ...(speech.dialogueVoice && !list.some((v) => v.id === speech.dialogueVoice)
       ? [{ value: speech.dialogueVoice, label: speech.dialogueVoice }]
@@ -463,6 +469,7 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
             onChange={(castVoices) => void save({ castVoices })}
             description="Each character’s lines are read in the voice on their page in the world (Read-aloud voice). Off, everyone is read in the dialogue voice."
           />
+          <StudioVoices speech={speech} />
         </div>
       </SettingsSection>
 
@@ -505,6 +512,12 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
               description="Shows who says each paragraph, and how, in small grey words just above it. They are never part of your text. New drafts are marked as they are written; your own writing is marked when it is read aloud."
             />
             <SwitchRow
+              label="Check each line’s words"
+              checked={speech.checkWords}
+              onChange={(checkWords) => void save({ checkWords })}
+              description="The voice listens back to each new line and reads it again when words came out wrong or were skipped. Lines take a little longer to get ready. Needs the studio voices download."
+            />
+            <SwitchRow
               label="Perform written sounds"
               checked={speech.sounds}
               onChange={(sounds) => void save({ sounds })}
@@ -535,6 +548,70 @@ function More({ speech }: { speech: SpeechSettings }): React.JSX.Element {
       <SoundEffects speech={speech} />
 
       <SavedAudio limitGb={speech.cacheLimitGb} />
+    </>
+  )
+}
+
+// ---------- Studio voices ----------
+
+/**
+ * The studio voices (real people recorded in a studio): new characters get one that fits them, a line's feeling is
+ * acted from the speaker's own recording of it, and "Give characters studio voices" gives every character in the open
+ * world without a voice picked from the list one now (Undo on its toast).
+ */
+function StudioVoices({ speech }: { speech: SpeechSettings }): React.JSX.Element {
+  const status = useSpeechStatus()
+  const installed = !!status?.installed.studio
+  const worldOpen = useApp((s) => !!s.world)
+  const [giving, setGiving] = useState(false)
+  const give = async (): Promise<void> => {
+    setGiving(true)
+    try {
+      const { given, before } = await api.giveStudioVoices()
+      if (!given) toast('Every character already has a voice picked from the list.')
+      else
+        toast(given === 1 ? 'One character has a studio voice now.' : `${given} characters have studio voices now.`, {
+          tone: 'success',
+          action: {
+            label: 'Undo',
+            run: () =>
+              void api.restoreStudioVoices(before).catch((e: Error) => toast(e.message, { tone: 'danger' }))
+          }
+        })
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'The studio voices couldn’t be given.', { tone: 'danger' })
+    } finally {
+      setGiving(false)
+    }
+  }
+  return (
+    <>
+      <SwitchRow
+        label="Studio voices for new characters"
+        checked={speech.studioVoices}
+        onChange={(studioVoices) => void save({ studioVoices })}
+        description={
+          installed
+            ? 'A character the AI gives a voice gets one of the studio voices, picked to fit them. Their description is kept, and a voice you picked is never changed.'
+            : 'Once the studio voices are downloaded (Speech engine, above), a character the AI gives a voice gets one of them, picked to fit them.'
+        }
+      />
+      <SwitchRow
+        label="Act out feelings"
+        checked={speech.actFeelings}
+        onChange={(actFeelings) => void save({ actFeelings })}
+        description="A character with a studio voice reads an angry, frightened or tender line from their own recording of that feeling, and whispers or shouts when the line says so."
+      />
+      {installed && worldOpen ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Button size="sm" loading={giving} onClick={() => void give()}>
+            Give characters studio voices
+          </Button>
+          <span className="min-w-[200px] flex-1 text-[12.5px] leading-relaxed text-muted">
+            For every character in this world without a voice picked from the list. Their descriptions are kept.
+          </span>
+        </div>
+      ) : null}
     </>
   )
 }

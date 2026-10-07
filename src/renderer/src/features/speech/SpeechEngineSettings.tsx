@@ -2,7 +2,21 @@
 // the one-click downloads with their progress (everyday), and the server address, Check, the Hugging
 // Face key, where things are kept and removing them (More). Owned by the Speech engine part. The sound
 // effects' download card (SoundsDownload.tsx) is made of the same pieces, exported below.
-import { AudioLines, CircleAlert, CircleCheck, Download, ExternalLink, FolderOpen, KeyRound, Link2, Mic, RefreshCw, Server, Trash2 } from '@/components/ui/icons'
+import {
+  AudioLines,
+  CircleAlert,
+  CircleCheck,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  KeyRound,
+  Link2,
+  Mic,
+  RefreshCw,
+  Server,
+  Trash2,
+  Users
+} from '@/components/ui/icons'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import type {
   DictationModel,
@@ -28,7 +42,8 @@ export const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> =
   voices: { name: 'the voices', size: 'about 12 GB' },
   parakeet: { name: 'Parakeet', size: 'about 1 GB' },
   whisper: { name: 'Whisper', size: 'about 300 MB' },
-  sounds: { name: 'the sound effects', size: 'about 12 GB' }
+  sounds: { name: 'the sound effects', size: 'about 12 GB' },
+  studio: { name: 'the studio voices', size: 'about 4 GB' }
 }
 
 const HF_KEYS_PAGE = 'https://huggingface.co/settings/tokens'
@@ -128,6 +143,7 @@ function Everyday({ status }: { status: SpeechStatus | null }): React.JSX.Elemen
         <Readiness status={shown} />
         <StartWithApp status={shown} />
         <Voices status={shown} />
+        <StudioVoices status={shown} />
         <Dictation status={shown} />
       </Card>
     </SettingsSection>
@@ -381,6 +397,34 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
   )
 }
 
+/**
+ * The studio voices: real people recorded in a studio, which characters are given instead of a voice made from a
+ * description, with their acted feelings, and the word check. Offered once the voices are downloaded (they read them).
+ */
+function StudioVoices({ status }: { status: SpeechStatus }): React.JSX.Element | null {
+  const installed = !!status.installed.studio
+  const pending = isPending(status, 'studio')
+  const stopped = status.download?.kind === 'studio' && status.download.state !== 'done'
+  if (!status.installed.voices && !pending && !stopped) return null
+  return (
+    <Row icon={<Users size={16} />} title="Studio voices" badge={installed ? <Badge tone="success">Downloaded</Badge> : null}>
+      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
+        96 real voices recorded in a studio, which characters are given instead of a voice made from a description. Each one also acted
+        out feelings, whispers and shouts, so an angry or frightened line sounds it. Free for personal, non-commercial use (the EARS
+        recordings).
+      </p>
+      {!installed && !pending && !stopped ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => void download('studio')}>
+            Download the studio voices ({KINDS.studio.size})
+          </Button>
+        </div>
+      ) : null}
+      <DownloadFor kind="studio" status={status} />
+    </Row>
+  )
+}
+
 function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   const picked = useApp((s) => s.settings?.speech?.dictationEngine ?? 'none')
   const options: { value: 'none' | DictationModel; label: string }[] = [
@@ -446,7 +490,7 @@ function comesNext(kind: SpeechDownloadKind, queued: SpeechDownloadKind[]): stri
   const name = KINDS[kind].name
   const at = queued.indexOf(kind)
   const when = at > 0 ? `after ${KINDS[queued[at - 1]].name}` : 'next'
-  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind === 'voices' || kind === 'sounds' ? 'download' : 'downloads'} ${when}.`
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${kind === 'voices' || kind === 'sounds' || kind === 'studio' ? 'download' : 'downloads'} ${when}.`
 }
 
 /** The download card for `kind`: running, waiting, stopped by Cancel or failed. One that finished says so in a toast (useSpeechStatus). */
@@ -898,7 +942,8 @@ const PART_NAMES: Record<SpeechDownloadKind, string> = {
   voices: 'Voices',
   parakeet: 'Parakeet',
   whisper: 'Whisper',
-  sounds: 'Sound effects'
+  sounds: 'Sound effects',
+  studio: 'Studio voices'
 }
 
 /** Undo for Remove downloads. If some files are still held for a moment, it says so and can be tried again. */

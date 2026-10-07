@@ -147,6 +147,11 @@ export function stepNext(): void {
   session?.next()
 }
 
+/** Redo this line: the line playing is voiced again as another take, kept for it from now on. */
+export function redoLine(): void {
+  void session?.redo()
+}
+
 /** The bar's speeds. Settings' slider can set any speed from 0.5× to 2×, which the bar shows as it is. */
 export const SPEEDS = [0.75, 1, 1.25, 1.5, 2]
 

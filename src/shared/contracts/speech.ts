@@ -15,9 +15,11 @@ export type DictationModel = 'parakeet' | 'whisper'
 
 /**
  * What can be downloaded: the server itself (with its Python environment), the voices (Breeze TTS 2), a dictation model,
- * or the sound effects model ('sounds': Stable Audio Open and CLAP, in their own environment; contracts/sounds.ts).
+ * the sound effects model ('sounds': Stable Audio Open and CLAP, in their own environment; contracts/sounds.ts), or the
+ * studio voices ('studio': real voices recorded in a studio, with their acted feelings, and the word check; they run
+ * with the voices, so those come first).
  */
-export type SpeechDownloadKind = 'server' | 'voices' | DictationModel | 'sounds'
+export type SpeechDownloadKind = 'server' | 'voices' | DictationModel | 'sounds' | 'studio'
 
 /** One download as Settings shows it: its step, a progress bar, the latest line of output, Cancel and Try again. */
 export interface SpeechDownload {
@@ -79,7 +81,7 @@ export interface SpeechStatus {
    */
   repair: boolean
   /** What is downloaded on this computer, in AI Write's own speech folder (`voices` is 'own' once they are). */
-  installed: { server: boolean; voices: 'own' | null; parakeet: boolean; whisper: boolean; sounds?: boolean }
+  installed: { server: boolean; voices: 'own' | null; parakeet: boolean; whisper: boolean; sounds?: boolean; studio?: boolean }
   /** What the server holds in memory now (a model unused for five minutes is let go). */
   loaded: { voices: boolean; dictation: DictationModel | null; sounds?: boolean }
   /**

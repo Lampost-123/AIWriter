@@ -12,7 +12,7 @@ from .worker_engine import WorkerEngine
 # The clip types a voice can be copied from.
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
 
-# The weights, as MCreader names them, so its copy on this computer can be used as it is.
+# The weights' name on Hugging Face.
 REPO = downloaded.BREEZE_REPO
 
 # id, name, gender, traits. The descriptions they are made from are in workers/breeze.py.
@@ -69,4 +69,67 @@ class BreezeEngine(WorkerEngine):
                         "engine": self.id, "lang": "en", "language": "English", "accent": "", "gender": "",
                         "grade": "", "traits": f"your clip · {p.name}", "recommended": False,
                     })
-        return out
+        return out + library_voices()
+
+
+def library_voices() -> list[dict]:
+    """The studio voices (tools/install.py studio-voices): real people recorded in a studio, listed as
+    "Clara · Woman, 26-35 · mid voice (studio)", once their download has finished (its mark is there). Then Adam's
+    own voices made in MCreader's voice studio, brought over into the same folder and listed in custom.json
+    ("Mira · Woman, 34 · mid voice (your voice)"), which need no download. Then the voices MCreader designed from
+    descriptions, brought over into voices/mcreader/, each named by the start of its description."""
+    import json
+    import re
+
+    library = VOICES / "library"
+    lists = [("custom.json", True)]
+    if downloaded.studio_complete(config.HOME):
+        lists.insert(0, ("index.json", False))
+    out, seen = [], set()
+    for name, own in lists:
+        try:
+            listed = json.loads((library / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for v in listed if isinstance(listed, list) else []:
+            vid = v.get("id") if isinstance(v, dict) else None
+            if not isinstance(vid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", vid) or vid in seen:
+                continue
+            if not ((library / f"{vid}.wav").is_file() and (library / f"{vid}.txt").is_file()):
+                continue
+            seen.add(vid)
+            who = "Woman" if v.get("gender") == "female" else "Man"
+            # A voice made in the voice studio has an exact age as well as its band.
+            age = str(v["years"]) if v.get("years") else str(v.get("age", ""))
+            pitch = v.get("pitch", "mid")
+            made = "your voice" if own else "studio"
+            out.append({
+                "id": f"clip:library/{vid}.wav", "name": f"{v.get('name') or vid} · {who}, {age} · {pitch} voice ({made})",
+                "engine": "breeze", "lang": "en", "language": "English", "accent": "", "gender": v.get("gender", ""),
+                "grade": "", "traits": f"{made if own else 'studio recording'} · {age} · {pitch} pitch", "recommended": False,
+                "age": v.get("age", ""), "pitch": pitch, "studio": True, **({"own": True} if own else {}),
+            })
+    return out + mcreader_voices()
+
+
+def mcreader_voices() -> list[dict]:
+    """The voices MCreader designed from descriptions, brought over into voices/mcreader/ (Adam, 7 October 2026):
+    "From MCreader · A gravelly man in his sixties…", by the start of the description each was made from."""
+    folder = VOICES / "mcreader"
+    if not folder.is_dir():
+        return []
+    out = []
+    for wav in sorted(folder.glob("*.wav")):
+        if not wav.with_suffix(".txt").is_file():
+            continue
+        try:
+            about = (folder / f"{wav.stem}.description.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            about = ""
+        short = " ".join(about.split()[:8]) + ("…" if len(about.split()) > 8 else "")
+        out.append({
+            "id": f"clip:mcreader/{wav.name}", "name": f"From MCreader · {short or wav.stem}",
+            "engine": "breeze", "lang": "en", "language": "English", "accent": "", "gender": "",
+            "grade": "", "traits": f"your voice · {about[:200]}" if about else "your voice", "recommended": False, "own": True,
+        })
+    return out

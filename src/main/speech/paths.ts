@@ -80,3 +80,15 @@ export const clapWeightsDir = (root: string): string => join(root, 'models', 'hf
  * sound-check): they count as downloaded only with it. Removed as they start downloading.
  */
 export const soundMark = (root: string): string => join(root, 'models', 'sound', '.ready')
+
+/** The studio voices (speech-server/tools/install.py, studio-voices): real voices recorded in a studio, with index.json. */
+export const studioDir = (root: string): string => join(root, 'voices', 'library')
+
+/**
+ * The mark the studio voices' last download step leaves once they and the word check checked out (studio-check): they
+ * count as downloaded only with it. Removed as they start downloading.
+ */
+export const studioMark = (root: string): string => join(studioDir(root), '.ready')
+
+/** The word check's listener in the voices' Hugging Face cache (speech-server/app/downloaded.py, CHECK_REPO). */
+export const checkWeightsDir = (root: string): string => join(root, 'models', 'hf', 'hub', 'models--distil-whisper--distil-small.en')
