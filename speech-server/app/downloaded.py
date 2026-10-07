@@ -165,7 +165,11 @@ def sound_complete(root: Path) -> bool:
 # The studio voices: the EARS dataset's native English speakers (CC BY-NC 4.0), fetched by tools/install.py studio-voices.
 # The word check listens back to a clip with this (Breeze's environment runs it, on the graphics card).
 CHECK_REPO = "distil-whisper/distil-small.en"
-CHECK_FILES = ("config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "model.safetensors")
+# normalizer.json: Whisper's English spelling list, which its text normaliser reads ("gray" for "grey").
+CHECK_FILES = (
+    "config.json", "generation_config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json",
+    "normalizer.json", "model.safetensors",
+)
 
 
 def studio_dir(root: Path) -> Path:

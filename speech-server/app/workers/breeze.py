@@ -183,7 +183,10 @@ def misheard(said: str, heard: str, norm=None) -> float:
     only one word off (a name the recogniser doesn't know, "okay" heard as "ok"). `norm` is the recogniser's own
     spelling normaliser, run on both sides: it writes "gray" for "grey" and "mister" for "Mr."."""
     if norm is not None:
-        said, heard = norm(said), norm(heard)
+        try:
+            said, heard = norm(said), norm(heard)
+        except Exception:  # noqa: BLE001 — a normaliser missing its spelling list: compared as they are
+            pass
     a, b = words(said), words(heard)
     if len(a) < 4:
         return 0.0
