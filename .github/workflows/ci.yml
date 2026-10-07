@@ -1,24 +1,29 @@
-# Checks every push and pull request, and builds a Windows installer Adam can download
-# from the run's "Artifacts" section (AI-Write-Windows-installer).
+# Checks pull requests (once per push) and main after each merge, and builds a Windows
+# installer Adam can download from the run's "Artifacts" section (AI-Write-Windows-installer).
+# A branch with no pull request isn't checked on push; run it by hand from the Actions tab
+# ("Run workflow").
 name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same pull request stops the older run. Runs on main are never
+# stopped, so every merge gets checked.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  test:
-    name: Typecheck, tests and app tests
+  checks:
+    name: Typecheck and unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -36,19 +41,40 @@ jobs:
       - name: Unit tests
         run: npx vitest run
 
+  # The app tests are split into 4 parts that run side by side. Each part builds the app
+  # itself (the build takes seconds), so no part waits on another.
+  app-tests:
+    name: App tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
       - name: Build
         run: npm run build
 
       - name: App tests (Playwright driving the built app)
         run: |
           command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)
-          xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test
+          xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Keep the test report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}-of-4
           path: |
             playwright-report/
             test-results/
