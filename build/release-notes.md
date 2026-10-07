@@ -1,8 +1,9 @@
-<!-- version: 0.6.28 -->
-What's new in 0.6.28:
+<!-- version: 0.6.29 -->
+What's new in 0.6.29:
 
-- Right before the AI writes, it gets a short list of what must stay true: where everyone is, what they wear and hold, injuries and who knows what, each with the scene it became true in.
-- Before Generate, Add below or a beat, the AI first plans the scene in one short step, then writes from its plan. You can turn this off in Settings › Models.
-- The AI keeps to the facts about each character, and mentions looks like eye colour only now and then.
+- Before each draft, the AI looks back through the story so far for the passages, facts and summaries that matter to the scene, even when no name matches.
+- Promises, threats and secrets told are kept with their exact words and who heard them, and the AI is given those words.
+- Whoever and whatever was in the last two scenes stays in mind.
+- Find by meaning, in Settings › Models, downloads a small search model once (134 MB).
 
-Also in 0.6.27: the AI checks new words as they land and fixes small slips in amber, with Undo.
+Also in 0.6.28: the AI plans each scene before writing, and gets a short list of what must stay true.

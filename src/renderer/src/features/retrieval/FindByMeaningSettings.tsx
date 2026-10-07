@@ -57,7 +57,7 @@ export function FindByMeaningSettings(): React.JSX.Element | null {
           </div>
           <p id={`${id}-help`} className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
             Before each draft, earlier scenes, facts and summaries that matter here are found by their words, and with the search model also
-            by what they mean (“her brother”, “the promise at the well”). It runs on this computer; nothing is sent anywhere.
+            by what they mean (“her brother”, “the promise at the well”). The search runs on this computer.
           </p>
           {/* Reserved height, so nothing jumps as the status arrives. */}
           <div className="min-h-[28px]">{status && on ? <ModelLine status={status} /> : null}</div>

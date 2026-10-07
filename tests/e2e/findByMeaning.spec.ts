@@ -4,9 +4,10 @@
 // Every word of this story is made up for the test.
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
 
 const ON = { env: { AIWRITE_RECALL: 'on', AIWRITE_SEARCH_MODEL: 'stub', AIWRITE_KEEPER_QUIET_MS: '600000' } }
+const OPTIONS = { direction: '', targetWords: 300, creativity: 'balanced' as const }
 const PROMISE = '“I swear I will come back for you before the snow.”'
 
 test('the briefing finds an earlier promise by meaning, sends what was said word for word, and keeps who was just there', async ({ launch }) => {
@@ -35,7 +36,7 @@ test('the briefing finds an earlier promise by meaning, sends what was said word
   const card = (await invoke(win, 'getScene', third)).card
   await invoke(win, 'updateSceneCard', third, { ...card, povId: mara.id, presentIds: [mara.id], beats: ['Mara thinks of the vow she made at the well'] })
 
-  const preview = await invoke(win, 'previewContext', third, undefined)
+  const preview = await invoke(win, 'previewContext', third, OPTIONS)
   const said = preview.blocks.find((b) => b.id === 'said')
   expect(said?.text).toContain(`Mara’s promise to Tobin (Book 1, Ch 1, Sc 1): ${PROMISE}`)
   const recalled = preview.blocks.find((b) => b.id === 'recalled')
@@ -45,6 +46,20 @@ test('the briefing finds an earlier promise by meaning, sends what was said word
   // The search index is a file of its own beside world.db.
   const folder = join(dataDir, 'library', readdirSync(join(dataDir, 'library')).find((n) => existsSync(join(dataDir, 'library', n, 'world.db')))!)
   await expect.poll(() => existsSync(join(folder, 'search-index.db'))).toBe(true)
+
+  // A draft is sent the same.
+  const fake = await startFake()
+  try {
+    await useFakeModel(win, fake)
+    const { generationId } = await invoke(win, 'startDraft', third, OPTIONS)
+    await expect.poll(async () => (await invoke(win, 'getGeneration', generationId)).status, { timeout: 60_000 }).toBe('complete')
+    const sent = (await invoke(win, 'getGeneration', generationId)).messages.map((m) => m.content).join('\n')
+    expect(sent).toContain('## What was said, word for word')
+    expect(sent).toContain(PROMISE)
+    expect(sent).toContain('## Earlier passages that may matter')
+  } finally {
+    await fake.close()
+  }
 })
 
 test('Find by meaning is on by default, offers the search model, and can be turned off', async ({ launch }) => {

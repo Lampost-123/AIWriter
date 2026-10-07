@@ -29,6 +29,8 @@ src/main/        Electron main process
                  (reads the database: what counts for one scene). Pure where it can be.
   keeper/        The memory keeper (milestone 2): reads scene text with the memory model and keeps
                  the memory in step with it, plus summaries at every level
+  retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
+                 keyword and by meaning (its own file, search-index.db, and the search model in model/)
   index.ts       Window, lifecycle, flush-on-close
   world.ts       The open world (one folder: world.db, images/, backups/)
   db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
@@ -762,6 +764,62 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   `AIWRITE_REPAIR=off` always turns it off, whatever the switch says; otherwise the switch decides. App tests set it off
   (tests/e2e/helpers.ts), since it is one more call after every draft, and ask for it with `AIWRITE_REPAIR=on`; the
   fake provider answers it in `tests/fake-provider/repair.mjs`.
+- **Recall by meaning, sticky entries, and what was said** (Adam, 2026-10-07: step 5 of the consistency plan;
+  `src/main/retrieval/`, `contracts/searchModel.ts`, `features/retrieval/`). Before, an entry reached the writer only
+  when its name or alias was on the card, in the beats or direction, or at the end of the previous scene; "her
+  brother", a carried item or a promise ten chapters back were missed, and earlier events came only as summaries.
+  Step 5 adds three things to each briefing (`ContextInput.recall`, gathered in `ai/draftFlow.ts` `assemble`, so the
+  Context tab, Generate, Variants and Beat by beat all get it). They are only candidates: the priority order and the
+  budget still decide what is sent, and the briefing never goes past the budget.
+  - **Sticky entries** (`sticky.ts`): whoever and whatever was on the cards of the last two scenes before this one on
+    its story's line, or named in their words, stays in the briefing (block 9, "In one of the last two scenes").
+  - **What was said** (`said.ts`; the keeper's "said" items in `keeper/prompts.ts` and `apply.ts`): promises, threats
+    and secrets told are kept as one knowledge fact on the speaker and on each character who heard it, with the line
+    itself (`KnowledgePayload.said`: kind, who said it, the words; JSON in `changes.payload_json`, so no migration).
+    The usual rules hold: they count from the scene they were said in, on that story's line; Adam's facts are never
+    changed; the line's source link follows edits to it (`db/retrieval.ts` `saidChanges` sends the words as the scene
+    now has them, and leaves a line out once its words are gone). An entry page shows the line under the fact. The
+    briefing's block "What was said, word for word" (priority 6, shortened and dropped before relationships) holds the
+    lines said or heard by someone in the scene, newest first, then those a search found.
+  - **Searching the story so far** (`recall.ts`): the scene card's parts, each beat, Adam's direction and the end of
+    the scene so far (or of the scene before) are each searched for, over the passages of earlier scenes (a few
+    paragraphs each, `text.ts` `scenePassages`), the codex facts as of this scene (profiles, what happened, ties,
+    things said; names of those on the card are left out of this search) and the scene and chapter summaries of the
+    other stories on the line. Only what comes before the scene on its story's line is searched (`buildLine`, as the
+    memory does), so later scenes, what-ifs and prequels never leak in; the end of the previous scene already sent in
+    block 3 isn't offered again. Keyword search uses SQLite's full-text search (FTS5, already in better-sqlite3) for
+    passages and BM25 in memory for the rest; meaning search compares the search model's vectors; every list is joined
+    by reciprocal rank fusion (`rank.ts`). Entries found join block 9 ("Found by searching for what the scene is
+    about"); the best passages and summaries are the block "Earlier passages that may matter" (priority 9, word for
+    word, oldest first; short: the best two, then one; dropped before block 9). No re-ranking model and no AI call:
+    a draft costs nothing more than the extra words in its briefing.
+  - **The search index** (`store.ts`; Adam's go, 2026-10-07): one file in each world folder, `search-index.db`,
+    beside world.db and history.db. It holds the passages with a full-text index, and the search model's vectors by
+    the hash of their words. Everything in it can be made again from the world, so it never stops a world opening: a
+    missing file is made; a damaged one is moved aside as `search-index.db.damaged-<time>` (never deleted, as
+    history.db's) and started afresh; one locked by another program or from a newer AI Write is left as it is, and an
+    index in memory stands in for that session. It is brought up to date by the hash of each scene's words
+    (`indexing.ts`), so a backup brought back or a copied world is caught: in the background 4 seconds after a world
+    opens (a few scenes at a time, stopped when the world closes), and for the scenes changed since, just before each
+    search. Exports, world copies and backups leave it out (it is made again where the world lands); deleting a world
+    moves it with the folder.
+  - **The search model** (`model/`): bge-small-en-v1.5 (BAAI, MIT licence), run inside the app with no new package:
+    its WordPiece tokenizer and BERT forward pass are written in TypeScript (`wordpiece.ts`, `bert.ts`, checked against
+    a plain reading of the same sums), on worker threads (`pool.ts`, `worker.ts`: a quarter of the processor's threads,
+    1 to 4, sharing one copy of the weights, a search's texts ahead of the background reading). About 9 ms a word-piece
+    on one thread, so a 100,000-word book is read in the background in about 5 minutes on a 16-thread computer, and a
+    search takes under a second; a search waits at most 6 seconds (`MEANING_WAIT_MS`) for it, then goes ahead by keyword
+    alone. Downloaded once, like the speech models, into the app's data folder (`search-model/`, never the app, git, a
+    world or a backup) from Hugging Face at a fixed revision, each file checked by size and hash, with installed.json
+    last (`files.ts`, `download.ts`); before first use it must tell related sentences from unrelated ones
+    (`checkModel`), or it is not used and Settings says so. RAM: the weights once (about 130 MB) and the open world's
+    vectors (about 1.5 KB a passage).
+  - **Settings** (Settings › Models, "Finding earlier passages", `features/retrieval/FindByMeaningSettings.tsx`): "Find
+    by meaning" (`settings.findByMeaning`, on by default) with the download (134 MB, progress and Stop), Remove, and how
+    far the open world's passages have been read. Off, or until it is downloaded, keyword search, sticky entries and
+    what was said go on. `AIWRITE_RECALL=off` turns all of step 5 off; app tests set it (tests/e2e/helpers.ts) and ask
+    for it with `AIWRITE_RECALL=on`; `AIWRITE_SEARCH_MODEL=stub` uses a stand-in model (`stub.ts`) that knows a few
+    words of like meaning, for tests only.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice
@@ -936,7 +994,8 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   and `history.db` each copied with SQLite's online backup (the open world's own connection; another world's
   read-only) and made self-contained, then `images/`. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
   pieces, so the window never stalls and a big world never sits whole in memory. A history.db that can't be read
-  is left out (the toast says so); the export still succeeds.
+  is left out (the toast says so); the export still succeeds. The search index (`search-index.db`, story memory
+  step 5) is never in it: it is made again from the world wherever it is opened.
 - Import and Make a copy build the world in a hidden folder in the library (`.aiwrite-import-<id>`,
   `.aiwrite-copy-<id>`, removed after an hour if the app closed midway), with world.db under another name until it
   has its new id and name, then rename the folder into place (`freeFolder`). So the library never lists a half-made
