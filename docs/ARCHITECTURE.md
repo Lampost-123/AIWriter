@@ -1677,6 +1677,31 @@ it uses the Chat and brainstorm model, with no setting of its own.
 - **Ask about this** on the selection bar opens Ask with the words quoted in the box (`features/ask/open.ts`).
 - Tests: `tests/e2e/editorChat.spec.ts`; the fake provider's tool calls are in `tests/fake-provider/m4/ask.mjs`.
 
+## Trap scores (story memory plan, step 6)
+
+Adam's consistency plan (October 2026) is scored, not judged by impression: "A made-up test story is built with
+continuity traps planted in it ... Every change is scored on DeepSeek Flash, before and after, by an automatic
+checker." Built first and run after every step. It lives in `tests/traps/` (its README says how to run it and what
+it costs) and never runs in `npm test` or CI: only `npm run traps`, which reads the OpenRouter key from
+`OPENROUTER_API_KEY` and refuses to start without it (`--fake` checks the harness with the fake provider instead).
+
+- **The story** (`story.ts`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
+  make them. Six traps, each with a known truth at a known point: clothes taken off partway through a scene (and a
+  change of clothes later), a cut on the left palm, people moved between rooms, a secret told to only one person, a
+  promise made in the first scene and kept later, and a hidden packet. `STORY_VERSION` says when scores stop comparing.
+- **Probes** ask the app to write as Adam would, through the window's own entry points with the app's real
+  settings, world, memory keeper and briefing (`run.ts`; Electron is a stand-in, `fakeElectron.ts`): Add below in a
+  half-written scene, Generate a scene from its card, Continue at a cursor, and a beat of Beat by beat. Scenes are
+  written in order and left (so the memory reads them, as it would for Adam); what the AI writes is scored and thrown
+  away, and the story goes on with its own words. Several samples per probe (3 by default).
+- **The checker** (`judge.ts`, `score.ts`): per passage, one judge call (the memory model unless told otherwise) is
+  given only the passage, the facts true where it begins and yes/no questions, each with the answer that means
+  "broken". A broken claim needs a quote the passage really has; a few deterministic tripwires (the cut put on the
+  right hand) back the judge up. Consistency = kept / (kept + broken); the report gives it by trap and by probe,
+  with what broke, the calls and the cost, the commit and the models (`traps-results/`, not committed).
+- **Scoring another branch:** `--root` points the harness at another checkout's app code, so main and a step's
+  branch are scored by the same harness and story; `--compare` puts two reports side by side.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

@@ -13,3 +13,5 @@ __pycache__/
 # Story recipes live in the library folder, never in the repository
 /Recipes/
 /Story recipes/
+# Trap scores (npm run traps)
+/traps-results/
