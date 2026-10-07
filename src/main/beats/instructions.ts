@@ -119,6 +119,11 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
     if (i > 1 && ask.soFarEnds === 'mid-beat') {
       lines.push(`- First bring beat ${i - 1} to its end in a few lines, from where the scene so far stops, then write this beat.`)
     }
+    if (o.hasStand) {
+      lines.push(
+        '- Keep to where things stand at the end of the scene so far: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes on the page.'
+      )
+    }
   } else if (i === 1) {
     const other = o.previousStory
     if (o.hasPrevious && other) {

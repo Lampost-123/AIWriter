@@ -291,8 +291,12 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
     void startDraft(sceneId, bridge, {
       replace: (mode === 'replace' || mode === 'fresh') && filled,
       takeKeyboard: !!mode,
-      // A fresh take doesn't build on what the earlier draft established.
-      options: () => ({ ...(useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS), ...(mode === 'fresh' ? { fresh: true } : {}) })
+      // A fresh take doesn't build on what the earlier draft established; Add below carries on from the scene's words.
+      options: () => ({
+        ...(useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS),
+        ...(mode === 'fresh' ? { fresh: true } : {}),
+        ...(mode === 'add' && filled ? { addBelow: true } : {})
+      })
     })
   }, [sceneId])
 

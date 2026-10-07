@@ -19,9 +19,26 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing } from './briefing'
 import { editInput } from './input'
+import { standAtText } from '../ai/gather'
+import { keptStateBefore, type SceneState } from '../continuity/tracker'
+import { UserError } from '../util'
 
-/** Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. */
-export function startEdit(raw: EditInput): EditStart {
+/**
+ * Where things stand at the end of the words before Continue's cursor (as the previous scene ended, at the start of
+ * the scene); null when it isn't known in time.
+ */
+async function continueStand(db: ReturnType<typeof world.db>, sceneId: string, before: string): Promise<SceneState | null> {
+  return before.trim() ? standAtText(db, sceneId, before, CONTINUE_STAND_MS) : keptStateBefore(db, sceneId)
+}
+
+/** How long Continue waits for where things stand at the cursor before carrying on without it (it is kept for next time). */
+export const CONTINUE_STAND_MS = 20_000
+
+/**
+ * Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. Continue first works out
+ * where things stand at the point it carries on from (the memory model reads the scene so far), never for long.
+ */
+export async function startEdit(raw: EditInput): Promise<EditStart> {
   const input = editInput(raw)
   const tool = input.tool
 
@@ -31,6 +48,8 @@ export function startEdit(raw: EditInput): EditStart {
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
   const memory = sceneMemory(db, input.sceneId)
+  const stand = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : null
+  if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
@@ -39,7 +58,8 @@ export function startEdit(raw: EditInput): EditStart {
     scene: { title: scene.title, card: scene.card },
     entries: memory.entries,
     contextLength: model.choice.contextLength ?? null,
-    speakerTags
+    speakerTags,
+    stand
   })
   if (!briefing.ok) return briefing
 

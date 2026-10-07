@@ -3,7 +3,7 @@
 // No Electron imports, so it can be tested against an in-memory database.
 
 import type Database from 'better-sqlite3'
-import { keptStateBefore } from '../continuity/tracker'
+import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import type { DraftOptions, ID, WritingPrefs } from '@shared/types'
 import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { effectiveStyle } from '@shared/style'
@@ -35,7 +35,13 @@ export function cleanOptions(
         : fallback.targetWords
   const creativity = o?.creativity && o.creativity in CREATIVITY_PRESETS ? o.creativity : fallback.creativity
   const direction = typeof o?.direction === 'string' ? o.direction.trim().slice(0, 4000) : ''
-  return { targetWords, creativity, direction, ...(o?.fresh === true ? { fresh: true } : {}) }
+  return {
+    targetWords,
+    creativity,
+    direction,
+    ...(o?.fresh === true ? { fresh: true } : {}),
+    ...(o?.addBelow === true ? { addBelow: true } : {})
+  }
 }
 
 /**
@@ -118,6 +124,58 @@ export async function catchUpBeforeDraft(
         return 'failed' as const
       }
     )
+  try {
+    return await Promise.race([run, late, stopped])
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+// ---------- Where things stand at the end of the scene so far ----------
+// Add below, a later beat and Continue carry on from words already in the scene, so the writer is told where things
+// stand at the end of those words, not as the previous scene ended. The memory keeper registers how (setStandAt).
+
+export type StandAt = (db: DB, sceneId: ID, text: string, signal?: AbortSignal) => Promise<SceneState | null>
+
+let standAt: StandAt | null = null
+
+/** Registers how where things stand at the end of a scene so far is worked out (the memory keeper's continuityAt). */
+export function setStandAt(fn: StandAt | null): void {
+  standAt = fn
+}
+
+/** How long writing waits for where things stand in the scene so far before going ahead without it. */
+export const STAND_LIMIT_MS = 30_000
+
+/**
+ * Where things stand at the end of `text`, the scene so far; null when it isn't known, takes longer than `limitMs`
+ * (it goes on in the background and is kept for next time) or `signal` is aborted. Never throws.
+ */
+export async function standAtText(
+  db: DB,
+  sceneId: ID,
+  text: string,
+  limitMs = STAND_LIMIT_MS,
+  signal?: AbortSignal
+): Promise<SceneState | null> {
+  const fn = standAt
+  if (!fn || !text.trim() || signal?.aborted) return null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), limitMs)
+  })
+  const stopped = new Promise<null>((resolve) => {
+    onAbort = () => resolve(null)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+  const run = Promise.resolve()
+    .then(() => fn(db, sceneId, text))
+    .catch((e: unknown) => {
+      console.warn('Could not work out where things stand in the scene so far', e)
+      return null
+    })
   try {
     return await Promise.race([run, late, stopped])
   } finally {

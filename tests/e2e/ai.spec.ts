@@ -215,6 +215,12 @@ test('Add below on a scene with text puts the draft below a scene break, and one
     await expect(prose(win).locator('hr')).toHaveCount(1)
     await expect(prose(win).locator('p').first()).toHaveText('Adam wrote this.')
     await expect(prose(win)).toContainText('The rain')
+    // The writer saw the scene so far and was asked to carry it on, not to start the scene again.
+    const [gen] = await invoke(win, 'listGenerations', sceneId)
+    const sent = (await invoke(win, 'getGeneration', gen.id)).messages.map((m) => m.content).join('\n')
+    expect(sent).toContain('The scene so far\n\nAdam wrote this.')
+    expect(sent).toContain('Carry the scene on now, from the end of the scene so far.')
+    expect(sent).not.toContain('Write the scene now')
     await prose(win).click()
     await win.keyboard.press('Control+z')
     await expect(prose(win).locator('hr')).toHaveCount(0)

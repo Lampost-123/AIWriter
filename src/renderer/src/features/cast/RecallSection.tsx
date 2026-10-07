@@ -171,7 +171,7 @@ function Row({ label, value, onSave }: { label: string; value: string; onSave: (
               setDraft(value)
               setEditing(true)
             }}
-            className={cn('w-full truncate rounded px-1 -mx-1 text-left hover:bg-surface-2', value ? 'text-fg' : 'text-faint')}
+            className={cn('w-full break-words rounded px-1 -mx-1 text-left hover:bg-surface-2', value ? 'text-fg' : 'text-faint')}
           >
             {value || '—'}
           </button>

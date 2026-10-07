@@ -41,6 +41,9 @@ test('Recall: worked out, changed by hand, a character taken out, and out of dat
     await expect(recall(win).locator('[data-recall-character="Tobin"]')).toHaveCount(0)
 
     // The words change: out of date, and read again it follows the new words (Adam's changes go with the old ones).
+    // The page saves the scene it shows once, about a second after showing it; wait for that, or it can land after the
+    // new words below and put the old ones back.
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).doc, { timeout: 15_000 }).not.toBeNull()
     await invoke(win, 'saveSceneText', sceneId, null, 'Mara stood at the rail in her blue cloak.')
     expect((await invoke(win, 'getRecall', sceneId)).current).toBe(false)
     await scenePanel(win).getByRole('tab', { name: 'Context' }).click()

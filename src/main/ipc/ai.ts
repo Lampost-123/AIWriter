@@ -9,6 +9,9 @@ import * as gens from '../db/generations'
 import * as providers from '../ai/providers'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
 import { isStartingBeat } from '../beats'
+import { soFarBlock } from '../beats/instructions'
+import * as repo from '../db/repo'
+import { getSettings } from '../settings'
 import { assemble, draftBriefing, providerNotes } from '../ai/draftFlow'
 import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
@@ -52,7 +55,15 @@ export const aiHandlers: Handlers<AiMethods> = {
     const stop = new AbortController()
     starting.set(sceneId, stop)
     try {
-      const b = await draftBriefing(sceneId, options, { signal: stop.signal })
+      // Add below carries on from the scene's words (saved by the window first): the writer is given the scene so
+      // far, where things stand at its end, and a closing instruction to carry on rather than start the scene.
+      const soFar = options?.addBelow ? repo.getScene(db, sceneId).text : ''
+      const block = soFar.trim() ? soFarBlock(soFar, getSettings().models.writer?.contextLength ?? null) : null
+      const b = await draftBriefing(
+        sceneId,
+        block ? options : { ...options, addBelow: false },
+        block ? { signal: stop.signal, soFar, extras: { extraBlocks: [block] } } : { signal: stop.signal }
+      )
       return startDraftJob({
         db,
         sceneId,

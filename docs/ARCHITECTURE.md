@@ -624,6 +624,16 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   back) are unchanged, so nothing outlives its words. Sent to the writer as block 3b and to the continuity check.
   Recall in the Cast tab (`features/cast/RecallSection.tsx`, contracts/recall.ts) browses it; Adam's changes stay
   until that scene's words change.
+- **Carrying on from the scene so far** (Adam, 2026-10-07: positions, poses and clothing forgotten within a scene).
+  Add below (`DraftOptions.addBelow`), a later beat and Continue are told where things stand at the end of the words
+  already in the scene, not as the previous scene ended: `stateAtText` (continuity/tracker.ts, through the keeper's
+  `continuityAt` and `standAtText` in ai/gather.ts, waiting at most `STAND_LIMIT_MS`, Continue `CONTINUE_STAND_MS`).
+  For the scene's saved words it is the scene's own state (kept, shown in Recall); for other words it is remembered
+  for the session only; when the model can't say, nothing is told rather than the previous scene's state under the
+  wrong title. Add below also gets the scene so far as a block (`soFarBlock`, as Beat by beat) and a closing
+  instruction to carry it on rather than start the scene (`finalInstruction` with `addBelow`). Block 3b is sent last,
+  right above the closing instruction, after the scene so far. The tracker asks for every piece of clothing and how it
+  sits, the whole pose, and nothing guessed; a value may be up to `LONGEST_VALUE` (400) characters.
 - **The critic.** Every draft (not a variant) is checked in the background 15 seconds after it lands
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report

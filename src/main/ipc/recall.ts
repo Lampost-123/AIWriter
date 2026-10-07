@@ -2,7 +2,7 @@
 // (continuity/tracker.ts), to browse, put right and read again.
 import type { Handlers } from './index'
 import type { RecallApi, RecallView } from '@shared/contracts/recall'
-import { STATE_FIELDS } from '@shared/continuity'
+import { LONGEST_VALUE, STATE_FIELDS } from '@shared/continuity'
 import type { ID } from '@shared/types'
 import * as world from '../world'
 import * as repo from '../db/repo'
@@ -32,7 +32,7 @@ export const recallHandlers: Handlers<keyof RecallApi> = {
     return view(sceneId)
   },
   setRecallValue: (sceneId, change) => {
-    const value = String(change?.value ?? '').slice(0, 160)
+    const value = String(change?.value ?? '').slice(0, LONGEST_VALUE)
     const db = world.db()
     const ok = editState(db, sceneId, (e) => {
       if (change.character) {

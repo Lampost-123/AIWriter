@@ -8,7 +8,19 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
 import type { MemoryModel } from '../keeper/model'
-import { editState, keptStateBefore, mergeState, readState, stateAfter, stateBefore, stateText, storedState, type SceneState } from './tracker'
+import {
+  editState,
+  keptStateBefore,
+  mergeState,
+  readState,
+  stateAfter,
+  stateAtText,
+  stateBefore,
+  stateMessages,
+  stateText,
+  storedState,
+  type SceneState
+} from './tracker'
 
 const model: MemoryModel = {
   target: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'test' },
@@ -134,5 +146,55 @@ describe('where things stand', () => {
     await stateAfter(opts(w.db, answering({ characters: [mara({ wearing: 'a shirt' })] })), w.one)
     expect(storedState(w.db, w.one)).toMatchObject({ edited: false })
     expect(storedState(w.db, w.one)!.state.characters.map((c) => c.wearing)).toEqual(['a shirt'])
+  })
+
+  it('works out where things stand at the end of the scene so far, built on the scene before, once for the same words', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara came in out of the rain. She hung her cloak over the chair and kicked off her boots. Later she left.')
+    const f = answering(
+      { characters: [mara({ wearing: 'a grey cloak, boots' })] },
+      { characters: [mara({ wearing: 'a wet shirt, boots off (by the door)', posture: 'sitting on the bed' })] }
+    )
+    const soFar = 'Mara came in out of the rain. She hung her cloak over the chair and kicked off her boots.'
+    const here = await stateAtText(opts(w.db, f), w.two, soFar)
+    expect(here?.characters[0]).toMatchObject({ wearing: 'a wet shirt, boots off (by the door)', posture: 'sitting on the bed' })
+    expect(f.asked).toHaveLength(2)
+    // Told how the scene before ended, and that this is the scene so far, not a finished scene.
+    expect(f.asked[1]).toContain('wearing: a grey cloak, boots')
+    expect(f.asked[1]).toContain('this is the scene so far')
+    expect(f.asked[1]).toContain(soFar)
+    // The same words again: not asked for again; and the scene's own state (for the scene after) is untouched.
+    await stateAtText(opts(w.db, f), w.two, soFar)
+    expect(f.asked).toHaveLength(2)
+    expect(storedState(w.db, w.two)).toBeNull()
+  })
+
+  it('at the end of the scene’s saved words, is the scene’s own state, kept for the scene after', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara sat on the bed and unbuttoned her shirt.')
+    const f = answering({ characters: [mara({ wearing: 'a shirt, unbuttoned', posture: 'sitting on the bed' })] })
+    const here = await stateAtText(opts(w.db, f), w.one, 'Mara sat on the bed and unbuttoned her shirt.')
+    expect(here?.characters[0].posture).toBe('sitting on the bed')
+    expect(f.asked).toHaveLength(1)
+    expect(f.asked[0]).not.toContain('this is the scene so far')
+    expect(keptStateBefore(w.db, w.two)?.characters[0].wearing).toBe('a shirt, unbuttoned')
+  })
+
+  it('says nothing rather than the state before when the model can’t say', async () => {
+    const w = world()
+    write(w.db, w.one, 'Mara pulled on her grey cloak.')
+    write(w.db, w.two, 'Mara sat down.')
+    const failing = (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch
+    await stateBefore(opts(w.db, answering({ characters: [mara({ wearing: 'a grey cloak' })] })), w.two)
+    expect(await stateAtText(opts(w.db, failing), w.two, 'Mara sat')).toBeNull()
+  })
+
+  it('asks for every piece of clothing and how it sits, and the whole pose', () => {
+    const [system] = stateMessages(null, 'Words.', ['Mara'])
+    expect(system.content).toContain('everything they have on, item by item')
+    expect(system.content).toContain('Always the whole outfit as it is now')
+    expect(system.content).toContain('what their hands, arms and legs are doing')
+    expect(system.content).toContain('Never guess')
   })
 })

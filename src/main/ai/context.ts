@@ -42,7 +42,7 @@
 //
 // The order the blocks are sent in is separate (SEND_ORDER): what stays the same across a story
 // comes first, right after the instructions, so providers that cache repeated prompts can reuse
-// it; the story so far, the previous scene's ending and the scene card come last, right above
+// it; the story so far, the previous scene's ending, the scene card and where things stand come last, right above
 // "Write the scene now".
 
 import type {
@@ -101,11 +101,19 @@ export interface ContextInput {
   maxOutput?: number | null
   /** Where things stand as the previous scene ended (continuity/tracker.ts); null or left out when nothing is known. */
   continuity?: SceneState | null
+  /**
+   * The draft carries on from words already in the scene (Add below, a later beat), and `continuity` is where things
+   * stand at the end of them rather than as the previous scene ended.
+   */
+  continuityAtSoFar?: boolean
 }
 
 /** What block 3b says first. */
 export const STAND_LEAD =
   'Keep to this unless the scene card or the author says otherwise: a change (a coat taken off, a move to another room) happens on the page.'
+/** What block 3b says first when it is where things stand at the end of the scene so far (Add below, a later beat). */
+export const STAND_LEAD_SO_FAR =
+  'Carry on from exactly this: where each person is, what they wear and how it sits, how they are placed and what they hold. Nothing changes unless it happens on the page, in the words (a coat taken off, a move to another room), or the author says so.'
 
 export interface BlockDraft {
   id: string
@@ -1220,18 +1228,21 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
-  //    wear and hold, how they are placed and how they are. Short: only the characters on the scene card.
+  //    wear and hold, how they are placed and how they are; or, carrying on from the scene so far (Add below, a later
+  //    beat), at the end of it. Short: only the characters on the scene card. Sent last, right above the closing
+  //    instruction (prepareContext), where the model attends to it most.
   const stand = input.continuity
   const full = stand ? stateText(stand) : ''
   if (full) {
     const onCard = [sel.pov, ...sel.present].filter((e): e is EntryState => !!e).flatMap((e) => [e.name, ...(e.aliases ?? [])])
     const short = onCard.length ? stateText(stand!, onCard) : ''
+    const lead = input.continuityAtSoFar ? STAND_LEAD_SO_FAR : STAND_LEAD
     add(
       'continuity',
       3,
-      'Where things stand as the previous scene ended',
-      `${STAND_LEAD}\n${full}`,
-      short && short !== full ? `${STAND_LEAD}\n${short}` : null,
+      input.continuityAtSoFar ? 'Where things stand at the end of the scene so far' : 'Where things stand as the previous scene ended',
+      `${lead}\n${full}`,
+      short && short !== full ? `${lead}\n${short}` : null,
       []
     )
   }
@@ -1408,8 +1419,10 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
 /**
  * The order blocks are sent in. What stays the same across a story comes first,
  * so a provider can reuse it from one draft to the next; the story so far, the
- * end of the previous scene and the scene card (with Adam's direction) come
- * last, right above the closing instruction, where the model attends to them most.
+ * end of the previous scene, the scene card (with Adam's direction) and where
+ * things stand come last, right above the closing instruction, where the model
+ * attends to them most. Blocks a part adds (the scene so far) go after the scene
+ * card, and where things stand after them (prepareContext).
  */
 export const SEND_ORDER = [
   'instructions',
@@ -1423,9 +1436,9 @@ export const SEND_ORDER = [
   'mentioned',
   'threads',
   'story-so-far',
-  'continuity',
   'previous-scene',
-  'scene-card'
+  'scene-card',
+  'continuity'
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   const i = SEND_ORDER.indexOf(b.id)
@@ -1495,6 +1508,9 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
+  // Where things stand goes last, after the scene so far too, right above the closing instruction.
+  const stand = blocks.findIndex((b) => b.id === 'continuity')
+  if (stand >= 0) blocks.push(...blocks.splice(stand, 1))
   const targetWords = input.options.targetWords
   // Auto: room is kept for the longest scene Auto allows this model (finishContext may lower it).
   const autoMax = targetWords == null ? autoCeiling(input.maxOutput) : undefined
@@ -1509,6 +1525,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     hasNotes: !!clean(card.notes),
     hasDirection: !!clean(input.options.direction),
     hasBringAbout: bringAboutLines(input, sel).length > 0,
+    addBelow: !!input.options.addBelow,
+    hasStand: !!input.continuityAtSoFar && blocks.some((b) => b.id === 'continuity'),
     previousStory: previousStory(input),
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? ''
   }
