@@ -291,6 +291,16 @@ describe('Continue', () => {
     expect(rewrite.blocks.find((x) => x.id === 'must')!.text).not.toContain('Where Mara is')
     // Nothing to keep to: no such part.
     expect(ok(editBriefing(input('rewrite'), world({ must: { ...must, facts: [] } }))).blocks.some((x) => x.id === 'must')).toBe(false)
+    // A model with little room: the list goes short, then out, before the edit is refused, so an edit that fitted
+    // before it came still fits.
+    const at = (contextLength: number) => editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), { ...marked, stand, must, contextLength })
+    const plain = (contextLength: number) => editBriefing(input('continue', { selection: '', before: BEFORE.trim(), after: '' }), { ...marked, stand, contextLength })
+    let smallest = 0
+    for (let n = 400; n < 20_000 && !smallest; n += 20) if (plain(n).ok) smallest = n
+    expect(smallest).toBeGreaterThan(0)
+    const tight = ok(at(smallest))
+    expect(tight.blocks.some((x) => x.id === 'must')).toBe(false)
+    expect(ok(at(32_000)).blocks.some((x) => x.id === 'must')).toBe(true)
   })
 })
 

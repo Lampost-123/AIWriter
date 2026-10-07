@@ -242,10 +242,11 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
   const keys = tool === 'voice' ? KEYS.voice : isContinue ? KEYS.continue : KEYS.other
   const people = order.slice(0, tool === 'voice' ? MAX_CHARACTERS.voice : MAX_CHARACTERS.other).map((id) => byId.get(id)!)
   // What must stay true at this point (step 4): where things stand, when known here, and the codex facts of the people
-  // in the briefing. Sent right before the closing ask, never left out to fit (it is short).
-  const must = world.must
-    ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must })
-    : []
+  // in the briefing. Sent right before the closing ask: in full, then short with less room, and left out on the last
+  // try, so an edit a small model could do before still fits.
+  const mustOf = (short: boolean): string[] =>
+    world.must ? mustStayTrue({ stand: world.stand, reach: world.stand ? 'here' : 'none', people, named: [], ...world.must, short }) : []
+  const must = { full: mustOf(false), short: mustOf(true) }
 
   const o: PromptOptions = {
     direction,
@@ -329,7 +330,8 @@ export function editBriefing(input: EditInput, world: EditWorld): EditBriefing {
     }
     const stand = isContinue && world.stand ? stateText(world.stand) : ''
     if (stand) parts.push({ id: 'stand', priority: 2, title: 'Where things stand', text: `${STAND_LEAD_HERE}\n${stand}`, entryIds: [] })
-    if (must.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(must, 'here'), entryIds: [] })
+    const mustLines = scale === 0 ? [] : withPeople ? must.full : must.short
+    if (mustLines.length) parts.push({ id: 'must', priority: 2, title: MUST_TITLE, text: mustText(mustLines, withPeople ? 'here' : null), entryIds: [] })
     parts.push({ id: 'ask', priority: 1, title: 'What the AI was asked', text: finalAsk(tool, o), entryIds: [] })
     return parts
   }

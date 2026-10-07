@@ -20,8 +20,8 @@ export function PlanSettings(): React.JSX.Element | null {
             Plan before writing
           </label>
           <p id={`${id}-help`} className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-            Before Generate, Add below or a beat, the memory model plans what the scene keeps to and what changes. One short call
-            each time; Low Thinking on the memory model plans better.
+            Before Generate, Add below or a beat, the memory model plans what the scene keeps to and what changes. Uses the
+            memory model once each time.
           </p>
         </div>
       </div>
