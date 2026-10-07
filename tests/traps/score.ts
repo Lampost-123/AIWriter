@@ -131,6 +131,8 @@ export interface RunReport {
   tested: { root: string; branch: string; commit: string; dirty: boolean; appVersion: string }
   harness: { root: string; commit: string }
   provider: string
+  /** USD per million tokens in and out, given for the run (DeepSeek's API reports tokens, not cost); null when not given. */
+  prices?: { in: number; out: number } | null
   models: { writer: string; memory: string; judge: string }
   samples: number
   words: { generate: number; addBelow: number; beatScene: number }
@@ -155,6 +157,10 @@ export function summarise(probes: ProbeResult[]): RunReport['summary'] {
   const total = tally(all)
   return { byTrap, byProbe, total: { ...total, passages, brokenPerPassage: passages ? total.broken / passages : null } }
 }
+
+/** USD for these tokens at the given prices per million. */
+export const estimatedCost = (u: Pick<Usage, 'promptTokens' | 'completionTokens'>, prices: { in: number; out: number }): number =>
+  (u.promptTokens * prices.in + u.completionTokens * prices.out) / 1_000_000
 
 const pct = (v: number | null): string => (v == null ? '–' : `${Math.round(v * 100)}%`)
 const usd = (v: number | null): string => (v == null ? 'not reported' : `$${v.toFixed(v < 0.1 ? 4 : 2)}`)
@@ -222,10 +228,11 @@ export function reportMarkdown(r: RunReport): string {
   }
   out.push('## Calls and cost')
   out.push('')
-  out.push('| Job | Calls | Prompt tokens | Reply tokens | Cost |')
-  out.push('|---|---:|---:|---:|---:|')
+  out.push(`| Job | Calls | Prompt tokens | Reply tokens | Cost reported |${r.prices ? ' Estimated cost |' : ''}`)
+  out.push(`|---|---:|---:|---:|---:|${r.prices ? '---:|' : ''}`)
   const rows: [string, Usage][] = [...Object.entries(r.usage.byJob), ['judge', r.usage.judge], ['total', r.usage.total]]
-  for (const [job, u] of rows) out.push(`| ${job} | ${u.calls} | ${u.promptTokens.toLocaleString('en-GB')} | ${u.completionTokens.toLocaleString('en-GB')} | ${usd(u.cost)} |`)
+  for (const [job, u] of rows) out.push(`| ${job} | ${u.calls} | ${u.promptTokens.toLocaleString('en-GB')} | ${u.completionTokens.toLocaleString('en-GB')} | ${usd(u.cost)} |${r.prices ? ` ${usd(estimatedCost(u, r.prices))} |` : ''}`)
+  if (r.prices) out.push('', `Estimated at $${r.prices.in} per million tokens in and $${r.prices.out} out (cache hits counted at the full price).`)
   out.push('')
   return out.join('\n')
 }
@@ -254,10 +261,12 @@ export function compareMarkdown(a: RunReport, b: RunReport): string {
   const cell = (t: Tally): string => `${pct(t.consistency)} (${t.broken} broken of ${t.kept + t.broken})`
   for (const t of TRAPS) out.push(`| ${t.name} | ${cell(a.summary.byTrap[t.id])} | ${cell(b.summary.byTrap[t.id])} |`)
   out.push(`| **All** | ${cell(a.summary.total)} | ${cell(b.summary.total)} |`)
+  const tokens = (r: RunReport): string => `${r.usage.total.promptTokens.toLocaleString('en-GB')} / ${r.usage.total.completionTokens.toLocaleString('en-GB')}`
   const per = (r: RunReport): string => (r.summary.total.brokenPerPassage == null ? '–' : r.summary.total.brokenPerPassage.toFixed(2))
   out.push(`| Broken per passage | ${per(a)} | ${per(b)} |`)
   out.push(`| Passages | ${a.summary.total.passages} | ${b.summary.total.passages} |`)
-  out.push(`| Cost | ${usd(a.usage.total.cost)} | ${usd(b.usage.total.cost)} |`)
+  out.push(`| Cost reported | ${usd(a.usage.total.cost)} | ${usd(b.usage.total.cost)} |`)
+  out.push(`| Tokens in / out | ${tokens(a)} | ${tokens(b)} |`)
   out.push('')
   return out.join('\n')
 }

@@ -26,6 +26,7 @@ import {
   type SampleResult,
   type Usage
 } from './score'
+import { DEEPSEEK_BASE_URL, KEY_VARIABLE, pickFlash, type TrapProvider } from './models'
 import { CHAPTERS, ENTRIES, PROBES, SCENES, STORY, STORY_VERSION, type EntryKey, type Probe, type TrapScene } from './story'
 
 export interface TrapsConfig {
@@ -35,8 +36,14 @@ export interface TrapsConfig {
   harnessRoot: string
   /** Use the fake provider (tests/fake-provider) and a stand-in judge: a check of the harness, never a score. */
   fake: boolean
-  /** OpenRouter API key (real runs only). */
+  /** DeepSeek's own API (the default) or OpenRouter. */
+  provider: TrapProvider
+  /** The provider's API key, from DEEPSEEK_API_KEY or OPENROUTER_API_KEY only (real runs only). Never printed. */
   apiKey: string | null
+  /** Another address for the provider (to check the harness against a local fake server); null: the provider's own. */
+  baseUrl: string | null
+  /** USD per million tokens in and out, for an estimated cost when the provider reports none; null: tokens only. */
+  prices: { in: number; out: number } | null
   /** Model ids; null picks DeepSeek Flash from the provider's list. The judge defaults to the memory model. */
   writer: string | null
   memory: string | null
@@ -59,11 +66,17 @@ const num = (v: string | undefined, fallback: number): number => {
 /** The settings from the environment (the cli sets these from its flags). */
 export function configFromEnv(env = process.env): TrapsConfig {
   const harnessRoot = resolve(__dirname, '..', '..')
+  const provider: TrapProvider = env.TRAPS_PROVIDER === 'openrouter' ? 'openrouter' : 'deepseek'
+  const priceIn = Number(env.TRAPS_PRICE_IN)
+  const priceOut = Number(env.TRAPS_PRICE_OUT)
   return {
     root: resolve(env.TRAPS_ROOT || harnessRoot),
     harnessRoot,
     fake: env.TRAPS_FAKE === '1',
-    apiKey: env.OPENROUTER_API_KEY?.trim() || null,
+    provider,
+    apiKey: env[KEY_VARIABLE[provider]]?.trim() || null,
+    baseUrl: env.TRAPS_BASE_URL?.trim() || null,
+    prices: priceIn >= 0 && priceOut >= 0 && env.TRAPS_PRICE_IN && env.TRAPS_PRICE_OUT ? { in: priceIn, out: priceOut } : null,
     writer: env.TRAPS_WRITER_MODEL?.trim() || null,
     memory: env.TRAPS_MEMORY_MODEL?.trim() || null,
     judge: env.TRAPS_JUDGE_MODEL?.trim() || null,
@@ -164,7 +177,7 @@ const noUsage = (): Usage => ({ calls: 0, promptTokens: 0, completionTokens: 0, 
 // ---------- The run ----------
 
 export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; outDir: string }> {
-  if (!cfg.fake && !cfg.apiKey) throw new Error('No OPENROUTER_API_KEY in the environment: a real run needs it (or use --fake).')
+  if (!cfg.fake && !cfg.apiKey) throw new Error(`No ${KEY_VARIABLE[cfg.provider]} in the environment: a real run needs it (or use --fake).`)
   if (!cfg.fake && process.env.CI) throw new Error('A real trap run never runs in CI.')
   const chosen = PROBES.filter((p) => !cfg.probes || cfg.probes.includes(p.id))
   if (!chosen.length) throw new Error(`No probe called ${cfg.probes?.join(', ')}. The probes are ${PROBES.map((p) => p.id).join(', ')}.`)
@@ -195,28 +208,32 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
     const { streamChat } = await import('@app/main/ai/client')
     const { emptySceneCard } = await import('@shared/defaults')
 
-    // The provider and the models, as Settings › Models would have them.
+    // The provider and the models, as Settings › Models would have them: DeepSeek through the app's DeepSeek preset
+    // (a custom, OpenAI-compatible provider), or OpenRouter. The fake run is a custom provider too.
     const provider = cfg.fake
       ? providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake!.url, apiKey: 'traps-fake' })
-      : providers.saveProvider({ kind: 'openrouter', name: 'OpenRouter', baseUrl: '', apiKey: cfg.apiKey! })
+      : cfg.provider === 'deepseek'
+        ? providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: cfg.baseUrl ?? DEEPSEEK_BASE_URL, apiKey: cfg.apiKey! })
+        : providers.saveProvider({ kind: 'openrouter', name: 'OpenRouter', baseUrl: '', apiKey: cfg.apiKey! })
+    // The model list costs nothing.
     const listed = await providers.listModels(provider.id)
     const flash = (): string => {
       if (cfg.fake) return 'fake/writer'
-      const found = listed
-        .map((m) => m.id)
-        // Not a ':free' or other variant: those are rate-limited or routed differently.
-        .filter((id) => /^deepseek\/.*flash/i.test(id) && !id.includes(':'))
-        .sort()
-        .reverse()
-      if (!found.length) {
-        const deepseek = listed.map((m) => m.id).filter((id) => id.startsWith('deepseek/'))
-        throw new Error(`No DeepSeek Flash model in the provider's list; name one with --writer. DeepSeek models listed: ${deepseek.join(', ') || 'none'}`)
+      const found = pickFlash(
+        listed.map((m) => m.id),
+        cfg.provider
+      )
+      if (!found) {
+        const ids = listed.map((m) => m.id).filter((id) => cfg.provider === 'deepseek' || id.startsWith('deepseek/'))
+        throw new Error(`No DeepSeek Flash model in the provider's list; name one with --writer. Models listed: ${ids.join(', ') || 'none'}`)
       }
-      return found[0]
+      return found
     }
     const choose = (id: string) => {
       const m = listed.find((x) => x.id === id)
-      if (!m) throw new Error(`The provider doesn't list a model called "${id}".`)
+      // A custom provider takes a model id typed in, as Settings › Models does; OpenRouter only what it lists.
+      if (!m && provider.kind === 'openrouter') throw new Error(`OpenRouter doesn't list a model called "${id}".`)
+      if (!m) return { providerId: provider.id, modelId: id, label: id, contextLength: null, promptPrice: null, completionPrice: null, maxOutput: null, sampling: null }
       return {
         providerId: provider.id,
         modelId: m.id,
@@ -412,13 +429,15 @@ export async function runTraps(cfg: TrapsConfig): Promise<{ report: RunReport; o
       fake: cfg.fake,
       tested: {
         root: cfg.root,
-        branch: git(cfg.root, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown',
+        // A checkout of a commit with no branch (an old release, say) is named by the app's version.
+        branch: ((b) => (!b || b === 'HEAD' ? `detached-${appVersion || 'unknown'}` : b))(git(cfg.root, ['rev-parse', '--abbrev-ref', 'HEAD'])),
         commit: git(cfg.root, ['rev-parse', 'HEAD']) || 'unknown',
         dirty: git(cfg.root, ['status', '--porcelain', '--untracked-files=no']) !== '',
         appVersion
       },
       harness: { root: cfg.harnessRoot, commit: git(cfg.harnessRoot, ['rev-parse', 'HEAD']) || 'unknown' },
-      provider: cfg.fake ? 'fake provider' : 'OpenRouter',
+      provider: cfg.fake ? 'fake provider' : cfg.provider === 'deepseek' ? `DeepSeek API (${cfg.baseUrl ?? DEEPSEEK_BASE_URL})` : 'OpenRouter',
+      prices: cfg.prices,
       models: { writer: writer.modelId, memory: memory.modelId, judge: judge.modelId },
       samples: cfg.samples,
       words: cfg.words,

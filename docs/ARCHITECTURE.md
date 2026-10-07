@@ -1682,8 +1682,10 @@ it uses the Chat and brainstorm model, with no setting of its own.
 Adam's consistency plan (October 2026) is scored, not judged by impression: "A made-up test story is built with
 continuity traps planted in it ... Every change is scored on DeepSeek Flash, before and after, by an automatic
 checker." Built first and run after every step. It lives in `tests/traps/` (its README says how to run it and what
-it costs) and never runs in `npm test` or CI: only `npm run traps`, which reads the OpenRouter key from
-`OPENROUTER_API_KEY` and refuses to start without it (`--fake` checks the harness with the fake provider instead).
+it costs) and never runs in `npm test` or CI: only `npm run traps`. Adam's choice (7 October 2026): DeepSeek's own API
+with DeepSeek Flash for every role (writer, memory, judge), connected as the app's DeepSeek preset; the key is read
+from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provider openrouter` is kept as an option;
+`--fake` checks the harness with the fake provider instead).
 
 - **The story** (`story.ts`): "The Gannet", 9 short invented scenes in 3 chapters, with codex entries as Adam would
   make them. Six traps, each with a known truth at a known point: clothes taken off partway through a scene (and a

@@ -2,7 +2,8 @@
 // tallies, and that the story's probes fit the story. No model is called.
 import { describe, expect, it } from 'vitest'
 import { JUDGE_MARKER, judgeMessages, readJudgeReply } from '../traps/judge'
-import { judgeCheck, quoteInPassage, scorePassage, summarise, tally, type ProbeResult, type SampleResult } from '../traps/score'
+import { pickFlash } from '../traps/models'
+import { estimatedCost, judgeCheck, quoteInPassage, scorePassage, summarise, tally, type ProbeResult, type SampleResult } from '../traps/score'
 import { PROBES, RIGHT_HAND_HURT, SCENES, TRAPS, type Check, type Probe } from '../traps/story'
 
 const passage = `Mara flexed her bandaged left hand and winced. "Not yet," she said.\n\nShe pulled her boots back on, wincing at the cold leather, and buttoned her grey coat to the throat.`
@@ -146,6 +147,20 @@ describe('scores', () => {
     expect(s.byTrap.promise).toMatchObject({ kept: 1, consistency: 1 })
     expect(s.byTrap.injury.consistency).toBeNull()
     expect(s.total).toMatchObject({ passages: 2, brokenPerPassage: 0.5, consistency: 0.5 })
+  })
+})
+
+describe('pickFlash', () => {
+  it("takes DeepSeek Flash from DeepSeek's own list, newest first, never a variant", () => {
+    expect(pickFlash(['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4.1-flash'], 'deepseek')).toBe('deepseek-v4.1-flash')
+    expect(pickFlash(['deepseek-chat', 'deepseek-reasoner'], 'deepseek')).toBeNull()
+  })
+  it("takes only DeepSeek's from OpenRouter's list", () => {
+    expect(pickFlash(['google/gemini-flash', 'deepseek/deepseek-v4-flash:free', 'deepseek/deepseek-v4-flash'], 'openrouter')).toBe('deepseek/deepseek-v4-flash')
+    expect(pickFlash(['google/gemini-2.5-flash'], 'openrouter')).toBeNull()
+  })
+  it('estimates a cost from tokens at prices per million', () => {
+    expect(estimatedCost({ promptTokens: 2_000_000, completionTokens: 500_000 }, { in: 0.25, out: 1 })).toBeCloseTo(1)
   })
 })
 

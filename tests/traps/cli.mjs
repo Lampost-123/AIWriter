@@ -1,20 +1,26 @@
 // npm run traps -- [flags]: scores the app's drafting against the trap story (see README.md beside this file).
 //
 //   --fake                 use the fake provider and a stand-in judge (no key, no cost; checks the harness, not a score)
+//   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
 //                          node_modules (npm ci there). Default: this checkout.
 //   --samples <n>          samples per probe (default 3)
 //   --probes A,C           only these probes (default all)
-//   --writer <model id>    writer model (default: DeepSeek Flash from OpenRouter's list)
+//   --writer <model id>    writer model (default: the model with "flash" in its id, from the provider's model list)
 //   --memory <model id>    memory model (default: the writer model)
 //   --judge <model id>     judge model (default: the memory model)
 //   --words <n>            length asked of Generate (default 600); --add-words (Add below, 400); --beat-scene-words (900)
 //   --out <folder>         where the report goes (default traps-results/<date>-<branch>-<commit>)
+//   --price-in <usd> --price-out <usd>   per million tokens, for an estimated cost (DeepSeek reports tokens, not cost)
+//   --base-url <url>       another address for the provider (only to check the harness against a local fake server)
 //   --keep                 keep the throwaway data folder (the world, with what the AI saw for every call)
 //   --compare <a> <b>      put two runs' report.json (or their folders) side by side; no model calls
 //
-// A real run reads the OpenRouter API key from OPENROUTER_API_KEY only, and refuses to start without it.
-import { spawnSync } from 'node:child_process'
+// A real run reads the key from DEEPSEEK_API_KEY (OPENROUTER_API_KEY with --provider openrouter): from this
+// process's environment, or on Windows from the user's saved environment variables (as set with setx or System
+// Properties) when a terminal opened before it was set doesn't have it yet. It refuses to start without it, and never
+// prints it.
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,7 +40,19 @@ const value = (name) => {
   return v
 }
 
-const known = ['--fake', '--keep', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+/** A variable saved in the Windows user environment (HKCU\Environment), or undefined. Never printed. */
+function userVariable(name) {
+  if (process.platform !== 'win32') return undefined
+  try {
+    const out = execFileSync('reg', ['query', String.raw`HKCU\Environment`, '/v', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const m = new RegExp(String.raw`^\s*${name}\s+REG_(?:EXPAND_)?SZ\s+(.*)$`, 'mi').exec(out)
+    return m?.[1]?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+const known = ['--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -53,8 +71,19 @@ if (flag('--compare')) {
   delete env.TRAPS_RUN
 } else {
   const fake = flag('--fake')
-  if (!fake && !env.OPENROUTER_API_KEY?.trim()) {
-    console.error('A real trap run needs your OpenRouter API key in the OPENROUTER_API_KEY environment variable (it is never read from anywhere else). Or use --fake to check the harness without a model.')
+  const provider = value('--provider') ?? 'deepseek'
+  if (provider !== 'deepseek' && provider !== 'openrouter') {
+    console.error('--provider is deepseek or openrouter.')
+    process.exit(2)
+  }
+  env.TRAPS_PROVIDER = provider
+  const keyVar = provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENROUTER_API_KEY'
+  if (!fake && !env[keyVar]?.trim()) {
+    const saved = userVariable(keyVar)
+    if (saved) env[keyVar] = saved
+  }
+  if (!fake && !env[keyVar]?.trim()) {
+    console.error(`A real trap run needs the API key in the ${keyVar} environment variable (it is never read from anywhere else). Or use --fake to check the harness without a model.`)
     process.exit(2)
   }
   if (!fake && env.CI) {
@@ -83,6 +112,9 @@ if (flag('--compare')) {
     if (v) env[name] = v
   }
   set('--samples', 'TRAPS_SAMPLES')
+  set('--base-url', 'TRAPS_BASE_URL')
+  set('--price-in', 'TRAPS_PRICE_IN')
+  set('--price-out', 'TRAPS_PRICE_OUT')
   set('--probes', 'TRAPS_PROBES')
   set('--writer', 'TRAPS_WRITER_MODEL')
   set('--memory', 'TRAPS_MEMORY_MODEL')

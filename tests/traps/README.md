@@ -10,38 +10,53 @@ Adam's library, settings or keys, and it is never part of `npm test` or CI.
 
 ## Running it
 
-```sh
+```powershell
 # Check the harness itself: fake provider, stand-in judge, no key, no cost. Not a score.
 npm run traps -- --fake
 
-# A real score of this checkout on DeepSeek Flash (OpenRouter). The key is read from this variable only.
-OPENROUTER_API_KEY=sk-or-... npm run traps
+# A real score of this checkout on DeepSeek Flash, through DeepSeek's own API.
+npm run traps
 
 # The same harness on another checkout's app code (it needs its own node_modules: npm ci there first)
-OPENROUTER_API_KEY=sk-or-... npm run traps -- --root ../AIWriter-stage
+npm run traps -- --root C:\Users\adox1\Documents\AIWriter-stage
 
 # Side by side
-npm run traps -- --compare traps-results/<main run> traps-results/<branch run>
+npm run traps -- --compare traps-results\<one run> traps-results\<another run>
 ```
 
-In PowerShell, set the key first with `$env:OPENROUTER_API_KEY = 'sk-or-...'`.
+**The key** is read from `DEEPSEEK_API_KEY` only: from the terminal's environment, or, on Windows, from the user's
+saved environment variables (set with `setx DEEPSEEK_API_KEY ...` or System Properties) when the terminal was opened
+before it was set. It is never printed or written to the report. Without it a real run refuses to start.
 
-Flags: `--samples N` (default 3), `--probes A,C`, `--writer <id>`, `--memory <id>` (default: the writer),
-`--judge <id>` (default: the memory model), `--words N` (Generate's length, default 600), `--add-words N` (Add below,
-400), `--beat-scene-words N` (the scene length a beat's share comes from, 900), `--out <folder>`, `--keep` (keep the
-throwaway world, with "What the AI saw" for every call). With no `--writer`, the newest `deepseek/...flash` model in
-OpenRouter's list is used; the report names the exact ids.
+**The provider** is DeepSeek, set up as the app's DeepSeek preset does it in Settings › Models: an OpenAI-compatible
+provider at `https://api.deepseek.com/v1`. `--provider openrouter` uses OpenRouter instead, with its key from
+`OPENROUTER_API_KEY`.
+
+**The models**: with no `--writer`, the model whose id has "flash" in it in the provider's model list (the list costs
+nothing; on OpenRouter, DeepSeek's own, never a `:free` variant) is the writer, the memory model and the judge. If
+none is listed, the run stops before any paid call and lists the ids it found: pick one with `--writer <id>`.
+`--memory <id>` and `--judge <id>` set the others (the memory model defaults to the writer, the judge to the memory
+model). Thinking stays off, the app's default, so the model is asked not to reason. The report names the exact ids.
+
+Other flags: `--samples N` (default 3), `--probes A,C`, `--words N` (Generate's length, default 600), `--add-words N`
+(Add below, 400), `--beat-scene-words N` (the scene length a beat's share comes from, 900), `--price-in X --price-out Y`
+(USD per million tokens, for an estimated cost: DeepSeek reports tokens, not cost), `--out <folder>`, `--keep` (keep
+the throwaway world, with "What the AI saw" for every call), `--base-url <url>` (only to check the harness against a
+local fake server).
 
 Each run writes `traps-results/<date>-<branch>-<commit>/`: `report.md` (the scores), `report.json` (everything,
-including each passage and the judge's answers) and `passages.md` (every passage, for reading). A "Could not start
-the token worker" warning is expected: token counting falls back to the main thread, with the same counts.
+including each passage and the judge's answers) and `passages.md` (every passage, for reading). A checkout with no
+branch (an old release) is named by its version. A "Could not start the token worker" warning is expected: token
+counting falls back to the main thread, with the same counts.
 
-## Cost
+## Cost (an estimate)
 
 About 70 calls per run with 3 samples: 15 written passages (Generate, Add below, Continue, a beat), 15 judge calls,
 and about 40 memory calls (the memory reading each scene, where things stand, scene and chapter summaries). Roughly
-90,000 tokens in and 30,000 out: a few cents on DeepSeek Flash, under $0.10 at its usual prices. Each extra sample
-adds 10 calls (a passage and a judge call per probe). The report shows the cost OpenRouter reported, by job.
+90,000 tokens in and 30,000 out. DeepSeek's API reports tokens but not cost, so the report always gives the tokens by
+job, and an estimated cost when `--price-in` and `--price-out` are given. At DeepSeek's chat prices (about $0.28 per
+million tokens in and $0.42 out, less for cached input; check their pricing page for Flash) that is about $0.04 a
+run, a few cents for each checkout scored. Each extra sample adds 10 calls (a passage and a judge call per probe).
 
 ## The traps
 
