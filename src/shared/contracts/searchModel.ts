@@ -23,15 +23,17 @@ export interface SearchModelStatus {
   indexed: { done: number; total: number } | null
   /** Which engine runs it, while it is ready: the fast one (onnxruntime) or the slower one written for AI Write. */
   engine?: 'onnx' | 'ts' | null
+  /** It downloads by itself while it isn't here (Adam, 2026-10-08), unless Adam pressed Stop or Remove since Download. */
+  auto?: boolean
 }
 
 export interface SearchModelApi {
   getSearchModel(): Promise<SearchModelStatus>
-  /** Starts the download (or Try again); progress comes as 'searchModel:status'. */
+  /** Starts the download (or Try again), and lets it download by itself again; progress comes as 'searchModel:status'. */
   downloadSearchModel(): Promise<SearchModelStatus>
-  /** Stops a download under way; nothing half-downloaded is kept. */
+  /** Stops a download under way; nothing half-downloaded is kept, and it no longer downloads by itself. */
   stopSearchModelDownload(): Promise<SearchModelStatus>
-  /** Removes the downloaded model (finding by meaning then waits for it to be downloaded again). */
+  /** Removes the downloaded model (finding by meaning then waits for Adam to download it again: never by itself). */
   removeSearchModel(): Promise<SearchModelStatus>
 }
 

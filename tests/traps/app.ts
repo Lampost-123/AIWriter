@@ -576,6 +576,8 @@ export async function openApp(
     let modelNote: string | null = null
     if (retrieval) {
       process.env.AIWRITE_RECALL = 'on'
+      // The model is copied in below; the run never downloads it by itself.
+      process.env.AIWRITE_SEARCH_MODEL_AUTO = 'off'
       const files = await optional<ModelFilesModule>(cfg.root, 'main/retrieval/model/files')
       const { userDataDir } = await import('@app/main/paths')
       const got = files ? installSearchModel(files, userDataDir(), cfg.searchModel) : { ok: false, note: "This checkout's search model files aren't where the harness expects them." }

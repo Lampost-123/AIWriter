@@ -1010,6 +1010,15 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
     what was said go on. `AIWRITE_RECALL=off` turns all of step 5 off; app tests set it (tests/e2e/helpers.ts) and ask
     for it with `AIWRITE_RECALL=on`; `AIWRITE_SEARCH_MODEL=stub` uses a stand-in model (`stub.ts`) that knows a few
     words of like meaning, for tests only.
+  - **The download by itself** (Adam, 2026-10-08: "download the search model automatically"; `model/auto.ts`): while
+    "Find by meaning" is on and the model isn't here, it downloads quietly in the background 45 seconds after start-up
+    (so opening isn't slowed) or 5 seconds after the switch is turned on. Stop or Remove sets `settings.searchModelAuto`
+    false, and it never starts by itself again until Adam presses Download (which sets it true); the switch off stops
+    nothing under way but never starts it. A failed download (offline, a damaged file) is tried again an hour later,
+    then two, four, up to a day apart, and at the next start; Settings shows the problem as before, with no pop-ups.
+    `AIWRITE_SEARCH_MODEL_AUTO=off` keeps it out of app tests (tests/e2e/helpers.ts), unit tests (vitest.config.ts)
+    and trap runs; `AIWRITE_SEARCH_MODEL_AUTO_MS` shortens the wait for the one app test about it, which uses a local
+    server, never Hugging Face.
 - **Voices the AI fills in.** Whenever the AI makes or fills in a character, it gets a read-aloud voice
   description as Suggest would write it (the same prompt and the Read aloud model, job `speech`), and "Say it as"
   only for a name a narrator would likely misread (`readAloud/autoVoice.ts`). Only empty boxes are filled: a voice

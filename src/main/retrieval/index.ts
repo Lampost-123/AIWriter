@@ -13,14 +13,16 @@
 //                 TypeScript reader where that can't start), its worker threads, and its life in the app (manager.ts)
 // This file connects them to the open world, the settings and the window. AIWRITE_RECALL=off (app tests that aren't
 // about it) turns all of step 5 off; Settings › Models, "Find by meaning", turns the search model off (keyword search,
-// sticky entries and what was said go on). AIWRITE_SEARCH_MODEL=stub uses a stand-in model (app tests).
+// sticky entries and what was said go on). AIWRITE_SEARCH_MODEL=stub uses a stand-in model (app tests). The model
+// downloads by itself while the switch is on (model/auto.ts, Adam, 2026-10-08); AIWRITE_SEARCH_MODEL_AUTO=off (app
+// tests) leaves that to the Download button.
 
 import type Database from 'better-sqlite3'
 import { net } from 'electron'
 import type { ID, Settings } from '@shared/types'
 import type { SearchModelStatus } from '@shared/contracts/searchModel'
 import type { ContextInput } from '../ai/context'
-import { getSettings } from '../settings'
+import { getSettings, updateSettings } from '../settings'
 import { userDataDir } from '../paths'
 import { emit } from '../events'
 import { maybeCurrentWorld, onWorldClosing, onWorldOpened, type OpenWorld } from '../world'
@@ -29,6 +31,7 @@ import type { Embedder, RecallInput } from './types'
 import { INDEX_AFTER_OPEN_MS, WorldRecall } from './world'
 import { modelDir, onnxShipped } from './model/files'
 import { SearchModel } from './model/manager'
+import { AUTO_AFTER_SWITCH_MS, AutoDownload, autoWanted, startDelay } from './model/auto'
 import { startModel } from './model/start'
 
 type DB = Database.Database
@@ -51,6 +54,13 @@ const model = new SearchModel({
   shipped: () => onnxShipped(),
   changed: () => emitStatus(),
   ready: () => world?.recall.indexSoon(500)
+})
+
+/** The download by itself: while "Find by meaning" is on and the model isn't here. */
+const auto = new AutoDownload({
+  wanted: () => autoWanted(getSettings()),
+  state: () => model.status().state,
+  download: () => model.startDownload()
 })
 
 /** The search model to search with now, or null (switched off, not downloaded, still starting, or not working). */
@@ -98,7 +108,7 @@ export async function recallForBriefing(db: DB, sceneId: ID, input: ContextInput
 
 const currentStatus = (): SearchModelStatus => {
   const m = model.embedder
-  return model.status(m && world ? world.recall.counts(m.model) : null)
+  return { ...model.status(m && world ? world.recall.counts(m.model) : null), auto: autoWanted(getSettings()) }
 }
 
 export function searchModelStatus(): SearchModelStatus {
@@ -115,17 +125,29 @@ function emitStatus(): void {
   }
 }
 
+/** Adam's own choice about the download by itself: Download lets it, Stop and Remove end it until Download again. */
+function letAuto(on: boolean): void {
+  try {
+    if (getSettings().searchModelAuto !== on) updateSettings({ searchModelAuto: on })
+  } catch (e) {
+    console.warn('The search model setting could not be saved', e instanceof Error ? e.message : e)
+  }
+}
+
 export function downloadSearchModel(): SearchModelStatus {
-  model.startDownload()
+  letAuto(true)
+  void model.startDownload()
   return currentStatus()
 }
 
 export function stopSearchModelDownload(): SearchModelStatus {
+  letAuto(false)
   model.stopDownload()
   return currentStatus()
 }
 
 export async function removeSearchModel(): Promise<SearchModelStatus> {
+  letAuto(false)
   await model.remove()
   world?.recall.vectors.clear()
   return currentStatus()
@@ -134,16 +156,23 @@ export async function removeSearchModel(): Promise<SearchModelStatus> {
 /** Adam turned "Find by meaning" on or off: the model starts (when downloaded) or lets go of its memory. */
 export function findByMeaningChanged(on: boolean): void {
   model.switched(on && recallWanted())
-  if (on) world?.recall.indexSoon(500)
+  if (on) {
+    world?.recall.indexSoon(500)
+    // Turned on with the model not here: it downloads by itself shortly (unless Adam stopped or removed it before).
+    auto.soon(AUTO_AFTER_SWITCH_MS)
+  }
 }
 
 export function initRetrieval(): void {
   onWorldOpened(worldOpened)
   onWorldClosing((w) => worldClosing(w))
+  // The download by itself, a little after start-up so opening isn't slowed (and again at each start after a failure).
+  auto.soon(startDelay())
 }
 
 /** Lets go of the search model's threads as the app quits. */
 export function closeRetrieval(): void {
   worldClosing()
+  auto.close()
   model.close()
 }

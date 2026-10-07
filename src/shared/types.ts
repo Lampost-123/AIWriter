@@ -441,6 +441,11 @@ export interface Settings {
    * the briefing also finds earlier passages and facts by what they mean, not only by their words (src/main/retrieval/).
    */
   findByMeaning: boolean
+  /**
+   * The search model downloads by itself while "Find by meaning" is on (Adam, 2026-10-08; src/main/retrieval/model/
+   * auto.ts): false once Adam presses Stop or Remove, true again when he presses Download.
+   */
+  searchModelAuto: boolean
 }
 
 /**
