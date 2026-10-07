@@ -1,6 +1,6 @@
-<!-- version: 0.6.23 -->
-What's new in 0.6.23:
+<!-- version: 0.6.24 -->
+What's new in 0.6.24:
 
-- Build from a summary now makes everything in one run. It reads your summary again for anything its first list missed, so characters, places, events and the rest are no longer skipped.
+- Read aloud gets MCreader's newer voices. Download 96 real studio voices in Settings, and new characters get one that fits them. Angry, frightened or tender lines are acted, whispers and shouts too. Redo this line on the player bar, and an optional word check.
 
-Also in 0.6.22: Interview me no longer asks the same question twice.
+Also in 0.6.23: Build from a summary makes everything in one run.

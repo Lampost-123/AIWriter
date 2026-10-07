@@ -22,6 +22,9 @@ export const readAloudHandlers: Handlers<keyof ReadAloudApi> = {
   setEntryReadAloud: (entryId, value) => readAloud.setEntryVoice(entryId, value),
   suggestCharacterVoice: (entryId, taskId) => readAloud.suggestCharacterVoice(entryId, taskId),
   speakerLabels: (req) => readAloud.speakerLabels(req),
+  giveStudioVoices: () => readAloud.giveStudioVoices(),
+  restoreStudioVoices: (before) => readAloud.restoreStudioVoices(before),
+  redoReadingClip: (clip) => readAloud.redoClip(clip),
   getReadAloudCache: () => readAloud.cacheStats(),
   clearReadAloudCache: () => readAloud.clearCache()
 }

@@ -15,16 +15,18 @@ interface ServerVoice {
   gender?: unknown
   traits?: unknown
   recommended?: unknown
+  studio?: unknown
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
 /** "female · warm, measured" reads better than the raw fields. */
-function aboutOf(v: ServerVoice, clip: boolean): string {
+function aboutOf(v: ServerVoice, clip: boolean, studio: boolean): string {
   const traits = str(v.traits)
     .replace(/^designed · /, '')
     .replace(/^your clip(?: · )?/i, '')
-  return [clip ? 'Your own clip' : str(v.gender), traits].filter(Boolean).join(' · ')
+    .replace(/^studio recording(?: · )?/i, '')
+  return [studio ? 'Studio recording' : clip ? 'Your own clip' : str(v.gender), traits].filter(Boolean).join(' · ')
 }
 
 /** The voices of one engine in a server's list, as Settings shows them. */
@@ -35,8 +37,20 @@ export function voicesFrom(list: unknown, engine: string): ReadAloudVoice[] {
     const id = str(v?.id)
     if (!id || seen.has(id) || (str(v.engine) && str(v.engine) !== engine)) return []
     seen.add(id)
-    const clip = id.startsWith('clip:')
-    return [{ id, name: str(v.name) || id.replace(/^clip:/, ''), about: aboutOf(v, clip), clip, recommended: v.recommended === true }]
+    // The studio voices are clips too, but not Adam's own.
+    const studio = v.studio === true || id.startsWith('clip:library/')
+    const clip = id.startsWith('clip:') && !studio
+    return [
+      {
+        id,
+        // "Clara · Woman, 26-35 · mid voice": Settings marks it as a studio voice itself.
+        name: (studio ? str(v.name).replace(/\s*\(studio\)$/, '') : str(v.name)) || id.replace(/^clip:/, ''),
+        about: aboutOf(v, clip, studio),
+        clip,
+        recommended: v.recommended === true,
+        ...(studio ? { studio } : {})
+      }
+    ]
   })
 }
 

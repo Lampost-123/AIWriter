@@ -12,7 +12,7 @@ from .worker_engine import WorkerEngine
 # The clip types a voice can be copied from.
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"}
 
-# The weights, as MCreader names them, so its copy on this computer can be used as it is.
+# The weights' name on Hugging Face.
 REPO = downloaded.BREEZE_REPO
 
 # id, name, gender, traits. The descriptions they are made from are in workers/breeze.py.
@@ -69,4 +69,33 @@ class BreezeEngine(WorkerEngine):
                         "engine": self.id, "lang": "en", "language": "English", "accent": "", "gender": "",
                         "grade": "", "traits": f"your clip · {p.name}", "recommended": False,
                     })
-        return out
+        return out + library_voices()
+
+
+def library_voices() -> list[dict]:
+    """The studio voices (tools/install.py studio-voices): real people recorded in a studio, listed as
+    "Clara · Woman, 26-35 · mid voice (studio)". Only once their download has finished (its mark is there)."""
+    import json
+
+    library = VOICES / "library"
+    index = library / "index.json"
+    if not (downloaded.studio_complete(config.HOME) and index.is_file()):
+        return []
+    try:
+        listed = json.loads(index.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for v in listed if isinstance(listed, list) else []:
+        if not isinstance(v, dict) or not (library / f"{v.get('id')}.wav").is_file():
+            continue
+        who = "Woman" if v.get("gender") == "female" else "Man"
+        name = v.get("name") or v["id"]
+        pitch = v.get("pitch", "mid")
+        out.append({
+            "id": f"clip:library/{v['id']}.wav", "name": f"{name} · {who}, {v.get('age', '')} · {pitch} voice (studio)",
+            "engine": "breeze", "lang": "en", "language": "English", "accent": "", "gender": v.get("gender", ""),
+            "grade": "", "traits": f"studio recording · {v.get('age', '')} · {pitch} pitch", "recommended": False,
+            "age": v.get("age", ""), "pitch": pitch, "studio": True,
+        })
+    return out

@@ -13,7 +13,7 @@
 //   sound effects  their environment ('venv', made afresh), Stable Audio Open's and CLAP's snapshots ('weights': one
 //                  file first, the rest last), and their mark (only 'check' leaves it; 'weights' removes it)
 //
-//   node install.mjs <kind> <step>      kind: server, voices, parakeet, whisper, sounds or python
+//   node install.mjs <kind> <step>      kind: server, voices, parakeet, whisper, sounds, studio or python
 //
 // What a step does comes from the JSON file AIWRITE_FAKE_SPEECH_CONTROL names (read each time, so a test
 // can change it between clicks): { "<kind>:<step>": mode } or { "<kind>": mode }, where mode is
@@ -123,6 +123,20 @@ function end() {
     for (const f of CLAP_FILES) touch(...CLAP_SNAPSHOT, f)
   }
   if (kind === 'sounds' && step === 'check') touch(...SOUND_MARK)
+  if (kind === 'studio' && step === 'voices') {
+    // Two made-up studio voices, as speech-server/tools/install.py studio-voices lists them.
+    const index = [
+      { id: 'p001', gender: 'female', age: '26-35', hz: 210, moods: ['anger', 'whisper'], name: 'Clara', pitch: 'mid' },
+      { id: 'p002', gender: 'male', age: '46-55', hz: 110, moods: ['anger', 'whisper'], name: 'Arthur', pitch: 'low' }
+    ]
+    for (const v of index) {
+      touch('voices', 'library', `${v.id}.wav`)
+      touch('voices', 'library', `${v.id}.txt`)
+    }
+    writeFileSync(join(home, 'voices', 'library', 'index.json'), JSON.stringify(index))
+  }
+  if (kind === 'studio' && step === 'listener') touch('models', 'hf', 'hub', 'models--distil-whisper--distil-small.en', 'snapshots', 'fake', 'config.json')
+  if (kind === 'studio' && step === 'check') touch('voices', 'library', '.ready')
   if (kind === 'parakeet' && step === 'model') {
     const aside = join(home, 'models', 'parakeet', '.unpack')
     for (const f of PARAKEET_FILES) touch('models', 'parakeet', '.unpack', PARAKEET, f)
@@ -143,6 +157,7 @@ const NAMES = {
   parakeet: 'Parakeet',
   whisper: 'Whisper',
   sounds: 'The sound effects',
+  studio: 'The studio voices',
   python: 'Python'
 }
 const pipStep = ['packages', 'torch', 'pip', 'torch-check'].includes(step)

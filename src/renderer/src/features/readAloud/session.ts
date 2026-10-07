@@ -206,6 +206,35 @@ export class Session {
     this.jump()
   }
 
+  private redoing = false
+
+  /**
+   * Redo this line: the line showing is voiced again as another take (kept for it from now on), and plays again from
+   * its start. The reading goes on from there.
+   */
+  async redo(): Promise<void> {
+    const current = this.current
+    if (!this.canStep || !current || this.redoing) return
+    this.redoing = true
+    this.player.pause()
+    this.show({ ...this.bar, phase: 'waiting', note: 'Reading this line again…' })
+    try {
+      const { key, clip } = await api.redoReadingClip(current.clip)
+      if (!this.alive || this.current !== current) return
+      // Shown again in its place: not a line read past (showClip).
+      this.queue.unshift({ ...current, key, clip })
+      this.rewound = true
+      this.jump()
+    } catch (e) {
+      if (!this.alive) return
+      toast(e instanceof Error && e.message ? e.message : 'That line couldn’t be read again. Try again.', { tone: 'danger' })
+      this.player.resume()
+      this.show({ ...this.bar, phase: this.paused ? 'paused' : 'playing', note: '' })
+    } finally {
+      this.redoing = false
+    }
+  }
+
   /** Plans again from the next line, so changed settings (Mark who says what, Perform written sounds) reach it. */
   settingsChanged(): void {
     if (!this.alive) return

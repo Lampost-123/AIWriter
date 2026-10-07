@@ -10,6 +10,7 @@ import type { ClipRequest, PlannedClip, ReadParagraph } from '@shared/contracts/
 import type { SpeechSettings } from '@shared/types'
 import { attributeRun, memberNamed, type Attribution, type CastMember, type SceneCast } from './cast'
 import { cleanForSpeech } from './cleanText'
+import { calmed, isStudioVoice, moodFor } from './emotion'
 import { cueFor, tagSounds, withTag } from './perform'
 import { sayAs, type SayRule } from './say'
 import { looksLikeNote, NARRATOR, quoteKey, savedFor, spansIn, startsWithSpeaker, UNKNOWN } from './speakers'
@@ -30,7 +31,8 @@ import type { LineDelivery, ParagraphMarks } from './types'
 export type PlanSettings = Pick<
   SpeechSettings,
   'engine' | 'narratorVoice' | 'narratorDescription' | 'dialogueVoice' | 'style' | 'castVoices' | 'steadyNarrator' | 'sounds'
->
+> &
+  Partial<Pick<SpeechSettings, 'actFeelings' | 'checkWords'>>
 
 export interface PlanInput {
   /** The paragraphs to read, the first from `offset`. */
@@ -49,14 +51,16 @@ export interface PlanInput {
   marking?: Set<string>
   /** Paragraphs whose speakers the AI is marking now: their quotes the rules can't place wait for it. */
   labelling?: Set<string>
+  /** Redo this line: which take each clip is read as, by its key as first planned (0 or none for the first). */
+  takes?: (key: string) => number
 }
 
 /** How a speaker the AI named, or nobody, shows in the bar. */
 const shownName = (label: string | undefined): string =>
   label && label !== UNKNOWN && label !== NARRATOR ? label.charAt(0).toUpperCase() + label.slice(1) : 'Someone'
 
-const paced = (h: LineDelivery): string =>
-  [h.tone, h.pace === 'slow' ? 'slowly' : h.pace === 'fast' ? 'quickly' : ''].filter(Boolean).join(', ')
+const paced = (h: { tone?: string; pace?: string }): string =>
+  [h.tone, h.pace === 'slow' ? 'slowly' : h.pace === 'fast' ? 'quickly' : h.pace === 'lively' ? 'a touch quicker' : ''].filter(Boolean).join(', ')
 
 /** Words in a note that slow the voice right down. */
 const SLOWING = /^(?:(?:very |quite )?slow(?:ly|er)?|unhurried(?:ly)?|measured|lingering|languid(?:ly)?|leisurely|deliberate(?:ly)?|drawn[- ]out|(?:with )?(?:long |many )?pauses|pausing)$/i
@@ -179,7 +183,7 @@ function prepare(
       : []
   const raw = sounds.length ? withSoundsAt(u, italics, sounds) : withItalics(u.para, italics, u.from, u.to)
   let text = cleanForSpeech(s.sounds ? tagSounds(raw) : raw)
-  let direction: { delivery: string; pace: '' | 'slow' | 'fast'; gentle?: boolean } | null = null
+  let direction: { delivery: string; pace: '' | 'slow' | 'fast' | 'lively'; gentle?: boolean } | null = null
   let shown = ''
 
   if (quote && how) {
@@ -200,9 +204,16 @@ function prepare(
       shown = arc.map((a) => paced(a.how)).join(', then ')
     } else direction = { delivery: told.tone ?? '', pace: told.pace ?? '' }
   }
+  // A hurried line is read only a touch quicker, its note's words for hurrying taken out (an arc keeps its own words).
+  if (direction && !shown) {
+    const kept = calmed(direction.delivery, direction.pace)
+    direction = { ...direction, delivery: kept.tone, pace: kept.pace }
+  }
 
   const who = quote ? (found?.who ?? null) : null
   let voice = voiceFor(quote, who, s)
+  // A character with a studio voice reads the line from their own acted clip of its feeling (Act out feelings).
+  const mood = quote && s.actFeelings !== false && isStudioVoice(voice.voice) && !voice.voiceDesign ? moodFor(direction?.delivery) : undefined
   // A steady narrator keeps one voice through the narration: no standing note, and a mark's note read gently.
   const steady = s.steadyNarrator && !quote
   if (steady) {
@@ -229,8 +240,13 @@ function prepare(
     delivery: direction?.delivery ?? '',
     pace: direction?.pace ?? '',
     gentle: !!direction?.gentle,
-    sounds: s.sounds
+    sounds: s.sounds,
+    ...(mood ? { mood } : {}),
+    ...(s.checkWords ? { check: true } : {})
   }
+  // A line Adam asked to hear again is read as the take he heard last.
+  const take = input.takes?.(clipKey(clip, s.engine)) ?? 0
+  if (take > 0) clip.take = take
   return {
     key: clipKey(clip, s.engine),
     pid: u.pid,
