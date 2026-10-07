@@ -41,6 +41,7 @@ import { spellingHandlers } from './spelling'
 import { soundsHandlers } from './sounds'
 import { recallHandlers } from './recall'
 import { repairHandlers } from './repair'
+import { searchModelHandlers } from './searchModel'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -93,7 +94,9 @@ const all: Handlers<ApiMethod> = {
   ...soundsHandlers,
   ...recallHandlers,
   // Check and repair: new AI words checked claim by claim as they land
-  ...repairHandlers
+  ...repairHandlers,
+  // Story memory step 5: the search model for "Find by meaning"
+  ...searchModelHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

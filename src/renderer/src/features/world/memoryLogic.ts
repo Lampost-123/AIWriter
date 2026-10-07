@@ -384,7 +384,7 @@ const excerpt = (s: string, max = 90): string => {
 
 export interface ChangeWords {
   text: string
-  /** A second, quieter line: how each feels, for relationships. */
+  /** A second, quieter line: how each feels, for relationships; the line itself, for something said. */
   detail: string | null
 }
 
@@ -438,8 +438,14 @@ export function describeChange(
       if (!v.type.trim()) return { text: ended ? `${other}: no longer linked to ${self}` : `${other}: things change with ${self}`, detail }
       return { text: `${other}: ${ended ? 'no longer' : 'now'} ${relationPhrase(v.type, self, { article: true })}`, detail }
     }
-    case 'knowledge':
-      return { text: `${c.payload.forgets ? 'Forgets' : 'Learns'}: ${c.payload.fact.trim()}`, detail: null }
+    case 'knowledge': {
+      // Something said (0.6.29): the line itself, word for word, under it.
+      const said = c.payload.said && !c.payload.forgets ? c.payload.said : null
+      const line = said?.words.trim() ?? ''
+      const words = line ? (/^["“'‘]/.test(line) ? line : `“${line}”`) : null
+      const what = said ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind] : c.payload.forgets ? 'Forgets' : 'Learns'
+      return { text: `${what}: ${c.payload.fact.trim()}`, detail: words }
+    }
     case 'thread': {
       const note = c.payload.note?.trim()
       const what = c.payload.status === 'resolved' ? 'Thread resolved' : 'Thread opened'

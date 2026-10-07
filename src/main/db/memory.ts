@@ -251,7 +251,20 @@ export function cleanChangeInput(db: DB, input: ChangeInput): ChangeInput {
       const p = input.payload
       const fact = text(p?.fact)
       if (!fact && !p?.factId) throw new UserError('Write what they learn first.')
-      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}) } }
+      // Something said (0.6.29) stays something said when Adam edits the fact: who said it and the line are kept.
+      const s = p.said
+      const said =
+        s && (s.kind === 'promise' || s.kind === 'threat' || s.kind === 'secret') && typeof s.by === 'string' && text(s.words)
+          ? {
+              said: {
+                kind: s.kind,
+                by: s.by,
+                words: text(s.words).slice(0, 2000),
+                ...(Array.isArray(s.heard) ? { heard: s.heard.filter((id): id is ID => typeof id === 'string').slice(0, 20) } : {})
+              }
+            }
+          : {}
+      return { ...base, kind: 'knowledge', payload: { factId: p.factId || newId(), fact, ...(p.forgets ? { forgets: true } : {}), ...said } }
     }
     case 'thread': {
       const p = input.payload

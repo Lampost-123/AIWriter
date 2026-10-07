@@ -11,7 +11,7 @@ directories:
 
 # What goes into the app: only the built app (out/), package.json and resources/ (the icon, and the
 # thesaurus for synonyms with its WordNet licence in resources/thesaurus/, made by build/thesaurus.mjs). electron-vite
-# bundles everything except the runtime dependencies (better-sqlite3, electron-updater,
+# bundles everything except the runtime dependencies (better-sqlite3, electron-updater, onnxruntime-node,
 # js-tiktoken), which electron-builder adds from node_modules on its own.
 #
 # The list is in each platform block below (win, mac, linux) and not here: a platform's own
@@ -19,11 +19,15 @@ directories:
 # would let the whole project folder (src, tests, docs...) into the installer. Each block therefore
 # holds the full list, plus the exclusions for its own build of better-sqlite3. Never use a
 # ${platform} macro there: it means the machine building, not the one the installer is for.
-# better-sqlite3 ships ready-made native builds in prebuilds/; its C sources aren't needed.
+# better-sqlite3 ships ready-made native builds in prebuilds/; its C sources aren't needed. onnxruntime-node ships every
+# platform's engine (about 290 MB); each installer keeps only its own, on the CPU (no DirectML/GPU files, which load
+# only when asked for), and none of its install scripts.
 
-# better-sqlite3's native code can't load from inside the asar archive.
+# better-sqlite3's native code can't load from inside the asar archive, and neither can onnxruntime-node's (the
+# search model's fast engine, story memory step 5): its binding loads onnxruntime.dll from the same folder.
 asarUnpack:
   - node_modules/better-sqlite3/**/*.node
+  - node_modules/onnxruntime-node/bin/**
 
 # The speech server's Python source (Settings, Read aloud and dictation), shipped as plain files
 # beside the app (resources/speech-server) so the Python that AI Write sets up can run it. What it
@@ -65,6 +69,10 @@ win:
     - '!node_modules/better-sqlite3/prebuilds/win32-arm64.node'
     - '!node_modules/better-sqlite3/lib/{darwin,linux,linuxmusl}-*.js'
     - '!node_modules/better-sqlite3/lib/win32-arm64.js'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/{DirectML,dxcompiler,dxil}.dll'
+    - '!node_modules/onnxruntime-node/{script,lib}/**'
 
 nsis:
   # One click: no wizard, no admin prompt, installs for Adam only and opens straight away.
@@ -95,6 +103,8 @@ mac:
     - '!node_modules/better-sqlite3/binding.gyp'
     - '!node_modules/better-sqlite3/prebuilds/{win32,linux,linuxmusl}-*.node'
     - '!node_modules/better-sqlite3/lib/{win32,linux,linuxmusl}-*.js'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{win32,linux}/**'
+    - '!node_modules/onnxruntime-node/{script,lib}/**'
 dmg:
   artifactName: AI-Write-${version}-${arch}.dmg
 
@@ -113,6 +123,8 @@ linux:
     - '!node_modules/better-sqlite3/binding.gyp'
     - '!node_modules/better-sqlite3/prebuilds/{win32,darwin}-*.node'
     - '!node_modules/better-sqlite3/lib/{win32,darwin}-*.js'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{win32,darwin}/**'
+    - '!node_modules/onnxruntime-node/{script,lib}/**'
 
 publish:
   provider: github

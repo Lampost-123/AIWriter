@@ -6,7 +6,8 @@
 //                   made a single self-contained file
 //   history.db      the same for the world's history, when it has one that can be read (left out otherwise)
 //   images/...      the world folder's images
-// Never backups/, never a key (keys are never in a world), never the speech server's files or audio.
+// Never backups/, never a key (keys are never in a world), never the speech server's files or audio, and never the
+// search index (search-index.db, story memory step 5: it is made again from the world wherever it is opened).
 //
 // Importing unpacks into a hidden folder in the library first (".aiwrite-import-<id>"); world.db goes in
 // under another name until it has its new id, so the library never lists a half-made world, or two worlds

@@ -6,7 +6,7 @@
 //
 // --native names the database engine build that must sit unpacked next to the archive.
 import { createRequire } from 'node:module'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const require = createRequire(import.meta.url)
@@ -34,6 +34,17 @@ for (const needed of ['resources/thesaurus/en-thesaurus.txt.gz', 'resources/thes
 if (native) {
   const node = join(`${file}.unpacked`, 'node_modules', 'better-sqlite3', 'prebuilds', `${native}.node`)
   if (!existsSync(node)) problems.push(`the database engine for ${native} is missing (${node})`)
+  // The search model's fast engine (story memory step 5): its binding and the library it loads, unpacked side by side,
+  // and only this platform's (the others, and the GPU files, would add hundreds of MB).
+  const [platform, arch] = native.split('-')
+  const bin = join(`${file}.unpacked`, 'node_modules', 'onnxruntime-node', 'bin', 'napi-v6')
+  const engine = platform === 'win32' ? ['onnxruntime_binding.node', 'onnxruntime.dll'] : ['onnxruntime_binding.node']
+  for (const f of engine) {
+    if (!existsSync(join(bin, platform, arch, f))) problems.push(`the search model's engine for ${native} is missing (${join(bin, platform, arch, f)})`)
+  }
+  const others = existsSync(bin) ? readdirSync(bin).filter((p) => p !== platform) : []
+  if (others.length) problems.push(`the search model's engine for other systems is in the app (${others.join(', ')}); check the onnxruntime-node lines in electron-builder.yml`)
+  if (existsSync(join(bin, platform, arch, 'DirectML.dll'))) problems.push("the search model's GPU files are in the app; check the onnxruntime-node lines in electron-builder.yml")
 }
 
 for (const p of problems) console.error(`::error::${p}`)

@@ -436,6 +436,11 @@ export interface Settings {
    * Continue, the new words are checked claim by claim, small slips fixed in amber and the rest asked (src/main/repair/).
    */
   checkNewWords: boolean
+  /**
+   * Story memory step 5 (Settings › Models, "Find by meaning"; on by default): once the search model is downloaded,
+   * the briefing also finds earlier passages and facts by what they mean, not only by their words (src/main/retrieval/).
+   */
+  findByMeaning: boolean
 }
 
 /**
@@ -921,6 +926,24 @@ export interface KnowledgePayload {
   factId: ID
   fact: string
   forgets?: boolean
+  /**
+   * What was said (story memory step 5, 0.6.29): the fact is a promise, a threat or a secret told, on the speaker and on
+   * each character who heard it (one fact id), with the line itself. Missing for every other fact.
+   */
+  said?: SaidPayload
+}
+
+/** The kinds of things said that the memory keeps word for word. */
+export type SaidKind = 'promise' | 'threat' | 'secret'
+
+export interface SaidPayload {
+  kind: SaidKind
+  /** Who said it. */
+  by: ID
+  /** The line as it was read, word for word (its source link follows later edits to it). */
+  words: string
+  /** Who heard it said there (not the speaker): those there at the time, not everyone who knows it now. */
+  heard?: ID[]
 }
 
 /** A plot thread opens or is resolved. */

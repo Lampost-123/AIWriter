@@ -34,6 +34,10 @@
 // 11 what must stay true (step 4, mustStay.ts): the facts that matter now, current values only, each with since when,
 //    repeated from the briefing right above the closing instruction (the fewest lines that matter most, without the
 //    lead); kept longer than the ties, and back first
+// Story memory step 5 (src/main/retrieval/, with ContextInput.recall) adds candidates, never more room: entries from
+// the last two scenes and entries found by searching join block 9; what was said, word for word (fewer lines when
+// short), and earlier passages found by searching (the best two, then the best one) are blocks at priority 9,
+// shortened and left out before block 9's entries, and before anything more important.
 //
 // Fitting (spec, "Priority order and budget"): when the briefing is too long, blocks switch to
 // their short form from the bottom up (11 to 3, then block 1). Blocks 4 and 8 can shrink further,
@@ -76,6 +80,8 @@ import { finalInstruction, indentMore, instructionsText, type FinalOptions } fro
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustStayTrue, mustText, type StageReach } from './mustStay'
+import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
+import type { RecallInput } from '../retrieval/types'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -118,6 +124,11 @@ export interface ContextInput {
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
   plan?: { needs: ID[]; text: string } | null
+  /**
+   * Story memory step 5 (src/main/retrieval/): entries from the last two scenes, entries and earlier passages found by
+   * searching, and what was said word for word. Null or left out: none of it (switched off, or a test).
+   */
+  recall?: RecallInput | null
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
@@ -615,6 +626,8 @@ export interface Selection {
   threads: { entry: EntryState; role: 'sets up' | 'pays off'; state: ThreadState | null }[]
   /** Other entries named in the beats, notes or direction, and pins. */
   others: EntryState[]
+  /** Story memory step 5: entries from the last two scenes and entries found by searching (retrieval/briefing.ts). */
+  recalled: EntryState[]
   /** For each character present, the people they're tied to who aren't in the scene, closest and most recent first. */
   ties: { person: EntryState; ties: Tie[] }[]
   label: (id: ID) => string | null
@@ -725,6 +738,8 @@ export function selectEntries(input: ContextInput): Selection {
     const got = take(id, WHY.plan, false)
     if (got) others.push(got)
   }
+  // Story memory step 5: entries from the last two scenes, then those found by searching (retrieval/briefing.ts).
+  const recalled = recalledEntries(input.recall, (id, why) => take(id, why, false))
 
   const tiesAway = absentTies(input, [pov, ...present].filter(some), here, (id) => take(id, WHY.tie, false) ?? chosen.get(id)?.entry ?? null)
 
@@ -734,7 +749,7 @@ export function selectEntries(input: ContextInput): Selection {
     if (p.action === 'hide' && e) hidden.push({ entry: e, why: WHY.hide[p.scope] })
   }
 
-  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, ties: tiesAway, label }
+  return { known, chosen, hidden, pov, present, location, around, groups, rules, threads, others, recalled, ties: tiesAway, label }
 }
 
 /** One tie between a character in the scene and someone who isn't there, as of this scene. */
@@ -1436,33 +1451,47 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
     )
   }
 
-  // 9 Anything else named in the beats, notes or direction, and pins (short: one line each).
+  // 9 Anything else named in the beats, notes or direction, and pins (short: one line each); and, apart from them, the
+  //   entries step 5 brings in (the last two scenes, found by searching), as a candidate block (retrieval/briefing.ts).
+  // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
+  const paidOff = (e: Entry): string => {
+    const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
+    return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
+  }
+  const note = (e: Entry, why = ''): string => [kindWord(e), why, paidOff(e), label(e)].filter(Boolean).join('; ')
+  const entriesText = (list: EntryState[], why: (e: Entry) => string = () => ''): string =>
+    list
+      .map((e) => {
+        const head = `### ${e.name} (${note(e, why(e))})`
+        // Lore and places are short, and their fields are the facts: send them whole.
+        // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
+        const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks'], false, true) : formatProfile(e, head)
+        return [profile, happenedText(e, 3)].filter(Boolean).join('\n\n')
+      })
+      .join('\n\n')
   if (sel.others.length) {
     const mentionedOnly = sel.others.every((e) => {
       const why = sel.chosen.get(e.id)?.why
       return why === WHY.beats || why === WHY.notes || why === WHY.direction || why === WHY.cardWords || why === WHY.previous
     })
-    // A plot thread already paid off by this point says so, so the model doesn't write it as still open.
-    const paidOff = (e: Entry): string => {
-      const t = e.kind === 'thread' ? input.memory.threads.find((x) => x.entryId === e.id) : undefined
-      return t?.status === 'resolved' ? `already paid off${clean(t.paidOff) ? ` in ${clean(t.paidOff)}` : ''}` : ''
-    }
-    const note = (e: Entry): string => [kindWord(e), paidOff(e), label(e)].filter(Boolean).join('; ')
     add(
       'mentioned',
       9,
       mentionedOnly ? 'Also mentioned' : 'Also relevant',
-      sel.others
-        .map((e) => {
-          const head = `### ${e.name} (${note(e)})`
-          // Lore and places are short, and their fields are the facts: send them whole.
-          // Characters who aren't in the scene: who they are and how they look, not their whole inner life.
-          const profile = e.kind === 'character' ? formatProfile(e, head, ['basics', 'looks'], false, true) : formatProfile(e, head)
-          return [profile, happenedText(e, 3)].filter(Boolean).join('\n\n')
-        })
-        .join('\n\n'),
+      entriesText(sel.others),
       sel.others.map((e) => `- ${oneLine(e, note(e))}`).join('\n'),
       sel.others.map((e) => e.id)
+    )
+  }
+  if (sel.recalled.length) {
+    const why = (e: Entry): string => recalledWhy(sel.chosen.get(e.id)?.why)
+    add(
+      RECALL_ENTRIES.id,
+      RECALL_ENTRIES.priority,
+      RECALL_ENTRIES.title,
+      entriesText(sel.recalled, why),
+      sel.recalled.map((e) => `- ${oneLine(e, note(e, why(e)))}`).join('\n'),
+      sel.recalled.map((e) => e.id)
     )
   }
 
@@ -1482,6 +1511,10 @@ export function buildBlocks(input: ContextInput, sel: Selection = selectEntries(
       [tiesText(sel, 2)]
     )
   }
+
+  // Story memory step 5: what was said, word for word, and earlier passages found by searching (candidates at priority 9,
+  // retrieval/briefing.ts).
+  for (const b of recallBlocks(input.recall)) add(b.id, b.priority, b.title, b.text, b.short, [], b.smaller)
 
   return blocks.sort((a, b) => sendRank(a) - sendRank(b))
 }
@@ -1505,6 +1538,9 @@ export const SEND_ORDER = [
   'relationships',
   'ties',
   'mentioned',
+  RECALL_ENTRIES.id,
+  'said',
+  'recalled',
   'threads',
   'story-so-far',
   'previous-scene',
@@ -1525,8 +1561,11 @@ const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
  */
 const STEADY_UNTIL = SEND_ORDER.indexOf('mentioned')
 
-/** Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). */
-const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK]
+/**
+ * Among blocks of the same priority, the later ones here are kept longest (shortened and dropped last). Step 5's blocks
+ * (earlier passages, then what was said) go before the other entries named.
+ */
+const KEEP_ORDER = ['threads', 'setting', 'world-rules', MUST_BLOCK, 'recalled', 'said', RECALL_ENTRIES.id, 'mentioned']
 const keepRank = (id: string): number => Math.max(0, KEEP_ORDER.indexOf(id))
 
 /**
@@ -1670,10 +1709,20 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     return sent + (hasPrev ? finalTokens.withPrevious : finalTokens.withoutPrevious) + MESSAGE_OVERHEAD * 2
   }
 
+  // Story memory step 5's candidates (what was said, earlier passages, entries recalled: retrieval/briefing.ts) take no
+  // room from anything else: the briefing is fitted as if they weren't there, Auto's length included, and they go in
+  // afterwards, each in the longest form that fits in the room left (step 7). Unless Adam wants one in full.
+  const candidates = state.filter((s) => isRecallBlock(s.b.id) && s.mode !== 'full')
+  const others = state.filter((s) => !candidates.includes(s))
+  const leaveOutCandidates = (): void => {
+    for (const s of candidates) s.dropped = true
+  }
+  leaveOutCandidates()
+
   // Least important first; within a priority, hard rules go last.
-  const leastFirst = [...state].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
+  const leastFirst = [...others].sort((a, b) => b.b.priority - a.b.priority || keepRank(a.b.id) - keepRank(b.b.id))
   const droppable = leastFirst.filter((s) => s.b.priority >= 3)
-  const shortenable = [...droppable, ...state.filter((x) => x.b.priority === 1)]
+  const shortenable = [...droppable, ...others.filter((x) => x.b.priority === 1)]
 
   /** Fits the briefing to the budget, starting again from every block as Adam set it. */
   function fit(): void {
@@ -1681,6 +1730,7 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       s.level = s.min
       s.dropped = false
     }
+    leaveOutCandidates()
     // 1. Short forms, from the bottom up (10 to 3, then block 1). Blocks Adam wants in full stay full.
     for (const s of shortenable) {
       if (fits()) break
@@ -1739,6 +1789,16 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       for (s.level = Math.max(was, 1); s.level <= s.max && !fits(); s.level++);
       if (s.level > s.max || !fits()) {
         s.level = was
+        s.dropped = true
+      }
+    }
+
+    // 7. Step 5's candidates, most important first, each in the longest form that fits in the room left.
+    for (const s of [...candidates].sort((a, b) => keepRank(b.b.id) - keepRank(a.b.id))) {
+      s.dropped = false
+      for (s.level = s.min; s.level <= s.max && !fits(); s.level++);
+      if (s.level > s.max) {
+        s.level = s.min
         s.dropped = true
       }
     }

@@ -14,6 +14,7 @@ import { entryEditedByHand, memorySettingsChanged, sceneSaved, scenesDeleted, sc
 import { sceneTextSaved } from '../history'
 import { sceneSavedForMarks } from '../readAloud'
 import { syncSpelling } from '../spelling'
+import { findByMeaningChanged } from '../retrieval'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
@@ -73,6 +74,8 @@ export const coreHandlers: Handlers<CoreMethods> = {
     const settings = updateSettings(patch)
     // A memory model chosen (or changed), or its thinking: the memory tries the scenes it couldn't read straight away.
     if (patch.models || patch.thinking?.memory) memorySettingsChanged()
+    // Story memory step 5: "Find by meaning" turned on starts the search model (when downloaded); off lets it go.
+    if (typeof patch.findByMeaning === 'boolean') findByMeaningChanged(patch.findByMeaning)
     return settings
   },
   getWritingPrefs: () => getWritingPrefs(),
