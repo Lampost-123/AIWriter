@@ -3,7 +3,8 @@
 // the fix is a few of the AI's own words, and never Adam's; anything else is one question. Invented text throughout.
 import { describe, expect, it } from 'vitest'
 import type { LandedParagraph } from '@shared/contracts/repair'
-import { judgeClaims, newWordsOf, questionOf, readClaims, type Claim } from './claims'
+import { allTheAis, judgeClaims, newWordsOf, questionOf, readClaims, type Claim } from './claims'
+import { plain as plainOf } from '../keeper/text'
 import { stageLines, stageLineText, type CodexLine } from './prompts'
 import type { SceneState } from '@shared/continuity'
 
@@ -149,6 +150,22 @@ describe('judging claim by claim', () => {
     const got = judge([one, { ...one, fix: { replace: 'her hood low', with: 'her hood back' } }, { ...one, line: 'K1', fix: null }])
     expect(got.fixes).toHaveLength(1)
     expect(got.questions).toHaveLength(1)
+  })
+
+  it("changes whole words only, and only in a paragraph that is all the AI's own", () => {
+    const text = 'Tobin lifted the cup up to the lamp.'
+    const paragraphs: LandedParagraph[] = [{ text, from: 0, to: text.length }]
+    const up = claim({ quote: 'lifted the cup up', line: code('Tobin', 'where'), fix: { replace: 'up', with: 'down' } })
+    // "up" first appears inside "cup": never changed there, only as a word of its own.
+    const got = judgeClaims([up], { stage, codex: CODEX, paragraphs, aiText: text })
+    expect(got.fixes[0]).toMatchObject({ start: text.indexOf(' up ') + 1, was: 'up' })
+    // A paragraph Adam typed in as it streamed, or whose words aren't all in the record, is asked about, never mended.
+    expect(allTheAis({ ...paragraphs[0], edited: true }, plainOf(text))).toBe(false)
+    expect(judgeClaims([up], { stage, codex: CODEX, paragraphs: [{ ...paragraphs[0], edited: true }], aiText: text }).fixes).toEqual([])
+    const mixed = `Her hood was up. ${text}`
+    const his = judgeClaims([up], { stage, codex: CODEX, paragraphs: [{ text: mixed, from: 0, to: mixed.length }], aiText: text })
+    expect(his.fixes).toEqual([])
+    expect(his.questions).toHaveLength(1)
   })
 
   it('makes a question of a reason when the model gave none', () => {

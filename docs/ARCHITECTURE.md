@@ -656,10 +656,13 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   (`checkAfterDraft`, `ipc/checksIssues.ts`) with every check, `continuity` included; checks get the story so far
   and where things stood. Each reply says what each check looked at (`checked`), kept as the scene's latest report
   (`checks/report.ts`, `meta` 'check_reports') and shown collapsed at the top of the Issues tab (`CheckReportCard`).
-  When check and repair (below) checked the draft's words as they landed, the critic leaves out what that covered
-  (continuity, who knows what, the timeline: `REPAIR_COVERS`, `repairedSince`) and checks facts, voices and style;
-  when it didn't (switched off, no memory model, the draft finished in another scene, the call failed), the critic
-  checks it all.
+  When check and repair (below) checked the drafts' words as they landed, the critic leaves out only what those checks
+  covered and finished (`criticChecks`, by the drafts' records: `DraftActivity.generationId`): continuity when there
+  was a stage to compare with, who knows what when the memory listed any, the timeline when there were scenes before
+  (`coveredBy`). It waits for a check still running (`CRITIC_WAIT_MS`, a minute at most); drafts that land in a row
+  before it runs are checked together, and it leaves out only what every one of their checks covered. A check that
+  didn't run (switched off, no memory model, the draft finished in another scene), failed or ran out of time covers
+  nothing, so the critic checks it all.
 - **Check and repair** (Adam, 2026-10-07: step 3 of the consistency plan, "check and repair, straight away";
   `src/main/repair/`, `contracts/repair.ts`, `features/repair/`). As soon as a draft, Add below, a beat or Continue
   lands (Continue once accepted; a polished draft once Adam accepts the polished version), the page sends the new
@@ -673,18 +676,27 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   each with its exact quote, the line it touches and a verdict: fits, shown (the words show the change) or slip. The
   app then judges them one at a time (`judgeClaims`, pure): a claim whose quote isn't in the new words, or whose line
   doesn't exist, is dropped. A slip is **mended in place** only when the line it breaks is on the stage with its own
-  words (never a value with no words behind it, nor a memory fact), the fix changes at most a dozen of the AI's own
-  words (found in the record of what the AI wrote, inside the AI's part of one paragraph, overlapping the quote), and
-  no other fix is there; anything else becomes **one question** (an open issue whose message is the question, with
-  the model's rewrite as "Review the fix" when it has one). A slip Adam ignored is neither mended nor asked again.
+  words (never a value with no words behind it, nor a memory fact), the fix changes at most a dozen whole words
+  (never "up" inside "cup") overlapping the quote, in a paragraph that is all the AI's own (`allTheAis`: Adam didn't
+  type in it while it streamed in, and all of its AI part is in the record of what the AI wrote, in order), and no
+  other fix is there; anything else becomes **one question** (an open issue whose message is the question, with
+  the model's rewrite as "Review the fix" when it has one; it points at the new words, never the same words earlier in
+  the scene: `placeInScene` from `beforeChars`). A slip Adam ignored is neither mended nor asked again.
   In the page (`features/repair/apply.ts`, pure), the fixes go in as one undo step (`WORDS_META` 'ai-net'), only in
   paragraphs exactly as they landed (found by paragraph id), never where Adam's cursor or selection is, nor in a
   draft being written or under a waiting AI change; his cursor maps with his words. Each fix shows in amber
   (`features/repair/marks.ts`, a decoration, never in the document; hovering says what the AI had written and why)
   until its words are edited or another scene opens. A message says what was mended, with Undo (the AI's words back,
   and the fixed issue becomes ignored) and, when there are questions, Show (the Issues tab). Fixes the page couldn't
-  make (Adam was in those words) become questions (`repairsApplied`); made ones are kept as fixed issues. The page
-  saves first, so a question's words are in the saved scene. Not checked: a draft that finished while Adam was in
+  make (Adam was in those words) become questions (`repairsApplied`); made ones are kept as fixed issues. Ctrl+Z on a
+  fix does what Undo does (decided in review, 2026-10-07: taking the change back says he didn't want it, so it is ignored
+  rather than asked again), and Ctrl+Y, or Ctrl+Z after Undo, brings it back in amber and fixed (`onRepairHistory`).
+  The plugin also notes the paragraphs Adam types in while a draft or beat streams in (`typedWhileStreaming`, by
+  paragraph id): they are sent `edited`, and nothing in them is mended. A beat's fixes are undo steps on top of it, so
+  Write it again takes them out with the beat (`PageMark.steps`, quietly: `quietRepairs`). The page saves first, so a
+  question's words are in the saved scene. Closing the world stops a check under way. Only a scene's newest
+  `KEEP_PROMPTS` (10) checks keep their whole prompt for What the AI saw (`forgetOldPrompts`); older ones keep their
+  cost, tokens and reply. Not checked: a draft that finished while Adam was in
   another scene, a picked variant (Adam read and chose those words), and Polish after drafting's draft before it is
   accepted. **The off switch** (Adam, 2026-10-07): Settings › Models, "Check new words straight away"
   (`settings.checkNewWords`, on by default; `features/repair/RepairSettings.tsx`). Off, the page sends nothing, no call

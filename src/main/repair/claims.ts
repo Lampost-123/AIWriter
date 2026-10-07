@@ -9,6 +9,8 @@
 //     words for it (never a value with no words behind it, nor one from the memory's notes), the fix changes a few of
 //     the AI's own words (at most a dozen, inside or overlapping the quote, in one paragraph, written in the record of
 //     the AI's words), and it doesn't overlap another fix. Anything else is asked as one question.
+//   - "the AI's own words": only a paragraph whose AI part is all in the record of what the AI wrote, in order, and that
+//     Adam didn't type in while it streamed (`allTheAis`); the fix's words are whole words there (never "up" in "cup").
 
 import { findSceneQuote, plainQuote } from '../checks/quote'
 import { parseLenient, str } from '../keeper/json'
@@ -86,8 +88,9 @@ export interface FoundFix {
   was: string
   now: string
   claim: Claim
-  /** The claim's quote as it stands in the new words. */
+  /** The claim's quote as it stands in the new words, and where it starts in them. */
   quote: string
+  quoteStart: number
 }
 
 /** A slip that needs Adam's choice: one question, on the claim's own words. */
@@ -132,6 +135,7 @@ export function judgeClaims(
   const ai = plain(ctx.aiText.replace(/\{[^{}\n]*\}/g, '').replace(/\*+/g, ''))
   const out: Judged = { fixes: [], questions: [], claims: 0, slips: 0 }
   const asked = new Set<string>()
+  const ours = ctx.paragraphs.map((p) => allTheAis(p, ai))
   for (const c of claims) {
     const found = findSceneQuote(newWords, c.quote)
     if (!found) continue
@@ -142,9 +146,9 @@ export function judgeClaims(
     out.slips++
     const qStart = found.start
     const qEnd = found.start + found.quote.length
-    const fix = line?.quote && found.whole ? fixFor(c, newWords, qStart, qEnd, ctx.paragraphs, ai) : null
+    const fix = line?.quote && found.whole ? fixFor(c, newWords, qStart, qEnd, ctx.paragraphs, ai, ours) : null
     if (fix && !out.fixes.some((f) => f.para === fix.para && f.start < fix.end && fix.start < f.end)) {
-      out.fixes.push({ ...fix, claim: c, quote: found.quote })
+      out.fixes.push({ ...fix, claim: c, quote: found.quote, quoteStart: qStart })
       continue
     }
     const key = plainQuote(found.quote)
@@ -157,15 +161,40 @@ export function judgeClaims(
   return out
 }
 
-/** The fix where the model put it: exact words in one paragraph's AI part, overlapping the quote, small, the AI's own. */
+const WORD_CHAR = /[\p{L}\p{N}]/u
+
+/**
+ * True when a paragraph's AI part is all the AI's own: Adam didn't type in it while it streamed in, and all of it (made
+ * plain) is in the record of what the AI wrote (`ai`, made plain), in order. Anything else may hold his words.
+ */
+export function allTheAis(p: LandedParagraph, ai: string): boolean {
+  if (p.edited) return false
+  const part = plain(p.text.slice(p.from, p.to))
+  return !!part && ai.includes(part)
+}
+
+/** True when `len` characters at `i` in `text` are whole words there: no letter or digit runs on at either end. */
+function wholeWords(text: string, i: number, len: number): boolean {
+  const first = text[i] ?? ''
+  const last = text[i + len - 1] ?? ''
+  if (WORD_CHAR.test(first) && i > 0 && WORD_CHAR.test(text[i - 1])) return false
+  if (WORD_CHAR.test(last) && WORD_CHAR.test(text[i + len] ?? '')) return false
+  return true
+}
+
+/**
+ * The fix where the model put it: exact whole words in the AI part of one paragraph that is all the AI's own (`ours`),
+ * overlapping the quote, and small.
+ */
 function fixFor(
   c: Claim,
   newWords: string,
   qStart: number,
   qEnd: number,
   paragraphs: LandedParagraph[],
-  ai: string
-): Omit<FoundFix, 'claim' | 'quote'> | null {
+  ai: string,
+  ours: boolean[]
+): Omit<FoundFix, 'claim' | 'quote' | 'quoteStart'> | null {
   const f = c.fix
   if (!f) return null
   const was = f.replace
@@ -176,10 +205,10 @@ function fixFor(
   // Only words the AI wrote are changed.
   if (!ai.includes(plain(was))) return null
   for (let i = newWords.indexOf(was); i >= 0; i = newWords.indexOf(was, i + 1)) {
-    if (i >= qEnd || i + was.length <= qStart) continue
+    if (i >= qEnd || i + was.length <= qStart || !wholeWords(newWords, i, was.length)) continue
     const a = placeOf(paragraphs, i)
     const b = placeOf(paragraphs, i + was.length)
-    if (!a || !b || a.para !== b.para) continue
+    if (!a || !b || a.para !== b.para || !ours[a.para]) continue
     const p = paragraphs[a.para]
     if (a.offset < p.from || b.offset > p.to) continue
     return { para: a.para, start: a.offset, end: b.offset, was, now }

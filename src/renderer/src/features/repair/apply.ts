@@ -23,8 +23,12 @@ export function paragraphText(node: PMNode): string {
   return t
 }
 
-/** The paragraphs the words from `from` to `to` (positions) are in, in order, and which part of each they are. */
-export function landedParts(doc: PMNode, from: number, to: number): LandedPart[] {
+/**
+ * The paragraphs the words from `from` to `to` (positions) are in, in order, and which part of each they are. `typed`:
+ * the ids of paragraphs Adam typed in while the words streamed in (marks.ts): marked `edited`, so nothing in them is
+ * ever mended.
+ */
+export function landedParts(doc: PMNode, from: number, to: number, typed: Set<string> = new Set()): LandedPart[] {
   const out: LandedPart[] = []
   if (to <= from) return out
   doc.nodesBetween(from, to, (node, pos) => {
@@ -33,7 +37,8 @@ export function landedParts(doc: PMNode, from: number, to: number): LandedPart[]
     const a = Math.max(from, start) - start
     const b = Math.min(to, start + node.content.size) - start
     const text = paragraphText(node)
-    if (b > a && text.slice(a, b).trim()) out.push({ pid: typeof node.attrs.pid === 'string' && node.attrs.pid ? node.attrs.pid : null, text, from: a, to: b })
+    const pid = typeof node.attrs.pid === 'string' && node.attrs.pid ? node.attrs.pid : null
+    if (b > a && text.slice(a, b).trim()) out.push({ pid, text, from: a, to: b, ...(!pid || typed.has(pid) ? { edited: true } : {}) })
     return false
   })
   return out

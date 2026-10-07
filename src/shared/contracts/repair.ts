@@ -16,6 +16,8 @@ export interface LandedParagraph {
   /** Where the AI's words in it start and end (characters into `text`): a Continue may carry on one of Adam's paragraphs. */
   from: number
   to: number
+  /** Adam typed in it while the words were streaming in: its words aren't all the AI's, so nothing in it is mended. */
+  edited?: boolean
 }
 
 export interface RepairInput {
@@ -28,6 +30,11 @@ export interface RepairInput {
   paragraphs: LandedParagraph[]
   /** The end of the scene's words before the new ones (for what leads in; already counted in where things stand). */
   leadIn: string
+  /**
+   * How many characters of the scene's saved text come before the new words, so a question on words that also appear
+   * earlier (in Adam's words, say) points at the new ones.
+   */
+  beforeChars?: number
 }
 
 /** A slip mended in place: in paragraph `para`, characters `start` to `end` (the AI's words `was`) become `now`. */

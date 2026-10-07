@@ -343,7 +343,7 @@ describe('drafting', () => {
     try {
       const { emit, done } = recorder()
       const { generationId } = start(w, emit)
-      expect(heard).toEqual([{ sceneId: w.second.id, phase: 'start', variant: false }])
+      expect(heard).toEqual([{ sceneId: w.second.id, phase: 'start', variant: false, generationId }])
       const end = await done(generationId)
       expect(end.status).toBe('complete')
       expect(gens.getGeneration(w.db, generationId).status).toBe('complete')

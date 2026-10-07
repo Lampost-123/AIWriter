@@ -192,6 +192,27 @@ const PART_SQL = (key: 'index' | 'of'): string =>
   `CASE WHEN json_valid(params_json) THEN coalesce(json_extract(params_json, '$.variant.${key}'), json_extract(params_json, '$.beat.${key}')) END`
 
 /** This scene's drafts and Beat by beat's beats, newest first (the memory keeper's calls are left out). */
+/**
+ * Lets go of the prompts (messages and parts) of a scene's older records whose system prompt carries `marker`, keeping
+ * the newest `keep` whole (check and repair, repair/index.ts: each check holds the scene's facts and the new words, once
+ * per draft). Their cost, tokens and reply stay, so usage and What the AI saw's reply are unchanged. Returns how many.
+ */
+export function forgetOldPrompts(db: DB, sceneId: ID, marker: string, keep: number): number {
+  const rows = db
+    .prepare(
+      `SELECT id FROM generations WHERE scene_id = ? AND job = 'memory' AND messages_json <> '[]' AND instr(messages_json, ?) > 0
+       ORDER BY created_at DESC, rowid DESC`
+    )
+    .all(sceneId, marker) as { id: ID }[]
+  const old = rows.slice(Math.max(0, keep))
+  if (!old.length) return 0
+  const forget = db.prepare("UPDATE generations SET messages_json = '[]', blocks_json = '[]' WHERE id = ?")
+  db.transaction(() => {
+    for (const r of old) forget.run(r.id)
+  })()
+  return old.length
+}
+
 export function listGenerations(db: DB, sceneId: ID): GenerationSummary[] {
   const rows = db
     .prepare(

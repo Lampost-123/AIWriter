@@ -20,9 +20,10 @@ import * as gens from '../db/generations'
 import { callModel, type MemoryModel } from '../keeper/model'
 import { gatherSceneCheck, type SceneCheckContext } from '../checks/context'
 import { issueKey, KIND_OF_CHECK, occurrenceAt } from '../checks/quote'
+import { findQuote } from '../keeper/text'
 import { newId } from '../util'
 import { judgeClaims, newWordsOf, readClaims, type Claim, type FoundFix, type FoundQuestion } from './claims'
-import { codexLines, repairRequest, stageLines, type CodexLine, type StageLine } from './prompts'
+import { codexLines, REPAIR_MARKER, repairRequest, stageLines, type CodexLine, type StageLine } from './prompts'
 
 type DB = Database.Database
 
@@ -57,21 +58,58 @@ function stageAt(input: RepairInput): SceneState | null {
 
 // ---------- What the critic leaves to the repair ----------
 
-/** When a repair last started for each scene, so the critic after a draft leaves what it checked (checksIssues.ts). */
-const repairedAt = new Map<ID, number>()
-
-/** The checks the repair does claim by claim: the critic after a repaired draft leaves them out. */
-export const REPAIR_COVERS: CheckKind[] = ['continuity', 'knowledge', 'timeline']
-
-/** True when the new words of a scene were checked claim by claim at or after `since` (ms). */
-export const repairedSince = (sceneId: ID, since: number): boolean => (repairedAt.get(sceneId) ?? -1) >= since
+/**
+ * Each landing's check, by the record of its words (the draft's or beat's): `covered` is null while it runs, then the
+ * checks it covered (none when it failed). The critic after a draft asks (criticChecks).
+ */
+interface Checked {
+  done: Promise<void>
+  covered: CheckKind[] | null
+}
+const checked = new Map<ID, Checked>()
+const MOST_CHECKED = 60
 
 /**
- * The checks the critic runs after a draft that ended at `since` (ms): all but what the repair covered when the draft's
- * words were checked claim by claim as they landed; all six when they weren't (switched off, or it couldn't run).
+ * The checks a landing's claims cover: continuity when there was a stage to compare with (W lines), who knows what when
+ * the memory listed any (K lines), the timeline when there were scenes before (S lines). Facts, voices and style are
+ * always the critic's.
  */
-export const criticChecks = (sceneId: ID, since: number): CheckKind[] =>
-  repairedSince(sceneId, since) ? ALL_CHECKS.filter((c) => !REPAIR_COVERS.includes(c)) : [...ALL_CHECKS]
+export function coveredBy(stage: StageLine[], codex: CodexLine[]): CheckKind[] {
+  const out: CheckKind[] = []
+  if (stage.length) out.push('continuity')
+  if (codex.some((l) => l.kind === 'knows')) out.push('knowledge')
+  if (codex.some((l) => l.kind === 'scene')) out.push('timeline')
+  return out
+}
+
+/** How long the critic waits for a landing's check that is still running before checking everything itself. */
+export const CRITIC_WAIT_MS = 60_000
+
+const within = (p: Promise<unknown>, ms: number): Promise<void> =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms)
+    void p.finally(() => {
+      clearTimeout(t)
+      resolve()
+    })
+  })
+
+/**
+ * The checks the critic runs after the drafts with these records (more than one when drafts landed in a row before it
+ * ran): all six, less what every one of their landings' checks covered and finished. A check still running is waited
+ * for, at most `waitMs`; one that failed, ran out of time or never ran (switched off, Adam in another scene) covers
+ * nothing, so the critic checks it all, as before.
+ */
+export async function criticChecks(recordIds: ID[], waitMs = CRITIC_WAIT_MS): Promise<CheckKind[]> {
+  let covered: CheckKind[] | null = null
+  for (const id of recordIds) {
+    const c = checked.get(id)
+    if (c && c.covered === null) await within(c.done, waitMs)
+    const kinds = checked.get(id)?.covered ?? []
+    covered = covered === null ? kinds : covered.filter((k) => kinds.includes(k))
+  }
+  return ALL_CHECKS.filter((k) => !(covered ?? []).includes(k))
+}
 
 /**
  * Whether new words are checked as they land: Adam's switch (Settings › Models, "Check new words straight away", on
@@ -107,6 +145,8 @@ const NOTHING: RepairOutcome = { repairId: null, fixes: [], questions: 0, claims
 const LEAD_IN = 1_500
 /** Room for the reply. */
 const REPLY_TOKENS = 2_500
+/** How many of a scene's checks keep their whole prompt for What the AI saw; older ones keep their cost and reply. */
+export const KEEP_PROMPTS = 10
 
 /** The input as the page sent it, made safe. */
 function cleanInput(input: RepairInput): RepairInput {
@@ -117,7 +157,7 @@ function cleanInput(input: RepairInput): RepairInput {
       const text = p.text.slice(0, 20_000)
       const from = Math.max(0, Math.min(text.length, Math.floor(Number(p.from) || 0)))
       const to = Math.max(from, Math.min(text.length, Math.floor(Number(p.to ?? text.length))))
-      return { text, from, to }
+      return { text, from, to, ...(p.edited ? { edited: true } : {}) }
     })
     .filter((p) => p.text.slice(p.from, p.to).trim())
   return {
@@ -125,8 +165,20 @@ function cleanInput(input: RepairInput): RepairInput {
     recordId: String(input?.recordId ?? ''),
     ...(input?.stageOf ? { stageOf: String(input.stageOf) } : {}),
     paragraphs,
-    leadIn: typeof input?.leadIn === 'string' ? input.leadIn.slice(-LEAD_IN) : ''
+    leadIn: typeof input?.leadIn === 'string' ? input.leadIn.slice(-LEAD_IN) : '',
+    beforeChars: Math.max(0, Math.floor(Number(input?.beforeChars) || 0))
   }
+}
+
+/**
+ * Where a quote of the new words is in the scene's text: the first time it appears at or after `near` (the new words'
+ * place in the scene), so a question on words that also appear earlier (in Adam's words, say) is about the new ones.
+ */
+export function placeInScene(text: string, quote: string, near: number): number {
+  const from = Math.max(0, Math.min(near, text.length))
+  const r = findQuote(text.slice(from), quote)
+  if (r) return from + r.start
+  return findQuote(text, quote)?.start ?? -1
 }
 
 /** The scene card in a few lines: when, where, whose point of view, who is there. */
@@ -158,15 +210,17 @@ function sourcesOf(code: string, codex: CodexLine[]): IssueSource[] {
 
 /** One finding as an issue: a fixed slip (its words as the AI wrote them) or a question. */
 function asIssue(
-  ctx: { sceneId: ID; storyId: ID; text: string; codex: CodexLine[]; stage: StageLine[] },
+  ctx: { sceneId: ID; storyId: ID; text: string; codex: CodexLine[]; stage: StageLine[]; base: number },
   c: Claim,
   quote: string,
+  start: number,
   message: string,
   fix: string | null
 ): cdb.FoundIssue {
   const check = checkOf(c.line)
   const who = c.who.trim().toLowerCase() || ctx.stage.find((l) => l.code === c.line)?.who?.toLowerCase() || ''
-  const at = ctx.text.indexOf(quote)
+  // Which of the quote's places in the scene: the new words', never an earlier one (`start` is its place in them).
+  const at = placeInScene(ctx.text, quote, ctx.base + start)
   return {
     sceneId: ctx.sceneId,
     storyId: ctx.storyId,
@@ -209,7 +263,32 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
   }
   const stage = stageLines(stageAt(input))
   const codex = codexLines(ctx, newWords)
-  repairedAt.set(input.sceneId, Date.now())
+  // The critic after the draft waits for this check, and leaves out what it covered once it has (criticChecks).
+  let settle!: () => void
+  const entry: Checked = { done: new Promise<void>((r) => (settle = r)), covered: null }
+  checked.delete(input.recordId)
+  checked.set(input.recordId, entry)
+  while (checked.size > MOST_CHECKED) checked.delete(checked.keys().next().value!)
+  try {
+    const out = await checkWith(o, input, ctx, aiText, stage, codex, newWords)
+    if (out.repairId) entry.covered = coveredBy(stage, codex.lines)
+    return out
+  } finally {
+    entry.covered ??= []
+    settle()
+  }
+}
+
+/** The call and what comes of it, for checkNewWords. */
+async function checkWith(
+  o: RepairOptions,
+  input: RepairInput,
+  ctx: SceneCheckContext,
+  aiText: string,
+  stage: StageLine[],
+  codex: ReturnType<typeof codexLines>,
+  newWords: string
+): Promise<RepairOutcome> {
   const req = repairRequest({ stage, codex, card: cardText(ctx), leadIn: input.leadIn, newWords })
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
   const got = await callModel({
@@ -226,29 +305,36 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
     fetchImpl: o.fetchImpl,
     retryDelays: o.retryDelays
   })
-  if (got.status !== 'complete' || o.closed() || !o.db.open) {
-    // Not checked after all: the critic checks it all, as before.
-    repairedAt.delete(input.sceneId)
-    return NOTHING
+  // Only the newest few checks of a scene keep their whole prompt (each holds the scene's facts and the new words).
+  try {
+    if (o.db.open) gens.forgetOldPrompts(o.db, input.sceneId, REPAIR_MARKER, KEEP_PROMPTS)
+  } catch (e) {
+    console.warn('Could not let go of older check prompts', e)
   }
+  // Not checked after all (stopped, failed, or a reply that can't be read): the critic checks it all, as before.
+  if (got.status !== 'complete' || o.closed() || !o.db.open) return NOTHING
   const claims = readClaims(got.text)
-  if (!claims) {
-    repairedAt.delete(input.sceneId)
-    return NOTHING
-  }
+  if (!claims) return NOTHING
   const judged = judgeClaims(claims, { stage, codex: codex.lines, paragraphs: input.paragraphs, aiText })
-  const where = { sceneId: input.sceneId, storyId: ctx.storyId, text: cdb.sceneTexts(o.db, [input.sceneId]).get(input.sceneId) ?? ctx.text, codex: codex.lines, stage }
+  const where = {
+    sceneId: input.sceneId,
+    storyId: ctx.storyId,
+    text: cdb.sceneTexts(o.db, [input.sceneId]).get(input.sceneId) ?? ctx.text,
+    codex: codex.lines,
+    stage,
+    base: input.beforeChars ?? 0
+  }
   // Anything Adam said is meant to be so (ignored) is neither mended nor asked again.
   const rows = cdb.rowsInScenes(o.db, [input.sceneId])
   const ignored = (f: cdb.FoundIssue): boolean => rows.some((r) => r.status === 'ignored' && cdb.sameThing({ ...f.payload, key: f.key }, r, f))
 
-  const questions = judged.questions.map((q: FoundQuestion) => asIssue(where, q.claim, q.quote, q.message, q.fix)).filter((f) => !ignored(f))
+  const questions = judged.questions.map((q: FoundQuestion) => asIssue(where, q.claim, q.quote, q.start, q.message, q.fix)).filter((f) => !ignored(f))
   const raised = questions.length ? cdb.saveFound(o.db, rows, questions, () => false) : 0
   const fixes = judged.fixes
     .map((f: FoundFix) => {
       const fix: RepairFix = { id: newId(), para: f.para, start: f.start, end: f.end, was: f.was, now: f.now, why: f.claim.why || 'This didn’t match where things stood.' }
       const rewrite = f.quote.includes(f.was) ? f.quote.replace(f.was, f.now) : f.now
-      return { fix, issue: asIssue(where, f.claim, f.quote, fix.why, rewrite) }
+      return { fix, issue: asIssue(where, f.claim, f.quote, f.quoteStart, fix.why, rewrite) }
     })
     .filter((x) => !ignored(x.issue))
   const repairId = newId()
@@ -301,5 +387,5 @@ const questionText = (why: string): string => `${why.trim().replace(/[.!?]?$/, '
 export function resetRepairsForTests(): void {
   stages.clear()
   pending.clear()
-  repairedAt.clear()
+  checked.clear()
 }

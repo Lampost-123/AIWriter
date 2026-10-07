@@ -13,7 +13,7 @@ import * as gens from '../db/generations'
 import * as cdb from '../db/checks'
 import type { MemoryModel } from '../keeper/model'
 import { ALL_CHECKS } from '@shared/contracts/checks'
-import { checkIfWanted, checkNewWords, criticChecks, noteStage, repairedSince, repairsApplied, repairWanted, resetRepairsForTests } from './index'
+import { checkIfWanted, checkNewWords, criticChecks, KEEP_PROMPTS, noteStage, placeInScene, repairsApplied, repairWanted, resetRepairsForTests } from './index'
 import { REPAIR_MARKER } from './prompts'
 
 const model: MemoryModel = {
@@ -76,13 +76,13 @@ const SLIPS = {
   ]
 }
 
-function world(): { db: Database.Database; sceneId: ID; recordId: ID } {
+function world(adams = ADAMS): { db: Database.Database; sceneId: ID; recordId: ID } {
   const db = memoryWorld()
   const story = repo.listStories(db)[0]
   const sceneId = repo.getOutline(db, story.id).scenes[0].id
   repo.createEntry(db, 'character', { name: 'Mara' })
   repo.createEntry(db, 'character', { name: 'Tobin' })
-  const text = `${ADAMS}\n\n${AI}`
+  const text = `${adams}\n\n${AI}`
   repo.saveSceneText(db, sceneId, { type: 'doc', content: text.split('\n\n').map((t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] })) }, text)
   const recordId = 'draft-1'
   gens.insertGeneration(db, {
@@ -119,7 +119,6 @@ describe('check and repair', () => {
   it('checks the new words in one call against the stage the writer was told, mends the small slip and asks the other', async () => {
     const { db, sceneId, recordId } = world()
     noteStage(recordId, sceneId, STAGE)
-    const started = Date.now()
     const fetchImpl = answering(SLIPS)
     const out = await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
 
@@ -128,7 +127,9 @@ describe('check and repair', () => {
     expect(fetchImpl.asked[0].system.startsWith(REPAIR_MARKER)).toBe(true)
     expect(fetchImpl.asked[0].user).toContain('- [W2] Mara · wearing: hood back · words: "pushed her hood back"')
     expect(fetchImpl.asked[0].user).toContain(`## The new words (check these)\n"""\n${AI}\n"""`)
-    expect(repairedSince(sceneId, started)).toBe(true)
+    // The critic after the draft leaves out continuity, which this check covered (there was a stage to compare with);
+    // with no scenes before and nothing known by anyone, the timeline and who knows what stay the critic's.
+    expect(await criticChecks([recordId], 0)).toEqual(['facts', 'knowledge', 'timeline', 'voice', 'style'])
 
     expect(out).toMatchObject({ questions: 1, claims: 3, slips: 2 })
     expect(out.fixes).toEqual([
@@ -178,6 +179,8 @@ describe('check and repair', () => {
     const out = await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
     expect(fetchImpl.asked[0].user).toContain('Nothing is known yet about where things stand.')
     expect(out).toMatchObject({ fixes: [], questions: 0, claims: 0 })
+    // Nothing on the stage was compared, so the critic still checks continuity.
+    expect(await criticChecks([recordId], 0)).toEqual(ALL_CHECKS)
   })
 
   it('finds nothing when the model fails, and leaves the whole check to the critic', async () => {
@@ -185,8 +188,74 @@ describe('check and repair', () => {
     noteStage(recordId, sceneId, STAGE)
     const out = await checkNewWords(opts(db, answering(null, 400)), landed(sceneId, recordId))
     expect(out.repairId).toBeNull()
-    expect(repairedSince(sceneId, 0)).toBe(false)
+    expect(await criticChecks([recordId], 0)).toEqual(ALL_CHECKS)
     expect(cdb.sceneIssueRows(db, sceneId)).toEqual([])
+  })
+
+  it('the critic waits for a check still running, and checks it all when the check is too slow or one of the drafts went unchecked', async () => {
+    const { db, sceneId, recordId } = world()
+    noteStage(recordId, sceneId, STAGE)
+    const slow = answering(SLIPS)
+    const late = ((...args: Parameters<typeof fetch>) => new Promise<Response>((r) => setTimeout(() => r(slow(...args)), 150))) as typeof fetch
+    const running = checkNewWords(opts(db, late), landed(sceneId, recordId))
+    // Asked while it runs: too short a wait, and it checks everything.
+    expect(await criticChecks([recordId], 10)).toEqual(ALL_CHECKS)
+    // Long enough: it waits, then leaves out what was covered.
+    expect(await criticChecks([recordId], 5_000)).toEqual(['facts', 'knowledge', 'timeline', 'voice', 'style'])
+    await running
+    // Two drafts in a row, the second never checked (Adam was in another scene): everything.
+    expect(await criticChecks([recordId, 'draft-2'], 0)).toEqual(ALL_CHECKS)
+  })
+
+  it('stops at once when the world closes: nothing found, nothing written, the critic checks it all', async () => {
+    const { db, sceneId, recordId } = world()
+    noteStage(recordId, sceneId, STAGE)
+    const stop = new AbortController()
+    stop.abort()
+    const out = await checkNewWords({ ...opts(db, answering(SLIPS)), signal: stop.signal }, landed(sceneId, recordId))
+    expect(out.repairId).toBeNull()
+    expect(cdb.sceneIssueRows(db, sceneId)).toEqual([])
+    expect(await criticChecks([recordId], 0)).toEqual(ALL_CHECKS)
+  })
+
+  it("never mends a paragraph Adam typed in as it streamed, or one with words that aren't in the AI's record: it asks", async () => {
+    const { db, sceneId, recordId } = world()
+    noteStage(recordId, sceneId, STAGE)
+    const edited = landed(sceneId, recordId)
+    edited.paragraphs[0] = { ...edited.paragraphs[0], edited: true } as (typeof edited.paragraphs)[number]
+    const out = await checkNewWords(opts(db, answering(SLIPS)), edited)
+    expect(out.fixes).toEqual([])
+    expect(out.questions).toBe(2)
+
+    // His words in the paragraph, though the page didn't see him type them: not all in the record, so not mended.
+    const two = world()
+    noteStage(two.recordId, two.sceneId, STAGE)
+    const typed = landed(two.sceneId, two.recordId)
+    const text = `Her hood was up. ${typed.paragraphs[0].text}`
+    typed.paragraphs[0] = { text, from: 0, to: text.length }
+    const got = await checkNewWords(opts(two.db, answering(SLIPS)), typed)
+    expect(got.fixes).toEqual([])
+  })
+
+  it("points a question at the new words, not at the same words earlier in Adam's", async () => {
+    const adams = `Tobin was waiting by the door, Mara thought. ${ADAMS}`
+    const { db, sceneId, recordId } = world(adams)
+    noteStage(recordId, sceneId, STAGE)
+    await checkNewWords(opts(db, answering(SLIPS)), { ...landed(sceneId, recordId), beforeChars: adams.length })
+    const asked = cdb.sceneIssueRows(db, sceneId).find((r) => r.quote === 'Tobin was waiting by the door')!
+    expect(JSON.parse(asked.payload_json as string)).toMatchObject({ occurrence: 1 })
+    expect(placeInScene('a cup. a cup.', 'a cup', 3)).toBe(7)
+    expect(placeInScene('a cup.', 'a cup', 5)).toBe(0)
+  })
+
+  it(`keeps the whole prompt of a scene's newest ${KEEP_PROMPTS} checks only; older ones keep their cost and reply`, async () => {
+    const { db, sceneId, recordId } = world()
+    noteStage(recordId, sceneId, STAGE)
+    for (let i = 0; i < KEEP_PROMPTS + 2; i++) await checkNewWords(opts(db, answering({ claims: [] })), landed(sceneId, recordId))
+    const rows = db.prepare("SELECT messages_json, blocks_json, response FROM generations WHERE job = 'memory' AND scene_id = ?").all(sceneId) as Record<string, string>[]
+    expect(rows).toHaveLength(KEEP_PROMPTS + 2)
+    expect(rows.filter((r) => r.messages_json.includes(REPAIR_MARKER))).toHaveLength(KEEP_PROMPTS)
+    expect(rows.filter((r) => r.messages_json === '[]' && r.blocks_json === '[]' && r.response.includes('claims'))).toHaveLength(2)
   })
 
   it('asks nothing for too few new words', async () => {
@@ -210,17 +279,16 @@ describe('the off switch', () => {
   it('off, no call is made and the critic after the draft checks everything; on, it leaves out what was checked', async () => {
     const { db, sceneId, recordId } = world()
     noteStage(recordId, sceneId, STAGE)
-    const ended = Date.now()
     const off = answering(SLIPS)
     const out = await checkIfWanted(opts(db, off), landed(sceneId, recordId), { checkNewWords: false }, {})
     expect(out).toMatchObject({ repairId: null, fixes: [], questions: 0 })
     expect(off.asked).toHaveLength(0)
     expect(cdb.sceneIssueRows(db, sceneId)).toEqual([])
-    expect(criticChecks(sceneId, ended)).toEqual(ALL_CHECKS)
+    expect(await criticChecks([recordId], 0)).toEqual(ALL_CHECKS)
 
     const on = answering(SLIPS)
     await checkIfWanted(opts(db, on), landed(sceneId, recordId), { checkNewWords: true }, {})
     expect(on.asked).toHaveLength(1)
-    expect(criticChecks(sceneId, ended)).toEqual(['facts', 'voice', 'style'])
+    expect(await criticChecks([recordId], 0)).toEqual(['facts', 'knowledge', 'timeline', 'voice', 'style'])
   })
 })
