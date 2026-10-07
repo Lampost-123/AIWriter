@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide } from '@shared/types'
 import { AUTO_LENGTH, cardLength, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
+import type { SceneState } from '@shared/continuity'
 import {
   assembleContext,
   autoCeiling,
@@ -29,6 +30,7 @@ import {
   sentEntryVersions,
   storySoFarText,
   timeSincePrevious,
+  toldStage,
   deadBy,
   type ContextInput,
   type PreparedContext,
@@ -755,6 +757,43 @@ describe('blocks', () => {
     expect(fresh).not.toContain('Loses her temper')
   })
 
+  it('block 2 carrying on (Add below, a later beat): the memory’s notes on this scene are on the page already, not aims', () => {
+    // The trap run (Adam, 2026-10-07): told "Ash Penrose: went out to see to the horses" as an aim after the scene so
+    // far had sent him out, the writer sent him out again.
+    const inp = input()
+    const mara = named(inp, 'Mara Venn')
+    const tobin = named(inp, 'Tobin')
+    const base = { anchor: 'scene', storyId: 'book-2', sceneId: 'scene-9', position: 0, runId: null, createdAt: '', updatedAt: '' } as const
+    inp.memory.bringAbout = [
+      { ...base, id: 'c1', origin: 'text', entryId: tobin.id, kind: 'update', payload: { note: 'went out to see to the horses' } },
+      { ...base, id: 'c2', origin: 'ai', entryId: mara.id, kind: 'knowledge', payload: { factId: 'f1', fact: 'the ferry leaves at dawn' } }
+    ]
+    // A redraft: aims, as before.
+    expect(blockOf(inp, 'scene-card')!.text).toContain('- Tobin: went out to see to the horses')
+    for (const carryOn of [
+      (i: ContextInput) => (i.options = { ...i.options, addBelow: true }),
+      (i: ContextInput) => (i.soFar = 'Tobin went out to see to the horses.'),
+      (i: ContextInput) => (i.continuityAtSoFar = true)
+    ]) {
+      const on = input()
+      on.memory.bringAbout = inp.memory.bringAbout
+      carryOn(on)
+      const card = blockOf(on, 'scene-card')!.text
+      expect(card).not.toContain('What this scene should bring about')
+      expect(card).not.toContain('went out to see to the horses')
+      // The card's own aims stay.
+      expect(card).toContain('Goal: Get passage out of Varn')
+      expect(card).toContain('Outcome: She agrees, then someone knocks')
+      expect(prepareContext(on).finals.withPrevious).not.toContain('Make the scene bring about what the scene card says it should.')
+    }
+    // Adam's own note stays an aim, but only if the scene so far hasn't met it yet.
+    const adam = input({ soFar: 'Mara waited by the door.' })
+    adam.memory.bringAbout = [...inp.memory.bringAbout, { ...base, id: 'c3', origin: 'adam', entryId: named(adam, 'Tobin').id, kind: 'update', payload: { note: 'Leaves the ferry' } }]
+    const card = blockOf(adam, 'scene-card')!.text
+    expect(card).toContain('What this scene should bring about (aims, not facts yet; bring about only what the scene so far hasn’t already):\n- Tobin: Leaves the ferry')
+    expect(card).not.toContain('horses')
+  })
+
   it('block 3: the end of the previous scene on the line; short: the last 200 words', () => {
     const inp = richInput()
     const block = blockOf(inp, 'previous-scene')!
@@ -901,8 +940,9 @@ describe('blocks', () => {
   it('block 3b: where things stand as the previous scene ended; short: only the characters on the card', () => {
     const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
     const inp = input()
-    // The same day as the scene before, so what Mara wears and holds is in what must stay true too.
-    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, noon' }
+    // The same When as the scene before, so its time and weather still hold, and what Mara wears and holds is in what
+    // must stay true too.
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, dusk' }
     inp.continuity = {
       time: 'dusk',
       weather: 'rain',
@@ -912,6 +952,8 @@ describe('blocks', () => {
         { ...blank, name: 'The Duke', where: 'his tower', mood: 'suspicious' }
       ]
     }
+    // Not on the card, but Adam's direction names him: the Duke is in the scene.
+    inp.options.direction = 'Make it tense; the Duke is watching from the gallery'
     const block = blockOf(inp, 'continuity')!
     expect(block.title).toBe('Where things stand as the previous scene ended')
     expect(block.text).toContain('Time: dusk. Weather: rain')
@@ -929,6 +971,72 @@ describe('blocks', () => {
     expect(prepareContext(inp).finals.withPrevious).not.toContain('Keep to where things stand')
     // Nothing known: no block.
     expect(blockOf(input(), 'continuity')).toBeUndefined()
+  })
+
+  it('where things stand as told: only the people in this scene, and a new time starts fresh (the trap run)', () => {
+    // The trap run (Adam, 2026-10-07): a night scene on the same day carried "morning" from the scene before, and the
+    // writer had Tobin say "Morning"; Bryn and the boy from earlier scenes sat in the stage, and repair asked about the boy.
+    const blank = { where: '', wearing: '', posture: '', holding: '', condition: '', mood: '', lastAction: '' }
+    const inp = input()
+    inp.scene.card.when = 'Day 12, night, rain'
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12' }
+    const kept: SceneState = {
+      time: 'morning, the twentieth, after six; the sun has come up',
+      weather: 'rain steady, no wind',
+      light: 'firelight in the back parlour',
+      characters: [
+        { ...blank, name: 'Mara Venn', where: 'on the settle', holding: 'nothing' },
+        { ...blank, name: 'Tobin', where: 'gone out to the stable' },
+        { ...blank, name: 'Mother Rook', where: 'in the kitchen', holding: 'a jug' },
+        { ...blank, name: 'Bryn Tally', where: 'gone in her cart towards the south gate', holding: 'the reins' },
+        { ...blank, name: 'the boy', where: 'up the valley with the herd' }
+      ],
+      said: {
+        '|time': { quote: 'the sun had come up', sceneId: 'scene-8' },
+        '|weather': { quote: 'the rain came on', sceneId: 'scene-8' },
+        // Read from this scene's own words: it holds.
+        '|light': { quote: 'the fire in the back parlour', sceneId: 'scene-9' },
+        'bryn tally|holding': { quote: 'took up the reins', sceneId: 'scene-3' },
+        'mara venn|where': { quote: 'sat on the settle', sceneId: 'scene-9' }
+      }
+    }
+    const copy = JSON.parse(JSON.stringify(kept)) as SceneState
+    inp.continuity = kept
+    inp.continuityAtSoFar = true
+    inp.soFar = 'Mother Rook brought the jug in and went out again. Tobin went out to see to the horses.'
+    const told = toldStage(inp)!
+    expect(told.time).toBe('')
+    expect(told.weather).toBe('')
+    expect(told.light).toBe('firelight in the back parlour')
+    expect(told.characters.map((c) => c.name)).toEqual(['Mara Venn', 'Tobin', 'Mother Rook'])
+    // Each value keeps its words; those of the people and the time left out go with them.
+    expect(Object.keys(told.said ?? {}).sort()).toEqual(['mara venn|where', '|light'])
+    // The stage as kept is left whole.
+    expect(inp.continuity).toEqual(copy)
+    const p = prepareContext(inp)
+    const stage = p.blocks.find((b) => b.id === 'continuity')!.text
+    expect(stage).not.toContain('morning')
+    expect(stage).not.toContain('Weather:')
+    expect(stage).toContain('Light: firelight in the back parlour')
+    expect(stage).toContain('- Mother Rook: where: in the kitchen; holding: a jug')
+    expect(stage).not.toContain('Bryn')
+    expect(stage).not.toContain('the boy')
+    const must = p.blocks.find((b) => b.id === MUST_BLOCK)!.text
+    expect(must).not.toContain('morning')
+    expect(must).not.toContain('Bryn')
+    expect(must).toContain('Mara Venn is holding: nothing')
+    // The same When as the scene before: its time and weather still hold.
+    inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, Night, rain.' }
+    expect(toldStage(inp)).toMatchObject({ time: 'morning, the twentieth, after six; the sun has come up', weather: 'rain steady, no wind' })
+    // From another story, never.
+    inp.memory.previous = { ...inp.memory.previous!, otherStory: { ended: true, timeGap: '' } }
+    expect(toldStage(inp)?.time).toBe('')
+    // A new scene's start: those on the card and those its card or Adam's direction names.
+    const fresh = input()
+    fresh.continuity = kept
+    fresh.options.direction = 'Bryn Tally comes back for her whip'
+    expect(toldStage(fresh)!.characters.map((c) => c.name)).toEqual(['Mara Venn', 'Tobin', 'Bryn Tally'])
+    expect(toldStage(fresh)!.time).toBe('')
   })
 
   it('block 3b at the end of the scene so far: its own title and lead, and the closing instruction keeps to it', () => {

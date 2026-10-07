@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest'
 import type { EntryKind, EntryState, FactState } from '@shared/types'
 import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneState } from '@shared/continuity'
-import { MUST_GAPS, MUST_ITEMS, MUST_LEAD, MUST_MOST, MUST_SHORT, mustStayTrue, mustText, shortPlace, stageFor, type MustInput } from './mustStay'
+import { MUST_GAPS, MUST_ITEMS, MUST_LEAD, MUST_MOST, MUST_SHORT, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type MustInput } from './mustStay'
+import { stageTold } from '../repair'
+import { stageLines } from '../repair/prompts'
 import type { Holding } from '../memory/items'
 import { assembleContext, MUST_BLOCK, PLAN_BLOCK, prepareContext, stageReach, WHY, type ContextInput } from './context'
 import { countRaw } from './tokens'
@@ -246,6 +248,40 @@ describe('what must stay true', () => {
     expect(ranked.findIndex((l) => l.includes('no longer has'))).toBeLessThan(ranked.findIndex((l) => l.startsWith('Where Wren is')))
   })
 
+  it('is told only the people in the scene, and a time that still holds; the stage as kept stays whole', () => {
+    // The trap run (Adam, 2026-10-07): Bryn and "the boy" from earlier scenes sat in an inn scene's stage.
+    const s = stage()
+    s.characters.push(
+      { ...blank, name: 'Bryn Tally', where: 'gone south in her cart', holding: 'the reins' },
+      { ...blank, name: 'the boy', where: 'up the valley with the herd' },
+      { ...blank, name: 'Mother Rook', where: 'the kitchen', holding: 'a jug' }
+    )
+    s.said = { ...s.said, 'bryn tally|holding': { quote: 'took up the reins', sceneId: 'sc-1-1' }, '|light': { quote: 'she lit the candle', sceneId: 'here' } }
+    const kept = JSON.parse(JSON.stringify(s)) as SceneState
+    const wren = entry('character', 'Wren')
+    const osric = entry('character', 'Osric Hale', { aliases: ['the miller'] })
+    const cast = [wren, osric, entry('character', 'Bryn Tally'), entry('character', 'Mother Rook'), entry('character', 'Mother Agate')]
+    const scope = { sceneId: 'here', timeCarries: false, onCard: [wren], cast, words: 'The miller came up the ladder. Mother Rook called up from the kitchen.' }
+    const told = stageInScene(s, scope)!
+    // On the card, named by another name, named in the scene's words; not Bryn or the boy from other scenes.
+    expect(told.characters.map((c) => c.name)).toEqual(['Wren', 'Osric Hale', 'Mother Rook'])
+    expect(told.said?.['bryn tally|holding']).toBeUndefined()
+    // The time from the scene before doesn't hold here; the light from this scene's own words does.
+    expect(told).toMatchObject({ time: '', weather: '', light: 'one tallow candle' })
+    expect(told.said?.['|time']).toBeUndefined()
+    expect(stageInScene(s, { ...scope, timeCarries: true })).toMatchObject({ time: 'late evening', weather: 'sleet' })
+    // A first name counts only when no one else here shares it: "Mother" could be Mother Agate.
+    expect(stageInScene(s, { ...scope, words: 'Mother Agate waved.' })!.characters.map((c) => c.name)).toEqual(['Wren'])
+    expect(stageInScene(s, { ...scope, words: 'Bryn came back for her whip.' })!.characters.map((c) => c.name)).toContain('Bryn Tally')
+    // Carrying on with no one on the card: everyone told, no one else.
+    const lines = mustStayTrue(base({ stand: told, people: [] })).join('\n')
+    expect(lines).toContain('Where Mother Rook is: the kitchen')
+    expect(lines).not.toContain('Bryn')
+    expect(lines).not.toContain('Time: ')
+    expect(s).toEqual(kept)
+    expect(stageInScene(null, scope)).toBeNull()
+  })
+
   it('reads with its lead, or none in the short form', () => {
     expect(mustText(['A', 'B'], 'here')).toBe(`${MUST_LEAD.here}\n- A\n- B`)
     expect(mustText(['A'], 'start')).toBe(`${MUST_LEAD.start}\n- A`)
@@ -390,6 +426,23 @@ describe('what must stay true in a draft', () => {
     const common = draftInput({ soFar: 'She rubbed her eye.' })
     common.memory.entries = [...common.memory.entries, eye]
     expect((assembleContext(common, countRaw).entries ?? []).some((e) => e.entryId === eye.id)).toBe(false)
+  })
+
+  it('the check of the new words is told the same stage as the writer: no W line about someone from another scene', () => {
+    // The trap run (Adam, 2026-10-07): a stale line about "the boy", from an earlier scene, raised a wrong question.
+    const inp = draftInput()
+    inp.continuity!.characters.push({ ...blank, name: 'the boy', where: 'up the valley with the herd' })
+    const lines = stageLines(stageTold({ input: inp }, true))
+    expect(lines.some((l) => l.who === 'the boy')).toBe(false)
+    expect(lines.some((l) => l.who === 'Wren' && l.field === 'holding')).toBe(true)
+    // Nor the time of the scene before, here with no When on either card.
+    expect(lines.some((l) => l.field === 'time')).toBe(false)
+    expect(assembleContext(inp, countRaw).messages[1].content).not.toContain('the boy')
+    // Named in the scene so far: there.
+    inp.soFar = 'Wren could hear the boy whistling below.'
+    expect(stageLines(stageTold({ input: inp }, true)).some((l) => l.who === 'the boy')).toBe(true)
+    // The kept stage is untouched.
+    expect(inp.continuity!.characters.at(-1)!.name).toBe('the boy')
   })
 
   it('the plan goes after the closing instruction, and brings in what it asked for that Adam has not kept out', () => {

@@ -5,7 +5,7 @@
 import type Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
-import { quoteFound } from '@shared/continuity'
+import { layGone, quoteFound, saysGone } from '@shared/continuity'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
@@ -128,6 +128,85 @@ describe('where things stand', () => {
     const after = mergeState(before, read)
     expect(after.said).toMatchObject({ 'mara|holding': { quote: 'took the lamp' }, 'tobin|where': { quote: 'Tobin stood on the dock' } })
     expect(mergeState(after, { characters: [mara({ holding: 'nothing' })] }).said?.['mara|holding']).toBeUndefined()
+  })
+
+  it('an empty hand clears what was held, words or no words (the trap run’s survey case)', () => {
+    // The trap run (Adam, 2026-10-07): after Wren put the survey case on the sill and Ash hung Cinder's lead on the
+    // mantel and went out, the memory model said so with no words. The values were left out, "holding: the survey case"
+    // carried on, and the writer put the case back under her hand.
+    const words =
+      'She set the case on the sill where she could see it from the settle, and lay down with her feet to the fire. He hung the lead on the corner of the mantel, set his hat on the table and pulled his boots off by the hearth.'
+    const reply = `{
+      "time": {"value": "morning, the twentieth, after six", "quote": ""},
+      "characters": [
+        {"name": "Wren Hollis",
+         "holding": {"value": "nothing", "quote": ""},
+         "posture": {"value": "lying on the settle", "quote": "lay down with her feet to the fire"}},
+        {"name": "Ash Penrose",
+         "holding": {"value": "Cinder's lead, hung on the corner of the mantel", "quote": ""},
+         "wearing": {"value": "hat off, set on the table brim up; boots off, set by the hearth", "quote": "he took his hat off"}}
+      ]}`
+    const read = readChanges(reply, words, 'inn')!
+    // Without words, only what says something is gone counts: no time, but an empty hand.
+    expect(read.time).toBe('')
+    expect(read.characters?.find((c) => c.name === 'Wren Hollis')).toMatchObject({ holding: 'nothing', posture: 'lying on the settle' })
+    expect(read.gone.sort()).toEqual(['ash penrose|holding', 'ash penrose|wearing', 'wren hollis|holding'])
+    const before: SceneState = {
+      time: 'morning, the twentieth, after six; the sun has come up',
+      weather: '',
+      light: '',
+      characters: [
+        { ...mara({ holding: 'the survey case, against her thigh', posture: 'sitting on the settle' }), name: 'Wren Hollis' },
+        { ...mara({ holding: "Cinder's lead, wound round his fist", wearing: 'a coat with a knife-hole in the collar, collar up; hat down against the wind; boots' }), name: 'Ash Penrose' }
+      ],
+      said: {
+        'wren hollis|holding': { quote: 'the case against her thigh', sceneId: 'inn' },
+        "ash penrose|holding": { quote: "took Cinder's lead down", sceneId: 'inn' },
+        'ash penrose|wearing': { quote: 'pulled his collar up', sceneId: 'inn' }
+      }
+    }
+    const after = mergeState(before, read)
+    const wren = after.characters.find((c) => c.name === 'Wren Hollis')!
+    const ash = after.characters.find((c) => c.name === 'Ash Penrose')!
+    expect(wren.holding).toBe('nothing')
+    expect(ash.holding).toBe('nothing')
+    // What he still wears stays; what came off says so, in place of how it was.
+    expect(ash.wearing).toBe('a coat with a knife-hole in the collar, collar up; hat off, set on the table brim up; boots off, set by the hearth')
+    // The old words go with the old values: none are left standing behind an empty hand.
+    expect(after.said?.['wren hollis|holding']).toBeUndefined()
+    expect(after.said?.['ash penrose|holding']).toBeUndefined()
+    expect(after.said?.['ash penrose|wearing']).toBeUndefined()
+    expect(stateText(after, ['Wren Hollis'])).toContain('holding: nothing')
+    expect(stateText(after)).not.toContain('survey case')
+    // A value that doesn't say something is gone still needs its words; the same empty hand again changes nothing.
+    const again = mergeState(after, readChanges('{"characters": [{"name": "Wren Hollis", "holding": {"value": "the survey case, against her thigh", "quote": ""}}]}', words, 'inn')!)
+    expect(again.characters.find((c) => c.name === 'Wren Hollis')!.holding).toBe('nothing')
+    const withWords = { ...after, said: { ...after.said, 'wren hollis|holding': { quote: 'set the case on the sill', sceneId: 'inn' } } }
+    expect(mergeState(withWords, readChanges('{"characters": [{"name": "Wren Hollis", "holding": {"value": "Nothing.", "quote": ""}}]}', words, 'inn')!).said?.['wren hollis|holding']).toEqual({
+      quote: 'set the case on the sill',
+      sceneId: 'inn'
+    })
+    // With the words of the act, they are kept.
+    const quoted = mergeState(before, readChanges('{"characters": [{"name": "Wren Hollis", "holding": {"value": "nothing; the case on the sill", "quote": "She set the case on the sill"}}]}', words, 'inn')!)
+    expect(quoted.characters[0].holding).toBe('nothing; the case on the sill')
+    expect(quoted.said?.['wren hollis|holding']).toEqual({ quote: 'She set the case on the sill', sceneId: 'inn' })
+  })
+
+  it('knows what says something is gone, and what doesn’t', () => {
+    for (const v of ['nothing', 'Nothing in her hands', 'none', 'empty-handed', 'nothing; the compass given away', 'the survey case, set on the bench beside the settle', "Cinder's lead, hung on the corner of the mantel; the lamp, given to Rook"])
+      expect(saysGone('holding', v), v).toBe(true)
+    for (const v of ['the survey case, against her thigh', 'the lamp in her left hand by the window', 'his stick over his shoulder; a pot of grease, set on the stone', 'the case, on her lap', 'the knife, not put down and not lifted', ''])
+      expect(saysGone('holding', v), v).toBe(false)
+    for (const v of ['barefoot', 'nothing on her feet', 'hat off; boots off, by the door', 'naked', 'coat taken off, over the chair'])
+      expect(saysGone('wearing', v), v).toBe(true)
+    for (const v of ['hat off; boots still on', 'boots on', 'a white shirt, dark trousers, boots off', 'boots never taken off'])
+      expect(saysGone('wearing', v), v).toBe(false)
+    expect(saysGone('time', 'nothing')).toBe(false)
+    // Bare feet: whatever was on them goes; the rest stays.
+    expect(layGone('wearing', 'a grey cloak; boots, laced', 'barefoot')).toBe('a grey cloak; barefoot')
+    // Something put down that wasn't known to be held: still not known.
+    expect(layGone('holding', '', 'the lamp, set on the table')).toBeNull()
+    expect(layGone('holding', 'the lamp; a knife', 'the lamp, set on the table')).toBe('a knife')
   })
 
   it('is asked for once for the same words, again when they change, and builds on the scene before', async () => {
@@ -392,5 +471,40 @@ describe('where things stand', () => {
     expect(system.content).toContain('Always the whole outfit as it is now')
     expect(system.content).toContain('what their hands, arms and legs are doing')
     expect(system.content).toContain('Never guess')
+    // Something put down or taken off: the words of the act.
+    expect(system.content).toContain('say "nothing" (or what they still hold), and quote the words where they put it down')
+  })
+
+  it('a new time starts fresh: the time, light and weather carry into the next scene only with the same When', async () => {
+    // The trap run (Adam, 2026-10-07): "morning, the sun has come up" from a Day 23 scene carried through the next,
+    // "Day 23, night, rain", and the writer had a man say "Morning".
+    const w = world()
+    const when = (id: ID, v: string): void => void repo.updateSceneCard(w.db, id, { ...repo.getScene(w.db, id).card, when: v })
+    when(w.one, 'Day 23')
+    when(w.two, 'Day 23, night, rain')
+    write(w.db, w.one, 'The sun came up over the coast road. Mara rode on.')
+    write(w.db, w.two, 'Mara sat by the fire at the inn. Later she slept.')
+    const f = answering({ time: 'morning', light: 'sunrise', weather: 'dry', characters: [mara({ where: 'on the coast road' })] }, { characters: [mara({ posture: 'sitting by the fire' })] })
+    const here = await stateAtText(opts(w.db, f), w.two, 'Mara sat by the fire at the inn.')
+    expect(f.asked).toHaveLength(2)
+    // Not told to the memory model as how the scene starts, nor kept for it; the people carry on.
+    expect(f.asked[1]).not.toContain('morning')
+    expect(here).toMatchObject({ time: '', light: '', weather: '' })
+    expect(here?.characters[0]).toMatchObject({ where: 'on the coast road', posture: 'sitting by the fire' })
+    expect(here?.said?.['|time']).toBeUndefined()
+    expect(keptStateBefore(w.db, w.two)).toMatchObject({ time: '', light: '', weather: '' })
+    // The scene before keeps its own.
+    expect(storedState(w.db, w.one)?.state).toMatchObject({ time: 'morning', light: 'sunrise', weather: 'dry' })
+    // The same When on both cards: they carry on, and the scene so far is read again from that start.
+    when(w.two, 'Day 23')
+    expect(keptStateBefore(w.db, w.two)).toMatchObject({ time: 'morning', light: 'sunrise', weather: 'dry' })
+    expect(storedStateAt(w.db, w.two, 'Mara sat by the fire at the inn.')).toBeNull()
+    const again = await stateAtText(opts(w.db, f), w.two, 'Mara sat by the fire at the inn.')
+    expect(f.asked).toHaveLength(3)
+    expect(f.asked[2]).toContain('Time: morning')
+    expect(again?.time).toBe('morning')
+    // A scene with no When after one with a time: unknown how long has passed, so it starts fresh too.
+    when(w.two, '')
+    expect(keptStateBefore(w.db, w.two)?.time).toBe('')
   })
 })
