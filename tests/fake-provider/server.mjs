@@ -56,6 +56,8 @@
 //   - "At last the answer came: <x>."               the same thread is closed (a "close" item, note <x>)
 //   - "<Name> found her|his|their <thing> again."   ends <Name>'s "lost her <thing>" (an "end" item; a leading
 //                                                    "The next morning," and the like is its "when")
+//   - "<Name> told them a secret: <x>."             a secret told by <Name> ("said", heard by nobody named: the
+//                                                    app adds who was on stage)
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -233,6 +235,8 @@ const sentencesOf = (p) => (p.match(/[^.!?]+[.!?]+["'’”]?|[^.!?]+$/g) ?? [])
 function readSentence(s) {
   let m = s.match(/^(?:(The next morning|That night|At dawn|Later), )?([A-Z][a-z]+) (?:found|finds) (her|his|their) ([a-z][a-z ]*[a-z]) again/)
   if (m) return { kind: 'end', name: m[2], fact: `lost ${m[3]} ${m[4]}`, when: (m[1] ?? '').toLowerCase() }
+  m = s.match(/\b([A-Z][a-z]+) told them a secret: ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'said', name: m[1], fact: m[2].trim() }
   m = s.match(/\b([A-Z][a-z]+) (?:lost|loses) (her|his|their) ([a-z][a-z ]*[a-z])/)
   if (m) return { kind: 'change', name: m[1], note: `lost ${m[2]} ${m[3]}`, fields: { marks: `${m[3]} lost` } }
   m = s.match(/\b([A-Z][a-z]+)'s eyes (?:are|were) ([a-z]+)/)
@@ -303,6 +307,7 @@ export function fakeMemoryReply(user) {
     if (r.kind === 'detail') add.push({ type: 'detail', entry, field: r.field, value: r.value, quote: s })
     if (r.kind === 'knows') add.push({ type: 'knows', entry, fact: r.fact, quote: s })
     if (r.kind === 'end') add.push({ type: 'end', entry, fact: r.fact, when: r.when, quote: s })
+    if (r.kind === 'said') add.push({ type: 'said', kind: 'secret', entry, heard: [], fact: r.fact, quote: s })
     if (r.kind === 'wants') {
       // Filed as a character, as a careless memory model once did with a bead (the app makes it an item).
       const name = `${r.name}'s ${r.what} ${r.thing}`

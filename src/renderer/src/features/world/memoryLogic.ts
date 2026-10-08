@@ -469,7 +469,8 @@ export function describeChange(
       // Who was there (World Memory Overhaul B5): the others on stage at those words know it too.
       const others = (c.payload.there ?? []).filter((id) => id !== selfId).flatMap((id) => nameOf(id) ?? [])
       const there = others.length ? `Was there with ${joinNames(others)}` : null
-      const detail = [words, there].filter(Boolean).join(' · ') || null
+      // The line itself shows as the change's source words already, so who was there takes its place when known.
+      const detail = there ?? words
       return { text: `${what}: ${c.payload.fact.trim()}`, detail }
     }
     case 'thread': {
