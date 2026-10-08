@@ -144,6 +144,8 @@ test('Continue’s words fade in and the page glides along with them, then settl
     await useFakeModel(win, fake, 'fake/slow')
     const prose = win.locator('.scene-prose')
     await expect(prose).toContainText('A hundred and twelve steps to the lamp room.')
+    // (P6_THROTTLE=4 slows the window's CPU fourfold, as on CI's runners, to see the glide there.)
+    if (process.env.P6_THROTTLE) await (await win.context().newCDPSession(win)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.P6_THROTTLE) })
     // How far the page moves each frame while the change is written, and how long each frame was.
     await win.evaluate(`(() => {
       const el = document.querySelector('.desk-scroller')
@@ -166,25 +168,38 @@ test('Continue’s words fade in and the page glides along with them, then settl
     // Leaving out the change being brought into view at the start (in one step, as before).
     const moving = steps.slice(steps.findIndex(([d]) => d !== 0) + 1)
     const moved = moving.reduce((a, [d]) => a + d, 0)
-    // The glide is timed, not counted in frames (scrollGlide.ts), so each step is measured against the time its frame
-    // took: px per 60th of a second. CI's virtual screen draws fewer, uneven frames, and a raw step per frame measured
-    // that, not the glide.
-    const PER = 1000 / 60
-    const speeds = moving.map(([d, dt]) => (Math.abs(d) * PER) / Math.max(PER, dt))
-    const fastest = Math.max(0, ...speeds)
-    // Gliding, the page moves on most frames between its first and last move (it waits only while it has caught up with
-    // the words: about a third of the frames here); going a line at a time it would sit still on nearly all of them and
-    // then jump a whole line.
+    // Gliding, the page moves a little on nearly every frame between its first and last move (it waits only while it
+    // has caught up with the words); going a line at a time it would sit still on most frames and then jump a whole line
+    // (about 30 px). Both are measured in frames that moved and frames that didn't, not in pixels per frame: how far a
+    // timed glide (scrollGlide.ts) goes in one frame depends on how fast the screen draws, and CI's virtual screen draws
+    // fewer, uneven frames (a cap of 25 px a frame measured that, not the glide).
+    // The glide is timed (scrollGlide.ts: a share of the gap for the time passed, never faster than 1.2 px a ms), so the
+    // page's speed is measured over a tenth of a second at a time, not per frame: frames come unevenly (fewer, and late,
+    // on CI's slower machines, where the words also arrive in bunches), and a single frame's step measured the machine.
+    const WINDOW = 100
+    let fastest = 0
+    for (let i = 0; i < moving.length; i++) {
+      let px = 0
+      let ms = 0
+      for (let j = i; j < moving.length && ms < WINDOW; j++) {
+        px += Math.abs(moving[j][0])
+        ms += moving[j][1]
+      }
+      if (ms >= WINDOW) fastest = Math.max(fastest, px / ms)
+    }
+    // Gliding, the page moves on nearly every frame between its first and last move (it waits only while it has caught
+    // up with the words); going a line at a time it would sit still on most frames and then jump a whole line.
     const first = moving.findIndex(([d]) => d !== 0)
     const lastMove = moving.length - 1 - [...moving].reverse().findIndex(([d]) => d !== 0)
     const span = first < 0 ? [] : moving.slice(first, lastMove + 1)
     const still = span.filter(([d]) => d === 0).length / Math.max(1, span.length)
     console.log(
-      `desk-perf: Continue followed ${Math.round(moved)} px over ${moving.length} frames; fastest ${fastest.toFixed(1)} px per 60th of a second; still on ${Math.round(still * 100)}% of the frames while moving`
+      `desk-perf: Continue followed ${Math.round(moved)} px over ${moving.length} frames; fastest ${fastest.toFixed(2)} px a ms over a tenth of a second; still on ${Math.round(still * 100)}% of the frames while moving`
     )
     expect(moved).toBeGreaterThan(100)
-    // A line at a time would be a whole line (about 30 px or more) in a frame: the page glides instead.
-    expect(fastest).toBeLessThan(25)
+    // About the glide's top speed at most (1.2 px a ms, with room for rounding and the editor keeping the words in view):
+    // a line at a time at 60 frames a second would be 30 px a frame, 1.8 px a ms.
+    expect(fastest).toBeLessThan(1.6)
     expect(still).toBeLessThan(0.8)
     await win.keyboard.press('Tab')
     await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')

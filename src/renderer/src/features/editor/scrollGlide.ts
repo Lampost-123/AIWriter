@@ -1,7 +1,8 @@
 // Gliding the page toward a place that may keep moving, as it does while the AI writes: Add below's draft
 // (followScroll.ts) and Continue's change (features/edits/SuggestionLayer.tsx). Each frame closes the same share of
 // the gap for the time that has passed (1 − e^(−dt/90 ms)), so the glide feels the same on a 60 Hz and a 120 Hz
-// screen; a share per frame would be twice as quick at 120 Hz. With less motion the page goes there in one step.
+// screen; a share per frame would be twice as quick at 120 Hz. It never goes faster than GLIDE_TOP_SPEED, so a page far
+// behind catches up over a few frames rather than in a jump. With less motion the page goes there in one step.
 import { reducedMotion } from '@/features/look/motion'
 
 /** The glide's pace: the gap shrinks by e (about 63%) every this many ms. */
@@ -10,11 +11,22 @@ export const GLIDE_MS = 90
 /** The time since the last frame: the first frame of a glide counts as one at 60 Hz, a long pause (the window hidden) as 100 ms. */
 export const frameGap = (last: number | null, now: number): number => (last === null ? 1000 / 60 : Math.min(100, Math.max(0, now - last)))
 
-/** How far to move this frame (`dt` ms after the last) to close `gap` at the glide's pace; at least a pixel, so it arrives. */
+/**
+ * The glide's top speed, in px a ms (1,200 px a second, 20 px a frame at 60 Hz). When the page has fallen well behind (a
+ * slower computer drawing fewer frames while the words arrive in bunches) it catches up at this speed over a few frames
+ * instead of in ever bigger jumps; the words of a draft come far slower than this, so it never falls further behind.
+ */
+export const GLIDE_TOP_SPEED = 1.2
+
+/**
+ * How far to move this frame (`dt` ms after the last) to close `gap` at the glide's pace, never faster than its top
+ * speed; at least a pixel, so it arrives.
+ */
 export function glideStep(gap: number, dt: number): number {
   if (Math.abs(gap) <= 1) return gap
-  const step = gap * (1 - Math.exp(-Math.max(0, dt) / GLIDE_MS))
-  return Math.sign(gap) * Math.min(Math.abs(gap), Math.max(1, Math.abs(step)))
+  const time = Math.max(0, dt)
+  const step = Math.min(Math.abs(gap) * (1 - Math.exp(-time / GLIDE_MS)), GLIDE_TOP_SPEED * time)
+  return Math.sign(gap) * Math.min(Math.abs(gap), Math.max(1, step))
 }
 
 /**
