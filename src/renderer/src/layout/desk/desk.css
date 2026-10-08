@@ -645,6 +645,9 @@
 }
 [data-arrangement='desk'] .spine-title > span {
   writing-mode: vertical-rl;
+  /* Set as a line of ordinary text turned on its side, so apostrophes and other punctuation sit where they do in a
+     line (upright in a vertical line they read as a dot or a gap: "The Keeper’s Light"). */
+  text-orientation: sideways;
   font: 600 10.5px/1 var(--serif-font);
   letter-spacing: 0.24em;
   text-transform: uppercase;
