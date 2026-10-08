@@ -1,4 +1,4 @@
-// The timeline (milestone 3): a story's scenes and events in the order they happen in the world, read
+// The timeline (milestone 3), as Classic shows it (the New look shows the river, TimelineRiver.tsx): a story's scenes and events in the order they happen in the world, read
 // from each scene card's When box, with a lane for each character (or plot thread) Adam picks. Clicking
 // a scene opens it; clicking an event opens its page. A character in two places on the same day is
 // marked calmly, with a sentence saying so. Long timelines draw only the rows on screen.
@@ -18,6 +18,7 @@ import { useApp } from '@/lib/store'
 import { PopoverPanel, Segmented } from '@/features/generate/parts'
 import { Portrait } from '@/features/views/Portrait'
 import { useLanes } from './laneStore'
+import { TimelineRiver } from './TimelineRiver'
 import {
   clashCount,
   dayBands,
@@ -48,7 +49,12 @@ const OVERSCAN = 10
 
 const loadTimeline = (storyId: ID): Promise<Timeline> => api.getTimeline(storyId)
 
+/** The timeline: the river in the New look (TimelineRiver.tsx, the desk and the panels), this table in Classic. */
 export function TimelineView(): React.JSX.Element {
+  return useNewLook() ? <TimelineRiver /> : <ClassicTimeline />
+}
+
+function ClassicTimeline(): React.JSX.Element {
   const [storyId, setStoryId] = useViewStory()
   const { data, error, retry } = useWorldView(storyId, loadTimeline)
   const mode = useLanes((s) => s.mode)

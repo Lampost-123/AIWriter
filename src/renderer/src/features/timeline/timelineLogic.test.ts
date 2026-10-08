@@ -35,6 +35,14 @@ const point = (id: string, p: Partial<TimelinePoint> = {}): TimelinePoint => ({
   setsUpIds: [],
   paysOffIds: [],
   clashes: [],
+  order: Number(id) || 0,
+  key: null,
+  dayLabel: '',
+  chapterId: 'c1',
+  status: 'planned',
+  words: 0,
+  goal: '',
+  beats: [],
   ...p
 })
 
@@ -49,6 +57,7 @@ const timeline = (points: TimelinePoint[], extra: Partial<Timeline> = {}): Timel
     { id: 'mill', kind: 'place', name: 'Harrow Mill', image: null }
   ],
   clashes: [],
+  chapters: [],
   ...extra
 })
 

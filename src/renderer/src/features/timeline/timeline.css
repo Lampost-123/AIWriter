@@ -1,0 +1,1339 @@
+/*
+  The New look's timeline, "the river" (UI overhaul; features/timeline/TimelineRiver.tsx). Only the New look draws it
+  (Classic keeps its table), on the desk and in the panels, in every theme: the desk's blue Light and Dark, Sepia warm.
+  Each lane has an ink from the kind colours (never amber: amber is the AI's). Cards are index cards like the story
+  board's. Motion: the lanes draw in once and their marks pop (only when the river first shows), hover lights at the
+  quick speed, a new layout glides at the view speed; with less motion everything is at once (styles.css), and the
+  living art and the "now" pulse pause while the window is hidden.
+*/
+
+[data-look='new'] .tl {
+  --tl-card: var(--card, var(--raise));
+  --tl-paper: var(--page, var(--surface));
+  --tl-sh: var(--sh-card, var(--elev-2));
+  --tl-sh-up: var(--sh-card-up, var(--elev-3));
+  --tl-pop: var(--sh-pop, var(--elev-3));
+  --tl-line: var(--desk-line, var(--line));
+  --tl-line-2: var(--desk-line-2, color-mix(in oklab, var(--line) 55%, transparent));
+  --tl-band: color-mix(in oklab, var(--accent) 6%, transparent);
+  --tl-ribbon: var(--ribbon, #9e3a42);
+  --tl-here: var(--accent);
+  --tl-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tl-spring: linear(0, 0.06, 0.24 9%, 0.53 18%, 0.82 29%, 1 40%, 1.05 50%, 1.04 60%, 1.01 75%, 1);
+  --tl-ink-0: var(--k-char);
+  --tl-ink-1: var(--k-place);
+  --tl-ink-2: var(--k-event);
+  --tl-ink-3: var(--k-group);
+  --tl-ink-4: var(--k-thread);
+  --tl-ink-5: var(--k-lore);
+  --tl-ink-6: color-mix(in oklab, var(--k-char) 55%, var(--k-event));
+  --tl-ink-7: color-mix(in oklab, var(--k-group) 50%, var(--k-place));
+  background: transparent;
+}
+
+/* ---------- The page's head ---------- */
+[data-look='new'] .tl-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+  padding: 20px 28px 14px;
+  border-bottom: 1px solid var(--tl-line-2);
+  flex-shrink: 0;
+}
+[data-look='new'] .tl-top-title {
+  min-width: 220px;
+  flex: 1;
+}
+[data-look='new'] .tl-h1 {
+  font: 600 26px/32px var(--heading-font);
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  font-variation-settings: 'opsz' 48;
+}
+[data-look='new'] .tl-sub {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+[data-look='new'] .tl-filter-n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ---------- The river ---------- */
+[data-look='new'] .tl-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+[data-look='new'] .tl-scroller {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+[data-look='new'] .tl-canvas {
+  position: relative;
+  /* Nothing drawn past the river's edge makes it scroll (clip, unlike hidden, keeps the head and lane names sticky). */
+  overflow: clip;
+}
+[data-look='new'] .tl-bands {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+[data-look='new'] .tl-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--tl-line-2);
+}
+[data-look='new'] .tl-band.is-alt,
+[data-look='new'] .tl-bandname.is-alt {
+  background: var(--tl-band);
+}
+[data-look='new'] .tl-warp {
+  position: absolute;
+  pointer-events: none;
+  overflow: visible;
+}
+[data-look='new'] .tl-warp line {
+  stroke: var(--tl-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+[data-look='new'] .tl-warp line.is-event {
+  stroke: color-mix(in oklab, var(--k-event) 40%, transparent);
+}
+[data-look='new'] .tl-hotcol {
+  fill: color-mix(in oklab, var(--accent) 9%, transparent);
+  animation: tl-fade var(--dur-quick) ease-out both;
+}
+
+/* The head: band names, cards and the axis, held at the top. */
+[data-look='new'] .tl-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--tl-paper);
+  box-shadow:
+    0 1px 0 var(--tl-line-2),
+    0 10px 18px -16px rgb(0 0 0 / 0.45);
+}
+[data-look='new'] .tl-corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 16px 18px 20px;
+  background: var(--tl-paper);
+  border-right: 1px solid var(--tl-line-2);
+}
+[data-look='new'] .tl-corner-k {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-look='new'] .tl-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  --ink: var(--muted);
+}
+[data-look='new'] .tl-lg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+[data-look='new'] .tl-head-river {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+[data-look='new'] .tl-bandnames {
+  position: absolute;
+  inset: 0;
+}
+[data-look='new'] .tl-bandname {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--tl-line-2);
+}
+[data-look='new'] .tl-bandname-in {
+  position: sticky;
+  left: calc(var(--label-w) + 12px);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  padding: 13px 12px 0;
+  white-space: nowrap;
+}
+[data-look='new'] .tl-bandname-k {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-look='new'] .tl-bandname-t {
+  font: 600 14px/18px var(--heading-font);
+  color: var(--fg);
+  letter-spacing: -0.005em;
+}
+[data-look='new'] .tl-bandname:not(.is-chapter) .tl-bandname-t {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+[data-look='new'] .tl-cards {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+[data-look='new'] .tl-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+[data-look='new'] .tl-body.is-gliding .tl-slot {
+  transition: transform var(--dur-view) var(--tl-ease);
+}
+[data-look='new'] .tl-slot.is-arriving > * {
+  animation: tl-card-in 460ms var(--tl-ease) var(--d, 0ms) both;
+}
+
+/* A scene's card: an index card. */
+[data-look='new'] .tl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 11px 14px 11px 15px;
+  overflow: hidden;
+  text-align: left;
+  border-radius: 7px;
+  background: var(--tl-card);
+  box-shadow: var(--tl-sh);
+  cursor: pointer;
+  outline: none;
+  transition:
+    transform var(--dur-quick) var(--tl-ease),
+    box-shadow var(--dur-quick) ease-out,
+    opacity var(--dur-view) ease-out,
+    filter var(--dur-view) ease-out;
+}
+[data-look='new'] .tl-card:hover,
+[data-look='new'] .tl-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: var(--tl-sh-up);
+}
+[data-look='new'] .tl-card:active {
+  transform: translateY(-2px) scale(0.985);
+  transition-duration: var(--dur-press, 90ms);
+}
+[data-look='new'] .tl-card:focus-visible {
+  box-shadow:
+    var(--tl-sh-up),
+    0 0 0 2px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+[data-look='new'] .tl-card.is-here {
+  box-shadow:
+    var(--tl-sh),
+    0 0 0 2px color-mix(in oklab, var(--tl-here) 60%, transparent);
+}
+[data-look='new'] .tl-card.is-picked {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--tl-sh-up),
+    0 0 0 2px var(--accent);
+}
+[data-look='new'] .tl-card.is-out,
+[data-look='new'] .tl-event.is-out {
+  opacity: 0.3;
+  filter: saturate(0.3);
+}
+[data-look='new'] .tl-body.is-hot-lane .tl-card,
+[data-look='new'] .tl-body.is-hot-lane .tl-event {
+  opacity: 0.4;
+}
+[data-look='new'] .tl-body.is-hot-lane .tl-card:hover {
+  opacity: 1;
+}
+[data-look='new'] .tl-body.is-flash .tl-card.is-here {
+  animation: tl-flash 1.3s var(--tl-ease) both;
+}
+[data-look='new'] .tl-c-rules {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 44px;
+  height: 46px;
+  background: repeating-linear-gradient(180deg, transparent 0 18px, var(--rule-blue, color-mix(in oklab, var(--accent) 12%, transparent)) 18px 19px);
+  pointer-events: none;
+  opacity: 0.7;
+}
+[data-look='new'] .tl-c-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 16px;
+}
+[data-look='new'] .tl-c-eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-look='new'] .tl-c-title {
+  position: relative;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 600 16.5px/21px var(--heading-font);
+  letter-spacing: -0.006em;
+  color: var(--fg);
+  font-variation-settings: 'opsz' 24;
+}
+[data-look='new'] .tl-c-when {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-c-nodate {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--faint);
+}
+[data-look='new'] .tl-c-place {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+[data-look='new'] .tl-c-place.is-none {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--faint);
+}
+[data-look='new'] .tl-c-goal {
+  position: relative;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: italic 13px/18px var(--heading-font);
+  color: var(--muted);
+}
+[data-look='new'] .tl-c-foot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--tl-line);
+}
+[data-look='new'] .tl-c-pov {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+[data-look='new'] .tl-c-pov > span:first-child {
+  box-shadow:
+    0 0 0 2px var(--tl-card),
+    0 0 0 3.5px var(--ink);
+}
+[data-look='new'] .tl-c-pov.is-none {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--faint);
+}
+[data-look='new'] .tl-c-words {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+[data-look='new'] .tl-c-told {
+  position: absolute;
+  top: 9px;
+  right: 30px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-ribbon);
+  background: color-mix(in oklab, var(--tl-ribbon) 13%, var(--tl-card));
+}
+[data-look='new'] .tl-card.is-flashback {
+  background-image: linear-gradient(90deg, color-mix(in oklab, var(--tl-ribbon) 8%, transparent), transparent 40%);
+}
+[data-look='new'] .tl-c-clash {
+  position: absolute;
+  right: 12px;
+  bottom: 40px;
+  color: var(--danger);
+}
+/* The scene Adam is writing: a ribbon bookmark from the card's top edge. */
+[data-look='new'] .tl-c-here {
+  position: absolute;
+  top: 0;
+  right: 44px;
+  width: 14px;
+  height: 24px;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+  background: var(--tl-here);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+}
+
+/* A scene's status: a pin, like the story board's. */
+[data-look='new'] .tl-pin {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow:
+    1px 1.6px 2px rgb(0 0 0 / 0.28),
+    0 0 0 0.5px rgb(0 0 0 / 0.2);
+}
+[data-look='new'] .tl-pin.is-done {
+  background: radial-gradient(circle at 34% 30%, #bfe8cb 0 10%, #4e9d69 42%, #2a673e 100%);
+}
+[data-look='new'] .tl-pin.is-drafted {
+  background: radial-gradient(circle at 34% 30%, #f1f4f8 0 10%, #98a3b3 44%, #5f6a7a 100%);
+}
+[data-look='new'] .tl-pin.is-planned {
+  background: var(--tl-card, var(--surface));
+  box-shadow:
+    inset 0 0 0 1.6px var(--faint),
+    1px 1.6px 2px rgb(0 0 0 / 0.22);
+}
+
+/* The time of day on a card. */
+[data-look='new'] .tl-sky {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--faint);
+}
+[data-look='new'] .tl-sky.is-dawn,
+[data-look='new'] .tl-sky.is-dusk {
+  color: color-mix(in oklab, var(--k-event) 80%, var(--fg));
+}
+[data-look='new'] .tl-sky.is-night {
+  color: var(--k-lore);
+}
+
+/* An event: a flag on a stem, in the event ink. */
+[data-look='new'] .tl-event {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  outline: none;
+  cursor: pointer;
+  transition: opacity var(--dur-view) ease-out;
+}
+[data-look='new'] .tl-ev-stem {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 1.5px;
+  height: 30px;
+  background: color-mix(in oklab, var(--k-event) 60%, transparent);
+}
+[data-look='new'] .tl-ev-gem {
+  position: absolute;
+  left: calc(50% - 5px);
+  bottom: 26px;
+  width: 10px;
+  height: 10px;
+  rotate: 45deg;
+  border-radius: 2px;
+  background: var(--k-event);
+  box-shadow: 0 0 0 2.5px var(--tl-paper);
+}
+[data-look='new'] .tl-ev-flag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 38px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px 10px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--k-event-soft) 80%, var(--tl-card));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--k-event) 32%, transparent),
+    var(--tl-sh);
+  transition:
+    transform var(--dur-quick) var(--tl-ease),
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-event:hover .tl-ev-flag,
+[data-look='new'] .tl-event:focus-visible .tl-ev-flag,
+[data-look='new'] .tl-event.is-picked .tl-ev-flag {
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--k-event) 50%, transparent),
+    var(--tl-sh-up);
+}
+[data-look='new'] .tl-event:focus-visible .tl-ev-flag,
+[data-look='new'] .tl-event.is-picked .tl-ev-flag {
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    var(--tl-sh-up);
+}
+[data-look='new'] .tl-ev-k {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--k-event);
+}
+[data-look='new'] .tl-ev-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: italic 600 14px/18px var(--heading-font);
+  color: var(--fg);
+}
+[data-look='new'] .tl-ev-when {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The axis under the cards. */
+[data-look='new'] .tl-axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+[data-look='new'] .tl-axis svg {
+  position: absolute;
+  top: 0;
+  overflow: visible;
+}
+[data-look='new'] .tl-axis-line {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+[data-look='new'] .tl-tick line {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+[data-look='new'] .tl-tick circle {
+  fill: var(--tl-paper);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+[data-look='new'] .tl-tick.is-event circle {
+  fill: var(--k-event);
+  stroke: var(--tl-paper);
+}
+[data-look='new'] .tl-tick.is-here circle {
+  fill: var(--tl-here);
+  stroke: var(--tl-paper);
+  stroke-width: 2;
+}
+[data-look='new'] .tl-tick .tl-pulse {
+  fill: var(--tl-here);
+  stroke: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tl-pulse 3s var(--tl-ease) 1.2s infinite;
+  opacity: 0;
+}
+[data-look='new'] [data-paused] .tl-pulse {
+  animation-play-state: paused;
+}
+[data-look='new'] .tl-arc {
+  fill: none;
+  stroke: var(--tl-ribbon);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+  opacity: 0.75;
+}
+[data-look='new'] .tl-arc.is-early {
+  stroke: var(--k-lore);
+}
+[data-look='new'] .tl-gap {
+  position: absolute;
+  top: 25px;
+  translate: -50% 0;
+  padding: 1px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font: italic 12px/18px var(--heading-font);
+  color: var(--muted);
+  background: var(--tl-paper);
+  box-shadow: inset 0 0 0 1px var(--tl-line);
+}
+
+/* ---------- The lanes ---------- */
+[data-look='new'] .tl-lane-row {
+  position: absolute;
+  left: 0;
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-lane-row.is-alt {
+  background: color-mix(in oklab, var(--fg) 1.6%, transparent);
+}
+[data-look='new'] .tl-body.is-hot .tl-lane-row {
+  opacity: 0.42;
+}
+[data-look='new'] .tl-lh {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: var(--label-w);
+  padding: 0 14px 0 20px;
+  text-align: left;
+  background: color-mix(in oklab, var(--ink) calc(var(--lit, 0) * 9%), var(--tl-paper));
+  border-right: 1px solid var(--tl-line-2);
+  border-bottom: 1px solid var(--tl-line-2);
+  outline: none;
+  cursor: pointer;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-lh:hover,
+[data-look='new'] .tl-lh:focus-visible {
+  background: color-mix(in oklab, var(--ink) 9%, var(--tl-paper));
+}
+[data-look='new'] .tl-lh:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+[data-look='new'] .tl-lh-edge {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--ink);
+}
+[data-look='new'] .tl-lh-art > span {
+  box-shadow:
+    0 0 0 2px var(--tl-paper),
+    0 0 0 3.5px var(--ink);
+  transition: transform var(--dur-quick) var(--tl-spring);
+}
+[data-look='new'] .tl-lh:hover .tl-lh-art > span {
+  transform: scale(1.05);
+}
+[data-look='new'] .tl-lh-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+[data-look='new'] .tl-lh-name {
+  font: 600 15px/19px var(--heading-font);
+  letter-spacing: -0.005em;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+[data-look='new'] .tl-lh.is-tight .tl-lh-name {
+  font-size: 13.5px;
+  line-height: 16px;
+}
+[data-look='new'] .tl-lh.is-thread .tl-lh-name {
+  font-style: italic;
+}
+[data-look='new'] .tl-lh-stats {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-strip-box {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+[data-look='new'] .tl-strip {
+  position: absolute;
+  top: 0;
+  overflow: visible;
+  filter: drop-shadow(0 0 calc(var(--lit, 0) * 5px) color-mix(in oklab, var(--ink) 55%, transparent));
+}
+[data-look='new'] .tl-guide {
+  stroke: var(--tl-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+[data-look='new'] .tl-span {
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+[data-look='new'] .tl-run {
+  stroke: var(--ink);
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+[data-look='new'] .tl-tail {
+  stroke: var(--ink);
+  stroke-width: 2.4;
+  stroke-dasharray: 5 6;
+  opacity: 0.55;
+}
+[data-look='new'] .tl-mark {
+  transform-box: fill-box;
+  transform-origin: center;
+  scale: var(--grow, 1);
+  transition:
+    scale var(--dur-quick) var(--tl-spring),
+    opacity var(--dur-view) ease-out;
+}
+[data-look='new'] .tl-mark.is-out {
+  opacity: 0.25;
+}
+[data-look='new'] .tl-dot {
+  fill: var(--ink);
+  stroke: var(--tl-paper);
+  stroke-width: 2.5;
+}
+[data-look='new'] .tl-dot.is-pov {
+  stroke-width: 3;
+}
+[data-look='new'] .tl-halo {
+  fill: var(--ink);
+  opacity: 0.16;
+}
+[data-look='new'] .tl-ring {
+  fill: var(--tl-paper);
+  stroke: var(--ink);
+  stroke-width: 2.6;
+}
+[data-look='new'] .tl-ring.is-wide {
+  stroke-width: 2.8;
+}
+[data-look='new'] .tl-ring.is-outer {
+  fill: none;
+  stroke-width: 1.6;
+  opacity: 0.5;
+}
+[data-look='new'] .tl-knot {
+  fill: none;
+  stroke: var(--tl-paper);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-look='new'] .tl-cap {
+  stroke: var(--ink);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+[data-look='new'] .tl-nl {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  fill: var(--muted);
+  text-anchor: middle;
+  opacity: var(--lit, 0);
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-nolanes {
+  position: absolute;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--muted);
+}
+/* Drawing in, once. */
+[data-look='new'] .tl-draw {
+  stroke-dasharray: 1;
+  animation: tl-lane-draw 720ms var(--tl-ease) both;
+}
+[data-look='new'] .tl-pop {
+  animation: tl-node-pop 400ms var(--tl-spring) both;
+}
+
+/* ---------- The side card ---------- */
+[data-look='new'] .tl-side {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, max(320px, 26vw));
+  border-radius: 14px;
+  background: var(--tl-card);
+  box-shadow:
+    var(--tl-pop),
+    0 0 0 1px var(--tl-line-2);
+  animation: tl-side-in var(--dur-view) var(--tl-ease) both;
+}
+[data-look='new'] .tl-sc-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 18px;
+}
+[data-look='new'] .tl-sc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+[data-look='new'] .tl-sc-eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-look='new'] .tl-sc-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-sc-close:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+[data-look='new'] .tl-sc-title {
+  margin-top: 6px;
+  font: 600 24px/30px var(--heading-font);
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  font-variation-settings: 'opsz' 40;
+}
+[data-look='new'] .tl-sc-when,
+[data-look='new'] .tl-sc-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-sc-nodate {
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--faint);
+}
+[data-look='new'] .tl-sc-told {
+  margin-top: 10px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--fg);
+  background: color-mix(in oklab, var(--tl-ribbon) 10%, var(--tl-card));
+  box-shadow: inset 3px 0 0 var(--tl-ribbon);
+}
+[data-look='new'] .tl-sc-told.is-early {
+  background: color-mix(in oklab, var(--k-lore) 10%, var(--tl-card));
+  box-shadow: inset 3px 0 0 var(--k-lore);
+}
+[data-look='new'] .tl-sc-clash {
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+[data-look='new'] .tl-sc-sec {
+  margin-top: 18px;
+}
+[data-look='new'] .tl-sc-sec h3 {
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-look='new'] .tl-sc-people {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+[data-look='new'] .tl-sc-person,
+[data-look='new'] .tl-sc-place {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 6px;
+  border-radius: 9px;
+  text-align: left;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-sc-person:hover,
+[data-look='new'] .tl-sc-place:hover,
+[data-look='new'] .tl-sc-person:focus-visible,
+[data-look='new'] .tl-sc-place:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+[data-look='new'] .tl-sc-person > span:first-child {
+  box-shadow:
+    0 0 0 2px var(--tl-card),
+    0 0 0 3.5px var(--ink);
+}
+[data-look='new'] .tl-sc-pname {
+  display: block;
+  font: 600 14px/18px var(--heading-font);
+  color: var(--fg);
+}
+[data-look='new'] .tl-sc-prole {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-sc-goal {
+  padding: 9px 12px 9px 14px;
+  border-radius: 9px;
+  font: italic 14.5px/21px var(--heading-font);
+  color: var(--fg);
+  background: var(--tl-paper);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 0 0 1px var(--tl-line-2);
+}
+[data-look='new'] .tl-sc-beats {
+  counter-reset: beat;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+[data-look='new'] .tl-sc-beats li {
+  counter-increment: beat;
+  position: relative;
+  padding-left: 28px;
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--fg);
+}
+[data-look='new'] .tl-sc-beats li::before {
+  content: counter(beat);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1.3px var(--line-strong);
+}
+[data-look='new'] .tl-sc-empty {
+  margin-top: 18px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--faint);
+}
+[data-look='new'] .tl-sc-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--tl-line-2);
+}
+
+/* ---------- The lane picker and the filter (in a popover, outside .tl) ---------- */
+[data-look='new'] .tl-pop-head {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+[data-look='new'] .tl-pop-title {
+  font: 600 15px/20px var(--heading-font);
+  color: var(--fg);
+}
+[data-look='new'] .tl-pop-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+[data-look='new'] .tl-pop-list {
+  max-height: min(380px, 50vh);
+  overflow-y: auto;
+  padding: 6px;
+}
+[data-look='new'] .tl-pop-group {
+  padding: 8px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+[data-look='new'] .tl-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-pick:hover,
+[data-look='new'] .tl-pick:focus-within {
+  background: var(--surface-2);
+}
+[data-look='new'] .tl-pick:focus-within {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+[data-look='new'] .tl-pick-box {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: var(--accent-fg);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-pick.is-on .tl-pick-box {
+  background: var(--accent);
+  box-shadow: none;
+}
+[data-look='new'] .tl-pick[style] .tl-pick-art {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 3.5px var(--ink);
+}
+[data-look='new'] .tl-pick:not(.is-on) .tl-pick-art {
+  opacity: 0.7;
+}
+[data-look='new'] .tl-pick-name {
+  flex: 1;
+  min-width: 0;
+  font: 500 13.5px/18px var(--heading-font);
+  color: var(--fg);
+}
+[data-look='new'] .tl-pick-count {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+[data-look='new'] .tl-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- Empty: the living picture ---------- */
+[data-look='new'] .tl-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 5vh 24px 24px;
+  text-align: center;
+  overflow: auto;
+}
+[data-look='new'] .tl-empty-art {
+  width: min(560px, 86%);
+  height: auto;
+  margin-bottom: 8px;
+}
+[data-look='new'] .tl-empty-h {
+  font: 600 22px/28px var(--heading-font);
+  color: var(--fg);
+}
+[data-look='new'] .tl-empty-p {
+  max-width: 540px;
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+[data-look='new'] .tl-art {
+  display: block;
+  overflow: visible;
+}
+[data-look='new'] .tl-art-sun {
+  transform-box: view-box;
+  transform-origin: 300px 340px;
+  animation: tl-sun 36s ease-in-out infinite alternate;
+}
+[data-look='new'] .tl-art-sunbody {
+  fill: color-mix(in oklab, var(--accent) 35%, var(--tl-card, var(--surface)));
+}
+[data-look='new'] .tl-art-sunglow {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+[data-look='new'] .tl-art-ripple {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-dasharray: 8 14;
+  opacity: 0.35;
+  animation: tl-ripple 7s linear infinite;
+}
+[data-look='new'] .tl-art-ripple.is-2 {
+  opacity: 0.22;
+  animation-duration: 11s;
+  animation-direction: reverse;
+}
+[data-look='new'] .tl-art-axis {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  animation: tl-lane-draw 1100ms var(--tl-ease) 200ms both;
+}
+[data-look='new'] .tl-art-day {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tl-node-pop 420ms var(--tl-spring) both;
+}
+[data-look='new'] .tl-art-tick {
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+[data-look='new'] .tl-art-dot {
+  fill: var(--tl-paper, var(--surface));
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+[data-look='new'] .tl-art-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  fill: var(--muted);
+  text-anchor: middle;
+}
+[data-look='new'] .tl-art-card {
+  animation: tl-bob 6.4s ease-in-out infinite alternate;
+}
+[data-look='new'] .tl-art-cardbody {
+  fill: var(--tl-card, var(--raise));
+  stroke: var(--tl-line, var(--line));
+  filter: drop-shadow(0 6px 8px rgb(0 0 0 / 0.12));
+}
+[data-look='new'] .tl-art-cardline {
+  stroke: var(--line-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+[data-look='new'] .tl-art-cardline.is-title {
+  stroke: var(--muted);
+  stroke-width: 3;
+}
+[data-look='new'] .tl-art-pov {
+  fill: var(--k-char);
+}
+[data-look='new'] .tl-art-pov.is-1 {
+  fill: var(--k-place);
+}
+[data-look='new'] .tl-art-pov.is-2 {
+  fill: var(--k-event);
+}
+[data-look='new'] .tl-art-lane {
+  fill: none;
+  stroke: var(--k-char);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  opacity: 0.85;
+  animation: tl-lane-draw 900ms var(--tl-ease) 900ms both;
+}
+[data-look='new'] .tl-art-lane.is-thin {
+  stroke-width: 2;
+  opacity: 0.45;
+  animation-delay: 1500ms;
+}
+[data-look='new'] .tl-art-mark {
+  fill: var(--k-char);
+  stroke: var(--tl-paper, var(--surface));
+  stroke-width: 2.5;
+}
+[data-look='new'] .tl-art-mark.is-ring {
+  fill: var(--tl-paper, var(--surface));
+  stroke: var(--k-char);
+}
+[data-look='new'] .tl-art[data-paused] *,
+[data-look='new'] [data-paused] .tl-art * {
+  animation-play-state: paused;
+}
+
+@keyframes tl-lane-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes tl-node-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes tl-card-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes tl-side-in {
+  from {
+    opacity: 0;
+    translate: 14px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes tl-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes tl-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+@keyframes tl-flash {
+  0% {
+    box-shadow:
+      var(--tl-sh-up),
+      0 0 0 2px var(--tl-here),
+      0 0 0 0 color-mix(in oklab, var(--tl-here) 45%, transparent);
+  }
+  100% {
+    box-shadow:
+      var(--tl-sh),
+      0 0 0 2px color-mix(in oklab, var(--tl-here) 60%, transparent),
+      0 0 0 16px transparent;
+  }
+}
+@keyframes tl-sun {
+  from {
+    transform: rotate(-38deg);
+  }
+  to {
+    transform: rotate(38deg);
+  }
+}
+@keyframes tl-ripple {
+  to {
+    stroke-dashoffset: -88;
+  }
+}
+@keyframes tl-bob {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -6px;
+  }
+}
+
+/* Less motion: the living picture holds still (styles.css already makes every other change instant). */
+@media (prefers-reduced-motion: reduce) {
+  [data-look='new'] .tl-art *,
+  [data-look='new'] .tl-pulse {
+    animation: none !important;
+  }
+}
