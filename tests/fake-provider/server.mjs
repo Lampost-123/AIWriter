@@ -551,7 +551,7 @@ export async function startFakeProvider(options = {}) {
     }
     // The editor chat: the fake may ask for tools (m4/ask.mjs), streamed as a real model's tool calls are: the call's id
     // and name, then its arguments.
-    const calls = body.tools?.length ? askToolCalls(system, messages, body.tools) : null
+    const calls = body.tools?.length ? askToolCalls(system, messages, body.tools, body.tool_choice) : null
     if (calls) {
       calls.forEach((c, i) => {
         const id = `call_fake_${i}_${n}`

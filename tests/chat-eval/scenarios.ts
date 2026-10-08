@@ -5,16 +5,23 @@
 //
 // Groups: edit (15 clear edits), selection (6 selections with a vague ask), large (5 large rewrites / "write the next
 // bit"), question (6 questions and brainstorms: must NOT propose), ambiguous (4: should ask one question first),
-// followup (4 two-turn follow-ups: "option 2", "yes").
+// followup (4 two-turn follow-ups: "option 2", "yes"). These 40 are the "core" set; real.ts holds the "real" set
+// (Phase 1: long chats, a big briefing, vague phrasing, follow-ups, "write the next bit", questions saying "change").
+// --scenarios core (the default) | real | all | subset | E01,R05,...
 
 import { askAboutQuote, SCENES, vigilParagraphs } from './world'
+import { REAL } from './real'
 
-export type Group = 'edit' | 'selection' | 'large' | 'question' | 'ambiguous' | 'followup'
+export type Group = 'edit' | 'selection' | 'large' | 'question' | 'ambiguous' | 'followup' | 'r-history' | 'r-vague' | 'r-followup' | 'r-continue' | 'r-change-q'
 
 /** What should happen at a turn. */
 export type Outcome =
-  /** At least one proposal that applies; `kinds` limits which count, `touches` names words in the paragraph it should change. */
-  | { do: 'propose'; kinds?: ProposalKind[]; touches?: string }
+  /**
+   * At least one proposal that applies; `kinds` limits which count, `touches` names words in the paragraph it should
+   * change. `draft`: a propose_draft hand-off counts too ("write the next bit"). `orAsk`: one question to the writer
+   * (ask_user, or a question with no proposal) is as good (a vague ask with no selection).
+   */
+  | { do: 'propose'; kinds?: ProposalKind[]; touches?: string; draft?: boolean; orAsk?: boolean }
   /** No proposal (a question, a brainstorm, options offered). */
   | { do: 'no-propose' }
   /** No proposal, and the answer asks the writer a question. */
@@ -24,9 +31,21 @@ export type Outcome =
 
 export type ProposalKind = 'text' | 'passage' | 'card' | 'entry' | 'newEntry' | 'newScene' | 'newChapter' | 'rename'
 
+/** An earlier turn of the chat, seeded as the app stores one (a 'chat' generation record) before the first question. */
+export interface HistoryTurn {
+  q: string
+  a: string
+  /** Changes that turn proposed (text edits only), with what the writer made of each. */
+  proposals?: { kind: 'text'; scene: string; find: string; replace: string; status: 'pending' | 'applied' | 'declined' }[]
+}
+
 export interface Scenario {
   id: string
   group: Group
+  /** Asked in story C (bigWorld.ts): a briefing of 30-60k tokens. Its scene keys are bigWorld's. */
+  big?: boolean
+  /** Earlier turns of the chat (oldest first), seeded before the first question. */
+  history?: HistoryTurn[]
   /** The rule it tests, in plain words. */
   rule: string
   /** The open scene (world.ts SCENES key); null: the story is open, no scene. */
@@ -44,7 +63,7 @@ const para = (scene: string, i: number): string => {
 
 const EDIT = (kinds: ProposalKind[] = ['text', 'passage']): { do: 'propose'; kinds: ProposalKind[] } => ({ do: 'propose', kinds })
 
-export const SCENARIOS: Scenario[] = [
+export const CORE: Scenario[] = [
   // ---------- 15 clear edits ----------
   { id: 'E01', group: 'edit', rule: 'A plain typo fix is proposed on the first ask.', scene: 'tally', turns: [{ ask: 'Fix the typo "teh" in this scene.', expect: { ...EDIT(), touches: 'teh tide' } }] },
   { id: 'E02', group: 'edit', rule: 'A misspelt name is fixed where it is (one place).', scene: 'tally', turns: [{ ask: 'I misspelled Bram as Brom somewhere in this scene. Fix it.', expect: { ...EDIT(), touches: 'Brom will know' } }] },
@@ -140,6 +159,18 @@ export const SCENARIOS: Scenario[] = [
     ]
   }
 ]
+
+/** Every scenario: the core 40, then the real set. */
+export const SCENARIOS: Scenario[] = [...CORE, ...REAL]
+
+/** The scenarios a --scenarios value names: core (also the default), real, all, subset, or ids. */
+export function pickScenarios(only: string[] | null): Scenario[] {
+  if (!only?.length) return CORE
+  const sets: Record<string, Scenario[]> = { CORE, REAL, ALL: SCENARIOS, SUBSET: CORE.filter((s) => SUBSET.includes(s.id)) }
+  const out = new Map<string, Scenario>()
+  for (const o of only) for (const s of sets[o] ?? SCENARIOS.filter((x) => x.id === o)) out.set(s.id, s)
+  return [...out.values()]
+}
 
 /** The first question as sent: with the selection quoted as "Ask about this" quotes it. */
 export const firstQuestion = (s: Scenario): string => (s.selection ? askAboutQuote(s.selection, s.turns[0].ask) : s.turns[0].ask)
