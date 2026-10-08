@@ -742,6 +742,10 @@ export function fakeStoryFlowReply(system, user) {
 //                as "<Label> of <name>, as I imagine it." with no words from the story, as a careless model's guess
 //                would (the app drops those).
 //   options      Three options: "<Label>, first option: ...", "second", "third".
+//   questions    Three follow-up questions about the notes' first word: "What does <Who> want most right now?",
+//                "What is <Who> afraid of?", "What does <Who> do without thinking?". Quick start then puts each
+//                answer (after the notes) word for word in the kind's answer slots (character: wants, fears, habits,
+//                speech, origin), and one left to the AI as "<Label> of <name>, decided by the AI." under "drafted".
 //   interview    "You want to know about <what was asked about>? I'll say this once: I keep my own counsel,
 //                and I pay my debts." The model fake/empty sends back nothing for any of these.
 export function fakeBuilderReply(system, messages, model = '') {
@@ -771,7 +775,24 @@ export function fakeBuilderReply(system, messages, model = '') {
     notes.forEach((line, i) => {
       if (slots[i] && keep(slots[i])) fromNotes[slots[i]] = line
     })
-    const drafted = named || !keep('name') ? {} : { name }
+    // The answers to follow-up questions (after the notes): each answer, word for word, in the next of the kind's
+    // answer slots; one left to the AI is decided there as "<Label> of <name>, decided by the AI.".
+    const ANSWER_SLOTS = {
+      character: ['wants', 'fears', 'habits', 'speech', 'origin'],
+      place: ['senses', 'people', 'geography'],
+      group: ['ranks', 'rivals', 'customs'],
+      item: ['limits', 'category']
+    }
+    const answerBlock = user.split('answers to a few follow-up questions')[1]?.match(/"""\n([\s\S]*?)\n"""/)?.[1] ?? ''
+    const answered = [...answerBlock.matchAll(/^A: (.+)$/gm)].map((m) => m[1].trim())
+    const decided = {}
+    answered.forEach((a, i) => {
+      const slot = (ANSWER_SLOTS[kind] ?? [])[i]
+      if (!slot || !keep(slot)) return
+      if (a.startsWith('(left to you')) decided[slot] = `${fields.find((f) => f.key === slot)?.label ?? slot} of ${name}, decided by the AI.`
+      else fromNotes[slot] = a
+    })
+    const drafted = named || !keep('name') ? { ...decided } : { name, ...decided }
     for (const f of fields) {
       if (f.key in fromNotes || f.key in drafted || !keep(f.key)) continue
       if (f.key === 'aliases') drafted.aliases = `Old ${name.split(' ')[0]}`
@@ -815,6 +836,13 @@ export function fakeBuilderReply(system, messages, model = '') {
       reply[key] = said ? { value: said[3].trim(), quote: said[0] } : { value: `${label} of ${name}, as I imagine it.` }
     }
     return JSON.stringify(reply, null, 1)
+  }
+  if (job === 'questions') {
+    // Three follow-up questions about whoever the notes' first word names.
+    const notes = (user.match(/"""\n([\s\S]*?)\n"""/)?.[1] ?? '').trim()
+    const who = notes.match(/^([A-Z][\w'’-]*)/)?.[1] ?? 'them'
+    const questions = [`What does ${who} want most right now?`, `What is ${who} afraid of?`, `What does ${who} do without thinking?`]
+    return JSON.stringify({ questions })
   }
   if (job === 'options') {
     const label = user.match(/^The field: ([^(\n]+?)(?: \(|$)/m)?.[1]?.trim() ?? 'This'

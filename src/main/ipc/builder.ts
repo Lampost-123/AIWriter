@@ -11,7 +11,7 @@ import { emit } from '../events'
 import { UserError } from '../util'
 import { builderTarget } from '../builder/model'
 import { gatherWorld } from '../builder/context'
-import { startFleshOut, startInterview, startOptions, startQuickStart, stopJob, stopJobsFor, type JobContext } from '../builder/jobs'
+import { startFleshOut, startInterview, startOptions, startQuestions, startQuickStart, stopJob, stopJobsFor, type JobContext } from '../builder/jobs'
 import { createBuilt, isBuilderKind, keepSuggestions, restoreField } from '../builder/save'
 import { voiceLater } from '../readAloud'
 
@@ -70,6 +70,11 @@ export const builderHandlers: Handlers<keyof BuilderApi> = {
     const kind = kindOf(input.kind)
     const ctx = jobContext()
     startOptions(ctx, { ...input, kind }, brief(ctx, kind, input.entryId, input.storyId))
+  },
+  startQuestions: (input) => {
+    const kind = kindOf(input.kind)
+    const ctx = jobContext()
+    startQuestions(ctx, { ...input, kind }, brief(ctx, kind, null, input.storyId))
   },
   startInterview: (input) => {
     const ctx = jobContext()

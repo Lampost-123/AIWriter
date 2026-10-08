@@ -271,6 +271,47 @@ export function optionsFromText(kind: BuilderKind, key: string, text: string): s
   return items.map((lines) => cleanValue(kind, key, lines.join('\n').replace(/^["“]|["”]$/g, ''))).filter(Boolean)
 }
 
+/** A follow-up question as asked: one line, no number or bullet or quotation marks around it, not too long. */
+function cleanQuestion(v: unknown): string {
+  const raw = typeof v === 'string' ? v : v && typeof v === 'object' ? (v as Record<string, unknown>).question : null
+  if (typeof raw !== 'string') return ''
+  const t = raw
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(?:\d+[.)]|[-*•])\s+/, '')
+    .replace(/^["“]+|["”]+$/g, '')
+    .trim()
+  return t.length > 240 ? `${t.slice(0, 239).trimEnd()}…` : t
+}
+
+/**
+ * The follow-up questions in a reply as far as it has arrived: {"questions": [...]} (or any list in it), each as one
+ * line, repeats left out, `max` at most.
+ */
+export function questionsFrom(value: unknown, max = 5): string[] {
+  const root = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const list = Array.isArray(value) ? value : Array.isArray(root.questions) ? root.questions : (Object.values(root).find(Array.isArray) ?? [])
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const v of list as unknown[]) {
+    const q = cleanQuestion(v)
+    const k = plain(q)
+    if (!q || !k || seen.has(k)) continue
+    seen.add(k)
+    out.push(q)
+    if (out.length === max) break
+  }
+  return out
+}
+
+/** Questions written as a list rather than JSON: each line that ends in a question mark. */
+export function questionsFromText(text: string, max = 5): string[] {
+  return questionsFrom(
+    text.split('\n').filter((l) => /\?\s*["”]?\s*$/.test(l.trim())),
+    max
+  )
+}
+
 /** Exactly three different options, or null when the reply doesn't hold three. */
 export function pickThree(options: string[]): string[] | null {
   const seen = new Set<string>()

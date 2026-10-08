@@ -29,7 +29,7 @@ export interface BuilderStart {
  */
 export type BuilderValues = Record<string, string>
 
-export type BuilderJob = 'quick-start' | 'flesh-out' | 'options' | 'interview'
+export type BuilderJob = 'quick-start' | 'flesh-out' | 'options' | 'interview' | 'questions'
 
 export interface QuickStartInput {
   /** Made by the interface (any unique id), so every event for the job can be matched to it. */
@@ -46,6 +46,27 @@ export interface QuickStartInput {
    * dropped, say). Only its empty fields are filled; what it holds stays as it is.
    */
   entryId?: ID | null
+  /**
+   * Adam's answers to the follow-up questions asked after his notes (startQuestions): his words, like the notes. An
+   * answer that is null is one he left to the AI to decide. Questions he skipped aren't here.
+   */
+  answers?: QuickAnswer[]
+}
+
+/** One follow-up question and Adam's answer to it (null: "Let the AI decide"). */
+export interface QuickAnswer {
+  question: string
+  answer: string | null
+}
+
+/** The follow-up questions after Quick start's notes: a short round about what the notes leave open. */
+export interface QuestionsInput {
+  jobId: ID
+  kind: BuilderKind
+  notes: string
+  storyId?: ID | null
+  /** The scene a passage came from: the notes are then that passage. */
+  sceneId?: ID | null
 }
 
 export interface FleshOutInput {
@@ -103,7 +124,7 @@ export interface BuilderProgress {
   fromNotes: string[]
   /** Quick start: the entry, once it has a name and has been saved. */
   entryId: ID | null
-  /** Give me options: the alternatives so far (the last may still be arriving). */
+  /** Give me options: the alternatives so far (the last may still be arriving). Questions: the questions so far. */
   options: string[]
   /** Interview: the character's reply so far. */
   text: string
@@ -131,6 +152,11 @@ export interface BuilderApi {
   startOptions(input: OptionsInput): Promise<void>
   /** Interview: the character answers Adam's question in character. */
   startInterview(input: InterviewInput): Promise<void>
+  /**
+   * Follow-up questions after Quick start's notes: three to five short questions about what the notes leave open,
+   * each answerable in a line (in `options` as they arrive). Nothing is saved; the answers go to startQuickStart.
+   */
+  startQuestions(input: QuestionsInput): Promise<void>
   /** Stops a job; what has fully arrived is kept. Resolves once it has finished. Does nothing for a job that has ended. */
   stopBuilder(jobId: ID): Promise<void>
   /**
