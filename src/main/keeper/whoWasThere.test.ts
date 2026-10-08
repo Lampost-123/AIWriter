@@ -88,10 +88,49 @@ describe('who is on stage at a paragraph', () => {
       { id: 'c', name: 'Cinder', kind: 'character' as const, summary: 'A grey dog.' }
     ]
     // At p4: Ash was named three paragraphs back (too long ago), Wren two back.
-    expect(onStageAt({ paras, index: 4, onCard: ['m', 't', 'c'], people, gone: [] })).toEqual(['m', 't', 'w'])
-    expect(onStageAt({ paras, index: 1, onCard: ['m', 't'], people, gone: [] })).toEqual(['m', 't', 'a'])
-    expect(onStageAt({ paras, index: 4, onCard: ['m', 't'], people, gone: [{ id: 't', index: 2 }] })).toEqual(['m', 'w'])
+    expect(onStageAt({ paras, index: 4, onCard: ['m', 't', 'c'], pov: 'm', people, gone: [] })).toEqual(['m', 't', 'w'])
+    expect(onStageAt({ paras, index: 1, onCard: ['m', 't'], pov: 'm', people, gone: [] })).toEqual(['m', 't', 'a'])
+    expect(onStageAt({ paras, index: 4, onCard: ['m', 't'], pov: 'm', people, gone: [{ id: 't', index: 2 }] })).toEqual(['m', 'w'])
     expect(WHISPERED.test('Mara whispered to Tobin.')).toBe(true)
+  })
+
+  const scene = (texts: string[]) =>
+    sceneParagraphs(
+      { type: 'doc', content: texts.map((t, i) => ({ type: 'paragraph', attrs: { pid: `p${i}` }, content: [{ type: 'text', text: t }] })) },
+      ''
+    )
+  const people = [
+    { id: 'm', name: 'Mara', kind: 'character' as const },
+    { id: 't', name: 'Tobin', kind: 'character' as const },
+    { id: 'a', name: 'Anna', kind: 'character' as const },
+    { id: 'w', name: 'Wren', kind: 'character' as const }
+  ]
+
+  it('leaves out someone only thought of, remembered, or far away', () => {
+    const at = (text: string) => onStageAt({ paras: scene([text, SAID]), index: 1, onCard: [], people, gone: [] })
+    expect(at('Mara thought of Anna, three hundred miles away in the capital.')).toEqual(['m'])
+    expect(at('Mara remembered Anna laughing at the fair.')).toEqual(['m'])
+    expect(at('Mara missed Anna more than she could say.')).toEqual(['m'])
+    expect(at('Mara wondered about Anna.')).toEqual(['m'])
+    expect(at('Mara dreamed of Anna.')).toEqual(['m'])
+    expect(at('Anna, back home, would be asleep by now.')).toEqual(['m'])
+    expect(at('Anna was far away.')).toEqual(['m'])
+    // Named as there, they count, even with one of those words about someone else.
+    expect(at('Anna came back home soaked to the skin.')).toEqual(['m', 'a'])
+    expect(at('Mara thought of the sea. Anna poured the tea.')).toEqual(['m', 'a'])
+    expect(at('Anna remembered the old road.')).toEqual(['m', 'a'])
+  })
+
+  it('counts the card’s people from when they come in, the point of view from the start', () => {
+    const paras = scene(['The fire was low.', SAID, 'Rain on the glass.', 'Wind at the door.', 'Anna came in from the yard.', 'Tobin spoke.'])
+    const card = { onCard: ['m', 't', 'a', 'w'], pov: 'm', people, gone: [] }
+    // Anna walks in at p4: not there for what was said at p1. Wren, never named, is there all along.
+    expect(onStageAt({ ...card, paras, index: 1 })).toEqual(['m', 'w'])
+    expect(onStageAt({ ...card, paras, index: 4 })).toEqual(['m', 'a', 'w'])
+    expect(onStageAt({ ...card, paras, index: 5 })).toEqual(['m', 't', 'a', 'w'])
+    // A point of view never named (told as "she" or "I") is there from the start.
+    const quiet = scene(['She waited by the fire.', 'Tobin came in.'])
+    expect(onStageAt({ paras: quiet, index: 0, onCard: ['m', 't'], pov: 'm', people, gone: [] })).toEqual(['m'])
   })
 })
 
@@ -111,6 +150,39 @@ describe('something said', () => {
     expect(mustLines(w.db, s2, ['Mara', 'Wren'])).toContain('Kept from Wren: the key is under the bell')
     // Not kept from the dog.
     expect(mustLines(w.db, s2, ['Mara', 'Cinder'])).not.toContain('Kept from')
+  })
+
+  it('isn’t known by someone only thought of, who is still told as not knowing it', async () => {
+    const w = cast(1)
+    const [s1, s2] = w.scenes
+    repo.createEntry(w.db, 'character', { name: 'Anna' })
+    saveParas(w.db, s1, [
+      ['p1', 'Mara thought of Anna, three hundred miles away in the capital.'],
+      ['p2', SAID]
+    ])
+    await readScene(w.db, fake, s1, { add: [secret()] })
+    expect(knowers(w.db, 'the key is under the bell')).toEqual(['Mara', 'Tobin'])
+    expect(mustLines(w.db, s2, ['Mara', 'Anna'])).toContain('Kept from Anna: the key is under the bell')
+  })
+
+  it('isn’t known by someone on the card who only comes in later', async () => {
+    const w = cast(1)
+    const [s1] = w.scenes
+    repo.updateSceneCard(w.db, s1, { ...emptySceneCard(), povId: w.mara.id, presentIds: [w.tobin.id, w.ash.id] })
+    const DAWN = '“The boat leaves at dawn,” Tobin said.'
+    saveParas(w.db, s1, [
+      ['p1', 'Tobin stirred the low fire.'],
+      ['p2', SAID],
+      ['p3', 'Rain on the glass.'],
+      ['p4', 'Wind rattled the door.'],
+      ['p5', 'Ash came in from the yard, shaking off the rain.'],
+      ['p6', DAWN]
+    ])
+    await readScene(w.db, fake, s1, {
+      add: [secret(), { type: 'said', kind: 'secret', entry: 'Tobin', heard: [], fact: 'the boat leaves at dawn', quote: DAWN }]
+    })
+    expect(knowers(w.db, 'the key is under the bell')).toEqual(['Mara', 'Tobin'])
+    expect(knowers(w.db, 'the boat leaves at dawn')).toEqual(['Ash', 'Mara', 'Tobin'])
   })
 
   it('whispered, it reaches only those the memory model says heard it', async () => {

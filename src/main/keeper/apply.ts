@@ -535,9 +535,10 @@ class Run {
   }
 
   private cardIds: ID[] | null = null
+  private povId: ID | null = null
   /**
-   * Who is on stage at these words (World Memory Overhaul B5, keeper/presence.ts): the scene card's people and anyone
-   * named in the paragraph or just before it, less those who left or died earlier in the scene. Only people who exist
+   * Who is on stage at these words (World Memory Overhaul B5, keeper/presence.ts): the scene card's people (from when
+   * they come in) and anyone named as there in the paragraph or just before it, less those who left or died earlier. Only people who exist
    * here (or this read found), living.
    */
   stageAt(s: Spot): Entry[] {
@@ -548,6 +549,7 @@ class Run {
       try {
         const card = repo.getScene(this.db, this.scene.sceneId).card
         this.cardIds = [card.povId, ...(card.presentIds ?? [])].filter((x): x is ID => !!x)
+        this.povId = card.povId ?? null
       } catch {
         this.cardIds = []
       }
@@ -567,7 +569,7 @@ class Run {
         if (at >= 0) gone.push({ id: c.entryId, index: at })
       }
     }
-    return onStageAt({ paras, index, onCard: this.cardIds, people: [...living.values()], gone }).flatMap((id) => living.get(id) ?? [])
+    return onStageAt({ paras, index, onCard: this.cardIds, pov: this.povId, people: [...living.values()], gone }).flatMap((id) => living.get(id) ?? [])
   }
 
   /** The paragraph's words a spot is in ('' when it can't be found). */
