@@ -17,6 +17,7 @@
     "traps:write": "node tests/traps/cli.mjs --write",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
+    "docs:screenshots": "npm run build && playwright test -c tests/docs/playwright.config.ts",
     "rebuild:node": "npm rebuild better-sqlite3",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
     "release:win": "npm run build && electron-builder --win --x64 --publish always",
