@@ -1,6 +1,6 @@
-<!-- version: 0.6.31 -->
-What's new in 0.6.31:
+<!-- version: 0.6.32 -->
+What's new in 0.6.32:
 
-- The search model behind "Find by meaning" now downloads by itself in the background, a little after AI Write opens. If it fails, it tries again later. Press Stop or Remove in Settings and it stays off until you download it again.
+- Settings now says plainly what stays on this computer. The voices and dictation run here. Your AI model helps tell who says each line, and with extras like tone and sound effects.
 
-Also in 0.6.30: the AI keeps far better track of a scene as you carry it on (where everyone is, clothes, what they hold, doors), mends small slips in amber with Undo, plans each draft first, and finds earlier passages by meaning.
+Also new since 0.6.30: the search model behind "Find by meaning" downloads by itself in the background. And the AI keeps far better track of a scene as you carry it on, mends small slips in amber with Undo, and plans each draft first.

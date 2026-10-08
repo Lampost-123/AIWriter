@@ -102,7 +102,7 @@ function Everyday({ speech }: { speech: SpeechSettings }): React.JSX.Element {
           description={
             on
               ? `Listen is in the scene's toolbar (${shortcutText('listen')}), and ${shortcutText('stopReading')} stops reading from anywhere.`
-              : 'Shows Listen in the scene’s toolbar. The voices run on this computer, so nothing you write is sent anywhere to be read.'
+              : 'Shows Listen in the scene’s toolbar. The voices run on this computer. Your AI model helps tell who says a line when it isn’t clear.'
           }
         />
         {on && (warm?.state === 'loading' || warm?.state === 'ready') ? (
