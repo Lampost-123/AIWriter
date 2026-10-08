@@ -69,17 +69,38 @@ export interface LogGroup {
   items: MemoryLogItem[]
 }
 
+/** The heading of the notes about the whole world, at the top of the list. */
+export const WHOLE_WORLD = 'Whole world'
+
+/** A note about the whole world rather than one scene: the memory tidy-up's "N removed, M to check again". */
+export const worldNote = (item: MemoryLogItem): boolean => !!item.note && !item.sceneId && !item.entryId
+
 /**
  * The list grouped by run, keeping its order (newest first). Lines next to each other from the same
- * run share one heading. A run's lines all come from one scene; if a run ever spans several, the
- * group takes the first line's scene and place. `headings` gives some runs a heading of their own
- * (the story flows' runs, which belong to no scene).
+ * run and scene share one heading: a run that spans several scenes (the memory tidy-up) gets a
+ * heading for each. `headings` gives some runs a heading of their own (the story flows' runs, which
+ * belong to no scene). Notes about the whole world come first, under a heading of their own.
  */
 export function groupLog(items: MemoryLogItem[], headings: ReadonlyMap<ID, string> = new Map()): LogGroup[] {
   const groups: LogGroup[] = []
+  const world = items.filter(worldNote)
+  if (world.length) {
+    groups.push({
+      key: `world:${world[0].id}`,
+      runId: world[0].runId,
+      sceneId: null,
+      where: '',
+      heading: WHOLE_WORLD,
+      at: world[0].createdAt,
+      items: world
+    })
+  }
   for (const item of items) {
+    if (worldNote(item)) continue
     const last = groups[groups.length - 1]
-    if (last && last.runId === item.runId) {
+    const own = headings.has(item.runId)
+    const otherScene = !!last && !own && !!last.sceneId && !!item.sceneId && last.sceneId !== item.sceneId
+    if (last && last.runId === item.runId && !last.key.startsWith('world:') && !otherScene) {
       last.items.push(item)
       continue
     }
