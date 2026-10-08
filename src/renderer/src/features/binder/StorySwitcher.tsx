@@ -85,7 +85,7 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                 data-story-menu
                 aria-label="Switch story, or this story’s settings"
                 title="Switch story, or this story’s settings"
-                className="desk-bar-link -ml-1 grid h-8 w-6 shrink-0 place-items-center rounded-[9px] outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                className="desk-bar-link -ml-1.5 grid h-8 w-6 shrink-0 place-items-center rounded-[9px] outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               >
                 <ChevronDown size={12} className="shrink-0 text-faint" />
               </M.Trigger>
