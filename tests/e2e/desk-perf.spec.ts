@@ -144,31 +144,48 @@ test('Continue’s words fade in and the page glides along with them, then settl
     await useFakeModel(win, fake, 'fake/slow')
     const prose = win.locator('.scene-prose')
     await expect(prose).toContainText('A hundred and twelve steps to the lamp room.')
-    // How far the page moves each frame while the change is written.
+    // How far the page moves each frame while the change is written, and how long each frame was.
     await win.evaluate(`(() => {
       const el = document.querySelector('.desk-scroller')
       window.__steps = []
       let last = el.scrollTop
-      const tick = () => {
+      let lastT = performance.now()
+      const tick = (now) => {
         const writing = !!document.querySelector('.scene-prose .aw-sugg-caret')
-        if (writing) window.__steps.push(el.scrollTop - last)
+        if (writing) window.__steps.push([el.scrollTop - last, now - lastT])
         last = el.scrollTop
+        lastT = now
         window.__stepRaf = requestAnimationFrame(tick)
       }
-      tick()
+      window.__stepRaf = requestAnimationFrame(tick)
     })()`)
     await dock(win).getByRole('button', { name: /^Continue/ }).click()
     await expect(prose.locator('.aw-sugg-words .aw-arrive').first()).toBeAttached()
     await expect(dock(win)).toHaveAttribute('data-desk-dock', 'review', { timeout: 30_000 })
-    const steps = await win.evaluate<number[]>('(cancelAnimationFrame(window.__stepRaf), window.__steps)')
+    const steps = await win.evaluate<[number, number][]>('(cancelAnimationFrame(window.__stepRaf), window.__steps)')
     // Leaving out the change being brought into view at the start (in one step, as before).
-    const moving = steps.slice(steps.findIndex((s) => s !== 0) + 1)
-    const moved = moving.reduce((a, b) => a + b, 0)
-    const biggest = Math.max(0, ...moving.map(Math.abs))
-    console.log(`desk-perf: Continue followed ${Math.round(moved)} px over ${moving.length} frames; biggest step ${Math.round(biggest)} px`)
+    const moving = steps.slice(steps.findIndex(([d]) => d !== 0) + 1)
+    const moved = moving.reduce((a, [d]) => a + d, 0)
+    // The glide is timed, not counted in frames (scrollGlide.ts), so each step is measured against the time its frame
+    // took: px per 60th of a second. CI's virtual screen draws fewer, uneven frames, and a raw step per frame measured
+    // that, not the glide.
+    const PER = 1000 / 60
+    const speeds = moving.map(([d, dt]) => (Math.abs(d) * PER) / Math.max(PER, dt))
+    const fastest = Math.max(0, ...speeds)
+    // Gliding, the page moves on most frames between its first and last move (it waits only while it has caught up with
+    // the words: about a third of the frames here); going a line at a time it would sit still on nearly all of them and
+    // then jump a whole line.
+    const first = moving.findIndex(([d]) => d !== 0)
+    const lastMove = moving.length - 1 - [...moving].reverse().findIndex(([d]) => d !== 0)
+    const span = first < 0 ? [] : moving.slice(first, lastMove + 1)
+    const still = span.filter(([d]) => d === 0).length / Math.max(1, span.length)
+    console.log(
+      `desk-perf: Continue followed ${Math.round(moved)} px over ${moving.length} frames; fastest ${fastest.toFixed(1)} px per 60th of a second; still on ${Math.round(still * 100)}% of the frames while moving`
+    )
     expect(moved).toBeGreaterThan(100)
-    // A line at a time would be a step of a whole line (about 30 px or more): the page glides instead.
-    expect(biggest).toBeLessThan(25)
+    // A line at a time would be a whole line (about 30 px or more) in a frame: the page glides instead.
+    expect(fastest).toBeLessThan(25)
+    expect(still).toBeLessThan(0.8)
     await win.keyboard.press('Tab')
     await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
     await expect(prose.locator('.aw-settle-words').first()).toBeAttached()

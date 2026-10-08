@@ -4,7 +4,7 @@
 // (position and size together) on the look's ease-out with no overshoot; a move from the keyboard, or across a long
 // list, jumps instead, and less motion makes it instant. Put it first inside the list it belongs to (its parent, which
 // must be positioned): it scrolls with the rows there. When it has come to rest on another row (from the pointer) it is
-// marked data-landed for a moment, so a list can play a small landing (the desk's spine marker glints: desk.css).
+// marked data-landed (afresh each time), so a list can play a small landing (the desk's spine marker glints: desk.css).
 import { useLayoutEffect, useRef } from 'react'
 import { cn } from '@/lib/cn'
 import { keyboardDriven } from '@/features/look/motion'
@@ -58,11 +58,7 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
     const onEnd = (e: TransitionEvent): void => {
       if (e.target === p && e.propertyName === 'transform' && landing) land()
     }
-    const onAnimEnd = (e: AnimationEvent): void => {
-      if (e.target === p || p.contains(e.target as Node)) p.removeAttribute('data-landed')
-    }
     p.addEventListener('transitionend', onEnd)
-    p.addEventListener('animationend', onAnimEnd)
     const place = (): void => {
       frame = 0
       const row = [...box.querySelectorAll<HTMLElement>(SELECTED)].find((el) => el.offsetParent !== null && !el.closest('[data-no-pill]'))
@@ -112,7 +108,6 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
     ro.observe(box)
     return () => {
       p.removeEventListener('transitionend', onEnd)
-      p.removeEventListener('animationend', onAnimEnd)
       mo.disconnect()
       ro.disconnect()
       if (frame) cancelAnimationFrame(frame)
