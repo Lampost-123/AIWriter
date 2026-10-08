@@ -92,7 +92,7 @@ const para = (scene: string, i: number): string => {
   return s.paragraphs[i]
 }
 
-const EDIT = (kinds: ProposalKind[] = ['text', 'passage']): { do: 'propose'; kinds: ProposalKind[] } => ({ do: 'propose', kinds })
+const EDIT = (kinds: ProposalKind[] = ['text', 'passage', 'insert', 'cut']): { do: 'propose'; kinds: ProposalKind[] } => ({ do: 'propose', kinds })
 
 export const CORE: Scenario[] = [
   // ---------- 15 clear edits ----------
@@ -129,10 +129,10 @@ export const CORE: Scenario[] = [
 
   // ---------- 5 large rewrites / "write the next bit" ----------
   { id: 'L01', group: 'large', rule: 'Rewriting the opening of a scene across paragraphs (propose_rewrite).', scene: 'tally', turns: [{ ask: 'Rewrite the opening three paragraphs so the scene starts in the middle of the argument.', expect: { do: 'propose', kinds: ['passage', 'text'], touches: 'The tally book lay open' } }] },
-  { id: 'L02', group: 'large', rule: '"Write the next bit": new paragraphs at the end of the open scene.', scene: 'tally', turns: [{ ask: 'Write the next bit: Ilse goes down to the harbour to find Bram. A couple of paragraphs.', expect: { do: 'propose', kinds: ['passage', 'text'], touches: 'Go and find him' } }] },
+  { id: 'L02', group: 'large', rule: '"Write the next bit": new paragraphs at the end of the open scene.', scene: 'tally', turns: [{ ask: 'Write the next bit: Ilse goes down to the harbour to find Bram. A couple of paragraphs.', expect: { do: 'propose', kinds: ['passage', 'text', 'insert'], touches: 'Go and find him' } }] },
   { id: 'L03', group: 'large', rule: 'Pushing a whole exchange harder (a beat across several paragraphs).', scene: 'vigil', turns: [{ ask: 'Push the confrontation with Quill harder, the whole exchange from when he comes up the stair.', expect: { do: 'propose', kinds: ['passage', 'text'], touches: 'Quill came up the stair' } }] },
   { id: 'L04', group: 'large', rule: 'A whole short scene made tenser.', scene: 'office', turns: [{ ask: 'Make this whole scene tenser.', expect: { do: 'propose', kinds: ['passage', 'text'] } }] },
-  { id: 'L05', group: 'large', rule: 'Adding a paragraph at a named place in the scene.', scene: 'tally', turns: [{ ask: 'Add a short paragraph after Hesper closes the tally book, where Ilse notices a page has been torn out.', expect: { do: 'propose', kinds: ['passage', 'text'], touches: 'Hesper closed the tally book' } }] },
+  { id: 'L05', group: 'large', rule: 'Adding a paragraph at a named place in the scene.', scene: 'tally', turns: [{ ask: 'Add a short paragraph after Hesper closes the tally book, where Ilse notices a page has been torn out.', expect: { do: 'propose', kinds: ['passage', 'text', 'insert'], touches: 'Hesper closed the tally book' } }] },
 
   // ---------- 6 questions and brainstorms: must NOT propose ----------
   { id: 'Q01', group: 'question', rule: 'A question about a character is answered, nothing proposed.', scene: 'tally', turns: [{ ask: 'Who is Bram Tolley?', expect: { do: 'no-propose' } }] },

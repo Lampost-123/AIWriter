@@ -128,7 +128,7 @@ const historyC = (n: number, ...last: HistoryTurn[]): HistoryTurn[] => [...HEDGE
 // ---------- The scenarios ----------
 
 type Propose = Extract<Outcome, { do: 'propose' }>
-const P = (touches?: string, more: Partial<Propose> = {}): Propose => ({ do: 'propose', kinds: ['text', 'passage'], ...(touches ? { touches } : {}), ...more })
+const P = (touches?: string, more: Partial<Propose> = {}): Propose => ({ do: 'propose', kinds: ['text', 'passage', 'insert', 'cut'], ...(touches ? { touches } : {}), ...more })
 
 export const REAL: Scenario[] = [
   // ---------- Long history, then a clear request ----------
