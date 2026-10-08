@@ -293,8 +293,15 @@ export const CHANGE_KINDS = {
 } as const
 export type ChangeKind = keyof typeof CHANGE_KINDS
 
-/** propose_changes (TOOLCHOICE): every kind of change in one tool, so one tool can be asked for. */
-function proposeChangesTool(anchor: boolean): ToolSpec {
+/** The item kind that asks the writer a question through propose_changes (TOOLCHOICE with ASKUSER). */
+export const ASK_KIND = 'ask'
+
+/**
+ * propose_changes (TOOLCHOICE): every kind of change in one tool, so one tool can be asked for. With ASKUSER (`ask`)
+ * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
+ * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
+ */
+function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -309,7 +316,12 @@ function proposeChangesTool(anchor: boolean): ToolSpec {
       '- new_entry: `entry_kind`, `name`, and `summary` / `description` if you have them.',
       '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
       '- new_chapter: `title`, at the end of this story.',
-      '- rename: a `scene` or a `chapter`, and its new title as `to`.'
+      '- rename: a `scene` or a `chapter`, and its new title as `to`.',
+      ...(ask
+        ? [
+            "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
+          ]
+        : [])
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -319,7 +331,19 @@ function proposeChangesTool(anchor: boolean): ToolSpec {
           items: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: Object.keys(CHANGE_KINDS) },
+              kind: { type: 'string', enum: [...Object.keys(CHANGE_KINDS), ...(ask ? [ASK_KIND] : [])] },
+              ...(ask
+                ? {
+                    question: str,
+                    options: {
+                      type: 'array',
+                      items: { type: 'object', properties: { label: str, detail: str }, required: ['label'] },
+                      description: 'For an ask: 2 to 4 options.'
+                    },
+                    recommended: num,
+                    multi: { type: 'boolean' }
+                  }
+                : {}),
               scene: str,
               ...(anchor ? { paragraph: paragraphParam, occurrence: occurrenceParam, replace_paragraphs: rangeParam } : {}),
               find: str,
@@ -345,7 +369,8 @@ function proposeChangesTool(anchor: boolean): ToolSpec {
               to: str,
               why: str
             },
-            required: ['kind', 'why']
+            // An ask has no `why`: only `kind` is required of every item then (a change without `why` is still told so).
+            required: ask ? ['kind'] : ['kind', 'why']
           }
         }
       },
@@ -414,7 +439,7 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
     else if (s.anchor && t.name === 'propose_rewrite') out.push(REWRITE_ANCHORED)
     else out.push(t)
   }
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor))
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
   return out
@@ -729,7 +754,7 @@ export class EditorAgent {
   /**
    * The tool the next request must call (TOOLCHOICE), or null: propose_changes, once per answer, for a question routed
    * as an edit, once the scene's words are known (read, or quoted in the question), while nothing has been proposed
-   * and no question asked. Asking marks it used.
+   * and no question asked. Asking marks it used. A forced call can still ask the writer (an item of kind ask, ASKUSER).
    */
   forceTool(): string | null {
     if (!this.switches.toolChoice || this.forced || this.place.intent !== 'edit') return null
@@ -1322,13 +1347,34 @@ export class EditorAgent {
     const items = Array.isArray(a.changes) ? (a.changes as unknown[]) : null
     if (!items?.length) throw new Mistake('Give the changes as `changes`: a list, each with its `kind` and that kind’s fields.')
     if (items.length > 20) throw new Mistake('At most 20 changes at once.')
+    const kindOf = (raw: unknown): string => {
+      const k = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).kind : null
+      return typeof k === 'string' ? k.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+    }
+    // A question for the writer (ASKUSER), asked as ask_user asks it, when it is the only item: it ends the answer.
+    // Beside changes it is not asked (the changes are the answer, checked as usual).
+    const asks = this.switches.askUser ? items.filter((x) => kindOf(x) === ASK_KIND).length : 0
+    if (asks && asks === items.length) {
+      if (asks > 1) return ['A question that didn’t fit', 'Not asked: the writer hasn’t seen it. Ask one question only: a single item of kind ask.']
+      const { kind: _kind, why: _why, ...q } = items[0] as Record<string, unknown>
+      try {
+        return this.askUser(q)
+      } catch (e) {
+        if (!(e instanceof Mistake)) throw e
+        return ['A question that didn’t fit', `Not asked: the writer hasn’t seen it. ${e.message}`]
+      }
+    }
     const lines: string[] = []
     const labels: string[] = []
     let proposed = 0
     items.forEach((raw, i) => {
       const n = i + 1
       const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null
-      const kind = typeof item?.kind === 'string' ? item.kind.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+      const kind = kindOf(raw)
+      if (asks && kind === ASK_KIND) {
+        lines.push(`${n}. ask: Not asked: an ask goes alone, never beside changes.`)
+        return
+      }
       const tool = (CHANGE_KINDS as Record<string, string>)[kind]
       if (!item || !tool) {
         lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(CHANGE_KINDS).join(', ')}.`)
@@ -1351,9 +1397,9 @@ export class EditorAgent {
       lines.push(`${n}. ${kind}: ${said}${note ? ` (${note})` : ''}`)
     })
     this.notes = []
-    const failed = items.length - proposed
+    const failed = items.length - asks - proposed
     const head = proposed
-      ? `Proposed to the writer: ${proposed} of ${items.length}. Nothing has changed yet: it happens only if they apply it.${failed ? ' Fix the ones not proposed and call again with only those.' : ''}`
+      ? `Proposed to the writer: ${proposed} of ${items.length - asks}. Nothing has changed yet: it happens only if they apply it.${failed ? ' Fix the ones not proposed and call again with only those.' : ''}`
       : 'Not proposed: nothing is waiting for the writer.'
     const tail = proposed ? '\nTell them briefly what you proposed and why.' : ''
     const label = labels.length === 1 ? labels[0] : labels.length ? `Proposing ${labels.length} changes` : 'A change that didn’t fit'

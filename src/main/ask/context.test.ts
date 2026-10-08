@@ -272,12 +272,13 @@ describe('the briefing for an answer that may use tools', () => {
 })
 
 describe('the contract switch (AIWRITE_EXP_CHAT_CONTRACT)', () => {
-  it('ends the system message with the reminder naming the routed intent, only when on', () => {
+  it('ends the system message with the reminder naming the routed intent, only when on (the default)', () => {
     const db = memoryWorld()
     const [story] = repo.listStories(db)
     const input = { question: 'Tighten the opening', storyId: story.id, sceneId: null, turns: [], prefs: defaultWritingPrefs(), contextLength: 32000, intent: 'edit' as const }
+    process.env.AIWRITE_EXP_CHAT_CONTRACT = 'off'
     expect(systemOf(assembleAsk(db, input, countRaw))).not.toMatch(/Reminder:/)
-    process.env.AIWRITE_EXP_CHAT_CONTRACT = 'on'
+    delete process.env.AIWRITE_EXP_CHAT_CONTRACT
     try {
       const system = systemOf(assembleAsk(db, input, countRaw))
       expect(system).toMatch(/\n\nReminder:\n.*\n.*\n- This request is an edit: [^\n]*$/)

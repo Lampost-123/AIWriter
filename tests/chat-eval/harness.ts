@@ -20,6 +20,7 @@ import type Database from 'better-sqlite3'
 import type { Node as PMNode, Schema } from '@tiptap/pm/model'
 import type { AgentStep } from '@shared/types'
 import type { Proposal } from '@shared/contracts/ask'
+import { CHAT_SWITCHES, chatSwitchOn, chatSwitchVar } from '@shared/askIntent'
 import { appEvents } from '../traps/fakeElectron'
 import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
@@ -53,9 +54,24 @@ export interface EvalConfig {
   apiKey: string | null
   label: string
   keep: boolean
-  /** The AIWRITE_EXP_* switches in effect (passed through to the app's code; recorded in the report). */
+  /**
+   * The switches in effect, recorded in the report: every chat overhaul switch (AIWRITE_EXP_CHAT_*) as on or off,
+   * whether set or left at its default (on), and any other AIWRITE_EXP_* as set.
+   */
   switches: Record<string, string>
+  /** The AIWRITE_EXP_* variables actually set in the environment (passed through to the app's code). */
+  switchesSet: Record<string, string>
   log: (line: string) => void
+}
+
+/** The AIWRITE_EXP_* variables set in an environment. */
+const expVars = (env: NodeJS.ProcessEnv): Record<string, string> =>
+  Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith('AIWRITE_EXP_') && v != null) as [string, string][])
+
+/** The switches in effect (EvalConfig.switches): each chat switch on or off, defaults included, then the other ones set. */
+export function effectiveSwitches(env: NodeJS.ProcessEnv): Record<string, string> {
+  const chat = Object.fromEntries(CHAT_SWITCHES.map((n) => [chatSwitchVar(n), chatSwitchOn(env[chatSwitchVar(n)]) ? 'on' : 'off']))
+  return { ...chat, ...Object.fromEntries(Object.entries(expVars(env)).filter(([k]) => !(k in chat))) }
 }
 
 export function configFromEnv(env = process.env): EvalConfig {
@@ -76,7 +92,8 @@ export function configFromEnv(env = process.env): EvalConfig {
     apiKey: (backend === 'deepseek' ? env.DEEPSEEK_API_KEY : env.OPENROUTER_API_KEY)?.trim() || null,
     label: env.CHAT_EVAL_LABEL?.trim() || '',
     keep: env.CHAT_EVAL_KEEP === '1',
-    switches: Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith('AIWRITE_EXP_') && v != null) as [string, string][]),
+    switches: effectiveSwitches(env),
+    switchesSet: expVars(env),
     log: (line) => console.log(`[chat-eval] ${line}`)
   }
 }

@@ -16,9 +16,10 @@
 //   --model <id>                   OpenRouter model (default: DeepSeek Flash from OpenRouter's list)
 //   --max-usd <n>                  the paid run's hard cap: no request is sent once it could pass it
 //   --root <folder>                run another checkout's app code (it needs its own node_modules: npm ci there)
-//   --env NAME=VALUE               set a switch for the app's code (repeatable), e.g. --env AIWRITE_EXP_CHAT_X=on;
-//                                  every AIWRITE_EXP_* already in the environment passes through too, and all are
-//                                  recorded in the report
+//   --env NAME=VALUE               set a switch for the app's code (repeatable), e.g. --env AIWRITE_EXP_CHAT_X=off
+//                                  (the chat overhaul's switches are on unless set to off); every AIWRITE_EXP_* already
+//                                  in the environment passes through too. The report records each chat switch as in
+//                                  effect (defaults included) and which were set
 //   --label <text>                 a name for the run (in the report and the bridge's file names)
 //   --matcher                      the free matcher measurement instead of the scenarios (no model, no network)
 //   --keep                         keep the throwaway data folder

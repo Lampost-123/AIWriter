@@ -1,12 +1,16 @@
 // The editor chat's tools: proposals that never overlap (one applied can't lose the words of another), a change
-// revised in place, a proposal that didn't go through saying so, and the last words listing what was proposed.
-import { describe, expect, it } from 'vitest'
+// revised in place, a proposal that didn't go through saying so, and the last words listing what was proposed. These
+// hold the old tools (every chat overhaul switch off); agent.switches.test.ts covers them on, the default.
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultWritingPrefs } from '@shared/defaults'
 import type { Proposal } from '@shared/contracts/ask'
-import { memoryWorld } from '../../../tests/unit/helpers'
+import { chatSwitches, memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import { EditorAgent, LATER, markItalics, OPEN_MARK } from './agent'
+
+beforeEach(() => chatSwitches([]))
+afterEach(() => chatSwitches(null))
 
 const TEXT = 'The tide came in over the flats. Teh gulls went quiet. Mara waited.'
 

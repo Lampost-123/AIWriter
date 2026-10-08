@@ -11,6 +11,7 @@ import { saveProposals } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
 import { fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
+import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
 type Chunk = Record<string, unknown>
 type Sent = { tools?: unknown[]; messages: Record<string, unknown>[] }
@@ -387,6 +388,60 @@ describe('the chat overhaul’s hooks in the loop', () => {
     expect(done.status).toBe('complete')
     expect(sent.map((s) => 'tool_choice' in s)).toEqual([true, false])
     expect(gens.getGeneration(req.db, done.generationId).params.toolChoice).toEqual({ tool: 'propose_changes', step: 1, dropped: true })
+  })
+
+  it('leaves short narration written before tool calls out of the reply (the contract), keeping longer words and the answer', async () => {
+    const long = `Two things matter here. ${'The tide scene runs long because the gulls and the ledger both get a full paragraph each, '.repeat(3)}so I will look at both.`
+    const { fetchImpl, sent } = scripted([
+      [text("I'll read the scene first."), call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text(long), call(0, 'a2', 'read_scene'), finish('tool_calls')],
+      [text('Let me check the outline too.'), call(0, 'a3', 'read_scene'), finish('tool_calls')],
+      [text('Odile, yes: scene two names her.'), finish('stop')]
+    ])
+    const progress: string[] = []
+    const req = request(fetchImpl, { dropBeforeTools: stepPreamble }, { maxSteps: 6 })
+    req.emit = (event, payload) => {
+      if (event === 'task:progress') progress.push((payload as { text: string }).text)
+    }
+    const done = await runTask(req)
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe(`${long}\n\nOdile, yes: scene two names her.`)
+    const rec = gens.getGeneration(req.db, done.generationId)
+    expect(rec.response).toBe(done.text)
+    // The steps are as they were; the model is still sent what it wrote with its calls.
+    expect(rec.params.steps?.map((s) => s.tool)).toEqual(['read_scene', 'read_scene', 'read_scene'])
+    expect(sent[1].messages.find((m) => m.role === 'assistant')?.content).toBe("I'll read the scene first.")
+    // The window is told once the words are taken out.
+    expect(progress.some((t) => t === '')).toBe(true)
+    expect(progress.at(-1) ?? done.text).not.toMatch(/I'll read the scene first/)
+  })
+
+  it('leaves the narration out before a question that ends the answer too; without the hook it stays', async () => {
+    const replies = (): Chunk[][] => [[text('Let me ask you which one.'), call(0, 'q1', 'ask_user', '{}'), finish('tool_calls')]]
+    const asking = (hook: boolean): Parameters<typeof request>[1] => {
+      let asked = false
+      return {
+        run: async (calls) => {
+          asked = true
+          return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'Asked.' })), steps: [] }
+        },
+        ended: () => (asked ? 'Which scene?\n\n1. The ford\n2. The tower' : null),
+        ...(hook ? { dropBeforeTools: stepPreamble } : {})
+      }
+    }
+    const dropped = await runTask(request(scripted(replies()).fetchImpl, asking(true)))
+    expect(dropped.text).toBe('Which scene?\n\n1. The ford\n2. The tower')
+    const kept = await runTask(request(scripted(replies()).fetchImpl, asking(false)))
+    expect(kept.text).toBe('Let me ask you which one.\n\nWhich scene?\n\n1. The ford\n2. The tower')
+  })
+})
+
+describe('stepPreamble', () => {
+  it('is short narration before tool calls: 40 words or fewer, and never nothing', () => {
+    expect(stepPreamble("I'll read the scene first.")).toBe(true)
+    expect(stepPreamble(Array.from({ length: STEP_PREAMBLE_WORDS }, () => 'word').join(' '))).toBe(true)
+    expect(stepPreamble(Array.from({ length: STEP_PREAMBLE_WORDS + 1 }, () => 'word').join(' '))).toBe(false)
+    expect(stepPreamble('  \n ')).toBe(false)
   })
 })
 

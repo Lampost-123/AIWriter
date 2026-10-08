@@ -23,8 +23,13 @@ export const TOOLS = { changes: 'propose_changes', ask: 'ask_user', draft: 'prop
 
 const calls = (t: TurnResult, name: string): { name: string; arguments: string }[] => (t.toolCalls ?? []).filter((c) => c.name === name)
 
-/** The model asked the writer through ask_user. */
-export const askedUser = (t: TurnResult): boolean => calls(t, TOOLS.ask).length > 0
+/** The model asked the writer through ask_user, or through propose_changes with an item of kind ask alone. */
+export const askedUser = (t: TurnResult): boolean =>
+  calls(t, TOOLS.ask).length > 0 ||
+  calls(t, TOOLS.changes).some((c) => {
+    const kinds = changeItemKinds(c.arguments)
+    return kinds.length === 1 && kinds[0] === 'ask'
+  })
 
 /** The model handed over a draft (propose_draft, or a proposal of kind 'draft' if the app keeps one). */
 export const drafted = (t: TurnResult): boolean => calls(t, TOOLS.draft).length > 0 || t.proposals.some((p) => (p.kind as string) === 'draft')
@@ -332,15 +337,24 @@ export interface RunMeta {
   root: string
   at: string
   label: string
+  /** The switches in effect (harness.ts effectiveSwitches; older reports: only the ones set, the rest then off). */
   switches: Record<string, string>
+  /** The AIWRITE_EXP_* variables set for the run (missing in older reports). */
+  switchesSet?: Record<string, string>
   note: string
 }
+
+const shortSwitch = (k: string): string => k.replace(/^AIWRITE_EXP_CHAT_/, '')
 
 export function reportMarkdown(meta: RunMeta, s: Summary, turns: TurnResult[]): string {
   const L: string[] = []
   L.push(`# Chat eval: ${meta.backend}${meta.label ? ` (${meta.label})` : ''}`, '')
   L.push(`App ${meta.appVersion} on ${meta.branch} @ ${meta.commit.slice(0, 9)}${meta.dirty ? ' (uncommitted changes in src)' : ''}; model ${meta.model} via ${meta.provider}; ${meta.at}.`)
-  if (Object.keys(meta.switches).length) L.push(`Switches: ${Object.entries(meta.switches).map(([k, v]) => `${k}=${v}`).join(', ')}.`)
+  if (Object.keys(meta.switches).length) L.push(`Switches in effect: ${Object.entries(meta.switches).map(([k, v]) => `${k}=${v}`).join(', ')}.`)
+  if (meta.switchesSet) {
+    const set = Object.entries(meta.switchesSet).map(([k, v]) => `${shortSwitch(k)}=${v}`)
+    L.push(`Set for this run: ${set.join(', ') || 'none (the defaults)'}.`)
+  }
   if (meta.note) L.push('', `> ${meta.note}`)
   L.push('', '## Headline', '')
   if (s.firstAsk.scenarios)
@@ -436,8 +450,9 @@ export interface Compared {
 export function compareMarkdown(runs: Compared[]): string {
   const L: string[] = ['# Chat eval: A/B', '']
   for (const r of runs) {
-    const sw = Object.entries(r.meta.switches ?? {}).map(([k, v]) => `${k.replace(/^AIWRITE_EXP_CHAT_/, '')}=${v}`)
-    L.push(`- **${r.name}**: ${r.meta.backend} ${r.meta.model}, ${r.meta.branch} @ ${String(r.meta.commit).slice(0, 9)}, ${r.meta.at}; switches: ${sw.join(', ') || 'none'}; ${r.summary.scenarios} scenarios, ${r.summary.turns} turns`)
+    const sw = Object.entries(r.meta.switches ?? {}).map(([k, v]) => `${shortSwitch(k)}=${v}`)
+    const set = r.meta.switchesSet ? ` (set: ${Object.entries(r.meta.switchesSet).map(([k, v]) => `${shortSwitch(k)}=${v}`).join(', ') || 'none, the defaults'})` : ''
+    L.push(`- **${r.name}**: ${r.meta.backend} ${r.meta.model}, ${r.meta.branch} @ ${String(r.meta.commit).slice(0, 9)}, ${r.meta.at}; switches: ${sw.join(', ') || 'none'}${set}; ${r.summary.scenarios} scenarios, ${r.summary.turns} turns`)
   }
   L.push('', `| Measure | ${runs.map((r) => r.name).join(' | ')} |`, `|---|${runs.map(() => '---').join('|')}|`)
   const row = (label: string, f: (s: Summary) => string): void => {

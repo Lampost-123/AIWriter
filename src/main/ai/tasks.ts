@@ -98,6 +98,12 @@ export interface TaskRequest {
      * null to let the model choose. A provider that turns tool_choice down is asked again without it (ai/client.ts).
      */
     forceTool?: () => string | null
+    /**
+     * Looks at the words a request wrote before its tool calls (the same step): true to take them out of the reply
+     * shown and kept (a preamble narrating its own steps, "I'll read the scene first"; the editor chat's contract).
+     * The model is still sent them with its calls, and the steps are unchanged. Left out, they stay.
+     */
+    dropBeforeTools?: (text: string) => boolean
   }
   /**
    * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
@@ -388,6 +394,11 @@ async function stream(
       if (!calls.length) {
         nudge = nudged >= (agent.maxNudges ?? 1) ? null : (agent.nudge?.(outcome.text, nudged + 1) ?? null)
         if (!nudge) break
+      } else if (agent.dropBeforeTools && r.text.length > stepFrom && agent.dropBeforeTools(r.text.slice(stepFrom))) {
+        // Words written before this step's tool calls that only narrate its steps: out of the reply (still sent back
+        // to the model with its calls below, as it wrote them).
+        r.text = r.text.slice(0, stepFrom)
+        progress()
       }
       // Another request is coming, and every request costs: the monthly limit is asked again before each (before any
       // tool runs or any words are taken back), with what this answer has spent so far.

@@ -1,18 +1,32 @@
-// The editor chat's tools under the chat overhaul's lab switches (ANCHOR, TOOLCHOICE, ASKUSER, DRAFT), each switched on
-// here; off, agent.test.ts holds them to today's behaviour. Invented text only.
+// The editor chat's tools under the chat overhaul's lab switches (ANCHOR, TOOLCHOICE, ASKUSER, DRAFT): all on by
+// default; each test here turns on only the ones it names (the rest off). With all off, agent.test.ts holds them to
+// the old behaviour. Invented text only.
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultWritingPrefs } from '@shared/defaults'
+import type { ChatSwitch } from '@shared/askIntent'
 import type { AskChoice } from '@shared/contracts/ask'
-import { memoryWorld } from '../../../tests/unit/helpers'
+import { chatSwitches, memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import { EDITOR_TOOLS, EditorAgent, editorTools, toolSwitches, type AgentPlace } from './agent'
 
-const SWITCHES = ['ANCHOR', 'TOOLCHOICE', 'ASKUSER', 'DRAFT'] as const
-function switchOn(...names: (typeof SWITCHES)[number][]): void {
-  for (const n of SWITCHES) delete process.env[`AIWRITE_EXP_CHAT_${n}`]
-  for (const n of names) process.env[`AIWRITE_EXP_CHAT_${n}`] = 'on'
-}
-afterEach(() => switchOn())
+/** Only the switches named on, the rest off. */
+const switchOn = (...names: ChatSwitch[]): void => chatSwitches(names)
+afterEach(() => chatSwitches(null))
+
+describe('the defaults', () => {
+  it('are all on, each turned off only by =off', () => {
+    chatSwitches(null)
+    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true })
+    process.env.AIWRITE_EXP_CHAT_ANCHOR = 'off'
+    process.env.AIWRITE_EXP_CHAT_DRAFT = ' OFF '
+    process.env.AIWRITE_EXP_CHAT_ASKUSER = 'on'
+    expect(toolSwitches()).toEqual({ anchor: false, toolChoice: true, askUser: true, draft: false })
+    chatSwitches(null)
+    const names = editorTools(toolSwitches()).map((t) => t.name)
+    expect(names).toEqual(expect.arrayContaining(['propose_changes', 'ask_user', 'propose_draft']))
+    expect(names).not.toContain('propose_edit')
+  })
+})
 
 const PARAS = ['Odile closed the tally book.', '“The tide’s late,” Bram said. He opened the tally book.', 'The gulls said nothing.', 'Mara waited.']
 
@@ -167,6 +181,60 @@ describe('TOOLCHOICE: one propose_changes tool, and one request made to propose'
     const off = paragraphs(PARAS, 'edit').agent
     call(off, 'read_scene', {})
     expect(off.forceTool()).toBeNull()
+  })
+})
+
+describe('TOOLCHOICE with ASKUSER: propose_changes can carry the question, alone', () => {
+  const question = { kind: 'ask', question: 'Which passage should be tighter?', options: [{ label: 'The opening' }, { label: 'Bram’s line', detail: 'Paragraph 2.' }], recommended: 1 }
+
+  it('offers the ask kind only with ASKUSER on, and says it goes alone', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER')
+    const spec = paragraphs().agent.tools.find((t) => t.name === 'propose_changes')!
+    expect(spec.description).toMatch(/- ask: .*An ask goes alone, as the only item: given with changes, it is not asked/)
+    expect(JSON.stringify(spec.parameters)).toContain('"ask"')
+    switchOn('TOOLCHOICE')
+    const without = paragraphs().agent.tools.find((t) => t.name === 'propose_changes')!
+    expect(without.description).not.toMatch(/- ask:/)
+    expect(JSON.stringify(without.parameters)).not.toContain('"ask"')
+    expect(call(paragraphs().agent, 'propose_changes', { changes: [question] })).toMatch(/Not proposed: each change needs `kind`/)
+  })
+
+  it('asks as ask_user does when it is the only item: the choice is kept, the window told, the answer ended', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER')
+    const { agent, choices } = paragraphs(PARAS, 'edit')
+    call(agent, 'read_scene', {})
+    expect(agent.forceTool()).toBe('propose_changes')
+    const out = call(agent, 'propose_changes', { changes: [{ ...question, why: 'Two passages could be meant.' }] })
+    expect(out).toMatch(/^Asked the writer\. Your answer ends here/)
+    expect(choices).toEqual([{ question: 'Which passage should be tighter?', options: [{ label: 'The opening' }, { label: 'Bram’s line', detail: 'Paragraph 2.' }], recommended: 0 }])
+    expect(agent.ended()).toBe('Which passage should be tighter?\n\n1. The opening (recommended)\n2. Bram’s line — Paragraph 2.')
+    expect(agent.extraParams()).toEqual({ choice: choices[0] })
+    expect(agent.proposals).toEqual([])
+    expect(agent.forceTool()).toBeNull()
+    expect(call(agent, 'propose_changes', { changes: [question] })).toMatch(/^Not asked: .*asked the writer a question already/)
+  })
+
+  it('checks the question as ask_user does', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER')
+    const { agent, choices } = paragraphs()
+    expect(call(agent, 'propose_changes', { changes: [{ kind: 'ask', question: 'Which?', options: ['Only one'] }] })).toMatch(/^Not asked: .*2 to 4 `options`/)
+    expect(call(agent, 'propose_changes', { changes: [{ kind: 'Ask', question: 'Which?', options: ['A', 'B'], recommended: 3 }] })).toMatch(/1 to 2/)
+    expect(call(agent, 'propose_changes', { changes: [question, question] })).toMatch(/^Not asked: .*Ask one question only/)
+    expect(agent.choice).toBeNull()
+    expect(choices).toEqual([])
+  })
+
+  it('beside changes, the ask is not asked and the changes are checked as usual', () => {
+    switchOn('TOOLCHOICE', 'ASKUSER')
+    const { agent, choices } = paragraphs()
+    const out = call(agent, 'propose_changes', { changes: [question, { kind: 'edit', find: 'Mara waited.', replace: 'Mara left.', why: 'Sharper.' }] })
+    expect(out).toMatch(/^Proposed to the writer: 1 of 1\./)
+    expect(out).toContain('1. ask: Not asked: an ask goes alone, never beside changes.')
+    expect(out).toContain('2. edit: proposed as change 1.')
+    expect(out).not.toMatch(/Fix the ones not proposed/)
+    expect(agent.choice).toBeNull()
+    expect(choices).toEqual([])
+    expect(agent.ended()).toBeNull()
   })
 })
 

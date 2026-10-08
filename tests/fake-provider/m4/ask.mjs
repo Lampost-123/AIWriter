@@ -100,6 +100,10 @@ export function askToolCalls(system, messages, tools, toolChoice) {
   if (forced === 'required') return calls ?? (offered(tools, 'ask_user') ? [askUserCall(tools)] : null)
   if (calls?.some((c) => c.name === forced) || !offered(tools, forced)) return calls
   if (forced === 'ask_user') return [askUserCall(tools)]
+  // Made to propose when it would have asked: the question goes as propose_changes' one item of kind ask, where the
+  // tool takes one (TOOLCHOICE with ASKUSER).
+  const asking = calls?.find((c) => c.name === 'ask_user')
+  if (forced === 'propose_changes' && asking && askKindOffered(tools)) return [changesCall(tools, [{ kind: 'ask', ...asking.arguments }])]
   if (forced === 'propose_draft') return [draftCall(tools, 'Carry on from the end of the scene.')]
   return [{ name: forced, arguments: fill(paramsOf(tools, forced), { why: 'As asked.' }) }]
 }
@@ -153,6 +157,9 @@ function changesCall(tools, changes) {
   return { name: 'propose_changes', arguments: top }
 }
 
+/** propose_changes takes an item of kind ask (a question for the writer). */
+const askKindOffered = (tools) => !!listOf(paramsOf(tools, 'propose_changes'))?.items?.properties?.kind?.enum?.includes('ask')
+
 /** ask_user: one question with options (options as strings, or as objects when the schema wants them). */
 function askUserCall(tools) {
   const schema = paramsOf(tools, 'ask_user')
@@ -205,7 +212,8 @@ function scriptedCalls(system, messages, tools) {
   if (offered(tools, 'ask_user') && /\b(make it better|shorten it|change his name|thing we talked about|which one)\b/.test(typed)) {
     return called('ask_user') ? null : [askUserCall(tools)]
   }
-  if (offered(tools, 'propose_changes') && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
+  // ("Push … harder" is the rewrite across paragraphs below, through propose_changes when that is the tool offered.)
+  if (offered(tools, 'propose_changes') && !/\bpush\b/.test(typed) && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
     if (called('propose_changes')) return null
     if (!toolResults.length) return [{ name: 'read_scene', arguments: {} }]
     const first = last?.role === 'tool' ? firstSentence(last.content) : ''

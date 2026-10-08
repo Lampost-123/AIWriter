@@ -75,6 +75,19 @@ export function withoutPreambles(answer: string): string {
     .trim()
 }
 
+/** The most words text written before a step's tool calls may have and still be taken for narration of its steps. */
+export const STEP_PREAMBLE_WORDS = 40
+
+/**
+ * True for words written just before tool calls in the same step that only narrate the model's own steps ("I'll read
+ * the scene first…", "Let me check the outline."): short (STEP_PREAMBLE_WORDS words or fewer). With the contract on
+ * (ai/tasks.ts), they are left out of the reply; longer words before the calls are kept.
+ */
+export function stepPreamble(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean).length
+  return words > 0 && words <= STEP_PREAMBLE_WORDS
+}
+
 /** True for an answer that only asked the writer something: short, ending on a question, no list. */
 export function onlyAsks(answer: string): boolean {
   const a = answer.trim()

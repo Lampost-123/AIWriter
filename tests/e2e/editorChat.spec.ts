@@ -42,9 +42,10 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(card).toHaveAttribute('data-status', 'pending')
     await expect(panel(win).locator('[data-steps]')).toContainText('Reading Ch 1, Sc 1')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
-    // The model was offered the tools, and was sent the scene it read.
+    // The model was offered the tools (by default the chat overhaul's one propose_changes), and was sent the scene it read.
     const sent = fake.lastRequest()!.body as { messages: unknown[]; tools?: { function: { name: string } }[] }
-    expect(sent.tools?.map((t) => t.function.name)).toContain('propose_edit')
+    expect(sent.tools?.map((t) => t.function.name)).toContain('propose_changes')
+    expect(sent.tools?.map((t) => t.function.name)).not.toContain('propose_edit')
     expect(JSON.stringify(sent.messages)).toContain('The gulls went quiet.')
 
     // Apply: into the page, the card marked applied; Undo takes it back.
@@ -140,7 +141,8 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
   }
 })
 
-// The chat overhaul's Phase 1 tools, behind their lab switches (ASKUSER, DRAFT): what the window makes of them.
+// The chat overhaul's Phase 1 tools, behind their lab switches (ASKUSER, DRAFT; on by default, named here so these
+// tests keep them whatever the defaults): what the window makes of them.
 const PHASE1 = { env: { AIWRITE_EXP_CHAT_ASKUSER: 'on', AIWRITE_EXP_CHAT_DRAFT: 'on' } }
 
 test('a question with options shows as buttons; a pick is the next question, and the chat shows it picked when opened again', async ({ launch }) => {

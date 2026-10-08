@@ -59,7 +59,7 @@ describe.runIf(process.env.CHAT_EVAL_RUN === '1')('chat eval', () => {
       // Story C (the big briefing) is seeded only when a scenario asks in it.
       const app = await openEvalApp(cfg, { network: true, big: list.some((s) => s.big) })
       const turns: TurnResult[] = []
-      const m = meta(cfg.root, { backend: cfg.backend, model: app.model, provider: app.providerName, label: cfg.label, switches: cfg.switches, note: NOTES[cfg.backend] })
+      const m = meta(cfg.root, { backend: cfg.backend, model: app.model, provider: app.providerName, label: cfg.label, switches: cfg.switches, switchesSet: cfg.switchesSet, note: NOTES[cfg.backend] })
       const save = (partial: boolean): void => {
         const s = summarise(turns, !isPaid(cfg.backend))
         writeFileSync(join(cfg.out, 'report.json'), JSON.stringify({ meta: m, partial, summary: s, turns }, null, 2))

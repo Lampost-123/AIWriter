@@ -1,19 +1,22 @@
-// The chat overhaul's contract (AIWRITE_EXP_CHAT_CONTRACT): off, the instructions are today's; on, the "ask first"
-// framing goes, the per-intent contract comes in, and the system message ends with a reminder naming the intent.
+// The chat overhaul's contract (AIWRITE_EXP_CHAT_CONTRACT, on by default): on, the "ask first" framing goes, the
+// per-intent contract comes in, and the system message ends with a reminder naming the intent; =off, the old
+// instructions.
 import { afterEach, describe, expect, it } from 'vitest'
 import { defaultStyleGuide } from '@shared/defaults'
 import { askInstructions, askMessages, contractReminder } from './prompts'
 
 const style = defaultStyleGuide()
+/** The default: on. */
 const on = (): void => {
-  process.env.AIWRITE_EXP_CHAT_CONTRACT = 'on'
+  delete process.env.AIWRITE_EXP_CHAT_CONTRACT
 }
 afterEach(() => {
   delete process.env.AIWRITE_EXP_CHAT_CONTRACT
 })
 
 describe('the contract switch', () => {
-  it('off: today’s instructions and no reminder', () => {
+  it('off: the old instructions and no reminder', () => {
+    process.env.AIWRITE_EXP_CHAT_CONTRACT = 'off'
     const text = askInstructions(style)
     expect(text).toMatch(/ask first, in a sentence or two, before proposing anything/)
     expect(text).toMatch(/propose changes only once they have chosen/)
@@ -30,6 +33,8 @@ describe('the contract switch', () => {
     expect(text).toMatch(/3 to 5 distinct options in words/)
     expect(text).toMatch(/the first line is the verdict/)
     expect(text).toMatch(/Ask one short question only when you can't tell which passage is meant/)
+    expect(text).toMatch(/When propose_changes takes an item of kind ask, it can carry that question too, as its only item/)
+    expect(contractReminder('edit')).toMatch(/as an item of kind ask/)
     expect(text).toMatch(/propose_draft/)
     expect(text).toMatch(/\[\[Mara Venn\]\]/)
     expect(text).toMatch(/never say a change has been made/)

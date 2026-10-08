@@ -2,8 +2,8 @@
 // preamble count, forced tool_choice, the real set's headline and the A/B table. No model, no app.
 import { describe, expect, it } from 'vitest'
 import type { TurnResult } from '../chat-eval/harness'
-import { forcedChoice } from '../chat-eval/harness'
-import { asExpected, compareMarkdown, shapeOf, summarise, type RunMeta } from '../chat-eval/score'
+import { configFromEnv, effectiveSwitches, forcedChoice } from '../chat-eval/harness'
+import { askedUser, asExpected, compareMarkdown, reportMarkdown, shapeOf, summarise, type RunMeta } from '../chat-eval/score'
 import { pickScenarios, SCENARIOS } from '../chat-eval/scenarios'
 import { C_ENTRIES, C_OPEN, winterParagraphs } from '../chat-eval/bigWorld'
 
@@ -52,6 +52,31 @@ describe('chat eval scores (Phase 1)', () => {
     // A draft hand-off isn't a proposal where the scenario wants an edit.
     expect(asExpected(turn({ toolCalls: [{ name: 'propose_draft', arguments: '{}' }] }))).toBe(false)
     expect(s.real).toMatchObject({ proposeTurns: 3, valid: 1, askedInstead: 1 })
+  })
+
+  it('counts a question carried by propose_changes (one item of kind ask) as asking, not beside changes', () => {
+    const args = (kinds: string[]): string => JSON.stringify({ changes: kinds.map((kind) => ({ kind, question: 'Which?' })) })
+    const askItem = turn({ scenario: 'R07', expect: { do: 'propose', orAsk: true }, answer: 'Which?', toolCalls: [{ name: 'propose_changes', arguments: args(['ask']) }] })
+    expect(askedUser(askItem)).toBe(true)
+    expect(asExpected(askItem)).toBe(true)
+    expect(askedUser(turn({ toolCalls: [{ name: 'propose_changes', arguments: args(['ask', 'edit']) }] }))).toBe(false)
+    expect(summarise([askItem], true).tools.changes.items).toEqual({ ask: 1 })
+  })
+
+  it('records the switches in effect, defaults (on) included, and which were set', () => {
+    const env = { AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on', PATH: 'x' }
+    const sw = effectiveSwitches(env)
+    expect(Object.keys(sw)).toHaveLength(9)
+    expect(sw).toMatchObject({ AIWRITE_EXP_CHAT_CONTRACT: 'on', AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on' })
+    const cfg = configFromEnv(env)
+    expect(cfg.switches).toEqual(sw)
+    expect(cfg.switchesSet).toEqual({ AIWRITE_EXP_CHAT_ROUTE: 'off', AIWRITE_EXP_CHAT_TEMP: 'on', AIWRITE_EXP_OTHER: 'on' })
+    const m = { ...meta, switches: sw, switchesSet: cfg.switchesSet }
+    const md = reportMarkdown(m, summarise([turn({})], true), [turn({})])
+    expect(md).toContain('AIWRITE_EXP_CHAT_ROUTE=off')
+    expect(md).toContain('Set for this run: ROUTE=off, TEMP=on, AIWRITE_EXP_OTHER=on.')
+    const r = { name: 'defaults', meta: { ...meta, switches: effectiveSwitches({}), switchesSet: {} }, turns: [turn({})], summary: summarise([turn({})], true) }
+    expect(compareMarkdown([r])).toMatch(/switches: CONTRACT=on, ROUTE=on, .*DRAFT=on \(set: none, the defaults\)/)
   })
 
   it('reads forced tool_choice and the preamble', () => {

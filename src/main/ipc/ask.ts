@@ -6,7 +6,7 @@ import { contractLastWords } from '@shared/askChanges'
 import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatExp } from '../ask/exp'
-import { pastAnswer } from '../ask/history'
+import { pastAnswer, stepPreamble } from '../ask/history'
 import { editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
 
 /**
@@ -154,6 +154,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         maxSteps: MAX_STEPS,
         ended: () => agent.ended(),
         forceTool: () => agent.forceTool(),
+        // With the contract on, a short "I'll read the scene first" written before tool calls is left out of the reply.
+        ...(contract ? { dropBeforeTools: stepPreamble } : {}),
         run: (calls) => agent.runAll(calls),
         // With the contract on, the last words say what was proposed or what blocked it (never "ask again").
         lastWords: () => (contract ? contractLastWords(agent.proposals.map((x) => x.id), intent) : agent.lastWords()),
