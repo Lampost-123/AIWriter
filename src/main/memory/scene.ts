@@ -88,12 +88,21 @@ export function writerData(db: DB, data: MemoryData): MemoryData {
       const description = !!e.description && unsure(e, 'description')
       // The memory's guesses with no words behind them (A4): labelled for the writer, never in "must stay true".
       const guesses = guessFields(e).filter((k) => health.field(e.id, k) === 'unlinked' && fieldValue(e, k).trim())
-      if (!fields.length && !description && !guesses.length) return e
+      // Sent although their words were edited and nothing confirms them yet (B6, for "What the AI saw"): the summary,
+      // which stands until a new one is written, and Adam's own values.
+      const kept = ['summary', 'description', ...Object.keys(e.fields ?? {})].filter(
+        (k) =>
+          health.field(e.id, k) === 'unsure' &&
+          !!fieldValue(e, k).trim() &&
+          (k === 'summary' || (e.fieldOrigins?.[k] ?? e.origin) === 'adam')
+      )
+      if (!fields.length && !description && !guesses.length && !kept.length) return e
       return {
         ...e,
         description: description ? '' : e.description,
         fields: { ...e.fields, ...Object.fromEntries(fields.map((k) => [k, ''])) },
-        ...(guesses.length ? { guesses } : {})
+        ...(guesses.length ? { guesses } : {}),
+        ...(kept.length ? { unsure: kept } : {})
       }
     }),
     changes: data.changes.filter((c) => c.origin === 'adam' || health.change(c.id) !== 'unsure')

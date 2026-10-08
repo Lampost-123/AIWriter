@@ -14,6 +14,7 @@ import * as hist from '../db/history'
 import * as kdb from '../db/keeper'
 import { writeSceneSummary } from './summaries'
 import { Keeper } from './engine'
+import { runScene } from './run'
 import { undoItem } from './undo'
 import { gatherContextInput } from '../ai/gather'
 import { keepMemoryCheck, listMemoryChecks, removeMemoryCheck, undoMemoryCheck } from './checkQueue'
@@ -131,10 +132,27 @@ describe('the memory check list', () => {
     ])
     await readScene(w.db, fake, s1)
     const [c] = mem.listAllChanges(w.db)
-    // Adam makes the knife his own, then the words go: the memory leaves his fact alone and says so quietly.
-    mem.replaceChange(w.db, c.id, { kind: 'update', payload: { note: 'lost her knife in the Sel' }, entryId: c.entryId, anchor: 'scene', sceneId: s1, origin: 'adam' })
+    // The words go while Adam makes the knife his own (during the read): the memory leaves his fact alone and says so.
     saveParas(w.db, s1, [['p2', 'The ferry was very late.']])
-    await readScene(w.db, fake, s1)
+    const plain = shapedFetch({})
+    let once = false
+    await runScene(
+      {
+        db: w.db,
+        model: fakeModel(fake),
+        signal: new AbortController().signal,
+        closed: () => false,
+        retryDelays: [0],
+        fetchImpl: async (input, init) => {
+          if (!once) {
+            once = true
+            mem.replaceChange(w.db, c.id, { kind: 'update', payload: { note: 'lost her knife in the Sel' }, entryId: c.entryId, anchor: 'scene', sceneId: s1, origin: 'adam' })
+          }
+          return plain(input, init)
+        }
+      },
+      s1
+    )
     const note = listMemoryChecks(w.db).find((i) => i.group === 'note')!
     expect(note).toMatchObject({ entryName: 'Mara', fact: { kind: 'note' }, quote: MARA_RIVER })
     expect(note.text).toMatch(/no longer says this/)

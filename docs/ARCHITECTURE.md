@@ -121,6 +121,15 @@ Undo; what Adam made himself never does) and `src/main/memory/scene.ts` `writerD
 such a fact out until a read confirms it). An entry's own summary also gets source links, as fact kind
 `summary` with field `summary`, which the schema already allowed.
 
+**Part B, round 1** (2026-10-08) needs no migration. Every source line opens the scene at the exact words (in their
+own paragraph first; the paragraph itself when they were edited since: `features/editor/reveal.ts`), and "(since
+edited)" offers "Check again now" (`Keeper.checkAgain`: the scene is read again though its text hasn't moved on). The
+memory check list ("Worth a look" on What changed) is `src/main/keeper/checkQueue.ts`: unconfirmed text facts, the
+AI's guesses, summaries being updated and notes on Adam's own facts, with Keep (it becomes Adam's and its links go),
+Remove and Undo. Each part of the writer's briefing records what its memory lines rest on as small tags
+(`ContextBlock.memory`, built in `ai/memoryTags.ts`, stored inside `blocks_json`: names and ids only);
+`shared/memoryTags.ts` `countMemoryTags` and `db/generations.ts` `memoryTagCounts` count them for a record.
+
 ### How memory over time works
 
 - An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:

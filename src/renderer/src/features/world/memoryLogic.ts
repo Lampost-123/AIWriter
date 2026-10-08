@@ -72,8 +72,11 @@ export const allAdams = (e: Pick<Entry, 'origin' | 'fieldOrigins'>): boolean =>
 // ---------- Where a fact came from ----------
 
 export type SourceNote =
-  /** Read from the text: the words (the first that are still there) and the scene they're in. */
-  | { kind: 'words'; quote: string; sceneId: ID; changed: boolean; more: number }
+  /**
+   * Read from the text: the words (the first that are still there), the scene and paragraph they're in (for Jump to
+   * source, World Memory Overhaul B2), and whether they were edited since.
+   */
+  | { kind: 'words'; quote: string; sceneId: ID; paragraphId: string | null; changed: boolean; more: number }
   /** Read from the text, but every passage it came from has been deleted. */
   | { kind: 'gone'; sceneId: ID | null }
   | { kind: 'ai' }
@@ -86,7 +89,14 @@ export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | nu
   const live = links.filter((l) => l.state !== 'gone' && l.quote.trim())
   if (live.length) {
     const first = live.find((l) => l.state === 'ok') ?? live[0]
-    return { kind: 'words', quote: first.quote.trim(), sceneId: first.sceneId, changed: first.state === 'changed', more: live.length - 1 }
+    return {
+      kind: 'words',
+      quote: first.quote.trim(),
+      sceneId: first.sceneId,
+      paragraphId: first.paragraphId ?? null,
+      changed: first.state === 'changed',
+      more: live.length - 1
+    }
   }
   return links.length ? { kind: 'gone', sceneId: links[0].sceneId } : null
 }

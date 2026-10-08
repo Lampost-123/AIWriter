@@ -146,6 +146,34 @@ export function deleteLink(db: DB, id: ID): void {
   db.prepare('DELETE FROM source_links WHERE id = ?').run(id)
 }
 
+/**
+ * Links whose words were edited and whose fact no other words confirm (no 'ok' link for the same fact), for changes and
+ * entry fields (summaries included): the facts the memory isn't sure of (World Memory Overhaul B3), oldest first.
+ */
+export function unconfirmedLinks(db: DB): SourceLink[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM source_links l WHERE l.state = 'changed'
+           AND (l.fact_kind IN ('change', 'field') OR (l.fact_kind = 'summary' AND l.field = 'summary'))
+           AND NOT EXISTS (SELECT 1 FROM source_links o WHERE o.state = 'ok' AND o.fact_id = l.fact_id
+             AND (CASE WHEN o.fact_kind = 'change' THEN 'change' ELSE 'field' END) = (CASE WHEN l.fact_kind = 'change' THEN 'change' ELSE 'field' END)
+             AND COALESCE(o.field, '') = COALESCE(l.field, ''))
+         ORDER BY l.created_at, l.rowid`
+      )
+      .all() as Row[]
+  ).map(toLink)
+}
+
+/** Puts back a link deleted earlier, exactly as it was (an Undo on the memory check list, World Memory Overhaul B3). */
+export function putLinkBack(db: DB, l: SourceLink): void {
+  const t = now()
+  db.prepare(
+    `INSERT OR REPLACE INTO source_links (id, fact_kind, fact_id, field, scene_id, scene_version, paragraph_id, start, end, quote, state, changed_at, checks, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(l.id, l.factKind, l.factId, l.field, l.sceneId, l.sceneVersion, l.paragraphId, l.start, l.end, l.quote, l.state, l.changedAt ?? null, l.checks ?? 0, t, t)
+}
+
 export function linksForFact(db: DB, factKind: SourceLink['factKind'], factId: ID): SourceLink[] {
   return (
     db.prepare('SELECT * FROM source_links WHERE fact_kind = ? AND fact_id = ? ORDER BY created_at, rowid').all(factKind, factId) as Row[]

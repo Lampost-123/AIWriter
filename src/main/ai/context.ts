@@ -91,6 +91,7 @@ import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, type TimelineContext } from './timeline'
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
 import { withLockLines } from './lockRule'
+import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -202,6 +203,8 @@ export interface PreparedContext {
   autoFinals?: (maxWords: number) => { withPrevious: string; withoutPrevious: string }
   knows: string
   entries: ContextEntry[]
+  /** What each part's memory lines rest on, by part id (World Memory Overhaul B6), kept for the forms sent. */
+  tags?: Map<string, DraftTag[]>
 }
 
 // ---------- Budget ----------
@@ -1874,7 +1877,8 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     targetWords,
     ...(autoMax != null ? { autoMax, autoFinals: (max: number) => finalsFor(max) } : {}),
     knows: input.memory.knows ?? '',
-    entries: contextEntries(sel, blocks)
+    entries: contextEntries(sel, blocks),
+    tags: draftMemoryTags(blocks, input.memory)
   }
 }
 
@@ -2038,18 +2042,22 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
-  const blocks: ContextBlock[] = state.map((s) => ({
-    id: s.b.id,
-    priority: s.b.priority,
-    title: s.b.title,
-    text: s.forms[s.level],
-    tokens: tokens(s),
-    entryIds: s.b.entryIds,
-    dropped: s.dropped,
-    short: s.level > 0,
-    hasShort: s.hasShort,
-    mode: s.mode
-  }))
+  const blocks: ContextBlock[] = state.map((s) => {
+    const memory = sentTags(prepared.tags?.get(s.b.id), s.forms[s.level])
+    return {
+      id: s.b.id,
+      priority: s.b.priority,
+      title: s.b.title,
+      text: s.forms[s.level],
+      tokens: tokens(s),
+      entryIds: s.b.entryIds,
+      dropped: s.dropped,
+      short: s.level > 0,
+      hasShort: s.hasShort,
+      mode: s.mode,
+      ...(memory ? { memory } : {})
+    }
+  })
   const sent = blocks.filter((b) => !b.dropped)
   const hasPrev = sent.some((b) => b.id === 'previous-scene')
   const system = sent.find((b) => b.priority === 1)?.text ?? ''

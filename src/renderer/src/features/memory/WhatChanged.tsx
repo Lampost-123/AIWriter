@@ -8,7 +8,7 @@
 // has taken out since says so, with nothing left to answer or undo.
 import { ArrowLeft, BookOpen, ChevronRight, CircleAlert, Minus, PenLine, Plus } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Entry, ID, MemoryLogItem } from '@shared/types'
+import type { Entry, ID, MemoryCheckItem, MemoryLogItem } from '@shared/types'
 import type { StoryFlowRun } from '@shared/contracts/storyFlows'
 import { Button, EmptyState, Notice, toast } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -20,6 +20,7 @@ import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
 import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings, wordsGone } from './logic'
 import { openScene } from './openScene'
+import { CheckQueue } from './CheckQueue'
 
 const PAGE = 100
 
@@ -37,6 +38,9 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   const openSceneId = useApp((s) => s.sceneId)
   const navigate = useApp((s) => s.navigate)
   const [items, setItems] = useState<MemoryLogItem[] | null>(null)
+  // The memory check list (World Memory Overhaul B3), on the page for every scene: loaded with the list, so it never
+  // pushes the list down after it shows.
+  const [checks, setChecks] = useState<MemoryCheckItem[]>([])
   const [flowRuns, setFlowRuns] = useState<Map<ID, StoryFlowRun>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
@@ -50,11 +54,13 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
     const t = ++ticket.current
     // The story flows' runs come with the list, so their headings never change after it shows.
     const runs: Promise<StoryFlowRun[]> = sceneId ? Promise.resolve([]) : api.listStoryFlowRuns().catch(() => [])
-    Promise.all([api.listMemoryLog({ sceneId: sceneId ?? undefined, limit }), runs])
-      .then(([list, flows]) => {
+    const unsure: Promise<MemoryCheckItem[]> = sceneId ? Promise.resolve([]) : api.listMemoryChecks().catch(() => [])
+    Promise.all([api.listMemoryLog({ sceneId: sceneId ?? undefined, limit }), runs, unsure])
+      .then(([list, flows, found]) => {
         if (t !== ticket.current) return
         setItems(list)
         setFlowRuns(new Map(flows.map((r) => [r.runId, r])))
+        setChecks(found)
         setError(null)
       })
       .catch((e: unknown) => t === ticket.current && setError(plainReason(e)))
@@ -190,11 +196,20 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
               <Skeleton className="h-[64px] w-full rounded-xl" />
             </div>
           ) : !items.length ? (
-            <EmptyState icon={<BookOpen size={20} />} title={sceneId ? 'Nothing taken from this scene yet' : 'Nothing has changed yet'}>
-              {WHAT_CHANGED_HELP}
-            </EmptyState>
+            <>
+              {checks.length ? (
+                <div className="mb-8">
+                  <CheckQueue items={checks} entries={entries} onChange={setChecks} onReload={load} />
+                </div>
+              ) : null}
+              <EmptyState icon={<BookOpen size={20} />} title={sceneId ? 'Nothing taken from this scene yet' : 'Nothing has changed yet'}>
+                {WHAT_CHANGED_HELP}
+              </EmptyState>
+            </>
           ) : (
             <div className="flex flex-col gap-6 animate-fade-in">
+              <CheckQueue items={checks} entries={entries} onChange={setChecks} onReload={load} />
+              {checks.length ? <h2 className="-mb-3 text-[15px] font-semibold text-fg">Every change</h2> : null}
               {groups.map((g) => (
                 <section key={g.key} aria-label={groupHeading(g)}>
                   <h2 className="mb-2 flex items-baseline gap-2">

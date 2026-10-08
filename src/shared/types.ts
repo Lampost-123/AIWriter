@@ -290,6 +290,12 @@ export interface Entry {
    * guesses, with no words in the story behind them. The briefing labels them; "must stay true" leaves them out.
    */
   guesses?: string[]
+  /**
+   * Only as the writer is given it (World Memory Overhaul B6, memory/scene.ts writerData): fields sent although the words
+   * they were read from were edited and no read has confirmed them since (an entry's summary, which stands until a new
+   * one is written, and Adam's own values). "What the AI saw" marks them.
+   */
+  unsure?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -617,6 +623,43 @@ export interface ContextBlock {
   hasShort?: boolean
   /** Adam's choice for this scene, from the Context tab: 'auto' lets the budget decide. */
   mode?: BlockMode
+  /**
+   * What this part's memory lines rest on (World Memory Overhaul B6), for "What the AI saw": one small tag per entry,
+   * guessed or unconfirmed field and scene summary being updated that went into the form sent. Records from before
+   * leave it out.
+   */
+  memory?: MemoryTag[]
+}
+
+/**
+ * One line of the briefing and what it rests on (World Memory Overhaul B6): where it came from ('text' read from the
+ * story, 'yours' made or kept by Adam, 'guess' filled in by the AI with no words behind it) and how it stands on its
+ * words ('ok'; 'changed': its words were edited and no read has confirmed it yet; 'updating': a scene summary the
+ * memory is bringing up to date). Only names and ids, never the line's own words, so a record stays small.
+ */
+export interface MemoryTag {
+  /** The entry's name, or the scene's place ("Book 1, Ch 2, Sc 3") for a scene summary. */
+  label: string
+  entryId?: ID
+  sceneId?: ID
+  /** The field the line is about ('summary', 'hair'); absent for the entry as a whole and for a scene summary. */
+  field?: string
+  /** The field's label in plain words ("Hair"). */
+  fieldLabel?: string
+  origin: 'text' | 'yours' | 'guess'
+  health: 'ok' | 'changed' | 'updating'
+}
+
+/** How many lines of a briefing rest on what (shared/memoryTags.ts countMemoryTags), counting the parts sent. */
+export interface MemoryTagCounts {
+  /** Tagged lines in all. */
+  lines: number
+  /** Lines whose words were edited since, or summaries being updated. */
+  stale: number
+  /** The AI's guesses. */
+  guesses: number
+  /** Adam's own. */
+  yours: number
 }
 
 export type BlockMode = 'auto' | 'full' | 'short'
@@ -1197,6 +1240,51 @@ export interface FactVersion {
   /** The memory keeper run that wrote it; null for Adam's edits. */
   runId: ID | null
   createdAt: string
+}
+
+/**
+ * The memory check list (World Memory Overhaul B3): what the memory isn't sure about, in one place.
+ * - 'unconfirmed': a fact read from the story whose words were edited, not confirmed by a read since (the writer leaves
+ *   it out meanwhile);
+ * - 'guess': a detail the AI filled in on an entry found in the story, with no words behind it;
+ * - 'summary': a scene summary being brought up to date (the scene changed since it was written);
+ * - 'note': a quiet note that one of Adam's own facts is no longer what the scene says.
+ */
+export type MemoryCheckGroup = 'unconfirmed' | 'guess' | 'summary' | 'note'
+
+/** The fact a check is about, as Keep and Remove need it. */
+export type MemoryCheckFact =
+  | { kind: 'field'; entryId: ID; field: string }
+  | { kind: 'change'; changeId: ID }
+  | { kind: 'summary'; sceneId: ID }
+  | { kind: 'note'; logId: ID }
+
+export interface MemoryCheckItem {
+  /** Stable while the item stays in the list. */
+  key: string
+  group: MemoryCheckGroup
+  fact: MemoryCheckFact
+  entryId: ID | null
+  /** "Mara"; '' for a scene summary. */
+  entryName: string
+  entryKind: EntryKind | null
+  /** What the memory holds, in plain words: "Hair: black", "Lost her knife in the river", the summary itself. */
+  text: string
+  /** The scene the words are (or were) in; null when there are none. */
+  sceneId: ID | null
+  /** That scene in plain words: "Book 1, Ch 2, Sc 3". */
+  where: string
+  /** The words to show (as they were read); '' when there are none. */
+  quote: string
+  /** Their paragraph, to show it even when the words were edited since. */
+  paragraphId: string | null
+  /** False where Remove makes no sense (a summary is rewritten by itself). */
+  canRemove: boolean
+}
+
+/** What Keep or Remove did, so Undo can put it back. Opaque to the window; handed back as it came. */
+export interface MemoryCheckUndo {
+  steps: Record<string, unknown>[]
 }
 
 /** One line in the "What changed" list. */

@@ -166,6 +166,17 @@ export class Keeper {
     this.emitStatus()
   }
 
+  /**
+   * "Check again now" (World Memory Overhaul B2): reads this scene again soon, for facts whose words were edited and are
+   * still unconfirmed, though its text hasn't changed since the last read. The read asks the model only about those
+   * facts' paragraphs, and nothing at all when nothing in the scene is unsure.
+   */
+  checkAgain(id: ID): void {
+    if (this.closed) return
+    kdb.markNeedsReading(this.db, id)
+    this.updateNow(id)
+  }
+
   /** Adam asked for a new summary instead of his own. */
   refreshSummary(sceneId: ID, logId: ID): void {
     if (this.closed) return

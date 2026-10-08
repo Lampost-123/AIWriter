@@ -8,7 +8,8 @@ import { announceDelete } from '@/lib/undoDelete'
 import { changeWhere, shortQuote, sourceNote, type ChangeWords } from '../memoryLogic'
 import type { ScenePlace } from '../useSceneLabels'
 import { QuietError } from './QuietError'
-import { PlaceLink } from './SourceLine'
+import { EditedSince, PlaceLink } from './SourceLine'
+import { showWords } from '@/features/memory/openScene'
 import type { EntryData } from './useEntryData'
 
 export interface ChangeItem {
@@ -96,7 +97,14 @@ const ChangeRow = memo(function ChangeRow({
     <li className="group border-t border-line py-2.5 first:border-t-0 first:pt-0.5">
       <div className="flex h-6 items-center gap-1.5 text-[12px] text-faint">
         {c.anchor === 'scene' && c.sceneId ? (
-          <PlaceLink sceneId={c.sceneId} place={places?.get(c.sceneId)} storyId={c.storyId} label={where} className="text-[12px]" />
+          <PlaceLink
+            sceneId={c.sceneId}
+            place={places?.get(c.sceneId)}
+            storyId={c.storyId}
+            label={where}
+            words={note?.kind === 'words' && note.sceneId === c.sceneId ? { quote: note.quote, paragraphId: note.paragraphId } : null}
+            className="text-[12px]"
+          />
         ) : (
           <span className="font-medium text-muted">{where}</span>
         )}
@@ -128,7 +136,17 @@ const ChangeRow = memo(function ChangeRow({
       {words.detail ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{words.detail}</p> : null}
       {note?.kind === 'words' ? (
         <blockquote className="mt-1.5 border-l-2 border-line-strong pl-3 font-serif text-[13.5px] italic leading-relaxed text-muted">
-          “{note.quote}”{note.changed ? <span className="ml-1.5 font-sans text-[12px] not-italic text-faint">(since edited)</span> : null}
+          <button
+            type="button"
+            title="Show these words in the scene"
+            onClick={() => showWords(note.sceneId, note.quote, note.paragraphId)}
+            className="rounded-sm text-left italic underline-offset-2 transition-colors duration-150 hover:text-accent hover:underline"
+          >
+            “{note.quote}”
+          </button>
+          {note.changed ? (
+            <EditedSince sceneId={note.sceneId} words={{ quote: note.quote, paragraphId: note.paragraphId }} className="ml-1.5 text-[12px] text-faint" />
+          ) : null}
           {note.more ? <span className="ml-1.5 font-sans text-[12px] not-italic text-faint">and {note.more} more</span> : null}
         </blockquote>
       ) : note?.kind === 'gone' ? (

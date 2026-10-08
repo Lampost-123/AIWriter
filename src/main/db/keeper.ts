@@ -175,6 +175,14 @@ export function noteSceneSaved(db: DB, sceneId: ID): void {
   ).run(sceneId)
 }
 
+/**
+ * "Check again now" (World Memory Overhaul B2): the scene is to be read again though its text hasn't moved on, so facts
+ * whose words were edited and not confirmed since are asked about once more. Its text version stays as it is.
+ */
+export function markNeedsReading(db: DB, sceneId: ID): void {
+  db.prepare("UPDATE scenes SET memory_status = 'pending' WHERE id = ? AND memory_status = 'current'").run(sceneId)
+}
+
 /** Records that the keeper has read this version of the scene, and the paragraphs it read. */
 export function markProcessed(db: DB, sceneId: ID, version: number, read: ReadParagraph[]): void {
   db.prepare(
@@ -408,6 +416,37 @@ export function logForRun(db: DB, runId: ID): LogRow[] {
 
 export function markUndone(db: DB, id: ID): void {
   db.prepare('UPDATE memory_log SET undone_at = ? WHERE id = ?').run(now(), id)
+}
+
+/** Brings back a line marked undone (a dismissed note, when its dismissal is undone from the memory check list). */
+export function markNotUndone(db: DB, id: ID): void {
+  db.prepare('UPDATE memory_log SET undone_at = NULL WHERE id = ?').run(id)
+}
+
+/**
+ * The quiet notes still showing that one of Adam's own facts is no longer what its scene says (World Memory Overhaul,
+ * 2026-10-08; for the memory check list, B3), newest first. The tidy-up's own summary line isn't one of them.
+ */
+export function openNoLongerNotes(db: DB, limit = 300): LogRow[] {
+  return (
+    db
+      .prepare(
+        `SELECT * FROM memory_log WHERE undone_at IS NULL AND json_extract(undo_json, '$.op') = 'note'
+         AND json_extract(undo_json, '$.key') LIKE 'no-longer:%' ORDER BY rowid DESC LIMIT ?`
+      )
+      .all(limit) as Row[]
+  ).map(toLog)
+}
+
+/** Scenes whose summary the memory wrote (not Adam), live ones only, in reading order. */
+export function scenesWithTextSummary(db: DB): ID[] {
+  return (
+    db
+      .prepare(
+        `${LIVE_IDS} AND EXISTS (SELECT 1 FROM summaries m WHERE m.level = 'scene' AND m.target_id = s.id AND m.origin <> 'adam') ${READING_ORDER}`
+      )
+      .all() as Row[]
+  ).map((r) => r.id as string)
 }
 
 export function setLogQuestion(db: DB, id: ID, question: LogRow['question'], undo?: Record<string, unknown> | null): void {

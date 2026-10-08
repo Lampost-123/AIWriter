@@ -14,6 +14,7 @@ import { answerItem, undoItem, type Outcome } from '../keeper/undo'
 import type { Undo } from '../keeper/apply'
 import { isWorldLine } from '../worldBuilder/lines'
 import { checkWhenDone } from '../checks/runs'
+import { keepMemoryChecks, listMemoryChecks, removeMemoryCheck, undoMemoryCheck } from '../keeper/checkQueue'
 import { runOrWait } from '../usage'
 
 type KeeperMethods =
@@ -25,6 +26,11 @@ type KeeperMethods =
   | 'undoMemoryItem'
   | 'answerMemoryQuestion'
   | 'updateMemoryNow'
+  | 'checkMemoryAgain'
+  | 'listMemoryChecks'
+  | 'keepMemoryChecks'
+  | 'removeMemoryCheck'
+  | 'undoMemoryCheck'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
 function write<T>(fn: () => T): T {
@@ -90,5 +96,31 @@ export const keeperHandlers: Handlers<KeeperMethods> = {
   },
   updateMemoryNow: (sceneId) => {
     currentKeeper()?.updateNow(sceneId)
+  },
+  checkMemoryAgain: (sceneId) => {
+    currentKeeper()?.checkAgain(sceneId)
+  },
+
+  // The memory check list (World Memory Overhaul B3).
+  listMemoryChecks: () => listMemoryChecks(world.db()),
+  keepMemoryChecks: (facts) => {
+    const undo = write(() => keepMemoryChecks(world.db(), facts ?? []))
+    checksChanged()
+    return undo
+  },
+  removeMemoryCheck: (fact) => {
+    const undo = write(() => removeMemoryCheck(world.db(), fact))
+    checksChanged()
+    return undo
+  },
+  undoMemoryCheck: (undo) => {
+    write(() => undoMemoryCheck(world.db(), undo))
+    checksChanged()
   }
+}
+
+/** A Keep, Remove or Undo on the memory check list changed facts: the pages showing them read them again. */
+function checksChanged(): void {
+  emit('memory:changed', { sceneId: null, entryIds: [] })
+  emit('memory:status', memoryStatus())
 }

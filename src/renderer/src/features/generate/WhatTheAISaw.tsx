@@ -4,7 +4,8 @@
 import * as S from '@radix-ui/react-switch'
 import { ArrowLeft, ChevronRight, Copy, Undo2 } from '@/components/ui/icons'
 import { useEffect, useMemo, useState } from 'react'
-import type { ContextBlock, GenerationRecord, ID } from '@shared/types'
+import type { ContextBlock, GenerationRecord, ID, MemoryTag } from '@shared/types'
+import { countMemoryTags } from '@shared/memoryTags'
 import { KIND_LABELS } from '@shared/fields'
 import { countWords } from '@shared/defaults'
 import { Button, Card, Notice, SectionTitle, toast } from '@/components/ui'
@@ -16,6 +17,7 @@ import { variantsBackTo } from '@/features/variants/back'
 import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
+import { blockTagNote, recordTagNote, tagBadges, tagLabel, tagsInOrder } from './memoryTagsView'
 
 type Entry = GenerationRecord['entries'][number]
 
@@ -185,6 +187,8 @@ function DraftRecord({
   const allOpen = rec.blocks.every((b) => open.has(b.id))
   const responseWords = countWords(rec.response)
   const changed = rec.entries.filter((e) => e.changedSince && !e.deleted).length
+  // What the memory lines sent rested on (World Memory Overhaul B6): guesses and out-of-date facts, said once at the top.
+  const tagNote = recordTagNote(countMemoryTags(rec.blocks))
   // An answer in Ask the world (milestone 4) is called one here.
   const answer = rec.job === 'chat'
   // An AI edit of selected words, or Continue (milestone 4), is a change, named for its tool, not a draft.
@@ -262,6 +266,7 @@ function DraftRecord({
             {edit?.since ?? `this ${answer ? 'answer' : 'draft'}`}, so the AI saw an older version. They're marked below.
           </Notice>
         ) : null}
+        {tagNote ? <Notice tone="ai">{tagNote}</Notice> : null}
       </div>
 
       <ReplacedText rec={rec} sceneGone={sceneGone} />
@@ -596,6 +601,11 @@ function BlockRow({
           {number ?? '–'}
         </span>
         <span className={cn('min-w-0 flex-1 truncate text-[13.5px] font-medium', block.dropped ? 'text-faint' : 'text-fg')}>{block.title}</span>
+        {!block.dropped && blockTagNote(block.memory) ? (
+          <span className="shrink-0 text-[12px] font-medium text-ai" title="Some of what this part told the AI was a guess or out of date. Open it to see which.">
+            {blockTagNote(block.memory)}
+          </span>
+        ) : null}
         {block.dropped ? (
           <span className="shrink-0 text-[12px] text-faint">Left out: not enough room</span>
         ) : (
@@ -617,11 +627,61 @@ function BlockRow({
               ))}
             </div>
           ) : null}
+          {block.memory?.length ? <RestsOn tags={block.memory} /> : null}
           <BlockText text={block.text} />
         </div>
       ) : null}
     </div>
   )
+}
+
+/**
+ * What a part's memory lines rested on (World Memory Overhaul B6): each guess and each fact that was out of date as a
+ * small amber tag, then one quiet line for the rest ("Everything else here: 4 from your story, 1 yours").
+ */
+function RestsOn({ tags }: { tags: MemoryTag[] }): React.JSX.Element {
+  const ordered = tagsInOrder(tags)
+  const notable = ordered.filter((t) => t.origin === 'guess' || t.health !== 'ok')
+  const rest = ordered.filter((t) => !notable.includes(t))
+  const story = rest.filter((t) => t.origin === 'text').length
+  const yours = rest.filter((t) => t.origin === 'yours').length
+  const restWords = [story ? `${story} from your story` : '', yours ? `${yours} yours` : ''].filter(Boolean).join(', ')
+  return (
+    <div className="mb-3 flex flex-col gap-1.5" aria-label="What this part rests on">
+      {notable.length ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[12px] text-muted">Worth knowing:</span>
+          {notable.map((t, i) => (
+            <span
+              key={`${t.entryId ?? t.sceneId ?? ''}:${t.field ?? ''}:${i}`}
+              className="inline-flex h-6 items-center gap-1.5 rounded-full border border-ai/40 bg-ai-soft px-2 text-[12px] text-fg"
+              title={tagTitle(t)}
+            >
+              {tagLabel(t)}
+              {tagBadges(t).map((b) => (
+                <span key={b.text} className={cn('text-[11px] font-medium', b.tone === 'ai' ? 'text-ai' : 'text-faint')}>
+                  {b.text.toLowerCase()}
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {restWords ? (
+        <p className="text-[12px] text-faint">
+          {notable.length ? 'Everything else here' : 'What this part says of your world'}: {restWords}.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** A tag's tooltip, in a sentence. */
+function tagTitle(t: MemoryTag): string {
+  if (t.origin === 'guess') return 'The AI filled this in; nothing in your story says it yet. The AI was told it was a guess.'
+  if (t.health === 'updating') return 'This scene changed after its summary was written, so the AI was told the summary was being updated.'
+  if (t.health === 'changed') return 'The words this came from were edited, and the memory hadn’t confirmed it again yet.'
+  return t.origin === 'yours' ? 'You wrote this.' : 'Read from your story.'
 }
 
 function EntryChip({ entry, onOpen, since }: { entry: Entry; onOpen: () => void; since: string }): React.JSX.Element {

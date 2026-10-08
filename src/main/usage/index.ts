@@ -61,6 +61,7 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'draftStartingCast',
   'sortStartChanges',
   'updateMemoryNow',
+  'checkMemoryAgain',
   'startCatchUp',
   // Story recipes
   'startRecipe',
