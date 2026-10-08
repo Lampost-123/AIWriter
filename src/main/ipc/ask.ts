@@ -111,10 +111,13 @@ export const askHandlers: Handlers<keyof AskApi> = {
     // the briefing, so it can propose without reading first. CACHE: the briefing's front stays the same from question
     // to question. CAP: an edit's briefing is kept to EDIT_BRIEFING_CAP tokens.
     const sceneId = input.sceneId ?? null
-    const page =
+    const words =
       chatExp('SCENE') && sceneId && (routed === 'edit' || routed === 'unsure' || quoted)
         ? pageText(db, sceneId, { question, selection: quoted ? input.selection : null })
         : null
+    // A long scene's end, with nothing to place the window by, goes only for new prose (it carries on from there):
+    // otherwise the DeepSeek run read the scene anyway in 9 of 10 such turns, and one looped re-reading it.
+    const page = words && (words.whole || words.anchored || newProse) ? words : null
     const p = prepareAsk(db, {
       question,
       storyId,
@@ -139,10 +142,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
     }
     // The editor chat: its tools look things up and note proposed changes, never change anything themselves.
     let generationId = ''
-    // The page went in (not left out to fit), whole or around the words the question is about (or, for new prose,
-    // its end): its words count as read, so an edit's first request may be made to propose.
-    const pageSent = !!page && b.blocks.some((x) => x.id === PAGE_BLOCK.id && !x.dropped)
-    const wordsOnPage = pageSent && (page.whole || page.anchored || newProse)
+    // The page went in (not left out to fit): its words count as read, so an edit's first request may be made to propose.
+    const wordsOnPage = !!page && b.blocks.some((x) => x.id === PAGE_BLOCK.id && !x.dropped)
     const agent = new EditorAgent(
       db,
       {
