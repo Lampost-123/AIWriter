@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { configFromEnv, git, openEvalApp, runScenario, type TurnResult } from './harness'
+import { configFromEnv, git, isPaid, openEvalApp, runScenario, type TurnResult } from './harness'
 import { SCENARIOS, SUBSET } from './scenarios'
 import { reportMarkdown, summarise, type RunMeta } from './score'
 import { matcherMarkdown, measureMatcher } from './matcher'
@@ -44,7 +44,8 @@ function freshOut(out: string, file: string): void {
 const NOTES: Record<string, string> = {
   fake: 'Fake provider: plumbing only (it reads the scene and proposes only for "fix" / "tighten" / "push" questions). Not a score of any model.',
   bridge: 'File bridge: a Claude session stood in for the model, answering each request from its content only. Plumbing and prompt-clarity evidence, NOT a DeepSeek result. Tokens are estimated from text.',
-  openrouter: 'A real model on OpenRouter.'
+  openrouter: 'A real model on OpenRouter.',
+  deepseek: "A real model on DeepSeek's own API. Cost is estimated from tokens at OpenRouter's list price."
 }
 
 describe.runIf(process.env.CHAT_EVAL_RUN === '1')('chat eval', () => {
@@ -60,7 +61,7 @@ describe.runIf(process.env.CHAT_EVAL_RUN === '1')('chat eval', () => {
       const turns: TurnResult[] = []
       const m = meta(cfg.root, { backend: cfg.backend, model: app.model, provider: app.providerName, label: cfg.label, switches: cfg.switches, note: NOTES[cfg.backend] })
       const save = (partial: boolean): void => {
-        const s = summarise(turns, cfg.backend !== 'openrouter')
+        const s = summarise(turns, !isPaid(cfg.backend))
         writeFileSync(join(cfg.out, 'report.json'), JSON.stringify({ meta: m, partial, summary: s, turns }, null, 2))
         writeFileSync(join(cfg.out, 'report.md'), reportMarkdown(m, s, turns))
       }

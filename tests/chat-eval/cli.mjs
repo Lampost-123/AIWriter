@@ -7,6 +7,7 @@
 //                    tool_choice) and the run waits for <bridge-dir>\done\<seq>-ask.json {"content", "tool_calls"}
 //        openrouter  a real model; refuses unless AIWRITE_CHAT_EVAL_PAID=yes AND a cap (--max-usd or
 //                    AIWRITE_CHAT_EVAL_MAX_USD) are set, and OPENROUTER_API_KEY is in the environment; never in CI
+//        deepseek    a real model on DeepSeek's own API (default deepseek-flash); the same locks, with DEEPSEEK_API_KEY
 //   --scenarios E01,S03|subset     only these (default all 40; "subset" is the 12 in scenarios.ts SUBSET)
 //   --out <folder>                 report folder (default ..\AIWriter-chat-results\<date>-<backend>); never written over
 //   --bridge-dir <folder>          the bridge's folder (default ..\AIWriter-chat-results\bridge)
@@ -61,7 +62,7 @@ if (args.includes('--matcher')) env.CHAT_EVAL_MATCHER = '1'
 else env.CHAT_EVAL_RUN = '1'
 
 const backend = value('--backend') ?? 'fake'
-if (!['fake', 'bridge', 'openrouter'].includes(backend)) fail('--backend is fake, bridge or openrouter.')
+if (!['fake', 'bridge', 'openrouter', 'deepseek'].includes(backend)) fail('--backend is fake, bridge, openrouter or deepseek.')
 env.CHAT_EVAL_BACKEND = args.includes('--matcher') ? 'fake' : backend
 
 const maxUsd = value('--max-usd')
@@ -69,15 +70,16 @@ if (maxUsd !== undefined) {
   if (!(Number(maxUsd) > 0)) fail('--max-usd is a number of dollars above 0.')
   env.AIWRITE_CHAT_EVAL_MAX_USD = maxUsd
 }
-if (env.CHAT_EVAL_BACKEND === 'openrouter') {
+if (env.CHAT_EVAL_BACKEND === 'openrouter' || env.CHAT_EVAL_BACKEND === 'deepseek') {
   // Both locks, checked here before anything starts (and again in the harness before any network call).
+  const keyName = env.CHAT_EVAL_BACKEND === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENROUTER_API_KEY'
   if (env.AIWRITE_CHAT_EVAL_PAID !== 'yes') fail('A real-model run costs money: set AIWRITE_CHAT_EVAL_PAID=yes to allow it.')
   if (!(Number(env.AIWRITE_CHAT_EVAL_MAX_USD) > 0)) fail('A real-model run needs a cost cap: --max-usd <dollars> (or AIWRITE_CHAT_EVAL_MAX_USD).')
-  if (!env.OPENROUTER_API_KEY?.trim()) {
-    const saved = userVariable('OPENROUTER_API_KEY')
-    if (saved) env.OPENROUTER_API_KEY = saved
+  if (!env[keyName]?.trim()) {
+    const saved = userVariable(keyName)
+    if (saved) env[keyName] = saved
   }
-  if (!env.OPENROUTER_API_KEY?.trim()) fail('A real-model run needs OPENROUTER_API_KEY in the environment.')
+  if (!env[keyName]?.trim()) fail(`A real-model run needs ${keyName} in the environment.`)
   if (env.CI) fail('A real-model run never runs in CI.')
 }
 

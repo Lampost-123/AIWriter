@@ -5,6 +5,7 @@
 //   fake        the fake provider (tests/fake-provider): plumbing only, never a score
 //   bridge      the file bridge (bridge.mjs): a person or a Claude session answers each request from files
 //   openrouter  a real model on OpenRouter; refuses unless AIWRITE_CHAT_EVAL_PAID=yes and a cost cap are set
+//   deepseek    a real model on DeepSeek's own API (DEEPSEEK_API_KEY), with the same locks
 // Every request the app sends is captured on its way out (the whole body), so the report can count requests, nudges
 // and tool results, and look for story-point leaks in exactly what the model was shown.
 
@@ -21,7 +22,13 @@ import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
 import { firstQuestion, type Scenario } from './scenarios'
 
-export type Backend = 'fake' | 'bridge' | 'openrouter'
+export type Backend = 'fake' | 'bridge' | 'openrouter' | 'deepseek'
+
+/** A backend that calls a real, paid model. */
+export const isPaid = (b: Backend): boolean => b === 'openrouter' || b === 'deepseek'
+
+/** DeepSeek's own API: its Flash model, and its price per token in USD (OpenRouter's list price, to be safe). */
+const DEEPSEEK = { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', priceIn: 0.3e-6, priceOut: 1.2e-6, contextLength: 1_048_576 }
 
 export interface EvalConfig {
   backend: Backend
@@ -50,7 +57,7 @@ export interface EvalConfig {
 export function configFromEnv(env = process.env): EvalConfig {
   const harnessRoot = resolve(__dirname, '..', '..')
   const b = env.CHAT_EVAL_BACKEND
-  const backend: Backend = b === 'bridge' || b === 'openrouter' ? b : 'fake'
+  const backend: Backend = b === 'bridge' || b === 'openrouter' || b === 'deepseek' ? b : 'fake'
   const max = Number(env.AIWRITE_CHAT_EVAL_MAX_USD)
   return {
     backend,
@@ -62,7 +69,7 @@ export function configFromEnv(env = process.env): EvalConfig {
     model: env.CHAT_EVAL_MODEL?.trim() || null,
     maxUsd: Number.isFinite(max) && max > 0 ? max : null,
     paid: env.AIWRITE_CHAT_EVAL_PAID === 'yes',
-    apiKey: env.OPENROUTER_API_KEY?.trim() || null,
+    apiKey: (backend === 'deepseek' ? env.DEEPSEEK_API_KEY : env.OPENROUTER_API_KEY)?.trim() || null,
     label: env.CHAT_EVAL_LABEL?.trim() || '',
     keep: env.CHAT_EVAL_KEEP === '1',
     switches: Object.fromEntries(Object.entries(env).filter(([k, v]) => k.startsWith('AIWRITE_EXP_') && v != null) as [string, string][]),
@@ -72,10 +79,10 @@ export function configFromEnv(env = process.env): EvalConfig {
 
 /** A paid run only with both locks open, never in CI. Throws (before any network call) otherwise. */
 export function paidGuard(cfg: Pick<EvalConfig, 'backend' | 'paid' | 'maxUsd' | 'apiKey'>, env = process.env): void {
-  if (cfg.backend !== 'openrouter') return
+  if (!isPaid(cfg.backend)) return
   if (!cfg.paid) throw new Error('A real-model run costs money: it runs only with AIWRITE_CHAT_EVAL_PAID=yes set.')
   if (cfg.maxUsd == null) throw new Error('A real-model run needs a cost cap: set AIWRITE_CHAT_EVAL_MAX_USD (or --max-usd) to a number of dollars.')
-  if (!cfg.apiKey) throw new Error('A real-model run needs OPENROUTER_API_KEY in the environment.')
+  if (!cfg.apiKey) throw new Error(`A real-model run needs ${cfg.backend === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENROUTER_API_KEY'} in the environment.`)
   if (env.CI) throw new Error('A real-model run never runs in CI.')
 }
 
@@ -248,7 +255,7 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = 
     else rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
   try {
-    globalThis.fetch = tapped(realFetch, cfg.backend === 'openrouter')
+    globalThis.fetch = tapped(realFetch, isPaid(cfg.backend))
     const settings = await import('@app/main/settings')
     const providers = await import('@app/main/ai/providers')
     world = await import('@app/main/world')
@@ -280,6 +287,19 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = 
         model = BRIDGE_MODEL
         providerName = `file bridge (${cfg.bridgeDir}): a stand-in, not a real model`
         settings.updateSettings({ models: { writer: { providerId: p.id, modelId: model, label: model, ...big } } } as never)
+      } else if (cfg.backend === 'deepseek') {
+        const p = providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: DEEPSEEK.baseUrl, apiKey: cfg.apiKey! })
+        const id = cfg.model ?? DEEPSEEK.model
+        spend.cap = cfg.maxUsd!
+        spend.priceIn = DEEPSEEK.priceIn
+        spend.priceOut = DEEPSEEK.priceOut
+        model = id
+        providerName = 'DeepSeek API (paid)'
+        settings.updateSettings({
+          models: {
+            writer: { providerId: p.id, modelId: id, label: id, contextLength: DEEPSEEK.contextLength, promptPrice: DEEPSEEK.priceIn, completionPrice: DEEPSEEK.priceOut, maxOutput: null, sampling: null }
+          }
+        } as never)
       } else {
         const p = providers.saveProvider({ kind: 'openrouter', name: 'OpenRouter', baseUrl: '', apiKey: cfg.apiKey! })
         const listed = await providers.listModels(p.id)
