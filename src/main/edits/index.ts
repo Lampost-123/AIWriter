@@ -15,7 +15,7 @@ import { getSettings, getWritingPrefs } from '../settings'
 import * as providers from '../ai/providers'
 import { jobModel } from '../ai/jobModel'
 import { providerNotes } from '../ai/draftFlow'
-import { startTask } from '../ai/tasks'
+import { startTask, startingSignal } from '../ai/tasks'
 import type { WriterSpeaker } from '../ai/speakerTags'
 import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
@@ -84,6 +84,12 @@ async function continueCore(
 }
 
 /**
+ * How long Continue waits for the memory to catch up (earlier scenes, then the scene's own fresh read, which waits up to
+ * 8 s itself) before going ahead with what it has: much shorter than a draft's wait, since Adam is at the cursor.
+ */
+export const CONTINUE_CATCH_UP_MS = 10_000
+
+/**
  * Starts an AI edit. Throws (plain words) when there's no writer model or the scene is gone. Continue first works out
  * where things stand at the point it carries on from (the memory model reads the scene so far), never for long.
  */
@@ -95,9 +101,15 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const model = jobModel('writer', { settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget })
   const db = world.db()
   // Continue, like a draft, first lets the memory catch up: earlier scenes, then this scene's own unread words
-  // (World Memory Overhaul A6), never for long.
+  // (World Memory Overhaul A6), never for long (CONTINUE_CATCH_UP_MS), and Stop ends the wait at once.
   if (tool === 'continue') {
-    await catchUpBeforeDraft(db, input.sceneId)
+    const ready = startingSignal(input.taskId)
+    try {
+      const r = await catchUpBeforeDraft(db, input.sceneId, CONTINUE_CATCH_UP_MS, ready.signal)
+      if (r === 'cancelled') throw new UserError('The AI was stopped before it began.', 'cancelled')
+    } finally {
+      ready.done()
+    }
     if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
   }
   const scene = repo.getScene(db, input.sceneId)

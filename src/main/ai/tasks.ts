@@ -396,8 +396,27 @@ async function stream(
   return done
 }
 
-/** Stops a task; what had arrived is kept. Resolves once its record is finished. */
+/** Tasks still getting ready (before startTask; Continue waits for the memory first): Stop ends that wait at once. */
+const starting = new Map<ID, AbortController>()
+
+/**
+ * A signal Stop (stopTask with this id) aborts while the task gets ready. Call `done` once it has started, or won't.
+ */
+export function startingSignal(taskId: ID): { signal: AbortSignal; done: () => void } {
+  const c = new AbortController()
+  starting.get(taskId)?.abort()
+  starting.set(taskId, c)
+  return {
+    signal: c.signal,
+    done: () => {
+      if (starting.get(taskId) === c) starting.delete(taskId)
+    }
+  }
+}
+
+/** Stops a task (or ends its wait while it gets ready); what had arrived is kept. Resolves once its record is finished. */
 export async function stopTask(taskId: ID): Promise<void> {
+  starting.get(taskId)?.abort()
   const r = running.get(taskId)
   if (!r) return
   r.controller.abort()
