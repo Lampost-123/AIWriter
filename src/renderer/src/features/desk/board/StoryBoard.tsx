@@ -11,7 +11,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardMarks, BoardSceneCard, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID, Outline, SceneMeta } from '@shared/types'
-import { Check, Plus, Sparkles, X } from '@/components/ui/icons'
+import { Check, Plus, Sparkles } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -23,7 +23,7 @@ import { useArrival } from '@/layout/desk/arrival'
 import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLogic'
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
 import { numberWords } from '@shared/numberWords'
-import { useBoardStore } from './boardStore'
+import { setFocusThread as setFocus, setHoverThread as setHover, useBoardStore } from './boardStore'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { addSceneTo } from './boardActions'
 import { IdeasDrawer, ideasForWhatComesNext, openIdeasFor } from './IdeasDrawer'
@@ -128,6 +128,8 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
     useBoardStore.setState({ ideasNext: false })
     void ideasForWhatComesNext(outline, (id) => cards[id]?.empty ?? true)
   }, [ideasNext, outline, cards])
+  // Nothing is picked out when the board opens again.
+  useEffect(() => () => useBoardStore.setState({ focus: null, hover: null }), [])
   // Opened from the home's "Add to the plan": the drawer for that scene.
   useEffect(() => {
     if (ideasFor) openIdeasFor(ideasFor)
@@ -138,13 +140,15 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
     // (No heading of its own: the room's "Plan" above it is the page's name, and the room's links say Story board.)
     <div data-desk-board data-arrive={arriving || undefined} role="region" aria-label="Story board" className="desk-board">
       <div className="board-head">
-        <div className="min-w-0">
+        <div className="board-head-l min-w-0">
           {stats ? (
             <p className="board-meta tabular-nums">
               {fmt(stats.chapters)} {stats.chapters === 1 ? 'chapter' : 'chapters'} · {fmt(stats.scenes)} {stats.scenes === 1 ? 'scene' : 'scenes'} ·{' '}
               {fmt(stats.words)} words
             </p>
           ) : null}
+          {/* The plot threads, beside the board's buttons: hover one to pick out its string; click to keep it picked. */}
+          {view === 'cards' && board ? <Legend threads={board.threads} drawn={new Set(layout.strings.map((s) => s.id))} /> : null}
         </div>
         <div className="board-ctl">
           <ViewSwitch />
@@ -158,6 +162,7 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
           </button>
         </div>
       </div>
+      {view === 'cards' && board ? <BoardNote strings={layout.strings.length > 0} /> : null}
       <div className="board-body">
         {outline ? (
           view === 'outline' ? (
@@ -229,8 +234,8 @@ function Cards({
   const scroller = useRef<HTMLDivElement>(null)
   const sceneId = useApp((s) => s.sceneId)
   const fresh = useBoardStore((s) => s.fresh)
-  const [focus, setFocus] = useState<ID | null>(null)
-  const [hover, setHover] = useState<ID | null>(null)
+  const focus = useBoardStore((s) => s.focus)
+  const hover = useBoardStore((s) => s.hover)
   const [drag, setDrag] = useState<Drag | null>(null)
   const dragRef = useRef<Drag | null>(null)
   dragRef.current = drag
@@ -396,12 +401,8 @@ function Cards({
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && other) void moveCard(id, other.id, Math.min(box.index, count(other.id)))
   }
 
-  const threadsOrder = board?.threads ?? []
-  const drawerOpen = useBoardStore((s) => !!s.ideasFor)
   return (
     <div className={cn('board-wrap', drag?.moving && 'is-dragging')}>
-      <Legend threads={threadsOrder} drawn={new Set(layout.strings.map((s) => s.id))} focus={focus} setFocus={setFocus} setHover={setHover} />
-      <StringsHint show={layout.strings.length > 0 && !drawerOpen} />
       <div ref={scroller} className="board-scroller" data-board-scroller>
         <div ref={canvas} className="board-canvas" style={{ width: layout.width, height: layout.height }} data-lit={lit ?? undefined}>
           {layout.columns.map((col, i) => {
@@ -632,8 +633,8 @@ const openThread = (id: ID): void => useApp.getState().navigate({ kind: 'entries
 
 const HINT_KEY = 'aiwrite.board.stringsHint'
 
-/** The first time the board shows strings: how to read them, until Got it. */
-function StringsHint({ show }: { show: boolean }): React.JSX.Element | null {
+/** The first time the board shows strings, the legend says how to read them, until Got it. */
+function useStringsHint(): [boolean, () => void] {
   const [seen, setSeen] = useState(() => {
     try {
       return localStorage.getItem(HINT_KEY) === 'seen'
@@ -641,7 +642,6 @@ function StringsHint({ show }: { show: boolean }): React.JSX.Element | null {
       return false
     }
   })
-  if (!show || seen) return null
   const dismiss = (): void => {
     setSeen(true)
     try {
@@ -650,52 +650,63 @@ function StringsHint({ show }: { show: boolean }): React.JSX.Element | null {
       // Shown again next time, then.
     }
   }
+  return [!seen, dismiss]
+}
+
+/**
+ * Under the board's head: what the strings are, in a line (the first time, how to read them, with Got it), and what the
+ * pins say.
+ */
+function BoardNote({ strings }: { strings: boolean }): React.JSX.Element {
+  const [hint, gotIt] = useStringsHint()
   return (
-    <aside className="board-hint" aria-label="How to read the strings">
-      <svg className="board-hint-art" width="92" height="40" viewBox="0 0 92 40" fill="none" aria-hidden>
-        <circle cx="8" cy="26" r="4.5" className="h-pin" />
-        <path d="M8 26 C 30 4, 52 4, 70 20 S 84 30, 88 28" className="h-str" />
-        <circle cx="46" cy="9" r="3" className="h-knot" />
-        <path d="M82 23 L 89 28 L 82 33" className="h-str" />
-      </svg>
-      <div className="min-w-0 flex-1">
-        <p className="board-hint-t">How to read the strings</p>
-        <p className="board-hint-s">
-          Each coloured string is a plot thread. It starts at the scene that opens the question (its tag names it), passes through the scenes that
-          touch it, and ends in a <b>knot</b> where it is resolved, or runs on with an <b>arrow</b> while it is still open. Hover one to pick it out;
-          click to open it.
+    <div className="board-note">
+      {hint && strings ? (
+        <div className="board-lg-explain board-hint" role="note" aria-label="How to read the strings">
+          <svg className="board-hint-art" width="58" height="22" viewBox="0 0 58 22" fill="none" aria-hidden>
+            <circle cx="5" cy="15" r="3.5" className="h-pin" />
+            <path d="M5 15 C 18 2, 32 2, 44 11 S 52 16, 55 15" className="h-str" />
+            <circle cx="29" cy="5.5" r="2.4" className="h-knot" />
+            <path d="M50 11.5 L 55.5 15 L 50 18.5" className="h-str" />
+          </svg>
+          <span className="min-w-0 flex-1">
+            <b>Reading the strings:</b> each is a plot thread, from the scene that opens a question (its tag) to a <b>knot</b> where it is answered, or
+            an <b>arrow</b> while it is still open. Hover one to pick it out; click it to open it.
+          </span>
+          <button type="button" className="board-btn-sec board-hint-ok" onClick={gotIt}>
+            Got it
+          </button>
+        </div>
+      ) : (
+        <p className="board-lg-explain">
+          <span className="desk-caps board-lg-label">Plot threads</span>
+          <span>Coloured strings are plot threads: they run from the scene that opens a question to the scene that answers it.</span>
         </p>
+      )}
+      <div className="board-pinkey" aria-label="Pins">
+        <span className="board-pinkey-k">Pins:</span>
+        <span>
+          <Pin kind="done" inline /> Done
+        </span>
+        <span>
+          <Pin kind="drafted" inline /> Drafted
+        </span>
+        <span>
+          <Pin kind="planned" inline /> Planned
+        </span>
+        <span>
+          <Pin kind="ai" inline /> Planned with AI
+        </span>
       </div>
-      <button type="button" className="board-btn-sec" onClick={dismiss}>
-        Got it
-      </button>
-      <button type="button" className="board-hint-x" aria-label="Close the hint" onClick={dismiss}>
-        <X size={14} />
-      </button>
-    </aside>
+    </div>
   )
 }
 
-/** The plot threads over the board: hover one to pick out its string and its cards; click to keep it picked. */
-function Legend({
-  threads,
-  drawn,
-  focus,
-  setFocus,
-  setHover
-}: {
-  threads: ThreadsBoard['threads']
-  drawn: Set<ID>
-  focus: ID | null
-  setFocus: (id: ID | null) => void
-  setHover: (id: ID | null) => void
-}): React.JSX.Element {
+/** The plot threads beside the board's buttons: hover one to pick out its string and its cards; click to keep it picked. */
+function Legend({ threads, drawn }: { threads: ThreadsBoard['threads']; drawn: Set<ID> }): React.JSX.Element {
+  const focus = useBoardStore((s) => s.focus)
   return (
     <div className="board-legend" role="group" aria-label="Plot threads">
-      <p className="board-lg-explain">
-        <span className="desk-caps board-lg-label">Plot threads</span>
-        <span>Coloured strings are plot threads: they run from the scene that opens a question to the scene that answers it.</span>
-      </p>
       <div className="board-lg-chips">
         {threads.length ? (
           threads.map((t, i) => {
@@ -735,21 +746,6 @@ function Legend({
         ) : (
           <span className="board-lg-none">No plot threads yet: set them up on a scene’s card, or let the memory find them.</span>
         )}
-      </div>
-      <div className="board-pinkey" aria-label="Pins">
-        <span className="board-pinkey-k">Pins:</span>
-        <span>
-          <Pin kind="done" inline /> Done
-        </span>
-        <span>
-          <Pin kind="drafted" inline /> Drafted
-        </span>
-        <span>
-          <Pin kind="planned" inline /> Planned
-        </span>
-        <span>
-          <Pin kind="ai" inline /> Planned with AI
-        </span>
       </div>
     </div>
   )

@@ -12,7 +12,7 @@ export const COL_GAP = 110
 /** Between cards in a column. */
 export const ROW_GAP = 34
 /** A column's head (numeral, chapter, its progress), above its first card, with room under it for a string's name tag. */
-export const HEAD_H = 100
+export const HEAD_H = 98
 /** Around the whole board. */
 export const PAD_X = 40
 export const PAD_TOP = 8

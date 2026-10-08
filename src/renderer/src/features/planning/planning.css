@@ -1307,6 +1307,11 @@
     radial-gradient(120px 80px at 50% 60%, color-mix(in oklab, var(--kind-ink, var(--accent)) 16%, transparent), transparent 70%),
     color-mix(in oklab, var(--kind-soft, var(--surface)) 70%, var(--card));
 }
+[data-arrangement='desk'][data-look='new'] .plan-wcard-art .g-seal {
+  position: relative;
+  inset: auto;
+  margin: 0;
+}
 [data-arrangement='desk'][data-look='new'] .plan-wcard-body {
   display: flex;
   min-height: 0;

@@ -6,10 +6,37 @@
   Imported by StoryBoard.tsx; only on the desk.
 */
 
-/* The legend over the board, with a line on what the strings are. */
-[data-arrangement='desk'] .board-wrap > .board-legend {
-  order: -1;
-  padding: 0 0 10px;
+/* The legend beside the board's buttons, and under them a line on what the strings are, with the pins' key. */
+[data-arrangement='desk'] .board-head {
+  align-items: flex-end;
+}
+[data-arrangement='desk'] .board-head-l {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+[data-arrangement='desk'] .board-head .board-legend {
+  padding: 0;
+  gap: 6px;
+}
+[data-arrangement='desk'] .board-head .board-lg {
+  height: 30px;
+  max-width: 320px;
+}
+[data-arrangement='desk'] .board-note {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 0 0 8px;
+}
+[data-arrangement='desk'] .board-note > .board-lg-explain {
+  flex: 1 1 420px;
+  width: auto;
+}
+[data-arrangement='desk'] .desk-board[data-arrive] .board-note {
+  animation: board-col-in 360ms var(--motion-glide) 700ms backwards;
 }
 [data-arrangement='desk'] .board-lg-explain {
   display: flex;
@@ -184,68 +211,47 @@
   display: none;
 }
 
-/* The first time: how to read the strings. */
+/* The first time: how to read the strings, in the legend's line, with Got it. */
 [data-arrangement='desk'] .board-hint {
-  position: absolute;
-  z-index: 12;
-  left: 16px;
-  bottom: 16px;
-  width: min(540px, calc(100% - 32px));
-  display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 40px 14px 16px;
-  border-radius: 14px;
+  gap: 12px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 10px;
+  line-height: 17px;
+  color: var(--muted);
   background: var(--raise);
-  box-shadow: var(--sh-pop);
-  animation: board-col-in 360ms var(--motion-glide) 900ms backwards;
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-1);
+  animation: board-col-in 360ms var(--motion-glide) 600ms backwards;
+}
+[data-arrangement='desk'] .board-hint b {
+  font-weight: 600;
+  color: var(--fg);
 }
 [data-arrangement='desk'] .board-hint-art {
   flex: none;
+  align-self: center;
 }
 [data-arrangement='desk'] .board-hint-art .h-str {
   fill: none;
   stroke: var(--thread-1);
-  stroke-width: 2;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 [data-arrangement='desk'] .board-hint-art .h-knot {
   fill: var(--card);
   stroke: var(--thread-1);
-  stroke-width: 1.6;
+  stroke-width: 1.4;
 }
 [data-arrangement='desk'] .board-hint-art .h-pin {
   fill: var(--success);
 }
-[data-arrangement='desk'] .board-hint-t {
-  font: 600 14.5px/20px var(--heading-font);
-  color: var(--fg);
-}
-[data-arrangement='desk'] .board-hint-s {
-  margin-top: 2px;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--muted);
-}
-[data-arrangement='desk'] .board-hint-s b {
-  font-weight: 600;
-  color: var(--fg);
-}
-[data-arrangement='desk'] .board-hint-x {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--muted);
-}
-[data-arrangement='desk'] .board-hint-x:hover {
-  background: var(--surface-2);
-  color: var(--fg);
+[data-arrangement='desk'] .board-hint-ok {
+  height: 28px;
+  flex: none;
+  align-self: center;
 }
 
 /* The drawer's waiting cards (features/planning). */
