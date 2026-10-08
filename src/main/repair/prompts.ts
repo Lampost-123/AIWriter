@@ -17,7 +17,7 @@ import type { SceneCheckContext } from '../checks/context'
 import { entryText, factsThatMatter, headsAt, holdingsHere } from '../checks/context'
 import { estimateTokens } from '../keeper/text'
 import { holdingLine, nameIn, namesOf } from '../memory/items'
-import { namesPerson } from '../ai/mustStay'
+import { isPerson, namesPerson } from '../ai/mustStay'
 
 export const REPAIR_MARKER = '[AIWRITE-REPAIR v1]'
 
@@ -129,8 +129,8 @@ export function codexLines(ctx: SceneCheckContext, newWords: string): { lines: C
       lines.push({ code, kind: 'knows', label: f.fact.trim() })
       const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
       // Never "not known by" someone the fact is about ("Ash will be at the Crown... Not known by: Ash"), as the
-      // writer's own list has it (mustStay.ts realSecrets).
-      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
+      // writer's own list has it (mustStay.ts realSecrets); nor an animal (isPerson).
+      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
       return `- [${code}] ${f.fact.trim()} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
     })
     sections.push({ id: 'knowledge', title: 'Who knows what at the start of this scene (K ids)', text: text.join('\n'), entryIds: [] })

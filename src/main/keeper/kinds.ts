@@ -22,16 +22,21 @@ const THINGS = new Set(
   spectacles saddle bridle harness whip tinderbox pipe potion elixir poison salve`.split(/\s+/)
 )
 
+/** Words for animals that are only animals (a dragon or a spirit may talk and know things; a horse doesn't). */
+const ANIMALS = new Set(
+  `animal horse gelding mare stallion pony foal colt filly cob nag donkey mule ox cow bull calf dog hound puppy pup cat kitten wolf
+  fox bird crow raven owl hawk falcon eagle rat mouse goat sheep ram ewe lamb pig boar bear deer stag hare rabbit snake serpent
+  toad frog`.split(/\s+/)
+)
 /** Words for people and animals: an entry named or summed up by one of these is someone, whatever else it says. */
-const BEINGS = new Set(
-  `man men woman women boy girl child children baby lad lass gentleman lady lord king queen prince princess duke duchess knight soldier guard priest
+const BEINGS = new Set([
+  ...`man men woman women boy girl child children baby lad lass gentleman lady lord king queen prince princess duke duchess knight soldier guard priest
   monk nun witch wizard mage sorcerer merchant trader pedlar peddler farmer smith clerk servant maid mother father son daughter
   brother sister wife husband uncle aunt cousin grandmother grandfather widow stranger friend captain sailor ferryman innkeeper
   keeper master mistress apprentice warden magistrate judge thief beggar hunter witness person figure someone people folk
-  creature beast monster dragon spirit ghost horse gelding mare stallion pony foal colt filly donkey mule ox cow bull calf dog
-  hound puppy pup cat kitten wolf fox bird crow raven owl hawk falcon eagle rat mouse goat sheep ram ewe lamb pig boar bear deer
-  stag hare rabbit snake serpent toad frog`.split(/\s+/)
-)
+  creature beast monster dragon spirit ghost`.split(/\s+/),
+  ...ANIMALS
+])
 
 /** Small words that end the phrase naming what something is ("a bead sold by a man": "sold" ends it at "by"). */
 const STOPS = new Set(
@@ -57,21 +62,19 @@ function single(w: string): string {
 const tokens = (s: string): string[] => s.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*|[,;:.()—–]/gu) ?? []
 const possessive = (t: string): boolean => /['’]s$/i.test(t) || /s['’]$/i.test(t)
 
-/** What a word says the entry is: a thing, a being, or neither. */
-function sort(word: string): 'thing' | 'being' | null {
+/** What a word says the entry is: a thing, a being (an animal among them, said apart here), or neither. */
+function sort(word: string): 'thing' | 'being' | 'animal' | null {
   const w = single(word.toLowerCase())
+  if (ANIMALS.has(w) || ANIMALS.has(word.toLowerCase())) return 'animal'
   if (BEINGS.has(w) || BEINGS.has(word.toLowerCase())) return 'being'
   if (THINGS.has(w) || THINGS.has(word.toLowerCase())) return 'thing'
   return null
 }
+/** An animal is a being, for whether a "character" is a thing. */
+const asBeing = (s: 'thing' | 'being' | 'animal' | null): 'thing' | 'being' | null => (s === 'animal' ? 'being' : s)
 
-/**
- * What the phrase at the start of a text says the entry is, by the last word of that phrase this knows: "A glass bead
- * sold by a man" is a thing (bead), "Wren's grandmother's brass pocket compass" a thing, "A boy with Ash's drove" a
- * being, "A key witness" a being. The phrase ends at a small word ("of", "with", "by"…), a comma or after six words.
- */
-export function phraseSays(text: string): 'thing' | 'being' | null {
-  let found: 'thing' | 'being' | null = null
+function phraseSort(text: string): 'thing' | 'being' | 'animal' | null {
+  let found: 'thing' | 'being' | 'animal' | null = null
   let n = 0
   for (const t of tokens(text.trim())) {
     if (/^[,;:.()—–]$/.test(t)) break
@@ -86,10 +89,13 @@ export function phraseSays(text: string): 'thing' | 'being' | null {
 }
 
 /**
- * What a name says the entry is, by its last word ("Pell's blue bead": bead), before any "of" ("the Sword of Kings":
- * sword). A last word with a capital is taken as a name ("Mother Agate", "Cinder") unless the name begins with "the".
+ * What the phrase at the start of a text says the entry is, by the last word of that phrase this knows: "A glass bead
+ * sold by a man" is a thing (bead), "Wren's grandmother's brass pocket compass" a thing, "A boy with Ash's drove" a
+ * being, "A key witness" a being. The phrase ends at a small word ("of", "with", "by"…), a comma or after six words.
  */
-export function nameSays(name: string): 'thing' | 'being' | null {
+export const phraseSays = (text: string): 'thing' | 'being' | null => asBeing(phraseSort(text))
+
+function nameSort(name: string): 'thing' | 'being' | 'animal' | null {
   const head = name.split(/\s+of\s+/i)[0]
   const words = tokens(head).filter((t) => !/^[,;:.()—–]$/.test(t))
   const last = words[words.length - 1]
@@ -97,6 +103,28 @@ export function nameSays(name: string): 'thing' | 'being' | null {
   const named = /^\p{Lu}/u.test(last) && !/^(the|a|an)$/i.test(words[0] ?? '')
   if (named) return null
   return sort(last)
+}
+
+/**
+ * What a name says the entry is, by its last word ("Pell's blue bead": bead), before any "of" ("the Sword of Kings":
+ * sword). A last word with a capital is taken as a name ("Mother Agate", "Cinder") unless the name begins with "the".
+ */
+export const nameSays = (name: string): 'thing' | 'being' | null => asBeing(nameSort(name))
+
+/**
+ * True when a character entry is an animal and no more (round G, 2026-10-08: "Kept from Cinder … must not learn", for
+ * a horse): its name, another name, its summary's first words or a tag say an animal ("Ash's grey mare", "horse"), or
+ * its pronouns are "it", and nothing says it is a person or that it talks or thinks. Such a one knows no secrets and has
+ * none kept from it.
+ */
+export function animalNotPerson(e: { name: string; aliases?: string[]; summary?: string; tags?: string[]; fields?: Record<string, string> }): boolean {
+  const summary = e.summary ?? ''
+  if (ALIVE.test(summary)) return false
+  const pronouns = plain(e.fields?.pronouns ?? '')
+  const tagSorts = (e.tags ?? []).map((t) => (/^\p{L}+$/u.test(t.trim()) ? sort(t.trim()) : null))
+  const signs = [nameSort(e.name), ...(e.aliases ?? []).map(nameSort), phraseSort(summary), ...tagSorts]
+  if (signs.includes('being')) return false
+  return signs.includes('animal') || /^it\b/.test(pronouns)
 }
 
 export interface NewEntry {

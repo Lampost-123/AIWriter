@@ -71,4 +71,28 @@ describe('real secrets', () => {
     // By a first name too.
     expect(realSecrets([wren, ash], [{ factId: 'x', fact: 'Ash owes Gale money', knownBy: ['w'] }], { happened: [] })).toEqual([])
   })
+
+  it('only people know or are kept from a secret, never an animal (round G: "Kept from Cinder")', () => {
+    const facts = [{ factId: '1', fact: 'The survey shows a coal seam', knownBy: ['w'] }]
+    // An invented pony, by its summary, a tag, its pronouns, or another name.
+    const animals = [
+      { ...person('p', 'Bramble'), summary: "Tobin's brown pony, sure-footed on the fells", tags: [] as string[], fields: {} },
+      { ...person('p', 'Bramble'), summary: 'Stubborn and old', tags: ['pony'], fields: {} },
+      { ...person('p', 'Bramble'), summary: 'Stubborn and old', tags: [] as string[], fields: { pronouns: 'it' } },
+      { ...person('p', 'Bramble', ['the old cob']), summary: '', tags: [] as string[], fields: {} }
+    ]
+    for (const pony of animals) {
+      expect(realSecrets([wren, pony], facts, { happened: [] }), pony.summary || pony.aliases.join()).toEqual([])
+      expect(realSecrets([wren, ash, pony], facts, { happened: [] })).toEqual([{ fact: 'The survey shows a coal seam', knownBy: ['Wren Hollis'], keptFrom: ['Ash Penrose'] }])
+    }
+    // A person (by summary or pronouns), or an animal that talks, still counts.
+    const people = [
+      { ...person('p', 'Bramble'), summary: 'A stable boy with a pony of his own', tags: [] as string[], fields: {} },
+      { ...person('p', 'Bramble'), summary: 'Stubborn and old', tags: [] as string[], fields: { pronouns: 'he/him' } },
+      { ...person('p', 'Bramble'), summary: 'A talking pony who serves the Warden', tags: [] as string[], fields: {} },
+      { ...person('p', 'Bramble'), summary: '', tags: ['horse', 'servant'], fields: {} }
+    ]
+    for (const p of people)
+      expect(realSecrets([wren, p], facts, { happened: [] }), p.summary || p.tags.join()).toEqual([{ fact: 'The survey shows a coal seam', knownBy: ['Wren Hollis'], keptFrom: ['Bramble'] }])
+  })
 })
