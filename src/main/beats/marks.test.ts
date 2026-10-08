@@ -35,6 +35,15 @@ describe('beat marks kept with the scene', () => {
     expect(getBeatMarks(db, 's2')?.sceneId).toBe('s2')
   })
 
+  it('keeps whether the session was still on (not finished), and only when it was', () => {
+    const db = world()
+    saveBeatMarks(db, 's1', { ...MARKS, open: true })
+    expect(getBeatMarks(db, 's1')?.open).toBe(true)
+    saveBeatMarks(db, 's1', { ...MARKS, open: false })
+    expect(getBeatMarks(db, 's1')).toEqual(MARKS)
+    expect(cleanMarks('s1', { ...MARKS, open: 'yes' })).toEqual(MARKS)
+  })
+
   it('forgets them with null, or with no beats', () => {
     const db = world()
     saveBeatMarks(db, 's1', MARKS)

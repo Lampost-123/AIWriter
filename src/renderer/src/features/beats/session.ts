@@ -1,5 +1,6 @@
 // The Beat by beat session (milestone 4): one at a time, on one scene. It lasts until Adam finishes it,
-// starts a new draft of the scene (Generate) or switches worlds. Opening another scene pauses it (a beat
+// starts a new draft of the scene (Generate) or switches worlds. Not saved itself, but where its beats are is
+// (marks.ts, with `open` until Finish), so after a restart or another scene's session it carries on (flow.ts, resume). Opening another scene pauses it (a beat
 // being written stops there, as Generate's drafts do) and coming back carries on where it was; so does
 // going to another page. flow.ts changes it; the bar and the toolbar button show it.
 import { create } from 'zustand'
@@ -38,6 +39,14 @@ export interface BeatSession {
   steer: string
   /** The scene card's beats, as last read. */
   beats: string[]
+  /**
+   * How "This scene already has text" was answered for the session's first beat (null: the page was empty). While
+   * no beat has put words on the page yet (the first one failed, or brought none), the next try goes there too,
+   * rather than asking again.
+   */
+  start: 'replace' | 'add' | null
+  /** The record of the last beat tried, even one that brought no words (What the AI saw opens it when no beat shows). */
+  tried: ID | null
 }
 
 /** What the Beat by beat button (or the bar) is asking: where the first beat goes, or what is missing first. */
@@ -50,6 +59,8 @@ export interface BeatQuestion {
   from: 'button' | 'bar'
   /** The scene card's beats, as read when Adam asked (a session started by the answer begins with them). */
   beats: string[]
+  /** 'choose' only: the scene's last session didn't get to its last beat, and can carry on from beat `written + 1`. */
+  resume?: { written: number; of: number }
 }
 
 interface BeatsState {
