@@ -1,6 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { MemoryCheckItem } from '@shared/types'
-import { CHECK_GROUPS, checkCountLabel, dropChecks, groupChecks, keptToast, removedToast, showsWords } from './checkLogic'
+import {
+  CHECK_GROUPS,
+  checkCountLabel,
+  countedChecks,
+  dropChecks,
+  foldedGroup,
+  groupChecks,
+  guessesOpen,
+  keptToast,
+  rememberGuessesOpen,
+  removedToast,
+  showsWords
+} from './checkLogic'
 
 let n = 0
 const item = (group: MemoryCheckItem['group'], extra: Partial<MemoryCheckItem> = {}): MemoryCheckItem => ({
@@ -49,6 +61,32 @@ describe('the memory check list, grouped', () => {
     expect(checkCountLabel(0)).toBe('Nothing to check')
     expect(checkCountLabel(1)).toBe('1 thing to check')
     expect(checkCountLabel(4)).toBe('4 things to check')
+  })
+
+  it('leaves the AI’s guesses out of the count (badge and What changed): only guesses count as nothing', () => {
+    expect(countedChecks([item('guess'), item('unconfirmed'), item('guess'), item('summary'), item('note')])).toBe(3)
+    expect(countedChecks([item('guess'), item('guess')])).toBe(0)
+    expect(countedChecks([])).toBe(0)
+  })
+
+  it('folds the AI’s guesses closed to start with, and only them', () => {
+    expect(CHECK_GROUPS.filter((g) => foldedGroup(g.id)).map((g) => g.id)).toEqual(['guess'])
+    // Nothing remembered (or no storage at all): closed.
+    expect(guessesOpen()).toBe(false)
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v)
+    })
+    try {
+      expect(guessesOpen()).toBe(false)
+      rememberGuessesOpen(true)
+      expect(guessesOpen()).toBe(true)
+      rememberGuessesOpen(false)
+      expect(guessesOpen()).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('offers Show me only where there are words or a scene to show', () => {

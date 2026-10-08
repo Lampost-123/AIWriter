@@ -2,8 +2,8 @@
 // isn't sure about, under plain headings: facts whose words Adam edited since, the AI's guesses, summaries being
 // updated, and his own facts the story no longer says. Each row: Show me (the words in the scene), Keep (it's his),
 // Fix (open the page to edit it), Remove (with Undo); Keep all for a group. Nothing here has to be done: the memory
-// settles most of it by itself as Adam writes.
-import { CircleCheck, Eye, PenLine, X } from '@/components/ui/icons'
+// settles most of it by itself as Adam writes. The AI's guesses start folded and don't count in the badge.
+import { ChevronRight, CircleCheck, Eye, PenLine, X } from '@/components/ui/icons'
 import { useState } from 'react'
 import type { Entry, ID, MemoryCheckItem, MemoryCheckUndo } from '@shared/types'
 import { Badge, Button, toast } from '@/components/ui'
@@ -12,7 +12,20 @@ import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { announceDelete } from '@/lib/undoDelete'
-import { checkCountLabel, checkWhat, dropChecks, groupChecks, keptToast, removedToast, showsWords, type CheckGroup } from './checkLogic'
+import {
+  checkCountLabel,
+  checkWhat,
+  countedChecks,
+  dropChecks,
+  foldedGroup,
+  groupChecks,
+  guessesOpen,
+  keptToast,
+  rememberGuessesOpen,
+  removedToast,
+  showsWords,
+  type CheckGroup
+} from './checkLogic'
 import { openScene, showWords } from './openScene'
 
 /** Rows shown in a group before "Show all". */
@@ -35,6 +48,7 @@ export function CheckQueue({
 }): React.JSX.Element | null {
   const navigate = useApp((s) => s.navigate)
   const groups = groupChecks(items)
+  const counted = countedChecks(items)
   if (!items.length) return null
 
   const undoWith = (undo: MemoryCheckUndo): Promise<void> =>
@@ -95,10 +109,13 @@ export function CheckQueue({
         <h2 id="memory-checks" className="text-[15px] font-semibold text-fg">
           Worth a look
         </h2>
-        <Badge tone="ai" className="tabular-nums">
-          <span className="sr-only">{checkCountLabel(items.length)}: </span>
-          {items.length}
-        </Badge>
+        {/* The AI's guesses don't count here: with only guesses, no number shows. */}
+        {counted ? (
+          <Badge tone="ai" className="tabular-nums">
+            <span className="sr-only">{checkCountLabel(counted)}: </span>
+            {counted}
+          </Badge>
+        ) : null}
       </div>
       <p className="mt-0.5 text-[13px] text-muted">What the memory isn’t sure about. Nothing here needs doing: look when you like.</p>
       <div className="mt-3 flex flex-col gap-5">
@@ -134,32 +151,67 @@ function Group({
   onRemove: (row: MemoryCheckItem) => void
 }): React.JSX.Element {
   const [all, setAll] = useState(false)
+  // The AI's guesses start folded: only the heading and how many (remembered on this computer once opened).
+  const folds = foldedGroup(group.id)
+  const [open, setOpen] = useState(() => !folds || guessesOpen())
+  const toggle = (): void => {
+    setOpen(!open)
+    rememberGuessesOpen(!open)
+  }
   const shown = all ? group.items : group.items.slice(0, FIRST_ROWS)
   const more = group.items.length - shown.length
+  const listId = `checks-${group.id}-list`
+  const title = <span className="text-[12px] font-semibold uppercase tracking-wide text-faint">{group.title}</span>
+  const count = <span className="text-[11.5px] tabular-nums text-faint">{group.items.length}</span>
   return (
     <div role="group" aria-labelledby={`checks-${group.id}`}>
       <div className="mb-1 flex items-center gap-2">
-        <h3 id={`checks-${group.id}`} className="text-[12px] font-semibold uppercase tracking-wide text-faint">
-          {group.title}
-        </h3>
-        <span className="text-[11.5px] tabular-nums text-faint">{group.items.length}</span>
+        {folds ? (
+          <h3 id={`checks-${group.id}`}>
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={open}
+              aria-controls={open ? listId : undefined}
+              title={open ? 'Fold these away' : 'Show the AI’s guesses'}
+              className="-ml-1 flex h-7 items-center gap-2 rounded px-1 outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              <ChevronRight
+                size={13}
+                className={cn('shrink-0 text-faint transition-transform duration-150', open && 'rotate-90')}
+                aria-hidden
+              />
+              {title}
+              {count}
+            </button>
+          </h3>
+        ) : (
+          <>
+            <h3 id={`checks-${group.id}`}>{title}</h3>
+            {count}
+          </>
+        )}
         <div className="flex-1" />
-        {group.items.length > 1 ? (
+        {open && group.items.length > 1 ? (
           <Button variant="ghost" size="sm" className="-mr-1.5 px-2" onClick={() => onKeep(group.items)} title="Keep every one of these as it is">
             Keep all
           </Button>
         ) : null}
       </div>
-      <p className="mb-2 text-[12.5px] leading-snug text-muted">{group.help}</p>
-      <ul className="overflow-hidden rounded-xl border border-line bg-surface">
-        {shown.map((row) => (
-          <Row key={row.key} row={row} canOpen={canOpen(row)} onShow={onShow} onKeep={onKeep} onFix={onFix} onRemove={onRemove} />
-        ))}
-      </ul>
-      {more > 0 ? (
-        <button type="button" className={cn(linkClass, 'mt-1.5 text-[12.5px] font-medium text-accent')} onClick={() => setAll(true)}>
-          Show all {group.items.length}
-        </button>
+      {open ? (
+        <div id={listId}>
+          <p className="mb-2 text-[12.5px] leading-snug text-muted">{group.help}</p>
+          <ul className="overflow-hidden rounded-xl border border-line bg-surface">
+            {shown.map((row) => (
+              <Row key={row.key} row={row} canOpen={canOpen(row)} onShow={onShow} onKeep={onKeep} onFix={onFix} onRemove={onRemove} />
+            ))}
+          </ul>
+          {more > 0 ? (
+            <button type="button" className={cn(linkClass, 'mt-1.5 text-[12.5px] font-medium text-accent')} onClick={() => setAll(true)}>
+              Show all {group.items.length}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
