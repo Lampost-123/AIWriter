@@ -26,7 +26,7 @@ const openingOf = (start: BuilderStart | undefined): number => {
 
 export function BuilderView({ kind, entryId, start }: { kind: BuilderKind; entryId: ID | null; start?: BuilderStart }): React.JSX.Element {
   const key = `${kind}|${entryId ?? ''}|${openingOf(start)}`
-  return entryId ? <ExistingBuild key={key} kind={kind} entryId={entryId} /> : <NewBuild key={key} kind={kind} start={start} />
+  return entryId ? <ExistingBuild key={key} kind={kind} entryId={entryId} step={start?.step} /> : <NewBuild key={key} kind={kind} start={start} />
 }
 
 /** A new entry: Quick start first (unless Adam asked for the steps), and the steps whenever he likes. */
@@ -34,6 +34,8 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
   const [mode, setMode] = useState<'quick' | 'guided'>(start?.mode === 'guided' ? 'guided' : 'quick')
   // What Quick start built, once Adam opens it to look it over.
   const [built, setBuilt] = useState<Entry | null>(null)
+  // Where it opens: Review once the follow-up questions built it, else the first step.
+  const [builtStep, setBuiltStep] = useState<string | undefined>(undefined)
   // The steps stay put (hidden) while Quick start shows, so nothing typed in them is lost. Once Quick
   // start's profile is opened to look over, it is done with.
   const [guidedOpened, setGuidedOpened] = useState(mode === 'guided')
@@ -48,7 +50,8 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
           <QuickStart
             kind={kind}
             start={start}
-            onLookOver={(e) => {
+            onLookOver={(e, step) => {
+              setBuiltStep(step)
               setBuilt(e)
               toGuided()
             }}
@@ -58,15 +61,15 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
       )}
       {guidedOpened ? (
         <div className={mode === 'guided' ? 'h-full' : 'hidden'}>
-          <Guided key={built?.id ?? 'new'} kind={kind} initial={built} onQuickStart={built ? undefined : () => setMode('quick')} />
+          <Guided key={built?.id ?? 'new'} kind={kind} initial={built} firstStep={builtStep ?? start?.step} onQuickStart={built ? undefined : () => setMode('quick')} />
         </div>
       ) : null}
     </div>
   )
 }
 
-/** An existing entry, opened in the builder: its steps, starting at Basics. */
-function ExistingBuild({ kind, entryId }: { kind: BuilderKind; entryId: ID }): React.JSX.Element {
+/** An existing entry, opened in the builder: its steps, starting at Basics (or the step asked for). */
+function ExistingBuild({ kind, entryId, step }: { kind: BuilderKind; entryId: ID; step?: string }): React.JSX.Element {
   const [state, setState] = useState<{ entry: Entry | null; error: string | null }>({ entry: null, error: null })
   const load = useCallback(() => {
     setState({ entry: null, error: null })
@@ -106,5 +109,5 @@ function ExistingBuild({ kind, entryId }: { kind: BuilderKind; entryId: ID }): R
   }
   const e = state.entry
   const entryKind = e.kind === 'character' || e.kind === 'place' || e.kind === 'group' || e.kind === 'item' ? e.kind : kind
-  return <Guided kind={entryKind} initial={e} fromPage />
+  return <Guided kind={entryKind} initial={e} firstStep={step} fromPage />
 }

@@ -105,7 +105,7 @@ export function InterviewPanel({
       className={cn(
         'flex flex-col bg-surface animate-fade-in',
         // Over the step it takes the step's whole width (the rail stays), so the step is never squeezed.
-        over ? 'absolute inset-y-0 left-[216px] right-0 z-10 shadow-soft' : 'w-[340px] shrink-0 border-l border-line'
+        over ? 'absolute inset-y-0 left-[252px] right-0 z-10 shadow-soft' : 'w-[340px] shrink-0 border-l border-line'
       )}
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">

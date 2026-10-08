@@ -53,6 +53,7 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startFleshOut',
   'startOptions',
   'startInterview',
+  'startQuestions',
   'startWorldBuild',
   'askWorldQuestion',
   'startCheck',

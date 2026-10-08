@@ -10,14 +10,31 @@ import * as M from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft,
   BookOpen,
+  Brain,
   Check,
+  Compass,
+  Drama,
+  Ear,
+  Eye,
+  Handshake,
   History,
+  Hourglass,
+  KeyRound,
   Lock,
+  MessageSquareQuote,
   MoreHorizontal,
+  Mountain,
   PenLine,
+  Plus,
+  ScrollText,
   ShieldCheck,
+  Sparkles,
+  Target,
   Trash2,
-  WandSparkles
+  Users,
+  WandSparkles,
+  Zap,
+  type IconType
 } from '@/components/ui/icons'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
@@ -87,6 +104,48 @@ export interface DossierProps {
   firstSeen?: { sceneId: ID; storyId: ID; label: string } | null
 }
 
+/** Each section's icon beside its heading (an entry's own "what it is" takes its kind's icon). */
+const SEC_ICONS: Record<string, IconType> = {
+  looks: Eye,
+  personality: Drama,
+  backstory: KeyRound,
+  arc: Compass,
+  voice: MessageSquareQuote,
+  notes: Lock,
+  now: History,
+  appears: BookOpen,
+  relationships: Handshake,
+  knows: Brain,
+  changes: History,
+  history: History,
+  'place-look': Mountain,
+  'place-senses': Ear,
+  'place-people': Users,
+  'place-history': ScrollText,
+  'group-goals': Target,
+  'group-ways': Handshake,
+  'item-powers': Zap,
+  'item-origin': Hourglass
+}
+
+/** The builder's step for a section, where the AI can suggest its words ("Suggest with AI" on an empty one). */
+const BUILDER_STEP: Record<string, string> = {
+  about: 'basics',
+  looks: 'looks',
+  personality: 'personality',
+  backstory: 'backstory',
+  arc: 'arc',
+  voice: 'voice',
+  'place-look': 'look',
+  'place-senses': 'senses',
+  'place-people': 'people',
+  'place-history': 'history',
+  'group-goals': 'goals',
+  'group-ways': 'ways',
+  'item-powers': 'powers',
+  'item-origin': 'origin'
+}
+
 /**
  * One section of the dossier: small capitals over it, a quiet note after them, and Edit (shown on hover and to the
  * keyboard) that turns its words into their fields; Done, or Esc in a field, turns them back and gives Edit the keyboard.
@@ -99,10 +158,13 @@ function Sec({
   onEdit,
   read,
   edit,
-  wide
+  wide,
+  icon
 }: {
   id: string
   title: string
+  /** Its icon beside the heading (else the one for its id, if any). */
+  icon?: IconType
   note?: ReactNode
   editing?: boolean
   onEdit?: (id: string, on: boolean) => void
@@ -113,6 +175,11 @@ function Sec({
   const box = useRef<HTMLElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const was = useRef(editing)
+  // Only a change made here moves: the section as first shown is simply there.
+  const [swapped, setSwapped] = useState(false)
+  useLayoutEffect(() => {
+    if (editing !== was.current) setSwapped(true)
+  }, [editing])
   useLayoutEffect(() => {
     if (editing && !was.current)
       box.current?.querySelector<HTMLElement>('input, textarea, [role="combobox"], button[role="switch"]')?.focus()
@@ -121,6 +188,7 @@ function Sec({
     was.current = editing
   }, [editing])
   const headId = useId()
+  const Icon = icon ?? SEC_ICONS[id]
   return (
     <section
       ref={box}
@@ -139,6 +207,11 @@ function Sec({
       }}
     >
       <div className="dz-sec-h">
+        {Icon ? (
+          <span aria-hidden className="dz-sec-ic">
+            <Icon size={13} />
+          </span>
+        ) : null}
         <h3 id={headId} className="dz-caps">
           {title}
         </h3>
@@ -157,7 +230,10 @@ function Sec({
           </button>
         ) : null}
       </div>
-      <div className="dz-sec-b">{editing && edit ? edit : read}</div>
+      {/* Read and edit trade places with a short fade and rise (keyed, so each comes in afresh). */}
+      <div key={editing && edit ? 'edit' : 'read'} className="dz-sec-b" data-swap={swapped || undefined}>
+        {editing && edit ? edit : read}
+      </div>
     </section>
   )
 }
@@ -180,7 +256,7 @@ function Paras({ text, className }: { text: string; className?: string }): React
 }
 
 /** An empty section's line, inviting Adam to fill it in. */
-function Nothing({ children, onAdd }: { children: ReactNode; onAdd?: () => void }): React.JSX.Element {
+function Nothing({ children, onAdd, onSuggest }: { children: ReactNode; onAdd?: () => void; onSuggest?: () => void }): React.JSX.Element {
   return (
     <p className="dz-nothing">
       {children}
@@ -188,7 +264,22 @@ function Nothing({ children, onAdd }: { children: ReactNode; onAdd?: () => void 
         <>
           {' '}
           <button type="button" className="dz-add" onClick={onAdd}>
+            <Plus size={12} aria-hidden />
             Add
+          </button>
+        </>
+      ) : null}
+      {onSuggest ? (
+        <>
+          {' '}
+          <button
+            type="button"
+            className="dz-add is-ai"
+            onClick={onSuggest}
+            title="Opens the builder at this part, where the AI can suggest it. Nothing is kept until you keep it."
+          >
+            <Sparkles size={12} aria-hidden />
+            Suggest with AI
           </button>
         </>
       ) : null}
@@ -362,11 +453,14 @@ export function Dossier({
   // Its drawing (the card's, as the gallery shows it): on the portrait while it has none of Adam's.
   const motif = useEntryMotifs().get(entry.id) ?? null
 
-  const openBuilder = async (): Promise<void> => {
+  const openBuilder = async (step?: string): Promise<void> => {
     if (!PICTURED.includes(kind)) return
     await autosave.flush()
-    useApp.getState().navigate({ kind: 'builder', entryKind: kind as 'character', entryId: entry.id })
+    useApp.getState().navigate({ kind: 'builder', entryKind: kind as 'character', entryId: entry.id, start: step ? { step } : undefined })
   }
+  /** "Suggest with AI" for a section the builder has a step for. */
+  const suggestFor = (id: string): (() => void) | undefined =>
+    PICTURED.includes(kind) && BUILDER_STEP[id] ? () => void openBuilder(BUILDER_STEP[id]) : undefined
   const askAbout = (): void => {
     setAskDraft(`About ${name}: `)
     openAsk()
@@ -482,6 +576,14 @@ export function Dossier({
             })
           }
         >
+          {SEC_ICONS[id] ? (
+            <span aria-hidden className="dz-sec-ic">
+              {(() => {
+                const FoldIcon = SEC_ICONS[id]
+                return <FoldIcon size={13} />
+              })()}
+            </span>
+          ) : null}
           <span className="dz-caps">{title}</span>
           {meta ? <span className="dz-sec-note">{meta}</span> : null}
           <span aria-hidden className={cn('dz-fold-chev', open && 'is-open')}>
@@ -496,7 +598,9 @@ export function Dossier({
   const groupSection = (g: DossierGroup): React.JSX.Element => {
     const isVoice = g.group.id === 'voice' && voice
     const read = !g.filled.length ? (
-      <Nothing onAdd={() => onEdit(g.group.id, true)}>Nothing written here yet.</Nothing>
+      <Nothing onAdd={() => onEdit(g.group.id, true)} onSuggest={suggestFor(g.group.id)}>
+        Nothing written here yet.
+      </Nothing>
     ) : isVoice ? (
       <>
         {voice!.speech ? <p className="dz-voice">{voice!.speech}</p> : null}
@@ -520,6 +624,9 @@ export function Dossier({
           </dl>
         ) : null}
       </>
+    ) : g.fields.length === 1 ? (
+      // One field under a heading of its own: its words, with no label saying the heading again.
+      <Paras text={g.filled[0].value} />
     ) : (
       <dl className="dz-dl">
         {g.filled.map(({ def, value }) => (
@@ -553,6 +660,7 @@ export function Dossier({
   const about = (
     <Sec
       id="about"
+      icon={KIND_ICONS[kind]}
       title={kind === 'character' ? 'Who they are' : kind === 'thread' ? 'The thread' : kind === 'glossary' ? 'The word' : 'What it is'}
       editing={editing.has('about')}
       onEdit={onEdit}
@@ -562,7 +670,9 @@ export function Dossier({
           {draft.description.trim() ? (
             <Paras text={draft.description} />
           ) : (
-            <Nothing onAdd={() => onEdit('about', true)}>No description yet.</Nothing>
+            <Nothing onAdd={() => onEdit('about', true)} onSuggest={suggestFor('about')}>
+              No description yet.
+            </Nothing>
           )}
           {draft.aliases.length || draft.tags.length || parent ? (
             <div className="dz-chips">
@@ -644,7 +754,7 @@ export function Dossier({
     <div className="dz" data-kind={kind} onBlur={() => void autosave.flush()} style={{ '--dz-hue': hue } as React.CSSProperties}>
       <div className="dz-band" aria-hidden={false}>
         <span aria-hidden className="dz-band-art">
-          <Icon size={180} className="dz-band-icon" />
+          {motif ? <Motif id={motif} size={150} className="dz-band-icon" /> : <Icon size={180} className="dz-band-icon" />}
         </span>
         <button type="button" className="dz-back" onClick={back.run}>
           <ArrowLeft size={16} aria-hidden />
@@ -664,12 +774,12 @@ export function Dossier({
           {PICTURED.includes(kind) ? (
             <button
               type="button"
-              className="dz-ib"
-              aria-label="Open in the builder"
-              title="Open in the builder"
+              className="dz-ib dz-ib-label dz-build"
+              title={`Open the ${KIND_LABELS[kind].one.toLowerCase()} builder: walk through ${kind === 'character' ? 'who they are' : 'it'} step by step; the AI can suggest each part`}
               onClick={() => void openBuilder()}
             >
               <WandSparkles size={15} aria-hidden />
+              <span>Build with AI</span>
             </button>
           ) : null}
           <M.Root modal={false}>

@@ -42,6 +42,10 @@ export type FixedActionId =
   | 'go-memory'
   | 'go-story'
   | 'quick-character'
+  | 'build-character'
+  | 'build-place'
+  | 'build-group'
+  | 'build-item'
   | 'theme-light'
   | 'theme-dark'
   | 'theme-sepia'
@@ -237,6 +241,10 @@ export const ACTIONS: ActionDef[] = [
   { id: 'go-story', label: 'Story settings', keywords: 'this story premise start kind time gap', away: true, when: hasStory },
   ...ENTRY_KINDS.map((kind): ActionDef => ({ id: `new-${kind}`, label: newLabel(kind), keywords: 'add create make', away: true })),
   { id: 'quick-character', label: 'Quick start a character', keywords: 'builder ai make create new character', away: true },
+  { id: 'build-character', label: 'Build a character with AI', keywords: 'character builder steps step by step ai make create new', away: true },
+  { id: 'build-place', label: 'Build a place with AI', keywords: 'builder steps step by step ai make create new place location', away: true },
+  { id: 'build-group', label: 'Build a group with AI', keywords: 'builder steps step by step ai make create new group faction', away: true },
+  { id: 'build-item', label: 'Build an item with AI', keywords: 'builder steps step by step ai make create new item object', away: true },
   { id: 'theme-light', label: 'Light theme', keywords: 'appearance colours colors mode', when: notTheme('light') },
   { id: 'theme-dark', label: 'Dark theme', keywords: 'appearance colours colors mode night', when: notTheme('dark') },
   { id: 'theme-sepia', label: 'Sepia theme', keywords: 'appearance colours colors mode paper', when: notTheme('sepia') },

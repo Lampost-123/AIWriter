@@ -35,7 +35,14 @@ function placeIn(box: HTMLElement, row: HTMLElement): { x: number; y: number } |
   return el === box ? { x, y } : null
 }
 
-export function GlidePill({ className }: { className?: string }): React.JSX.Element {
+export function GlidePill({
+  className,
+  selector = SELECTED
+}: {
+  className?: string
+  /** Which row is the selected one, when a list marks it its own way (the builder's steps: aria-current="step"). */
+  selector?: string
+}): React.JSX.Element {
   const pill = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -61,7 +68,7 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
     p.addEventListener('transitionend', onEnd)
     const place = (): void => {
       frame = 0
-      const row = [...box.querySelectorAll<HTMLElement>(SELECTED)].find((el) => el.offsetParent !== null && !el.closest('[data-no-pill]'))
+      const row = [...box.querySelectorAll<HTMLElement>(selector)].find((el) => el.offsetParent !== null && !el.closest('[data-no-pill]'))
       if (!row) {
         p.style.opacity = '0'
         shown = false

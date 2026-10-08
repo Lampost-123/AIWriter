@@ -463,12 +463,35 @@
   color: var(--faint);
 }
 [data-arrangement='desk'] .dz-add {
-  font: 600 12.5px/1 var(--font-sans);
-  color: var(--accent);
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+  border-radius: 999px;
+  padding: 0 9px 0 7px;
+  vertical-align: 1px;
+  background: var(--dz-soft, var(--accent-soft));
+  font: 600 12px/1 var(--font-sans);
+  font-style: normal;
+  color: var(--dz-ink, var(--accent));
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
 }
 [data-arrangement='desk'] .dz-add:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background: color-mix(in oklab, var(--dz-soft, var(--accent-soft)) 70%, var(--dz-ink, var(--accent)) 14%);
+}
+[data-arrangement='desk'] .dz-add:active {
+  scale: 0.96;
+}
+/* The AI's: its amber. */
+[data-arrangement='desk'] .dz-add.is-ai {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+[data-arrangement='desk'] .dz-add.is-ai:hover {
+  background: color-mix(in oklab, var(--ai-soft) 80%, var(--ai) 14%);
 }
 [data-arrangement='desk'] .dz-chips {
   display: flex;
@@ -926,4 +949,129 @@
 }
 [data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec) h3 + * {
   font-size: 12px;
+}
+
+/*
+  Entry editing (UI overhaul, the builder and entry editing): each kind's own ink for the sections' icons, headings and
+  edit panels; a section's read and edit trade places with a short fade and rise; the band shows the entry's drawing,
+  breathing a few times as it opens; the read-aloud voice sits in the page like any other section.
+*/
+[data-arrangement='desk'] .dz {
+  --dz-ink: var(--k-char);
+  --dz-soft: var(--k-char-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='place'] {
+  --dz-ink: var(--k-place);
+  --dz-soft: var(--k-place-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='group'] {
+  --dz-ink: var(--k-group);
+  --dz-soft: var(--k-group-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='item'] {
+  --dz-ink: var(--k-item);
+  --dz-soft: var(--k-item-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='lore'] {
+  --dz-ink: var(--k-lore);
+  --dz-soft: var(--k-lore-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='event'] {
+  --dz-ink: var(--k-event);
+  --dz-soft: var(--k-event-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='thread'] {
+  --dz-ink: var(--k-thread);
+  --dz-soft: var(--k-thread-soft);
+}
+[data-arrangement='desk'] .dz[data-kind='glossary'] {
+  --dz-ink: var(--k-gloss);
+  --dz-soft: var(--k-gloss-soft);
+}
+[data-arrangement='desk'] .dz-sec-ic {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--dz-soft);
+  color: var(--dz-ink);
+}
+[data-arrangement='desk'] .dz-sec-h .dz-caps,
+[data-arrangement='desk'] .dz-fold-h .dz-caps {
+  color: color-mix(in oklab, var(--dz-ink) 70%, var(--muted));
+}
+[data-arrangement='desk'] .dz-edit {
+  color: var(--dz-ink);
+}
+[data-arrangement='desk'] .dz-edit:hover {
+  background: var(--dz-soft);
+}
+[data-arrangement='desk'] .dz-edit.is-on {
+  background: var(--dz-ink);
+  color: var(--page);
+}
+/* A section being edited: lifted onto its own card with the kind's ink down its edge. */
+[data-arrangement='desk'] .dz-sec[data-editing] {
+  background: var(--raise, var(--card));
+  box-shadow:
+    inset 3px 0 0 var(--dz-ink),
+    0 0 0 1px var(--line),
+    var(--sh-2);
+  transition: box-shadow var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .dz-sec-b[data-swap] {
+  animation: dz-swap var(--dur-base) var(--desk-ease);
+}
+@keyframes dz-swap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* The band's picture: the entry's own drawing, large and faint, breathing a few times, then resting. */
+[data-arrangement='desk'] .dz-band-art .aw-motif {
+  /* It breathes three times as the dossier opens, then rests. */
+  animation: dz-band-breathe 9s ease-in-out 3;
+  transform-origin: 50% 60%;
+  will-change: transform;
+}
+[data-arrangement='desk'] .dz-band-art:has(.aw-motif) {
+  top: 40px;
+  right: 44px;
+  opacity: 0.17;
+}
+@keyframes dz-band-breathe {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-1.5deg);
+  }
+}
+:root[data-art-still] .dz-band-art .aw-motif,
+:root[data-art-typing] .dz-band-art .aw-motif {
+  animation-play-state: paused;
+}
+/* The read-aloud voice reads as a section of the page: no grey box around it, its heading like the others. */
+[data-arrangement='desk'] .dz-voice-box > section > div:first-child > svg {
+  box-sizing: content-box;
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 7px;
+  padding: 4.5px;
+  background: var(--dz-soft);
+  color: var(--dz-ink);
+}
+[data-arrangement='desk'] .dz-voice-box > section > div:first-child > h3 {
+  color: color-mix(in oklab, var(--dz-ink) 70%, var(--muted)) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .dz-sec-b[data-swap],
+  [data-arrangement='desk'] .dz-band-art .aw-motif {
+    animation: none;
+  }
 }
