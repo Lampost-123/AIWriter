@@ -59,12 +59,20 @@ more calls are sent and the run stops cleanly: scoring writes its report so far,
 progress for `--resume`. A chain run of main needs `--max-tokens-in 4000000` (it used 2.5 to 2.9 million in rounds 7
 and 8).
 
+**The provider guard** (`guard.ts`, real runs only): a reply of HTTP 402 or one naming an insufficient balance, or 401
+(the key refused), stops the run the budget's way at once, with a line starting "PROVIDER STOP"; HTTP 429 is waited
+out a few times (Retry-After when given) before the app's own retries see it, and stops the run once it lasts through
+three rounds of that.
+
 **The saved world.** Much of a run's cost is the memory reading the story before the first probe; that depends only on
 the app code being scored and the story, not on the probes. So each run saves the world as it stands just before the
 first probe (`world-before-chain.db` for chains, `world-before-s24.db` for probes v2 and v3, with a `.json` saying what
 it was made from) beside its report, and `--from-world <report folder>` starts a later run there. It is used only for
-the same app code (git's id for the checkout's `src` folder, with no uncommitted changes there), the same story file
-and the same models; anything else is refused. A copy is opened; the saved file is never changed. `--no-save-world`
+the same story file, the same models and, for chains, the same world-building code (`worldCode.mjs`: the git ids of
+the memory keeper, where things stand, the memory's model, the database and the few files they write through, with no
+uncommitted changes there; or the very same `src` folder), so a commit to the writer's prompts keeps the world; probes
+v2 and v3 still need the same `src` folder. The story's id is its file's hash with line endings made LF, so a checkout
+with core.autocrlf gives the same id (worlds saved with the old id still match). Anything else is refused. A copy is opened; the saved file is never changed. `--no-save-world`
 skips saving it.
 
 **Recall by meaning (step 5)** needs the search model's files (bge-small-en-v1.5, as the app downloads them). The
@@ -159,6 +167,15 @@ so older runs give the baseline. From rounds 7 and 8, re-scored (5 chains, 60 st
 | "and" per 100 words (median) | 5.4 | 6.6 | 6.8 |
 | Does a card beat again | 31 (28 reach the inn again) | 7 | 8 |
 
+**Held out** (2026-10-08): measures nothing in the writer aims at, so a change can't be tuned to them: "not X, but Y"
+contrasts per 1,000 words (slop-score's patterns, `slopScore.ts`, MIT, Sam Paech), one-line fragment paragraphs (5
+words or fewer, no speech), 5-word runs from earlier steps, a paragraph already on the page and the scene saying
+something twice, a line of dialogue included (`echo.ts`, from Poor Mans Holodeck). Older reports lack them; a re-score
+adds them.
+
+A chain step is measured, and the judge's marks asked, on its words as they went onto the page, after check and repair
+(since 2026-10-08; before, on the words as written).
+
 Limits: the metrics count words, not meaning, and the lists (tics, closing words, beat patterns) know only what the
 audit found; the judge's marks are one model's opinion, from a passage's own words only.
 
@@ -194,8 +211,16 @@ step, step 4's plan for every Add below. A run from a saved world leaves out mos
 - **Few samples**: five chains of twelve steps. A difference of one or two broken checks is noise.
 - **Approximations**: the memory reads straight after each step (in the app, after 30 seconds of quiet); every Continue
   is accepted as it comes; a step whose plant didn't land is drafted again before it reaches the page.
-- **`--rescore` can't ask the judge.** A slip that the live judge cleared ("did Ash come back first?") is listed as
-  "would need the judge" and counted as broken in the re-score.
+- **`--rescore` can't ask the judge.** A slip that the live judge cleared ("did Ash come back first?") stays cleared
+  when the judge's words for the change are in the passage before the slip found now; a slip the live judge was asked
+  about word for word stays broken; any other slip a pattern finds where the judge would be asked is listed as "would
+  need the judge" and counted as broken in the re-score.
+- **The judge is asked over the scene since the plant** (`endedAsk`, `confirmSlips`; since round E, 2026-10-08): the
+  steps from the plant's own, as they went onto the page, then the step checked, so a change shown in an earlier step
+  in words no pattern knows (Ash back at step 6, the slip at step 7) is seen. A yes counts when its words are there,
+  after the planting and before the slip, and the plant ends at the step they are in. Runs before this asked about the
+  step alone, and a re-score only reuses their answers: their slips after such a change stay broken unless a pattern
+  knows the wording. The patterns are still taught each wording found.
 - **The names are fixed.** Who "he" and "she" can stand for is a list of the chain scene's people (`chain.ts`).
 
 Use the same models and the same story file for every run you compare.
@@ -269,6 +294,11 @@ a scene and across scenes. A chain does what he does (`chain.ts`):
   whose words show that change is kept. Getting up must be Wren's ("Ash got up" doesn't count).
 - **The report**: consistency over every later-step check, by plant and by step, "chains slipped by step N" (when drift
   starts), what drifted with the words, check and repair's fixes and questions, and the evidence.
+- **Chain K2** ("Fog on the coast road", `--probes K2`; K1 alone runs unless named, so scores stay comparable): the
+  open road in sea fog the next morning, with a carter met on the way. Plants: the fog (far views or sunshine before
+  it lifts), leading the horses on foot (riding before getting back on), the LEFT ankle twisted (the right one hurt;
+  and, by the judge, running or striding with no limp), the sealed claim handed to Wren (Ash with it again), and Ash
+  telling only Wren he won't go back to Linmouth (the carter knowing it, by the judge).
 
 ## Check and repair (step 3)
 
