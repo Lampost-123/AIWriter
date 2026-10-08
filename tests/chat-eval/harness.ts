@@ -7,7 +7,10 @@
 //   openrouter  a real model on OpenRouter; refuses unless AIWRITE_CHAT_EVAL_PAID=yes and a cost cap are set
 //   deepseek    a real model on DeepSeek's own API (DEEPSEEK_API_KEY), with the same locks
 // Every request the app sends is captured on its way out (the whole body), so the report can count requests, nudges
-// and tool results, and look for story-point leaks in exactly what the model was shown.
+// and tool results, and look for story-point leaks in exactly what the model was shown; every reply is read as it
+// streams back (the tools the model called, ask_user and propose_draft included, which may end the turn).
+// Phase 1: story C (bigWorld.ts, a 30-60k-token briefing) is seeded only when a scenario asks in it, and a scenario's
+// earlier turns are seeded into its chat as 'chat' generation records, exactly as the app stores them.
 
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -20,6 +23,7 @@ import type { Proposal } from '@shared/contracts/ask'
 import { appEvents } from '../traps/fakeElectron'
 import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
+import { C_CHAPTERS, C_CHAPTER_SUMMARIES, C_EARLIER, C_EMPTY, C_ENTRIES, C_OPEN, STORY_C, type BigScene } from './bigWorld'
 import { firstQuestion, type Scenario } from './scenarios'
 
 export type Backend = 'fake' | 'bridge' | 'openrouter' | 'deepseek'
@@ -96,7 +100,7 @@ export function git(root: string, args: string[]): string {
 
 // ---------- What the app sends ----------
 
-/** One request the app sent to the model, as sent. */
+/** One request the app sent to the model, as sent, and what came back (read from the stream as it passed). */
 export interface SentRequest {
   at: number
   body: {
@@ -104,13 +108,27 @@ export interface SentRequest {
     tools?: unknown[]
     tool_choice?: unknown
   }
+  reply?: Promise<Reply | null>
 }
 
-let capture: SentRequest[] | null = null
-/** USD so far (a paid run), and the cap. */
-const spend = { usd: 0, cap: Infinity, stopped: false, priceIn: 0, priceOut: 0 }
+/** A streamed reply as the model sent it: its words and the tools it called. */
+export interface Reply {
+  content: string
+  toolCalls: { name: string; arguments: string }[]
+  finish: string | null
+}
 
-async function readUsage(stream: ReadableStream<Uint8Array>): Promise<void> {
+type ReplyChunk = {
+  usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number }
+  choices?: {
+    delta?: { content?: unknown; tool_calls?: { index?: number; function?: { name?: string; arguments?: string } }[] }
+    message?: { content?: unknown; tool_calls?: { index?: number; function?: { name?: string; arguments?: string } }[] }
+    finish_reason?: string | null
+  }[]
+}
+
+/** Reads a streamed (SSE) reply: words, tool calls (the name, then the arguments in pieces), and usage (a paid run's spend). */
+async function readReply(stream: ReadableStream<Uint8Array>, paid: boolean): Promise<Reply> {
   const reader = stream.getReader()
   const dec = new TextDecoder()
   let buf = ''
@@ -119,28 +137,51 @@ async function readUsage(stream: ReadableStream<Uint8Array>): Promise<void> {
     if (done) break
     buf += dec.decode(value, { stream: true })
   }
-  for (const line of buf.split('\n')) {
-    if (!line.startsWith('data: ') || !line.includes('"usage"')) continue
+  const out: Reply = { content: '', toolCalls: [], finish: null }
+  const byIndex = new Map<number, { name: string; arguments: string }>()
+  // A server that ignored stream: true sends one JSON body.
+  const lines = buf.trim().startsWith('{') ? [`data: ${buf.trim()}`] : buf.split('\n')
+  for (const line of lines) {
+    if (!line.startsWith('data: ') || line.startsWith('data: [DONE]')) continue
+    let j: ReplyChunk
     try {
-      const u = (JSON.parse(line.slice(6)) as { usage?: { cost?: number; prompt_tokens?: number; completion_tokens?: number } }).usage
-      if (!u) continue
-      spend.usd += u.cost ?? (u.prompt_tokens ?? 0) * spend.priceIn + (u.completion_tokens ?? 0) * spend.priceOut
+      j = JSON.parse(line.slice(6)) as ReplyChunk
     } catch {
-      /* not usage */
+      continue
+    }
+    if (j.usage && paid) spend.usd += j.usage.cost ?? (j.usage.prompt_tokens ?? 0) * spend.priceIn + (j.usage.completion_tokens ?? 0) * spend.priceOut
+    for (const c of j.choices ?? []) {
+      if (c.finish_reason) out.finish = c.finish_reason
+      const d = c.delta ?? c.message
+      if (!d) continue
+      if (typeof d.content === 'string') out.content += d.content
+      ;(d.tool_calls ?? []).forEach((t, i) => {
+        const k = t.index ?? i
+        const had = byIndex.get(k) ?? { name: '', arguments: '' }
+        if (t.function?.name) had.name += t.function.name
+        if (t.function?.arguments) had.arguments += t.function.arguments
+        byIndex.set(k, had)
+      })
     }
   }
+  out.toolCalls = [...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
+  return out
 }
 
-/** fetch with every chat request captured; a paid run's requests checked against the cap first. */
+let capture: SentRequest[] | null = null
+/** USD so far (a paid run), and the cap. */
+const spend = { usd: 0, cap: Infinity, stopped: false, priceIn: 0, priceOut: 0 }
+
+/** fetch with every chat request captured (and its reply read as it streams by); a paid run's requests checked against the cap first. */
 function tapped(next: typeof fetch, paid: boolean): typeof fetch {
   return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (!/chat\/completions\/?$/.test(url) || typeof init?.body !== 'string') return next(input, init)
     const body = JSON.parse(init.body) as SentRequest['body'] & { max_tokens?: number; max_completion_tokens?: number }
-    capture?.push({ at: Date.now(), body })
-    if (!paid) return next(input, init)
+    const req: SentRequest = { at: Date.now(), body }
+    capture?.push(req)
     const worst = spend.usd + (init.body.length / 4) * spend.priceIn + (body.max_tokens ?? body.max_completion_tokens ?? 2000) * spend.priceOut
-    if (spend.stopped || worst > spend.cap) {
+    if (paid && (spend.stopped || worst > spend.cap)) {
       spend.stopped = true
       return new Response(JSON.stringify({ error: { code: 402, message: `The chat eval's cost cap ($${spend.cap}) would be passed; nothing more is sent.` } }), {
         status: 402,
@@ -150,7 +191,7 @@ function tapped(next: typeof fetch, paid: boolean): typeof fetch {
     const res = await next(input, init)
     if (!res.body) return res
     const [a, b] = res.body.tee()
-    void readUsage(b).catch(() => undefined)
+    req.reply = readReply(b, paid).catch(() => null)
     return new Response(a, { status: res.status, statusText: res.statusText, headers: res.headers })
   }) as typeof fetch
 }
@@ -221,7 +262,9 @@ export interface EvalApp {
   db: Database.Database
   storyA: string
   storyB: string
-  /** Scene ids by world.ts key. */
+  /** Story C (the big briefing: bigWorld.ts), when a scenario needed it seeded. */
+  storyC: string | null
+  /** Scene ids by world.ts key (and bigWorld.ts's, when story C was seeded). */
   scenes: Map<string, string>
   model: string
   providerName: string
@@ -229,12 +272,14 @@ export interface EvalApp {
   ask: (typeof import('@app/main/ipc/ask'))['askHandlers']
   EditorAgent: (typeof import('@app/main/ask/agent'))['EditorAgent']
   prefs: () => import('@shared/types').WritingPrefs
+  /** A new chat in a story with earlier turns already in it, stored as the app stores them; returns its id. */
+  seedChat: (storyId: string, history: NonNullable<Scenario['history']>) => string
   spent: () => number
   stopped: () => boolean
   close(): Promise<void>
 }
 
-export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = { network: true }): Promise<EvalApp> {
+export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean } = { network: true }): Promise<EvalApp> {
   paidGuard(cfg)
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-chat-eval-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -264,6 +309,8 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = 
     const { EditorAgent } = await import('@app/main/ask/agent')
     const repo = await import('@app/main/db/repo')
     const memory = await import('@app/main/db/memory')
+    const gens = await import('@app/main/db/generations')
+    const chats = await import('@app/main/ask/chats')
     const { emptySceneCard } = await import('@shared/defaults')
 
     // The provider and the chat model, as Settings › Models would have them (chat is "Same as the writer model").
@@ -373,17 +420,66 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = 
     }
     for (const e of ENTRIES) if (e.firstAt) makeEntry(e.key, scenes.get(e.firstAt)!)
 
+    // Story C, the big briefing (only when a scenario asks in it): hundreds of entries of its own, ninety summarised
+    // scenes before the open one, a long open scene, and an empty last scene with a card. A story of its own, so
+    // stories A and B (and the core scenarios' briefings) never see any of it.
+    let storyC: string | null = null
+    if (opts.big) {
+      const c = repo.createStory(db, { title: STORY_C.title, startStoryId: null })
+      repo.updateStory(db, c.id, { premise: STORY_C.premise })
+      storyC = c.id
+      for (const e of C_ENTRIES)
+        repo.createEntry(db, e.kind, { name: e.name, aliases: e.aliases ?? [], summary: e.summary, description: e.description }, { origin: 'adam', originStoryId: c.id })
+      const outline = repo.getOutline(db, c.id)
+      const chapterIds: string[] = []
+      for (let i = 0; i < C_CHAPTERS.length; i++) {
+        const ch = i === 0 && outline.chapters[0] ? outline.chapters[0] : repo.createChapter(db, c.id, { title: C_CHAPTERS[i], afterId: chapterIds.at(-1) ?? null })
+        repo.updateChapter(db, ch.id, { title: C_CHAPTERS[i] })
+        memory.putSummary(db, { level: 'chapter', targetId: ch.id, text: C_CHAPTER_SUMMARIES[i], origin: 'adam' })
+        chapterIds.push(ch.id)
+      }
+      let reuse: string | null = outline.scenes[0]?.id ?? null
+      const lastIn = new Map<string, string>()
+      const id = (k: string): string | null => entryIds.get(k) ?? null
+      for (const s of [...C_EARLIER, C_OPEN, C_EMPTY] as BigScene[]) {
+        const chapterId = chapterIds[s.chapter]
+        let sceneId: string
+        if (reuse && s.chapter === 0) {
+          sceneId = reuse
+          reuse = null
+        } else sceneId = repo.createScene(db, chapterId, { title: s.title, afterId: lastIn.get(chapterId) ?? null }).id
+        lastIn.set(chapterId, sceneId)
+        repo.updateScene(db, sceneId, { title: s.title })
+        if (s.card)
+          repo.updateSceneCard(db, sceneId, {
+            ...emptySceneCard(),
+            povId: id(s.card.pov),
+            presentIds: s.card.present.map(id).filter((x): x is string => !!x),
+            locationId: id(s.card.location),
+            when: s.card.when ?? '',
+            goal: s.card.goal,
+            ...(s.card.beats ? { beats: s.card.beats } : {})
+          })
+        if (s.paragraphs.length) repo.saveSceneText(db, sceneId, sceneDoc(s.key, s.paragraphs), plainText(s.paragraphs))
+        if (s.summary) memory.putSummary(db, { level: 'scene', targetId: sceneId, text: s.summary, origin: 'adam' })
+        scenes.set(s.key, sceneId)
+      }
+    }
+
     const page = await pageCode()
     // The saved text must be what the editor would save from the same document.
-    for (const s of SCENES) {
+    for (const s of [...SCENES, ...(opts.big ? [C_OPEN] : [])]) {
       const doc = page.schema.nodeFromJSON(sceneDoc(s.key, s.paragraphs))
       if (page.sceneText(doc) !== plainText(s.paragraphs)) throw new Error(`Scene ${s.key}: the saved text isn't what the editor would save.`)
     }
-    cfg.log(`world seeded: ${SCENES.length} scenes, ${ENTRIES.length} entries; backend ${cfg.backend}, model ${model}`)
+    cfg.log(
+      `world seeded: ${SCENES.length} scenes, ${ENTRIES.length} entries${opts.big ? `; story C (big briefing): ${C_EARLIER.length + 2} scenes, ${C_ENTRIES.length} entries` : ''}; backend ${cfg.backend}, model ${model}`
+    )
     return {
       db,
       storyA: storyA.id,
       storyB: storyB.id,
+      storyC,
       scenes,
       model,
       providerName,
@@ -391,6 +487,44 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean } = 
       ask: askHandlers,
       EditorAgent,
       prefs: () => settings.getWritingPrefs(),
+      seedChat: (storyId, history) => {
+        const chatId = chats.newChatId(storyId)
+        // Earlier turns, a minute apart, ending an hour ago (the chat is read oldest first by created_at).
+        const start = Date.now() - 60 * 60_000 - history.length * 60_000
+        history.forEach((h, i) => {
+          const id = `seed-${chatId.split(':')[1]}-${i}`
+          const proposals: Proposal[] = (h.proposals ?? []).map((p, k) => {
+            const sceneId = scenes.get(p.scene)!
+            const sceneLabel = SCENES.find((x) => x.key === p.scene)?.title ?? p.scene
+            return { id: String(k + 1), status: p.status, why: 'As asked.', kind: 'text', sceneId, sceneLabel, find: p.find, replace: p.replace }
+          })
+          gens.insertGeneration(db, {
+            id,
+            sceneId: '',
+            job: 'chat',
+            providerId: 'seed',
+            providerName: 'Seeded history',
+            modelId: model,
+            params: { temperature: 0.8, top_p: 0.95, max_tokens: 1500, chatId, ...(proposals.length ? { proposals } : {}) } as never,
+            direction: h.q,
+            blocks: [],
+            messages: [],
+            budget: { contextLength: 1_048_576, reserved: 1500, available: 1_047_076, used: 0 },
+            entries: [],
+            createdAt: new Date(start + i * 60_000).toISOString()
+          })
+          gens.finishGeneration(db, id, {
+            status: 'complete',
+            error: null,
+            response: h.a,
+            promptTokens: null,
+            completionTokens: null,
+            cost: null,
+            finishedAt: new Date(start + i * 60_000 + 20_000).toISOString()
+          })
+        })
+        return chatId
+      },
       spent: () => spend.usd,
       stopped: () => spend.stopped,
       close
@@ -441,6 +575,28 @@ export interface TurnResult {
   completionTokens: number | null
   cost: number | null
   wallMs: number
+  // ----- Phase 1 (older reports lack these: the scores treat a missing one as unknown) -----
+  /** The story it was asked in: A (the small world) or C (the big briefing). */
+  story?: 'A' | 'C'
+  /** Earlier turns seeded into the chat before the first question. */
+  history?: number
+  /** Characters of the system message (the briefing) and of every message, in the turn's first request. */
+  systemChars?: number
+  promptChars?: number
+  /** Every tool the model called this turn, in order, with its arguments (read from the replies as they streamed). */
+  toolCalls?: { name: string; arguments: string }[]
+  /** The tool_choice each request forced (anything but none / "auto"), e.g. "required" or "propose_changes". */
+  forced?: string[]
+  /** The intent the app recorded on the turn (params.intent), when it records one. */
+  intent?: string | null
+}
+
+/** The tool_choice a request forced, or null ("auto", "none" or none sent). */
+export function forcedChoice(choice: unknown): string | null {
+  if (choice == null || choice === 'auto' || choice === 'none') return null
+  if (typeof choice === 'string') return choice
+  const name = (choice as { function?: { name?: string } }).function?.name
+  return name ?? JSON.stringify(choice)
 }
 
 const NUDGE_START = '[AI Write, not the writer] Your answer gives'
@@ -477,8 +633,11 @@ function checkProposal(app: EvalApp, p: Proposal, touches: string | undefined): 
 /** Runs a scenario's turns in one chat, in order. */
 export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_000): Promise<TurnResult[]> {
   const out: TurnResult[] = []
-  let chatId: string | null = null
+  const storyId = s.big ? app.storyC : app.storyA
+  if (!storyId) throw new Error(`${s.id} is asked in story C, which wasn't seeded (open the app with big: true).`)
   const sceneId = s.scene ? (app.scenes.get(s.scene) ?? null) : null
+  if (s.scene && !sceneId) throw new Error(`${s.id}: no scene ${s.scene} in the eval world.`)
+  let chatId: string | null = s.history?.length ? app.seedChat(storyId, s.history) : null
   for (let i = 0; i < s.turns.length; i++) {
     const question = i === 0 ? firstQuestion(s) : s.turns[i].ask
     const taskId = `eval-${s.id}-${i + 1}-${Date.now()}`
@@ -489,7 +648,7 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
     let error: string | null = null
     let generationId = ''
     try {
-      const turn = await app.ask.askWorld({ taskId, chatId, question, storyId: app.storyA, sceneId })
+      const turn = await app.ask.askWorld({ taskId, chatId, question, storyId, sceneId })
       chatId = turn.chatId
       generationId = turn.generationId
       const done = await taskDone(taskId, limitMs)
@@ -500,12 +659,14 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
     }
     capture = null
     const wallMs = Date.now() - t0
+    // The replies have finished streaming by now (the task is done); a stuck one is given up on after 30 s.
+    const replies = await Promise.all(sent.map((r) => Promise.race([r.reply ?? Promise.resolve(null), new Promise<null>((res) => setTimeout(() => res(null), 30_000).unref())])))
     const row = generationId
       ? (app.db.prepare('SELECT response, prompt_tokens, completion_tokens, cost, params_json FROM generations WHERE id = ?').get(generationId) as
           | { response: string; prompt_tokens: number | null; completion_tokens: number | null; cost: number | null; params_json: string }
           | undefined)
       : undefined
-    const params = row ? (JSON.parse(row.params_json) as { steps?: AgentStep[]; proposals?: Proposal[]; cachedTokens?: number }) : {}
+    const params = row ? (JSON.parse(row.params_json) as { steps?: AgentStep[]; proposals?: Proposal[]; cachedTokens?: number; intent?: unknown }) : {}
     const proposals = params.proposals ?? []
     const expect = s.turns[i].expect
     const touches = expect.do === 'propose' ? expect.touches : undefined
@@ -540,7 +701,16 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
       cachedTokens: params.cachedTokens ?? null,
       completionTokens: row?.completion_tokens ?? null,
       cost: row?.cost ?? null,
-      wallMs
+      wallMs,
+      story: s.big ? 'C' : 'A',
+      history: i === 0 ? (s.history?.length ?? 0) : (s.history?.length ?? 0) + i,
+      systemChars: typeof sys === 'string' ? sys.length : 0,
+      promptChars: (sent[0]?.body.messages ?? []).reduce((a, m) => a + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content ?? '').length), 0),
+      toolCalls: replies.some((r) => r)
+        ? replies.flatMap((r) => r?.toolCalls ?? [])
+        : (params.steps ?? []).map((st) => ({ name: st.tool, arguments: st.arguments })),
+      forced: sent.map((r) => forcedChoice(r.body.tool_choice)).filter((c): c is string => !!c),
+      intent: typeof params.intent === 'string' ? params.intent : null
     })
     if (app.stopped()) break
   }
