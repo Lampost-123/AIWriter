@@ -17,7 +17,7 @@ import { useApp } from '@/lib/store'
 import { settingsAction, WritingStatus } from '@/features/builder/parts'
 import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
-import { useSceneNames } from '@/features/editor/names/sceneNames'
+import { useSceneNames, type SceneNamesResult } from '@/features/editor/names/sceneNames'
 import { PeekPanel } from '@/features/peek/PeekPanel'
 import { kindWord } from '@/features/peek/entryView'
 import {
@@ -35,7 +35,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
-import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
+import { examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
 import { Proposals } from './Proposals'
 
 /** The last request for the box to take the keyboard that was carried out. */
@@ -124,7 +124,7 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
       ) : null}
       <div className={cn('flex min-h-0 flex-1 flex-col', peeking && 'invisible')} inert={peeking}>
         <Header storyTitle={storyTitle} onClose={close} />
-        <Conversation place={place} onPick={(q) => fillBox(boxRef.current, q)} />
+        <Conversation place={place} cast={sceneCast(names, sceneId)} onPick={(q) => fillBox(boxRef.current, q)} />
         <AskBox
           boxRef={boxRef}
           place={place}
@@ -226,25 +226,49 @@ function ChatsMenu({ storyTitle }: { storyTitle: string | null }): React.JSX.Ele
 
 // ---------- The conversation ----------
 
-/** Every page in the world by name, for the links in answers; kept between openings of the panel. */
-let cachedIndex: { key: string; index: Map<string, LinkTarget> } | null = null
+/**
+ * The open scene's point of view, then the rest of its cast: the characters its examples name first. Null while
+ * the scene's names are still on their way, so the examples don't show one set of names and then another.
+ */
+function sceneCast(names: SceneNamesResult, sceneId: ID | null): string[] | null {
+  if (!sceneId || names.error) return []
+  const data = names.data
+  if (!data || data.sceneId !== sceneId) return null
+  const name = (id: ID | null): string | null => data.entries.find((e) => e.id === id && e.kind === 'character' && !e.absent)?.name ?? null
+  return [data.cast.povId, ...data.cast.presentIds].map(name).filter((n): n is string => !!n)
+}
 
-function useLinkIndex(): Map<string, LinkTarget> {
+interface LinkIndex {
+  /** Every page by name and alias, for the links in answers. */
+  index: Map<string, LinkTarget>
+  /** The world's characters by name, for the examples; null until they have been read. */
+  characters: string[] | null
+}
+
+/** Every page in the world by name, for the links in answers; kept between openings of the panel. */
+let cachedIndex: ({ key: string } & LinkIndex) | null = null
+
+function useLinkIndex(): LinkIndex {
   const key = useApp((s) => `${s.world?.id ?? ''}:${s.entriesRev}`)
-  const [index, setIndex] = useState(() =>
-    cachedIndex?.key === key ? cachedIndex.index : (cachedIndex?.index ?? new Map<string, LinkTarget>())
+  const [index, setIndex] = useState<LinkIndex>(() =>
+    cachedIndex?.key === key
+      ? cachedIndex
+      : { index: cachedIndex?.index ?? new Map<string, LinkTarget>(), characters: cachedIndex?.characters ?? null }
   )
   useEffect(() => {
     if (cachedIndex?.key === key) {
-      setIndex(cachedIndex.index)
+      setIndex(cachedIndex)
       return
     }
     let live = true
     api
       .listEntries()
       .then((all) => {
-        const next = nameIndex(all.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases })))
-        cachedIndex = { key, index: next }
+        const next = {
+          index: nameIndex(all.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases }))),
+          characters: all.filter((e) => e.kind === 'character').map((e) => e.name)
+        }
+        cachedIndex = { key, ...next }
         if (live) setIndex(next)
       })
       .catch(() => undefined)
@@ -255,13 +279,13 @@ function useLinkIndex(): Map<string, LinkTarget> {
   return index
 }
 
-function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: string) => void }): React.JSX.Element {
+function Conversation({ place, cast, onPick }: { place: AskPlace; cast: string[] | null; onPick: (question: string) => void }): React.JSX.Element {
   const turns = useAsk((s) => s.turns)
   const chatId = useAsk((s) => s.chatId)
   const loading = useAsk((s) => s.loading)
   const loadError = useAsk((s) => s.loadError)
   const running = useAsk((s) => s.running)
-  const index = useLinkIndex()
+  const { index, characters } = useLinkIndex()
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   // Follows the newest words while Adam is at the bottom; scrolling up to read stops that until he is back.
@@ -315,7 +339,7 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
           </div>
         ) : null}
         {loading ? null : shown.length === 0 ? (
-          <Starters onPick={onPick} />
+          <Starters questions={cast && characters ? examples([...cast, ...characters]) : null} onPick={onPick} />
         ) : (
           <ol aria-label="Conversation" className="flex flex-col gap-5">
             {shown.map((t) => (
@@ -335,8 +359,12 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
   )
 }
 
-/** With nothing asked yet: what Ask does, and the spec's examples, which fill the box. */
-function Starters({ onPick }: { onPick: (question: string) => void }): React.JSX.Element {
+/**
+ * With nothing asked yet: what Ask does, and the spec's examples (with this world's characters), which fill the box.
+ * Nothing until the characters are known (a moment), so the examples never change names in front of Adam.
+ */
+function Starters({ questions, onPick }: { questions: string[] | null; onPick: (question: string) => void }): React.JSX.Element | null {
+  if (!questions) return null
   return (
     <div className="animate-fade-in px-1 pt-1">
       <p className="text-[13px] leading-relaxed text-muted">
@@ -345,7 +373,7 @@ function Starters({ onPick }: { onPick: (question: string) => void }): React.JSX
       </p>
       <p className="mb-2 mt-4 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Try asking</p>
       <div className="flex flex-col items-start gap-1.5">
-        {EXAMPLES.map((q) => (
+        {questions.map((q) => (
           <button
             key={q}
             type="button"

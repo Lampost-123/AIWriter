@@ -3,13 +3,20 @@
 import type { SavedNote } from '@shared/contracts/ask'
 import { formatCost } from '@/features/generate/format'
 
-/** The spec's examples: clicking one puts it in the box, to change or ask as it is. */
-export const EXAMPLES = [
-  'What would Mara do if Tobin lied to her?',
-  'Did I already say how old the Duke is?',
-  'Fix the spelling and grammar in this scene',
-  'Tighten the opening paragraph, keeping my voice'
-]
+/**
+ * The spec's examples, with the open world's own characters in them (`people`: the open scene's point of view and
+ * cast first, then the world's other characters), never names from somewhere else. With no characters yet they
+ * speak of "my main character". Clicking one puts it in the box, to change or ask as it is.
+ */
+export function examples(people: string[]): string[] {
+  const [a, b, c] = people.map((p) => p.trim()).filter((p, i, all) => p !== '' && all.indexOf(p) === i)
+  return [
+    a ? `What would ${a} do if ${b ?? 'a friend'} lied?` : 'What would my main character do if a friend lied?',
+    `Did I already say how old ${c ?? b ?? a ?? 'my main character'} is?`,
+    'Fix the spelling and grammar in this scene',
+    'Tighten the opening paragraph, keeping my voice'
+  ]
+}
 
 /** When a chat was last asked in, short enough for a list: "14:05", "Yesterday", "3 Oct", "3 Oct 2025". */
 export function chatWhen(iso: string, nowMs: number = Date.now()): string {
