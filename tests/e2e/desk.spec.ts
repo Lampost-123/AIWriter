@@ -1034,3 +1034,41 @@ test('arrival: a room’s pieces arrive the first time it shows, never again; th
   await expect(guide).toHaveCount(0)
   await expect.poll(async () => (await invoke(win, 'getSettings')).firstRun ?? null).toBeNull()
 })
+
+test('beat markers on the sheet: each beat’s label lies on the sheet above its first line, and its band runs where the lamp line does', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 5, words: 60, varyBeats: true })
+  try {
+    const { app, win } = await sampleWorld(launch)
+    const [story] = await invoke(win, 'listStories')
+    const { scenes } = await invoke(win, 'getOutline', story.id)
+    const card = (await invoke(win, 'getScene', scenes[0].id)).card
+    await invoke(win, 'updateSceneCard', scenes[0].id, { ...card, beats: ['Wren climbs to the lamp room.', 'Edric watches the ferry.'], targetWords: 1500 })
+    await useFakeModel(win, fake)
+    const bar = win.locator('[data-beat-bar]')
+    const menu = await dockMenu(win)
+    await menu.getByRole('menuitem', { name: 'Beat by beat' }).click()
+    await win.getByRole('button', { name: 'Add below', exact: true }).filter({ hasText: 'The new draft goes below' }).click()
+    await expect(bar.getByRole('status')).toHaveText('Beat 2 of 2', { timeout: 30_000 })
+    await bar.getByRole('button', { name: 'Write the next beat', exact: true }).click()
+    await expect(bar.getByRole('status')).toHaveText('All 2 beats are written', { timeout: 30_000 })
+    for (const [w, h] of [[1920, 1080], [1280, 800]] as const) {
+      await size(app, win, w, h)
+      const second = win.locator('.scene-prose p[data-beat="2"]').first()
+      await second.scrollIntoViewIfNeeded()
+      await second.hover()
+      const label = win.locator('[data-beat-label="2"]')
+      await expect(label.getByRole('button', { name: /^Beat 2/ })).toHaveCSS('opacity', '1')
+      const sheet = (await win.locator('.desk-sheet').boundingBox())!
+      const tag = (await label.boundingBox())!
+      const first = (await second.boundingBox())!
+      // On the sheet (once it lay half on the desk, past the sheet's edge), and above the beat's first line.
+      expect(tag.x, `label inside the sheet at ${w}`).toBeGreaterThanOrEqual(sheet.x)
+      expect(tag.y + tag.height, `label above the beat at ${w}`).toBeLessThanOrEqual(first.y + 1)
+      // The band stands where the lamp line does (-28px, 2px wide, inside the band's 3px).
+      expect(await second.evaluate((p) => getComputedStyle(p, '::before').left)).toBe('-29px')
+    }
+  } finally {
+    await fake.close()
+  }
+})
