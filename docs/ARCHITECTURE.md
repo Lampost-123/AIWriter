@@ -155,6 +155,16 @@ again, with Undo).
   `lastWhere` (`memory/scene.ts` `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
   most overdue (quiet for `QUIET_SCENES`, 6, or more, and last touched in the story being written; at most 2) and ends
   with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it."
+- *B5, who knows what from who was there.* `keeper/presence.ts` `onStageAt`: on stage at a paragraph are the scene
+  card's people and anyone named in that paragraph or the two before, less those a change in the scene says left or
+  died earlier; people only. Something said is known by the speaker, those the model says heard it and everyone on
+  stage (not when whispered or said aside); an event is known by everyone on stage ("Saw it happen", `seen`). Each such
+  knowledge change keeps `there` (who was on stage) and is linked to the same words, so it follows edits like any fact;
+  an event's Undo takes its witnesses' knowledge with it. `FactState.backed` (`memory/state.ts`) is true when every
+  learning of the fact on the line is Adam's, has `there`, or is something said (which always names who heard it); the
+  writer's "Kept from …" lines (`ai/mustStay.ts` `secretsAmong`, so the plan's too) and the check's and repair's "Not
+  known by" leave out every fact that isn't backed: a plain "knows" the memory read on its own says nothing of who
+  doesn't know it.
 
 ### How memory over time works
 

@@ -33,6 +33,8 @@ import { contradicts } from './agree'
 import { isSaidKind } from '../retrieval/said'
 import { thingNotCharacter } from './kinds'
 import { CLUE_NOTE, clueList, laterCardPaysOff, payoffLater, threadPlace, threadStatus, threadStep } from './threads'
+import { LEFT_OR_DIED, onStageAt, paraIndexOf, WHISPERED } from './presence'
+import { deathOf } from '../ai/deaths'
 import type { ThreadList } from '@shared/threadLinks'
 import {
   changeContent,
@@ -530,6 +532,47 @@ class Run {
   /** Where a plot thread stands now in this scene: before it, then this scene's own thread changes (this run's too). */
   threadNow(id: ID): 'none' | 'open' | 'resolved' {
     return threadStatus(this.threadBefore(id), mem.changesInScene(this.db, this.scene.sceneId), id)
+  }
+
+  private cardIds: ID[] | null = null
+  /**
+   * Who is on stage at these words (World Memory Overhaul B5, keeper/presence.ts): the scene card's people and anyone
+   * named in the paragraph or just before it, less those who left or died earlier in the scene. Only people who exist
+   * here (or this read found), living.
+   */
+  stageAt(s: Spot): Entry[] {
+    const paras = this.plan.paras
+    const index = paraIndexOf(paras, s)
+    if (index < 0) return []
+    if (!this.cardIds) {
+      try {
+        const card = repo.getScene(this.db, this.scene.sceneId).card
+        this.cardIds = [card.povId, ...(card.presentIds ?? [])].filter((x): x is ID => !!x)
+      } catch {
+        this.cardIds = []
+      }
+    }
+    const living = new Map<ID, Entry>()
+    const dead = new Set((this.ctx.memory?.entries ?? []).filter((e) => deathOf(e)).map((e) => e.id))
+    for (const e of this.entries) {
+      if (e.kind !== 'character' || dead.has(e.id)) continue
+      if (!this.here || this.here.has(e.id) || this.madeHere.has(e.id)) living.set(e.id, e)
+    }
+    const gone: { id: ID; index: number }[] = []
+    for (const c of mem.changesInScene(this.db, this.scene.sceneId)) {
+      if (c.kind !== 'update' || !LEFT_OR_DIED.test(c.payload.note ?? '')) continue
+      for (const l of hist.linksForFact(this.db, 'change', c.id)) {
+        if (l.state !== 'ok') continue
+        const at = paraIndexOf(paras, l)
+        if (at >= 0) gone.push({ id: c.entryId, index: at })
+      }
+    }
+    return onStageAt({ paras, index, onCard: this.cardIds, people: [...living.values()], gone }).flatMap((id) => living.get(id) ?? [])
+  }
+
+  /** The paragraph's words a spot is in ('' when it can't be found). */
+  paraText(s: Spot): string {
+    return this.plan.paras[paraIndexOf(this.plan.paras, s)]?.text ?? ''
   }
 
   noteRemovedChange(entryId: ID): void {
@@ -1612,6 +1655,17 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       involved.push(c.id)
       run.touched.add(other.id)
     }
+    // Everyone on stage saw it happen (B5): they know it, with who was there, linked to the same words.
+    const seen = (e.summary || e.name).trim()
+    const stage = run.stageAt(s)
+    if (seen && stage.length) {
+      const factId = mem.listFacts(db).find((x) => plain(x.fact) === plain(seen))?.factId ?? newId()
+      const there = stage.map((p) => p.id)
+      for (const p of stage) {
+        const c = addChange(run, p, { kind: 'knowledge', payload: { factId, fact: seen, seen: true, there } }, s, `Saw it happen: ${seen}`)
+        if (c) involved.push(c.id)
+      }
+    }
     run.log({
       action: 'added',
       what: 'entry',
@@ -1710,8 +1764,13 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
         chunk.ids.known.get(k) ??
         mem.listFacts(db).find((x) => plain(x.fact) === plain(fact))?.factId ??
         newId()
+      // Everyone on stage at those words heard them too (B5), unless they were whispered or said aside: then only those
+      // the model names. Who was there is kept with the fact, so who doesn't know it can be told.
+      if (!WHISPERED.test(run.paraText(s)))
+        for (const p of run.stageAt(s)) if (p.id !== entry.id && !hearers.some((h) => h.id === p.id) && hearers.length < MAX_INVOLVED * 2) hearers.push(p)
       const said = { kind, by: entry.id, words: s.quote.slice(0, MAX_SAID_CHARS), heard: hearers.map((h) => h.id) }
-      for (const who of [entry, ...hearers]) addChange(run, who, { kind: 'knowledge', payload: { factId, fact, said } }, s)
+      const there = [entry.id, ...hearers.map((h) => h.id)]
+      for (const who of [entry, ...hearers]) addChange(run, who, { kind: 'knowledge', payload: { factId, fact, said, there } }, s)
       for (const h of hearers) run.touched.add(h.id)
       return
     }

@@ -392,6 +392,12 @@ const excerpt = (s: string, max = 90): string => {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
 }
 
+/** "Ash", "Ash and Tobin", "Ash, Tobin and Wren"; more than four: "Ash, Tobin, Wren and 3 others". */
+function joinNames(names: string[]): string {
+  const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} others`] : names
+  return shown.length <= 1 ? shown.join('') : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
+}
+
 export interface ChangeWords {
   text: string
   /** A second, quieter line: how each feels, for relationships; the line itself, for something said. */
@@ -453,8 +459,18 @@ export function describeChange(
       const said = c.payload.said && !c.payload.forgets ? c.payload.said : null
       const line = said?.words.trim() ?? ''
       const words = line ? (/^["“'‘]/.test(line) ? line : `“${line}”`) : null
-      const what = said ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind] : c.payload.forgets ? 'Forgets' : 'Learns'
-      return { text: `${what}: ${c.payload.fact.trim()}`, detail: words }
+      const what = said
+        ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind]
+        : c.payload.forgets
+          ? 'Forgets'
+          : c.payload.seen
+            ? 'Saw it happen'
+            : 'Learns'
+      // Who was there (World Memory Overhaul B5): the others on stage at those words know it too.
+      const others = (c.payload.there ?? []).filter((id) => id !== selfId).flatMap((id) => nameOf(id) ?? [])
+      const there = others.length ? `Was there with ${joinNames(others)}` : null
+      const detail = [words, there].filter(Boolean).join(' · ') || null
+      return { text: `${what}: ${c.payload.fact.trim()}`, detail }
     }
     case 'thread': {
       const note = c.payload.note?.trim()

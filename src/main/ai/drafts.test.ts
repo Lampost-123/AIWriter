@@ -173,7 +173,8 @@ describe('drafting an earlier scene does not show later changes to the AI', () =
     const tobin = w.tobin.id
     const at = (sceneId: string) => ({ entryId: mara, anchor: 'scene' as const, sceneId, origin: 'text' as const })
     insertChange(w.db, { ...at(w.first.id), kind: 'update', payload: { note: 'Cuts her hair short' } })
-    insertChange(w.db, { ...at(w.first.id), kind: 'knowledge', payload: { factId: 'heir', fact: 'Mara is the heir' } })
+    // Mara alone was there when she learned it (World Memory Overhaul B5): so Tobin is told as not knowing it.
+    insertChange(w.db, { ...at(w.first.id), kind: 'knowledge', payload: { factId: 'heir', fact: 'Mara is the heir', there: [mara] } })
     insertChange(w.db, { ...at(s3.id), kind: 'update', payload: { note: 'Loses her left hand', fields: { marks: 'No left hand' } } })
     insertChange(w.db, { ...at(s3.id), kind: 'relationship', payload: { otherId: tobin, type: 'sworn enemies', feels: '', otherFeels: '' } })
     insertChange(w.db, { ...at(s3.id), entryId: tobin, kind: 'knowledge', payload: { factId: 'heir', fact: 'Mara is the heir' } })

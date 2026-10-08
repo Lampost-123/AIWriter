@@ -334,8 +334,12 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
     )
     const lines = facts.map((f) => {
       const knows = people.filter((c) => f.knownBy.includes(c.entry.id)).map((c) => c.entry.name)
-      // Never "not known by" someone the fact is about, nor an animal (as repair/prompts.ts codexLines).
-      const not = people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
+      // Never "not known by" someone the fact is about, nor an animal (as repair/prompts.ts codexLines), nor when who knows
+      // it doesn't rest on who was there or on Adam (B5).
+      const not =
+        f.backed === false
+          ? []
+          : people.filter((c) => !f.knownBy.includes(c.entry.id) && isPerson(c.entry) && !namesPerson(f.fact, c.entry)).map((c) => c.entry.name)
       return `- ${clean(f.fact)} Known by: ${knows.join(', ') || 'none of them'}.${not.length ? ` Not known by: ${not.join(', ')}.` : ''}`
     })
     out.push({

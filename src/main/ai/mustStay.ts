@@ -164,7 +164,9 @@ export const isPerson = (e: Pick<EntryState, 'kind' | 'name'> & Partial<Pick<Ent
 
 /**
  * What some of these people know and others don't, the most lately learned first (FactState.at; among facts learned at
- * the same point, or with no place, the last listed first). Only people (isPerson): never an animal.
+ * the same point, or with no place, the last listed first). Only people (isPerson): never an animal. Only facts whose
+ * knowers rest on who was there or on Adam (World Memory Overhaul B5, FactState.backed): a fact the memory read on its
+ * own says nothing about who doesn't know it (an audit found 37 "does not know" lines in one run, many false).
  */
 export function secretsAmong(people: Knower[], facts: FactState[]): Secret[] {
   const here = people.filter(isPerson)
@@ -172,6 +174,7 @@ export function secretsAmong(people: Knower[], facts: FactState[]): Secret[] {
   const order = facts.map((f, i) => ({ f, i })).sort((a, b) => (b.f.at ?? -2) - (a.f.at ?? -2) || b.i - a.i)
   const out: Secret[] = []
   for (const { f } of order) {
+    if (f.backed === false) continue
     const fact = clean(f.fact).replace(/[.]$/, '')
     const knowers = here.filter((p) => f.knownBy.includes(p.id))
     if (!fact || !knowers.length || knowers.length === here.length) continue

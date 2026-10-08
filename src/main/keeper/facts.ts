@@ -141,6 +141,8 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
     }
     case 'knowledge':
       if (c.payload.said && !c.payload.forgets) return `${SAID_WORDS[c.payload.said.kind] ?? 'Knows'}: ${c.payload.fact}`
+      // Seen happening, with everyone who was there (World Memory Overhaul B5).
+      if (c.payload.seen && !c.payload.forgets) return `Saw it happen: ${c.payload.fact}`
       return `${c.payload.forgets ? 'Forgets' : 'Knows'} ${lowerFirstWord(c.payload.fact)}`
     case 'thread':
       return `Plot thread ${c.payload.status === 'resolved' ? 'resolved' : 'opened'}${c.payload.note ? `: ${c.payload.note}` : ''}`

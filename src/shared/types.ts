@@ -1022,6 +1022,14 @@ export interface KnowledgePayload {
    * each character who heard it (one fact id), with the line itself. Missing for every other fact.
    */
   said?: SaidPayload
+  /**
+   * Who was there (World Memory Overhaul B5): everyone on stage at the words it was learned from (the speaker and those
+   * who heard it, or those who saw it happen), so who doesn't know it can be told too. Missing for a fact read on its own
+   * ("Mara realises the letter is forged"): then nothing is said of who doesn't know it.
+   */
+  there?: ID[]
+  /** Learned by seeing it happen (an event in the scene, B5). */
+  seen?: true
 }
 
 /** The kinds of things said that the memory keeps word for word. */
@@ -1151,6 +1159,13 @@ export interface FactState {
   fact: string
   /** Characters who know it at this point. */
   knownBy: ID[]
+  /**
+   * Who knows it rests on who was there (World Memory Overhaul B5): every time it was learned on the line, Adam set it
+   * or the memory marked everyone on stage at those words (something said, or an event seen). Only then can "X does not
+   * know it" be told to the writer. False when some learning of it was a plain "knows" read; missing (older callers):
+   * counted as backed.
+   */
+  backed?: boolean
   /**
    * Where on the line someone last learned it (a step index of the walk; -1 for the starting setup), so the newest
    * come first in what must stay true (step 4). Left out by anything older.

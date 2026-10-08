@@ -270,8 +270,11 @@ export function stateAt(
     if (where) (e.changedWhere ??= {})[k] = where
     else if (e.changedWhere) delete e.changedWhere[k]
   }
-  const learn = (entryId: ID, factId: ID, fact: string | undefined): void => {
+  /** Facts some learning of which wasn't backed by who was there or by Adam (B5): no "does not know" for them. */
+  const unbacked = new Set<ID>()
+  const learn = (entryId: ID, factId: ID, fact: string | undefined, backed = true): void => {
     if (!factId) return
+    if (!backed) unbacked.add(factId)
     let set = knows.get(entryId)
     if (!set) knows.set(entryId, (set = new Set()))
     set.add(factId)
@@ -396,7 +399,7 @@ export function stateAt(
           touchRel(r.aId, r.bId)
           rels.delete(pk)
         }
-        for (const k of p.knows ?? []) learn(e.id, k.factId, k.fact)
+        for (const k of p.knows ?? []) learn(e.id, k.factId, k.fact, c.origin === 'adam')
         for (const r of p.relationships ?? []) setRel(e.id, r, where)
         break
       }
@@ -407,7 +410,8 @@ export function stateAt(
       case 'knowledge': {
         const p = c.payload
         if (p.forgets) knows.get(e.id)?.delete(p.factId)
-        else learn(e.id, p.factId, p.fact)
+        // Backed (B5): Adam's own, or the memory marked everyone who was there (something said always names who heard it).
+        else learn(e.id, p.factId, p.fact, c.origin === 'adam' || Array.isArray(p.there) || Array.isArray(p.said?.heard))
         break
       }
       case 'thread': {
@@ -522,7 +526,11 @@ export function stateAt(
   for (const id of entries.keys()) {
     for (const factId of knows.get(id) ?? []) {
       let f = facts.get(factId)
-      if (!f) facts.set(factId, (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1 }))
+      if (!f)
+        facts.set(
+          factId,
+          (f = { factId, fact: factText.get(factId) ?? '', knownBy: [], at: learnedAt.get(factId) ?? -1, backed: !unbacked.has(factId) })
+        )
       f.knownBy.push(id)
     }
   }
