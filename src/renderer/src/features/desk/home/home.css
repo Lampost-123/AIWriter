@@ -1024,6 +1024,11 @@
   gap: 12px;
   min-height: 16px;
 }
+/* The week's label says it counts every story: long enough to wrap in a narrow column. */
+[data-arrangement='desk'] .home-lc-head .home-wk-caps {
+  min-width: 0;
+  white-space: normal;
+}
 [data-arrangement='desk'] .home-aside {
   font-size: 12px;
   color: var(--muted);

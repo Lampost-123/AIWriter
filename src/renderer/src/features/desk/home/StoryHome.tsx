@@ -530,7 +530,7 @@ function Week(): React.JSX.Element {
     <div className="home-week">
       <div className="home-lc-head">
         {/* (Every story's words count here, not only this one's, so it says so.) */}
-        <span className="desk-caps">Your writing this week, across all your stories</span>
+        <span className="desk-caps home-wk-caps">Your writing this week, across all your stories</span>
         {streak && streak.days > 0 ? (
           <span className="home-streak">
             <span className="home-streak-dots" aria-hidden>
