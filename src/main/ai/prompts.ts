@@ -8,7 +8,7 @@ import type { StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
 import { genresOf } from '@shared/genres'
 import { intensityLines } from '@shared/intensity'
-import { PROMPT_SLOP, SLOP_RULES } from '@shared/slop'
+import { SLOP_RULES } from '@shared/slop'
 
 const INTRO = `You are a skilled novelist drafting one scene of a longer work of fiction. The author plans each scene on a scene card and will edit your draft afterwards, so write a complete, polished scene that follows the plan closely and reads like a finished page of the book.
 
@@ -28,18 +28,34 @@ export function povRule(pov: string): string {
   return "- Keep to the point of view the style guide sets. In a close third-person, first-person or second-person point of view, the reader knows only what the point-of-view character sees, hears, notices, remembers and feels, and other people's thoughts show only through what they say and do."
 }
 
-const REST = `- Be specific and concrete. Ground each moment in the place with a few telling sensory details rather than lists of them. Prefer the precise noun and the active verb.
+const REST = (end: string): string => `- Be specific and concrete. Ground each moment in the place with a few telling sensory details rather than lists of them. Prefer the precise noun and the active verb.
 - Let the characters want things and push against each other. Keep subtext in dialogue: people rarely say exactly what they mean.
-- Give each character their own voice, as their profile describes. Use their sample lines as a guide to how they sound; don't repeat them word for word.
-- Vary sentence length and paragraph rhythm. Trust the reader: don't explain feelings the scene already shows, and don't close on a summary or a moral. End on the scene's final beat.
-- Avoid clichés and stock phrases, such as a breath someone didn't know they were holding, a shiver running down a spine, eyes that sparkle, a heart hammering against ribs, or anything described as "a testament to" something.
+- Give each character their own voice, as their profile describes. Their sample lines show how they sound: never reuse a sample line word for word, or a line already said in the story.
+- Vary sentence length and paragraph rhythm. Trust the reader: don't explain feelings the scene already shows, and don't close on a summary or a moral.${end}
+- Say each thing freshly, in the terms of this place and these people: show feeling through what someone does or says, not through the body reactions any story would use.
 - The briefing gives the characters, places and world as they stand at this point in the story. Anything marked as an aim or a target (what this scene should bring about, what the story leads into) is where the story is heading, not something that has already happened.
 - Never contradict the facts you are given about the characters, places and world, or break the world's rules. Where the briefing is silent, stay consistent with what it implies, and don't invent major new facts (new powers, deaths, family ties, revelations) that the scene card doesn't call for.
 - Keep every name, title and spelling exactly as given.`
 
-/** The writer instructions, with the point-of-view rule that fits the style guide. */
-export function writerInstructions(pov: string): string {
-  return `${INTRO}\n${povRule(pov)}\n${REST}`
+/**
+ * Add below's own introduction (Adam, 2026-10-08): an audit of 122 real writer calls found Add below given Generate's
+ * "write a complete, polished scene… End on the scene's final beat", so it invented action to reach its word count
+ * (6 of the 7 remaining trap breaks), closed scenes off (sleep, silence) and wrote card beats already on the page again.
+ */
+const ADD_BELOW_INTRO = `You are a skilled novelist writing a longer work of fiction with its author, one stretch at a time. The scene so far is already on the page. Write only the next stretch: carry the scene on from exactly where it stands, as finished prose that reads like the page it continues.
+
+How to carry the scene on
+- Write only the new words, as prose, carrying straight on from the last words on the page. No title, no headings, no notes, no comments before or after.
+- Write plain text. To put words in italics (a character's thoughts, emphasis, the name of a ship or a book), wrap them in single *asterisks*. Use no other formatting: no bold, no underscores, no headings, no lists.
+- Write what the author asks for next (their direction, or with none the next beat on the scene card not on the page yet), and nothing beyond it. Invent no new events of your own: no arrivals, discoveries, news, decisions or turns the author didn't ask for.
+- Once that has happened, stop, even part-way through the scene and in the middle of a movement. Don't wrap up, settle anyone down, have them fall asleep or fall silent, or close the scene, unless the author asks for it.
+- The length given is a ceiling, not a target: if what is asked is done in fewer words, use fewer. Never pad, and never add events to reach a length.
+- Beats on the scene card that are already on the page are done: never write them again.
+- Dramatise what happens through action, dialogue and the point-of-view character's thoughts and senses; don't summarise it.`
+
+/** The writer instructions, with the point-of-view rule that fits the style guide. `addBelow`: Add below's own (ADD_BELOW_INTRO). */
+export function writerInstructions(pov: string, addBelow = false): string {
+  return addBelow ? `${ADD_BELOW_INTRO}\n${povRule(pov)}\n${REST('')}` : `${INTRO}\n${povRule(pov)}\n${REST(" End on the scene's final beat.")}`
 }
 
 const SPELLING = {
@@ -77,10 +93,10 @@ export function trimPassage(text: string, words = SHORT_SAMPLE_WORDS): string {
  */
 export function instructionsText(
   style: StyleGuide & { avoidAiPhrases?: boolean },
-  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean } = {}
+  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean; addBelow?: boolean } = {}
 ): string {
   const short = !!opts.trimSample
-  const intro = opts.intro ?? writerInstructions(style.pov)
+  const intro = opts.intro ?? writerInstructions(style.pov, !!opts.addBelow)
   const parts: string[] = intro ? [intro] : []
 
   const rules: string[] = []
@@ -114,7 +130,7 @@ export function instructionsText(
   if (style.avoidPhrases.length) {
     parts.push(`Words and phrases to avoid\nNever use any of these:\n${style.avoidPhrases.map((p) => `- ${p}`).join('\n')}`)
   }
-  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText(short))
+  if (opts.proseRules !== false && style.avoidAiPhrases !== false) parts.push(aiPhrasesText())
   return parts.join('\n\n')
 }
 
@@ -176,11 +192,12 @@ export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits
   return `Content\n${lines.map((l) => `- ${l}`).join('\n')}${after ? `\n${after}` : ''}`
 }
 
-/** The rules against common AI phrasing, with the worst offenders named (left out of the short form). */
-export function aiPhrasesText(short = false): string {
-  const rules = SLOP_RULES.map((r) => `- ${r}`)
-  if (!short) rules.push(`- Never use stock phrases like these, or variants: ${PROMPT_SLOP.map((p) => `"${p}"`).join(', ')}.`)
-  return `Write like a person, not like an AI\n${rules.join('\n')}`
+/**
+ * The rules against common AI phrasing. No stock phrase is named (the writer lab, 2026-10-08: naming a phrase can prime
+ * it); the stock phrases that still get through are found after writing and said afresh (repair/slop.ts).
+ */
+export function aiPhrasesText(): string {
+  return `Write like a person, not like an AI\n${SLOP_RULES.map((r) => `- ${r}`).join('\n')}`
 }
 
 const lowerFirst = (s: string): string => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s)
@@ -229,23 +246,23 @@ export function finalInstruction(o: {
   addBelow?: boolean
   /** The briefing says where things stand at the end of the scene so far (block 3b). */
   hasStand?: boolean
+  /**
+   * Add below: Adam's direction for this stretch, said last, right before the writer starts (Adam, 2026-10-08: in the
+   * middle of the scene card it was followed loosely). '' or left out: none.
+   */
+  direction?: string
+  /** Add below: the scene card's beats (blank ones left out), and how many of them, from the first, are on the page already. */
+  beats?: string[]
+  beatsDone?: number
 }): string {
+  if (o.addBelow) return addBelowFinal(o)
   const lines: string[] = [
     '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.'
   ]
-  if (o.addBelow) {
-    lines.push(
-      "- The scene so far is already on the page. Carry on seamlessly from its very end, as if there had been no pause: don't repeat, recap or rewrite any of it, and don't start the scene again."
-    )
-  }
-  const plan = o.addBelow ? addBelowPlanLine(o) : planLine(o)
+  const plan = planLine(o)
   if (plan) lines.push(plan)
-  lines.push(o.addBelow && o.targetWords == null ? addBelowLengthLine(o) : lengthLine(o))
-  const keep: string[] = []
-  if (o.style.pov) keep.push(lowerFirst(o.style.pov))
-  if (o.style.tense) keep.push(lowerFirst(o.style.tense))
-  if (o.style.spelling) keep.push(`${o.style.spelling} spelling`)
-  lines.push(keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.')
+  lines.push(lengthLine(o))
+  lines.push(keepLine(o.style))
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
   if (o.style.intensity?.romance === 4) {
@@ -253,15 +270,9 @@ export function finalInstruction(o: {
   }
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
-  if (o.hasStand) {
-    lines.push(
-      '- Keep to where things stand at the end of the scene so far: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes on the page.'
-    )
-  }
+  if (o.hasStand) lines.push(STAND_LINE)
   const other = o.previousStory
-  if (o.addBelow) {
-    // The scene so far already follows on from the previous scene.
-  } else if (o.hasPrevious && other) {
+  if (o.hasPrevious && other) {
     const gap = other.timeGap ? ` Time since then: ${other.timeGap.replace(/\.$/, '')}.` : ''
     const what = other.ended ? `is how ${other.title} ended` : `is where ${other.title} had got to`
     lines.push(
@@ -271,20 +282,71 @@ export function finalInstruction(o: {
   if (o.hasBringAbout) lines.push('- Make the scene bring about what the scene card says it should.')
   if (o.hasDirection) lines.push("- Follow the author's direction for this draft.")
   lines.push('- Never contradict the facts given above.')
-  return `${o.addBelow ? 'Carry the scene on now, from the end of the scene so far.' : 'Write the scene now.'}\n${lines.join('\n')}`
+  return `Write the scene now.\n${lines.join('\n')}`
 }
 
-/** Add below's line about length with Auto: what the rest of the scene needs, within Auto's ceiling. */
-function addBelowLengthLine(o: { autoMax?: number }): string {
+const STAND_LINE =
+  '- Keep to where things stand at the end of the scene so far: where each person is, what they wear and how it sits, how they are placed and what they hold. Anything that changes, changes on the page.'
+
+/** "- Keep to close third person, past tense and UK spelling." */
+function keepLine(style: StyleGuide): string {
+  const keep: string[] = []
+  if (style.pov) keep.push(lowerFirst(style.pov))
+  if (style.tense) keep.push(lowerFirst(style.tense))
+  if (style.spelling) keep.push(`${style.spelling} spelling`)
+  return keep.length ? `- Keep to ${joinAnd(keep)}.` : '- Keep the point of view and tense steady throughout.'
+}
+
+/**
+ * Add below's closing (Adam, 2026-10-08): carry on from the very end; the beats already on the page are done; the
+ * length is a ceiling; stop once what is asked has happened, mid-motion, without closing the scene; no events of its
+ * own; and last of all, right before the writer starts, what happens now: Adam's direction, or with none the next beat.
+ */
+function addBelowFinal(o: FinalOptions): string {
+  const lines: string[] = [
+    '- Prose only, in plain text with *asterisks* only for italics: no title, no headings, no notes or comments before or after.',
+    "- The scene so far is already on the page. Carry on seamlessly from its very end, as if there had been no pause: don't repeat, recap or rewrite any of it, and don't start the scene again."
+  ]
+  const beats = (o.beats ?? []).map((b) => b.trim()).filter(Boolean)
+  const done = Math.max(0, Math.min(beats.length, o.beatsDone ?? 0))
+  if (done) {
+    const which = done === 1 ? 'Beat 1 on the scene card is' : `Beats 1 to ${done} on the scene card are`
+    lines.push(`- ${which} already on the page: done. Never write ${done === 1 ? 'it' : 'them'} again, in any words.`)
+  }
+  lines.push(addBelowLengthLine(o))
+  lines.push(keepLine(o.style))
+  const feel = feelLine(o.style, o.tone)
+  if (feel) lines.push(feel)
+  if (o.style.intensity?.romance === 4) {
+    lines.push('- If adults have sex in this scene, play every act on the page in blunt words and direct talk; do not fade out or euphemise.')
+  }
+  const avoid = avoidLine(o.style)
+  if (avoid) lines.push(avoid)
+  if (o.hasStand) lines.push(STAND_LINE)
+  if (o.hasBringAbout) lines.push('- Bring about what the scene card says it should only where what happens now calls for it.')
+  lines.push('- Never contradict the facts given above.')
+  lines.push(
+    "- Invent no events of your own. Once what happens now has happened, stop, mid-motion if need be: don't wrap up, settle anyone down, have them sleep or fall silent, or close the scene, unless that is what is asked."
+  )
+  const direction = (o.direction ?? '').trim()
+  const next = beats[done]
+  const now = direction
+    ? `What happens now, as the author directs (write this, and nothing beyond it):\n${direction}`
+    : next
+      ? `What happens now: the next beat on the scene card, beat ${done + 1}${beats.length > 1 ? ` of ${beats.length}` : ''} (write this one only, and nothing beyond it):\n${next}`
+      : o.hasGoal || o.hasOutcome || o.hasNotes
+        ? 'What happens now: take the scene a short way on from where it has got to, towards what the scene card describes, and stop.'
+        : 'What happens now: take the scene a short way on from where it has got to, and stop.'
+  return `Carry the scene on now, from the end of the scene so far.\n${lines.join('\n')}\n\n${now}`
+}
+
+/** Add below's line about length: a ceiling, not a target (with Auto, within Auto's ceiling). */
+function addBelowLengthLine(o: { targetWords: number | null; autoMax?: number }): string {
+  if (o.targetWords != null) {
+    return `- Write at most about ${o.targetWords.toLocaleString('en-GB')} words. That is a ceiling, not a target: stop as soon as what is asked has happened.`
+  }
   const max = Math.max(AUTO_LENGTH.min, o.autoMax ?? AUTO_LENGTH.max).toLocaleString('en-GB')
-  return `- Write as much as the rest of the scene needs, up to ${max} words: play out what is left in full, and don't pad it.`
-}
-
-/** Add below's line about the plan: what the scene card asks for that the scene so far hasn't done yet. */
-function addBelowPlanLine(o: { hasBeats: boolean; hasGoal?: boolean; hasOutcome?: boolean; hasNotes?: boolean }): string {
-  if (o.hasBeats) return "- Write the scene card's beats the scene so far hasn't reached yet, in order, picking up from where it has got to."
-  if (o.hasGoal || o.hasOutcome || o.hasNotes) return '- Take the scene on from where it has got to, towards what the scene card describes.'
-  return '- Take the scene on naturally from where it has got to.'
+  return `- Write only as much as what happens now needs, never more than ${max} words. Stop as soon as it has happened, and don't pad it.`
 }
 
 /**

@@ -16,6 +16,7 @@ import type { MemoryModel } from '../keeper/model'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { checkIfWanted, checkNewWords, criticChecks, KEEP_PROMPTS, noteStage, placeInScene, repairsApplied, repairWanted, resetRepairsForTests } from './index'
 import { REPAIR_MARKER } from './prompts'
+import { SECOND_MARKER } from './second'
 
 const model: MemoryModel = {
   target: { id: 'p1', name: 'Fake', kind: 'custom', baseUrl: 'http://127.0.0.1:9/v1', apiKey: 'test' },
@@ -125,9 +126,11 @@ describe('check and repair', () => {
     const fetchImpl = answering(SLIPS)
     const out = await checkNewWords(opts(db, fetchImpl), landed(sceneId, recordId))
 
-    // One call, with the stage's values and their words, and the new words to check.
-    expect(fetchImpl.asked).toHaveLength(1)
+    // One call, with the stage's values and their words, and the new words to check; then the second opinion on its
+    // two slips (repair/second.ts; this stand-in's reply gives no verdicts, so it drops nothing).
+    expect(fetchImpl.asked).toHaveLength(2)
     expect(fetchImpl.asked[0].system.startsWith(REPAIR_MARKER)).toBe(true)
+    expect(fetchImpl.asked[1].system.startsWith(SECOND_MARKER)).toBe(true)
     expect(fetchImpl.asked[0].user).toContain('- [W2] Mara · wearing: hood back · words: "pushed her hood back"')
     expect(fetchImpl.asked[0].user).toContain(`## The new words (check these)\n"""\n${AI}\n"""`)
     // The critic after the draft leaves out continuity, which this check covered (there was a stage to compare with);
@@ -352,7 +355,8 @@ describe('the off switch', () => {
 
     const on = answering(SLIPS)
     await checkIfWanted(opts(db, on), landed(sceneId, recordId), { checkNewWords: true }, {})
-    expect(on.asked).toHaveLength(1)
+    // The check, then the second opinion on its slips.
+    expect(on.asked).toHaveLength(2)
     expect(await criticChecks([recordId], 0)).toEqual(['facts', 'knowledge', 'timeline', 'voice', 'style'])
   })
 })

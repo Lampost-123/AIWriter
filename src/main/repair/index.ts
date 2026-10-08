@@ -24,8 +24,19 @@ import { findQuote } from '../keeper/text'
 import { newId } from '../util'
 import { judgeClaims, newWordsOf, readClaims, type Claim, type FoundFix, type FoundQuestion } from './claims'
 import { codexLines, REPAIR_MARKER, repairRequest, stageLines, type CodexLine, type StageLine } from './prompts'
+import { secondOpinion, SECOND_MARKER } from './second'
+import { SLOP_MARKER, withSlopFixes } from './slop'
 
 type DB = Database.Database
+
+/** Only the newest few calls of a kind for a scene keep their whole prompt (each holds the scene's facts and the new words). */
+function forgetPrompts(o: RepairOptions, sceneId: ID, marker: string): void {
+  try {
+    if (o.db.open) gens.forgetOldPrompts(o.db, sceneId, marker, KEEP_PROMPTS)
+  } catch (e) {
+    console.warn('Could not let go of older check prompts', e)
+  }
+}
 
 // ---------- The stage each landing is checked against ----------
 
@@ -273,8 +284,13 @@ export async function checkNewWords(o: RepairOptions, raw: RepairInput): Promise
   checked.set(input.recordId, entry)
   while (checked.size > MOST_CHECKED) checked.delete(checked.keys().next().value!)
   try {
-    const out = await checkWith(o, input, ctx, aiText, stage, codex, newWords)
-    if (out.repairId) entry.covered = coveredBy(stage, codex.lines)
+    const checkedOut = await checkWith(o, input, ctx, aiText, stage, codex, newWords)
+    if (checkedOut.repairId) entry.covered = coveredBy(stage, codex.lines)
+    // Stock phrases in the new words said afresh, as more fixes, by one short call (repair/slop.ts); not when Adam has
+    // turned off "Steer clear of common AI phrases".
+    if (o.closed() || !o.db.open || o.prefs?.avoidAiPhrases === false) return checkedOut
+    const out = await withSlopFixes(o, input, checkedOut)
+    forgetPrompts(o, input.sceneId, SLOP_MARKER)
     return out
   } finally {
     entry.covered ??= []
@@ -309,15 +325,22 @@ async function checkWith(
     retryDelays: o.retryDelays
   })
   // Only the newest few checks of a scene keep their whole prompt (each holds the scene's facts and the new words).
-  try {
-    if (o.db.open) gens.forgetOldPrompts(o.db, input.sceneId, REPAIR_MARKER, KEEP_PROMPTS)
-  } catch (e) {
-    console.warn('Could not let go of older check prompts', e)
-  }
+  forgetPrompts(o, input.sceneId, REPAIR_MARKER)
   // Not checked after all (stopped, failed, or a reply that can't be read): the critic checks it all, as before.
   if (got.status !== 'complete' || o.closed() || !o.db.open) return NOTHING
-  const claims = readClaims(got.text)
-  if (!claims) return NOTHING
+  const read = readClaims(got.text)
+  if (!read) return NOTHING
+  // A second opinion before anything is mended or asked (repair/second.ts): a slip not grounded in what the check was
+  // given, or taken back, is dropped, then one call rules on each slip left.
+  const material = req.blocks
+    .filter((b) => b.id !== 'new-words' && b.id !== 'lead-in')
+    .map((b) => `## ${b.title}\n${b.text}`)
+    .join('\n\n')
+  const lines = new Set([...stage.map((l) => l.code), ...codex.lines.map((l) => l.code)])
+  const second = await secondOpinion(o, input.sceneId, read, { newWords, leadIn: input.leadIn, material, lines })
+  forgetPrompts(o, input.sceneId, SECOND_MARKER)
+  if (o.closed() || !o.db.open) return NOTHING
+  const claims = second.kept
   const judged = judgeClaims(claims, { stage, codex: codex.lines, paragraphs: input.paragraphs, aiText, leadIn: input.leadIn })
   const where = {
     sceneId: input.sceneId,

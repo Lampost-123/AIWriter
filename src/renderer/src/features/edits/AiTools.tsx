@@ -47,6 +47,8 @@ export function AiTools({
   const [page, setPage] = useState<'main' | 'tone'>('main')
   const [instruction, setInstruction] = useState('')
   const [tone, setTone] = useState('')
+  /** Continue's optional "what happens next" (Adam, 2026-10-08): said last to the writer when filled. */
+  const [next, setNext] = useState('')
   /** Why the tools can't start now (a change waiting, a draft writing), or null. */
   const [blocked, setBlocked] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -225,7 +227,24 @@ export function AiTools({
                 onClick={() => run('alternatives')}
               />
               <div className="mx-1 my-1.5 h-px bg-line" />
-              <Tool icon={<PenLine size={15} />} label="Continue after these words" disabled={off} onClick={() => run('continue')} />
+              <form
+                className="px-1 pb-1"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!off) run('continue', next.trim())
+                }}
+              >
+                <Input
+                  value={next}
+                  onChange={(e) => setNext(e.target.value)}
+                  placeholder="What happens next? (optional)"
+                  aria-label="What happens next, for Continue (optional)"
+                  disabled={off}
+                  maxLength={2000}
+                  className="h-7 text-[12.5px]"
+                />
+              </form>
+              <Tool icon={<PenLine size={15} />} label="Continue after these words" disabled={off} onClick={() => run('continue', next.trim())} />
             </>
           ) : (
             <>

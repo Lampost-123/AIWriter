@@ -37,9 +37,12 @@ import {
   STAND_LEAD_SO_FAR,
   MUST_BLOCK,
   DETAILS_LABEL,
-  FACTS_LABEL
+  FACTS_LABEL,
+  MENTIONED_TITLE,
+  RELATIONSHIP_SECRETS
 } from './context'
 import { finalInstruction, lengthLine, trimPassage } from './prompts'
+import { TIMELINE_LEAD } from './timeline'
 import { countRaw } from './tokens'
 
 // ---------- Fixtures ----------
@@ -592,7 +595,7 @@ describe('selection', () => {
     const duke = named(inp, 'The Duke')
     const mentioned = blockOf(inp, 'mentioned')!
     expect(mentioned.entryIds).toContain(duke.id)
-    expect(mentioned.title).toBe('Also mentioned')
+    expect(mentioned.title).toBe(MENTIONED_TITLE)
     expect(mentioned.text).toContain('### The Duke (character)\nIn short: Rules Varn.')
   })
 
@@ -624,14 +627,14 @@ describe('blocks', () => {
       ['world-rules', 7],
       ['themes', 10],
       ['setting', 7],
+      ['story-so-far', 8],
+      ['previous-scene', 3],
+      ['threads', 7],
       ['pov', 4],
       ['present', 5],
       ['relationships', 6],
       ['ties', 11],
       ['mentioned', 9],
-      ['threads', 7],
-      ['story-so-far', 8],
-      ['previous-scene', 3],
       ['scene-card', 2],
       ['must-stay-true', 11]
     ])
@@ -1022,10 +1025,9 @@ describe('blocks', () => {
     expect(stage).toContain('- Mother Rook: where: in the kitchen; holding: a jug')
     expect(stage).not.toContain('Bryn')
     expect(stage).not.toContain('the boy')
-    const must = p.blocks.find((b) => b.id === MUST_BLOCK)!.text
-    expect(must).not.toContain('morning')
-    expect(must).not.toContain('Bryn')
-    expect(must).toContain('Mara Venn is holding: nothing')
+    // What must stay true doesn't say again what the stage block right above it says at this same moment (Adam,
+    // 2026-10-08): here that is all of it.
+    expect(p.blocks.find((b) => b.id === MUST_BLOCK)).toBeUndefined()
     // The same When as the scene before: its time and weather still hold.
     inp.memory.previous = { ...inp.memory.previous!, when: 'Day 12, Night, rain.' }
     expect(toldStage(inp)).toMatchObject({ time: 'morning, the twentieth, after six; the sun has come up', weather: 'rain steady, no wind' })
@@ -1036,7 +1038,15 @@ describe('blocks', () => {
     const fresh = input()
     fresh.continuity = kept
     fresh.options.direction = 'Bryn Tally comes back for her whip'
-    expect(toldStage(fresh)!.characters.map((c) => c.name)).toEqual(['Mara Venn', 'Tobin', 'Bryn Tally'])
+    // Bryn is only named, and her words are from three scenes back: they stay out (Adam, 2026-10-08).
+    expect(toldStage(fresh)!.characters.map((c) => c.name)).toEqual(['Mara Venn', 'Tobin'])
+    // Named with words from the scene before, its time carrying on, she is in it.
+    const recent = input()
+    recent.scene.card.when = 'Day 12'
+    recent.memory.previous = { ...recent.memory.previous!, when: 'Day 12' }
+    recent.continuity = { ...kept, said: { ...kept.said, 'bryn tally|holding': { quote: 'took up the reins', sceneId: recent.memory.previous!.sceneId } } }
+    recent.options.direction = 'Bryn Tally comes back for her whip'
+    expect(toldStage(recent)!.characters.map((c) => c.name)).toEqual(['Mara Venn', 'Tobin', 'Bryn Tally'])
     expect(toldStage(fresh)!.time).toBe('')
   })
 
@@ -1064,8 +1074,8 @@ describe('blocks', () => {
     const final = prepareContext(inp).finals.withPrevious
     expect(final.startsWith('Carry the scene on now, from the end of the scene so far.')).toBe(true)
     expect(final).toContain("don't repeat, recap or rewrite any of it, and don't start the scene again")
-    expect(final).toContain("beats the scene so far hasn't reached yet")
-    expect(final).toContain('Write as much as the rest of the scene needs')
+    expect(final).toContain('What happens now: the next beat on the scene card')
+    expect(final).toContain('Write only as much as what happens now needs')
     expect(final).not.toContain('Continue seamlessly from where the previous scene ends')
     expect(final).not.toContain('Write the scene now')
     // Without Add below, the usual closing.
@@ -1097,36 +1107,18 @@ describe('blocks', () => {
     expect(blocks.map((b) => b.text).join('\n')).not.toContain('River songs')
   })
 
-  it('block 8: every earlier scene, earlier stories; short: earlier chapters; then fewer scenes and series roll-ups', () => {
+  it('block 8: the canon timeline of what happened before, oldest first (timeline.ts), and smaller forms keep the most recent', () => {
     const inp = richInput()
     const block = blockOf(inp, 'story-so-far')!
     expect(block.title).toBe('The story so far')
-    const recent =
-      '### Most recently\nCh 1, Sc 3: Scene summary 3.\n\nCh 1, Sc 4: Scene summary 4.\n\nCh 2, Sc 1: Scene summary 5.\n\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
-    // In full, every earlier scene of this story by its own summary (a chapter's summary loses detail).
-    expect(block.text).toBe(
-      [
-        '### Book 1\nBook one summary.',
-        '### Earlier in Book 2\nCh 1, Sc 1: Scene summary 1.\n\nCh 1, Sc 2: Scene summary 2.',
-        recent
-      ].join('\n\n')
-    )
-    // Short: earlier chapters by their summaries, the last 5 scenes in detail.
-    expect(block.short).toBe(['### Book 1\nBook one summary.', '### Earlier in Book 2\nCh 1: Chapter one summary.', recent].join('\n\n'))
-    // Smaller: the series roll-up, chapter summaries, the last 2 scenes; the chapter this scene is in
-    // has no summary yet, so its earlier scene is told by its own summary rather than skipped.
-    expect(block.smaller[0]).toBe(
-      [
-        '### The River Books\nSeries roll-up.',
-        '### Earlier in Book 2\nCh 1: Chapter one summary.\n\nCh 2, Sc 1: Scene summary 5.',
-        '### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.'
-      ].join('\n\n')
-    )
+    const label = (i: number): string => (i < 4 ? `Ch 1, Sc ${i + 1}` : `Ch 2, Sc ${i - 3}`)
+    const lines = ['- Book 1: Book one summary.', ...Array.from({ length: 7 }, (_, i) => `- ${label(i)}: Scene summary ${i + 1}.`)]
+    expect(block.text).toBe([TIMELINE_LEAD, lines.join('\n')].join('\n\n'))
     // Smaller still, for small models: only the most recent parts, saying so.
-    expect(block.smaller.slice(1)).toEqual([
-      'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.',
-      'Only the most recent part of the story so far is given here, to save space.\n\n### Most recently\nCh 2, Sc 3: Scene summary 7.'
-    ])
+    const smallest = block.smaller[block.smaller.length - 1]
+    expect(smallest).toContain('left out here to save space')
+    expect(smallest).toContain('- Ch 2, Sc 3: Scene summary 7.')
+    expect(smallest).not.toContain('Scene summary 1.')
   })
 
   it('block 8: no earlier scene of this story is skipped, even in a long chapter with no summary yet', () => {
@@ -1251,7 +1243,8 @@ describe('blocks', () => {
     expect(block.text).toContain(`${DETAILS_LABEL}\n- Build: Wiry\n- Hair: Red`)
     expect(block.text).not.toContain('Nosy')
     expect(block.text).not.toContain('Born in a barn')
-    expect(block.short).toBe('- The Tide Laws (lore): Boats and bells.\n- The Fish Market (place)\n- Will (character): A stable boy.')
+    // In a steady order (kind, then name), so a step that names them in another order reads the same (the cache).
+    expect(block.short).toBe('- Will (character): A stable boy.\n- The Fish Market (place)\n- The Tide Laws (lore): Boats and bells.')
   })
 
   it('block 9: a plot thread named in the beats that is already paid off says so', () => {
@@ -1341,21 +1334,22 @@ describe('fitting the briefing to the model', () => {
     expect(p.blocks.find((b) => b.id === 'relationships')).toMatchObject({ hasShort: false, short: false })
   })
 
-  it('says where the part a redraft sends again unchanged ends: right before the entries named in the card or direction', () => {
+  it('says where the part a redraft or the next step sends again unchanged ends: right before the people', () => {
     for (const p of [fit(prepared, total, c), fit(prepared, total - 5 * 990, c)]) {
       const user = p.messages[1]
-      const mentioned = p.blocks.find((b) => b.id === 'mentioned')!
-      expect(mentioned.dropped).toBe(false)
+      const pov = p.blocks.find((b) => b.id === 'pov')!
+      expect(pov.dropped).toBe(false)
       expect(user.cacheUpTo).toBeGreaterThan(0)
-      expect(user.content.slice(user.cacheUpTo! + 2).startsWith(blockAsSent(mentioned))).toBe(true)
+      expect(user.content.slice(user.cacheUpTo! + 2).startsWith(blockAsSent(pov))).toBe(true)
       expect(user.content.slice(0, user.cacheUpTo)).toContain('## World rules (never break these)')
+      expect(user.content.slice(0, user.cacheUpTo)).toContain('## The story so far')
       expect(p.messages[0].cacheUpTo).toBeUndefined()
     }
   })
 
   it('switches blocks to their short form from the bottom up before dropping anything', () => {
     const p = fit(prepared, total - 3 * 990, c)
-    expect(ids(p, (b) => b.short)).toEqual(['themes', 'mentioned', 'story-so-far'])
+    expect(ids(p, (b) => b.short)).toEqual(['themes', 'story-so-far', 'mentioned'])
     expect(ids(p, (b) => b.dropped)).toEqual([])
     expect(p.blocks.find((b) => b.id === 'themes')).toMatchObject({
       tokens: 110,
@@ -1364,7 +1358,7 @@ describe('fitting the briefing to the model', () => {
 
     // Within priority 7, the plot threads go short first and the hard rules last.
     const q = fit(prepared, total - 5 * 990, c)
-    expect(ids(q, (b) => b.short)).toEqual(['themes', 'setting', 'mentioned', 'threads', 'story-so-far'])
+    expect(ids(q, (b) => b.short)).toEqual(['themes', 'setting', 'story-so-far', 'threads', 'mentioned'])
     expect(q.messages[1].content).toContain('## World rules (never break these)\n\n### World rule: The Binding')
   })
 
@@ -1382,7 +1376,7 @@ describe('fitting the briefing to the model', () => {
     // All short: 10 x 110 + the scene card and relationships in full.
     const allShort = 10 * 110 + 2 * 1100 + 8
     const p = fit(prepared, allShort - 300, c)
-    expect(ids(p, (b) => b.dropped)).toEqual(['themes', 'mentioned', 'story-so-far'])
+    expect(ids(p, (b) => b.dropped)).toEqual(['themes', 'story-so-far', 'mentioned'])
     expect(ids(p, (b) => !b.dropped && !b.short)).toEqual(['relationships', 'scene-card'])
     expect(p.budget.used).toBeLessThanOrEqual(p.budget.available)
     // Dropped blocks stay in the record but aren't sent.
@@ -1417,7 +1411,7 @@ describe('fitting the briefing to the model', () => {
   it("follows Adam's choice: 'full' is never shortened, 'short' is always short", () => {
     // Point of view short by choice saves one block's worth; then 9 and 8 go short, skipping 10.
     const p = fit(prepared, total - 3 * 990, c, { themes: 'full', pov: 'short' })
-    expect(ids(p, (b) => b.short)).toEqual(['pov', 'mentioned', 'story-so-far'])
+    expect(ids(p, (b) => b.short)).toEqual(['story-so-far', 'pov', 'mentioned'])
     expect(p.blocks.find((b) => b.id === 'themes')).toMatchObject({ mode: 'full', short: false, dropped: false })
     expect(p.blocks.find((b) => b.id === 'pov')).toMatchObject({ mode: 'short', short: true })
 
@@ -1490,7 +1484,7 @@ describe('fitting the briefing to the model', () => {
     expect(sent('story-so-far')).toMatchObject({ dropped: false, short: true })
     expect(sent('previous-scene')).toMatchObject({ dropped: false, short: true })
     const user = small.messages[1].content
-    expect(user).toContain('### Most recently\nCh 2, Sc 2: Scene summary 6.\n\nCh 2, Sc 3: Scene summary 7.')
+    expect(user).toContain('- Ch 2, Sc 3: Scene summary 7.')
     expect(user).toContain('## Point-of-view character: Mara Venn')
     expect(user).toContain('Voice\n- How they speak: Short, dry sentences.')
     expect(user).not.toContain('Born in the Narrows')
@@ -1502,7 +1496,7 @@ describe('fitting the briefing to the model', () => {
     expect(large.messages[1].content).toContain('## Ties to people not in this scene')
     expect(large.messages[0].content).toContain(sample)
     expect(large.messages[1].content).toContain('Born in the Narrows')
-    expect(large.messages[1].content).toContain('Ch 1, Sc 3: Scene summary 3.')
+    expect(large.messages[1].content).toContain('- Ch 1, Sc 3: Scene summary 3.')
   })
 
   it('uses the smaller forms of the point of view and the story so far, from the bottom up, before dropping anything', () => {
@@ -1513,9 +1507,10 @@ describe('fitting the briefing to the model', () => {
       () => 100,
       (_, level) => (level === 2 ? 50 : 20)
     )
+    // The timeline's short form is its full one here (the story is short), so it has one form fewer.
     expect(prepared.blocks.filter((b) => b.smaller.length).map((b) => [b.id, b.smaller.length])).toEqual([
-      ['pov', 1],
-      ['story-so-far', 3]
+      ['story-so-far', 2],
+      ['pov', 1]
     ])
     const form = (id: string, level: number): string => formsOf(prepared.blocks.find((b) => b.id === id)!)[level]
     const allShort = 10 * 110 + 2 * 1100 + 8
@@ -1725,8 +1720,9 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(b.user).toContain('What Mara Venn knows:\n- ')
     expect(b.user).toContain('## End of the previous scene\n\n')
     expect(b.user.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
-    // Nothing is cut off mid-sentence: every part starts and ends on whole sentences.
-    for (const x of b.p.blocks.filter((x) => !x.dropped)) expect(x.text, x.id).not.toContain('…')
+    // Nothing is cut off mid-sentence: every part starts and ends on whole sentences (the timeline's brief lines are cut
+    // short on purpose, and say so with "…").
+    for (const x of b.p.blocks.filter((x) => !x.dropped && x.id !== 'story-so-far')) expect(x.text, x.id).not.toContain('…')
     expect(b.block('previous-scene').text).toMatch(/^["A-Z]/)
   }
 
@@ -1747,9 +1743,9 @@ describe('a small-context model and a large-context model both get a sensible br
     sensible(b)
     for (const id of ['present', 'relationships', 'world-rules', 'setting', 'threads', 'story-so-far']) expect(b.sent(id), id).toBe(true)
     expect(b.block('story-so-far').short).toBe(true)
-    expect(b.block('story-so-far').text).toContain('Only the most recent part of the story so far is given here, to save space.')
-    // The last two scenes before this one, by their summaries.
-    expect(b.block('story-so-far').text).toMatch(/### Most recently\nCh 12, Sc 3: .+\n\nCh 12, Sc 4: /)
+    // The timeline's most recent lines, oldest parts left out (timeline.ts).
+    expect(b.block('story-so-far').text).toContain('left out here to save space')
+    expect(b.block('story-so-far').text).toMatch(/- Ch 12, Sc 4: /)
     expect(b.block('pov').text).not.toContain('Backstory')
     // Tobin, in short: who he is and how he speaks.
     expect(b.user).toContain('## Also in the scene\n\n### Tobin\nIn short: ')
@@ -1763,10 +1759,11 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(b.block('pov')).toMatchObject({ short: false })
     expect(b.block('pov').text).toContain('Backstory\n- Origin: ')
     const sofar = b.block('story-so-far').text
-    expect(sofar).toContain('### The River Books\n')
-    expect(sofar).toContain('Ch 11: ')
-    // The chapter this scene is in has no summary yet: its earlier scenes are told one by one.
-    expect(sofar).toContain('Ch 12, Sc 1: ')
+    expect(sofar.startsWith(TIMELINE_LEAD)).toBe(true)
+    // Older chapters a line each; the last two chapters a line a scene.
+    expect(sofar).toContain('- Ch 10: ')
+    expect(sofar).toContain('- Ch 11, Sc 1: ')
+    expect(sofar).toContain('- Ch 12, Sc 4: ')
   })
 
   it('32,000 and 128,000-token models: everything in full', () => {
@@ -1774,22 +1771,24 @@ describe('a small-context model and a large-context model both get a sensible br
       const b = briefing(length, 1500)
       sensible(b)
       expect(b.p.blocks.filter((x) => x.dropped || x.short)).toEqual([])
-      expect(b.user).toContain('### Book 1\n')
-      expect(b.user).toContain('### Book 2\n')
-      expect(b.user).toContain('Ch 1: ')
-      expect(b.user).toContain('Ch 11, Sc 3: ')
+      expect(b.user).toContain('- Book 1: ')
+      expect(b.user).toContain('- Book 2: ')
+      expect(b.user).toContain('- Ch 1: ')
+      expect(b.user).toContain('- Ch 11, Sc 3: ')
       expect(b.user).toContain('## Also relevant')
       expect(b.user).toContain('## Themes and tone')
     }
   })
 
   it('late in a long series, when the point of view knows 150 things, a small model still gets her and who knows what', () => {
+    const tag = (i: number): string => String(i).padStart(3, '0').replace(/\d/g, (d) => 'abcdefghij'[Number(d)])
     const inp = bookThree(8192, 1500)
     const mara = named(inp, 'Mara Venn')
     const tobin = named(inp, 'Tobin')
     inp.memory.facts = Array.from({ length: 150 }, (_, i) => ({
       factId: `k${i}`,
-      fact: i === 3 ? 'Tobin owes the Tide Guild forty crowns.' : `${prose(14)} (${i})`,
+      // Each fact its own (the same fact twice is given once, knows.ts): made-up words spelled from its number.
+      fact: i === 3 ? 'Tobin owes the Tide Guild forty crowns.' : `${prose(8)} Of ${tag(i)}quil, ${tag(i)}mar and ${tag(i)}tor at ${tag(i)}gate (${i})`,
       knownBy: i % 5 ? [mara.id] : [mara.id, tobin.id]
     }))
     const p = assembleContext(inp, countRaw)
@@ -1803,15 +1802,16 @@ describe('a small-context model and a large-context model both get a sensible br
     expect(pov).toMatch(/\(And 14\d more, left out here to save space\.\)/)
     expect(pov).toContain('- How they speak: Short, dry sentences.')
     const rel = block('relationships')
-    expect(rel.short).toBe(true)
     expect(rel.text).toContain('- Mara Venn and Tobin: old friends, now uneasy.')
     expect(rel.text).toContain("Facts some of them know and others don't:\n- Tobin does not know: ")
-    expect(rel.text).toMatch(/\(And 11\d more, left out here to save space\.\)/)
+    // Only the real secrets, at most three (Adam, 2026-10-08), and never one about Tobin himself.
+    expect(rel.text.match(/^- Tobin does not know: /gm)).toHaveLength(3)
+    expect(rel.text).not.toContain('forty crowns')
     // A large model gets them all.
     const big = assembleContext({ ...inp, contextLength: 200_000 }, countRaw)
     expect(big.blocks.filter((b) => b.short || b.dropped)).toEqual([])
     expect(big.messages[1].content).not.toContain('left out here to save space')
-    expect(big.blocks.find((b) => b.id === 'relationships')!.text.match(/^- Tobin does not know: /gm)).toHaveLength(120)
+    expect(big.blocks.find((b) => b.id === 'relationships')!.text.match(/^- Tobin does not know: /gm)).toHaveLength(RELATIONSHIP_SECRETS)
     // What must stay true repeats only the latest few, right above the closing instruction.
     expect(big.blocks.find((b) => b.id === MUST_BLOCK)!.text.match(/^- Kept from Tobin: /gm)).toHaveLength(3)
   })
@@ -1894,13 +1894,13 @@ describe('assembleContext', () => {
       '## World rules (never break these)',
       '## Themes and tone',
       '## Setting',
+      '## The story so far',
+      '## End of the previous scene',
+      '## Plot threads in this scene',
       '## Point-of-view character: Mara Venn',
       '## Also in the scene',
       '## Relationships and who knows what',
       '## Also relevant',
-      '## Plot threads in this scene',
-      '## The story so far',
-      '## End of the previous scene',
       '## Scene card',
       'Write the scene now.'
     ]
@@ -2159,7 +2159,9 @@ describe('who is dead by this point', () => {
   const who = (notes: string[]) =>
     deadBy([{ kind: 'character', name: 'Anselm', happened: notes.map((note, i) => ({ note, where: '', changeId: String(i) })) }])
   it('from a note that says they died, the latest', () => {
-    expect(who(['lied to Captain Sallow', 'presumed dead in the Archive fire'])).toEqual([{ name: 'Anselm', note: 'presumed dead in the Archive fire' }])
+    expect(who(['lied to Captain Sallow', 'presumed dead in the Archive fire'])).toEqual([{ name: 'Anselm', note: 'presumed dead in the Archive fire', where: '' }])
+    // Told later, without "this afternoon" (Adam, 2026-10-08).
+    expect(who(['died this afternoon in his chair'])[0].note).toBe('died in his chair')
     expect(who(['died in the fire'])).toHaveLength(1)
     expect(who(['killed by the watch at dawn'])).toHaveLength(1)
     expect(who(['was found drowned in the harbour'])).toHaveLength(1)

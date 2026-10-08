@@ -511,13 +511,16 @@ describe('what must stay true in a draft', () => {
     const must = p.blocks.find((b) => b.id === MUST_BLOCK)!
     expect(must.title).toBe('Must stay true')
     expect(must.text.startsWith(MUST_LEAD.here)).toBe(true)
-    expect(must.text).toContain('- Wren: left arm in a sling (since Ch 2, Sc 4)')
+    // The stage block right above says where things stand at this same moment: the list doesn't say it again (Adam,
+    // 2026-10-08), and keeps what the stage doesn't say.
+    expect(p.blocks.find((b) => b.id === 'continuity')!.text).toContain('left arm in a sling')
+    expect(must.text).not.toContain('left arm in a sling')
     expect(must.text).toContain('- Wren: a burn scar on her right hand')
-    // Only the closing instruction comes after it.
+    // Only the closing instruction comes after it, ending with what happens now.
     const at = user.indexOf('## Must stay true')
     expect(user.indexOf('## ', at + 3)).toBe(-1)
     expect(user.slice(at)).toContain('Carry the scene on now, from the end of the scene so far.')
-    expect(user.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    expect(user.trimEnd().endsWith('Osric climbs up')).toBe(true)
   })
 
   it('a new scene keeps to how people are as the scene before ended; nothing at all when nothing is known', () => {
@@ -625,14 +628,14 @@ describe('what must stay true in a draft', () => {
     const p = assembleContext({ ...inp, plan: { needs: [weir.id, hidden.id], text: 'My notes before I write:\n1. Osric climbs up.\nNow the prose itself:' } }, countRaw)
     const user = p.messages[1].content
     expect(user.endsWith('My notes before I write:\n1. Osric climbs up.\nNow the prose itself:')).toBe(true)
-    expect(user.indexOf('- Never contradict the facts given above.')).toBeLessThan(user.indexOf('My notes before I write'))
+    expect(user.indexOf('What happens now')).toBeLessThan(user.indexOf('My notes before I write'))
     expect(p.blocks.find((b) => b.id === PLAN_BLOCK.id)).toMatchObject({ title: PLAN_BLOCK.title, dropped: false })
     // Sent as it is, not under a heading.
     expect(user).not.toContain(`## ${PLAN_BLOCK.title}`)
     expect(p.entries?.find((e) => e.entryId === weir.id)).toMatchObject({ why: WHY.plan, blockId: 'mentioned' })
     expect(user).toContain('The weir')
     expect(p.entries?.find((e) => e.entryId === hidden.id)).toMatchObject({ hidden: true, blockId: null })
-    // No plan: nothing after the closing instruction.
-    expect(assembleContext(inp, countRaw).messages[1].content.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    // No plan: nothing after the closing instruction, whose last words are what happens now.
+    expect(assembleContext(inp, countRaw).messages[1].content.trimEnd().endsWith('Osric climbs up')).toBe(true)
   })
 })

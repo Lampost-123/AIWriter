@@ -126,9 +126,16 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     .filter((e): e is EntryState => !!e && e.kind === 'character')
   const reach = stageReach(input)
   const stand = reach === 'none' ? null : block('continuity')
+  // Add below's scene card leaves Adam's direction out (it is the closing instruction's last words): the planner gets it
+  // with the card, and an event it calls for answers to it.
+  const direction = clean(input.options.direction)
+  const cardText =
+    input.options.addBelow && direction
+      ? [text('scene-card'), `The author's direction for this stretch:\n${direction}`].filter(Boolean).join('\n\n')
+      : text('scene-card')
   return {
     ask,
-    card: text('scene-card'),
+    card: cardText,
     focus: clean(focus),
     must: text(MUST_BLOCK),
     reach,
@@ -140,7 +147,7 @@ export function planMaterial(input: ContextInput, preview: ContextPreview, prepa
     others,
     people: people.map((e) => e.name),
     secrets: secretsAmong(people, input.memory.facts),
-    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : text('scene-card')
+    calls: focus ? [focus, input.options.direction].filter((s) => clean(s)).join('\n') : cardText
   }
 }
 
@@ -357,6 +364,14 @@ const meaningWords = (s: string, names: ReadonlySet<string>): Set<string> =>
   new Set(tokens(s).filter((w) => w.length >= 3 && !FILLER.has(w) && !names.has(w)).map(stem))
 const sharedWords = (a: Set<string>, b: Set<string>): number => [...a].filter((w) => b.has(w)).length
 
+/** The words of a change's `to` that weren't there before (`was`: its `from` and how things stand), in order. */
+export function newWordsOf(to: string, was: string): string {
+  const old = new Set(tokens(was))
+  return tokens(to)
+    .filter((t) => !old.has(t))
+    .join(' ')
+}
+
 /** True when `text` says the secret `fact`: enough of the fact's own words (two, or a third of them) are in it. */
 function says(text: string, fact: string, names: ReadonlySet<string>): boolean {
   const f = meaningWords(fact, names)
@@ -492,6 +507,10 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
     const f = fieldOf(c.what)
     const now = f && (SCENE_FIELDS.includes(f) || f === 'thing' || c.who) ? nowOf(c.who, f, [c.from, c.to, c.how].join(' ')) : ''
     const said = [c.how, c.to].filter(Boolean).join('. ')
+    // Only what the change makes new is tested for a secret, never what it carries over (the writer lab's bridge
+    // reviews: "to": "the survey case under her arm; the key in her pocket" read as telling "Gale does not know what is
+    // in the survey case", so Wren's key into her pocket was dropped from the notes).
+    const secretSaid = [c.how, newWordsOf(c.to, `${c.from} ${now}`)].filter(Boolean).join('. ')
     // Someone who could move or dress here (on the card, or on the stage carrying on inside the scene); anyone else only
     // when the card (or the beat) names them.
     const here = onCard(c.who) || (w.reach === 'here' && !!stage(c.who))
@@ -501,7 +520,7 @@ export function checkPlan(raw: RawPlan, w: CheckWith): ScenePlan {
       // Already so: nothing to change. Starting from something the stage says isn't so: planned from a wrong picture.
       (!!now && ((!!c.to && alreadySo(c.who, f!, c.to, now)) || (!!c.from && contradicts(c.from, now)))) ||
       // Someone learning what is kept from them, when the scene card doesn't say they do.
-      tellsSecret(said) ||
+      tellsSecret(secretSaid) ||
       // An event (or an injury, or someone not in the scene) the card or the beat doesn't call for.
       (!(f && FREE_MOVES.includes(f) && here) && !(named && calledFor(said, w.calls, names)))
     if (leave) {

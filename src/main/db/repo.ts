@@ -329,6 +329,20 @@ const toScene = (r: Row): Scene => ({
   text: r.text as string
 })
 
+/** The scene cards of these scenes (those that still exist), by id, without their text: one query per 500. */
+export function sceneCards(db: DB, ids: ID[]): Map<ID, SceneCard> {
+  const out = new Map<ID, SceneCard>()
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    if (!chunk.length) continue
+    const rows = db
+      .prepare(`SELECT id, card_json FROM scenes WHERE deleted_at IS NULL AND id IN (${chunk.map(() => '?').join(',')})`)
+      .all(...chunk) as Row[]
+    for (const r of rows) out.set(r.id as string, { ...emptySceneCard(), ...json<Partial<SceneCard>>(r.card_json, {}) })
+  }
+  return out
+}
+
 function sceneIds(db: DB, chapterId: ID): ID[] {
   return (db.prepare('SELECT id FROM scenes WHERE chapter_id = ? AND deleted_at IS NULL ORDER BY position').all(chapterId) as Row[]).map(
     (r) => r.id as string

@@ -393,7 +393,7 @@ describe('story so far, from the summaries', () => {
 
   it('this story’s own scenes and chapters, and a series roll-up only when all of it is on the walk', () => {
     const s = sceneMemory(db, w.id('b3.c1.s2')).storySoFar
-    expect(s.scenes).toEqual([{ sceneId: w.id('b3.c1.s1'), chapterId: w.id('b3.c1'), label: 'Book 3, Ch 1, Sc 1', text: 'Book 3 opens.' }])
+    expect(s.scenes).toEqual([{ sceneId: w.id('b3.c1.s1'), chapterId: w.id('b3.c1'), label: 'Book 3, Ch 1, Sc 1', text: 'Book 3 opens.', when: '', whereId: null, whoIds: [] }])
     const b2 = sceneMemory(db, w.id('b2.c4.s1')).storySoFar
     expect(b2.chapters.map((c) => c.label)).toEqual(['Book 2, Ch 1', 'Book 2, Ch 2', 'Book 2, Ch 3'])
     const ld = sceneMemory(db, w.id('ld.c1.s1')).storySoFar

@@ -2,7 +2,7 @@
 // window), so they are unit-tested.
 
 import type { Creativity, ModelChoice, ModelInfo, ThinkingLevel } from '@shared/types'
-import { CREATIVITY_PRESETS } from '@shared/defaults'
+import { CREATIVITY_PRESETS, WRITER_BALANCED_TEMPERATURE } from '@shared/defaults'
 
 /** "Maker: Model Name" -> "Model Name"; "maker/model-name" -> "model-name". */
 export function shortModelName(labelOrId: string): string {
@@ -79,6 +79,8 @@ export function fullDate(iso: string): string {
 /** The creativity preset a draft used (older records only have the temperature). */
 export function creativityOf(params: { temperature: number; creativity?: Creativity }): string {
   if (params.creativity && params.creativity in CREATIVITY_PRESETS) return CREATIVITY_PRESETS[params.creativity].label
+  // Since 0.6.35 the writer writes Balanced at 1.0 (Continue's records keep only the temperature).
+  if (params.temperature === WRITER_BALANCED_TEMPERATURE) return CREATIVITY_PRESETS.balanced.label
   const match = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).find((k) => CREATIVITY_PRESETS[k].temperature === params.temperature)
   return match ? CREATIVITY_PRESETS[match].label : `Temperature ${params.temperature}`
 }

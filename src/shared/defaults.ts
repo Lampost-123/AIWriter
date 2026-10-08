@@ -1,4 +1,4 @@
-import type { SceneCard, Settings, SpeechSettings, StyleGuide, WritingPrefs } from './types'
+import type { Creativity, SceneCard, Settings, SpeechSettings, StyleGuide, WritingPrefs } from './types'
 
 /**
  * Auto length: the AI picks the length a scene needs, within these limits (words). Most scenes run
@@ -146,6 +146,15 @@ export const CREATIVITY_PRESETS = {
   balanced: { label: 'Balanced', temperature: 0.85, top_p: 0.95, min_p: 0.05 },
   adventurous: { label: 'Adventurous', temperature: 1.05, top_p: 1, min_p: 0.05 }
 } as const
+
+/**
+ * The writer's temperature (Generate, Add below, beats, Continue) for a preset. Balanced, the default, writes at 1.0
+ * rather than 0.85 (the writer lab, 2026-10-08, on DeepSeek Flash: fewer stock phrases and echoes, canon and the
+ * judge's marks the same; 1.3 and 1.5 fell apart). The edit tools and the other presets keep their own.
+ */
+export const WRITER_BALANCED_TEMPERATURE = 1.0
+export const writerTemperature = (c: Creativity | undefined): number =>
+  c === 'steady' || c === 'adventurous' ? CREATIVITY_PRESETS[c].temperature : WRITER_BALANCED_TEMPERATURE
 
 export function countWords(text: string): number {
   const m = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)
