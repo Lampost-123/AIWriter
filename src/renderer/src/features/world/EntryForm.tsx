@@ -409,6 +409,9 @@ export const EntryForm = memo(function EntryForm({
             </Field>
           </div>
 
+          {/* A character's read-aloud voice, where it is easy to find: just under who they are. */}
+          <EntryVoice entry={draft} at="top" />
+
           <div className="mt-6 border-b border-line">
             {groups.map((g) => (
               <GroupSection
@@ -434,7 +437,7 @@ export const EntryForm = memo(function EntryForm({
             />
           </div>
 
-          <EntryVoice entry={draft} />
+          <EntryVoice entry={draft} at="bottom" />
 
           <div className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface px-3 pb-3 pt-2.5">
             <label htmlFor={ids.notes} className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">

@@ -341,3 +341,14 @@ describe('recent places', () => {
     expect(list[0].id).toBe('s19')
   })
 })
+
+describe('read-aloud voices from the palette', () => {
+  it('opens the cast from anywhere, and names the character whose page is open', () => {
+    expect(labels('cast')).toContain('Read-aloud cast')
+    expect(labels('voice')).not.toContain('Set this character’s voice')
+    const page: ActionContext = { ...writing, view: 'codex', character: { id: 'e1', name: 'Wren Halloway' } }
+    expect(labels('voice', page)).toContain('Set Wren Halloway’s voice')
+    expect(labels('set wren', page)).toContain('Set Wren Halloway’s voice')
+    expect(availableActions(page).find((a) => a.id === 'character-voice')?.label).toBe('Set Wren Halloway’s voice')
+  })
+})

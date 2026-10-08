@@ -31,7 +31,8 @@ import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
-import { stopReading, toggleListen } from '@/features/readAloud/control'
+import { openCastSettings, stopReading, toggleListen } from '@/features/readAloud/control'
+import { openEntryVoice } from '@/features/readAloud/voiceReveal'
 import { setShowSpeakers } from '@/features/readAloud/SpeakersButton'
 import { insertSceneBreak, pasteAsPlainText, toggleBlockQuote, toggleBold, toggleItalic } from '@/features/typing/format'
 import { openFindInScene, openFindInStory } from '@/features/find/open'
@@ -317,6 +318,12 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'show-speakers':
       case 'hide-speakers':
         await setShowSpeakers(fixed === 'show-speakers')
+        return
+      case 'read-aloud-cast':
+        openCastSettings()
+        return
+      case 'character-voice':
+        if (a.view.kind === 'entries' && a.view.entryId) openEntryVoice(a.view.entryId)
         return
       case 'world-builder':
         openWorldBuilder()

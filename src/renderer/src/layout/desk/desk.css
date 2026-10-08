@@ -2704,3 +2704,15 @@
   right: 0;
   background: none;
 }
+
+/* Beat markers (features/beats/beatMarks.css) on the sheet: the band stands where the lamp line does, in the sheet's
+   wider margin, so while a beat is being written the lamp line runs down its band rather than as a second line beside
+   it. (The labels sit above each beat's first line here: BeatMarksLayer.tsx.) */
+[data-arrangement='desk'] .desk-sheet .scene-prose {
+  --aw-beat-band-x: -29px;
+}
+@media (max-width: 799px) {
+  [data-arrangement='desk'] .desk-sheet .scene-prose {
+    --aw-beat-band-x: -17px;
+  }
+}

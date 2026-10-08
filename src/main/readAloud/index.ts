@@ -7,6 +7,7 @@
 import { join } from 'node:path'
 import type {
   AudioCacheStats,
+  CastEntry,
   ClipRequest,
   EntryReadAloud,
   PlannedClip,
@@ -36,7 +37,7 @@ import { everyone, type CastMember, type SceneCast } from './cast'
 import { DraftMarks } from './draftMarks'
 import { asSpoken } from './italicSpeech'
 import { getEntryReadAloud, readingCast, setEntryReadAloud } from './entries'
-import { labelOf, markedEnough } from './labels'
+import { labelOf, labelSpeaker, markedEnough } from './labels'
 import { Marker, MarkStore, textHash, type Ask, type MarkingScene } from './marks'
 import { hasOwnVoice, planClips, type PlanSettings } from './plan'
 import { clipKey, speak, VOICES_NOT_READY } from './speak'
@@ -48,6 +49,7 @@ import { askVoice, voiceLater as queueVoices } from './autoVoice'
 import { listVoices } from './voices'
 import { castableCharacters, castFromStudio, castVoiceless, readStudioVoices } from './studio'
 import { writerBlocks } from './writerBlocks'
+import { castList, voicelessCharacters } from './castList'
 import { soundsForReading, soundsInBackground, soundsWorldClosing, stopSoundMarks } from '../sounds'
 import { autoCaster, CastingStore, type AutoCaster } from './autocast'
 import { withoutDirectorTone } from './director'
@@ -396,8 +398,13 @@ export function speakerLabels(req: SpeakerLabelsRequest): SpeakerLabel[] {
       missing.push(p.pid)
       return []
     }
-    const label = labelOf(byPid.get(p.pid) ?? [])
-    return label ? [{ pid: p.pid, label }] : []
+    const clipsHere = byPid.get(p.pid) ?? []
+    const label = labelOf(clipsHere)
+    if (!label) return []
+    // Their name on the page opens their voice.
+    const who = labelSpeaker(clipsHere)
+    const member = who ? rc.cast.all.find((m) => m.name === who) : undefined
+    return [{ pid: p.pid, label, ...(member ? { speaker: { entryId: member.id, name: member.name } } : {}) }]
   })
   if (req.mark && !isDrafting(req.sceneId)) {
     const text = new Map(paragraphs.map((p) => [p.pid, p.text]))
@@ -808,6 +815,28 @@ export function restoreStudioVoices(before: Record<ID, EntryReadAloud>): number 
     emit('memory:changed', { sceneId: null, entryIds: back })
   }
   return back.length
+}
+
+/** Settings › Read aloud › Cast: every character in the open world with the voice they are read in. */
+export const readAloudCast = (): CastEntry[] => castList(world.db(), readStudioVoices(studioVoicesDir()))
+
+/**
+ * "Give everyone without a voice a voice": each character with no voice at all gets a studio voice that fits them, by
+ * the rules, as reading gives one when they first speak (studio.ts castVoiceless). Undo is `restoreStudioVoices`.
+ */
+export function castVoicelessCharacters(): { given: ID[]; before: Record<ID, EntryReadAloud> } {
+  const db = world.db()
+  const voices = readStudioVoices(studioVoicesDir())
+  if (!voices.length) throw new UserError('Download the studio voices first, in Settings › Read aloud and dictation.')
+  const ids = voicelessCharacters(db)
+  const before = Object.fromEntries(ids.map((id) => [id, getEntryReadAloud(db, id)]))
+  const s = speech()
+  const given = castVoiceless(db, voices, s.narratorDescription.trim() ? '' : s.narratorVoice, ids)
+  if (given.length) {
+    repo.touchWorld(db)
+    emit('memory:changed', { sceneId: null, entryIds: given })
+  }
+  return { given, before: Object.fromEntries(given.map((id) => [id, before[id]!])) }
 }
 
 export async function cacheStats(): Promise<AudioCacheStats> {
