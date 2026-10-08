@@ -74,6 +74,13 @@ export const RELEASES_URL = 'https://github.com/lampost-123/aiwriter/releases'
  */
 export const AUTO_UPDATES = true
 
+/**
+ * The New look's desk layout is ready for everyone (UI overhaul, step D3.7). Until then the desk is reachable only in
+ * try-out builds (AIWRITE_DESK_READY=1) and app tests (AIWRITE_ARRANGEMENT=desk): Settings › Appearance shows no
+ * Layout choice and nobody is moved to it.
+ */
+export const DESK_READY = false
+
 export const defaultSettings = (libraryPath: string): Settings => ({
   libraryPath,
   providers: [],
@@ -98,6 +105,9 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   worldsSeenAt: {},
   look: 'new',
   lookNote: false,
+  // The panels until the desk is ready for everyone (DESK_READY); src/main/settings.ts moves people to the desk then.
+  arrangement: 'panels',
+  arrangementNote: false,
   checkNewWords: true,
   findByMeaning: true,
   searchModelAuto: true

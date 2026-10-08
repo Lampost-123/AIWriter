@@ -439,6 +439,8 @@
 /* look-new:… applies a class in the New look only; look-classic:… in Classic only. */
 @custom-variant look-new (&:where([data-look='new'], [data-look='new'] *));
 @custom-variant look-classic (&:where([data-look='classic'], [data-look='classic'] *));
+/* desk:… applies a class in the New look's desk layout only (<html data-arrangement='desk'>; layout/desk/desk.css). */
+@custom-variant desk (&:where([data-arrangement='desk'][data-look='new'], [data-arrangement='desk'][data-look='new'] *));
 
 @theme inline {
   --color-raise: var(--raise);
@@ -484,6 +486,10 @@
   --color-ai: var(--ai);
   --color-ai-soft: var(--ai-soft);
   --color-ai-fg: var(--ai-fg);
+  /* The desk's warm-ink buttons (layout/desk/desk.css sets them; nothing else uses them). */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
   --color-overlay: var(--overlay);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);

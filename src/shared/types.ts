@@ -432,6 +432,13 @@ export interface Settings {
   /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
   lookNote?: boolean
   /**
+   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Classic
+   * ignores it. Missing in settings from before the desk.
+   */
+  arrangement?: 'desk' | 'panels'
+  /** The one-time note about the desk (offering the panels) is still to show (true only after updating to it). */
+  arrangementNote?: boolean
+  /**
    * Check and repair (Settings › Models, "Check new words straight away"; on by default): after a draft, a beat or
    * Continue, the new words are checked claim by claim, small slips fixed in amber and the rest asked (src/main/repair/).
    */
