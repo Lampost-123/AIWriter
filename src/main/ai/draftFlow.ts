@@ -15,6 +15,7 @@ import {
   lengthTooLong,
   prepareContext,
   sentEntryVersions,
+  sentOrderOf,
   type ContextExtras,
   type ContextInput,
   type PreparedContext
@@ -80,12 +81,25 @@ export async function assemble(
   return { input, ...(await fitted(input, extras)) }
 }
 
+/**
+ * The order each scene's "Also relevant" and "Also in mind" were last sent in (context.ts keptOrder), so the next step of
+ * the scene lists the same entries in the same order, new ones after, and a provider can reuse more of the prompt. Kept
+ * in memory only, for the scenes briefed most recently.
+ */
+const sentOrders = new Map<ID, Record<string, ID[]>>()
+const MOST_SENT_ORDERS = 20
+
 /** The briefing from what it is made of, fitted to the writer model. */
 async function fitted(input: ContextInput, extras?: ContextExtras): Promise<{ preview: ContextPreview; prepared: PreparedContext }> {
   // With reading aloud on, the writer says who speaks each line and how as it writes (ai/speakerTags.ts). Only the
   // dialogue: asked for the narration's mood as well, writers tagged a fifth fewer lines (live checks, 4 October 2026).
   const speech = getSettings().speech
+  const sceneId = input.memory.sceneId
+  input.sentOrder = sentOrders.get(sceneId)
   const prepared = prepareContext(input, { ...extras, speakerTags: !!(speech?.readAloud || speech?.showSpeakers) })
+  sentOrders.delete(sceneId)
+  sentOrders.set(sceneId, sentOrderOf(prepared.blocks))
+  for (const old of [...sentOrders.keys()].slice(0, Math.max(0, sentOrders.size - MOST_SENT_ORDERS))) sentOrders.delete(old)
   const counts = await countCached(prepared.texts)
   return { preview: finishContext(prepared, counts), prepared }
 }

@@ -2,7 +2,7 @@
 // in (the cache), a cleaner briefing, and (since 0.6.35) no list of phrases not to say again. On an invented scene
 // (writerWorld.ts).
 import { describe, expect, it } from 'vitest'
-import { finishContext, MENTIONED_TITLE, MUST_BLOCK, prepareContext, SEND_ORDER, type ContextInput } from '../../src/main/ai/context'
+import { finishContext, keptOrder, MENTIONED_TITLE, MUST_BLOCK, prepareContext, SEND_ORDER, sentOrderOf, type ContextInput } from '../../src/main/ai/context'
 import { RECALL_ENTRIES } from '../../src/main/retrieval/briefing'
 import { soFarBlock } from '../../src/main/beats/instructions'
 import { countRaw } from '../../src/main/ai/tokens'
@@ -109,6 +109,37 @@ describe('blocks go in an order a provider can reuse from one step to the next',
     const names = (t: string): string[] => [...t.matchAll(/^### ([^(]+) \(/gm)].map((m) => m[1])
     expect(names(b.text).filter((n) => names(a.text).includes(n))).toEqual(names(a.text).filter((n) => names(b.text).includes(n)))
     expect(MENTIONED_TITLE).toBe('Also relevant')
+  })
+
+  it('within a scene, entries keep the order they were sent in last time and new ones go after, never sorted in', () => {
+    const e = (id: string, kind: 'item' | 'place', name: string) => ({ id, kind, name })
+    expect(keptOrder([e('b', 'item', 'B'), e('a', 'item', 'A'), e('p', 'place', 'P')], ['b', 'x', 'a']).map((x) => x.id)).toEqual(['b', 'a', 'p'])
+    expect(keptOrder([e('b', 'item', 'B'), e('a', 'item', 'A')]).map((x) => x.id)).toEqual(['a', 'b'])
+    const named = (direction: string, sentOrder?: Record<string, string[]>): ContextInput => {
+      const inp = addBelowStep(1)
+      return { ...inp, options: { ...inp.options, direction }, sentOrder }
+    }
+    const three = 'Ash shows Wren the brass compass, the survey case and the Linn ferry'
+    const cards = (inp: ContextInput): string[] => [...block(inp, 'mentioned')!.text.matchAll(/^### ([^(]+) \(/gm)].map((m) => m[1].trim())
+    expect(cards(named(three))).toEqual(['The Linn ferry', 'The brass compass', 'The survey case'])
+    const [ferry, compass, survey] = prepareContext(named(three)).blocks.find((b) => b.id === 'mentioned')!.entryIds
+    // Last time the survey case and the compass were sent, in that order: they stay first, the ferry goes after.
+    const kept = named(three, { mentioned: [survey, compass] })
+    expect(cards(kept)).toEqual(['The survey case', 'The brass compass', 'The Linn ferry'])
+    expect(sentOrderOf(prepareContext(kept).blocks).mentioned).toEqual([survey, compass, ferry])
+    // The same cards, word for word: only their order changes.
+    const sorted = (t: string): string => t.split(/\n\n(?=### )/).sort().join('|')
+    expect(sorted(block(kept, 'mentioned')!.text)).toBe(sorted(block(named(three), 'mentioned')!.text))
+    // So a step that names one more thing matches the step before for longer.
+    const prefix = (x: string, y: string): number => {
+      let i = 0
+      while (i < x.length && x[i] === y[i]) i++
+      return i
+    }
+    const two = 'Ash shows Wren the survey case and the brass compass'
+    const first = prepareContext(named(two))
+    const thenKept = whole(named(three, sentOrderOf(first.blocks)))
+    expect(prefix(thenKept, whole(named(two)))).toBeGreaterThan(prefix(whole(named(three)), whole(named(two))))
   })
 })
 
