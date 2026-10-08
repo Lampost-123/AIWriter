@@ -43,7 +43,7 @@ function TreeSkeleton(): React.JSX.Element {
  * Write area's list (layout/AreaList.tsx), without the world section (the World area has it), and the open scene's
  * row is a raised pill that glides as another scene opens.
  */
-export function Binder({ world = true }: { world?: boolean }): React.JSX.Element {
+export function Binder({ world = true, switcher = true }: { world?: boolean; switcher?: boolean }): React.JSX.Element {
   const isNew = useNewLook()
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
@@ -56,7 +56,8 @@ export function Binder({ world = true }: { world?: boolean }): React.JSX.Element
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <StorySwitcher />
+      {/* The desk's flyout has the story's title in its own head (and the switcher in the top bar). */}
+      {switcher ? <StorySwitcher /> : null}
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden look-new:relative">
         {isNew && outline ? <GlidePill /> : null}
         {outline ? (
