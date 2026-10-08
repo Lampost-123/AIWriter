@@ -26,6 +26,7 @@ import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
 import { C_CHAPTERS, C_CHAPTER_SUMMARIES, C_EARLIER, C_EMPTY, C_ENTRIES, C_OPEN, STORY_C, type BigScene } from './bigWorld'
 import { firstQuestion, type Scenario } from './scenarios'
+import { seedStory } from './scenarios-p3story'
 
 export type Backend = 'fake' | 'bridge' | 'openrouter' | 'deepseek'
 
@@ -296,7 +297,7 @@ export interface EvalApp {
   close(): Promise<void>
 }
 
-export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean } = { network: true }): Promise<EvalApp> {
+export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean; story?: boolean } = { network: true }): Promise<EvalApp> {
   paidGuard(cfg)
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-chat-eval-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -436,6 +437,14 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
       scenes.set(s.key, sceneId)
     }
     for (const e of ENTRIES) if (e.firstAt) makeEntry(e.key, scenes.get(e.firstAt)!)
+    // The story-tools set's plot threads and issue (scenarios-p3story.ts), only when one of those scenarios runs.
+    if (opts.story)
+      seedStory(db, storyA.id, scenes, {
+        createEntry: (d, kind, input) => repo.createEntry(d, kind, input),
+        insertChange: (d, c) => memory.insertChange(d, c),
+        getCard: (d, id) => repo.getScene(d, id).card as unknown as Record<string, unknown> & { setsUpIds: string[] },
+        updateCard: (d, id, card) => repo.updateSceneCard(d, id, card as never)
+      })
 
     // Story C, the big briefing (only when a scenario asks in it): hundreds of entries of its own, ninety summarised
     // scenes before the open one, a long open scene, and an empty last scene with a card. A story of its own, so
@@ -618,8 +627,33 @@ export function forcedChoice(choice: unknown): string | null {
 
 const NUDGE_START = '[AI Write, not the writer] Your answer gives'
 
+/**
+ * An insert or a cut (Phase 3, TEXTTOOLS): it applies when the paragraphs it names are in the scene (by their ids), and
+ * is on target when the paragraph the scenario means is the one an insert goes next to, or among those a cut takes.
+ */
+function checkBlocks(app: EvalApp, p: Extract<Proposal, { kind: 'insert' | 'cut' }>, touches: string | undefined): ProposalCheck {
+  const scene = (app.db.prepare('SELECT doc_json FROM scenes WHERE id = ?').get(p.sceneId) as { doc_json: string | null } | undefined)?.doc_json
+  const blocks = ((JSON.parse(scene ?? '{}') as { content?: { attrs?: { pid?: string } }[] }).content ?? []).map((b) => b.attrs?.pid ?? null)
+  const [a, b] = p.kind === 'insert' ? [p.at, p.at] : [p.from, p.to]
+  const first = a.pid ? blocks.indexOf(a.pid) : -1
+  const last = b.pid ? blocks.indexOf(b.pid) : -1
+  const applies = first >= 0 && last >= first
+  let onTarget: boolean | null = null
+  if (touches) {
+    const doc = app.page.schema.nodeFromJSON(JSON.parse(scene ?? '{"type":"doc","content":[]}'))
+    const t = app.page.findTextRange(doc, touches)
+    onTarget = !!t && applies && doc.resolve(t.from).index(0) >= first && doc.resolve(t.from).index(0) <= last
+  }
+  const summary =
+    p.kind === 'insert'
+      ? `insert ${p.where} [${p.at.paragraph}] → “${p.text.slice(0, 160)}”`
+      : `cut [${p.from.paragraph}]–[${p.to.paragraph}] “${p.paragraphs.join(' / ').slice(0, 160)}”`
+  return { id: p.id, kind: p.kind, applies, onTarget, summary }
+}
+
 function checkProposal(app: EvalApp, p: Proposal, touches: string | undefined): ProposalCheck {
   const base = { id: p.id, kind: p.kind }
+  if (p.kind === 'insert' || p.kind === 'cut') return checkBlocks(app, p, touches)
   if (p.kind !== 'text' && p.kind !== 'passage') return { ...base, applies: null, onTarget: null, summary: JSON.stringify(p).slice(0, 300) }
   const scene = (app.db.prepare('SELECT doc_json FROM scenes WHERE id = ?').get(p.sceneId) as { doc_json: string | null } | undefined)?.doc_json
   const doc = app.page.schema.nodeFromJSON(JSON.parse(scene ?? '{"type":"doc","content":[]}'))

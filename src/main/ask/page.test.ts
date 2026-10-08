@@ -5,9 +5,28 @@ import { defaultWritingPrefs } from '@shared/defaults'
 import { chatSwitches, memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import { EditorAgent } from './agent'
-import { PAGE_SMALL_WORDS, PAGE_WINDOW_WORDS, pageText, quotedPassage } from './page'
+import { aboutTheWords, PAGE_SMALL_WORDS, PAGE_WINDOW_WORDS, pageText, quotedPassage } from './page'
 
 afterEach(() => chatSwitches(null))
+
+describe('a request about the words', () => {
+  it('is an edit the page is enough for; one about the story’s records looks them up first', () => {
+    for (const q of [
+      'tighten this',
+      'Push this beat harder',
+      'make her angrier',
+      'About this passage: “The open issue of the ledger.”\n\nfix this'
+    ])
+      expect(aboutTheWords(q), q).toBe(true)
+    for (const q of [
+      'Fix the open issue in this scene',
+      'Change chapter 2’s POV to Corran',
+      'Mark the ledger thread as paid off',
+      'Update her memory entry'
+    ])
+      expect(aboutTheWords(q), q).toBe(false)
+  })
+})
 
 type Node = { type: string; attrs?: { pid: string }; content?: { type: string; text: string; marks?: { type: string }[] }[] }
 

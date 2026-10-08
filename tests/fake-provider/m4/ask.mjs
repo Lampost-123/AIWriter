@@ -114,6 +114,12 @@ export function askReply(system, messages, model) {
  *                    "do that" / "option 2" / a reply starting "yes" /
  *                    "do it": reads the scene, then one edit item on its first sentence (on the first two for "both"); also used for
  *                    "fix" / "tighten" when propose_edit isn't offered
+ * Phase 3's text tools, only when offered (AIWRITE_EXP_CHAT_TEXTTOOLS):
+ *   find_mentions    "where do I mention X" / "where X comes up": find_mentions on X, then an answer in words
+ *   insert           "add a line" / "put a short paragraph": reads the scene, then an insert after paragraph 1
+ *                    ("She hesitated at the door.", with *hesitated* in italics)
+ *   cut              "cut the paragraph" / "cut the bit": reads the scene, then a cut of paragraph 2
+ *   beats            "add a beat": one beat put in at the end ("She finds the letter")
  * Only the words he typed count for these (not a selection quoted above them). A forced tool_choice is obeyed.
  */
 export function askToolCalls(system, messages, tools, toolChoice) {
@@ -248,14 +254,23 @@ function scriptedCalls(system, messages, tools) {
   const seen = last?.role === 'tool' ? last.content : !toolResults.length && page ? page : null
   const mustRead = !toolResults.length && !page
   const fresh = (last?.role === 'tool' && toolResults.length === 1) || (!toolResults.length && !!page)
+  // The story tools (chat Phase 3, STORYTOOLS), when offered: issues, chapter cards and plot threads.
+  const story = storyCalls(typed, messages, tools, called, last)
+  if (story !== undefined) return story
   // The overhaul's tools, when offered: a draft hand-off for new prose, one question for a truly vague ask, and
   // propose_changes for a novelist's vague edit ("this drags", "punch this up"), after reading the scene.
   if (offered(tools, 'propose_draft') && /\b(next bit|continue from here|draft the scene)\b/.test(typed)) {
     return called('propose_draft') ? null : [draftCall(tools, typed.replace(/\s+/g, ' ').slice(0, 200))]
   }
   if (offered(tools, 'ask_user') && /\b(make it better|shorten it|change his name|thing we talked about|which one)\b/.test(typed)) {
-    return called('ask_user') ? null : [askUserCall(tools)]
+    if (called('ask_user')) return null
+    // Reads the scene first, as the app asks (ACTFIRST sends back an edit's question asked before any words are read).
+    // (With the scene's words in the briefing, SCENE, they count as read.)
+    if (offered(tools, 'read_scene') && !called('read_scene') && mustRead) return [{ name: 'read_scene', arguments: {} }]
+    return [askUserCall(tools)]
   }
+  const text = textToolCalls(typed, tools, mustRead, called)
+  if (text !== undefined) return text
   // ("Push … harder" is the rewrite across paragraphs below, through propose_changes when that is the tool offered.)
   if (offered(tools, 'propose_changes') && !/\bpush\b/.test(typed) && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
     if (called('propose_changes')) return null
@@ -268,6 +283,94 @@ function scriptedCalls(system, messages, tools) {
     return [changesCall(tools, changes)]
   }
   return legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fresh })
+}
+
+/** One story change: an item of propose_changes where it is offered, else its own propose_ tool. */
+function storyChange(tools, kind, tool, args) {
+  if (offered(tools, 'propose_changes')) return changesCall(tools, [{ kind, ...args }])
+  return { name: tool, arguments: args }
+}
+
+/** The result of the last call to a tool, or ''. */
+function resultOf(messages, name) {
+  const ids = new Set(messages.flatMap((m) => (m.tool_calls ?? []).filter((c) => c.function?.name === name).map((c) => c.id)))
+  return String([...messages].reverse().find((m) => m.role === 'tool' && ids.has(m.tool_call_id))?.content ?? '')
+}
+
+/**
+ * The story tools (chat Phase 3), only when the app offers them (plumbing only, never a score):
+ *   "open issue" / "continuity issue" / "the issue"   list_issues, then one issue_fix: the issue with a memory fix (how:
+ *                     memory) when the question says "memory", else the first with a suggested rewrite (how: text), else
+ *                     the first listed
+ *   "chapter N's POV to Name" / "chapter N's point of view to Name"   chapter_card, then a chapter_card change setting
+ *                     the point of view
+ *   "mark the X thread as paid off"   list_threads, then a thread change resolving X in the open scene
+ *   "threads"         list_threads (open ones when the question says "open"), then an answer in words
+ *   "consistency issues"   list_issues for the whole story, then an answer in words
+ * Returns the calls to send, null to answer in words, or undefined when none of these fits.
+ */
+function storyCalls(typed, messages, tools, called, last) {
+  if (!offered(tools, 'list_issues')) return undefined
+  if (/\b(open issue|continuity issue|the issue)\b/.test(typed)) {
+    if (!called('list_issues')) return [{ name: 'list_issues', arguments: {} }]
+    if (called('propose_changes') || called('propose_issue_fix') || last?.role !== 'tool') return null
+    const blocks = resultOf(messages, 'list_issues').split(/\n(?=- id )/).filter((b) => b.startsWith('- id '))
+    const memory = /\bmemory\b/.test(typed)
+    const pick = (memory ? blocks.find((b) => b.includes('Memory fix')) : blocks.find((b) => b.includes('Suggested rewrite'))) ?? blocks[0]
+    const id = pick ? /^- id (\S+)/.exec(pick)?.[1] : null
+    if (!id) return null
+    return [storyChange(tools, 'issue_fix', 'propose_issue_fix', { issue_id: id, how: memory ? 'memory' : 'text', why: 'As the check suggests.' })]
+  }
+  const pov = /\bchapter (\d+)(?:['’]s)? (?:pov|point of view) to ([\p{L}'’-]+)/u.exec(typed)
+  if (pov) {
+    const chapter = `Ch ${pov[1]}`
+    if (!called('chapter_card')) return [{ name: 'chapter_card', arguments: { chapter } }]
+    if (called('propose_changes') || called('propose_chapter_card') || last?.role !== 'tool') return null
+    const name = pov[2].charAt(0).toUpperCase() + pov[2].slice(1)
+    return [storyChange(tools, 'chapter_card', 'propose_chapter_card', { chapter, pov: name, why: 'As asked.' })]
+  }
+  const paid = /\bmark the (.+?) thread as paid off\b/.exec(typed)
+  if (paid) {
+    if (!called('list_threads')) return [{ name: 'list_threads', arguments: {} }]
+    if (called('propose_changes') || called('propose_thread') || last?.role !== 'tool') return null
+    return [storyChange(tools, 'thread', 'propose_thread', { thread: paid[1].replace(/-/g, ' '), action: 'resolve', why: 'It pays off here.' })]
+  }
+  if (/\bthreads?\b/.test(typed)) {
+    if (called('list_threads')) return null
+    return [{ name: 'list_threads', arguments: /\bopen\b/.test(typed) ? { status: 'open' } : {} }]
+  }
+  if (/\bconsistency issues\b/.test(typed)) {
+    if (called('list_issues')) return null
+    return [{ name: 'list_issues', arguments: { scope: 'story' } }]
+  }
+  return undefined
+}
+
+/** propose_changes takes items of this kind (Phase 3's insert, cut, beats). */
+const kindOffered = (tools, kind) => !!listOf(paramsOf(tools, 'propose_changes'))?.items?.properties?.kind?.enum?.includes(kind)
+
+/**
+ * Phase 3's text tools on set words (see askToolCalls): the calls to make now, null to answer in words, or undefined
+ * when the question isn't one of these (or the tool isn't offered).
+ */
+function textToolCalls(typed, tools, mustRead, called) {
+  const mention = /\bwhere (?:do i mention|does) (?:the )?(.+?)(?: in this story)?(?: come up)?[?.!]*$/.exec(typed.trim()) ?? /\bwhere (?:the )?(.+?) comes up\b/.exec(typed)
+  if (mention && offered(tools, 'find_mentions')) {
+    return called('find_mentions') ? null : [{ name: 'find_mentions', arguments: { words: mention[1].trim() } }]
+  }
+  const which = /\b(add a line|put a short paragraph)\b/.test(typed)
+    ? 'insert'
+    : /\bcut the (paragraph|bit)\b/.test(typed)
+      ? 'cut'
+      : /\badd a beat\b/.test(typed)
+        ? 'beats'
+        : null
+  if (!which || !kindOffered(tools, which)) return undefined
+  if (called('propose_changes')) return null
+  if (which === 'beats') return [changesCall(tools, [{ kind: 'beats', op: 'insert', text: 'She finds the letter', why: 'As asked.' }])]
+  if (mustRead) return [{ name: 'read_scene', arguments: {} }]
+  if (which === 'insert') return [changesCall(tools, [{ kind: 'insert', after_paragraph: 1, text: 'She *hesitated* at the door.', why: 'A beat of doubt, as asked.' }])]
+  return [changesCall(tools, [{ kind: 'cut', from_paragraph: 2, to_paragraph: 2, why: 'Cut, as asked.' }])]
 }
 
 function legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fresh }) {

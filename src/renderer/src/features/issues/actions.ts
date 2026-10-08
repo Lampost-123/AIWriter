@@ -41,7 +41,7 @@ const markFixed = (issue: Issue) => (): void => {
 }
 
 /** Every place the quote appears in the page, each inside one paragraph, in reading order. */
-function placesInPage(doc: PMNode, quote: string): { from: number; to: number }[] {
+export function placesInPage(doc: PMNode, quote: string): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = []
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true
@@ -105,10 +105,13 @@ const valueOf = (e: Entry, field: string): string =>
 const patchFor = (field: string, value: string): EntryInput =>
   field === 'summary' || field === 'description' ? { [field]: value } : { fields: { [field]: value } }
 
-/** Update the memory: the field takes the text's value, as Adam's, and the issue is fixed. Undo puts both back. */
-export async function updateTheMemory(issue: Issue): Promise<void> {
+/**
+ * Update the memory's own step, shared with the editor chat's issue fixes: the field takes the text's value, as
+ * Adam's, and the issue is fixed. Says the entry's name, and the Undo that puts both back (null when the field's value
+ * before couldn't be read). Throws (plain words) when the memory couldn't be set.
+ */
+export async function setMemoryFromIssue(issue: Pick<Issue, 'id' | 'sceneId'> & { memoryFix: NonNullable<Issue['memoryFix']> }): Promise<{ name: string; undo: (() => Promise<void>) | null }> {
   const fix = issue.memoryFix
-  if (!fix) return
   let before: string | null = null
   let name = ''
   try {
@@ -118,34 +121,49 @@ export async function updateTheMemory(issue: Issue): Promise<void> {
   } catch {
     /* said by the update below */
   }
+  await api.updateMemoryFromIssue(issue.id)
+  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'fixed' })
+  useApp.getState().bumpEntries()
+  const undo =
+    before === null
+      ? null
+      : async (): Promise<void> => {
+          await api.updateEntry(fix.entryId, patchFor(fix.field, before ?? ''))
+          await api.reopenIssue(issue.id)
+          if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'open' })
+          useApp.getState().bumpEntries()
+          useApp.getState().bumpMemory()
+        }
+  return { name, undo }
+}
+
+/** Update the memory: the field takes the text's value, as Adam's, and the issue is fixed. Undo puts both back. */
+export async function updateTheMemory(issue: Issue): Promise<void> {
+  const fix = issue.memoryFix
+  if (!fix) return
+  let done: Awaited<ReturnType<typeof setMemoryFromIssue>>
   try {
-    await api.updateMemoryFromIssue(issue.id)
+    done = await setMemoryFromIssue({ ...issue, memoryFix: fix })
   } catch (e) {
     toast(plainReason(e), { tone: 'danger' })
     return
   }
-  if (issue.sceneId) patchIssue(issue.sceneId, issue.id, { status: 'fixed' })
-  const app = useApp.getState()
-  app.bumpEntries()
+  const { name, undo } = done
   toast(name ? `Updated ${name}’s ${fieldWords(fix.field)} in the memory to “${fix.value}”.` : `Updated the memory to “${fix.value}”.`, {
     tone: 'success',
-    action:
-      before === null
-        ? undefined
-        : {
-            label: 'Undo',
-            run: () =>
-              void (async () => {
-                try {
-                  await api.updateEntry(fix.entryId, patchFor(fix.field, before ?? ''))
-                  await api.reopenIssue(issue.id)
-                  useApp.getState().bumpEntries()
-                  useApp.getState().bumpMemory()
-                } catch (e) {
-                  toast(`That couldn’t be undone. ${plainReason(e)}`, { tone: 'danger' })
-                }
-              })()
-          }
+    action: !undo
+      ? undefined
+      : {
+          label: 'Undo',
+          run: () =>
+            void (async () => {
+              try {
+                await undo()
+              } catch (e) {
+                toast(`That couldn’t be undone. ${plainReason(e)}`, { tone: 'danger' })
+              }
+            })()
+        }
   })
 }
 

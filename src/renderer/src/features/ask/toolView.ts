@@ -4,7 +4,7 @@
 import type { ToolActivity, ToolKind, ToolStatus } from '@shared/toolActivity'
 import { durationWords } from './answerView'
 
-type Call = Pick<ToolActivity, 'kind' | 'summary' | 'status' | 'tool'>
+type Call = Pick<ToolActivity, 'kind' | 'summary' | 'status' | 'tool'> & Partial<Pick<ToolActivity, 'outcome'>>
 
 /** What a call is doing, while it runs: "Reading Ch 1, Sc 2 “The Ford”", "Searching", "Proposing changes". */
 export function runningPhrase(c: Call): string {
@@ -16,12 +16,18 @@ export function runningPhrase(c: Call): string {
       return 'Opening the outline'
     case 'search':
       return s ? `Searching ${s}` : 'Searching'
+    case 'mentions':
+      return s ? `Finding ${s}` : 'Finding mentions'
     case 'entry':
       return s ? `Looking up ${s}` : 'Looking something up'
     case 'style':
       return 'Checking the style guide'
     case 'issues':
-      return 'Listing open issues'
+      return s ? `Listing open issues in ${s}` : 'Listing open issues'
+    case 'chapter':
+      return `Reading the chapter card of ${s || 'the open chapter'}`
+    case 'threads':
+      return `Listing ${s || 'plot threads'}`
     case 'propose':
       return s ? `Proposing ${s}` : 'Proposing changes'
     case 'draft':
@@ -45,12 +51,20 @@ export function toolPhrase(c: Call): string {
       return tried ? 'Tried to open the outline' : 'Opened the outline'
     case 'search':
       return `${tried ? 'Tried to search' : 'Searched'}${s ? ` ${s}` : ''}`
+    case 'mentions':
+      // "Found “oil lamp” 7 times in 3 scenes"; with none, "Looked for “oil lamp”" (its outcome says so).
+      if (tried) return `Tried to find ${s || 'mentions'}`
+      return /^\d/.test(c.outcome ?? '') ? `Found ${s || 'mentions'} ${c.outcome}` : `Looked for ${s || 'mentions'}`
     case 'entry':
       return tried ? `Tried to look up ${s || 'an entry'}` : `Looked up ${s || 'an entry'}`
     case 'style':
       return tried ? 'Tried to check the style guide' : 'Checked the style guide'
     case 'issues':
-      return tried ? 'Tried to list open issues' : 'Listed open issues'
+      return `${tried ? 'Tried to list open issues' : 'Listed open issues'}${s ? ` in ${s}` : ''}`
+    case 'chapter':
+      return `${tried ? 'Tried to read' : 'Read'} the chapter card of ${s || 'the open chapter'}`
+    case 'threads':
+      return `${tried ? 'Tried to list' : 'Listed'} ${s || 'plot threads'}`
     case 'propose':
       return `${tried ? 'Tried to propose' : 'Proposed'} ${s || 'changes'}`
     case 'draft':

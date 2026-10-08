@@ -11,8 +11,23 @@
 
 import { askAboutQuote, SCENES, vigilParagraphs } from './world'
 import { REAL } from './real'
+import { P3TEXT } from './scenarios-p3text'
+import { P3STORY } from './scenarios-p3story'
 
-export type Group = 'edit' | 'selection' | 'large' | 'question' | 'ambiguous' | 'followup' | 'r-history' | 'r-vague' | 'r-followup' | 'r-continue' | 'r-change-q'
+export type Group =
+  | 'edit'
+  | 'selection'
+  | 'large'
+  | 'question'
+  | 'ambiguous'
+  | 'followup'
+  | 'r-history'
+  | 'r-vague'
+  | 'r-followup'
+  | 'r-continue'
+  | 'r-change-q'
+  | 'p3-text'
+  | 'p3-story'
 
 /** What should happen at a turn. */
 export type Outcome =
@@ -22,14 +37,28 @@ export type Outcome =
    * (ask_user, or a question with no proposal) is as good (a vague ask with no selection).
    */
   | { do: 'propose'; kinds?: ProposalKind[]; touches?: string; draft?: boolean; orAsk?: boolean }
-  /** No proposal (a question, a brainstorm, options offered). */
-  | { do: 'no-propose' }
+  /** No proposal (a question, a brainstorm, options offered); `tool`: and the turn called this tool (Phase 3). */
+  | { do: 'no-propose'; tool?: string }
   /** No proposal, and the answer asks the writer a question. */
   | { do: 'ask' }
   /** Either is fine (a judgement call); counted for cost and leaks only. */
   | { do: 'any' }
 
-export type ProposalKind = 'text' | 'passage' | 'card' | 'entry' | 'newEntry' | 'newScene' | 'newChapter' | 'rename'
+export type ProposalKind =
+  | 'text'
+  | 'passage'
+  | 'card'
+  | 'entry'
+  | 'newEntry'
+  | 'newScene'
+  | 'newChapter'
+  | 'rename'
+  | 'insert'
+  | 'cut'
+  | 'beats'
+  | 'issueFix'
+  | 'chapterCard'
+  | 'thread'
 
 /** An earlier turn of the chat, seeded as the app stores one (a 'chat' generation record) before the first question. */
 export interface HistoryTurn {
@@ -44,6 +73,8 @@ export interface Scenario {
   group: Group
   /** Asked in story C (bigWorld.ts): a briefing of 30-60k tokens. Its scene keys are bigWorld's. */
   big?: boolean
+  /** 'story': needs the story set's plot threads and issue in the world (scenarios-p3story.ts seedStory). */
+  seed?: 'story'
   /** Earlier turns of the chat (oldest first), seeded before the first question. */
   history?: HistoryTurn[]
   /** The rule it tests, in plain words. */
@@ -160,13 +191,24 @@ export const CORE: Scenario[] = [
   }
 ]
 
-/** Every scenario: the core 40, then the real set. */
-export const SCENARIOS: Scenario[] = [...CORE, ...REAL]
+/** Every scenario: the core 40, the real set, then Phase 3's text tools (scenarios-p3text.ts) and story tools (scenarios-p3story.ts). */
+export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3TEXT, ...P3STORY]
 
-/** The scenarios a --scenarios value names: core (also the default), real, all, subset, or ids. */
+/**
+ * The scenarios a --scenarios value names: core (also the default), real, p3 (both Phase 3 sets), p3text, p3story,
+ * all, subset, or ids.
+ */
 export function pickScenarios(only: string[] | null): Scenario[] {
   if (!only?.length) return CORE
-  const sets: Record<string, Scenario[]> = { CORE, REAL, ALL: SCENARIOS, SUBSET: CORE.filter((s) => SUBSET.includes(s.id)) }
+  const sets: Record<string, Scenario[]> = {
+    CORE,
+    REAL,
+    P3: [...P3TEXT, ...P3STORY],
+    P3TEXT,
+    P3STORY,
+    ALL: SCENARIOS,
+    SUBSET: CORE.filter((s) => SUBSET.includes(s.id))
+  }
   const out = new Map<string, Scenario>()
   for (const o of only) for (const s of sets[o] ?? SCENARIOS.filter((x) => x.id === o)) out.set(s.id, s)
   return [...out.values()]

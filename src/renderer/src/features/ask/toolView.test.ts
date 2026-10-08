@@ -30,7 +30,19 @@ describe('a tool call’s words', () => {
     expect(toolPhrase(call({ kind: 'outline', tool: 'outline' }))).toBe('Opened the outline')
     expect(toolPhrase(call({ kind: 'style', tool: 'style_guide' }))).toBe('Checked the style guide')
     expect(toolPhrase(call({ kind: 'issues', tool: 'scene_issues' }))).toBe('Listed open issues')
+    expect(toolPhrase(call({ kind: 'issues', tool: 'list_issues', summary: 'the story' }))).toBe('Listed open issues in the story')
+    expect(toolPhrase(call({ kind: 'chapter', tool: 'chapter_card', summary: 'Ch 2 “High Water”' }))).toBe('Read the chapter card of Ch 2 “High Water”')
+    expect(toolPhrase(call({ kind: 'threads', tool: 'list_threads', summary: 'open plot threads' }))).toBe('Listed open plot threads')
+    expect(runningPhrase(call({ kind: 'threads', tool: 'list_threads', summary: '', status: 'running' }))).toBe('Listing plot threads')
     expect(toolPhrase(call({ kind: 'draft', tool: 'propose_draft' }))).toBe('Proposed a draft')
+  })
+
+  it('says what find_mentions found (TEXTTOOLS)', () => {
+    const find = (over: Partial<ToolActivity>): ToolActivity => call({ kind: 'mentions', tool: 'find_mentions', summary: '“oil lamp”', ...over })
+    expect(toolPhrase(find({ outcome: '7 times in 3 scenes' }))).toBe('Found “oil lamp” 7 times in 3 scenes')
+    expect(toolPhrase(find({ outcome: 'not found' }))).toBe('Looked for “oil lamp”')
+    expect(toolPhrase(find({ status: 'running' }))).toBe('Finding “oil lamp”')
+    expect(toolPhrase(find({ status: 'failed' }))).toBe('Tried to find “oil lamp”')
   })
 
   it('says what a call is doing while it runs, and what one that went wrong tried', () => {

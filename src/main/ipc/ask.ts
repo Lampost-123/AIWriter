@@ -37,7 +37,7 @@ import { providerNotes } from '../ai/draftFlow'
 import { cachedCounter } from '../ai/context'
 import { countTokens } from '../ai/tokenService'
 import { EDIT_BRIEFING_CAP, finishAsk, PAGE_BLOCK, prepareAsk } from '../ask/context'
-import { pageText } from '../ask/page'
+import { aboutTheWords, pageText } from '../ask/page'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
 import { EditorAgent, MAX_STEPS } from '../ask/agent'
@@ -142,8 +142,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
     }
     // The editor chat: its tools look things up and note proposed changes, never change anything themselves.
     let generationId = ''
-    // The page went in (not left out to fit): its words count as read, so an edit's first request may be made to propose.
-    const wordsOnPage = !!page && b.blocks.some((x) => x.id === PAGE_BLOCK.id && !x.dropped)
+    // The page went in (not left out to fit): its words count as read, so an edit's first request may be made to propose;
+    // not for a request about the story's records (an issue, a chapter card, a thread), which looks them up first.
+    const wordsOnPage = !!page && b.blocks.some((x) => x.id === PAGE_BLOCK.id && !x.dropped) && aboutTheWords(question)
     const agent = new EditorAgent(
       db,
       {

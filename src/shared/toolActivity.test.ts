@@ -34,7 +34,19 @@ describe('tool calls as records', () => {
     expect(counted(1, 'hit')).toBe('1 hit')
     expect(counted(1240, 'word')).toBe('1,240 words')
     expect(changesSummary([{ kind: 'new_entry' }, { kind: 'new_entry' }])).toBe('2 new entries')
+    expect(changesSummary([{ kind: 'insert' }, { kind: 'cut' }, { kind: 'cut' }, { kind: 'beats' }])).toBe('1 insert, 2 cuts, 1 beat change')
+    expect(toolKind('find_mentions')).toBe('mentions')
+    expect(argSummary('find_mentions', { words: 'oil lamp' })).toBe('“oil lamp”')
     expect(changesSummary('nope')).toBe('')
+    // The story kinds (chat Phase 3, STORYTOOLS), and the story read tools' kinds and words.
+    expect(changesSummary([{ kind: 'issue_fix' }, { kind: 'chapter_card' }, { kind: 'thread' }, { kind: 'thread' }])).toBe(
+      '1 issue fix, 1 chapter card change, 2 plot thread links'
+    )
+    expect([toolKind('list_issues'), toolKind('chapter_card'), toolKind('list_threads')]).toEqual(['issues', 'chapter', 'threads'])
+    expect(argSummary('list_issues', { scope: 'story' })).toBe('the story')
+    expect(argSummary('list_issues', {})).toBe('the open scene')
+    expect(argSummary('chapter_card', { chapter: 'Ch 2' })).toBe('Ch 2')
+    expect(argSummary('list_threads', { status: 'Open' })).toBe('open plot threads')
     expect(shortReason('Those words aren’t in the scene. Copy them exactly.')).toBe('those words aren’t in the scene')
   })
 

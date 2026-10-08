@@ -12,7 +12,11 @@ import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
 import { argSummary, changesSummary, counted, shortReason, toolKind, type ToolActivity, type ToolKind, type ToolStatus } from '@shared/toolActivity'
 import type { SearchHit } from '@shared/contracts/search'
+import type { AppearanceHow } from '@shared/contracts/entryViews'
+import { findInBlocks, hasQuery, snippetAround, type TextBlock } from '@shared/findReplace'
 import * as repo from '../db/repo'
+import { getBeatMarks } from '../beats/marks'
+import { appearancesOf } from '../entryViews/appearances'
 import * as cdb from '../db/checks'
 import * as mem from '../db/memory'
 import { sceneText } from '../db/memory'
@@ -26,6 +30,16 @@ import type { WorldShape } from '../memory/types'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
 import {
+  SCENE_CARD_WITH_NAMES,
+  STORY_CHANGE_KINDS,
+  STORY_ITEM_PROPERTIES,
+  STORY_KIND_LINES,
+  storyAnswer,
+  storyProposeTools,
+  storyReadTools,
+  type StoryCtx
+} from './storyTools'
+import {
   anchorAt,
   findWords,
   locate,
@@ -33,6 +47,7 @@ import {
   occurrences,
   pageFinds,
   paraAt,
+  paraRef,
   parasOfPlain,
   wordAfter,
   wordBefore,
@@ -215,6 +230,10 @@ export interface ToolSwitches {
   draft: boolean
   /** ACTFIRST: an edit's question before any words are read is sent back; "write the next bit" is made to draft. */
   actFirst?: boolean
+  /** TEXTTOOLS (Phase 3): find_mentions, and propose_changes' kinds insert and cut (with ANCHOR) and beats. */
+  textTools?: boolean
+  /** STORYTOOLS (chat Phase 3): list_issues, chapter_card, list_threads and the issue_fix, chapter_card, thread changes. */
+  storyTools?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -222,7 +241,9 @@ export const toolSwitches = (): ToolSwitches => ({
   toolChoice: chatExp('TOOLCHOICE'),
   askUser: chatExp('ASKUSER'),
   draft: chatExp('DRAFT'),
-  actFirst: chatExp('ACTFIRST')
+  actFirst: chatExp('ACTFIRST'),
+  textTools: chatExp('TEXTTOOLS'),
+  storyTools: chatExp('STORYTOOLS')
 })
 
 const num = { type: 'number' } as const
@@ -305,7 +326,7 @@ export const ASK_KIND = 'ask'
  * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
  * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
  */
-function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
+function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -321,6 +342,8 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
       '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
       '- new_chapter: `title`, at the end of this story.',
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
+      ...(text ? textKindLines(anchor) : []),
+      ...(story ? STORY_KIND_LINES : []),
       ...(ask
         ? [
             "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
@@ -335,7 +358,11 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
           items: {
             type: 'object',
             properties: {
-              kind: { type: 'string', enum: [...Object.keys(CHANGE_KINDS), ...(ask ? [ASK_KIND] : [])] },
+              kind: {
+                type: 'string',
+                enum: [...Object.keys(CHANGE_KINDS), ...(text ? textKinds(anchor) : []), ...(story ? Object.keys(STORY_CHANGE_KINDS) : []), ...(ask ? [ASK_KIND] : [])]
+              },
+              ...(text ? textItemProps(anchor) : {}),
               ...(ask
                 ? {
                     question: str,
@@ -371,6 +398,7 @@ function proposeChangesTool(anchor: boolean, ask = false): ToolSpec {
               chapter: str,
               title: str,
               to: str,
+              ...(story ? STORY_ITEM_PROPERTIES : {}),
               why: str
             },
             // An ask has no `why`: only `kind` is required of every item then (a change without `why` is still told so).
@@ -441,16 +469,93 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
     if (s.anchor && t.name === 'read_scene') out.push(READ_SCENE_ANCHORED)
     else if (s.anchor && t.name === 'propose_edit') out.push(EDIT_ANCHORED)
     else if (s.anchor && t.name === 'propose_rewrite') out.push(REWRITE_ANCHORED)
+    else if (s.storyTools && t.name === 'scene_issues') out.push(...storyReadTools(s.toolChoice))
+    else if (s.storyTools && t.name === 'propose_scene_card') out.push(SCENE_CARD_WITH_NAMES)
     else out.push(t)
   }
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser))
+  // STORYTOOLS without TOOLCHOICE: the story kinds as their own propose_ tools.
+  if (s.storyTools && !s.toolChoice) out.push(...storyProposeTools())
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
+  if (s.textTools) out.push(FIND_MENTIONS)
   return out
 }
 
+// ---------- TEXTTOOLS (chat Phase 3): find_mentions, and propose_changes' kinds insert, cut and beats ----------
+
+/**
+ * The kinds TEXTTOOLS adds to propose_changes, and the tool each is answered as (not offered on its own). insert and
+ * cut name paragraphs by their [n], so they come with ANCHOR only; beats with or without it.
+ */
+export const TEXT_KINDS = { insert: 'propose_insert', cut: 'propose_cut', beats: 'propose_beats' } as const
+export type TextKind = keyof typeof TEXT_KINDS
+
+/** The text kinds offered, by the ANCHOR switch. */
+export const textKinds = (anchor: boolean): TextKind[] => (anchor ? ['insert', 'cut', 'beats'] : ['beats'])
+
+/** What propose_changes' description says of the text kinds (their usage, as the prompts aren't Phase 3's to change). */
+function textKindLines(anchor: boolean): string[] {
+  return [
+    ...(anchor
+      ? [
+          "- insert: new paragraph(s) at a point, with no words to find: `after_paragraph` or `before_paragraph` (the [n] read_scene shows for the paragraph they go next to) and `text`, the new words (a blank line between paragraphs, *asterisks* for italics). Use it to add a line, a moment or a paragraph between others; the paragraph named stays as it is. To change words that are there, use edit or rewrite.",
+          "- cut: whole paragraphs out, nothing in their place: `from_paragraph` and `to_paragraph` by [n] (the same number for one paragraph). Never across a scene break (* * *). To cut words inside a paragraph, use edit with `replace` ''."
+        ]
+      : []),
+    "- beats: the scene card's beats (numbered as read_scene shows them). Either `beats`, the whole new list in order; or one beat with `op`: 'insert' puts `text` in at place `index` (from 1; one past the last adds it at the end), 'edit' rewords beat `index` to `text`, 'remove' takes beat `index` out. It works on the card as it is now. For a card's other parts, use card."
+  ]
+}
+
+/** The fields the text kinds add to propose_changes' items. */
+function textItemProps(anchor: boolean): Record<string, unknown> {
+  const para = (what: string) => ({ type: 'number', description: `${what}: its [n] from read_scene.` })
+  return {
+    ...(anchor
+      ? {
+          after_paragraph: para('For an insert, the paragraph the new words go after'),
+          before_paragraph: para('For an insert, the paragraph the new words go before'),
+          from_paragraph: para('For a cut, the first paragraph to cut'),
+          to_paragraph: para('For a cut, the last paragraph to cut')
+        }
+      : {}),
+    text: { type: 'string', description: 'For an insert, the new words; for one beat (op insert or edit), its words.' },
+    op: { type: 'string', enum: ['insert', 'edit', 'remove'], description: 'For beats: one beat to put in, reword or take out (leave it out with `beats`).' },
+    index: { type: 'number', description: 'For beats with `op`: the beat’s place, from 1.' }
+  }
+}
+
+/** find_mentions (TEXTTOOLS): where words, a phrase or a name appear in this story, by scene and paragraph. */
+const FIND_MENTIONS: ToolSpec = {
+  name: 'find_mentions',
+  description:
+    "Find every place a word, phrase or name appears in this story's scenes, in reading order: each with its scene, its paragraph's [n] (as read_scene numbers it) and id, and the words around it (at most 30 listed; the count is of all). Use it for \"where do I mention…\", \"how often does … come up\", or before changing something in several places (then read_scene the scenes you'll change). Case is ignored; `whole_word` true matches whole words only (the default for an entry's name). `scope`: 'story' (the default) or 'scene' (the open scene, or the one named as `scene`). Scenes after the open one are marked later: the characters don't know their events yet. When the words are an entry's name, its other names are found too, and the scenes the memory has it in (point of view, present, the place, changed there) are listed.",
+  parameters: {
+    type: 'object',
+    properties: {
+      words: { type: 'string', description: 'The word, phrase or name to find.' },
+      whole_word: { type: 'boolean' },
+      scope: { type: 'string', enum: ['story', 'scene'] },
+      scene: optionalScene
+    },
+    required: ['words']
+  }
+}
+
+/** The most find_mentions lists, and the most of an entry's scenes. */
+const MENTIONS_LISTED = 30
+const APPEARANCES_LISTED = 20
+
+const HOW_WORDS: Record<AppearanceHow, string> = {
+  pov: 'point of view',
+  present: 'present',
+  location: 'the place',
+  named: 'named',
+  changes: 'changed there'
+}
+
 /** A proposal before it has its number and status. */
-type NewProposal = Proposal extends infer P ? (P extends Proposal ? Omit<P, 'id' | 'status'> : never) : never
+export type NewProposal = Proposal extends infer P ? (P extends Proposal ? Omit<P, 'id' | 'status'> : never) : never
 
 /** Where the chat was asked: the story and the scene open then. */
 export interface AgentPlace {
@@ -629,6 +734,10 @@ export function sceneWords(db: DB, sceneId: ID): (SceneWords & { title: string }
 /** The words of a plain range with their italics marked (balanced, whatever the range cuts). */
 export const markedSlice = (w: SceneWords, from: number, to: number): string => markItalics(w.plain.slice(from, to), w.italic.slice(from, to)).marked
 
+/** The paragraph an anchor names: by its id when it has one (gone: null), else by its number. */
+const paraOfAnchor = (s: SceneWords, at: ParaAnchor): Para | null =>
+  numbered(s.paras).find((q) => (at.pid ? q.pid === at.pid : q.n === at.paragraph)) ?? null
+
 /** Where a waiting change to words or a passage is in the scene's plain text, or null when its words aren't there. */
 function rangeOf(p: Proposal, hay: string): [number, number] | null {
   if (p.kind === 'text') {
@@ -646,7 +755,7 @@ function rangeOf(p: Proposal, hay: string): [number, number] | null {
 // ---------- This story's point (rule C6) ----------
 
 /** An entry the chat can name here, with drafting's label and whether only its name may be given. */
-interface SeenEntry {
+export interface SeenEntry {
   e: EntryState
   /** "not in the story yet at this point" or "from Book 1, not in this story so far"; null when it is here. */
   label: string | null
@@ -654,7 +763,7 @@ interface SeenEntry {
 }
 
 /** Where a scene the chat may read stands. */
-interface ScenePlace {
+export interface ScenePlace {
   storyId: ID
   /** "Book 1, Ch 2, Sc 3". */
   label: string
@@ -666,7 +775,7 @@ interface ScenePlace {
  * What the chat may see from where it was asked, as the briefing has it (context.ts): the memory as of the open
  * scene (the story's end with none, the world as set up with no story), along this story's line only.
  */
-interface StoryView {
+export interface StoryView {
   point: AskPoint
   /** Entries Adam keeps out here ('hide' pins): never shown unless named exactly. */
   hidden: Set<ID>
@@ -1273,13 +1382,19 @@ export class EditorAgent {
       const to = place(p.at.end)
       return from != null && to != null && to > from ? [from, to] : rangeOf(p, s.plain)
     }
+    // A cut (TEXTTOOLS): its whole paragraphs.
+    if (p.kind === 'cut') {
+      const a = paraOfAnchor(s, p.from)
+      const b = paraOfAnchor(s, p.to)
+      return a && b && b.to >= a.from ? [a.from, b.to] : null
+    }
     return rangeOf(p, s.plain)
   }
 
   /** A waiting change to words or a passage in the scene that [from, to) overlaps (not `skip`). */
   private clashWith(sceneId: ID, s: SceneWords, from: number, to: number, skip?: Proposal): Proposal | undefined {
     return this.proposals.find((p) => {
-      if (p === skip || p.status !== 'pending' || (p.kind !== 'text' && p.kind !== 'passage') || p.sceneId !== sceneId) return false
+      if (p === skip || p.status !== 'pending' || (p.kind !== 'text' && p.kind !== 'passage' && p.kind !== 'cut') || p.sceneId !== sceneId) return false
       const r = this.rangeNow(p, s)
       return !!r && r[0] < to && from < r[1]
     })
@@ -1343,7 +1458,9 @@ export class EditorAgent {
     }
     if (clash) {
       throw new Mistake(
-        `Those words are inside the passage change ${clash.id} rewrites: once one is applied, the other's words are gone. Leave this to that rewrite, or revise it.`
+        clash.kind === 'cut'
+          ? `Those words are in a paragraph change ${clash.id} cuts: once one is applied, the other's words are gone. Leave them to that cut, or revise it.`
+          : `Those words are inside the passage change ${clash.id} rewrites: once one is applied, the other's words are gone. Leave this to that rewrite, or revise it.`
       )
     }
     this.noteMatch(f, s, paragraph)
@@ -1496,9 +1613,10 @@ export class EditorAgent {
         lines.push(`${n}. ask: Not asked: an ask goes alone, never beside changes.`)
         return
       }
-      const tool = (CHANGE_KINDS as Record<string, string>)[kind]
+      const story: Record<string, string> = this.switches.storyTools ? STORY_CHANGE_KINDS : {}
+      const tool = (CHANGE_KINDS as Record<string, string>)[kind] ?? this.textKindTool(kind) ?? story[kind]
       if (!item || !tool) {
-        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${Object.keys(CHANGE_KINDS).join(', ')}.`)
+        lines.push(`${n}. Not proposed: each change needs \`kind\`, one of ${[...Object.keys(CHANGE_KINDS), ...this.textKindsOn(), ...Object.keys(story)].join(', ')}.`)
         reasons.push('no kind given')
         return
       }
@@ -1618,6 +1736,306 @@ export class EditorAgent {
     ]
   }
 
+  // ---------- STORYTOOLS (chat Phase 3): the story tools, answered in storyTools.ts ----------
+
+  /** What the story tools may use of this answer: the story's point, its names, and proposing. */
+  private storyCtx(): StoryCtx {
+    return {
+      db: this.db,
+      storyId: this.place.storyId,
+      sceneId: this.place.sceneId,
+      later: LATER,
+      view: () => this.view(),
+      outline: () => this.outline(),
+      scene: (n) => this.scene(n),
+      chapter: (n) => this.chapter(n),
+      sceneLabel: (id) => sceneLabelIn(this.outline(), id),
+      sceneHeading: (id) => this.sceneHeading(id),
+      proposals: () => this.proposals,
+      propose: (p) => this.propose(p),
+      mark: (m) => {
+        this.mark = { ...this.mark, ...m }
+      },
+      note: (line) => {
+        this.notes.push(line)
+      },
+      fail: (message) => {
+        throw new Mistake(message)
+      }
+    }
+  }
+
+  // ---------- TEXTTOOLS (chat Phase 3): find_mentions, insert, cut and beats ----------
+
+  /** The text kinds propose_changes takes here (none with TEXTTOOLS or TOOLCHOICE off). */
+  private textKindsOn(): TextKind[] {
+    return this.switches.textTools && this.switches.toolChoice ? textKinds(this.switches.anchor) : []
+  }
+
+  /** The tool a text kind of propose_changes is answered as, or undefined when it isn't one here. */
+  private textKindTool(kind: string): string | undefined {
+    return (this.textKindsOn() as string[]).includes(kind) ? TEXT_KINDS[kind as TextKind] : undefined
+  }
+
+  /** Answers a text tool's call; null when `name` isn't one. */
+  private textTool(name: string, a: Record<string, unknown>): [string, string] | null {
+    switch (name) {
+      case 'find_mentions':
+        return this.findMentions(a)
+      case 'propose_insert':
+        return this.proposeInsert(a)
+      case 'propose_cut':
+        return this.proposeCut(a)
+      case 'propose_beats':
+        return this.proposeBeats(a)
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Where words appear in this story (find_mentions): every scene of the story in reading order (or one scene), each
+   * match with its paragraph's [n] and id and the words around it, matched as Find and replace matches (case ignored,
+   * quotes evened out). Words that are an entry's name (or one of its other names) find all its names, as whole words
+   * unless `whole_word` is false, and list the scenes the memory has it in along this story's line.
+   */
+  private findMentions(a: Record<string, unknown>): [string, string] {
+    const words = squash(typeof a.words === 'string' ? a.words : typeof a.query === 'string' ? a.query : '')
+    if (!words || !hasQuery(words)) throw new Mistake('Give the `words` to find: a word, a phrase or a name.')
+    if (words.length > 200) throw new Mistake('Keep `words` short: a word, a phrase or a name.')
+    if (!this.place.storyId) throw new Mistake('No story is open, so there are no scenes to look through.')
+    const v = this.view()
+    const want = lower(words)
+    const named = [...v.entries.values()].find((s) => [s.e.name, ...(s.e.aliases ?? [])].some((n) => lower(n) === want)) ?? null
+    const terms = named ? [...new Set([named.e.name, ...(named.e.aliases ?? [])].map(squash).filter((t) => hasQuery(t)))] : [words]
+    const wholeWord = a.whole_word === true || a.whole_word === 'true' || (!!named && a.whole_word !== false && a.whole_word !== 'false')
+    const one = a.scope === 'scene' || (typeof a.scene === 'string' && !!a.scene.trim() && a.scope !== 'story')
+    const o = this.outline()
+    const ids = one ? [this.scene(a.scene)] : o.scenes.map((s) => s.id)
+    type Hit = { n: number; pid: string | null; text: string }
+    const found: { sceneId: ID; hits: Hit[] }[] = []
+    let total = 0
+    for (const id of ids) {
+      const s = sceneWords(this.db, id)
+      if (!s) continue
+      const paras = numbered(s.paras)
+      const blocks: TextBlock[] = paras.map((p) => ({ pos: p.from, text: s.plain.slice(p.from, p.to) }))
+      // Every name's matches, in order; where two overlap (a name inside another), the first one found.
+      const all = terms
+        .flatMap((t) => findInBlocks(blocks, t, { matchCase: false, wholeWord }))
+        .sort((x, y) => x.from - y.from || y.to - x.to)
+        .filter((m, i, list) => i === 0 || m.from >= list[i - 1].to)
+      if (!all.length) continue
+      total += all.length
+      const hits = all.map((m): Hit => {
+        const p = paras[m.block]
+        const cut = snippetAround(blocks[m.block].text, m.from - p.from, m.to - p.from, 40)
+        return { n: p.n, pid: p.pid, text: `${cut.before}«${cut.match}»${cut.after}` }
+      })
+      found.push({ sceneId: id, hits })
+    }
+    const how = `${wholeWord ? 'whole words, ' : ''}case ignored`
+    const names = named && terms.length > 1 ? ` (${named.e.name}, by any of its names: ${terms.join(', ')})` : ''
+    const where = one ? sceneLabelIn(o, ids[0]) : o.story.title
+    const out: string[] = []
+    if (!total) out.push(`“${words}”${names} isn't in the words of ${where} (${how}).`)
+    else {
+      out.push(
+        `“${words}”${names} in ${where}: ${counted(total, 'time')} in ${counted(found.length, 'scene')} (${how}), in reading order. [n] is the paragraph as read_scene numbers it; id is its stable id.`
+      )
+      let listed = 0
+      const left: string[] = []
+      for (const f of found) {
+        if (listed >= MENTIONS_LISTED) {
+          left.push(`${sceneLabelIn(o, f.sceneId)} (${f.hits.length})`)
+          continue
+        }
+        out.push('', `${this.sceneHeading(f.sceneId)}: ${f.hits.length}`)
+        for (const h of f.hits.slice(0, MENTIONS_LISTED - listed)) out.push(`- [${h.n}]${h.pid ? ` id ${h.pid}` : ''}: ${h.text}`)
+        if (f.hits.length > MENTIONS_LISTED - listed) left.push(`${f.hits.length - (MENTIONS_LISTED - listed)} more in ${sceneLabelIn(o, f.sceneId)}`)
+        listed = Math.min(MENTIONS_LISTED, listed + f.hits.length)
+      }
+      if (left.length) out.push('', `Not listed: ${left.join('; ')}. Ask with \`scope\` 'scene' and that \`scene\` to list them.`)
+    }
+    // The scenes the memory has the entry in, along this story's line (rule C6).
+    if (named && !named.nameOnly) {
+      let seen: string[] = []
+      try {
+        seen = appearancesOf(this.db, named.e, repo.listEntries(this.db))
+          .filter((x) => v.scenes.has(x.sceneId) && (!one || x.sceneId === ids[0]))
+          .map((x) => `- ${this.sceneLine(x.sceneId, x.title)}: ${x.how.map((h) => HOW_WORDS[h]).join(', ') || 'named'}`)
+      } catch {
+        seen = []
+      }
+      if (seen.length) {
+        out.push('', `${named.e.name} in the memory, scene by scene along this story's line:`, ...seen.slice(0, APPEARANCES_LISTED))
+        if (seen.length > APPEARANCES_LISTED) out.push(`(and ${seen.length - APPEARANCES_LISTED} more scenes)`)
+      }
+    }
+    this.mark = { summary: `“${words}”`, outcome: total ? `${counted(total, 'time')} in ${counted(found.length, 'scene')}` : 'not found' }
+    return [`Finding “${words}”`, clip(out.join('\n'), RESULT_CHARS)]
+  }
+
+  /** A paragraph a text kind names ([n] or its id), or a plain line on the paragraphs there are. */
+  private paragraphNamed(s: SceneWords, v: unknown, what: string): Para {
+    const count = numbered(s.paras).length
+    if (!count) throw new Mistake('The scene has no paragraphs yet. For new prose there, propose a draft.')
+    if (v == null || v === '') throw new Mistake(`Give \`${what}\`: a paragraph's [n] from read_scene.`)
+    const p = paraRef(s.paras, v)
+    if (!p) throw new Mistake(`There is no paragraph ${JSON.stringify(v)}: the scene's paragraphs are [1] to [${count}]. Read the scene for the numbers.`)
+    return p
+  }
+
+  /** insert: new paragraphs after (or before) a paragraph, with no words to find. */
+  private proposeInsert(a: Record<string, unknown>): [string, string] {
+    const id = this.scene(a.scene)
+    const s = sceneWords(this.db, id)
+    if (!s) throw new Mistake('That scene no longer exists.')
+    const raw = typeof a.text === 'string' ? a.text : typeof a.replace === 'string' ? a.replace : ''
+    // Numbers copied from read_scene come off; paragraphs stay a blank line apart.
+    const text = raw
+      .replace(/^[ \t]*\[\d+\][ \t]*/gm, '')
+      .replace(/\n\s*\n\s*/g, '\n\n')
+      .trim()
+    if (!text) throw new Mistake('Give the new words as `text` (a blank line between paragraphs).')
+    if (text.length > 8000) throw new Mistake('Keep an insert under 8,000 characters. For more new prose, propose a draft.')
+    const given = (k: string): boolean => a[k] != null && a[k] !== ''
+    if (given('after_paragraph') === given('before_paragraph')) {
+      throw new Mistake('Give one of `after_paragraph` or `before_paragraph`: the [n] read_scene shows for the paragraph the new words go next to.')
+    }
+    const where = given('after_paragraph') ? 'after' : 'before'
+    const p = this.paragraphNamed(s, a[`${where}_paragraph`], `${where}_paragraph`)
+    const near = markedSlice(s, p.from, p.to)
+    if (squash(text) === squash(near)) throw new Mistake(`Those words are paragraph [${p.n}] as it is. Give only the new words.`)
+    const revises = this.revising(a, ['insert'], 'an insert')
+    const cut = this.proposals.find((x) => {
+      if (x === revises || x.status !== 'pending' || x.kind !== 'cut' || x.sceneId !== id) return false
+      const r = this.rangeNow(x, s)
+      return !!r && r[0] <= p.from && p.to <= r[1]
+    })
+    if (cut) throw new Mistake(`Paragraph [${p.n}] is one change ${cut.id} cuts, so the new words would have nowhere to go. Put them next to another paragraph, or revise that cut.`)
+    const label = sceneLabelIn(this.outline(), id)
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing an insert in ${label}`,
+      this.propose({ kind: 'insert', sceneId: id, sceneLabel: label, where, at: { paragraph: p.n, pid: p.pid, offset: 0 }, near, text, why: typeof a.why === 'string' ? a.why : '' }, revises)
+    ]
+  }
+
+  /** cut: whole paragraphs out, never across a scene break nor the whole scene. */
+  private proposeCut(a: Record<string, unknown>): [string, string] {
+    const id = this.scene(a.scene)
+    const s = sceneWords(this.db, id)
+    if (!s) throw new Mistake('That scene no longer exists.')
+    const fromArg = a.from_paragraph ?? a.paragraph
+    const first = this.paragraphNamed(s, fromArg, 'from_paragraph')
+    const last = a.to_paragraph != null && a.to_paragraph !== '' ? this.paragraphNamed(s, a.to_paragraph, 'to_paragraph') : first
+    if (first.n > last.n) throw new Mistake(`\`from_paragraph\` [${first.n}] comes after \`to_paragraph\` [${last.n}]: give the first paragraph to cut, then the last.`)
+    if (s.paras.some((p) => p.n === 0 && p.from > first.from && p.to < last.to)) {
+      throw new Mistake('Those paragraphs run across a scene break (* * *), which a cut can’t. Propose one cut on each side of it.')
+    }
+    const paras = numbered(s.paras).filter((p) => p.n >= first.n && p.n <= last.n)
+    if (paras.length === numbered(s.paras).length) throw new Mistake("That would cut every paragraph of the scene, which the chat doesn't do. Leave at least one, or ask the writer.")
+    const revises = this.revising(a, ['cut', 'text', 'passage'], 'a cut, words or a passage')
+    const clash = this.clashWith(id, s, first.from, last.to, revises)
+    if (clash) {
+      throw new Mistake(
+        `Those paragraphs overlap change ${clash.id}: once one is applied, the other's words are gone. Make this cut take its place, with \`revises\`: "${clash.id}", or leave them to it.`
+      )
+    }
+    const ins = this.proposals.find((x) => {
+      if (x === revises || x.status !== 'pending' || x.kind !== 'insert' || x.sceneId !== id) return false
+      const at = paraOfAnchor(s, x.at)
+      return !!at && at.n >= first.n && at.n <= last.n
+    })
+    if (ins?.kind === 'insert') throw new Mistake(`Change ${ins.id} puts new words next to paragraph [${ins.at.paragraph}], which this cut takes out. Move that insert, or cut around it.`)
+    const label = sceneLabelIn(this.outline(), id)
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing a cut in ${label}`,
+      this.propose(
+        {
+          kind: 'cut',
+          sceneId: id,
+          sceneLabel: label,
+          from: { paragraph: first.n, pid: first.pid, offset: 0 },
+          to: { paragraph: last.n, pid: last.pid, offset: last.to - last.from },
+          paragraphs: paras.map((p) => markedSlice(s, p.from, p.to)),
+          why: typeof a.why === 'string' ? a.why : ''
+        },
+        revises
+      )
+    ]
+  }
+
+  /** beats: the scene card's beats, as a whole new list or one beat put in, reworded or taken out. */
+  private proposeBeats(a: Record<string, unknown>): [string, string] {
+    const id = this.scene(a.scene)
+    const before = repo
+      .getScene(this.db, id)
+      .card.beats.map((b) => b.trim())
+      .filter(Boolean)
+    // A beat's words, without a number copied from read_scene ("3. ").
+    const words = (v: unknown): string => (typeof v === 'string' ? squash(v.replace(/^\s*\d+[.)]\s+/, '')) : '')
+    const asked = typeof a.op === 'string' ? a.op.trim().toLowerCase() : ''
+    const op = ({ add: 'insert', delete: 'remove', change: 'edit', reword: 'edit' } as Record<string, string>)[asked] ?? (asked || (Array.isArray(a.beats) ? 'replace' : ''))
+    const place = (max: number, what: string): number => {
+      const n = intArg(a.index)
+      if (n == null || n < 1 || n > max) throw new Mistake(`\`index\` is ${what}: 1 to ${max}.`)
+      return n
+    }
+    let beats: string[]
+    let index: number | undefined
+    if (op === 'replace') {
+      if (!Array.isArray(a.beats)) throw new Mistake('Give `beats`: the whole new list, in order.')
+      beats = (a.beats as unknown[]).map(words).filter(Boolean)
+      if (!beats.length) throw new Mistake('`beats` is empty. To take a beat out, give `op` remove with its `index`.')
+    } else if (op === 'insert' || op === 'edit') {
+      const text = words(a.text)
+      if (!text) throw new Mistake(`Give the beat's words as \`text\`.`)
+      if (op === 'edit' && !before.length) throw new Mistake("This scene's card has no beats yet: put one in with `op` insert.")
+      index = a.index == null && op === 'insert' ? before.length + 1 : place(op === 'insert' ? before.length + 1 : before.length, op === 'insert' ? `where the new beat goes (${before.length + 1} adds it at the end)` : 'the beat to reword')
+      beats = [...before]
+      beats.splice(index - 1, op === 'edit' ? 1 : 0, text)
+    } else if (op === 'remove') {
+      if (!before.length) throw new Mistake("This scene's card has no beats to take out.")
+      index = place(before.length, 'the beat to take out')
+      beats = before.filter((_, i) => i !== index! - 1)
+    } else throw new Mistake('Give `beats` (the whole new list), or `op`: insert, edit or remove, with `index` (and `text` for insert and edit).')
+    if (beats.length > 40) throw new Mistake('At most 40 beats.')
+    if (beats.some((b) => b.length > 500)) throw new Mistake('Keep each beat under 500 characters.')
+    if (beats.length === before.length && beats.every((b, i) => b === before[i])) throw new Mistake("Those are the card's beats as they are.")
+    const revises = this.revising(a, ['beats'], 'beats')
+    const other = this.proposals.find(
+      (x) => x !== revises && x.status === 'pending' && ((x.kind === 'beats' && x.sceneId === id) || (x.kind === 'card' && x.sceneId === id && !!x.patch.beats))
+    )
+    if (other) throw new Mistake(`Change ${other.id} already changes this scene's beats. Revise it instead, with \`revises\`: "${other.id}" and the whole list as \`beats\`.`)
+    // Beat markers on the page are numbered by the card's beats (Beat by beat): the writer should know.
+    let marks = false
+    try {
+      marks = !!getBeatMarks(this.db, id)?.beats.some((b) => b.pids.length)
+    } catch {
+      marks = false
+    }
+    if (marks) this.notes.push("This scene has beat markers on the page from Beat by beat, numbered by the card's beats: tell the writer that after this change a marker may sit beside a different beat.")
+    const label = sceneLabelIn(this.outline(), id)
+    return [
+      revises ? `Revising change ${revises.id}` : `Proposing a beat change to ${label}`,
+      this.propose(
+        {
+          kind: 'beats',
+          sceneId: id,
+          sceneLabel: label,
+          op: op as 'replace' | 'insert' | 'edit' | 'remove',
+          ...(index ? { index } : {}),
+          before,
+          beats,
+          ...(marks ? { marks: true } : {}),
+          why: typeof a.why === 'string' ? a.why : ''
+        },
+        revises
+      )
+    ]
+  }
+
   private answer(name: string, a: Record<string, unknown>): [string, string] {
     const text = (k: string): string => (typeof a[k] === 'string' ? (a[k] as string) : '')
     if (name === 'propose_edit' && this.switches.anchor) return this.editAnchored(a)
@@ -1625,6 +2043,12 @@ export class EditorAgent {
     if (name === 'propose_changes' && this.switches.toolChoice) return this.proposeChanges(a)
     if (name === 'ask_user' && this.switches.askUser) return this.askUser(a)
     if (name === 'propose_draft' && this.switches.draft) return this.proposeDraft(a)
+    const textTool = this.switches.textTools ? this.textTool(name, a) : null
+    if (textTool) return textTool
+    if (this.switches.storyTools) {
+      const story = storyAnswer(this.storyCtx(), name, a)
+      if (story) return story
+    }
     const list = (k: string): string[] | undefined =>
       Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : undefined
     switch (name) {

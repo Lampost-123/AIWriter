@@ -16,16 +16,19 @@ afterEach(() => chatSwitches(null))
 describe('the defaults', () => {
   it('are all on, each turned off only by =off', () => {
     chatSwitches(null)
-    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true, actFirst: true })
+    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true, actFirst: true, textTools: true, storyTools: true })
     process.env.AIWRITE_EXP_CHAT_ANCHOR = 'off'
     process.env.AIWRITE_EXP_CHAT_DRAFT = ' OFF '
     process.env.AIWRITE_EXP_CHAT_ASKUSER = 'on'
     process.env.AIWRITE_EXP_CHAT_ACTFIRST = 'off'
-    expect(toolSwitches()).toEqual({ anchor: false, toolChoice: true, askUser: true, draft: false, actFirst: false })
+    process.env.AIWRITE_EXP_CHAT_TEXTTOOLS = 'off'
+    process.env.AIWRITE_EXP_CHAT_STORYTOOLS = 'off'
+    expect(toolSwitches()).toEqual({ anchor: false, toolChoice: true, askUser: true, draft: false, actFirst: false, textTools: false, storyTools: false })
     chatSwitches(null)
     const names = editorTools(toolSwitches()).map((t) => t.name)
-    expect(names).toEqual(expect.arrayContaining(['propose_changes', 'ask_user', 'propose_draft']))
+    expect(names).toEqual(expect.arrayContaining(['propose_changes', 'ask_user', 'propose_draft', 'list_issues', 'chapter_card', 'list_threads']))
     expect(names).not.toContain('propose_edit')
+    expect(names).not.toContain('scene_issues')
   })
 })
 

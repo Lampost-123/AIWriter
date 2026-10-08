@@ -6,6 +6,7 @@
 // ever deleted otherwise. A new entry goes in the story the chat was asked in, whichever story is open by then.
 import type { Proposal, ProposalStatus } from '@shared/contracts/ask'
 import type { BuilderKind } from '@shared/contracts/builder'
+import type { Issue } from '@shared/contracts/checks'
 import type { ID, SceneCard } from '@shared/types'
 import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
@@ -20,10 +21,15 @@ import { withParagraphIds } from '@/features/editor/paragraphIds'
 import { docFromStored, sceneText } from '@/features/editor/streamDoc'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openHistory } from '@/features/history/open'
-import { changeOf, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
+import { changeOf, planCut, planInsert, planPassage, planRevert, planText, revertDoc, type BlockChange, type Plan } from './askEdits'
 import { chatOfTurn, setProposalStatus, storyOfChat } from './askStore'
 import { startProposedDraft } from './applyDraft'
 import { sceneInPage } from './sceneInPage'
+import { threadLinkKey, withListEdited } from '@shared/threadLinks'
+import { fixTheText, placesInPage, setMemoryFromIssue } from '@/features/issues/actions'
+import { pickOccurrence } from '@/features/issues/issuesLogic'
+import { patchIssue } from '@/features/issues/issuesStore'
+import { chapterCardShown, notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
 
 const BUSY_APPLY = 'A draft is being written into this scene. Wait for it to finish, then apply.'
 const BUSY_UNDO = 'A draft is being written into this scene, so the change was left in. Wait for it to finish, then undo it by hand.'
@@ -225,6 +231,137 @@ async function applyRename(p: Extract<Proposal, { kind: 'rename' }>): Promise<Ke
 const applyPassage = (p: Extract<Proposal, { kind: 'passage' }>, place: ApplyPlace): Promise<Applied> =>
   applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planPassage(doc, p.start, p.end, p.replace, p.at))
 
+// ---------- The story changes (chat Phase 3, lab switch STORYTOOLS) ----------
+
+type IssueFix = Extract<Proposal, { kind: 'issueFix' }>
+
+/** A text fix with no suggested rewrite is started (Fix the text's own rewrite, a change to accept in the page). */
+export const startsInPage = (p: Proposal): p is IssueFix & { sceneId: ID } => p.kind === 'issueFix' && p.how === 'text' && !p.fix && !!p.sceneId
+
+/** The issue as it is now, while it is still open (its scene's issues read afresh); why not, in plain words. */
+async function stillOpen(p: IssueFix): Promise<{ issue: Issue } | { why: string }> {
+  if (!p.sceneId) return { why: 'That issue has no scene to fix.' }
+  const issue = (await api.listIssues(p.sceneId)).find((i) => i.id === p.issueId)
+  if (!issue || issue.status === 'gone') return { why: 'That issue’s words are no longer in the scene.' }
+  if (issue.status === 'fixed') return { why: 'That issue is fixed already.' }
+  if (issue.status === 'ignored') return { why: 'That issue was ignored. Reopen it in the Issues tab to fix it.' }
+  return { issue }
+}
+
+/**
+ * Fix the text with the check's suggested rewrite: it goes in for the issue's words as one step (a snapshot first), as
+ * accepting Fix the text's change would, and the issue is marked fixed. Undo puts the words back and reopens it.
+ */
+async function applyIssueText(p: IssueFix, place: ApplyPlace): Promise<Applied> {
+  const open = await stillOpen(p)
+  if ('why' in open) return { ok: false, why: open.why }
+  const sceneId = p.sceneId!
+  const fix = p.fix ?? ''
+  const r = await applyWords(sceneId, p.sceneLabel, place.storyId, (doc) => {
+    const places = placesInPage(doc, p.quote)
+    const at = pickOccurrence(places, p.occurrence)
+    if (!at) return { why: places.length ? 'Those words are in the scene more than once. Use Fix the text in the Issues tab.' : 'Those words aren’t in the scene any more.' }
+    const $from = doc.resolve(at.from)
+    if ($from.depth !== 1) return { why: 'Those words aren’t in a plain paragraph. Use Fix the text in the Issues tab.' }
+    return { from: at.from, to: at.to, content: fix, first: $from.index(0), count: 1 }
+  })
+  if (!r.ok) return r
+  await api.markIssueFixed(p.issueId).catch(() => undefined)
+  patchIssue(sceneId, p.issueId, { status: 'fixed' })
+  return {
+    ok: true,
+    undo: async () => {
+      const u = await r.undo()
+      if (u.ok) {
+        await api.reopenIssue(p.issueId).catch(() => undefined)
+        patchIssue(sceneId, p.issueId, { status: 'open' })
+      }
+      return u
+    }
+  }
+}
+
+/** Update the memory, as the Issues tab does it: the entry's field takes the text's value, the issue marked fixed. */
+async function applyIssueMemory(p: IssueFix): Promise<Kept> {
+  if (!p.memory) throw new Error('That issue has no memory fix.')
+  if (p.sceneId) {
+    const open = await stillOpen(p)
+    if ('why' in open) throw new Error(open.why)
+  }
+  const { undo } = await setMemoryFromIssue({ id: p.issueId, sceneId: p.sceneId, memoryFix: { entryId: p.memory.entryId, field: p.memory.field, value: p.memory.to } })
+  return { ok: true, undo: undo ?? (async () => undefined) }
+}
+
+/**
+ * Fix the text with no suggested rewrite: the scene opens and Fix the text runs as in the Issues tab (the writer model
+ * rewrites the sentence as a change to accept or reject in the page; accepting marks the issue fixed).
+ */
+export async function startIssueFix(p: IssueFix & { sceneId: ID }, storyId: ID | null | undefined): Promise<{ ok: true } | { ok: false; why: string }> {
+  const open = await stillOpen(p)
+  if ('why' in open) return { ok: false, why: open.why }
+  const editor = await sceneInPage(p.sceneId, storyId)
+  if (!editor) return { ok: false, why: `${p.sceneLabel} couldn’t be opened.` }
+  if (editorBridge()?.busy()) return { ok: false, why: BUSY_APPLY }
+  fixTheText(open.issue)
+  return { ok: true }
+}
+
+/** A chapter card's parts, written into the scenes that follow it; Undo puts the card and those scenes back. */
+async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>): Promise<Kept> {
+  const before = await api.getChapterCard(p.chapterId)
+  const saved = await api.updateChapterCard(p.chapterId, { ...before, ...p.patch })
+  chapterCardShown(p.chapterId, saved.card)
+  notifyChapterCard()
+  return {
+    ok: true,
+    undo: async () => {
+      await api.restoreChapterCard(p.chapterId, before, saved.updated)
+      chapterCardShown(p.chapterId, before)
+      notifyChapterCard()
+    }
+  }
+}
+
+/**
+ * A plot thread on a scene card's list, as Adam's own link (a new plot thread made first, in the chat's story). Undo
+ * takes the link off (its old mark back) and the new thread to Recently deleted.
+ */
+async function applyThread(p: Extract<Proposal, { kind: 'thread' }>, place: ApplyPlace): Promise<Kept> {
+  let threadId = p.threadId
+  let made: ID | null = null
+  if (!threadId) {
+    const storyId = place.storyId !== undefined ? place.storyId : useApp.getState().storyId
+    const e = await api.createEntry('thread', { name: p.name, ...(p.note ? { fields: { promise: p.note } } : {}), originStoryId: storyId })
+    threadId = made = e.id
+    useApp.getState().bumpEntries()
+  }
+  const id = threadId
+  const key = p.list === 'setsUp' ? 'setsUpIds' : 'paysOffIds'
+  const before: SceneCard = (await api.getScene(p.sceneId)).card
+  const had = (before[key] ?? []).includes(id)
+  if (!had) await api.updateSceneCard(p.sceneId, withListEdited(before, p.list, [...(before[key] ?? []), id]))
+  useApp.getState().bumpBriefing()
+  return {
+    ok: true,
+    undo: async () => {
+      if (!had) {
+        const now: SceneCard = (await api.getScene(p.sceneId)).card
+        const linkKey = threadLinkKey(p.list, id)
+        const marks = { ...(now.threadLinks ?? {}) }
+        const was = before.threadLinks?.[linkKey]
+        if (was) marks[linkKey] = was
+        else delete marks[linkKey]
+        await api.updateSceneCard(p.sceneId, { ...now, [key]: (now[key] ?? []).filter((x) => x !== id), threadLinks: marks })
+      }
+      if (made) {
+        await api.deleteEntry(made)
+        useApp.getState().bumpEntries()
+      }
+      useApp.getState().bumpBriefing()
+    }
+  }
+}
+
 /** Undo for a change to a record, which always can be put back. */
 const kept = async (r: Promise<Kept>): Promise<Applied> => {
   const k = await r
@@ -232,6 +369,49 @@ const kept = async (r: Promise<Kept>): Promise<Applied> => {
     ok: true,
     undo: async () => {
       await k.undo()
+      return { ok: true }
+    }
+  }
+}
+
+// ---------- TEXTTOOLS (chat Phase 3): inserts, cuts and beats ----------
+
+/**
+ * New paragraphs next to the one the chat named, in one step (a snapshot first; Ctrl+Z or Undo takes them back, and
+ * Undo leaves them alone once Adam has changed them).
+ */
+const applyInsert = (p: Extract<Proposal, { kind: 'insert' }>, place: ApplyPlace): Promise<Applied> =>
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planInsert(doc, p))
+
+/** Whole paragraphs out, only while they read as the chat read them; Undo puts them back between their neighbours. */
+const applyCut = (p: Extract<Proposal, { kind: 'cut' }>, place: ApplyPlace): Promise<Applied> =>
+  applyWords(p.sceneId, p.sceneLabel, place.storyId, (doc) => planCut(doc, p))
+
+const filledBeats = (beats: readonly string[]): string[] => beats.map((b) => b.trim()).filter(Boolean)
+const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
+
+export const BEATS_CHANGED = 'The scene’s beats were changed since this was proposed, so they were left as they are. Ask again for a fresh change.'
+export const BEATS_UNDO_CHANGED = 'The scene’s beats were changed since, so Undo left them as they are.'
+
+/**
+ * A scene card's beats, through the usual card update, only while the card has the beats the chat saw. Undo puts the
+ * old beats back (the card's other parts as they are by then), unless the beats were changed since.
+ */
+async function applyBeats(p: Extract<Proposal, { kind: 'beats' }>): Promise<Applied> {
+  const card: SceneCard = (await api.getScene(p.sceneId)).card
+  if (!sameList(filledBeats(card.beats), p.before)) return { ok: false, why: BEATS_CHANGED }
+  const old = card.beats
+  await api.updateSceneCard(p.sceneId, { ...card, beats: p.beats })
+  useApp.getState().bumpBriefing()
+  return {
+    ok: true,
+    undo: async (): Promise<Undone> => {
+      const now: SceneCard = (await api.getScene(p.sceneId)).card
+      const beats = filledBeats(now.beats)
+      if (sameList(beats, p.before)) return { ok: true }
+      if (!sameList(beats, p.beats)) return { ok: false, why: BEATS_UNDO_CHANGED }
+      await api.updateSceneCard(p.sceneId, { ...now, beats: old })
+      useApp.getState().bumpBriefing()
       return { ok: true }
     }
   }
@@ -257,9 +437,23 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
         return await kept(applyNewChapter(p))
       case 'rename':
         return await kept(applyRename(p))
+      case 'issueFix':
+        if (p.how === 'memory') return await kept(applyIssueMemory(p))
+        if (!p.fix) return { ok: false, why: 'This fix is started from its own card.' }
+        return await applyIssueText(p, place)
+      case 'chapterCard':
+        return await kept(applyChapterCard(p))
+      case 'thread':
+        return await kept(applyThread(p, place))
       case 'draft':
         // A proposed draft starts the writer's own job (applyDraft.ts): applyAndKeep starts it, with no Undo of its own.
         return { ok: false, why: 'A proposed draft is started from its own card.' }
+      case 'insert':
+        return await applyInsert(p, place)
+      case 'cut':
+        return await applyCut(p, place)
+      case 'beats':
+        return await applyBeats(p)
     }
   } catch (e) {
     return { ok: false, why: (e as Error)?.message || 'That change couldn’t be applied.' }
@@ -284,7 +478,7 @@ export async function applyAndKeep(
   done: number
   undos: (() => Promise<Undone>)[]
   failed: string[]
-  started: { sceneId: ID; label: string }[]
+  started: { sceneId: ID; label: string; message?: string }[]
   /** Each applied change's Undo, by its id (a change card's own Undo). */
   undoOf: Record<string, () => Promise<Undone>>
   /** Why each change that couldn't be applied wasn't, by its id. */
@@ -292,10 +486,22 @@ export async function applyAndKeep(
 }> {
   const undos: (() => Promise<Undone>)[] = []
   const failed: string[] = []
-  const started: { sceneId: ID; label: string }[] = []
+  const started: { sceneId: ID; label: string; message?: string }[] = []
   const undoOf: Record<string, () => Promise<Undone>> = {}
   const failedOf: Record<string, string> = {}
   for (const p of list) {
+    // A text fix with no suggested rewrite runs Fix the text in the page: a change to accept or reject there.
+    if (startsInPage(p)) {
+      const s = await startIssueFix(p, place.storyId)
+      if (s.ok) {
+        started.push({ sceneId: p.sceneId, label: p.sceneLabel, message: `The fix is being written in ${p.sceneLabel}: accept or reject it there.` })
+        await setProposalStatus(generationId, p.id, 'applied')
+      } else {
+        failed.push(s.why)
+        failedOf[p.id] = s.why
+      }
+      continue
+    }
     if (p.kind === 'draft') {
       const s = await startProposedDraft(p, place.storyId)
       if (s.ok) {
@@ -362,7 +568,7 @@ export async function applyChanges(
   const { done, failed, started, undoOf, failedOf } = await applyAndKeep(generationId, list)
   if (failed.length) toast(failed.length === 1 ? failed[0] : `${failed.length} changes couldn’t be applied. ${failed[0]}`, { tone: 'danger' })
   // A draft says where it is being written; its words are kept or undone in the scene, as any draft's are.
-  for (const s of started) toast(`The draft has started in ${s.label}.`, { action: { label: 'Show', run: () => showScene(s.sceneId) } })
+  for (const s of started) toast(s.message ?? `The draft has started in ${s.label}.`, { action: { label: 'Show', run: () => showScene(s.sceneId) } })
   // Each change is undone once, from its card or from the toast, whichever comes first.
   const left = new Map(Object.entries(undoOf))
   const once: Record<string, () => Promise<void>> = {}

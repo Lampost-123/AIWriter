@@ -47,6 +47,16 @@ const fold = (s: string): string =>
     .trim()
     .toLocaleLowerCase()
 
+/**
+ * A request about the story's records rather than the words on the page (an open issue, a chapter's card or point of
+ * view, a plot thread, a card, a memory entry): it needs a look-up first, so the page's words don't make its first
+ * request propose. ("Push this beat harder" is about the words: beats alone don't count.)
+ */
+const NOT_THE_WORDS = /\b(issues?|threads?|chapters?(?:'s|’s)?\s+(?:card|\d+|pov)|point of view|pov|card|entry|entries|memory)\b/i
+
+/** True when a request is about the words on the page (an edit the page's words are enough for). */
+export const aboutTheWords = (question: string): boolean => !NOT_THE_WORDS.test(question.replace(/^About this passage: “[\s\S]*?”\s*/, ''))
+
 /** The passage an "Ask about this" question quotes ("About this passage: “…”"), or ''. */
 export function quotedPassage(question: string): string {
   const m = /^About this passage: “([\s\S]*?)”\s*(?:\n|$)/.exec(question.trim())

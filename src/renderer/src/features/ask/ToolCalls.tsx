@@ -9,6 +9,7 @@
 import { useEffect, useId, useState } from 'react'
 import type { ToolActivity, ToolKind } from '@shared/toolActivity'
 import {
+  BookA,
   BookOpen,
   BookOpenText,
   Check,
@@ -24,6 +25,7 @@ import {
   Palette,
   PenLine,
   Search,
+  SearchCheck,
   UserRound,
   Wrench,
   type IconType
@@ -41,9 +43,13 @@ export const TOOL_ICONS: Record<ToolKind, IconType> = {
   read: BookOpenText,
   outline: ListTree,
   search: Search,
+  // find_mentions (TEXTTOOLS): a list under a magnifying glass (Phosphor's ListMagnifyingGlass).
+  mentions: SearchCheck,
   entry: UserRound,
   style: Palette,
   issues: MessageSquareWarning,
+  chapter: BookA,
+  threads: KIND_ICONS.thread,
   propose: PenLine,
   draft: Feather,
   ask: CircleHelp,

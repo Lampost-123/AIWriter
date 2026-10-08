@@ -13,10 +13,13 @@ export type AskIntent = 'edit' | 'brainstorm' | 'answer' | 'unsure'
  * block format (shared/answerBlocks.ts); off, the plain-text answer rules. ACTFIRST (the Phase 2 fix): an edit reads
  * before it asks (the reminder no longer invites "which passage?", an ask before any words are read is sent back, an
  * edit answered with a question before reading is nudged), a clarifying answer keeps what it offered in the history,
- * and "write the next bit" is made to call propose_draft; off, Phase 2 as it was. Phase 3 (cost and speed): SCENE puts
- * the open scene's numbered words in the briefing for an edit (or a selection), so the first request can propose
- * without read_scene; CACHE keeps the briefing's front the same from question to question (provider prefix caching);
- * CAP fits an edit's briefing into EDIT_BRIEFING_CAP tokens. Off, each as Phase 2 left it.
+ * and "write the next bit" is made to call propose_draft; off, Phase 2 as it was. TEXTTOOLS (Phase 3): the text
+ * tools, i.e. find_mentions and propose_changes' kinds insert, cut and beats; off, none of them is offered. STORYTOOLS
+ * (Phase 3): the story tools (list_issues, chapter_card, list_threads, and the issue_fix, chapter_card and thread
+ * changes); off, none of them. Phase 3 (cost and speed): SCENE puts the open scene's numbered words in the briefing
+ * for an edit (or a selection), so the first request can propose without read_scene; CACHE keeps the briefing's front
+ * the same from question to question (provider prefix caching); CAP fits an edit's briefing into EDIT_BRIEFING_CAP
+ * tokens. Off, each as Phase 2 left it.
  */
 export const CHAT_SWITCHES = [
   'CONTRACT',
@@ -29,6 +32,8 @@ export const CHAT_SWITCHES = [
   'DRAFT',
   'FORMAT',
   'ACTFIRST',
+  'TEXTTOOLS',
+  'STORYTOOLS',
   'SCENE',
   'CACHE',
   'CAP'
