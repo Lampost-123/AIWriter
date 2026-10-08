@@ -367,7 +367,18 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <ArrowDown size={13} aria-hidden />
         </button>
       ) : null}
-      {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
+      {shown && !error ? (
+        desk ? (
+          // The desk: Beat by beat's bar takes the AI dock's place, over the foot of the sheet (and over its fade).
+          <div className="desk-beatbar pointer-events-none absolute inset-x-0 bottom-0 z-20" style={overSheet}>
+            <div className="relative mx-auto h-0" style={{ maxWidth: frame.sheetW }}>
+              <BeatBar sceneId={shown.id} />
+            </div>
+          </div>
+        ) : (
+          <BeatBar sceneId={shown.id} />
+        )
+      ) : null}
       {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}
       {desk ? (
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>

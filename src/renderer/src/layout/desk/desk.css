@@ -1787,3 +1787,10 @@
   border-radius: 8px;
   box-shadow: var(--sh-pop);
 }
+
+/* Beat by beat's bar in the dock's place: no band of page colour across the desk behind it (the sheet's fade is there). */
+[data-arrangement='desk'] .desk-beatbar > div > div {
+  left: 0;
+  right: 0;
+  background: none;
+}
