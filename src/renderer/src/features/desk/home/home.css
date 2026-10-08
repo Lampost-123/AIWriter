@@ -20,6 +20,9 @@
   padding: 20px 0 28px;
   display: flex;
   flex-direction: column;
+  /* Shorter than the window (a big screen, or a short story): the page sits in the middle of its height rather than
+     leaving the bottom of the window empty. On a big screen the whole column is drawn larger too (StoryHome, homeScale). */
+  justify-content: center;
   gap: 26px;
 }
 
