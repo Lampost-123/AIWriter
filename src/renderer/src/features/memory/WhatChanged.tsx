@@ -20,6 +20,8 @@ import { fullDate, relativeTime } from '@/features/generate/format'
 import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
 import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings, wordsGone } from './logic'
 import { openScene } from './openScene'
+import { DeskLedger } from './DeskLedger'
+import { useDesk } from '@/features/look/look'
 
 const PAGE = 100
 
@@ -45,6 +47,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   const [openTitle, setOpenTitle] = useState<string | null>(null)
   const ticket = useRef(0)
   const now = useNow()
+  const desk = useDesk()
 
   const load = useCallback(() => {
     const t = ++ticket.current
@@ -138,6 +141,34 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   }
 
   const backLabel = openSceneId && openTitle ? `Back to “${openTitle}”` : 'Back to writing'
+
+  // The desk's Check room lays the same list out as a ledger (DeskLedger.tsx).
+  if (desk) {
+    return (
+      <DeskLedger
+        sceneId={sceneId}
+        sceneTitle={sceneTitle}
+        backLabel={backLabel}
+        items={items}
+        groups={groups}
+        error={error}
+        slow={slow}
+        limit={limit}
+        now={now}
+        flowRuns={flowRuns}
+        entries={entries}
+        onLoad={load}
+        onMore={() => setLimit((n) => n + PAGE)}
+        onUndo={(item) => void undo(item)}
+        onAnswer={(item, optionId) => void answer(item, optionId)}
+        onTryAgain={(item) => void tryAgain(item)}
+        onOpenEntry={openEntry}
+        onShowWords={showWords}
+        onOpenScene={(id) => void openScene(id)}
+        emptyHelp={WHAT_CHANGED_HELP}
+      />
+    )
+  }
 
   return (
     <div className="h-full overflow-auto">

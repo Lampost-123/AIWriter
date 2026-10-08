@@ -1,0 +1,444 @@
+/*
+  What changed, on the desk (UI overhaul, Check room; DeskLedger.tsx): the memory's ledger. It shares the Check room's
+  frame (features/consistency/check.css: .ck-desk, .ck-side, .ck-main). Each read of a scene is a ruled page with a red
+  margin rule; each change a line with its mark in the margin (added in green, changed in the accent, removed in red,
+  a failure in the lamp's amber, since the memory is the AI at work). Undo strikes the line through as it goes.
+*/
+
+[data-arrangement='desk'] [data-action='added'],
+[data-arrangement='desk'] [data-kind='added'] {
+  --act: var(--success);
+  --act-soft: var(--success-soft);
+}
+[data-arrangement='desk'] [data-action='updated'],
+[data-arrangement='desk'] [data-kind='updated'] {
+  --act: var(--accent);
+  --act-soft: var(--accent-soft);
+}
+[data-arrangement='desk'] [data-action='removed'],
+[data-arrangement='desk'] [data-kind='removed'] {
+  --act: var(--danger);
+  --act-soft: var(--danger-soft);
+}
+[data-arrangement='desk'] [data-action='failed'] {
+  --act: var(--ai);
+  --act-soft: var(--ai-soft);
+}
+[data-arrangement='desk'] [data-kind='asks'] {
+  --act: var(--fg);
+  --act-soft: var(--surface-3);
+}
+[data-arrangement='desk'] [data-kind='all'] {
+  --act: var(--muted);
+  --act-soft: var(--surface-2);
+}
+
+[data-arrangement='desk'] .lg-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 -4px -6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .lg-back:hover {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-every {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+}
+[data-arrangement='desk'] .lg-every:hover {
+  text-decoration: underline;
+}
+
+/* How the memory is doing. */
+[data-arrangement='desk'] .lg-keeper {
+  display: flex;
+  gap: 11px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--surface-3) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .lg-keeper-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 18%, transparent);
+}
+[data-arrangement='desk'] .lg-keeper[data-state='reading'] .lg-keeper-dot {
+  background: var(--lamp-2);
+  box-shadow: 0 0 10px var(--lamp-glow);
+  animation: lg-breathe 2.4s ease-in-out infinite;
+}
+[data-arrangement='desk'] .lg-keeper[data-state='error'] .lg-keeper-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ai);
+}
+@keyframes lg-breathe {
+  50% {
+    opacity: 0.45;
+    scale: 0.8;
+  }
+}
+[data-arrangement='desk'] .lg-keeper-words {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-keeper-why {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .lg-keeper-go {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+/* The tally: what the list holds, each a filter. */
+[data-arrangement='desk'] .lg-tally {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 15px;
+  background: color-mix(in oklab, var(--surface-3) 50%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+[data-arrangement='desk'] .lg-tally-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 8px;
+  border-radius: 11px;
+  text-align: left;
+  font-size: 13.5px;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-base) var(--desk-ease),
+    box-shadow var(--dur-base) var(--desk-ease),
+    color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .lg-tally-row:hover {
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-tally-row:active {
+  scale: 0.985;
+}
+[data-arrangement='desk'] .lg-tally-row[aria-pressed='true'] {
+  background: var(--page);
+  box-shadow:
+    var(--sh-1),
+    0 0 0 1px var(--desk-line-2);
+  color: var(--fg);
+  font-weight: 600;
+}
+[data-arrangement='desk'][data-theme='dark'] .lg-tally-row[aria-pressed='true'] {
+  background: var(--raise);
+}
+[data-arrangement='desk'] .lg-tally-row:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .lg-tally-mark,
+[data-arrangement='desk'] .lg-glyph {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--act-soft);
+  color: var(--act);
+}
+[data-arrangement='desk'] .lg-tally-n {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .lg-q {
+  font: 700 12px/1 var(--font-sans);
+}
+[data-arrangement='desk'] .lg-all {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1.5px solid currentColor;
+}
+
+/* The ledger. */
+[data-arrangement='desk'] .lg-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+[data-arrangement='desk'] .lg-pad {
+  padding: 28px 44px;
+}
+[data-arrangement='desk'] .lg-list {
+  display: flex;
+  max-width: 940px;
+  flex-direction: column;
+  gap: 22px;
+  padding: 28px 44px 72px;
+}
+[data-arrangement='desk'] .lg-page {
+  position: relative;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--sh-card);
+  animation: ck-rise 360ms var(--desk-ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 8) * 50ms);
+}
+/* The ledger's red margin rule. */
+[data-arrangement='desk'] .lg-page::before {
+  content: '';
+  position: absolute;
+  left: 54px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-red);
+}
+[data-arrangement='desk'] .lg-page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 20px 11px 68px;
+  border-bottom: 1px solid var(--rule-blue);
+}
+[data-arrangement='desk'] .lg-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  font: 600 16px/22px var(--heading-font);
+  color: var(--fg);
+}
+[data-arrangement='desk'] button.lg-place:hover {
+  color: var(--accent);
+}
+[data-arrangement='desk'] .lg-place svg {
+  opacity: 0;
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] button.lg-place:hover svg,
+[data-arrangement='desk'] button.lg-place:focus-visible svg {
+  opacity: 1;
+}
+[data-arrangement='desk'] .lg-when {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .lg-lines > li + li {
+  border-top: 1px solid var(--rule-blue);
+}
+[data-arrangement='desk'] .lg-line {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  gap: 0 14px;
+  padding: 13px 16px 14px 0;
+}
+[data-arrangement='desk'] .lg-glyph {
+  justify-self: center;
+  margin-top: 1px;
+}
+[data-arrangement='desk'] .lg-body {
+  min-width: 0;
+  transition: opacity var(--dur-view) ease-out;
+}
+[data-arrangement='desk'] .lg-line[data-undone] .lg-body,
+[data-arrangement='desk'] .lg-line[data-undone] .lg-glyph {
+  opacity: 0.5;
+}
+[data-arrangement='desk'] .lg-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+[data-arrangement='desk'] .lg-text {
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 21px;
+  color: var(--fg);
+  /* Undo strikes it through, left to right. */
+  background: linear-gradient(var(--faint), var(--faint)) no-repeat 0 58% / 0% 1.5px;
+  transition: background-size 380ms var(--desk-ease);
+}
+[data-arrangement='desk'] .lg-line[data-undone] .lg-text {
+  background-size: 100% 1.5px;
+}
+[data-arrangement='desk'] .lg-failed {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 7px;
+  font-size: 13.5px;
+  line-height: 20px;
+}
+[data-arrangement='desk'] .lg-before {
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--faint) 70%, transparent);
+}
+[data-arrangement='desk'] .lg-arrow {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .lg-after {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--act-soft, var(--accent-soft)) 75%, transparent);
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-small {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+[data-arrangement='desk'] .lg-faint {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .lg-quote {
+  display: flex;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 9px;
+  padding: 7px 12px 8px 13px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 2px 9px 9px 2px;
+  background: color-mix(in oklab, var(--surface-2) 55%, var(--card));
+  text-align: left;
+  font: italic 400 15px/1.5 var(--serif-font);
+  color: color-mix(in oklab, var(--fg) 82%, var(--muted));
+  transition:
+    border-color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] button.lg-quote:hover {
+  border-left-color: var(--accent);
+}
+[data-arrangement='desk'] .lg-quote.is-gone {
+  color: var(--faint);
+  background: transparent;
+}
+[data-arrangement='desk'] .lg-jump {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  font: normal 500 12px/1 var(--font-sans);
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .lg-line:hover .lg-jump,
+[data-arrangement='desk'] .lg-quote:focus-visible .lg-jump {
+  opacity: 1;
+}
+[data-arrangement='desk'] .lg-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 7%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 16%, transparent);
+}
+[data-arrangement='desk'] .lg-ask-q {
+  font-size: 13px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+[data-arrangement='desk'] .lg-chip {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: 12.5px;
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--desk-ease);
+}
+[data-arrangement='desk'] .lg-chip:hover {
+  color: var(--fg);
+}
+[data-arrangement='desk'] .lg-chip:active {
+  scale: 0.96;
+}
+[data-arrangement='desk'] .lg-chip[aria-pressed='true'] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+[data-arrangement='desk'] .lg-act {
+  align-self: start;
+}
+[data-arrangement='desk'] .lg-undone {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .lg-calm-art {
+  width: 220px;
+  height: auto;
+  margin-bottom: 18px;
+}
+
+@container (max-width: 900px) {
+  [data-arrangement='desk'] .lg-tally {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  [data-arrangement='desk'] .lg-tally-row {
+    flex: 1 1 auto;
+  }
+  [data-arrangement='desk'] .lg-keeper,
+  [data-arrangement='desk'] .lg-back {
+    grid-column: 1 / -1;
+  }
+  [data-arrangement='desk'] :is(.lg-list, .lg-pad) {
+    padding-inline: 26px;
+  }
+}
