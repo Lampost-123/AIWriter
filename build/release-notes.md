@@ -1,6 +1,6 @@
-<!-- version: 0.6.34 -->
-What's new in 0.6.34:
+<!-- version: 0.6.35 -->
+What's new in 0.6.35:
 
-- When you first set up AI Write, it now suggests DeepSeek Flash as your writer model: good prose for very little, which long stories need. It's only a suggestion until you choose it.
+- The AI writer uses the story memory far better. Add below carries the scene on and stops once your direction has happened, without padding it or wrapping the scene up. Continue now knows the story so far, what was said, and takes an optional "What happens next". A short timeline of what has happened keeps the AI to the facts. Prompts cost less.
 
-Also new since 0.6.30: Settings says plainly what stays on this computer, "Find by meaning" downloads its search model by itself, and Mark done fits on one line again. The AI keeps far better track of a scene, mends small slips in amber with Undo, and plans each draft first.
+Also in 0.6.34: first setup suggests DeepSeek Flash as your writer model.

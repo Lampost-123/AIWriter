@@ -1741,6 +1741,64 @@ from `DEEPSEEK_API_KEY` only, and the run refuses to start without it (`--provid
   page, `page.ts`), and the passage is scored as written and after the fixes, with the fixes, the questions and the
   repair's own calls in the report. Older checkouts run exactly as before.
 
+## The AI writer makes full use of the story memory (Adam, 2026-10-08)
+
+A read-only audit of 122 real writer calls on DeepSeek Flash (an invented test story) found Add below given Generate's
+"write a complete, polished scene… End on the scene's final beat" (it invented action to reach its length, 6 of the 7
+remaining trap breaks; closed scenes off with sleep or silence; wrote card beats again), Continue given none of the
+memory, a briefing padded with false or stale lines, sample lines and stock tics repeated word for word, and only 40% of
+Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six fixes (0.6.32):
+
+- **Add below's own instructions** (`ai/prompts.ts` `writerInstructions(pov, true)`, `addBelowFinal`): carry the scene on
+  from where it stands; the length is a ceiling, not a target; stop once what is asked has happened, mid-motion, without
+  wrapping up or closing the scene unless asked; invent no events beyond the direction or the next beat; beats already
+  on the page are done (`ai/repetition.ts` `beatsOnPage`: most of a beat's own words on the page, beats in order) and
+  never written again. Adam's direction is the closing instruction's last words ("What happens now, as the author
+  directs…"), not in the scene card; with none, the next beat not on the page. The planner gets the direction with the
+  card (`plan/plan.ts`). Generate keeps its complete-scene prompt.
+- **Order for the cache** (`ai/context.ts` `SEND_ORDER`): what stays the same from one step of a scene to the next comes
+  first (instructions, world rules, themes, setting, the story so far, the previous scene's end, plot threads), then the
+  people (the same unless the memory learns something), then what a step brings in (entries named, recalled, what was
+  said, earlier passages), and last the scene card, the scene so far, the stage and what must stay true. Block 9's
+  entries and the recalled entries go in a steady order (kind, then name) under fixed titles (`MENTIONED_TITLE`). Claude's
+  cache breakpoint ends before the people. Measured on an invented scene, two Add below steps in a row
+  (`tests/unit/writerRound.test.ts`): the second step's prompt that the first already sent went from 29% to 69% with a
+  short story so far, and from 11% to 71% with a long one (12,234 tokens down to 4,431, the timeline below included).
+- **A cleaner briefing**: "X does not know" only for real secrets (`ai/mustStay.ts` `realSecrets`: what one person here
+  knows and another here doesn't, never kept from someone it is about, at most 3); "What X knows" gives each fact once
+  and drops plans that happened or whose time has passed (`ai/knows.ts` `cleanKnows`: a later note with most of the
+  plan's words; "tonight", "tomorrow", "in the morning" with two or more later scenes since); deaths told later lose
+  "this afternoon" (`pastDeathNote`) and say where; on the stage (`stageInScene`, with `previousSceneId` and `dead` in
+  the scope) the dead are never a live state (left out unless this scene's words put the body somewhere), someone only
+  named is in it only with words from this scene (or the one before, its time carrying on), and words from older scenes
+  no longer hold except injuries and what people hold (no "out in the middle of the flood", no "hat on" from days
+  before); what must stay true doesn't say again what the stage block right above it says at the same moment
+  (`stageShown`, carrying on inside a scene: it keeps the dead, marks, changed looks, what someone no longer has and
+  secrets), and says nothing twice (a piece of clothing a thing in the place already places, a piece under two names);
+  sample lines are speech only (`speechSamples`), never narration, and the instructions say never to reuse one.
+- **Continue's memory core** (`edits/index.ts` `continueCore`, `edits/briefing.ts` `core`): the timeline's short form
+  (about 800 tokens), up to 3 entries recalled for the words near the cursor (step 5's search, found first), up to 4
+  lines of what was said word for word, the point of view's facts to keep (marks), and Adam's optional "what happens
+  next", said last. The timeline goes first (the same from one Continue to the next). It goes before the edit is
+  refused on a small model, and adds at most a few thousand tokens. The "what happens next" field is a small optional
+  box in the AI tools menu, above "Continue after these words" (`features/edits/AiTools.tsx`); the palette's Continue
+  has none.
+- **Phrases not to say again** (`ai/repetition.ts` `repeatedPhrases`, no model call): up to 8, from the scene so far
+  (Add below, a beat) or the words before the cursor (Continue): sample lines on the page, stock tics (`STOCK_TICS`: "the
+  rain went on", "neither of them said"…), and runs of 4 to 6 words said twice in the last 2,500 words, each listed once;
+  in the closing instruction. No presence_penalty is sent (a TODO in `ai/client.ts`: only once a provider is known to
+  honour it).
+- **The canon timeline** (`ai/timeline.ts`; Adam: "a clear outline of what has happened so far in the story and when and
+  involving who"): in place of the prose summaries (8.8k tokens in Add below, none in Continue), "Canon: what has
+  already happened… never contradict it, and never write it again as if it were new", oldest first, on this scene's own
+  line only (the memory's StorySoFar): earlier stories a line each, this story's older chapters rolled up a line each,
+  the last two chapters a line a scene with when (the card's When), where and who (the earlier cards, read in one query:
+  `db/repo.ts` `sceneCards`, `memory/scene.ts` `withCards`), the last 5 scenes in the most detail, and deaths, departures
+  and things changing hands marked on the scene they happened in (`timelineMarks`). Capped at about 2,500 tokens in
+  full, 1,500 short, 800 smaller (Continue's), then only the most recent parts, the oldest detail going first. Its words
+  depend only on scenes before this one, so it reads the same at every step. Ask the world, the checks and the
+  interview keep the prose summaries (`storySoFarText`).
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
