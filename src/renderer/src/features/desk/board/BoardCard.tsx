@@ -49,7 +49,8 @@ export function BoardCard({
   dragging,
   onPointerDown,
   onOpen,
-  onKeyDown
+  onKeyDown,
+  onIdeas
 }: {
   box: PlacedCard
   scene: SceneMeta
@@ -67,6 +68,8 @@ export function BoardCard({
   onPointerDown: (e: PointerEvent<HTMLElement>) => void
   onOpen: () => void
   onKeyDown: (e: KeyboardEvent) => void
+  /** A planned scene with nothing on its card: its ideas, in the board's drawer. */
+  onIdeas?: () => void
 }): React.JSX.Element {
   const pov = card?.povId ? people.get(card.povId) : undefined
   const place = card?.locationId ? people.get(card.locationId) : undefined
@@ -107,8 +110,21 @@ export function BoardCard({
           </span>
         ) : null}
         {card?.when.trim() ? <span className="board-c-when">{card.when.trim()}</span> : null}
-        <span className="board-c-words tabular-nums">{words ? words.toLocaleString('en-GB') : '–'}</span>
+        {onIdeas ? null : <span className="board-c-words tabular-nums">{words ? words.toLocaleString('en-GB') : '–'}</span>}
       </span>
+      {onIdeas ? (
+        <button
+          type="button"
+          className="board-c-ideas"
+          aria-label={`Ideas for ${title}`}
+          title="Three directions for this scene, from the memory and the open threads"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onIdeas}
+        >
+          <Sparkles size={12} />
+          Ideas
+        </button>
+      ) : null}
       <button
         type="button"
         className="board-c-more"

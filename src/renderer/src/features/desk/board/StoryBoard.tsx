@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardMarks, BoardSceneCard, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID, Outline, SceneMeta } from '@shared/types'
-import { Check, Plus } from '@/components/ui/icons'
+import { Check, Plus, Sparkles } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -21,6 +21,8 @@ import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLog
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
 import { numberWords } from '@shared/numberWords'
 import { useBoardStore } from './boardStore'
+import { addSceneTo } from './boardActions'
+import { IdeasDrawer, ideasForWhatComesNext, openIdeasFor } from './IdeasDrawer'
 import { BoardOutline } from './BoardOutline'
 import { boardLayout, CARD_H, CARD_W, dropTarget, HEAD_H, makeRoom, PAD_TOP, type BoardLayout, type ThreadIn } from './boardLayout'
 import { BoardCard, Pin, pinOf } from './BoardCard'
@@ -89,7 +91,7 @@ interface Drag {
   pointerId: number
 }
 
-export function StoryBoard({ storyId, chapterId }: { storyId: ID; chapterId?: ID; ideasFor?: ID }): React.JSX.Element {
+export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chapterId?: ID; ideasFor?: ID }): React.JSX.Element {
   const { outline } = useOutline()
   const sceneId = useApp((s) => s.sceneId)
   const outlineRev = useApp((s) => s.outlineRev)
@@ -111,6 +113,13 @@ export function StoryBoard({ storyId, chapterId }: { storyId: ID; chapterId?: ID
   const threads = useMemo(() => threadsIn(board, cards), [board, cards])
   const layout = useMemo(() => boardLayout(columns, threads), [columns, threads])
   const stats = outline ? storyStats(outline) : null
+  const drawerFor = useBoardStore((s) => s.ideasFor)
+  const empty = (id: ID): boolean => cards?.[id]?.empty ?? true
+  // Opened from the home's "Add to the plan": the drawer for that scene.
+  useEffect(() => {
+    if (ideasFor) openIdeasFor(ideasFor)
+    return () => useBoardStore.setState({ ideasFor: null })
+  }, [ideasFor])
 
   return (
     <div data-desk-board data-arrive={arriving || undefined} className="desk-board">
@@ -130,15 +139,22 @@ export function StoryBoard({ storyId, chapterId }: { storyId: ID; chapterId?: ID
             <Plus size={15} />
             <span>New scene</span>
           </button>
+          <button type="button" className="board-btn-ai" aria-expanded={!!drawerFor} disabled={!outline?.chapters.length} onClick={() => outline && void ideasForWhatComesNext(outline, empty)}>
+            <Sparkles size={15} />
+            <span>Ideas for what comes next</span>
+          </button>
         </div>
       </div>
-      {outline ? (
-        view === 'outline' ? (
-          <BoardOutline outline={outline} cards={cards} people={people} ai={ai} />
-        ) : (
-          <Cards outline={outline} layout={layout} cards={cards} people={people} ai={ai} board={board} chapterId={chapterId} storyId={storyId} />
-        )
-      ) : null}
+      <div className="board-body">
+        {outline ? (
+          view === 'outline' ? (
+            <BoardOutline outline={outline} cards={cards} people={people} ai={ai} />
+          ) : (
+            <Cards outline={outline} layout={layout} cards={cards} people={people} ai={ai} board={board} chapterId={chapterId} storyId={storyId} />
+          )
+        ) : null}
+        {outline ? <IdeasDrawer outline={outline} people={codex ?? []} /> : null}
+      </div>
     </div>
   )
 }
@@ -149,20 +165,6 @@ async function newScene(outline: Outline | null, sceneId: ID | null): Promise<vo
   const here = outline.scenes.find((s) => s.id === sceneId)?.chapterId ?? outline.chapters[outline.chapters.length - 1]?.id
   if (!here) return
   await addSceneTo(here)
-}
-
-/** Adds a planned scene at the end of a chapter, staying on the board, and shows its card. */
-export async function addSceneTo(chapterId: ID, title?: string): Promise<ID | null> {
-  try {
-    const scene = await api.createScene(chapterId, title ? { title } : {})
-    useApp.getState().bumpOutline()
-    useBoardStore.setState({ fresh: scene.id })
-    return scene.id
-  } catch (e) {
-    const { toast } = await import('@/components/ui')
-    toast((e as Error).message, { tone: 'danger' })
-    return null
-  }
 }
 
 /** Cards | Outline: a paper pill glides between them. */
@@ -243,6 +245,30 @@ function Cards({
     const t = setTimeout(() => useBoardStore.setState({ fresh: null }), 1400)
     return () => clearTimeout(t)
   }, [fresh, layout])
+
+  // A used idea's card flies from the drawer to its place on the board.
+  const flyFrom = useBoardStore((s) => s.flyFrom)
+  useEffect(() => {
+    if (!flyFrom) return
+    useBoardStore.setState({ flyFrom: null })
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-board-card="${CSS.escape(flyFrom.sceneId)}"]`)
+    const box = layout.cards.get(flyFrom.sceneId)
+    if (!el || !box || !scroller.current) return
+    const sc = scroller.current
+    if (box.x < sc.scrollLeft || box.x + CARD_W > sc.scrollLeft + sc.clientWidth) sc.scrollLeft = Math.max(0, box.x - 80)
+    if (box.y < sc.scrollTop || box.y + CARD_H > sc.scrollTop + sc.clientHeight) sc.scrollTop = Math.max(0, box.y - 80)
+    const to = el.getBoundingClientRect()
+    const from = flyFrom.rect
+    const s = from.width / to.width
+    const spring = getComputedStyle(el).getPropertyValue('--motion-spring').trim() || 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+    el.animate(
+      [
+        { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${s}) rotate(3deg)`, opacity: 0.7 },
+        { transform: `rotate(${box.tilt}deg)`, opacity: 1 }
+      ],
+      { duration: 520, easing: spring }
+    )
+  }, [flyFrom, layout])
 
   // Where the dragged card would land, and the others making room.
   const target = useMemo(() => {
@@ -387,6 +413,7 @@ function Cards({
                   useApp.getState().selectScene(box.id)
                 }}
                 onKeyDown={(e) => keyMove(e, box.id)}
+                onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? () => openIdeasFor(box.id) : undefined}
               />
             )
           })}

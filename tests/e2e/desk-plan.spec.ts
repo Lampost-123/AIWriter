@@ -3,7 +3,7 @@
 // its ⋯ opens its card in the drawer; Cards | Outline; dragging a card (and Alt+arrows) moves the scene; the ghost slot
 // adds a planned scene without leaving the board; and the board fits beside the spine in a window that isn't full screen.
 import type { ElectronApplication, Page } from '@playwright/test'
-import { expect, invoke, test, type LaunchOptions } from './helpers'
+import { expect, invoke, startFake, test, useFakeModel, type LaunchOptions } from './helpers'
 
 const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' }
 const rooms = (win: Page) => win.getByRole('navigation', { name: 'Rooms' })
@@ -165,5 +165,56 @@ test('the story board fits beside the spine at 1920, 1440, 1366 and 1280, scroll
     // Nothing of the board lies under the spine, when it shows beside the room.
     const spine = (await win.locator('[data-desk-spine]').count()) ? await win.locator('[data-desk-spine]').boundingBox() : null
     if (spine) expect(box.x, `at ${w}x${h}`).toBeGreaterThanOrEqual(spine.x + spine.width)
+  }
+})
+
+test('the ideas drawer: ideas for what comes next become a card; Use this fills it (AI idea, amber pin), Undo empties it', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await sampleWorld(launch)
+    await useFakeModel(win, fake)
+    await room(win, 'Plan').click()
+    await expect(win.locator('[data-board-card]')).toHaveCount(4)
+    fake.reset()
+
+    // The amber button: a planned scene at the story's end, and three directions for it in the drawer.
+    await board(win).getByRole('button', { name: 'Ideas for what comes next' }).click()
+    const drawer = win.getByRole('complementary', { name: 'What could come next' })
+    await expect(drawer).toBeVisible()
+    await expect(win.locator('[data-board-card]')).toHaveCount(5)
+    await expect(drawer).toContainText('Chapter Two, scene 3')
+    await expect(drawer.locator('[data-idea]')).toHaveCount(3)
+    await expect(drawer.locator('[data-idea]')).toContainText(['The door left open', 'A debt called in', 'The wrong messenger'])
+    expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
+    expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] ideas')).toBe(true)
+
+    // Dismiss puts one away.
+    await drawer.getByRole('button', { name: 'Dismiss “The wrong messenger”' }).click()
+    await expect(drawer.locator('[data-idea]')).toHaveCount(2)
+
+    // Use this: the card fills (and is named after the idea), tagged AI idea with an amber pin; the drawer closes.
+    await drawer.getByRole('button', { name: 'Use “A debt called in”' }).click()
+    await expect(drawer).toHaveCount(0)
+    const used = card(win, 'A debt called in')
+    await expect(used).toContainText('Tobin calls in the favour Mara owes him')
+    await expect(used).toContainText('AI idea')
+    await expect(board(win).locator('.board-canvas .board-pin.is-ai')).toHaveCount(1)
+    expect((await invoke(win, 'getBoardMarks')).aiIdeas).toHaveLength(1)
+
+    // Undo: the card empty again, its plain name back, and no tag.
+    await win.getByRole('button', { name: 'Undo' }).click()
+    await expect(card(win, 'A debt called in')).toHaveCount(0)
+    await expect(board(win).locator('.board-canvas .board-pin.is-ai')).toHaveCount(0)
+    await expect.poll(async () => (await invoke(win, 'getBoardMarks')).aiIdeas).toEqual([])
+    const last = win.locator('[data-board-card]').last()
+    await expect(last).toContainText('Nothing planned yet.')
+    // An empty planned card offers its own ideas (the ones already asked for show again, with no new ask).
+    await last.getByRole('button', { name: /^Ideas for / }).click()
+    await expect(drawer.locator('[data-idea]')).toHaveCount(3)
+    expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
+    await win.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+  } finally {
+    await fake.close()
   }
 })
