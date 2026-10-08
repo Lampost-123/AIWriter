@@ -1712,8 +1712,10 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   ('full' | 'slim', apart from the panels' `binderOpen`); every other page in its room's frame
   (`layout/desk/RoomFrame.tsx`, links from `layout/areaLinks.ts`), the page as a sheet with today's toolbar floating at
   its foot (the AI dock replaces it in phase 3), and the scene panel as a drawer over the page's edge
-  (`layout/desk/SceneDrawer.tsx`; open = `layout.inspectorOpen`; ways in: Scene details by the page's head, the
-  toolbar's Details, and a palette entry per tab). Its colours and materials are `layout/desk/desk.css` (contrast-tested), its app tests
+  (`layout/desk/SceneDrawer.tsx`; open = `layout.inspectorOpen`): full height down the right edge, beside the page
+  while spine, sheet and drawer all fit (`deskFit`: the sheet centred between them, gliding as either comes or goes,
+  `useSheetGlide`), else over the page's edge; shown and hidden from the top bar's Scene details
+  (`layout/desk/DrawerToggle.tsx`), also from the page head's Scene details and a palette entry per tab. Its colours and materials are `layout/desk/desk.css` (contrast-tested), its app tests
   `tests/e2e/desk.spec.ts`.
 
 ## The editor chat (Ask the world, October 2026)

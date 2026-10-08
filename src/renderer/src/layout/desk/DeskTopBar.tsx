@@ -17,6 +17,7 @@ import { goToStartScreen } from '@/features/start/home'
 import { RenameWorld, useSettingsKey, WorldMenu } from '@/layout/TopBar'
 import { UpdateBanner } from '@/layout/UpdateBanner'
 import { CommandBar } from './CommandBar'
+import { DrawerToggle } from './DrawerToggle'
 import { RoomSwitch } from './RoomSwitch'
 import { StatusIsland } from './StatusIsland'
 
@@ -78,9 +79,13 @@ export function DeskTopBar(): React.JSX.Element {
         </div>
         <KeeperStatus quiet />
         <div className={cn('flex min-w-0 shrink justify-end', 'w-[240px] max-[1600px]:w-[150px] max-[1180px]:w-[104px]',
+            // With Scene details beside it (the writing page), it narrows sooner, so the bar still fits.
+            'group-has-[[data-drawer-toggle]]/bar:max-[1599px]:w-[104px]',
             'group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:w-9')}>
           <CommandBar />
         </div>
+        {/* The scene drawer, shown and hidden from here (on the writing page). */}
+        <DrawerToggle />
         <StatusIsland />
         <FocusButton />
         <IconButton
