@@ -221,3 +221,30 @@ test('drawings: the cast and the places show drawings picked from their words; t
   await expect(win.locator('.scene-prose')).toBeVisible()
   await expect(win.locator('[data-motif-picker]')).toHaveCount(0)
 })
+
+test('on a big screen the home grows to use the window: larger, centred beside the spine, no empty bottom third', async ({ launch }) => {
+  // Adam on his 2560×1440 screen: the home was a small block at the top with the bottom of the window empty. (A window
+  // that big may not fit the screen the tests run on, so the page is zoomed out to give a 2560×1440 page.)
+  const { app, win } = await sampleWorld(launch)
+  await app.evaluate(({ BrowserWindow }) => {
+    const b = BrowserWindow.getAllWindows()[0]
+    b.webContents.setZoomFactor(0.5)
+    b.setContentSize(1280, 720)
+  })
+  await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - 2560)).toBeLessThanOrEqual(3)
+  await win.getByRole('button', { name: 'Story home' }).click()
+  await expect(home(win)).toBeVisible()
+  await expect.poll(async () => Number(await home(win).getAttribute('data-scale'))).toBeGreaterThan(1.2)
+  const view = (await home(win).boundingBox())!
+  const col = (await home(win).getByRole('region', { name: /^Story home:/ }).boundingBox())!
+  const spine = (await win.locator('[data-desk-spine]').boundingBox())!
+  expect(col.width, 'the column uses the width').toBeGreaterThan(1400)
+  // Centred in the room beside the spine, within a few pixels.
+  const left = col.x - (spine.x + spine.width)
+  const right = view.x + view.width - (col.x + col.width)
+  expect(Math.abs(left - right)).toBeLessThan(48)
+  // Its last line (the footer) is in the lower part of the window, and nothing spills.
+  const foot = (await home(win).getByText('No open issues').boundingBox())!
+  expect(foot.y + foot.height).toBeGreaterThan(view.y + view.height * 0.7)
+  expect(await home(win).evaluate((e) => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1)
+})

@@ -1,7 +1,7 @@
-<!-- version: 0.6.38 -->
-What's new in 0.6.38:
+<!-- version: 0.6.39 -->
+What's new in 0.6.39:
 
-- Read aloud gives every character their own voice: their speech, thoughts (read softly), texts, chat and letters. Signs and narration stay with the narrator.
-- A character with no voice gets a fitting studio voice, saved on their page so you can change it.
-- Who says what is worked out more accurately, and survives when you edit other words in the paragraph.
-- Show speakers and tone now says when a line is a thought, message or letter.
+- Setting a character's read-aloud voice is easy to find: it sits near the top of their page, even with read aloud off.
+- A Cast list in Settings > Read aloud shows every character's voice, with Hear, a voice picker and Open page.
+- Give everyone without a voice a voice in one click, with Undo.
+- Click a speaker's name in Show speakers and tone, or in the reading bar, to set their voice.

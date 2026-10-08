@@ -895,11 +895,35 @@
   animation: dz-vt-in 150ms ease-out both !important;
 }
 
-/* A character's read-aloud voice, under who they are (empty while read aloud is off: no gap for it). The facts row's
-   Read-aloud voice scrolls it to the top with a little room above. */
+/* A character's read-aloud voice, under who they are (the read-aloud part's own box, features/readAloud/EntryVoice.tsx,
+   drawn here as one of the dossier's sections: its heading in the dossier's small capitals, no grey box around it). The
+   facts row's Read-aloud voice, a speaker's name and the Cast list bring it into view; it lights for a moment then. */
 [data-arrangement='desk'] .dz-voice-box {
   scroll-margin-top: 24px;
 }
 [data-arrangement='desk'] .dz-voice-box:empty {
   display: none;
+}
+[data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec) {
+  margin: 0 -14px 22px;
+  padding: 6px 14px 14px;
+  border-radius: 12px;
+  background: transparent;
+  scroll-margin-top: 24px;
+}
+[data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec):not(.border-accent\/60) {
+  border-color: transparent;
+}
+[data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec) > div:first-child {
+  height: 24px;
+  margin-bottom: 6px;
+}
+[data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec) h3 {
+  font: 600 11px/16px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+[data-arrangement='desk'] :is(.dz-voice-box, .dz-col) > section[aria-labelledby]:not(.dz-sec) h3 + * {
+  font-size: 12px;
 }
