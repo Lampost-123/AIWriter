@@ -13,7 +13,12 @@
 //   being written: the scene has drafts being written). Picking one puts a whole draft in place of the
 //   scene's text, and the session ends as for Generate; so does anything else that replaces the whole
 //   scene at once and takes the beats with it (a restored snapshot, say).
-// - Switching worlds ends it.
+// - Switching worlds ends it, as does Beat by beat on another scene (one session at a time), but neither
+//   finishes it: its kept marks stay open (marks.ts), as they do when the app closes. Opening the scene again
+//   with no session on carries it on where it was (resumeBeats); Beat by beat on it offers "Carry on from
+//   beat N" first. Finish, Generate and the whole scene replaced close them.
+// - A first beat that failed or brought no words: the next try goes where Adam said (Replace it or Add
+//   below), without asking again (writeNext).
 
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -58,8 +63,9 @@ import {
 import { WORDS_META } from '@/features/goals/wordsMeta'
 import { onRepaired, repairLanded } from '@/features/repair/repairRun'
 import { quietRepairs } from '@/features/repair/marks'
-import { beatSig, newMarks, withPids, withVersion, type SceneBeatMarks } from './marks'
-import { changeMarks, installMarks } from './marksStore'
+import { beatSig, newMarks, resumePoint, withPids, withVersion, type SceneBeatMarks } from './marks'
+import { changeMarks, installMarks, loadMarks } from './marksStore'
+import { redoing } from './redo'
 
 const BUSY = 'A draft is being written into this scene. Stop it first, or wait for it to finish.'
 const NOT_OPEN = 'Open this scene in the editor to write into it.'
@@ -178,10 +184,12 @@ export async function openBeats(sceneId: ID, byKey: boolean): Promise<void> {
   if (opening === sceneId) return
   opening = sceneId
   let beats: string[]
+  let kept: SceneBeatMarks | null
   try {
     // The card's latest beats are saved first.
     await flushAll()
     beats = cardBeats((await api.getScene(sceneId)).card.beats)
+    kept = await loadMarks(sceneId)
   } catch (e) {
     toast((e as Error).message, { tone: 'danger' })
     return
@@ -191,8 +199,14 @@ export async function openBeats(sceneId: ID, byKey: boolean): Promise<void> {
   // Gone to another scene in the meantime.
   if (useApp.getState().sceneId !== sceneId || editorBridge()?.sceneId !== sceneId) return
   if (!beats.length) return ask({ sceneId, kind: 'no-beats', byKey, from: 'button', beats })
-  if (editorBridge()?.hasText()) return ask({ sceneId, kind: 'choose', byKey, from: 'button', beats })
-  begin(sceneId, 'whole', beats, false)
+  const bridgeNow = editorBridge()
+  if (bridgeNow?.hasText()) {
+    // The scene's last session stopped short of its last beat (and its beats are still on the page): it can carry on.
+    const at = bridgeNow.editor ? resumePoint(bridgeNow.editor.state.doc, kept, beats.length) : null
+    const resume = at ? { written: at.written, of: at.of } : undefined
+    return ask({ sceneId, kind: 'choose', byKey, from: 'button', beats, ...(resume ? { resume } : {}) })
+  }
+  begin(sceneId, 'whole', beats, false, null)
 }
 
 const ask = (question: BeatQuestion): void => useBeats.setState({ question })
@@ -200,30 +214,38 @@ const ask = (question: BeatQuestion): void => useBeats.setState({ question })
 /** Closes a question without answering it. */
 export const dismissQuestion = (): void => useBeats.setState({ question: null })
 
-/** "This scene already has text": the beats take its place, or go below it. */
-export function answer(choice: 'replace' | 'add'): void {
+/** "This scene already has text": carry on the scene's last session, or the beats take its place, or go below it. */
+export function answer(choice: 'resume' | 'replace' | 'add'): void {
   const q = useBeats.getState().question
   if (q?.kind !== 'choose') return
   useBeats.setState({ question: null })
   const bridge = editorBridge()
   if (!bridge || bridge.sceneId !== q.sceneId) return void toast(NOT_OPEN)
+  if (choice === 'resume') {
+    void resumeBeats(q.sceneId, { beats: q.beats }).then((ok) => {
+      if (!ok) toast("The beats this scene stopped at aren't on the page any more, so there's nothing to carry on from.")
+    })
+    return
+  }
   // Emptied since the question was asked: there's nothing to replace.
   const filled = bridge.hasText()
   const replace = choice === 'replace' && filled
   const mode: BeatMode = choice === 'add' && filled ? 'below' : 'whole'
+  const start = filled ? choice : null
   const s = useBeats.getState().session
   if (q.from === 'bar' && s?.sceneId === q.sceneId) {
-    patchSession({ mode })
+    patchSession({ mode, start })
     void writeBeat(1, { replace })
-  } else begin(q.sceneId, mode, q.beats, replace)
+  } else begin(q.sceneId, mode, q.beats, replace, start)
   focusBar()
 }
 
 /** A new session on the scene (one at a time), writing its first beat straight away. */
-function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean): void {
+function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean, start: BeatSession['start']): void {
   const worldId = useApp.getState().world?.id
   if (!worldId) return
-  if (useBeats.getState().session) end()
+  // A session on another scene gives way, but stays open there: opening that scene again carries it on.
+  if (useBeats.getState().session) end('elsewhere')
   useBeats.setState({
     session: {
       id: crypto.randomUUID(),
@@ -241,13 +263,18 @@ function begin(sceneId: ID, mode: BeatMode, beats: string[], replace: boolean): 
       current: null,
       retrying: null,
       steer: '',
-      beats
+      beats,
+      start,
+      tried: null
     },
     question: null
   })
   focusBar()
   void writeBeat(1, { replace })
 }
+
+/** Some beat of the session has put words on the page (they may have been taken out since). */
+const landed = (s: BeatSession): boolean => Object.values(s.paragraphs).some((pids) => pids.length > 0)
 
 // ---------- The bar's buttons ----------
 
@@ -259,9 +286,17 @@ export function writeNext(byKey = false): void {
   if (next == null) return
   if (next === 1) {
     const bridge = editorBridge()
-    if (bridge?.sceneId === s.sceneId && bridge.hasText())
+    if (bridge?.sceneId === s.sceneId && bridge.hasText()) {
+      // The first beat failed or brought no words, so nothing of the session is on the page: it goes where Adam
+      // already said (Replace it, or Add below), rather than asking again as if the session had never begun.
+      if (s.start && !landed(s)) {
+        void writeBeat(1, { replace: s.start === 'replace' })
+        focusBar()
+        return
+      }
       return ask({ sceneId: s.sceneId, kind: 'choose', byKey, from: 'bar', beats: s.beats })
-    patchSession({ mode: 'whole' })
+    }
+    patchSession({ mode: 'whole', start: null })
   }
   void writeBeat(next)
   focusBar()
@@ -308,7 +343,9 @@ export const beatBeingWritten = (sceneId: ID): number | null => (run && run.scen
 
 /** The record of the beat the bar is about (the last one on the page): what the AI saw for it. */
 export function showRecord(): void {
-  const id = useBeats.getState().session?.last
+  const s = useBeats.getState().session
+  // With no beat on the page (the first one brought no words, say), the last one tried: its record says why.
+  const id = s?.last ?? s?.tried
   if (id) useApp.getState().navigate({ kind: 'generation', generationId: id })
 }
 
@@ -331,12 +368,18 @@ export function stopBeat(): void {
 
 /** Finish: the session ends and the beats stay as they are. The keyboard goes back into the page. */
 export function finish(): void {
-  end()
+  end('finish')
   requestAnimationFrame(() => editorBridge()?.takeKeyboard())
 }
 
-/** Ends the session (Finish, Generate, the whole scene replaced, another world). The text stays. */
-export function end(): void {
+/**
+ * Ends the session. The text stays. `how`: Adam finished it, or the scene got new text in place of the beats
+ * (Generate, the whole scene replaced), so its kept marks say it is over; or it gave way to another world or another
+ * scene's session ('elsewhere'), and its marks stay open, so opening the scene again carries it on (resumeBeats).
+ */
+function end(how: 'finish' | 'replaced' | 'elsewhere'): void {
+  const s = useBeats.getState().session
+  if (s && how !== 'elsewhere') closeMarks(s)
   const r = run
   run = null
   if (r) {
@@ -615,7 +658,88 @@ function note(r: Run): void {
 /** The scene's kept marks as this session has them: a new session's take the place of the last one's (once it writes). */
 function sessionMarks(m: SceneBeatMarks | null, s: BeatSession): SceneBeatMarks {
   const base = m?.sessionId === s.id ? m : newMarks(s.sceneId, s.id, s.beats.length, s.mode)
-  return base.mode === s.mode && base.of === s.beats.length ? base : { ...base, mode: s.mode, of: s.beats.length }
+  // Open while the session is on (until Finish), so a restart carries it on.
+  return base.mode === s.mode && base.of === s.beats.length && base.open
+    ? base
+    : { ...base, mode: s.mode, of: s.beats.length, open: true }
+}
+
+/** The session is over (Finish, or new text in place of its beats): its kept marks stay for the markers, but closed. */
+function closeMarks(s: BeatSession): void {
+  changeMarks(s.sceneId, (m) => (m?.sessionId === s.id && m.open ? { ...m, open: false } : m))
+}
+
+/**
+ * Carries on the scene's last beat by beat session from its kept marks (resume): the beats on the page, which record
+ * wrote each, the last one's version showing (and whether it stopped part-way), with an empty note box. Asked from
+ * "This scene already has text" (Carry on from beat N), or `auto` when the scene opens with no session on and its last
+ * session didn't Finish. Null-safe: false when there is nothing to carry on (no beat on the page, or every beat is).
+ */
+export async function resumeBeats(sceneId: ID, o: { beats?: string[]; auto?: boolean } = {}): Promise<boolean> {
+  install()
+  if (useBeats.getState().session?.sceneId === sceneId) return true
+  const worldId = useApp.getState().world?.id
+  if (!worldId) return false
+  let saved: SceneBeatMarks | null
+  let beats: string[]
+  try {
+    saved = await loadMarks(sceneId)
+    if (o.auto && !saved?.open) return false
+    beats = o.beats ?? cardBeats((await api.getScene(sceneId)).card.beats)
+  } catch {
+    return false
+  }
+  /** Still on the scene, in the same world, with its page showing and nothing being written into it. */
+  const here = (): Editor | null => {
+    const bridge = editorBridge()
+    const app = useApp.getState()
+    if (app.world?.id !== worldId || app.sceneId !== sceneId || bridge?.sceneId !== sceneId || !bridge.editor) return null
+    if (bridge.busy() || app.activeGeneration?.sceneId === sceneId || redoing(sceneId) != null) return null
+    // Carried on by itself only while no other session is on (one at a time; it waits for Adam then).
+    if (o.auto && useBeats.getState().session) return null
+    return bridge.editor
+  }
+  const ed = here()
+  const at = ed ? resumePoint(ed.state.doc, saved, beats.length) : null
+  if (!ed || !saved || !at) return false
+  // The last beat stopped or was cut off before its end: the bar says so, and the next beat is told.
+  let partWay: ID[] = []
+  if (at.last) {
+    try {
+      const rec = await api.getGeneration(at.last)
+      if (rec.status !== 'complete' || rec.params.cutOff) partWay = [at.last]
+    } catch {
+      // Its record is gone: the beat counts as finished.
+    }
+  }
+  if (!here() || useBeats.getState().session?.sceneId === sceneId) return useBeats.getState().session?.sceneId === sceneId
+  if (useBeats.getState().session) end('elsewhere')
+  marks.clear()
+  const session: BeatSession = {
+    id: saved.sessionId,
+    worldId,
+    sceneId,
+    mode: saved.mode,
+    paragraphs: at.paragraphs,
+    owners: at.owners,
+    partWay,
+    // The scene before the session's first words was kept in its History when they went in.
+    kept: true,
+    written: at.written,
+    last: at.last,
+    below: null,
+    phase: 'paused',
+    current: null,
+    retrying: null,
+    steer: '',
+    beats,
+    start: null,
+    tried: at.last
+  }
+  useBeats.setState({ session, question: null })
+  changeMarks(sceneId, (m) => (m ? sessionMarks(m, session) : m))
+  if (!o.auto) focusBar()
+  return true
 }
 
 /** A version of the beat went into the page (written, or put back with Ctrl+Y): kept with its record and its words' fingerprint. */
@@ -659,6 +783,7 @@ function finishBeat(r: Run, p: AppEvents['generation:done']): void {
     // A beat that brought no words: the note goes back in the box, unless a new one has been typed.
     steer: !r.wrote && !x.steer.trim() && x.current ? x.current.steer : x.steer,
     partWay: partWay ? [...x.partWay, p.generationId] : x.partWay,
+    tried: p.generationId,
     // A beat that finished out of sight below: the bar points to it until it has been seen.
     below: x.below?.writing && r.wrote ? { index: r.index, writing: false } : null
   }))
@@ -750,6 +875,7 @@ function takeOut(r: Run): void {
     steer: (out || !r.wrote) && !x.steer.trim() && x.current ? x.current.steer : x.steer,
     // Put back, it shows as a beat that stopped part-way.
     partWay: r.wrote ? [...x.partWay, id] : x.partWay,
+    tried: id,
     below: null
   }))
   recount()
@@ -876,7 +1002,7 @@ export function watchPage(editor: Editor): () => void {
     if (run && byAdam(transaction)) run.own = true
     const s = useBeats.getState().session
     if (!s || run || editorBridge()?.sceneId !== s.sceneId || !replacesAll(transaction)) return
-    if (s.written > 0 && beatsOnPage(editor.state.doc, s.paragraphs) === 0) end()
+    if (s.written > 0 && beatsOnPage(editor.state.doc, s.paragraphs) === 0) end('replaced')
   }
   // The page scrolled, or the window changed size: the pointer to a beat out of sight follows.
   let look = 0
@@ -1074,10 +1200,10 @@ function install(): void {
   useApp.subscribe((a, prev) => {
     const s = useBeats.getState().session
     if (!s) return
-    if (a.world?.id !== s.worldId) return end()
+    if (a.world?.id !== s.worldId) return end('elsewhere')
     // Generate is writing a new draft of the scene: the session gives way to it.
     const g = a.activeGeneration
-    if (g && g !== prev.activeGeneration && g.sceneId === s.sceneId && g.id !== run?.generationId) return end()
+    if (g && g !== prev.activeGeneration && g.sceneId === s.sceneId && g.id !== run?.generationId) return end('replaced')
     // Another scene while a beat gets ready: it is called off (one being written is stopped by the editor).
     if (a.sceneId !== prev.sceneId && a.sceneId !== s.sceneId && run && !run.generationId) stopBeat()
   })

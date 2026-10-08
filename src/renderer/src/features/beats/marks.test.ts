@@ -17,6 +17,7 @@ import {
   keptAsIs,
   newMarks,
   paragraphsOf,
+  resumePoint,
   withMended,
   withPids,
   withVersion,
@@ -162,5 +163,27 @@ describe('the bands on the page', () => {
     expect(found[1].class).toBe('aw-beat aw-beat-odd aw-beat-last aw-beat-hot')
     expect(found[2].class).toBe('aw-beat aw-beat-even aw-beat-first aw-beat-last aw-beat-stale')
     expect(decorateBeats(s.doc, null).find()).toEqual([])
+  })
+})
+
+describe('carrying on a session from its kept marks', () => {
+  it('starts after the last beat on the page, with each paragraph owned by its version showing', () => {
+    const { s, marks, ids } = threeBeats()
+    // Beat 3 taken out (Ctrl+Z, say): the session stopped at beat 2 of the 4 on the card.
+    const two = s.apply(s.tr.delete(filledParagraphs(s.doc)[3].pos, s.doc.content.size))
+    const at = resumePoint(two.doc, marks, 4)
+    expect(at).toMatchObject({ written: 2, of: 4, last: 'g2' })
+    expect(at?.paragraphs).toEqual(paragraphsOf(marks))
+    expect(at?.owners[ids[0]]).toBe('g1')
+    expect(at?.owners[ids[2]]).toBe('g2')
+    // All three on the page, with four on the card: beat 4 is next.
+    expect(resumePoint(s.doc, marks, 4)?.written).toBe(3)
+  })
+
+  it('has nothing to carry on when every beat on the card is written, none is on the page, or none was kept', () => {
+    const { s, marks } = threeBeats()
+    expect(resumePoint(s.doc, marks, 3)).toBeNull()
+    expect(resumePoint(stateFrom('Adam wrote all of this himself.').doc, marks, 4)).toBeNull()
+    expect(resumePoint(s.doc, null, 4)).toBeNull()
   })
 })
