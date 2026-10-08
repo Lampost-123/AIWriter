@@ -9,37 +9,12 @@ import {
   optionWords,
   readyWords,
   starterCards,
-  stepKind,
-  stepsSummary,
   withBeat,
   withoutBeat
 } from './answerView'
 import { EXAMPLES } from './askWords'
 
-describe('the steps row', () => {
-  it('knows each step by the chat’s own words', () => {
-    expect(stepKind('Reading Ch 2, Sc 1 “The Ford”')).toBe('read')
-    expect(stepKind('Reading the style guide')).toBe('style')
-    expect(stepKind('Looking at the outline')).toBe('outline')
-    expect(stepKind('Searching for “lamp”')).toBe('search')
-    expect(stepKind('Looking up Mara Venn')).toBe('entry')
-    expect(stepKind('Checking the scene’s issues')).toBe('issues')
-    expect(stepKind('Proposing an edit to Ch 1, Sc 1')).toBe('propose')
-    expect(stepKind('Revising change 2')).toBe('propose')
-    expect(stepKind('Asking you a question')).toBe('ask')
-    expect(stepKind('A change that didn’t fit')).toBe('error')
-    expect(stepKind('Looking something up')).toBe('other')
-  })
-
-  it('folds to what was looked at and how long it took', () => {
-    expect(stepsSummary(['Reading Ch 1, Sc 1', 'Looking up Mara', 'Searching for “x”'], 4200)).toBe('Looked at 3 things · 4s')
-    expect(stepsSummary(['Reading Ch 1, Sc 1', 'Proposing an edit to Ch 1, Sc 1'], null)).toBe('Looked at 1 thing')
-    expect(stepsSummary(['Proposing a new chapter'], 2000)).toBe('Proposed changes · 2s')
-    expect(stepsSummary([], 3000)).toBe('From the memory · 3s')
-    // An old answer that looked nothing up has no row.
-    expect(stepsSummary([], null)).toBeNull()
-  })
-
+describe('an answer’s time', () => {
   it('says a time short', () => {
     expect(durationWords(300)).toBe('1s')
     expect(durationWords(59_400)).toBe('59s')

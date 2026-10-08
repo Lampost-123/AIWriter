@@ -553,11 +553,14 @@ export async function startFakeProvider(options = {}) {
     // and name, then its arguments.
     const calls = body.tools?.length ? askToolCalls(system, messages, body.tools, body.tool_choice) : null
     if (calls) {
-      calls.forEach((c, i) => {
+      for (const [i, c] of calls.entries()) {
         const id = `call_fake_${i}_${n}`
         send(chunk({ tool_calls: [{ index: i, id, type: 'function', function: { name: c.name, arguments: '' } }] }))
+        // toolDelayMs: a model slow to write its arguments, so the app shows the call running meanwhile.
+        if (opts.toolDelayMs) await sleep(opts.toolDelayMs)
+        if (closed) return
         for (const p of pieces(JSON.stringify(c.arguments), 3)) send(chunk({ tool_calls: [{ index: i, function: { arguments: p } }] }))
-      })
+      }
       send(chunk({}, 'tool_calls'))
       if (body.usage?.include || body.stream_options?.include_usage) send({ id: 'fake-1', object: 'chat.completion.chunk', model, choices: [], usage })
       send('[DONE]')

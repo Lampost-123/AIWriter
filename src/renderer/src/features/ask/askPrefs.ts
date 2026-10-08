@@ -24,12 +24,35 @@ export interface OptionState {
   aside?: boolean
 }
 
+/** How each answer's tool calls show once it has ended (chat Phase 2b): folded to one line, or always listed. */
+export type ToolsView = 'folded' | 'open'
+
+const TOOLS_KEY = 'aiwrite.ask.tools'
+
+export function lastToolsView(): ToolsView {
+  try {
+    return localStorage.getItem(TOOLS_KEY) === 'open' ? 'open' : 'folded'
+  } catch {
+    return 'folded'
+  }
+}
+
 interface PrefsState {
   density: Density
+  toolsView: ToolsView
   options: Record<string, OptionState>
 }
 
-export const useAskPrefs = create<PrefsState>(() => ({ density: lastDensity(), options: {} }))
+export const useAskPrefs = create<PrefsState>(() => ({ density: lastDensity(), toolsView: lastToolsView(), options: {} }))
+
+export function setToolsView(toolsView: ToolsView): void {
+  useAskPrefs.setState({ toolsView })
+  try {
+    localStorage.setItem(TOOLS_KEY, toolsView)
+  } catch {
+    // Remembering it is only a convenience.
+  }
+}
 
 export function setDensity(density: Density): void {
   useAskPrefs.setState({ density })

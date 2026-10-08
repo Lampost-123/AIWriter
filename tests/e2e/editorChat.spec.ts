@@ -40,7 +40,7 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(card).toContainText('THE TIDE CAME IN OVER THE FLATS.')
     await expect(card).toContainText('The tide came in over the flats.')
     await expect(card).toHaveAttribute('data-status', 'pending')
-    await expect(panel(win).locator('[data-steps]')).toContainText('Reading Ch 1, Sc 1')
+    await expect(panel(win).locator('[data-steps]')).toContainText('Read Ch 1, Sc 1')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
     // The model was offered the tools (by default the chat overhaul's one propose_changes), and was sent the scene it read.
     const sent = fake.lastRequest()!.body as { messages: unknown[]; tools?: { function: { name: string } }[] }
@@ -86,6 +86,64 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await ask(win, 'Pretend stubbornly to tidy the opening')
     await expect(panel(win).locator('[data-no-changes]')).toHaveText('No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.')
     await expect(panel(win).locator('[data-no-changes]')).toHaveCount(1)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('each tool call shows as it happens (running, then ✓), opens to what it was asked; folded once answered, or always open as chosen', async ({
+  launch
+}) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  // A model slow to write each call's arguments, so the call is seen running.
+  const fake = await startFakeProvider({ delayMs: 5, toolDelayMs: 600 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
+
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Please fix the first sentence')
+    const calls = panel(win).getByRole('list', { name: 'Tool calls' })
+    const read = calls.locator('[data-tool="read_scene"]')
+    const propose = calls.locator('[data-tool="propose_changes"]')
+    // While it runs: a row with a spinner, said in the head too; then ✓ with how long it took.
+    await expect(read).toHaveAttribute('data-status', 'running')
+    await expect(panel(win).locator('[data-steps] [data-running]')).toContainText('Reading the scene…')
+    await expect(read).toHaveAttribute('data-status', 'done')
+    await expect(read).toContainText('Read Ch 1, Sc 1')
+    await expect(read).toContainText(/\d\.\ds/)
+    await expect(propose).toHaveAttribute('data-status', 'running')
+    await expect(propose).toHaveAttribute('data-status', 'done')
+    await expect(propose).toContainText('Proposed 1 edit')
+
+    // Answered: folded to one line, which opens the list again.
+    const toggle = panel(win).locator('[data-tools-toggle]')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toContainText('2 tool calls')
+    await expect(calls).toBeHidden()
+    await toggle.click()
+    await expect(calls).toBeVisible()
+    // A row opens to what the call was asked with and what came back.
+    await propose.getByRole('button', { name: /^Proposed 1 edit, done/ }).click()
+    const details = propose.locator('[data-tool-details]')
+    await expect(details).toBeVisible()
+    await expect(details).toContainText('Asked with')
+    await expect(details).toContainText('"changes"')
+    await expect(details).toContainText('Proposed to the writer')
+
+    // Always open, from the ⋯ menu, remembered after a restart (and the calls kept with the chat).
+    await panel(win).getByRole('button', { name: 'Ask panel options' }).click()
+    await win.getByRole('menuitemradio', { name: /^Always open/ }).click()
+    await win.reload()
+    await expect(prose(win)).toBeVisible()
+    if (!(await panel(win).count())) await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await expect(panel(win).locator('[data-tools-toggle]')).toHaveAttribute('aria-expanded', 'true')
+    await expect(panel(win).getByRole('list', { name: 'Tool calls' }).locator('[data-tool="read_scene"]')).toHaveAttribute('data-status', 'done')
   } finally {
     await fake.close()
   }

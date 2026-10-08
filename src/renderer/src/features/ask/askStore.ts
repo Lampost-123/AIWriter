@@ -10,6 +10,7 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { registerDiscarder } from '@/lib/flush'
 import { pickQuestion } from './askChoice'
+import { endedCalls, withCall } from './toolView'
 
 /** A turn as the panel shows it. */
 export interface ShownTurn extends AskTurn {
@@ -132,6 +133,10 @@ function listen(): void {
   onEvent('ask:step', (p) => {
     updateTask(p.taskId, (t) => ({ ...t, steps: [...(t.steps ?? []), p.label] }), p.generationId || undefined)
   })
+  // Each tool call as it starts (running) and ends (chat Phase 2b's tool rows).
+  onEvent('ask:tool', (p) => {
+    updateTask(p.taskId, (t) => ({ ...t, tools: withCall(t.tools, p.call) }), p.generationId || undefined)
+  })
   onEvent('ask:proposals', (p) => {
     updateTask(p.taskId, (t) => ({ ...t, proposals: p.proposals }), p.generationId || undefined)
   })
@@ -152,6 +157,7 @@ function listen(): void {
         error: p.error,
         cost: p.cost,
         cutOff: p.cutOff,
+        tools: endedCalls(t.tools, Date.now()),
         ...(t.startedAt && !t.endedAt ? { endedAt: Date.now() } : {})
       }),
       p.generationId

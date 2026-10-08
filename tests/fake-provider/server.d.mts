@@ -12,6 +12,8 @@ export interface FakeProviderOptions {
   crlf?: boolean
   /** Beat by beat's beats each read differently (by their number), rather than all alike. */
   varyBeats?: boolean
+  /** The editor chat: a pause after each tool call's name before its arguments, in ms (the call shows running). */
+  toolDelayMs?: number
 }
 
 export interface FakeProvider {

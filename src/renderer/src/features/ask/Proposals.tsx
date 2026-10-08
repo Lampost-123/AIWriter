@@ -10,8 +10,22 @@ import type { Proposal } from '@shared/contracts/ask'
 import { KIND_LABELS } from '@shared/fields'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
-import { AlertTriangle, Check, FilePlus2 as FilePlus, ListChecks, NotebookText, PenLine, Sparkles, Type, Undo2 as Undo, type IconType } from '@/components/ui/icons'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleSlash,
+  Feather,
+  FilePlus2 as FilePlus,
+  Pencil,
+  Pilcrow,
+  Scissors,
+  SquareStack,
+  TextCursorInput,
+  Undo2 as Undo,
+  type IconType
+} from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
+import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { applyChanges, declineChange, showScene } from './applyProposal'
@@ -243,16 +257,22 @@ async function apply(generationId: ID, list: Proposal[]): Promise<void> {
   }
 }
 
-const KIND_ICON: Record<Proposal['kind'], IconType> = {
-  text: PenLine,
-  passage: PenLine,
-  card: ListChecks,
-  entry: NotebookText,
-  newEntry: FilePlus,
+const KIND_ICON: Record<Exclude<Proposal['kind'], 'entry' | 'newEntry'>, IconType> = {
+  text: Pencil,
+  passage: Pilcrow,
+  card: SquareStack,
   newScene: FilePlus,
   newChapter: FilePlus,
-  rename: Type,
-  draft: Sparkles
+  rename: TextCursorInput,
+  draft: Feather
+}
+
+/** A change's icon and its tile's ink: an entry's kind in its own ink; a cut, scissors; the rest by what they change. */
+function markOf(p: Proposal): { Icon: IconType; tile: string } {
+  if (p.kind === 'entry' || p.kind === 'newEntry') return { Icon: KIND_ICONS[p.entryKind], tile: KIND_INK[p.entryKind].tile }
+  if (p.kind === 'text' && !p.replace) return { Icon: Scissors, tile: 'bg-danger-soft text-danger' }
+  if (p.kind === 'draft') return { Icon: Feather, tile: 'bg-ai-soft text-ai' }
+  return { Icon: KIND_ICON[p.kind], tile: 'bg-surface-2 text-muted' }
 }
 
 const isWords = (p: Proposal): p is Extract<Proposal, { kind: 'text' | 'passage' }> => p.kind === 'text' || p.kind === 'passage'
@@ -260,7 +280,8 @@ const isWords = (p: Proposal): p is Extract<Proposal, { kind: 'text' | 'passage'
 function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal; locked: boolean }): React.JSX.Element {
   const key = localKey(generationId, p.id)
   const local = useLocal((s) => s[key]) ?? {}
-  const Icon = KIND_ICON[p.kind]
+  const { Icon, tile } = markOf(p)
+  const entryInk = p.kind === 'entry' || p.kind === 'newEntry' ? KIND_INK[p.entryKind] : null
   const stale = p.status === 'pending' && !local.applying && !!local.stale
   const state = local.applying ? 'applying' : stale ? 'stale' : p.status
   return (
@@ -279,15 +300,19 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
       )}
     >
       <div className="mb-1.5 flex h-5 items-center gap-1.5">
-        <Icon size={13} aria-hidden className="shrink-0 text-faint" />
-        <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold uppercase tracking-wide text-faint">{headOf(p)}</span>
+        <span aria-hidden data-change-mark className={cn('flex size-5 shrink-0 items-center justify-center rounded-md', tile)}>
+          <Icon size={12} />
+        </span>
+        <span className={cn('min-w-0 flex-1 truncate text-[11.5px] font-semibold uppercase tracking-wide', entryInk ? entryInk.text : 'text-faint')}>{headOf(p)}</span>
         {p.status === 'applied' ? (
           <span className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-success">
             {/* A draft is started, not applied: its words are written (and kept or undone) in the scene. */}
-            <Check size={13} strokeWidth={2.5} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
+            <CheckCircle2 size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
           </span>
         ) : p.status === 'declined' ? (
-          <span className="shrink-0 text-[12px] text-faint">Set aside</span>
+          <span className="flex shrink-0 items-center gap-1 text-[12px] text-faint">
+            <CircleSlash size={12} aria-hidden /> Set aside
+          </span>
         ) : stale ? (
           <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-danger">
             <AlertTriangle size={12} aria-hidden /> Not found

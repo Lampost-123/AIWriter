@@ -7,7 +7,7 @@ import { useId, useState } from 'react'
 import type { AskChoice } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
-import { Check } from '@/components/ui/icons'
+import { Check, CircleHelp } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { pickChoice, requestBoxFocus, type AskPlace } from './askStore'
 import { pickedOf } from './askChoice'
@@ -50,9 +50,14 @@ export function Choice({
       data-state={answered ? 'answered' : open ? 'open' : 'waiting'}
       className="mt-2.5 animate-fade-in rounded-lg border border-line bg-surface px-3 py-2.5"
     >
-      <p id={headingId} className="break-words text-[13.5px] font-medium leading-snug text-fg">
-        {choice.question}
-      </p>
+      <div className="flex items-start gap-2">
+        <span aria-hidden className="mt-px flex size-5 shrink-0 items-center justify-center rounded-md bg-ai-soft text-ai">
+          <CircleHelp size={12} />
+        </span>
+        <p id={headingId} className="min-w-0 flex-1 break-words text-[13.5px] font-medium leading-snug text-fg">
+          {choice.question}
+        </p>
+      </div>
       {multi && open ? <p className="mt-0.5 text-[12px] text-faint">Pick one or more, then Send.</p> : null}
       <div role="group" aria-labelledby={headingId} className="mt-2 flex flex-col gap-1.5">
         {choice.options.map((o, i) => {

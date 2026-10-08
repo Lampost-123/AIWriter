@@ -11,23 +11,25 @@
 // the same parts can sit in the desk layout's Scene drawer later.
 import * as M from '@radix-ui/react-dropdown-menu'
 import {
+  BadgeCheck,
   BookOpenText,
+  CaseSensitive,
   Check,
+  CornerDownRight,
   History,
   Lightbulb,
   MessagesSquare,
   MoreHorizontal,
   PenLine,
-  Scissors,
-  SearchCheck,
   Send,
+  Shrink,
   Square,
   SquarePen,
   TextQuote,
-  Type,
   X,
   type IconType
 } from '@/components/ui/icons'
+import { LitWindow } from '@/components/ui/LitWindow'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { NamedEntry } from '@shared/contracts/manuscript'
 import { parseAnswer } from '@shared/answerBlocks'
@@ -66,12 +68,13 @@ import { withoutChoice } from './askChoice'
 import { ActionBar } from './ActionBar'
 import { AnswerBlocks } from './AnswerBlocks'
 import { asksForIdeas, followUpsOf, QUICK_ACTIONS, readyWords, starterCards, type StarterCard } from './answerView'
-import { setDensity, useAskPrefs, type Density } from './askPrefs'
+import { setDensity, setToolsView, useAskPrefs, type Density } from './askPrefs'
 import { Choice } from './Choice'
 import { SceneEntries, SourcesRow } from './CiteChip'
 import { instantMotion } from './inputMode'
 import { Proposals } from './Proposals'
-import { StepsTimeline } from './StepsTimeline'
+import { ToolCalls } from './ToolCalls'
+import { runningPhrase } from './toolView'
 
 /** The last request for the box to take the keyboard that was carried out. */
 let focusHandled = 0
@@ -231,8 +234,9 @@ function Header({ storyTitle, onClose, density }: { storyTitle: string | null; o
   )
 }
 
-/** The panel's ⋯ menu: how dense the conversation is (remembered on this computer). */
+/** The panel's ⋯ menu: how dense the conversation is, and whether tool calls show folded (both remembered on this computer). */
 function PanelMenu({ density }: { density: Density }): React.JSX.Element {
+  const toolsView = useAskPrefs((s) => s.toolsView)
   return (
     <M.Root>
       <M.Trigger asChild>
@@ -245,7 +249,7 @@ function PanelMenu({ density }: { density: Density }): React.JSX.Element {
           align="end"
           sideOffset={4}
           collisionPadding={8}
-          className="z-50 w-[220px] max-w-[calc(100vw-16px)] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+          className="z-50 w-[240px] max-w-[calc(100vw-16px)] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
         >
           <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Density</M.Label>
           <M.RadioGroup value={density} onValueChange={(v) => setDensity(v === 'compact' ? 'compact' : 'comfortable')}>
@@ -256,6 +260,28 @@ function PanelMenu({ density }: { density: Density }): React.JSX.Element {
               ] as const
             ).map(([value, label, hint]) => (
               <M.RadioItem key={value} value={value} className={cn(menuItem, 'items-start')}>
+                <span className="mt-0.5 w-4 shrink-0">
+                  <M.ItemIndicator>
+                    <Check size={14} className="text-accent" />
+                  </M.ItemIndicator>
+                </span>
+                <span className="min-w-0">
+                  <span className="block">{label}</span>
+                  <span className="block text-[12px] text-faint">{hint}</span>
+                </span>
+              </M.RadioItem>
+            ))}
+          </M.RadioGroup>
+          <M.Separator className="my-1 h-px bg-line" />
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Show tool calls</M.Label>
+          <M.RadioGroup value={toolsView} onValueChange={(v) => setToolsView(v === 'open' ? 'open' : 'folded')}>
+            {(
+              [
+                ['folded', 'Folded', 'One line over each answer; open it to see each call'],
+                ['open', 'Always open', 'Every call the chat made, listed over its answer']
+              ] as const
+            ).map(([value, label, hint]) => (
+              <M.RadioItem key={value} value={value} className={cn(menuItem, 'items-start')} data-tools-view={value}>
                 <span className="mt-0.5 w-4 shrink-0">
                   <M.ItemIndicator>
                     <Check size={14} className="text-accent" />
@@ -451,9 +477,9 @@ function Conversation({
           </div>
         ) : null}
         {loading ? null : shown.length === 0 ? (
-          <EmptyState onPick={onPick} cast={cast} />
+          <EmptyState onPick={onPick} cast={cast} density={density} />
         ) : (
-          <ol aria-label="Conversation" className={cn('flex flex-col', density === 'compact' ? 'gap-3' : 'gap-5')}>
+          <ol aria-label="Conversation" className={cn('flex flex-col', density === 'compact' ? 'gap-2.5' : 'gap-4')}>
             {shown.map((t, i) => (
               <TurnView
                 key={t.taskId ?? t.generationId}
@@ -478,18 +504,33 @@ function Conversation({
   )
 }
 
-const STARTER_ICONS: Record<StarterCard['kind'], IconType> = { brainstorm: Lightbulb, check: SearchCheck, tighten: Scissors, spelling: Type }
+/** Each kind of question's icon (the starter cards and the quick actions over the box), and its own ink. */
+export const STARTER_ICONS: Record<StarterCard['kind'], IconType> = { brainstorm: Lightbulb, check: BadgeCheck, tighten: Shrink, spelling: CaseSensitive }
+const STARTER_INK: Record<StarterCard['kind'], string> = {
+  brainstorm: 'bg-ai-soft text-ai',
+  check: 'bg-success-soft text-success',
+  tighten: 'bg-accent-soft text-accent',
+  spelling: 'bg-k-gloss-soft text-k-gloss'
+}
+const STARTER_TEXT: Record<StarterCard['kind'], string> = { brainstorm: 'text-ai', check: 'text-success', tighten: 'text-accent', spelling: 'text-k-gloss' }
 
 /**
- * With nothing asked yet: one line on what Ask does, and a card for each kind of question, naming the open scene's
- * people where it has them. A card fills the box, to change or ask as it is.
+ * With nothing asked yet: the app's lit window over still water (the New look, Comfortable only), one line on what Ask
+ * does, and a card for each kind of question, naming the open scene's people where it has them. A card fills the box,
+ * to change or ask as it is.
  */
-function EmptyState({ onPick, cast }: { onPick: (question: string) => void; cast: string[] }): React.JSX.Element {
+function EmptyState({ onPick, cast, density }: { onPick: (question: string) => void; cast: string[]; density: Density }): React.JSX.Element {
   const cards = starterCards(cast, EXAMPLES)
+  const compact = density === 'compact'
   return (
     <div className="px-1 pt-1" data-empty>
+      {compact ? null : (
+        <div className="mb-3 hidden h-[84px] overflow-hidden rounded-xl border border-line look-new:block" data-empty-art>
+          <LitWindow />
+        </div>
+      )}
       <p className="text-[13px] leading-relaxed text-muted">Ask about your world, brainstorm, or ask for an edit. Nothing changes until you say so.</p>
-      <p className="mb-2 mt-4 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Try asking</p>
+      <p className={cn('mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint', compact ? 'mt-3' : 'mt-4')}>Try asking</p>
       <div className="flex flex-col gap-1.5">
         {cards.map((c) => {
           const Icon = STARTER_ICONS[c.kind]
@@ -499,10 +540,13 @@ function EmptyState({ onPick, cast }: { onPick: (question: string) => void; cast
               type="button"
               onClick={() => onPick(c.question)}
               data-starter={c.kind}
-              className="flex w-full min-w-0 items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-left transition-[background-color,border-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus look-new:bg-raise look-new:shadow-e1"
+              className={cn(
+                'flex w-full min-w-0 items-start gap-2.5 rounded-lg border border-line bg-surface px-3 text-left transition-[background-color,border-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus look-new:bg-raise look-new:shadow-e1',
+                compact ? 'py-1.5' : 'py-2'
+              )}
             >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
-                <Icon size={13} aria-hidden />
+              <span className={cn('mt-0.5 flex shrink-0 items-center justify-center rounded-md', compact ? 'size-5' : 'size-6', STARTER_INK[c.kind])}>
+                <Icon size={compact ? 11 : 13} aria-hidden />
               </span>
               <span className="min-w-0">
                 <span className="block text-[11.5px] font-semibold uppercase tracking-wide text-faint">{c.label}</span>
@@ -568,24 +612,34 @@ function TurnView({
   const cost = !streaming && turn.cost != null ? (note.pop() ?? null) : null
   const endNote = note[0] ?? (unanswered ? NO_ANSWER : null)
   const retry = (): void => void ask(turn.question, place, turn.sentWith)
+  const tools = turn.tools ?? []
+  const runningCall = [...tools].reverse().find((c) => c.status === 'running')
   const live = streaming
     ? running?.stopping
       ? 'Stopping…'
       : running?.retrying
         ? 'Retrying…'
-        : turn.steps?.length
-          ? `${turn.steps[turn.steps.length - 1]}…`
+        : runningCall
+          ? `${runningPhrase(runningCall)}…`
           : 'Answering…'
     : null
   const ms = turn.startedAt && turn.endedAt ? turn.endedAt - turn.startedAt : null
   const compact = density === 'compact'
 
   return (
-    <li className="group/turn flex flex-col" data-turn-status={turn.status}>
+    <li
+      className={cn(
+        // A faint rule between one question and its answer and the next, fading at both ends.
+        'group/turn relative flex flex-col first:pt-0 first:before:hidden',
+        'before:pointer-events-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-[linear-gradient(to_right,transparent,var(--line-strong),transparent)] before:opacity-70',
+        compact ? 'pt-2.5' : 'pt-4'
+      )}
+      data-turn-status={turn.status}
+    >
       <div className="flex justify-end">
         <p
           className={cn(
-            'max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg bg-accent-soft text-[13px] leading-relaxed text-fg',
+            'max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg rounded-br-sm bg-accent-soft text-[13px] leading-relaxed text-fg',
             compact ? 'px-2.5 py-1.5' : 'px-3 py-2'
           )}
         >
@@ -593,9 +647,9 @@ function TurnView({
         </p>
       </div>
 
-      {/* What the chat looked at on the way: one row from the start, so nothing under it moves. */}
+      {/* The AI's mark and its tool calls: one row from the start, so nothing under it moves. */}
       <div className={compact ? 'mt-1.5' : 'mt-2.5'}>
-        <StepsTimeline steps={turn.steps ?? []} live={live} ms={ms} />
+        <ToolCalls tools={tools} live={live} ms={ms} compact={compact} />
       </div>
 
       {hasAnswer ? (
@@ -661,9 +715,10 @@ function FollowUps({ questions, onPick, className }: { questions: string[]; onPi
           type="button"
           onClick={() => onPick(q)}
           title="Put this question in the box"
-          className="max-w-full animate-fade-in truncate rounded-full border border-line px-2.5 py-1 text-left text-[12.5px] leading-snug text-muted transition-[background-color,border-color,color] duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+          className="group/next flex max-w-full animate-fade-in items-center gap-1.5 rounded-full border border-line py-1 pl-2 pr-2.5 text-left text-[12.5px] leading-snug text-muted transition-[background-color,border-color,color] duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
         >
-          {q}
+          <CornerDownRight size={12} aria-hidden className="shrink-0 text-faint transition-colors duration-150 group-hover/next:text-accent" />
+          <span className="min-w-0 truncate">{q}</span>
         </button>
       ))}
     </div>
@@ -736,17 +791,21 @@ function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) =
           </button>
         </span>
       ) : !draft.trim() ? (
-        QUICK_ACTIONS.map((q) => (
-          <button
-            key={q.label}
-            type="button"
-            onClick={() => onFill(q.fill)}
-            title={`Start a question: “${q.fill.trim()}…”`}
-            className={cn(chip, 'shrink-0 border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
-          >
-            {q.label}
-          </button>
-        ))
+        QUICK_ACTIONS.map((q) => {
+          const Icon = STARTER_ICONS[q.kind]
+          return (
+            <button
+              key={q.label}
+              type="button"
+              onClick={() => onFill(q.fill)}
+              title={`Start a question: “${q.fill.trim()}…”`}
+              className={cn(chip, 'group/quick shrink-0 border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
+            >
+              <Icon size={11} aria-hidden className={cn('shrink-0', STARTER_TEXT[q.kind])} />
+              {q.label}
+            </button>
+          )
+        })
       ) : (
         <span className="truncate px-1 text-[11.5px] text-faint">Enter to ask · Shift+Enter for a new line</span>
       )}

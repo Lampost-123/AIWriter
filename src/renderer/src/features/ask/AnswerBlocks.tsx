@@ -5,9 +5,11 @@
 import { useId, useState } from 'react'
 import type { AnswerBlock, Verdict } from '@shared/answerBlocks'
 import type { ID } from '@shared/types'
-import { BookOpenText, Check, ChevronRight, CircleDashed, Star, X } from '@/components/ui/icons'
+import { BookmarkPlus, BookOpenText, Check, ChevronRight, CircleDashed, CircleHelp, Lightbulb, ListPlus, MessageCircleMore, Sparkles, Star, X } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
+import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { factParts, leadWords } from './answerView'
+import { rankedLead } from './toolView'
 import { InlineWords, AnswerProse } from './AnswerText'
 import { useAskPrefs, optionKey, setOption, type Density } from './askPrefs'
 import type { AskPlace } from './askStore'
@@ -29,7 +31,7 @@ export interface TurnContext {
 const VERDICTS: Record<Verdict, { label: string; className: string; Icon: typeof Check }> = {
   yes: { label: 'Yes', className: 'bg-success-soft text-success', Icon: Check },
   no: { label: 'No', className: 'bg-danger-soft text-danger', Icon: X },
-  unknown: { label: 'Not in memory yet', className: 'bg-surface-2 text-muted', Icon: CircleDashed }
+  unknown: { label: 'Not in memory yet', className: 'bg-surface-2 text-muted', Icon: CircleHelp }
 }
 
 /** A fact check's verdict, before its lead: Yes, No, or Not in memory yet. */
@@ -64,12 +66,15 @@ function AnswerLead({ block, index, density }: { block: Extract<AnswerBlock, { k
 }
 
 const actionButton =
-  'inline-flex h-6 shrink-0 items-center rounded-md px-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus disabled:pointer-events-none disabled:opacity-40'
+  'inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus disabled:pointer-events-none disabled:opacity-40'
+/** An action's word beside its icon, while the card has room for it (else the icon alone, with its tooltip). */
+const actionWord = 'hidden @[21rem]/opt:inline'
 
 /** One idea: its title, a line on why, and what to do with it (shown on hover or focus, in room kept for it). */
 function OptionCard({
   item,
   number,
+  ranked,
   index,
   turn,
   density,
@@ -77,6 +82,8 @@ function OptionCard({
 }: {
   item: { title: string; why: string }
   number: number
+  /** The answer gives its ideas in an order ("worst first"): the card shows its number. */
+  ranked: boolean
   index: Map<string, LinkTarget>
   turn: TurnContext
   density: Density
@@ -86,7 +93,8 @@ function OptionCard({
   const state = useAskPrefs((s) => s.options[key]) ?? {}
   const [busy, setBusy] = useState(false)
   const name = item.title.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, n: string, s?: string) => s ?? n).replace(/[*_]/g, '')
-  const entry = citedTargets(`${item.title} ${item.why}`, index)[0] ?? turn.firstCited
+  const named = citedTargets(`${item.title} ${item.why}`, index)[0] ?? null
+  const entry = named ?? turn.firstCited
   const sceneId = turn.place.sceneId
   const run = (fn: () => Promise<void>): void => {
     setBusy(true)
@@ -94,29 +102,49 @@ function OptionCard({
   }
   const status = state.aside ? 'aside' : state.usedAsBeat ? 'used' : state.kept ? 'kept' : 'idle'
   const overlay = density === 'compact'
+  const compact = density === 'compact'
+  const kept = !!state.kept && !state.aside
+  // The band's mark: the idea's number when the ideas come in an order, else who or what it is about (its kind's
+  // icon, in its ink), else a plain idea.
+  const Mark = named ? KIND_ICONS[named.kind] : Lightbulb
+  const iconSize = compact ? 11 : 12
   return (
     <li
       data-option-card={number}
       data-state={status}
       className={cn(
-        'group/opt relative rounded-lg border px-3 pt-2.5 transition-[opacity,border-color,background-color] duration-150',
+        '@container/opt group/opt relative overflow-hidden rounded-lg border transition-[opacity,border-color,background-color] duration-150',
         overlay && !state.aside && !state.usedAsBeat ? 'pb-2' : 'pb-1',
         live && 'animate-fade-in',
-        state.kept && !state.aside ? 'border-accent/50 bg-accent-soft/50' : 'border-line bg-surface look-new:bg-raise look-new:shadow-e1',
+        kept ? 'border-accent/50 bg-accent-soft/50' : 'border-line bg-surface look-new:bg-raise look-new:shadow-e1',
         state.aside && 'opacity-55'
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <span className={cn('block break-words text-[13.5px] font-semibold leading-snug text-fg', state.aside && 'line-through decoration-faint')}>
-            <InlineWords text={item.title} index={index} />
+      {/* The head band: a soft tint behind the mark, the title and the star. */}
+      <div data-option-band className={cn('flex items-start gap-2 px-3', compact ? 'pb-1 pt-1.5' : 'pb-1.5 pt-2', kept ? 'bg-accent-soft/70' : 'bg-ai-soft/40')}>
+        {ranked ? (
+          <span
+            data-option-rank={number}
+            className={cn(
+              'mt-px flex shrink-0 items-center justify-center rounded-full bg-ai font-semibold tabular-nums text-ai-fg',
+              compact ? 'size-4 text-[10px]' : 'size-5 text-[11px]'
+            )}
+          >
+            <span className="sr-only">Idea </span>
+            {number}
           </span>
-          {item.why ? (
-            <span className={cn('mt-0.5 block break-words text-[13px] leading-[1.5] text-muted', density === 'compact' && 'truncate')}>
-              <InlineWords text={item.why} index={index} />
-            </span>
-          ) : null}
-        </div>
+        ) : (
+          <span
+            aria-hidden
+            data-option-mark={named ? named.kind : 'idea'}
+            className={cn('mt-px flex shrink-0 items-center justify-center rounded-md', compact ? 'size-4' : 'size-5', named ? KIND_INK[named.kind].tile : 'bg-ai-soft text-ai')}
+          >
+            <Mark size={compact ? 10 : 12} />
+          </span>
+        )}
+        <span className={cn('min-w-0 flex-1 break-words text-[13.5px] font-semibold leading-snug text-fg', state.aside && 'line-through decoration-faint')}>
+          <InlineWords text={item.title} index={index} />
+        </span>
         <button
           type="button"
           aria-pressed={!!state.kept}
@@ -131,6 +159,11 @@ function OptionCard({
           <Star size={13} fill={state.kept ? 'currentColor' : 'none'} />
         </button>
       </div>
+      {item.why ? (
+        <span className={cn('block break-words px-3 text-[13px] leading-[1.5] text-muted', compact ? 'truncate pt-1' : 'pt-1.5')}>
+          <InlineWords text={item.why} index={index} />
+        </span>
+      ) : null}
       {/*
         The buttons' row is always there (room kept), so nothing moves when they show. In Compact there is no room
         kept: they show over the one-line why, on a fade of the card's own colour.
@@ -143,12 +176,14 @@ function OptionCard({
                 'pointer-events-none absolute inset-x-px bottom-px h-7 rounded-b-lg px-1.5 opacity-0 transition-opacity duration-[140ms] group-hover/opt:pointer-events-auto group-hover/opt:opacity-100 group-focus-within/opt:pointer-events-auto group-focus-within/opt:opacity-100',
                 state.kept ? 'bg-accent-soft' : 'bg-surface look-new:bg-raise'
               )
-            : '-ml-1.5 mt-0.5 h-6'
+            : 'mt-0.5 h-6 px-1.5'
         )}
       >
         {state.aside ? (
           <>
-            <span className="px-1.5 text-[12px] text-faint">Set aside</span>
+            <span className="flex items-center gap-1 px-1.5 text-[12px] text-faint">
+              <X size={iconSize} aria-hidden /> Set aside
+            </span>
             <button type="button" className={actionButton} onClick={() => setOption(key, { aside: false })} aria-label={`Bring back “${name}”`}>
               Bring back
             </button>
@@ -173,7 +208,8 @@ function OptionCard({
               aria-label={`Use “${name}” as a beat`}
               onClick={() => sceneId && run(() => addAsBeat(sceneId, key, item.title, item.why))}
             >
-              Use as beat
+              <ListPlus size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>Use as beat</span>
             </button>
             <button
               type="button"
@@ -183,16 +219,19 @@ function OptionCard({
               aria-label={`Save “${name}” to ${entry ? entry.name : 'Lore'}`}
               onClick={() => run(() => saveOption({ title: item.title, why: item.why, entryId: entry?.id ?? null, question: turn.question, place: turn.place }))}
             >
-              Save to entry
+              <BookmarkPlus size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>Save to entry</span>
             </button>
             <button
               type="button"
               className={actionButton}
               disabled={!turn.canAct}
+              title="Ask for more ideas like this one"
               aria-label={`More ideas like “${name}”`}
               onClick={() => moreLike(item.title, turn.place)}
             >
-              More like this
+              <Sparkles size={iconSize} aria-hidden className="shrink-0" />
+              <span className={actionWord}>More like this</span>
             </button>
             <button
               type="button"
@@ -201,7 +240,7 @@ function OptionCard({
               title="Set aside"
               onClick={() => setOption(key, { aside: true, kept: false })}
             >
-              <X size={12} aria-hidden />
+              <X size={iconSize} aria-hidden />
             </button>
           </div>
         )}
@@ -268,6 +307,7 @@ function MoreBlock({ text, index, label, live }: { text: string; index: Map<stri
         className="inline-flex h-6 items-center gap-1 rounded-md px-1 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus"
       >
         <ChevronRight size={12} aria-hidden className={cn('transition-transform duration-150', open && 'rotate-90')} />
+        <MessageCircleMore size={13} aria-hidden className="text-faint" />
         {label}
       </button>
       <div id={id} hidden={!open} className="mt-1 border-l-2 border-line pl-3 text-[13px] leading-[1.6] text-muted">
@@ -296,6 +336,9 @@ export function AnswerBlocks({
 }): React.JSX.Element {
   const gap = density === 'compact' ? 'mt-2' : 'mt-3'
   const hasOptions = blocks.some((b) => b.kind === 'options')
+  // Ideas are numbered only when the lead says they come in an order ("worst first").
+  const lead = blocks.find((b): b is Extract<AnswerBlock, { kind: 'lead' }> => b.kind === 'lead')
+  const ranked = !!lead && rankedLead(lead.text)
   let optionNumber = 0
   return (
     <>
@@ -312,11 +355,18 @@ export function AnswerBlocks({
             const first = optionNumber
             optionNumber += b.items.length
             return (
-              <ol key={i} aria-label="Ideas" data-options className={cn(at, 'flex flex-col', density === 'compact' ? 'gap-1.5' : 'gap-2')}>
-                {b.items.map((it, j) => (
-                  <OptionCard key={j} item={it} number={first + j + 1} index={index} turn={turn} density={density} live={live} />
-                ))}
-              </ol>
+              <div key={i} className={at}>
+                <div aria-hidden className="mb-1.5 flex h-5 items-center gap-1.5 px-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint" data-options-head>
+                  <Lightbulb size={12} className="text-ai" />
+                  {b.items.length === 1 ? 'Idea' : `${b.items.length} ideas`}
+                  {ranked ? <span className="font-normal normal-case tracking-normal">· in order</span> : null}
+                </div>
+                <ol aria-label="Ideas" data-options className={cn('flex flex-col', density === 'compact' ? 'gap-1.5' : 'gap-2')}>
+                  {b.items.map((it, j) => (
+                    <OptionCard key={j} item={it} number={first + j + 1} ranked={ranked} index={index} turn={turn} density={density} live={live} />
+                  ))}
+                </ol>
+              </div>
             )
           }
           case 'facts':
