@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { frameGap, GLIDE_MS, glideStep, ScrollGlide } from './scrollGlide'
+import { frameGap, GLIDE_MS, GLIDE_TOP_SPEED, glideStep, ScrollGlide } from './scrollGlide'
 import { FollowScroll } from './followScroll'
 
 /** A scroller with a height, and frames run by hand at a chosen rate. */
@@ -39,13 +39,30 @@ function run(ms: number, total: number): void {
 
 describe('the glide’s pace', () => {
   it('closes the same share of the gap for the same time, whatever the frame rate', () => {
-    // One 60 Hz frame against two 120 Hz frames.
-    const at60 = glideStep(1000, 1000 / 60)
-    const half = glideStep(1000, 1000 / 120)
-    const at120 = half + glideStep(1000 - half, 1000 / 120)
+    // One 60 Hz frame against two 120 Hz frames (a gap the glide closes below its top speed).
+    const at60 = glideStep(100, 1000 / 60)
+    const half = glideStep(100, 1000 / 120)
+    const at120 = half + glideStep(100 - half, 1000 / 120)
     expect(Math.abs(at60 - at120)).toBeLessThan(0.5)
     // About what the old 18% a frame was at 60 Hz.
-    expect(at60 / 1000).toBeCloseTo(1 - Math.exp(-1000 / 60 / GLIDE_MS), 5)
+    expect(at60 / 100).toBeCloseTo(1 - Math.exp(-1000 / 60 / GLIDE_MS), 5)
+  })
+
+  it('never goes faster than its top speed: far behind, it catches up over several frames', () => {
+    // 1,000 px behind: 20 px a 60 Hz frame, not 169.
+    expect(glideStep(1000, 1000 / 60)).toBeCloseTo(GLIDE_TOP_SPEED * (1000 / 60), 5)
+    expect(glideStep(-1000, 1000 / 60)).toBeCloseTo(-GLIDE_TOP_SPEED * (1000 / 60), 5)
+    // A slow machine's long frame moves further, but no faster.
+    expect(glideStep(1000, 50) / 50).toBeCloseTo(GLIDE_TOP_SPEED, 5)
+    let gap = 1000
+    let frames = 0
+    while (gap > 0.5 && frames < 1000) {
+      gap -= glideStep(gap, 1000 / 60)
+      frames++
+    }
+    // About 50 frames at full speed, then the ease into place: under a second and a half.
+    expect(frames).toBeGreaterThan(45)
+    expect(frames * (1000 / 60)).toBeLessThan(1500)
   })
 
   it('moves at least a pixel, never past the target', () => {
