@@ -261,4 +261,35 @@ describe('migration 4', () => {
     expect(c.kind === 'update' && c.payload.note).toBe('lost her knife')
     db.close()
   })
+
+  it('a world saved before the overhaul (version 2) goes through 3 and 4 with its entries, changes and links whole', () => {
+    const db = new Database(':memory:')
+    db.exec(MIGRATIONS[0])
+    db.exec(MIGRATIONS[1])
+    db.pragma('user_version = 2')
+    db.prepare(
+      `INSERT INTO entries (id, kind, name, created_at, updated_at) VALUES ('e1', 'character', 'Tobin', '2026-01-01', '2026-01-01')`
+    ).run()
+    db.prepare(
+      `INSERT INTO changes (id, entry_id, anchor, kind, payload_json, created_at, updated_at)
+       VALUES ('c1', 'e1', 'baseline', 'update', '{"note":"has a lantern"}', '2026-01-01', '2026-01-01')`
+    ).run()
+    const link = db.prepare(
+      `INSERT INTO source_links (id, fact_kind, fact_id, field, scene_id, scene_version, paragraph_id, start, end, quote, state, created_at, updated_at)
+       VALUES (?, 'change', 'c1', NULL, 's1', 1, 'p1', 0, 6, 'Tobin.', ?, '2026-01-01', ?)`
+    )
+    link.run('l1', 'ok', '2026-01-02')
+    link.run('l2', 'changed', '2026-01-03')
+    expect(migrate(db)).toEqual({ from: 2, to: MIGRATIONS.length })
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length)
+    expect(db.prepare(`SELECT id, name FROM entries`).all()).toEqual([{ id: 'e1', name: 'Tobin' }])
+    const c = mem.getChange(db, 'c1')
+    expect(c.until).toBeUndefined()
+    expect(c.kind === 'update' && c.payload.note).toBe('has a lantern')
+    expect(db.prepare('SELECT id, quote, state, changed_at, checks FROM source_links ORDER BY id').all()).toEqual([
+      { id: 'l1', quote: 'Tobin.', state: 'ok', changed_at: null, checks: 0 },
+      { id: 'l2', quote: 'Tobin.', state: 'changed', changed_at: '2026-01-03', checks: 0 }
+    ])
+    db.close()
+  })
 })
