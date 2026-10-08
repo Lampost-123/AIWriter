@@ -5,7 +5,7 @@
 // (spec, Multi-story rules: "every as-of view uses it too"), and comes back in one call with everything
 // its screen needs. Places are in plain words ("Book 1, Ch 3, Sc 2").
 
-import type { AsOf, AsOfStop, EntryKind, ID } from '../types'
+import type { AsOf, AsOfStop, EntryKind, ID, SceneStatus } from '../types'
 
 export interface WorldViewsApi {
   /**
@@ -67,6 +67,37 @@ export interface TimelinePoint {
   paysOffIds: ID[]
   /** The clashes this point is part of (indexes into Timeline.clashes). */
   clashes: number[]
+  /**
+   * The New look's timeline (UI overhaul). Where the point comes in reading order (0 first): it differs from its place
+   * on the timeline when a scene is told out of order (a flashback).
+   */
+  order: number
+  /**
+   * Its in-world time as when.ts sorts it, [year, calendar, month, day, minute], with null for a part not known; null
+   * for a point with no date that can be placed. The timeline spaces points by it where it can.
+   */
+  key: (number | null)[] | null
+  /** The day its When names, in plain words ("Day 12, Year 3" from "Day 12, Year 3, dusk"); '' when it names none. */
+  dayLabel: string
+  /** The chapter a scene is in; null for an event. */
+  chapterId: ID | null
+  /** A scene's status and words (planned and 0 for an event). */
+  status: SceneStatus
+  words: number
+  /** What the scene card says happens: its goal and its beats (empty for an event). */
+  goal: string
+  beats: string[]
+}
+
+/** A chapter on the timeline, in reading order. */
+export interface TimelineChapter {
+  id: ID
+  storyId: ID
+  /** The story's title. */
+  story: string
+  /** Its number in its story, from 1. */
+  no: number
+  title: string
 }
 
 /** A character in two places on the same in-world day. */
@@ -93,6 +124,8 @@ export interface Timeline {
   points: TimelinePoint[]
   entries: TimelineEntry[]
   clashes: TimelineClash[]
+  /** The chapters its scenes are in, in reading order (the New look's timeline groups scenes by them). */
+  chapters: TimelineChapter[]
 }
 
 // ---------- Relationship map ----------

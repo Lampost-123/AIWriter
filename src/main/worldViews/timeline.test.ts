@@ -63,6 +63,20 @@ describe('the timeline', () => {
     expect(t.points.filter((p) => !p.dated)).toHaveLength(1)
   })
 
+  it('says where each point comes in reading order, its time to space it by, its day, chapter, words and card', () => {
+    // Reading order: the line's, a side story added whole where the walk reaches its end point.
+    const at = (place: string) => t.points.find((p) => p.place === place)!
+    expect(at('Book 1, Ch 1, Sc 1').order).toBeLessThan(at('Book 1, Ch 1, Sc 2').order)
+    expect(new Set(t.points.map((p) => p.order)).size).toBe(t.points.length)
+    expect(at('Book 1, Ch 1, Sc 1')).toMatchObject({ dayLabel: 'Day 1, Year 1', key: [1, null, null, 1, 330], status: 'planned', words: 0 })
+    expect(at('Book 1, Ch 1, Sc 2').key).toEqual([1, null, null, 1, 1110])
+    expect(at('Book 1, Ch 2, Sc 1')).toMatchObject({ key: null, dayLabel: '' })
+    expect(at('Book 1, Ch 1, Sc 1').chapterId).toBe(w.id('b1.c1'))
+    expect(t.points.find((p) => p.kind === 'event')).toMatchObject({ chapterId: null, words: 0, goal: '', beats: [] })
+    // The chapters its scenes are in, in reading order, with their story and number.
+    expect(t.chapters.map((c) => `${c.story} ${c.no}`)).toEqual(['Book 1 1', 'Book 1 2', "Kell's Road 1", 'Book 1 3'])
+  })
+
   it('shows only what the story knows of: events from later stories stay off', () => {
     expect(t.points.some((p) => p.id === w.later.id)).toBe(false)
     expect(timelineOf(w.db, w.id('b2')).points.some((p) => p.id === w.later.id)).toBe(true)

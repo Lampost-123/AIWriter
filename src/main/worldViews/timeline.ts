@@ -16,7 +16,7 @@
 // present in scenes on the same named in-world day whose locations differ. A place inside another (a
 // hall inside the castle) isn't a different place for this.
 import type { Entry, ID } from '@shared/types'
-import type { Timeline, TimelineClash, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
+import type { Timeline, TimelineChapter, TimelineClash, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
 import type { Line, MemoryData, StoryNode, WorldShape } from '../memory/types'
 import type { MemoryStateAll } from '../memory/state'
 import { labeler } from '../memory/line'
@@ -84,7 +84,7 @@ function sideStart(w: Walk, side: StoryNode, hostId: ID): number | undefined {
 
 const joinAnd = (xs: string[]): string => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
 
-interface Draft extends Omit<TimelinePoint, 'dated' | 'day' | 'clashes'> {
+interface Draft extends Omit<TimelinePoint, 'dated' | 'day' | 'clashes' | 'order' | 'key' | 'dayLabel'> {
   /** Step on the line, for events placed where they first exist. */
   step: number
 }
@@ -147,6 +147,11 @@ export function buildTimeline(input: TimelineInput): Timeline {
       locationId: null,
       setsUpIds: [],
       paysOffIds: [],
+      chapterId: null,
+      status: 'planned',
+      words: 0,
+      goal: '',
+      beats: [],
       step
     })
   }
@@ -161,6 +166,8 @@ export function buildTimeline(input: TimelineInput): Timeline {
   const stories = new Map<ID, WhenStory>()
   // How many points there were once each step had been read, for where a side story starts in its host.
   const pointsBy: number[] = []
+  const chapters: TimelineChapter[] = []
+  const chapterSeen = new Set<ID>()
   const push = (d: Draft, story: ID): void => {
     reading.push(d)
     items.push({ text: d.when, story, aside: d.kind === 'event' })
@@ -193,7 +200,24 @@ export function buildTimeline(input: TimelineInput): Timeline {
         locationId: card && isKind(card.locationId, 'place') ? card.locationId : null,
         setsUpIds: joined(card?.setsUpIds ?? [], threads?.opened ?? [], known),
         paysOffIds: joined(card?.paysOffIds ?? [], threads?.resolved ?? [], known),
+        chapterId: step.chapterId,
+        status: card?.status ?? 'planned',
+        words: card?.words ?? 0,
+        goal: (card?.goal ?? '').trim(),
+        beats: (card?.beats ?? []).map((b) => b.trim()).filter(Boolean),
         step: i
+      }
+      if (!chapterSeen.has(step.chapterId)) {
+        chapterSeen.add(step.chapterId)
+        const story = nodes.get(step.storyId)
+        const at = story?.chapters.findIndex((c) => c.id === step.chapterId) ?? -1
+        chapters.push({
+          id: step.chapterId,
+          storyId: step.storyId,
+          story: story?.title.trim() || 'Untitled story',
+          no: at + 1,
+          title: at >= 0 ? story!.chapters[at].title.trim() : ''
+        })
       }
       push(scene, step.storyId)
     }
@@ -218,7 +242,15 @@ export function buildTimeline(input: TimelineInput): Timeline {
       locationId: p.locationId,
       setsUpIds: p.setsUpIds,
       paysOffIds: p.paysOffIds,
-      clashes: []
+      clashes: [],
+      order: i,
+      key: placed[i]?.key ? placed[i]!.key!.map((n) => (Number.isFinite(n) ? n : null)) : null,
+      dayLabel: placed[i] && p.when ? (dayName(p.when) ?? '') : '',
+      chapterId: p.chapterId,
+      status: p.status,
+      words: p.words,
+      goal: p.goal,
+      beats: p.beats
     }
   })
 
@@ -242,7 +274,7 @@ export function buildTimeline(input: TimelineInput): Timeline {
     return e ? [{ id, kind: e.kind, name: e.name.trim() || 'Unnamed', image: e.image ?? null }] : []
   })
 
-  return { storyId, points, entries, clashes }
+  return { storyId, points, entries, clashes, chapters }
 }
 
 /** Characters in two places on the same named day, in timeline order. */
