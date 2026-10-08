@@ -196,6 +196,27 @@ const summaryOptions = (db: DB): SummaryOptions => ({
 })
 
 describe('a scene summary', () => {
+  it('patched after a new opening line reads as the scene now opens, never echoing the prompt’s label (the fake model, as the app tests use it)', async () => {
+    const w = testWorld(1)
+    const [s1] = w.scenes
+    const paras = (opening: string): [string, string][] => [
+      ['p1', opening],
+      ['p2', MARKET],
+      ['p3', CHAPEL_EDITED]
+    ]
+    saveParas(w.db, s1, paras(HARBOUR))
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    expect(kdb.summaryRow(w.db, 'scene', s1)!.text).toMatch(/^This part of the story begins: The harbour lay grey/)
+    saveParas(w.db, s1, paras(`Dawn came grey over the Narrows. ${HARBOUR}`))
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    // It was patched (A3), from the rewritten paragraph alone.
+    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('New or rewritten paragraphs')
+    const text = kdb.summaryRow(w.db, 'scene', s1)!.text
+    expect(text).toMatch(/^This part of the story begins: Dawn came grey over the Narrows\. The harbour lay grey/)
+    expect(text).not.toContain('Summary:')
+    expect(text.match(/This part of the story begins/g)).toHaveLength(1)
+  })
+
   it('isn’t due after a typo or a small edit in a paragraph that names someone', async () => {
     const w = testWorld(1)
     const [s1, s2] = w.scenes
