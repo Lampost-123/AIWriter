@@ -21,6 +21,7 @@ import { Keeper } from './engine'
 import { undoItem } from './undo'
 import { tidyMemory, tidyOnce, TIDY_BATCH, TIDY_KEY } from './tidy'
 import { gatherContextInput } from '../ai/gather'
+import { assembleContext } from '../ai/context'
 import { mustStayTrue } from '../ai/mustStay'
 
 let fake: FakeProvider
@@ -327,6 +328,34 @@ describe('an earlier scene summary', () => {
     expect(one.excerpt).toBeFalsy()
     // Within the ten, it is marked.
     expect(writerMemory(w.db, w.scenes[3]).storySoFar.scenes.find((x) => x.sceneId === s1)!.updating).toBe(true)
+  })
+
+  it('goes into the writer’s story so far (the canon timeline) marked as being updated only within the last ten scenes', async () => {
+    const w = testWorld(12)
+    const [s1] = w.scenes
+    const last = w.scenes[w.scenes.length - 1]
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', MARKET]
+    ])
+    expect(await writeSceneSummary(summaryOptions(w.db), s1, null, 'Ch 1, Sc 1')).toBe(true)
+    const old = kdb.summaryRow(w.db, 'scene', s1)!.text
+    saveParas(w.db, s1, [
+      ['p1', HARBOUR],
+      ['p2', CHAPEL_EDITED]
+    ])
+    const sofar = (sceneId: ID): string =>
+      assembleContext(
+        gatherContextInput(w.db, sceneId, undefined, { prefs: defaultWritingPrefs(), contextLength: 64000, creativity: 'balanced' }),
+        (t) => Math.ceil(t.length / 4)
+      ).blocks.find((b) => b.id === 'story-so-far')!.text
+    // Within the ten: the old summary's opening, then the note.
+    const near = sofar(w.scenes[3])
+    const line = near.split('\n').find((l) => l.includes(old.split(' ').slice(0, 6).join(' ')))!
+    expect(line).toMatch(/\(This summary is being brought up to date[:.]/)
+    // Further back: the old summary, plainly.
+    const far = sofar(last)
+    expect(far).not.toContain('brought up to date')
   })
 })
 

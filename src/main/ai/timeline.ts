@@ -105,18 +105,33 @@ export function timelineMarks(entries: TimelineContext['entries']): Map<string, 
   return out
 }
 
-/** One line of the timeline, with a fuller and a briefer form; `marks` are kept in both. */
+/**
+ * What follows an earlier scene's summary that is being brought up to date (World Memory Overhaul A3: the scene changed
+ * since it was written, and is among the most recent scenes a draft refreshes, memory/scene.ts markUpdating): said in
+ * full, with how the scene now ends when the memory gave it, or briefly. Empty for any other summary. The writer's story
+ * so far, in both its forms (this timeline and ai/context.ts storySoFarText), says it the same way.
+ */
+export function updatingNote(x: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>, brief = false): string {
+  if (!x.updating) return ''
+  if (brief) return ' (This summary is being brought up to date.)'
+  const ends = x.excerpt && clean(x.excerpt) ? ` The scene now ends: “…${clean(x.excerpt)}”` : ''
+  return ` (This summary is being brought up to date: the scene has changed since it was written.${ends})`
+}
+
+/** One line of the timeline, with a fuller and a briefer form; `marks` are kept in both, and `updating` in its own form. */
 interface Part {
   head: string
   detail: string
   brief: string
   marks: string[]
+  updating?: Pick<StorySoFar['scenes'][number], 'updating' | 'excerpt'>
 }
 
 const lineOf = (p: Part, brief: boolean): string => {
   const text = brief ? p.brief : p.detail
   const marks = p.marks.length ? ` [${p.marks.join('; ')}]` : ''
-  return `- ${p.head}${text ? `: ${text}` : ''}${marks}`
+  const note = p.updating ? updatingNote(p.updating, brief) : ''
+  return `- ${p.head}${text ? `: ${text}` : ''}${marks}${note}`
 }
 
 /** The order of this story's chapters (as the story so far gives them: by their summaries and their scenes'). */
@@ -190,7 +205,8 @@ export function timelineText(s: StorySoFar, ctx: TimelineContext, level = 0): st
         head,
         detail: firstWords(x.text, lastScenes.has(x.sceneId) ? WORDS.recent : WORDS.scene),
         brief: firstWords(x.text, WORDS.brief),
-        marks: sceneMarks(x.label)
+        marks: sceneMarks(x.label),
+        updating: x.updating ? { updating: true, excerpt: x.excerpt } : undefined
       })
     }
   }

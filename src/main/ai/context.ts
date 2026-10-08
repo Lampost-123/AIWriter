@@ -88,7 +88,7 @@ import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledW
 import type { RecallInput } from '../retrieval/types'
 import { beatsOnPage, speechSamples } from './repetition'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
-import { TIMELINE_LEVELS, timelineText, type TimelineContext } from './timeline'
+import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile } from './briefingFixes'
 import { withLockLines } from './lockRule'
 import { draftMemoryTags, sentTags, type DraftTag } from './memoryTags'
@@ -1248,9 +1248,7 @@ export const STORY_LEVELS = 6
  * changed since: World Memory Overhaul A3) says so, with how the scene now ends when the memory gave it.
  */
 function sceneLine(x: StorySoFar['scenes'][number]): string {
-  if (!x.updating) return `${x.label}: ${clean(x.text)}`
-  const ends = x.excerpt && clean(x.excerpt) ? ` The scene now ends: “…${clean(x.excerpt)}”` : ''
-  return `${x.label}: ${clean(x.text)} (This summary is being brought up to date: the scene has changed since it was written.${ends})`
+  return `${x.label}: ${clean(x.text)}${updatingNote(x)}`
 }
 /** At each level: how many of the most recent parts (a story, a chapter or a scene) are kept. */
 const RECENT_PARTS = [Infinity, Infinity, Infinity, 6, 2, 1]

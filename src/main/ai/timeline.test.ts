@@ -96,6 +96,25 @@ describe('the canon timeline', () => {
     expect(timelineText(s, ctx(later))).toBe(a)
   })
 
+  it('marks a scene summary being brought up to date, as the prose story so far does, and leaves the others plain', () => {
+    const s = story()
+    const last = s.scenes.length - 1
+    s.scenes[last] = { ...s.scenes[last], updating: true, excerpt: 'and the lamps went out one by one' }
+    s.scenes[last - 1] = { ...s.scenes[last - 1], updating: true }
+    const lines = timelineText(s, ctx())
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+    expect(lines[lines.length - 1]).toContain(
+      '(This summary is being brought up to date: the scene has changed since it was written. The scene now ends: “…and the lamps went out one by one”)'
+    )
+    expect(lines[lines.length - 2]).toContain('(This summary is being brought up to date: the scene has changed since it was written.)')
+    expect(lines.slice(0, -2).some((l) => l.includes('brought up to date'))).toBe(false)
+    // The brief forms say it in a few words, without the excerpt.
+    const brief = timelineText(s, ctx(), 3)
+    expect(brief).toContain('(This summary is being brought up to date.)')
+    expect(brief).not.toContain('lamps went out')
+  })
+
   it('is empty when nothing came before', () => {
     expect(timelineText({ scenes: [], chapters: [], stories: [], series: [], leadsInto: null }, ctx())).toBe('')
   })
