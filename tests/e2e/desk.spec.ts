@@ -1002,6 +1002,8 @@ test('arrival: a room’s pieces arrive the first time it shows, never again; th
   await expect(guide).toBeVisible()
   await expect(win.locator('.desk-sheet [data-desk-guide]')).toHaveCount(1)
   await expect(guide).toContainText('Fill in the scene card')
+  // The empty page's placeholder points at the dock (the desk has no Generate button).
+  await expect(win.locator('.scene-prose p.is-editor-empty').first()).toHaveAttribute('data-placeholder', 'Start writing, or use Draft the scene below.')
   await expect(guide.getByRole('button', { name: 'Open the scene card' })).toBeVisible()
   const [g, head, prose] = [(await guide.boundingBox())!, (await win.locator('[data-page-title]').boundingBox())!, (await win.locator('.scene-prose').boundingBox())!]
   expect(g.y + g.height).toBeLessThanOrEqual(head.y + 1)

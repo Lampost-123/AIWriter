@@ -19,8 +19,11 @@ import { KnownWords } from '@/features/spelling/knownWords'
 import { WordTally } from '@/features/goals/wordTally'
 import { SoundMarks } from '@/features/sounds/soundMarks'
 import { RepairMarks } from '@/features/repair/marks'
+import { deskOn } from '@/features/look/look'
 
 export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
+/** On the desk there is no Generate button: the AI dock below the page offers Draft the scene. */
+export const DESK_PLACEHOLDER = 'Start writing, or use Draft the scene below.'
 
 /**
  * Keeps track of a streaming draft (see streamDoc.ts). Ahead of the undo keys and the history's own
@@ -76,7 +79,7 @@ export function sceneExtensions(): AnyExtension[] {
       underline: false,
       dropcursor: { color: 'var(--accent)', width: 2 }
     }),
-    Placeholder.configure({ placeholder: EDITOR_PLACEHOLDER }),
+    Placeholder.configure({ placeholder: () => (deskOn() ? DESK_PLACEHOLDER : EDITOR_PLACEHOLDER) }),
     StreamTracking,
     // The New look: an amber caret where a streaming draft's words arrive.
     StreamCaret,
