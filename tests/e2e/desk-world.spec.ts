@@ -201,3 +201,127 @@ test('the World room’s other pages open in its frame beside the spine: by kind
   await links.getByRole('button', { name: /^Everything/ }).click()
   await expect(tab(win, 'All')).toHaveAttribute('aria-selected', 'true')
 })
+
+const dossier = (win: Page) => win.getByRole('dialog').filter({ has: win.locator('.dz') })
+const card = (win: Page, name: string) =>
+  gallery(win)
+    .locator('[data-gallery-card]')
+    .filter({ has: win.locator('.g-name, .g-title', { hasText: name }) })
+    .first()
+
+test('a card opens its dossier: its sections, edited where they are shown; Esc goes back with the keyboard on the card', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  await room(win, 'World').click()
+  const ansel = card(win, 'Ansel Crane')
+  await ansel.focus()
+  await win.keyboard.press('Enter')
+  const d = dossier(win)
+  await expect(d).toBeVisible()
+  // The keyboard is on its heading; the gallery and the spine under it are out of reach.
+  await expect(d.getByRole('heading', { level: 2 })).toBeFocused()
+  await expect(gallery(win).locator('xpath=..')).toHaveAttribute('inert', '')
+  await expect(d.getByRole('textbox', { name: 'Name' })).toHaveValue('Ansel Crane')
+  await expect(d.locator('.dz-kicker')).toHaveText(/^Character · in \d+ scenes?$/)
+  await expect(d.locator('.dz-fact', { hasText: 'Role' })).toContainText('Supporting')
+  await expect(d.getByRole('button', { name: /^First appears: / })).toBeVisible()
+  // The room's card stepped out: it became the dossier.
+  await expect(ansel).toHaveAttribute('data-opened', 'true')
+
+  // A section: its words, then Edit turns them into its fields; Done (or Esc in a field) turns them back.
+  const looks = d.locator('[data-dz-section="looks"]')
+  await looks.hover()
+  await looks.getByRole('button', { name: 'Edit looks' }).click()
+  // The keyboard goes to its first field.
+  await expect(looks.getByLabel('Build', { exact: true })).toBeFocused()
+  const eyes = looks.getByLabel('Eyes', { exact: true })
+  await eyes.fill('pale, watchful grey')
+  await win.keyboard.press('Escape')
+  await expect(looks.getByLabel('Eyes', { exact: true })).toHaveCount(0)
+  await expect(looks.getByRole('button', { name: 'Edit looks' })).toBeFocused()
+  // (Esc in a field only finished the editing: the dossier is still open.)
+  await expect(d).toBeVisible()
+  await expect(looks).toContainText('pale, watchful grey')
+  const id = (await ansel.getAttribute('data-gallery-card'))!
+  await expect.poll(async () => (await invoke(win, 'getEntry', id)).fields.eyes).toBe('pale, watchful grey')
+
+  // The name and the one-liner are edited as they stand; the card under the dossier follows.
+  await d.getByRole('textbox', { name: 'Short summary' }).fill('The harbourmaster, who knows everyone')
+  await expect.poll(async () => (await invoke(win, 'getEntry', id)).summary).toBe('The harbourmaster, who knows everyone')
+  await expect(ansel).toContainText('The harbourmaster, who knows everyone')
+
+  // A relationship opens the other entry's dossier in its place.
+  const rel = d.locator('.dz-rel').first()
+  const other = (await rel.locator('.dz-rel-n').textContent())!
+  await rel.click()
+  await expect(dossier(win).getByRole('textbox', { name: 'Name' })).toHaveValue(other)
+
+  // Esc: back to the gallery, the keyboard on that entry's card.
+  await win.locator('body').press('Escape')
+  await expect(dossier(win)).toHaveCount(0)
+  await expect(card(win, other)).toBeFocused()
+  await expect(ansel).not.toHaveAttribute('data-opened', 'true')
+})
+
+test('the dossier does what the entry page does: as of a scene, "Appears in" opens a scene at its words, first appears with Undo, the portrait', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  const iska = (await invoke(win, 'listEntries', 'character')).find((e) => e.name === 'Iska Vey')!
+  // A picture, as the interface gives one.
+  const picture = (await win.evaluate(`(async () => {
+    const canvas = new OffscreenCanvas(240, 240)
+    canvas.getContext('2d').fillRect(0, 0, 240, 240)
+    const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.86 })
+    const res = await window.aiwrite.invoke('setEntryImage', ${JSON.stringify(iska.id)}, { bytes: new Uint8Array(await blob.arrayBuffer()), type: blob.type })
+    if (!res.ok) throw new Error(res.error.message)
+    return res.value.image
+  })()`)) as string
+  await room(win, 'World').click()
+  // The card shows the portrait as its picture; so does the dossier.
+  await expect(card(win, 'Iska Vey').locator('img')).toHaveAttribute('src', picture)
+  await card(win, 'Iska Vey').click()
+  const d = dossier(win)
+  await expect(d).toBeVisible()
+  await expect(d.locator('.dz-portrait img')).toHaveAttribute('src', picture)
+
+  // As of a scene: the slider, and back to editing.
+  await d.getByRole('button', { name: 'View as of a scene' }).click()
+  const slider = d.getByRole('slider', { name: 'As of' })
+  await expect(slider).toBeFocused()
+  await slider.press('Home')
+  await expect(slider).toHaveAttribute('aria-valuetext', /^Start of /)
+  await d.getByRole('button', { name: 'Back to editing' }).click()
+  await expect(d.getByRole('slider', { name: 'As of' })).toHaveCount(0)
+  await expect(d.getByRole('button', { name: 'View as of a scene' })).toBeFocused()
+
+  // Where it first appears, changed and undone.
+  const first = d.getByRole('button', { name: /^First appears: / })
+  const was = (await first.textContent())!.trim()
+  await first.click()
+  const panel = win.getByRole('dialog').filter({ hasText: 'Worked out for you' })
+  await expect(panel).toBeVisible()
+  await panel.getByRole('button', { name: 'Add another point in the story' }).click()
+  await panel.getByRole('combobox').fill('ch 2 sc 2')
+  await win.getByRole('option', { name: /Ch 2, Sc 2/ }).click()
+  await win.keyboard.press('Escape')
+  await expect(d).toBeVisible()
+  await expect.poll(async () => (await invoke(win, 'listFirstExists', iska.id)).length).toBe(2)
+  await win.getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(async () => (await invoke(win, 'listFirstExists', iska.id)).length).toBe(1)
+  await expect(d.getByRole('button', { name: /^First appears: / })).toHaveText(was)
+
+  // "Appears in": a scene opens at the words that name her.
+  const row = d
+    .locator('[data-dz-section="appears"]')
+    .getByRole('button', { name: /Ch \d, Sc \d/ })
+    .last()
+  const quote = ((await row.locator('.italic').textContent()) ?? '').replace(/^“…?|…?”$/g, '')
+  await row.click()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  await expect(dossier(win)).toHaveCount(0)
+  const chosen = (): Promise<string> =>
+    win.evaluate(() => (globalThis as unknown as { getSelection(): { toString(): string } | null }).getSelection()?.toString() ?? '')
+  await expect.poll(chosen).toBe(quote)
+})

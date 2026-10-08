@@ -3,7 +3,7 @@
 // side list, layout/areaLinks.ts), and the page itself on a sheet of paper lying on the lit desk. The rooms are the
 // areas (layout/areas.ts); Settings belongs to none and has its own list inside.
 import * as M from '@radix-ui/react-dropdown-menu'
-import type { ReactNode } from 'react'
+import { createContext, useState, type ReactNode } from 'react'
 import { ChevronDown } from '@/components/ui/icons'
 import { GlidePill } from '@/components/ui/GlidePill'
 import { cn } from '@/lib/cn'
@@ -15,6 +15,12 @@ import { useLinkContext } from '@/layout/AreaList'
 import { useArrival } from './arrival'
 import { GUTTER, useDeskFrame, useSheetGlide } from './deskFit'
 import { spineShowsIn } from './rooms'
+
+/**
+ * Where a page lays something over its whole room (the World room's dossier, over the gallery and its scrim over the
+ * room): an element at the room's frame, outside the sheet (which clips), for a portal. Null until it is there.
+ */
+export const RoomOverlay = createContext<HTMLElement | null>(null)
 
 /** A link in the room's row. */
 function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
@@ -146,6 +152,7 @@ export function RoomFrame({ view, children }: { view: View; children: ReactNode 
   const frame = useDeskFrame()
   const glide = useSheetGlide(frame)
   const clear = spine ? frame.leftMin - GUTTER : 0
+  const [overlay, setOverlay] = useState<HTMLElement | null>(null)
   return (
     <div
       data-desk-room={room ?? 'settings'}
@@ -167,7 +174,10 @@ export function RoomFrame({ view, children }: { view: View; children: ReactNode 
         <div className="h-3 shrink-0" />
       )}
       {/* The page on its sheet of paper. */}
-      <div className="desk-room-sheet relative min-h-0 flex-1 overflow-hidden">{children}</div>
+      <div className="desk-room-sheet relative min-h-0 flex-1 overflow-hidden">
+        <RoomOverlay.Provider value={overlay}>{children}</RoomOverlay.Provider>
+      </div>
+      <div ref={setOverlay} data-room-overlay className="contents" />
     </div>
   )
 }

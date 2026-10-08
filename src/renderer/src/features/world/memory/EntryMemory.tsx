@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react'
+import { Fragment, memo, useCallback, useMemo, type ReactNode } from 'react'
 import { FIELD_GROUPS } from '@shared/fields'
 import type { Entry, ID } from '@shared/types'
 import { api } from '@/lib/api'
@@ -24,6 +24,13 @@ function fieldLabels(kind: Entry['kind']): (key: string) => string {
   return (key) => labels.get(key) ?? key
 }
 
+/** The memory's sections, by id (also the id kept for whether each is open). */
+export type MemorySectionId = 'relationships' | 'knows' | 'changes' | 'appears' | 'history'
+const MEMORY_SECTIONS: MemorySectionId[] = ['relationships', 'knows', 'changes', 'appears', 'history']
+
+/** How a section is drawn around its contents: the entry page's collapsible Section by default. */
+export type MemorySectionWrap = (part: { id: MemorySectionId; title: string; meta: ReactNode; children: ReactNode }) => ReactNode
+
 /**
  * The memory parts of an entry page, as sections under its fields: relationships (or connections)
  * at the start, what a character knows at the start, how it changes over time, the scenes it
@@ -38,7 +45,10 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   open,
   onToggle,
   onOpen,
-  beforeRestore
+  beforeRestore,
+  only,
+  order,
+  wrap
 }: {
   /** The entry as it is on the page now. */
   now: Entry
@@ -52,6 +62,12 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   onToggle: (id: string) => void
   onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void
   beforeRestore: () => Promise<void>
+  /** Only these sections; every one when not given. */
+  only?: MemorySectionId[]
+  /** The order they come in (the usual one when not given). */
+  order?: MemorySectionId[]
+  /** Draws each section (the desk's dossier has its own); the entry page's collapsible Section when not given. */
+  wrap?: MemorySectionWrap
 }): React.JSX.Element {
   const { id, kind } = now
   const name = now.name.trim() || 'Unnamed'
@@ -87,38 +103,52 @@ export const EntryMemorySections = memo(function EntryMemorySections({
   const relCount = relationships.filter((r) => byId.has(r.otherId)).length
   const placeName = useCallback((x: ID) => byId.get(x)?.name.trim() || 'a place that was deleted', [byId])
 
+  const shows = (part: MemorySectionId): boolean => !only || only.includes(part)
+  const draw: MemorySectionWrap =
+    wrap ??
+    (({ id: part, title, meta, children }) => (
+      <Section title={title} meta={meta} open={open.has(part)} onToggle={() => onToggle(part)}>
+        {children}
+      </Section>
+    ))
+  const parts: Record<MemorySectionId, ReactNode> = {
+    relationships: shows('relationships')
+      ? draw({
+          id: 'relationships',
+          title: relationshipsTitle(kind),
+          meta: relCount || null,
+          children: (
+            <RelationshipsSection self={self} adamsEntry={adamsEntry} rows={relationships} data={data} entries={others} places={places} onOpen={onOpen} />
+          )
+        })
+      : null,
+    knows:
+      kind === 'character' && shows('knows')
+        ? draw({
+            id: 'knows',
+            title: 'Knows at the start',
+            meta: split?.knows.length || null,
+            children: <KnowledgeSection self={self} adamsEntry={adamsEntry} rows={split?.knows ?? []} data={data} places={places} />
+          })
+        : null,
+    changes: shows('changes')
+      ? draw({
+          id: 'changes',
+          title: 'Changes over time',
+          meta: items.length || null,
+          children: <ChangesSection name={name} kind={kind} items={items} data={data} places={places} />
+        })
+      : null,
+    appears: shows('appears')
+      ? draw({ id: 'appears', title: 'Appears in', meta: appears.data?.length || null, children: <AppearsSection name={name} kind={kind} data={appears} /> })
+      : null,
+    history: shows('history')
+      ? draw({ id: 'history', title: 'Earlier versions', meta: null, children: <HistorySection now={now} placeName={placeName} beforeRestore={beforeRestore} /> })
+      : null
+  }
   return (
     <>
-      <Section
-        title={relationshipsTitle(kind)}
-        meta={relCount || null}
-        open={open.has('relationships')}
-        onToggle={() => onToggle('relationships')}
-      >
-        <RelationshipsSection
-          self={self}
-          adamsEntry={adamsEntry}
-          rows={relationships}
-          data={data}
-          entries={others}
-          places={places}
-          onOpen={onOpen}
-        />
-      </Section>
-      {kind === 'character' ? (
-        <Section title="Knows at the start" meta={split?.knows.length || null} open={open.has('knows')} onToggle={() => onToggle('knows')}>
-          <KnowledgeSection self={self} adamsEntry={adamsEntry} rows={split?.knows ?? []} data={data} places={places} />
-        </Section>
-      ) : null}
-      <Section title="Changes over time" meta={items.length || null} open={open.has('changes')} onToggle={() => onToggle('changes')}>
-        <ChangesSection name={name} kind={kind} items={items} data={data} places={places} />
-      </Section>
-      <Section title="Appears in" meta={appears.data?.length || null} open={open.has('appears')} onToggle={() => onToggle('appears')}>
-        <AppearsSection name={name} kind={kind} data={appears} />
-      </Section>
-      <Section title="Earlier versions" open={open.has('history')} onToggle={() => onToggle('history')}>
-        <HistorySection now={now} placeName={placeName} beforeRestore={beforeRestore} />
-      </Section>
+      {(order ?? MEMORY_SECTIONS).map((part) => (parts[part] ? <Fragment key={part}>{parts[part]}</Fragment> : null))}
     </>
   )
 })

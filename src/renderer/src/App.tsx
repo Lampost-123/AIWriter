@@ -208,10 +208,10 @@ function useWindowWidth(): { width: number; resizing: boolean } {
 }
 
 /**
- * The desk's World room: Everything (the codex) and each kind's page are one gallery (features/desk/world), so going
- * between them never reloads it.
+ * The desk's World room: Everything (the codex), each kind's page and an entry's dossier over them are one gallery
+ * (features/desk/world), so going between them never reloads it.
  */
-const deskGallery = (view: View): boolean => view.kind === 'codex' || (view.kind === 'entries' && !view.entryId)
+const deskGallery = (view: View): boolean => view.kind === 'codex' || view.kind === 'entries'
 
 /** Which page a view is, on the desk: its kind, with the World room's gallery one page whichever tab shows. */
 const deskPageKey = (view: View): string => (deskGallery(view) ? 'world-gallery' : view.kind)
@@ -329,7 +329,10 @@ function Workspace(): React.JSX.Element {
           // The desk: the story's spine down the left of the writing page (its flyout over the page holds the binder), and
           // of the World room's pages, so the story is a click away from its world.
           spineShowsIn(view) ? (
-            <Spine />
+            // (Under an entry's dossier in the World room, out of the keyboard's way.)
+            <div className="contents" inert={view.kind === 'entries' && !!view.entryId}>
+              <Spine />
+            </div>
           ) : null
         ) : (
           <div data-focus-chrome className="contents" inert={focus}>

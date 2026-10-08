@@ -1,9 +1,9 @@
 import { AlertTriangle, History, Info, Lock, Trash2, WandSparkles, X } from '@/components/ui/icons'
-import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
 import type { BuilderKind } from '@shared/contracts/builder'
-import { Button, Field, IconButton, Input, Select, toast } from '@/components/ui'
+import { Button, Field, IconButton, Input, Select } from '@/components/ui'
 import { AutoTextarea, useFitHeight } from './parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -13,32 +13,29 @@ import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import { useNewLook } from '@/features/look/look'
 import { setAsOfMode, useAsOfMode } from './asOfMode'
 import { EntryAsOfView } from './AsOfView'
-import { confirmSaved, entryReplaced, getDraft, onEntryReplaced, setDraft, takeFresh } from './entryDrafts'
-import { deleteEntryWithUndo, toPatch } from './entryActions'
+import { takeFresh } from './entryDrafts'
 import {
   filledCount,
   findNearDuplicates,
   kindNoun,
-  mergeEntry,
   parentPlaceOptions,
-  saveOverNewer,
   withArticle,
   type NearDuplicate,
   type PlaceOption
 } from './entryLogic'
-import { FirstAppears, homesOf } from './FirstAppears'
+import { FirstAppears } from './FirstAppears'
 import { EntryMemorySections } from './memory/EntryMemory'
 import { MadeByNote, YouWroteNote } from './memory/EntryNotes'
 import { SourceLine, type LineNote } from './memory/SourceLine'
 import { useEntryData } from './memory/useEntryData'
-import { allAdams, fieldOrigin, fieldText, linksFor, notesSource, sourceNote } from './memoryLogic'
-import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
+import { allAdams, fieldOrigin, fieldText, linksFor, sourceNote } from './memoryLogic'
+import { dismissProfile, reachButton, reachNote } from './reachLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
 import { Section } from './parts/Section'
 import { Switch } from './parts/Switch'
 import { CommaListInput } from './parts/TextInputs'
-import { useAutosave } from './parts/useAutosave'
+import { useEntryEditor } from './useEntryEditor'
 import { EntryVoice } from '@/features/readAloud/EntryVoice'
 
 const COPY: Partial<Record<EntryKind, { summary: string; description: string; aliases: string; aliasesHint: string }>> = {
@@ -140,23 +137,9 @@ export interface EntryFormProps {
   onOpen: (e: Pick<Entry, 'id' | 'kind'>) => void
 }
 
-const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
-
-/** The names an entry goes by, as one string: "Appears in" looks for them in the scenes' words. */
-const namesOf = (e: Pick<Entry, 'name' | 'aliases'>): string => [e.name, ...e.aliases].map((n) => n.trim()).join('\n')
-
 /** Whether anything is written in the entry besides its name. */
 const hasWords = (e: Entry): boolean =>
   !!(e.summary.trim() || e.description.trim() || e.aliases.length || e.tags.length || Object.values(e.fields).some((v) => v.trim()))
-
-/** Who an entry's facts come from, as the page last heard from the database. */
-type Ownership = Pick<Entry, 'origin' | 'fieldOrigins' | 'byHand' | 'originSceneId'>
-const ownership = (e: Entry): Ownership => ({
-  origin: e.origin,
-  fieldOrigins: e.fieldOrigins ?? {},
-  byHand: e.byHand,
-  originSceneId: e.originSceneId
-})
 
 /** The form for any kind of entry, with its memory sections underneath. Saves itself as Adam types. */
 export const EntryForm = memo(function EntryForm({
@@ -168,33 +151,14 @@ export const EntryForm = memo(function EntryForm({
   onOpen
 }: EntryFormProps): React.JSX.Element {
   const kind = initial.kind
-  const [draft, setDraftState] = useState(initial)
-  const draftRef = useRef(initial)
-  const liveRef = useRef(onLiveChange)
-  liveRef.current = onLiveChange
   const nameRef = useRef<HTMLTextAreaElement>(null)
   const ids = { notes: useId(), hard: useId() }
-  // Bumped when a list is replaced from outside, so the input that keeps its own text for it starts again.
-  // One each, so a change to the aliases never resets (and takes the cursor out of) the tags.
-  const [rev, setRev] = useState({ aliases: 0, tags: 0 })
-  // Who the entry and its fields come from: kept up to date from each save (an edit makes them Adam's).
-  const [owner, setOwner] = useState(() => ownership(initial))
-  // Where each field came from, as it was when the page opened: those notes stay put while Adam types.
-  const [sources, setSources] = useState(() => initial)
   // Whether AI Write made this entry and Adam hadn't touched it when the page opened (the note's line is kept while open).
   const [madeByAI] = useState(() => initial.origin !== 'adam' && !initial.byHand)
   // Whether Adam made it himself and has written in it: then a note says so (also kept while open), that
   // he wrote it only when none of its fields was drafted by AI (a builder drafts most of them).
   const [madeByAdam] = useState(() => initial.origin === 'adam' && hasWords(initial))
   const [aiDrafted] = useState(() => !allAdams(initial))
-  // The names it goes by as last saved, for reloading "Appears in" when they change.
-  const [savedNames, setSavedNames] = useState(() => namesOf(initial))
-  // The newest saved copy this form knows of (and its time), so a newer one loaded from elsewhere
-  // can be merged with what Adam has typed rather than overwrite it.
-  const base = useRef(initial)
-  const known = useRef(initial.updatedAt)
-  // The profile before Adam's edits that reach other stories, for "Only from <story> on" (see reachLogic.ts).
-  const [reachFrom, setReachFrom] = useState<Profile>(() => profileOf(initial))
 
   const copy = COPY[kind]
   const groups = FIELD_GROUPS[kind] ?? []
@@ -203,107 +167,12 @@ export const EntryForm = memo(function EntryForm({
     () => ['aliases', 'summary', 'description', 'tags', ...groups.flatMap((g) => g.fields.map((f) => f.key))],
     [groups]
   )
-  const noteKeysRef = useRef(noteKeys)
-  noteKeysRef.current = noteKeys
-
-  // Shows a newer saved copy of the entry, with `shown` (that copy, or it merged with Adam's edits) on the page.
-  const adopt = useCallback((saved: Entry, shown: Entry) => {
-    const before = draftRef.current
-    base.current = saved
-    known.current = saved.updatedAt
-    draftRef.current = shown
-    setDraftState(shown)
-    setOwner(ownership(saved))
-    setSavedNames(namesOf(saved))
-    setSources((prev) => notesSource(prev, saved, noteKeysRef.current))
-    // Lists typed as text keep their own words: start one again only when it changed.
-    const aliases = !sameList(before.aliases, shown.aliases)
-    const tags = !sameList(before.tags, shown.tags)
-    if (aliases || tags) setRev((r) => ({ aliases: r.aliases + (aliases ? 1 : 0), tags: r.tags + (tags ? 1 : 0) }))
-    liveRef.current(shown)
-  }, [])
-
-  // A save of Adam's (or a reload) brought a newer copy, say with a field the memory keeper filled in
-  // while he typed: show it, keeping whatever he has typed since `since`.
-  const scheduleRef = useRef<(e: Entry) => void>(() => undefined)
-  const takeNewer = useCallback(
-    (saved: Entry, since: Entry) => {
-      const shown = mergeEntry(since, draftRef.current, saved)
-      // What someone else changed meanwhile is the new starting point, never taken for Adam's edit.
-      const mine = draftRef.current
-      setReachFrom((prev) => rebase(prev, mine, saved))
-      adopt(saved, shown)
-      // Edits still waiting to be saved are sent again on top of the newer copy.
-      if (getDraft(saved.id)) {
-        setDraft(shown)
-        scheduleRef.current(shown)
-      }
-    },
-    [adopt]
-  )
-
-  const autosave = useAutosave<Entry>(
-    async (e) => {
-      // Written over the newest saved copy, so a memory update that landed while Adam typed isn't undone.
-      const { sent, saved } = await saveOverNewer(e, base.current, {
-        get: (id) => api.getEntry(id),
-        put: (x) => api.updateEntry(x.id, toPatch(x))
-      })
-      confirmSaved(e)
-      if (sent !== e) takeNewer(saved, e)
-      else if (saved.updatedAt > known.current) {
-        known.current = saved.updatedAt
-        base.current = saved
-      }
-      setOwner(ownership(saved))
-      setSavedNames(namesOf(saved))
-      useApp.getState().bumpEntries()
-    },
-    { what: draft.name.trim() ? `"${draft.name.trim()}"` : `this ${kindNoun(kind)}` }
-  )
-  const { schedule, cancel, flush } = autosave
-  scheduleRef.current = schedule
-
-  const update = useCallback(
-    (patch: Partial<Entry>) => {
-      const next = { ...draftRef.current, ...patch }
-      draftRef.current = next
-      setDraftState(next)
-      setDraft(next)
-      schedule(next)
-      if ('name' in patch || 'summary' in patch || 'aliases' in patch || 'hardRule' in patch || 'parentId' in patch) liveRef.current(next)
-    },
-    [schedule]
-  )
-
-  // The memory keeper changed this entry while its page was open: show the newer copy, keeping what Adam typed.
-  useEffect(() => {
-    if (initial.id !== draftRef.current.id || initial.updatedAt <= known.current || getDraft(initial.id) === initial) return
-    takeNewer(initial, base.current)
-  }, [initial, takeNewer])
-
-  // An earlier version was brought back (or that was undone): show it, whatever was waiting to be saved.
-  useEffect(
-    () =>
-      onEntryReplaced((e) => {
-        if (e.id !== draftRef.current.id) return
-        cancel()
-        setReachFrom(profileOf(e))
-        adopt(e, e)
-      }),
-    [adopt, cancel]
-  )
-  // Opened from a copy that isn't confirmed saved yet (re-opened before its write
-  // landed, or after a failed write): queue it again so it can't be left unsaved.
-  const opened = useRef(initial)
-  useEffect(() => {
-    const first = opened.current
-    if (getDraft(first.id) === first) schedule(first)
-  }, [schedule])
-
-  const setField = useCallback((key: string, v: string) => update({ fields: { ...draftRef.current.fields, [key]: v } }), [update])
-  const setParent = useCallback((parentId: string | null) => update({ parentId }), [update])
-  const setName = useCallback((name: string) => update({ name }), [update])
+  // Saving as Adam types, newer copies, Undo of a restore, deleting and "Only from <story> on" (useEntryEditor.ts, shared
+  // with the desk's dossier).
+  const editor = useEntryEditor(initial, { onLiveChange, onDeleted, noteKeys })
+  const { draft, draftRef, rev, owner, sources, savedNames, setReachFrom, autosave, takeNewer, base, update, setField, setParent, setName, opened } = editor
+  const { flush } = autosave
+  const { firsts, reach, reaching, keeping, keepFromHere, remove } = editor
 
   // A freshly created entry opens with its name selected, ready to type over (back in editing, if
   // Adam was looking at entries as of a scene).
@@ -338,17 +207,6 @@ export const EntryForm = memo(function EntryForm({
       }),
     [kind]
   )
-
-  const deleting = useRef(false)
-  const remove = async (): Promise<void> => {
-    if (deleting.current) return
-    deleting.current = true
-    // Write any last edit first, so Undo brings back exactly what was on screen.
-    await autosave.flush()
-    autosave.cancel()
-    if (await deleteEntryWithUndo(draftRef.current)) onDeleted(draftRef.current)
-    else deleting.current = false
-  }
 
   const parentOptions = useMemo(() => (kind === 'place' ? parentPlaceOptions(places, draft.id) : []), [kind, places, draft.id])
 
@@ -392,57 +250,6 @@ export const EntryForm = memo(function EntryForm({
         <SourceLine note={note} places={scenePlaces} showAdam className="flex" />
       </>
     )
-  }
-
-  // Where it first appears: shown at the top, and it decides whether an edit reaches other stories.
-  const firsts = useEntryData(() => api.listFirstExists(initial.id), `first:${initial.id}`)
-  const storyId = useApp((s) => s.storyId)
-  const stories = useApp((s) => s.stories)
-  const reach = reachStory(homesOf(firsts.data), storyId, stories)
-  const reaching = reach ? editedKeys(reachFrom, draft) : []
-  const [keeping, setKeeping] = useState(false)
-
-  // Turns the edits since the page opened into a change from the start of the story Adam is in,
-  // and puts the profile back as it was for every story before it.
-  const keepFromHere = async (): Promise<void> => {
-    if (!reach || keeping) return
-    const keys = editedKeys(reachFrom, draftRef.current)
-    if (!keys.length) return
-    setKeeping(true)
-    try {
-      await autosave.flush()
-      const edited = draftRef.current
-      const { entry, change } = await api.keepEditFromStory(initial.id, reach.id, beforeOf(reachFrom, keys))
-      entryReplaced(entry)
-      useApp.getState().bumpEntries()
-      const who = entry.name.trim() || 'it'
-      toast(`From ${reach.title} on, ${who} has the new details. Earlier stories keep what was there before.`, {
-        action: { label: 'Undo', run: () => void undoKeep(change.id, edited, keys) }
-      })
-    } catch (e) {
-      toast(`Couldn't keep that for ${reach.title} only. ${(e as Error).message}`, { tone: 'danger' })
-    } finally {
-      setKeeping(false)
-    }
-  }
-  // Undo: the change goes, and the edits are back on the profile for every story.
-  const undoKeep = async (changeId: ID, edited: Entry, keys: string[]): Promise<void> => {
-    try {
-      await api.deleteChange(changeId)
-      const now = await api.getEntry(initial.id)
-      const fields = { ...now.fields }
-      for (const k of keys) if (k !== 'summary' && k !== 'description') fields[k] = edited.fields[k] ?? ''
-      const saved = await api.updateEntry(initial.id, {
-        ...toPatch(now),
-        summary: keys.includes('summary') ? edited.summary : now.summary,
-        description: keys.includes('description') ? edited.description : now.description,
-        fields
-      })
-      entryReplaced(saved)
-      useApp.getState().bumpEntries()
-    } catch (e) {
-      toast(`Couldn't undo that. ${(e as Error).message}`, { tone: 'danger' })
-    }
   }
 
   const isNew = useNewLook()
@@ -664,7 +471,7 @@ export const EntryForm = memo(function EntryForm({
  * "Only from Book 2 on" to keep it for this story on instead. Floats at the bottom of the page so it
  * is seen wherever the edit was made, and never moves the form.
  */
-function ReachNote({
+export function ReachNote({
   name,
   story,
   busy,
@@ -742,7 +549,7 @@ const ParentSelect = memo(function ParentSelect({
   return <Select id={id} value={value} onChange={onChange} options={options} allowNone noneLabel="Not inside another place" />
 })
 
-function DuplicateHint({
+export function DuplicateHint({
   dups,
   kind,
   onOpen
@@ -813,7 +620,7 @@ const GroupSection = memo(function GroupSection({
   )
 })
 
-const FieldInput = memo(function FieldInput({
+export const FieldInput = memo(function FieldInput({
   def,
   value,
   onField,
