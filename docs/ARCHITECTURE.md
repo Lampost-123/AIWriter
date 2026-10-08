@@ -1696,6 +1696,19 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
 - **Classic can't drift**: `tests/e2e/classic.spec.ts` compares the main screens in Classic, Light and Dark, on the
   sample world, with screenshots taken before the New look began (one set per platform).
 - Contrast: `tests/unit/contrast.test.ts` checks the New look's colours and kind inks in every theme and accent.
+- **The New look's two layouts** (UI overhaul, phase 2; spec notes/ui-overhaul-v2/desk-build-spec.md): Settings ›
+  Appearance › Layout chooses the **desk** or the **panels** (the rail and side list above), kept as `arrangement` and
+  painted as `<html data-arrangement>` (`features/look/look.ts`: `useDesk()`, the `desk:` variant; Classic ignores it).
+  Until the desk is ready for everyone (`DESK_READY` in `src/shared/defaults.ts`, step D3.7) the choice only shows in
+  try-out builds (`AIWRITE_DESK_READY=1`) and app tests pick a layout with `AIWRITE_ARRANGEMENT` (helpers: the panels).
+  The desk places other pieces around the same `<main>` and `SceneView` (App.tsx's Workspace keeps the slots in the same
+  order, so switching never remounts the editor): its top bar (`layout/desk/DeskTopBar.tsx`: rooms = the areas, the
+  command bar, the status island), the story's spine and its flyout holding the binder (`features/desk/spine/`; pinned =
+  `layout.binderOpen`), every other page in its room's frame (`layout/desk/RoomFrame.tsx`, links from
+  `layout/areaLinks.ts`), the page as a sheet with today's toolbar floating at its foot (the AI dock replaces it in
+  phase 3), and the scene panel as a drawer over the page's edge (`layout/desk/SceneDrawer.tsx`; open =
+  `layout.inspectorOpen`). Its colours and materials are `layout/desk/desk.css` (contrast-tested), its app tests
+  `tests/e2e/desk.spec.ts`.
 
 ## The editor chat (Ask the world, October 2026)
 
