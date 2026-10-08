@@ -220,9 +220,9 @@ async function patchCard(sceneId: ID, p: Partial<SceneCard>): Promise<void> {
  * "Use this": the idea fills the card (its line on what happens as the goal, and its beats), and a scene
  * still called "Scene 3" takes the idea's title. On a card Adam has started, his words stay and the
  * idea's beats go after his (ideasLogic.ideaOnCard). Undo in the toast puts the card and title back and
- * shows the ideas again.
+ * shows the ideas again (and calls `onUndo`: the desk's story board takes its "AI idea" tag off).
  */
-export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard): void {
+export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard, opts: { onUndo?: () => void } = {}): void {
   const key = keyOf(sceneId)
   const s = get(key)
   const before: Partial<SceneCard> = { goal: card.goal, beats: card.beats }
@@ -252,6 +252,7 @@ export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard): void {
           if (rename && oldTitle) void renameScene(sceneId, oldTitle)
           const now = get(key)
           if (now && s && now.taskId === s.taskId) put(key, { ...now, hidden: false })
+          opts.onUndo?.()
         }
       }
     }

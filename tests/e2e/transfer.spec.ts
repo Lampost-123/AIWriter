@@ -125,7 +125,7 @@ test('a finished story exports to Word and EPUB cleanly, and to PDF; the series 
   expect(bible).toContain('- **Eyes:** grey')
 })
 
-test('a world exported to a file and imported again is a world of its own, with its scenes and their History; Make a copy too', async ({
+test('a world exported to a file and imported again is a world of its own, with its scenes and their History, and the desk’s drawing choices; Make a copy too', async ({
   launch
 }) => {
   const { app, win, dataDir } = await launch()
@@ -141,6 +141,13 @@ test('a world exported to a file and imported again is a world of its own, with 
   await win.keyboard.press('Control+Enter')
   await expect(toasts(win).getByText('Scene marked done.')).toBeVisible()
   await expect.poll(async () => (await invoke(win, 'listSnapshots', sceneId)).snapshots.map((s) => s.label)).toContain('Marked done')
+
+  // The desk's drawing choices (UI overhaul, D5.4): an entry's drawing and the story's cover, kept in the world.
+  const mara = await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', summary: 'A ferrywoman.' })
+  await invoke(win, 'setEntryMotif', mara.id, 'boat')
+  await invoke(win, 'setStoryCover', story.id, { motif: 'wave', hue: 205 })
+  const art = await invoke(win, 'getArtChoices')
+  expect(art).toEqual({ entries: { [mara.id]: { motif: 'boat', by: 'adam' } }, stories: { [story.id]: { motif: 'wave', hue: 205 } } })
 
   // Export world… from the world menu.
   const file = join(dataDir, 'Reach.aiwrite')
@@ -161,6 +168,8 @@ test('a world exported to a file and imported again is a world of its own, with 
   expect(imported.folder).not.toBe(original.folder)
   await expect(win.locator('.scene-prose')).toContainText('The rain had not stopped since dawn.')
   expect((await invoke(win, 'listSnapshots', sceneId)).snapshots.map((s) => s.label)).toContain('Marked done')
+  // The drawing choices came with it.
+  expect(await invoke(win, 'getArtChoices')).toEqual(art)
   // Its scene has the same id as the one on screen before: the page is loaded from the imported world, so it
   // shows its word count and what is typed is saved there.
   await expect(win.getByRole('banner')).toContainText('7 words')

@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { AREA_OF, AREAS } from './areas'
 
 describe('the New look’s areas', () => {
-  it('puts every screen in exactly one area (Settings in none, at the rail’s foot)', () => {
+  it('puts every screen in exactly one area (Settings in none, at the rail’s foot, and the desk’s story home in none)', () => {
     const ids = AREAS.map((a) => a.id)
+    expect(AREA_OF.board).toBe('plan')
     for (const [kind, area] of Object.entries(AREA_OF)) {
-      if (kind === 'settings') expect(area).toBeNull()
+      if (kind === 'settings' || kind === 'storyHome') expect(area).toBeNull()
       else expect(ids, kind).toContain(area)
     }
   })

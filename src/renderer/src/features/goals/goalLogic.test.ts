@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addWords, dayOf, type DayTally, daysBefore, localDate, parseTarget, sizeNote, streakNote, streakOf, wordsLabel } from './goalLogic'
+import { addWords, dayOf, type DayTally, daysBefore, localDate, parseTarget, sizeNote, streakNote, streakOf, weekOf, wordsLabel } from './goalLogic'
 
 describe('word counts in words', () => {
   it('gives pages and reading time at 250 words each', () => {
@@ -77,5 +77,30 @@ describe('the streak', () => {
     expect(parseTarget('0')).toBeNull()
     expect(parseTarget('1,500')).toBe(1500)
     expect(parseTarget(' 750 ')).toBe(750)
+  })
+})
+
+describe('the week (the desk’s story home)', () => {
+  it('gives the last seven days up to today, oldest first, typed and AI words together', () => {
+    // 2026-10-08 is a Thursday.
+    const week = weekOf(
+      [
+        { date: '2026-10-01', typed: 900, ai: 0 },
+        { date: '2026-10-02', typed: 120, ai: 30 },
+        { date: '2026-10-04', typed: 0, ai: 64 },
+        { date: '2026-10-08', typed: 112, ai: 0 }
+      ],
+      '2026-10-08'
+    )
+    expect(week.map((d) => d.label)).toEqual(['Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Today'])
+    expect(week.map((d) => d.words)).toEqual([150, 0, 64, 0, 0, 0, 112])
+    expect(week[0].date).toBe('2026-10-02')
+    expect(week.filter((d) => d.today).map((d) => d.date)).toEqual(['2026-10-08'])
+  })
+
+  it('crosses a month and a year end', () => {
+    const week = weekOf([{ date: '2025-12-31', typed: 5, ai: 0 }], '2026-01-02')
+    expect(week[0].date).toBe('2025-12-27')
+    expect(week[4]).toMatchObject({ date: '2025-12-31', words: 5, label: 'Wed' })
   })
 })

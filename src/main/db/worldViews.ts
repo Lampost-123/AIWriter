@@ -2,6 +2,7 @@
 // in-world order themselves and never write it into the scene cards; the only thing they keep is where
 // each character sits on the relationship map (in `meta`, so no table of their own).
 import type Database from 'better-sqlite3'
+import type { BoardMarks, BoardSceneCard } from '@shared/contracts/worldViews'
 import type { ID, SceneCard } from '@shared/types'
 import { getMeta, setMeta } from './repo'
 
@@ -21,7 +22,11 @@ export function storyGaps(db: DB): Map<ID, string> {
 }
 
 /** The parts of a scene card the views use. */
-export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds'> & { title: string }
+export type CardInfo = Pick<SceneCard, 'when' | 'povId' | 'presentIds' | 'locationId' | 'setsUpIds' | 'paysOffIds' | 'goal' | 'beats'> & {
+  title: string
+  /** Nothing yet on what happens (no beats, goal, conflict, outcome or notes). */
+  empty: boolean
+}
 
 const ids = (v: unknown): ID[] => (Array.isArray(v) ? v.filter((x): x is ID => typeof x === 'string' && x !== '') : [])
 const id = (v: unknown): ID | null => (typeof v === 'string' && v ? v : null)
@@ -39,7 +44,13 @@ function fieldsOf(json: string): CardFields {
   } catch {
     // A damaged card shows as an empty one rather than hiding the scene.
   }
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const beats = Array.isArray(card.beats) ? card.beats.filter((b): b is string => typeof b === 'string') : []
+  const goal = text(card.goal)
   return {
+    goal,
+    beats,
+    empty: !beats.some((b) => b.trim()) && ![goal, text(card.conflict), text(card.outcome), text(card.notes)].some((t) => t.trim()),
     when: typeof card.when === 'string' ? card.when : '',
     povId: id(card.povId),
     presentIds: ids(card.presentIds),
@@ -91,4 +102,56 @@ export function writeMapLayout(db: DB, positions: Map<ID, { x: number; y: number
   const out: Record<string, [number, number]> = {}
   for (const [id, p] of positions) out[id] = [p.x, p.y]
   setMeta(db, MAP_LAYOUT_KEY, JSON.stringify(out))
+}
+
+// ---------- The desk's story board ----------
+
+/** Each live scene's card in a story (one query for the story's scenes; the cards as sceneCards reads them). */
+export function storySceneCards(db: DB, storyId: ID): Record<ID, BoardSceneCard> {
+  const rows = db
+    .prepare(
+      'SELECT s.id FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE c.story_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL'
+    )
+    .all(storyId) as Row[]
+  const cards = sceneCards(db)
+  const out: Record<ID, BoardSceneCard> = {}
+  for (const r of rows) {
+    const c = cards.get(r.id as ID)
+    if (!c) continue
+    const { title: _title, ...card } = c
+    out[r.id as ID] = card
+  }
+  return out
+}
+
+/** The `meta` key holding the story board's marks: JSON of { aiIdeas: scene ids }. */
+export const BOARD_KEY = 'desk_board'
+
+/** The story board's marks, with any for scenes that are gone left out. */
+export function readBoardMarks(db: DB): BoardMarks {
+  let saved: unknown
+  try {
+    saved = JSON.parse(getMeta(db, BOARD_KEY) ?? 'null')
+  } catch {
+    saved = null
+  }
+  const ids = saved && typeof saved === 'object' && Array.isArray((saved as BoardMarks).aiIdeas) ? (saved as BoardMarks).aiIdeas.filter((x) => typeof x === 'string') : []
+  return { aiIdeas: liveScenes(db, ids) }
+}
+
+/** Marks a scene as planned from an AI idea, or takes the mark off; marks for scenes that are gone are dropped. */
+export function markAiIdea(db: DB, sceneId: ID, on: boolean): BoardMarks {
+  const now = new Set(readBoardMarks(db).aiIdeas)
+  if (on) now.add(sceneId)
+  else now.delete(sceneId)
+  const marks = { aiIdeas: liveScenes(db, [...now]) }
+  setMeta(db, BOARD_KEY, JSON.stringify(marks))
+  return marks
+}
+
+/** The ids that are live scenes, in the order given. */
+function liveScenes(db: DB, ids: ID[]): ID[] {
+  if (!ids.length) return []
+  const live = new Set((db.prepare('SELECT id FROM scenes WHERE deleted_at IS NULL').all() as Row[]).map((r) => r.id as ID))
+  return ids.filter((x) => live.has(x))
 }

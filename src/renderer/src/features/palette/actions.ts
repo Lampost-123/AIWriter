@@ -44,6 +44,7 @@ import { offerMemory, startImport } from '@/features/importing/importStore'
 import { enterFocus, leaveFocus } from '@/features/look/focusMode'
 import { openSampleWorld } from '@/features/setup/setupStore'
 import { goToStartScreen } from '@/features/start/home'
+import { openStoryHome } from '@/features/desk/home/open'
 import { openRecipes, startMaking } from '@/features/recipes/recipeStore'
 import { showSounds } from '@/features/sounds/soundsStore'
 import { revealCardPart } from './cardReveal'
@@ -372,6 +373,12 @@ export async function runAction(id: ActionId): Promise<void> {
         return
       case 'start-screen':
         goToStartScreen()
+        return
+      case 'story-home':
+        openStoryHome()
+        return
+      case 'story-board':
+        if (a.storyId) useApp.getState().navigate({ kind: 'board', storyId: a.storyId })
         return
       case 'go-recipes':
         openRecipes()

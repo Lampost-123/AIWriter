@@ -43,6 +43,7 @@ import { recallHandlers } from './recall'
 import { repairHandlers } from './repair'
 import { searchModelHandlers } from './searchModel'
 import { chapterCardsHandlers } from './chapterCards'
+import { artHandlers } from './art'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
 
@@ -57,6 +58,8 @@ const all: Handlers<ApiMethod> = {
   ...builderHandlers,
   ...entryViewsHandlers,
   ...worldViewsHandlers,
+  // The desk's drawings and covers (UI overhaul, D5.4)
+  ...artHandlers,
   ...manuscriptHandlers,
   ...searchHandlers,
   ...storiesHandlers,

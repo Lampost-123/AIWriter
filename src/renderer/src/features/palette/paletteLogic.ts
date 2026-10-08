@@ -104,6 +104,8 @@ export type FixedActionId =
   | 'sample-world'
   // The start screen
   | 'start-screen'
+  | 'story-home'
+  | 'story-board'
   | 'go-recipes'
   | 'make-recipe'
   // Writing by hand
@@ -433,6 +435,9 @@ export const ACTIONS: ActionDef[] = [
   { id: 'sample-world', label: 'Explore the sample world', keywords: 'example demo tour try look round gullhaven', away: true },
   // The start screen: every world and story, where Adam left off, and starting something new.
   { id: 'start-screen', label: 'Go to the start screen', also: 'Home', keywords: 'home welcome all worlds stories library list continue left off recently deleted', away: true },
+  // The desk's story home: the book, its chapters on a shelf, where Adam left off.
+  { id: 'story-board', label: 'Story board', keywords: 'plan cards index scenes chapters threads strings pins drag move outline', away: true, when: (c) => hasStory(c) && !!c.desk },
+  { id: 'story-home', label: 'Story home', keywords: 'book cover shelf chapters week threads cast overview left off', away: true, when: (c) => hasStory(c) && !!c.desk },
   // Story recipes
   { id: 'go-recipes', label: 'Story recipes', keywords: 'recipe library structure style shape beats template', away: true },
   { id: 'make-recipe', label: 'Make a recipe from a story', keywords: 'recipe import story book style structure distil', away: true },

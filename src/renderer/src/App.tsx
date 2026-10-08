@@ -67,6 +67,8 @@ import { SceneDrawer } from '@/layout/desk/SceneDrawer'
 import { Spine } from '@/features/desk/spine/Spine'
 import { WorldRoom } from '@/features/desk/world/WorldRoom'
 import { spineShowsIn } from '@/layout/desk/rooms'
+import { StoryHome } from '@/features/desk/home/StoryHome'
+import { StoryBoard } from '@/features/desk/board/StoryBoard'
 import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
@@ -247,6 +249,8 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'import' && <ImportView />}
       {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
       {view.kind === 'recipePlan' && <RecipePlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
+      {/* The desk's story board (the Plan room's front page; only ever opened on the desk). */}
+      {view.kind === 'board' && <StoryBoard key={view.storyId} storyId={view.storyId} chapterId={view.chapterId} ideasFor={view.ideasFor} />}
     </>
   )
 }
@@ -276,7 +280,8 @@ function Workspace(): React.JSX.Element {
   const desk = useDesk()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
-  const writing = view.kind === 'write'
+  // The desk's story home and story board are the desk's own; in the panels and Classic they are the writing page.
+  const writing = view.kind === 'write' || (!desk && (view.kind === 'storyHome' || view.kind === 'board'))
   // Ask the world (milestone 4) shows in this panel too, even with no scene open; so does a chapter's card.
   const chapterCardId = useApp((s) => s.chapterCardId)
   const scenePanel = writing && (!!sceneId || askOpen || !!chapterCardId)
@@ -366,7 +371,10 @@ function Workspace(): React.JSX.Element {
             <SceneView />
           </div>
           {!writing ? (
-            desk ? (
+            desk && view.kind === 'storyHome' ? (
+              // The desk's story home lies straight on the desk, in no room.
+              <StoryHome key={view.storyId} />
+            ) : desk ? (
               // The desk: every other page in its room's frame (its heading, the room's links, the page on a sheet).
               <RoomFrame key={deskPageKey(view)} view={view}>
                 <Pages view={view} desk />

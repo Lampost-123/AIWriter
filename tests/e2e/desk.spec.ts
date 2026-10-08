@@ -136,7 +136,7 @@ test('the top bar: rooms light the page’s room from the palette; the island sa
 
 test('every page opens in its room’s frame without spilling past the window, at 1440×900 and 960×600', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch)
-  const views = ['write', 'codex', 'entries', 'style', 'settings', 'memory', 'timeline', 'map', 'threads', 'story', 'history', 'outline', 'chapter', 'worldBuilder', 'consistency', 'recipes']
+  const views = ['write', 'codex', 'entries', 'style', 'settings', 'memory', 'timeline', 'map', 'threads', 'story', 'history', 'board', 'outline', 'chapter', 'worldBuilder', 'consistency', 'recipes']
   for (const [w, h] of [
     [1440, 900],
     [960, 600]
@@ -181,8 +181,11 @@ async function openView(win: Page, kind: string): Promise<void> {
       return palette('story settings')
     case 'history':
       return palette('scene history')
-    case 'outline':
+    case 'board':
       return room(win, 'Plan').click()
+    case 'outline':
+      await room(win, 'Plan').click()
+      return win.locator('[data-desk-room]').getByRole('button', { name: 'Outline helper' }).click()
     case 'chapter':
       await room(win, 'Plan').click()
       await win.locator('[data-desk-room]').getByRole('button', { name: /Plan a chapter/ }).click()
