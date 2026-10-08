@@ -278,7 +278,7 @@ export async function castFromStudio(o: CastOptions, entryIds: ID[]): Promise<ID
       const now = getEntryReadAloud(o.db, e.id)
       // Picked meanwhile: theirs stays.
       if (now.voice.voice.trim()) continue
-      setEntryReadAloud(o.db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } })
+      setEntryReadAloud(o.db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } }, { auto: true })
       cast.push(e.id)
     } catch (err) {
       console.warn('Could not save a studio voice', err)
@@ -318,7 +318,7 @@ export function castVoiceless(db: DB, voices: StudioVoice[], narrator: string, e
       const id = picks[e.id]
       if (!id) continue
       const now = getEntryReadAloud(db, e.id)
-      setEntryReadAloud(db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } })
+      setEntryReadAloud(db, e.id, { ...now, voice: { design: now.voice.design, voice: studioClip(id) } }, { auto: true })
       cast.push(e.id)
     }
     return cast

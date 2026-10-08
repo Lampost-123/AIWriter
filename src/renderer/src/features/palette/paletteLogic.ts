@@ -84,6 +84,8 @@ export type FixedActionId =
   | 'show-speakers'
   | 'hide-speakers'
   | 'settings-speech'
+  | 'read-aloud-cast'
+  | 'character-voice'
   | 'world-builder'
   // Milestone 5
   | 'check-scene'
@@ -156,6 +158,8 @@ export interface ActionContext {
   showBeats?: boolean
   /** The desk is on screen (the New look's desk layout): its AI dock's actions show. */
   desk?: boolean
+  /** The character whose page is open, if one is. */
+  character?: { id: string; name: string } | null
 }
 
 export interface ActionDef {
@@ -171,6 +175,8 @@ export interface ActionDef {
   away?: boolean | ((c: ActionContext) => boolean)
   /** Shown only when it can be done now. */
   when?: (c: ActionContext) => boolean
+  /** Its label for the moment, when it names something ("Set Mara’s voice"); `label` otherwise. */
+  labelFor?: (c: ActionContext) => string
 }
 
 /** True when running the action now takes Adam to another page. */
@@ -380,6 +386,19 @@ export const ACTIONS: ActionDef[] = [
     away: true
   },
   {
+    id: 'read-aloud-cast',
+    label: 'Read-aloud cast',
+    keywords: 'voices characters cast who sounds speak listen narrator give everyone studio',
+    away: true
+  },
+  {
+    id: 'character-voice',
+    label: 'Set this character’s voice',
+    labelFor: (c) => (c.character ? `Set ${c.character.name}’s voice` : 'Set this character’s voice'),
+    keywords: 'read aloud voice sounds speak listen describe accent cast',
+    when: (c) => !!c.character
+  },
+  {
     id: 'world-builder',
     label: 'Build the world from a summary',
     keywords: 'builder ai quick start lay out fill make characters places lore rules premise paste',
@@ -480,7 +499,8 @@ export function entryAction(id: ActionId): { verb: 'go' | 'new'; kind: EntryKind
   return (verb === 'go' || verb === 'new') && ENTRY_KINDS.includes(kind) ? { verb, kind } : null
 }
 
-export const availableActions = (c: ActionContext): ActionDef[] => ACTIONS.filter((a) => !a.when || a.when(c))
+export const availableActions = (c: ActionContext): ActionDef[] =>
+  ACTIONS.filter((a) => !a.when || a.when(c)).map((a) => (a.labelFor ? { ...a, label: a.labelFor(c) } : a))
 
 /**
  * The actions that match what Adam typed: every word must start a word of the action's names or
@@ -518,10 +538,10 @@ const SUGGESTED: ActionId[] = [
 ]
 
 export function suggestedActions(c: ActionContext, max = 6): ActionDef[] {
-  const ok = new Set(availableActions(c).map((a) => a.id))
+  const ok = new Map(availableActions(c).map((a) => [a.id, a]))
   return SUGGESTED.filter((id) => ok.has(id))
     .slice(0, max)
-    .map((id) => ACTIONS.find((a) => a.id === id)!)
+    .map((id) => ok.get(id)!)
 }
 
 // ---------- The list ----------

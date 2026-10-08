@@ -872,7 +872,7 @@ export function Dossier({
                 {about}
                 {/* The read-aloud voice, right under who they are (the facts row's Read-aloud voice comes here). */}
                 <div id={voiceBoxId} className="dz-voice-box" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setVoiceRev((n) => n + 1)}>
-                  <EntryVoice entry={draft} />
+                  <EntryVoice entry={draft} at="top" />
                 </div>
                 {groups.map(groupSection)}
                 <Sec

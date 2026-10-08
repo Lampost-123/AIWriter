@@ -13,14 +13,24 @@ const MAX_PARTS = 3
  * followed by "Narrator" for the dialogue tag.
  */
 export function labelOf(clips: readonly Pick<PlannedClip, 'who' | 'how'>[]): string {
-  const parts: string[] = []
+  const shown = labelParts(clips).map((p) => p.text)
+  return shown.length > MAX_PARTS ? `${shown.slice(0, MAX_PARTS).join('; ')}; …` : shown.join('; ')
+}
+
+/** The parts a label names, in order, each with whose voice it is. */
+function labelParts(clips: readonly Pick<PlannedClip, 'who' | 'how'>[]): { who: string; text: string }[] {
+  const parts: { who: string; text: string }[] = []
   for (const c of clips) {
     const how = c.how.trim()
-    const part = how ? `${c.who} · ${how}` : c.who
-    if (!parts.includes(part)) parts.push(part)
+    const text = how ? `${c.who} · ${how}` : c.who
+    if (!parts.some((p) => p.text === text)) parts.push({ who: c.who, text })
   }
-  const shown = parts.length > 1 ? parts.filter((p) => p !== 'Narrator') : parts
-  return shown.length > MAX_PARTS ? `${shown.slice(0, MAX_PARTS).join('; ')}; …` : shown.join('; ')
+  return parts.length > 1 ? parts.filter((p) => p.text !== 'Narrator') : parts
+}
+
+/** Who a paragraph's label (labelOf) starts with: the first voice it names, or null for none. */
+export function labelSpeaker(clips: readonly Pick<PlannedClip, 'who' | 'how'>[]): string | null {
+  return labelParts(clips)[0]?.who ?? null
 }
 
 /**

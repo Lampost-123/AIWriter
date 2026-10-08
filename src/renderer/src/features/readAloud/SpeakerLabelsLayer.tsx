@@ -3,14 +3,15 @@
 // the scene ('readAloud:marked', as a draft lands or while reading) and a moment after Adam stops typing. Paragraphs
 // with no marks yet (his own words, older scenes, an edit) are marked in the background: as the scene opens, and a
 // few seconds after he stops typing, so a pause mid-sentence doesn't ask the AI. Renders nothing itself. Owned by
-// the Read aloud part.
+// the Read aloud part. A speaker's name in a label opens their read-aloud voice (voiceReveal.ts).
 import type { Editor } from '@tiptap/core'
 import { useEffect } from 'react'
 import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { forPlan, hasWords, pageParagraphs } from './pageText'
-import { setSpeakerLabels, type ShownLabel } from './speakerLabels'
+import { onSpeakerName, setSpeakerLabels, type ShownLabel } from './speakerLabels'
+import { openEntryVoice } from './voiceReveal'
 import './speakerLabels.css'
 
 /** After typing stops, labels are asked for again this much later. */
@@ -24,6 +25,12 @@ export function SpeakerLabelsLayer({ editor, sceneId }: { editor: Editor; sceneI
   const on = useApp((s) => !!s.settings?.speech.showSpeakers)
   // With or without each line's tone, the labels say different things: asked for again when it changes.
   const tone = useApp((s) => !!s.settings?.speech.markSpeakers)
+
+  useEffect(() => {
+    if (!on) return
+    onSpeakerName(openEntryVoice)
+    return () => onSpeakerName(null)
+  }, [on])
 
   useEffect(() => {
     if (!on || !sceneId) {
@@ -44,7 +51,7 @@ export function SpeakerLabelsLayer({ editor, sceneId }: { editor: Editor; sceneI
         const labels = new Map<string, ShownLabel>()
         for (const l of got) {
           const text = sent.get(l.pid)
-          if (text !== undefined) labels.set(l.pid, { text, label: l.label })
+          if (text !== undefined) labels.set(l.pid, { text, label: l.label, ...(l.speaker ? { speaker: l.speaker } : {}) })
         }
         setSpeakerLabels(editor.view, labels)
       } catch (e) {
