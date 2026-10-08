@@ -7,6 +7,7 @@ import { reachedWords } from '@shared/contracts/usage'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
+import { saveProposals } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
 import { fitToRoom, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
@@ -240,6 +241,40 @@ describe('the editor chat tool loop', () => {
     expect(rec.status).toBe('error')
     expect(rec.response).toBe(done.text)
     expect(rec.cost).toBeCloseTo(0.02)
+  })
+
+  it('keeps the finished params on the record: the steps and what extraParams adds, though no setting changed', async () => {
+    const { fetchImpl } = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text('Odile, yes.'), finish('stop')]
+    ])
+    const req = request(fetchImpl, { extraParams: () => ({ intent: 'answer' as const }) })
+    const done = await runTask(req)
+    const params = gens.getGeneration(req.db, done.generationId).params
+    expect(params.steps).toEqual([{ label: 'Used read_scene', tool: 'read_scene', arguments: '{}', result: 'result of a1' }])
+    expect(params.intent).toBe('answer')
+    expect(params.temperature).toBe(0.7)
+  })
+
+  it('keeps proposals as stored (what the writer made of each meanwhile), not as the answer last listed them', async () => {
+    const { fetchImpl } = scripted([
+      [call(0, 'a1', 'propose_changes', '{}'), finish('tool_calls')],
+      [text('Proposed one change.'), finish('stop')]
+    ])
+    const proposal = { id: '1', status: 'pending' as const, why: 'Typo.', kind: 'newChapter' as const, storyId: 's1', title: 'The Ford' }
+    let generationId = ''
+    const req = request(fetchImpl, {
+      run: async (calls) => {
+        // Saved as it comes, then applied by the writer before the answer ends.
+        saveProposals(req.db, generationId, [{ ...proposal, status: 'applied' }])
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'ok' })), steps: [] }
+      },
+      extraParams: () => ({ proposals: [proposal] })
+    })
+    const started = runTask(req)
+    generationId = (req.db.prepare("SELECT id FROM generations WHERE job = 'chat'").get() as { id: string }).id
+    const done = await started
+    expect(gens.getGeneration(req.db, done.generationId).params.proposals).toEqual([{ ...proposal, status: 'applied' }])
   })
 
   it('sends the thinking back with the tool calls it came with, and never shows it (E13)', async () => {

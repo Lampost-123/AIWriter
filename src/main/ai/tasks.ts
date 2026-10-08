@@ -12,6 +12,7 @@ import type { AppEvents } from '@shared/api'
 import type { TaskDone } from '@shared/contracts/tasks'
 import type { AgentStep, ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID, ToolCall, ToolSpec } from '@shared/types'
 import * as gens from '../db/generations'
+import { proposalsOf } from '../db/ask'
 import { reachedWords } from '@shared/contracts/usage'
 import { estimateTokens } from '../keeper/text'
 import { memoryReplyLimits, sentAs } from '../keeper/model'
@@ -497,8 +498,13 @@ async function stream(
       const minPDropped = o.params.min_p != null && (outcome.sentParams.minP === false || !outcome.sentParams.sampling)
       const { min_p: _minP, ...withoutMinP } = o.params
       const used = minPDropped ? (sentAs(withoutMinP, outcome) ?? withoutMinP) : sentAs(o.params, outcome)
-      // The chat overhaul's notes on the answer (a question it ended with, a request made to call a tool) are always kept.
-      const kept = used ?? (cutOff || tags || o.params.choice || o.params.toolChoice ? o.params : undefined)
+      // The editor chat's record always keeps its params as finished: its steps and whatever extraParams added (intent,
+      // the question it ended with, a request made to call a tool), which the record as first saved doesn't have.
+      let kept = used ?? (cutOff || tags || req.agent ? o.params : undefined)
+      // Proposals are kept on the record as they come (db/ask.ts saveProposals), with what Adam made of each since:
+      // those stay as stored, never put back to waiting by the list the answer ended with.
+      const stored = req.agent ? proposalsOf(db, r.generationId) : []
+      if (kept && stored.length) kept = { ...kept, proposals: stored }
       gens.finishGeneration(db, r.generationId, {
         status,
         error,
