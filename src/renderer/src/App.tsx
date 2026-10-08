@@ -24,6 +24,7 @@ import { CodexView } from '@/features/codex/CodexView'
 import { BuilderView } from '@/features/builder/BuilderView'
 import { TimelineView } from '@/features/timeline/TimelineView'
 import { RelationshipMap } from '@/features/map/RelationshipMap'
+import { DeskMap } from '@/features/map/desk/DeskMap'
 import { ThreadsBoard } from '@/features/threads/ThreadsBoard'
 import { StorySettings } from '@/features/stories/StorySettings'
 import { NewStoryDialog } from '@/features/stories/NewStoryDialog'
@@ -233,7 +234,7 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'codex' && <CodexView />}
       {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
       {view.kind === 'timeline' && <TimelineView />}
-      {view.kind === 'map' && <RelationshipMap />}
+      {view.kind === 'map' && (desk ? <DeskMap /> : <RelationshipMap />)}
       {view.kind === 'threads' && <ThreadsBoard />}
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
