@@ -254,7 +254,7 @@ export function StoryHome(): React.JSX.Element {
                 type="button"
                 className="home-build"
                 onClick={() => openBuilder('character')}
-                title="Walk through who they are step by step; the AI can suggest each part"
+                title="Jot down a few notes; the AI asks a few questions, then builds the character for you to look over"
               >
                 <WandSparkles size={13} aria-hidden />
                 Build a character with AI

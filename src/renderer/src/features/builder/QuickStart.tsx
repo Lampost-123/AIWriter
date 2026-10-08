@@ -5,7 +5,7 @@
 // so leaving the screen loses neither. Once a build has saved a character, its notes are done with:
 // they can't be typed in, and Start another clears them for the next one.
 import { Check, Sparkles, Square } from '@/components/ui/icons'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { KIND_LABELS } from '@shared/fields'
 import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import type { Entry } from '@shared/types'
@@ -18,7 +18,11 @@ import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { labelOf, shownValue } from './builderLogic'
 import { DuplicateHint, MarkLine, ProblemNotice, useWorldEntries, WritingStatus } from './parts'
+import { Questions } from './Questions'
 import {
+  askQuestions,
+  backToNotes,
+  buildFromQuestions,
   buildQuickStart,
   openQuickStart,
   sessionKey,
@@ -71,8 +75,8 @@ export function QuickStart({
   kind: BuilderKind
   /** How the builder was opened (with a passage Adam selected in a scene, say). */
   start?: BuilderStart
-  /** Opens the finished profile step by step. */
-  onLookOver: (e: Entry) => void
+  /** Opens the finished profile step by step (at `step`: Review after the follow-up questions). */
+  onLookOver: (e: Entry, step?: string) => void
   /** Walks the steps instead, without the AI building it first. */
   onGuided: () => void
 }): React.JSX.Element {
@@ -96,7 +100,7 @@ function Screen({
 }: {
   kind: BuilderKind
   s: QuickSession
-  onLookOver: (e: Entry) => void
+  onLookOver: (e: Entry, step?: string) => void
   onGuided: () => void
 }): React.JSX.Element {
   const storyId = useApp((st) => st.storyId)
@@ -112,20 +116,23 @@ function Screen({
   const finished = !running && !!done
   // The connection dropped (say) after the entry was saved: what arrived is kept, and the rest can be finished.
   const partSaved = finished && saved && done.status === 'error'
-  // The notes being built from, or that a saved character was built from: not for typing in.
-  const locked = running || (finished && saved)
+  // The follow-up questions, while they are open (not once what they built is saved).
+  const chat = s.chat && !(finished && saved) ? s.chat : null
+  // The notes being built from, asked about, or that a saved character was built from: not for typing in.
+  const locked = running || !!chat || (finished && saved)
   const build = (finish = false): void => void buildQuickStart(kind, storyId, { finish })
+  const next = (): void => void askQuestions(kind, storyId)
   const another = (): void => {
     startAnotherQuickStart(kind)
     notesBox.current?.focus()
   }
 
-  const lookOver = async (): Promise<void> => {
+  const lookOver = async (step?: string): Promise<void> => {
     const id = view.entryId
     if (!id) return
     setOpening(true)
     try {
-      onLookOver(await api.getEntry(id))
+      onLookOver(await api.getEntry(id), step)
     } catch (e) {
       setOpening(false)
       toast(`Couldn’t open it. ${(e as Error).message}`, { tone: 'danger' })
@@ -145,6 +152,14 @@ function Screen({
         : null
   const showProfile = running || Object.keys(view.values).length > 0
 
+  // Built from the notes and the answers: straight on to Review, the finished card.
+  const reviewed = useRef(false)
+  useEffect(() => {
+    if (!s.review || reviewed.current || !done || done.status !== 'complete' || !view.entryId) return
+    reviewed.current = true
+    void lookOver('review')
+  })
+
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-10">
@@ -161,16 +176,21 @@ function Screen({
           </div>
         </div>
         <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
-          {s.sceneId
-            ? `The passage you selected is below; add anything else you know. AI Write builds the whole ${noun} to fit your world and saves it.`
-            : `Type or paste whatever you know, from one line to rough notes. AI Write builds the whole ${noun} to fit your world and saves it.`}{' '}
-          Your own words are kept exactly as you wrote them.
+          {s.sceneId ? 'The passage you selected is below; add anything else you know.' : 'Jot down whatever you know, from one line to rough notes.'}{' '}
+          The AI asks a few short questions, then builds the whole {noun} to fit your world and saves it. Your own words are kept
+          exactly as you wrote them.
         </p>
 
         <div className="mt-5 flex items-end justify-between gap-2">
           <label htmlFor="builder-notes" className="block text-[12px] font-medium text-muted">
             {copy.about}
           </label>
+          <div className="flex-1" />
+          {chat && !running ? (
+            <button type="button" className="qs-change" onClick={() => backToNotes(kind)}>
+              Change my notes
+            </button>
+          ) : null}
           <MicButton
             disabled={locked}
             onText={(t) => notesBox.current && insertIntoBox(notesBox.current, t, (v) => setQuickNotes(kind, v))}
@@ -191,12 +211,24 @@ function Screen({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault()
-              if (!locked) build()
+              if (!locked) next()
             }
           }}
         />
 
-        <div className="mt-3 flex h-10 items-center gap-2">
+        {chat ? (
+          <Questions
+            kind={kind}
+            chat={chat}
+            storyId={storyId}
+            building={running}
+            status={status ?? ''}
+            buildLabel={copy.build}
+            onBuild={() => void buildFromQuestions(kind, storyId)}
+          />
+        ) : null}
+
+        <div className={cn('mt-3 flex h-10 items-center gap-2', chat && 'hidden')}>
           {running ? (
             <>
               <Button
@@ -243,7 +275,16 @@ function Screen({
             </>
           ) : (
             <>
-              <Button variant="ai" size="lg" icon={<Sparkles size={15} />} onClick={() => build()}>
+              <Button
+                variant="ai"
+                size="lg"
+                icon={<Sparkles size={15} />}
+                onClick={next}
+                title={`The AI asks a few short questions about what your notes leave open, then builds the ${noun}`}
+              >
+                Next: a few questions
+              </Button>
+              <Button size="lg" onClick={() => build()} title={`Builds the ${noun} from the notes alone, with no questions`}>
                 {done && done.status === 'error' ? 'Try again' : copy.build}
               </Button>
               <Button
@@ -255,7 +296,7 @@ function Screen({
                 Go step by step instead
               </Button>
               <div className="flex-1" />
-              <span className="flex items-center gap-1 text-[12px] text-faint" title={`Press ${modKey()}+Enter in the notes to build`}>
+              <span className="flex items-center gap-1 text-[12px] text-faint" title={`Press ${modKey()}+Enter in the notes for the questions`}>
                 <Kbd>{modKey()}</Kbd>
                 <Kbd>Enter</Kbd>
               </span>
@@ -264,7 +305,7 @@ function Screen({
         </div>
 
         <div className="mt-1 min-h-5">
-          {!running && status ? (
+          {!running && status && !chat ? (
             <p role="status" className="flex items-center gap-1.5 text-[12.5px] text-muted animate-fade-in">
               {saved && !partSaved ? <Check size={13} className="shrink-0 text-success" aria-hidden /> : null}
               {status}

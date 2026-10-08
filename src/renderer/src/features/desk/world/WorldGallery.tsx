@@ -14,7 +14,6 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
-  Sparkles,
   WandSparkles,
   X
 } from '@/components/ui/icons'
@@ -107,10 +106,6 @@ function NewEntryItems({ onPick }: { onPick: (kind: EntryKind) => void }): React
           <span className="min-w-0 flex-1">{BUILD_WORDS[k]}</span>
         </M.Item>
       ))}
-      <M.Item className={ITEM} onSelect={() => openBuilder('character', 'quick')}>
-        <Sparkles size={15} className="text-ai" aria-hidden />
-        Quick start from a few notes
-      </M.Item>
     </>
   )
 }
@@ -308,9 +303,6 @@ export function WorldGallery({
             <Button variant="ai" icon={<WandSparkles size={15} />} onClick={() => openBuilder('character')}>
               Build a character with AI
             </Button>
-            <Button icon={<Sparkles size={15} />} onClick={() => openBuilder('character', 'quick')}>
-              Quick start from a few notes
-            </Button>
             <Button icon={<WandSparkles size={15} />} onClick={() => openWorldBuilder()}>
               Build from a summary
             </Button>
@@ -388,12 +380,12 @@ export function WorldGallery({
                 {s.kind === 'character' && !filters.query.trim() && !extra ? (
                   // An empty portrait at the end of the cast: the way into the character builder.
                   <li className="g-item g-in" data-shape={s.shape} style={gen ? ({ '--d': `${staggerDelay(order)}ms` } as React.CSSProperties) : undefined}>
-                    <button type="button" className="g-card g-build" onClick={() => openBuilder('character')} title="Walk through who they are step by step; the AI can suggest each part">
+                    <button type="button" className="g-card g-build" onClick={() => openBuilder('character')} title="Jot down a few notes; the AI asks a few questions, then builds the character for you to look over">
                       <span aria-hidden className="g-build-face">
                         <WandSparkles size={26} />
                       </span>
                       <span className="g-build-t">Build a character with AI</span>
-                      <span className="g-build-d">Step by step: looks, personality, past, voice. The AI can suggest each part.</span>
+                      <span className="g-build-d">A few notes, a few questions from the AI, and the whole character, ready to look over.</span>
                     </button>
                   </li>
                 ) : null}

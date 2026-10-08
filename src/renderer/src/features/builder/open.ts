@@ -2,8 +2,11 @@
 import type { BuilderKind } from '@shared/contracts/builder'
 import { useApp } from '@/lib/store'
 
-/** Opens the builder for a new entry of this kind: at its first step, or at Quick start (a few notes in, a whole profile out). */
-export function openBuilder(kind: BuilderKind, mode: 'guided' | 'quick' = 'guided'): void {
+/**
+ * Opens the builder for a new entry of this kind: at Quick start (a few notes, then the AI's follow-up questions, then
+ * the whole entry built and shown at Review), or at its first step.
+ */
+export function openBuilder(kind: BuilderKind, mode: 'guided' | 'quick' = 'quick'): void {
   useApp.getState().navigate({ kind: 'builder', entryKind: kind, entryId: null, start: { mode } })
 }
 

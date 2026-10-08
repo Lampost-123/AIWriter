@@ -1,5 +1,5 @@
 // Guided: Adam walks the steps himself, with AI help only where he wants it. Across the top, a band in the kind's colour
-// with the entry's picture (its portrait, else its drawing, idling gently), its name, and how much of it is filled in.
+// with the entry's picture (its portrait, else its drawing, breathing a few times as it opens), its name, and how much of it is filled in.
 // Under it, the steps on a rail (each with its icon, a ring that fills as its fields do, and how many are filled), the
 // step's fields in cards in the middle, and, on a wide screen, the entry's card as the world will show it filling in
 // beside them, with a plain word on how the AI helps. The AI's actions sit in a slim bar at the foot, like the desk's

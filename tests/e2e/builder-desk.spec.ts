@@ -13,6 +13,7 @@ const dossier = (win: Page) => win.getByRole('dialog').filter({ has: win.locator
 const steps = (win: Page) => win.getByRole('navigation', { name: 'Steps' })
 const step = (win: Page, name: string) => steps(win).getByRole('button', { name: new RegExp(`^${name}\\b`) })
 const heading = (win: Page) => win.locator('.bld').getByRole('heading', { level: 1 })
+const quickStart = (win: Page) => win.getByRole('heading', { level: 1, name: /from a few notes$/ })
 
 async function sampleWorld(
   launch: (o?: LaunchOptions) => Promise<{ app: ElectronApplication; win: Page; dataDir: string }>
@@ -47,14 +48,18 @@ test('the builder can be found: the New entry menu, the empty portrait, the doss
   // The New entry menu has the builders, by name.
   await win.getByRole('button', { name: 'New entry' }).click()
   const menu = win.getByRole('menu')
-  for (const label of ['Build a character with AI', 'Build a place with AI', 'Build a group with AI', 'Build an item with AI', 'Quick start from a few notes'])
+  for (const label of ['Build a character with AI', 'Build a place with AI', 'Build a group with AI', 'Build an item with AI'])
     await expect(menu.getByRole('menuitem', { name: label })).toBeVisible()
   await win.keyboard.press('Escape')
 
-  // An empty portrait after the characters opens the steps, explained the first time.
+  // An empty portrait after the characters opens Quick start: a few notes, then the AI's questions.
   const slot = win.locator('.g-sec[data-kind="character"]').getByRole('button', { name: /^Build a character with AI/ })
   await expect(slot).toBeVisible()
   await slot.click()
+  await expect(quickStart(win)).toHaveText('Build a character from a few notes')
+  await expect(win.getByRole('button', { name: 'Next: a few questions' })).toBeVisible()
+  // The steps are one click away, explained the first time.
+  await win.getByRole('button', { name: 'Go step by step instead' }).click()
   await expect(heading(win)).toHaveText('Basics')
   await expect(win.getByRole('note')).toContainText('the AI can suggest each part')
   await win.getByRole('button', { name: 'Got it, hide this' }).click()
@@ -70,17 +75,102 @@ test('the builder can be found: the New entry menu, the empty portrait, the doss
   // The story home's cast.
   await win.getByRole('button', { name: 'Story home' }).click()
   await win.getByRole('button', { name: 'Build a character with AI' }).click()
-  await expect(heading(win)).toHaveText('Basics')
-  // Once read, the line about the builder doesn't come back.
-  await expect(win.getByRole('note')).toHaveCount(0)
+  await expect(quickStart(win)).toHaveText('Build a character from a few notes')
 
   // The palette finds it under "builder".
   await win.keyboard.press('Control+K')
   await win.keyboard.type('builder')
   await expect(win.getByRole('option', { name: /^Build a place with AI/ })).toBeVisible()
   await win.getByRole('option', { name: /^Build a place with AI/ }).click()
+  await expect(quickStart(win)).toHaveText('Build a place from a few notes')
+  // Once read, the line about the builder doesn't come back.
+  await win.getByRole('button', { name: 'Go step by step instead' }).click()
   await expect(win.locator('.bld')).toHaveAttribute('data-kind', 'place')
   await expect(heading(win)).toHaveText('Basics')
+  await expect(win.getByRole('note')).toHaveCount(0)
+})
+
+test('a few notes, a few questions from the AI (answered, left to it, skipped), and the finished character at Review', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await sampleWorld(launch)
+    await useFakeModel(win, fake)
+    await win.getByRole('button', { name: 'Story home' }).click()
+    await win.getByRole('button', { name: 'Build a character with AI' }).click()
+    await expect(quickStart(win)).toHaveText('Build a character from a few notes')
+    await win.getByLabel('What you know about them').fill('Tamsin Rook is the ferry’s bell-ringer.\nShe never sleeps on land.')
+    await win.getByRole('button', { name: 'Next: a few questions' }).click()
+
+    // The AI's questions come one at a time in its amber bubbles; the notes wait, not to be typed over.
+    const chat = win.getByRole('region', { name: 'Follow-up questions' })
+    await expect(chat).toContainText('A few quick questions')
+    await expect(chat).toContainText('Question 1 of 3')
+    await expect(chat).toContainText('What does Tamsin want most right now?')
+    await expect(win.getByLabel('What you know about them')).not.toBeEditable()
+    const answer = win.getByRole('textbox', { name: /^Your answer/ })
+    await expect(answer).toBeFocused()
+    // His answer, in a line (Enter answers).
+    await answer.fill('To hear the bell ring true once more.')
+    await win.keyboard.press('Enter')
+    await expect(chat.locator('.qs-me')).toHaveText('To hear the bell ring true once more.')
+    await expect(chat).toContainText('What is Tamsin afraid of?')
+    // Left to the AI.
+    await win.getByRole('button', { name: 'Let the AI decide' }).click()
+    await expect(chat.getByText('Left to the AI')).toBeVisible()
+    await expect(chat).toContainText('What does Tamsin do without thinking?')
+    // Skipped.
+    await win.getByRole('button', { name: 'Skip', exact: true }).click()
+    await expect(chat.getByText('Skipped')).toBeVisible()
+    await expect(chat).toContainText('That’s plenty to go on.')
+
+    // Built from the notes and the answers, it opens at Review with the finished card.
+    await win.getByRole('button', { name: 'Build the character' }).click()
+    await expect(heading(win)).toHaveText('Review')
+    const finished = win.getByRole('img', { name: /^Tamsin Rook, as their card will show in the world/ })
+    await expect(finished).toBeVisible()
+    const e = await entryNamed(win, 'Tamsin Rook')
+    expect(e.fields.wants).toBe('To hear the bell ring true once more.')
+    expect(e.fieldOrigins.wants ?? e.origin).toBe('adam')
+    expect(e.fields.fears).toBe('Fears of Tamsin Rook, decided by the AI.')
+    expect(e.fieldOrigins.fears).toBe('ai')
+    // The skipped one was drafted as any other field.
+    expect(e.fields.habits).toBe('Habits and quirks of Tamsin Rook, drafted to fit the world.')
+    await expect(win.getByRole('region', { name: 'Goals and arc' })).toContainText('To hear the bell ring true once more.')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the questions can be skipped all at once, or the notes changed first', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await sampleWorld(launch)
+    await useFakeModel(win, fake)
+    await room(win, 'World').click()
+    await win.getByRole('button', { name: 'New entry' }).click()
+    await win.getByRole('menuitem', { name: 'Build a character with AI' }).click()
+    const notes = win.getByLabel('What you know about them')
+    await notes.fill('Orrin Vale, who mends nets.')
+    await notes.press('Control+Enter')
+    const chat = win.getByRole('region', { name: 'Follow-up questions' })
+    await expect(chat).toContainText('What does Orrin want most right now?')
+    // Change my notes goes back to them, as they were.
+    await win.getByRole('button', { name: 'Change my notes' }).click()
+    await expect(chat).toHaveCount(0)
+    await expect(notes).toBeEditable()
+    await notes.fill('Orrin Vale, who mends nets for the whole harbour.')
+    await win.getByRole('button', { name: 'Next: a few questions' }).click()
+    await expect(chat).toContainText('Question 1 of 3')
+    await win.getByRole('button', { name: 'Skip the rest' }).click()
+    await expect(chat.getByText('Skipped')).toHaveCount(3)
+    await win.getByRole('button', { name: 'Build the character' }).click()
+    await expect(heading(win)).toHaveText('Review')
+    const e = await entryNamed(win, 'Orrin Vale')
+    expect(e.summary).toBe('Orrin Vale, who mends nets for the whole harbour.')
+    expect(e.fields.wants).toBe('What they want of Orrin Vale, drafted to fit the world.')
+  } finally {
+    await fake.close()
+  }
 })
 
 test('each step opens on one click, sliding in from its side; the rail counts what is filled', async ({ launch }) => {

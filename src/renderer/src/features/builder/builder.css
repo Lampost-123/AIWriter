@@ -4,7 +4,7 @@
   rail, the step's cards in the middle and the entry's card beside them, the AI's bar at the foot. The colours are the
   look's own tokens, so it reads right on the desk, in the panels and in Classic; amber (--ai) is only ever the AI's.
   Motion: the step slides in from its side (the view tier), the AI's words settle with a short glow (fly.ts), the band's
-  drawing idles; all of it instant with less motion, and from the keyboard.
+  drawing breathes a few times and rests; all of it instant with less motion, and from the keyboard.
 */
 .bld {
   --bld-ink: var(--k-char);
@@ -68,7 +68,8 @@
   flex: none;
   width: 100px;
   height: 100px;
-  animation: bld-idle 7s ease-in-out infinite;
+  /* It breathes three times as the builder opens, then rests (nothing moves while nothing is happening). */
+  animation: bld-idle 7s ease-in-out 3;
   /* Its own layer, so the idle costs the graphics card a transform, not a redraw. */
   will-change: transform;
 }
@@ -77,7 +78,7 @@
   inset: -18px;
   border-radius: 50%;
   background: radial-gradient(closest-side, rgb(255 236 200 / 0.42), transparent);
-  animation: bld-halo 7s ease-in-out infinite;
+  animation: bld-halo 7s ease-in-out 3 forwards;
   pointer-events: none;
   will-change: transform, opacity;
 }
@@ -1101,7 +1102,144 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bld-ink) 18%, transparent);
 }
 
+/* ---------- Quick start's follow-up questions (Questions.tsx) ---------- */
+.qs-change {
+  margin-right: 8px;
+  font: 600 12px/1 var(--font-sans);
+  color: var(--accent);
+}
+.qs-change:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.qs-chat {
+  margin-top: 18px;
+}
+.qs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  animation: qs-in var(--dur-base) var(--motion-glide);
+}
+.qs-row.is-me {
+  justify-content: flex-end;
+}
+@keyframes qs-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+/* The lamp beside the AI's lines: amber, glowing while it thinks. */
+.qs-lamp {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  margin-top: 13px;
+  border-radius: 50%;
+  background: var(--ai);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ai) 18%, transparent);
+}
+.qs-lamp.is-busy {
+  animation: qs-glow 1.6s ease-in-out infinite;
+}
+@keyframes qs-glow {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ai) 10%, transparent), 0 0 12px 2px color-mix(in srgb, var(--ai) 45%, transparent);
+  }
+}
+.qs-ai {
+  max-width: 82%;
+  border-radius: 4px 16px 16px 16px;
+  padding: 9px 14px 10px;
+  background: color-mix(in oklab, var(--ai-soft) 85%, var(--page));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 26%, transparent);
+  color: var(--fg);
+}
+.qs-ai-label {
+  margin-bottom: 2px;
+  font: 600 10.5px/14px var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+.qs-ai-text {
+  font: 400 14.5px/1.5 var(--font-serif);
+}
+/* His answers: cards of his own on the other side, in the page's paper. */
+.qs-me {
+  max-width: 78%;
+  border-radius: 16px 4px 16px 16px;
+  padding: 9px 14px 10px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--elev-1);
+  font: 400 14.5px/1.5 var(--font-serif);
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.qs-chip {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 11px;
+  background: var(--surface-2);
+  font: 500 12px/1 var(--font-sans);
+  color: var(--muted);
+}
+.qs-chip.is-ai {
+  background: var(--ai-soft);
+  color: var(--ai);
+}
+.qs-answer {
+  margin: 12px 0 0 20px;
+  border-radius: 16px;
+  padding: 10px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--elev-1);
+  animation: qs-in var(--dur-base) var(--motion-glide);
+}
+.qs-answer-box {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  font: 400 15px/1.5 var(--font-serif) !important;
+}
+.qs-answer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.qs-decide {
+  color: var(--ai) !important;
+}
+.qs-build {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 0 20px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .qs-row,
+  .qs-answer,
+  .qs-lamp,
   .bld-medal,
   .bld-medal-halo,
   .bld-step,

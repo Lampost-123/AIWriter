@@ -34,6 +34,8 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
   const [mode, setMode] = useState<'quick' | 'guided'>(start?.mode === 'guided' ? 'guided' : 'quick')
   // What Quick start built, once Adam opens it to look it over.
   const [built, setBuilt] = useState<Entry | null>(null)
+  // Where it opens: Review once the follow-up questions built it, else the first step.
+  const [builtStep, setBuiltStep] = useState<string | undefined>(undefined)
   // The steps stay put (hidden) while Quick start shows, so nothing typed in them is lost. Once Quick
   // start's profile is opened to look over, it is done with.
   const [guidedOpened, setGuidedOpened] = useState(mode === 'guided')
@@ -48,7 +50,8 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
           <QuickStart
             kind={kind}
             start={start}
-            onLookOver={(e) => {
+            onLookOver={(e, step) => {
+              setBuiltStep(step)
               setBuilt(e)
               toGuided()
             }}
@@ -58,7 +61,7 @@ function NewBuild({ kind, start }: { kind: BuilderKind; start?: BuilderStart }):
       )}
       {guidedOpened ? (
         <div className={mode === 'guided' ? 'h-full' : 'hidden'}>
-          <Guided key={built?.id ?? 'new'} kind={kind} initial={built} firstStep={start?.step} onQuickStart={built ? undefined : () => setMode('quick')} />
+          <Guided key={built?.id ?? 'new'} kind={kind} initial={built} firstStep={builtStep ?? start?.step} onQuickStart={built ? undefined : () => setMode('quick')} />
         </div>
       ) : null}
     </div>
