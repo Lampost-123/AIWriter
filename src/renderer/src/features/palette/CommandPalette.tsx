@@ -668,14 +668,16 @@ export function CommandPalette(): React.JSX.Element {
             <span className="flex w-4 shrink-0 justify-center text-faint">{slow ? <Spinner size={14} /> : null}</span>
           </div>
 
-          {/* A fixed height, so the palette doesn't grow and shrink as the results change. */}
+          {/* Classic: a fixed height, so the palette doesn't grow and shrink as the results change. The New look: as tall as
+              its results up to that height (a short list left a tall empty box under it), never shorter than a few rows,
+              so typing doesn't make it jump about much. */}
           <div
             ref={listRef}
             id="palette-list"
             role="listbox"
             aria-label="Results"
             // Its scrollbar shows whenever there are more results than fit, so a row cut at the foot reads as "more below".
-            className="scrollbar-shown h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5"
+            className="scrollbar-shown h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5 look-new:h-auto look-new:max-h-[min(440px,58vh)] look-new:min-h-[min(180px,40vh)]"
           >
             {ready
               ? sections(rows).map((s, i) =>
