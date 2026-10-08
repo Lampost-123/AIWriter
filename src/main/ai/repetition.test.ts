@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { beatsOnPage as shared } from '@shared/beats'
 import { beatsOnPage, speechSamples, STOCK_TICS } from './repetition'
 
 describe('speech samples', () => {
@@ -32,5 +33,8 @@ describe('beats already on the page', () => {
     // A later beat on the page means the ones before it are done too.
     expect(beatsOnPage(beats, 'Wren sat by the fire. Ash went out to the stable to see to the horses.')).toBe(3)
     expect(beatsOnPage(beats, 'They talked a while about what would come next.')).toBe(2)
+  })
+  it('is the shared one the desk’s next-beat chip uses', () => {
+    expect(beatsOnPage).toBe(shared)
   })
 })

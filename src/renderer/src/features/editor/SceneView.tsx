@@ -27,6 +27,8 @@ import { useDeskFrame } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock } from '@/features/desk/dock/Dock'
 import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
+import { NextBeatChip } from '@/features/desk/dock/NextBeatChip'
+import { useSceneCardWatch } from '@/features/desk/sceneCard'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
@@ -192,6 +194,9 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // The desk: the open scene's card (its beats, place and point of view) for the next-beat chip and the margin.
+  useSceneCardWatch(editor, desk && shown && !error ? shown.id : null)
 
   const loadingSlow = useDelayed(!shown && !error, 300)
   const fontSize = prefs?.fontSize ?? 19
@@ -368,6 +373,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       {desk && shown && !error ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
           <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
+            <NextBeatChip sceneId={shown.id} fallbackStatus={shown.status} />
             <Dock
               editor={editor}
               sceneId={shown.id}

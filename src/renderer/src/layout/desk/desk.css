@@ -1303,3 +1303,365 @@
 [data-arrangement='desk'] .desk-room-sheet > :is(div, section, main):first-child {
   background-color: transparent;
 }
+
+/* ---------- The next-beat chip over the dock (phase 3) ---------- */
+[data-arrangement='desk'] .desk-chip {
+  height: 28px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--raise) 94%, transparent);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-1);
+  font-size: 12.5px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+  animation: desk-chip-in var(--dur-base) var(--desk-ease) backwards;
+}
+[data-arrangement='desk'] .desk-chip.is-prompt {
+  padding-right: 4px;
+}
+[data-arrangement='desk'] .desk-chip.is-out {
+  animation: desk-chip-out var(--dur-exit) var(--desk-ease) forwards;
+}
+@keyframes desk-chip-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+@keyframes desk-chip-out {
+  to {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+[data-arrangement='desk'] .desk-chip-label {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+[data-arrangement='desk'] .desk-chip-text {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+  transition: color 300ms ease-out 380ms;
+}
+[data-arrangement='desk'] .desk-chip-text.is-quiet {
+  color: var(--muted);
+}
+/* A beat just written is struck through, left to right, once its ring has filled. */
+[data-arrangement='desk'] .desk-chip-text::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 52%;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 340ms var(--desk-ease) 420ms;
+}
+[data-arrangement='desk'] .desk-chip:is(.is-tick, .is-out) .desk-chip-text {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-chip:is(.is-tick, .is-out) .desk-chip-text::after {
+  transform: scaleX(1);
+}
+[data-arrangement='desk'] .desk-chip-ring {
+  flex: none;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-track {
+  fill: none;
+  stroke: var(--lamp-2);
+  stroke-width: 1.6;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-arc {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 1.8;
+  stroke-dasharray: 39.27;
+  stroke-dashoffset: 39.27;
+  transition: stroke-dashoffset 420ms var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-fill {
+  fill: var(--success);
+  opacity: 0;
+  transition: opacity 200ms ease-out 320ms;
+}
+[data-arrangement='desk'] .desk-chip-ring .cr-tick {
+  fill: none;
+  stroke: var(--page);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+  transition: stroke-dashoffset 260ms var(--desk-ease) 420ms;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-arc,
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-tick {
+  stroke-dashoffset: 0;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-ticked .cr-fill {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-chip-ring.is-done :is(.cr-arc, .cr-fill, .cr-tick) {
+  transition: none;
+}
+[data-arrangement='desk'] .desk-chip-btn {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-chip-btn:hover {
+  background: var(--primary-hover);
+}
+[data-arrangement='desk'] .desk-chip-btn:active {
+  scale: 0.96;
+  transition-duration: var(--dur-press);
+}
+[data-arrangement='desk'] .desk-chip-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+:root[data-focus][data-arrangement='desk'] .desk-chip {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- The scene card as a ruled index card (phase 3) ---------- */
+[data-arrangement='desk'] .desk-icard {
+  position: relative;
+  width: 100%;
+  min-height: 98px;
+  padding-bottom: 6px;
+  border-radius: 6px;
+  background-color: var(--card);
+  background-image:
+    linear-gradient(180deg, transparent 35px, color-mix(in oklab, var(--accent) 22%, transparent) 35px, color-mix(in oklab, var(--accent) 22%, transparent) 36px, transparent 36px),
+    repeating-linear-gradient(180deg, transparent 0, transparent 25px, var(--rule-blue) 25px, var(--rule-blue) 26px);
+  background-size:
+    100% 100%,
+    100% calc(100% - 42px);
+  background-position:
+    0 0,
+    0 36px;
+  background-repeat: no-repeat;
+  box-shadow: var(--sh-card);
+  font-family: var(--font-sans, inherit);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: left;
+}
+/* The red margin rule. */
+[data-arrangement='desk'] .desk-icard::before {
+  content: '';
+  position: absolute;
+  left: 40px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-red);
+}
+[data-arrangement='desk'] .desk-icard .ic-head {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  padding-right: 8px;
+}
+[data-arrangement='desk'] .desk-icard .ic-head .desk-caps {
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .desk-icard .ic-m {
+  display: flex;
+  width: 40px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+[data-arrangement='desk'] .desk-icard .ic-edit {
+  margin-left: auto;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--accent);
+  outline: none;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-edit:hover {
+  background: var(--accent-soft);
+}
+[data-arrangement='desk'] .desk-icard .ic-edit:focus-visible {
+  outline: 2px solid var(--focus);
+}
+[data-arrangement='desk'] .desk-icard .ic-row {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-icard .ic-t {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  font-size: 12.5px;
+  line-height: 26px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-arrangement='desk'] .desk-icard .ic-row.is-ok .ic-t {
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-icard .ic-place {
+  display: block;
+  font-family: var(--heading-font);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+[data-arrangement='desk'] .desk-icard .ic-lab {
+  padding-left: 10px;
+}
+[data-arrangement='desk'] .desk-icard .ic-tile {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--k-place-soft);
+  color: var(--k-place);
+}
+[data-arrangement='desk'] .desk-icard .ic-mono {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--k-char-soft);
+  color: var(--k-char);
+  font: 600 11px/1 var(--heading-font);
+}
+[data-arrangement='desk'] .desk-icard .ic-next {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-track {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  transition: stroke 200ms ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-fill {
+  fill: var(--success);
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring-tick {
+  fill: none;
+  stroke: var(--page);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+  transition: stroke-dashoffset 300ms var(--desk-ease) 140ms;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-track {
+  stroke: var(--success);
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-fill {
+  opacity: 1;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-ok .ic-ring-tick {
+  stroke-dashoffset: 0;
+}
+[data-arrangement='desk'] .desk-icard .ic-ring.is-next .ic-ring-track {
+  stroke: var(--lamp-2);
+  stroke-width: 1.7;
+}
+/* An empty card: plan the scene. */
+[data-arrangement='desk'] .desk-icard .ic-plan {
+  padding: 4px 14px 10px 50px;
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-title {
+  font-family: var(--heading-font);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 26px;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-text {
+  font-size: 12.5px;
+  line-height: 26px;
+  color: var(--muted);
+}
+[data-arrangement='desk'] .desk-icard .ic-plan-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+[data-arrangement='desk'] .desk-icard .ic-act {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+}
+[data-arrangement='desk'] .desk-icard .ic-act.is-ai {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 86%, white), var(--ai));
+  color: var(--ai-fg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.24);
+}
+[data-arrangement='desk'] .desk-icard .ic-act:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

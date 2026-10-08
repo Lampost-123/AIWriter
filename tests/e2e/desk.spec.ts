@@ -459,3 +459,43 @@ test('the shortcuts the panels’ toolbar carries each work once on the desk: Ct
     await fake.close()
   }
 })
+
+test('the next-beat chip: the card’s next beat; it ticks as its words land, then offers Mark done; Ctrl+Enter still marks done', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  const [story] = await invoke(win, 'listStories')
+  const { scenes } = await invoke(win, 'getOutline', story.id)
+  // Low Tide (drafted): two beats on the page already, the third still to write. Lighting the Lamp: no beats.
+  const lowTide = scenes.find((s) => s.title === 'Low Tide')!
+  const { card } = await invoke(win, 'getScene', lowTide.id)
+  const beats = ['Wren takes Iska out over the Drowned Steps', 'Iska takes Wren’s good hand on the weed', 'Ansel rings the hand bell from the quay']
+  await invoke(win, 'updateSceneCard', lowTide.id, { ...card, beats })
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  const chip = win.locator('[data-desk-chip]')
+  await expect(chip).toHaveCount(0)
+
+  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
+  await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+  await expect(chip).toHaveAttribute('data-desk-chip', 'next')
+  await expect(chip).toContainText('Next beat')
+  await expect(chip).toContainText('Ansel rings the hand bell from the quay')
+
+  // Its words land: the beat is ticked, then the chip asks whether the scene is done.
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('Control+End')
+  await win.keyboard.press('Enter')
+  await win.keyboard.type('On the quay, Ansel rang the bell until the fog let go of it.')
+  await expect(chip).toHaveAttribute('data-desk-chip', 'all', { timeout: 8000 })
+  await expect(chip).toContainText('Done for this scene: mark it done?')
+  await chip.getByRole('button', { name: 'Mark done' }).click()
+  await expect(chip).toHaveAttribute('data-desk-chip', 'done')
+  await expect(chip).toContainText(/Scene done · [\d,]+ words/)
+  await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+
+  // Reopened from the dock's menu, Ctrl+Enter marks it done again (heard once).
+  await (await dockMenu(win)).getByRole('menuitem', { name: 'Reopen the scene' }).click()
+  await expect(chip).toHaveAttribute('data-desk-chip', 'all')
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('Control+Enter')
+  await expect(chip).toHaveAttribute('data-desk-chip', 'done')
+})
