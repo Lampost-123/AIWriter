@@ -109,6 +109,18 @@ Each world's overrides of Adam's writing preferences (spec: "Stored in milestone
 `meta` table under the key `writing_prefs_overrides`, as JSON (`Partial<WritingPrefs>`); the
 preferences themselves stay outside world.db and are not frozen.
 
+**Migration 3: facts follow their words** (World Memory Overhaul part A, 2026-10-08). The written reason:
+a fact whose words were edited and that the memory model said nothing clear about stayed marked
+`changed` for ever: it was never asked about again, never removed when its words were later deleted,
+and the writer was still told it as true. To settle such facts, a source link has to remember how many
+reads since the edit have left its fact unconfirmed, so `source_links` gains `checks` (that count) and
+`changed_at` (when the words were edited). Both have defaults, so older worlds open unchanged (a link
+already `changed` takes its `updated_at` as `changed_at`). The rules that use them are in
+`src/main/keeper/apply.ts` (a text fact still unconfirmed one read after it was first left so goes, with
+Undo; what Adam made himself never does) and `src/main/memory/scene.ts` `writerData` (the writer leaves
+such a fact out until a read confirms it). An entry's own summary also gets source links, as fact kind
+`summary` with field `summary`, which the schema already allowed.
+
 ### How memory over time works
 
 - An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:

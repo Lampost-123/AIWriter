@@ -5,6 +5,8 @@
 // Since 2026-10-07 it is told that a thing someone has or wants is an item, never a character (keeper/kinds.ts checks).
 // Since 2026-10-08 (the AI manages plot threads) it opens a plot thread with its promise, adds clues, notes when one
 // moves on, and resolves one only when the payoff is on the page (keeper/threads.ts applies these).
+// Since 2026-10-08 (World Memory Overhaul A2) it may revise an entry's or event's one-line summary ("summary" items), and
+// the facts whose words changed are told apart from the "nothing the memory already says" rule.
 // The markers let the fake provider in tests/fake-provider recognise these requests.
 
 import { FIELD_GROUPS } from '@shared/fields'
@@ -28,7 +30,7 @@ You keep the memory of a novel's world up to date while the author writes. You a
 
 Rules
 - Read only the paragraphs labelled P1, P2 and so on. Lines labelled "Context" are there to help you understand them; take nothing from them.
-- Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words.
+- Report only what the words show happens, is said to be true, or becomes true. No guesses, no reading between the lines, and nothing the memory already says, in any words (facts whose words changed excepted).
 - Every fact needs "quote": words copied exactly, character for character, from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...). If someone or something is listed under "Elsewhere in the world", use that id: never make a new entry with a name or alias already listed. A new entry you add can be referred to in later items by the "ref" you give it (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives, buys or makes (a bead, a letter, a sword, a cart) is an item, however much it matters to them, and gets item fields. Give a new entry only fields the words show.
@@ -57,6 +59,7 @@ New facts, by "type":
 {"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "what it amounts to, in a few words: Mara will come back for Tobin before the snow", "factId": "K1 when it is a fact listed under Facts", "quote": "the spoken line, copied exactly"}
 {"type": "thread", "entry": "E5 (an open plot thread), or leave it out and give a name", "name": "the question or promise", "status": "open|clue|developing|resolved", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "what happened, in one line", "involved": ["E1", "E2"], "quote": "..."}
+{"type": "summary", "entry": "E3", "summary": "a new one-line summary, when the scene now tells it otherwise", "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of their dialogue that is especially typical of how they speak"}
 
 Clashes:

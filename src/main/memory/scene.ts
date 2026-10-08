@@ -18,13 +18,13 @@
 //   otherwise "from <the story of its first point>, not in this story so far".
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeView, EntryState, ID } from '@shared/types'
+import type { Change, ChangeView, Entry, EntryState, ID } from '@shared/types'
 import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
-import { linksForFacts } from '../db/history'
+import { factHealth, linksForFacts } from '../db/history'
 import * as repo from '../db/repo'
 import { UserError } from '../util'
 
@@ -67,12 +67,44 @@ export function loadMemoryData(db: DB): MemoryData {
   }
 }
 
-/** What counts for drafting (or reading) this scene. */
-export function sceneMemory(db: DB, sceneId: ID): SceneMemory {
+/**
+ * The memory as the writer is given it (World Memory Overhaul A1, Adam 2026-10-08): a fact read from the text whose
+ * words were edited or deleted, with nothing confirming it yet ('unsure' in db/history.ts factHealth), is left out until
+ * a read confirms it: a change is dropped, a field is left empty. Adam's own values (his facts, and text facts he
+ * edited) always count. The memory keeper and the memory pages see everything (loadMemoryData).
+ */
+export function writerData(db: DB, data: MemoryData): MemoryData {
+  const health = factHealth(db)
+  const unsure = (e: Entry, field: string): boolean =>
+    health.field(e.id, field) === 'unsure' && (e.fieldOrigins?.[field] ?? e.origin) !== 'adam'
+  return {
+    ...data,
+    entries: data.entries.map((e) => {
+      const fields = Object.keys(e.fields ?? {}).filter((k) => e.fields[k] && unsure(e, k))
+      const summary = !!e.summary && unsure(e, 'summary')
+      const description = !!e.description && unsure(e, 'description')
+      if (!fields.length && !summary && !description) return e
+      return {
+        ...e,
+        summary: summary ? '' : e.summary,
+        description: description ? '' : e.description,
+        fields: { ...e.fields, ...Object.fromEntries(fields.map((k) => [k, ''])) }
+      }
+    }),
+    changes: data.changes.filter((c) => c.origin === 'adam' || health.change(c.id) !== 'unsure')
+  }
+}
+
+/**
+ * What counts for drafting (or reading) this scene. `forWriter`: as the writer is given it (writerData), for the
+ * briefing and the "must stay true" list.
+ */
+export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean } = {}): SceneMemory {
   const shape = loadShape(db)
   const story = storyOfScene(shape, sceneId)
   if (!story) throw new UserError('That scene no longer exists.')
-  const data = loadMemoryData(db)
+  const loaded = loadMemoryData(db)
+  const data = opts.forWriter ? writerData(db, loaded) : loaded
   const changes = indexChanges(data.changes)
   const line = buildLine(shape, { storyId: story.id, before: sceneId })
   const state = stateAt(data, shape, line, changes)

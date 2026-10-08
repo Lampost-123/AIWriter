@@ -94,7 +94,7 @@ export function sourceNote(origin: Origin, links: SourceLink[]): SourceNote | nu
 /** Links for one of an entry's own facts: the field key, or 'entry' for the entry itself (where it was found). */
 export function linksFor(links: SourceLink[], key: string): SourceLink[] {
   if (key === 'entry') return links.filter((l) => l.factKind === 'entry')
-  return links.filter((l) => (l.factKind === 'field' || l.factKind === 'voice') && l.field === key)
+  return links.filter((l) => (l.factKind === 'field' || l.factKind === 'voice' || l.factKind === 'summary') && l.field === key)
 }
 
 /** Who a field's value comes from: its own origin, or the entry's when it has none. */

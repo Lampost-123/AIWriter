@@ -377,6 +377,41 @@ describe('what was read from the text and then edited by Adam', () => {
   })
 })
 
+describe('a text fact Adam edited whose words now say something else', () => {
+  it('keeps his words with a question, rests on the new words, and isn’t asked about again at every read', async () => {
+    const w = world()
+    save(w.db, w.sceneId, [
+      ['p1', MARA_RIVER],
+      ['p2', 'The ferry was late.']
+    ])
+    await read(w.db, w.sceneId)
+    const [c] = changesOf(w.db, 'Mara')
+    mem.replaceChange(w.db, c.id, {
+      kind: 'update',
+      payload: { note: 'lost her knife in the river Sel' },
+      entryId: c.entryId,
+      anchor: 'scene',
+      sceneId: w.sceneId,
+      origin: 'adam'
+    })
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her knife on the bank.'],
+      ['p2', 'The ferry was late.']
+    ])
+    await read(w.db, w.sceneId)
+    expect(notes(w.db, 'Mara')).toEqual(['lost her knife in the river Sel'])
+    expect(kdb.listLog(w.db).filter((l) => l.question).map((l) => l.question!.text)).toEqual(['Keep your words?'])
+    expect(changeLinks(w.db, c.id).map((l) => [l.state, l.quote])).toEqual([['ok', 'Mara lost her knife on the bank.']])
+    save(w.db, w.sceneId, [
+      ['p1', 'Mara lost her knife on the bank.'],
+      ['p2', 'The ferry was very late.']
+    ])
+    const next = await read(w.db, w.sceneId)
+    expect(next.asked.join('\n')).not.toMatch(/Facts whose words changed/)
+    expect(notes(w.db, 'Mara')).toEqual(['lost her knife in the river Sel'])
+  })
+})
+
 describe('an event', () => {
   const event = (summary: string, quote: string) => ({ type: 'event', name: 'The river crossing', summary, involved: ['Mara'], quote })
 

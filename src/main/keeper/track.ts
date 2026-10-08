@@ -2,13 +2,15 @@
 // paragraphs are new or changed since the last read (by paragraph hash), where the words of each
 // fact read from the scene are now (links follow their words when a paragraph moves or a typo is
 // fixed), and which facts lost their words: edited (the model gives a verdict) or deleted (the fact
-// goes, unless other words still support it). Reads only; nothing is written here. No Electron imports.
+// goes, unless other words still support it). Since 2026-10-08 (World Memory Overhaul A1) a link left
+// 'changed' by an earlier read is checked again at every read until it is settled: its fact is asked
+// about again, and goes once its words are deleted. Reads only; nothing is written here. No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ID, SourceLink } from '@shared/types'
 import type { KeeperScene } from '../db/keeper'
-import { linksForEntry, linksForFact } from '../db/history'
-import { sceneFacts, type SceneFact } from './facts'
+import { isFieldLink, linksForEntry, linksForFact } from '../db/history'
+import { factSaysSomething, sceneFacts, type SceneFact } from './facts'
 import {
   closestSentence,
   diffParagraphs,
@@ -48,7 +50,10 @@ export interface ReadPlan {
   /** New or changed paragraphs the memory model reads (typo fixes left out). */
   toRead: Para[]
   moves: LinkMove[]
-  /** Facts whose words were edited and that nothing else supports: they need the model's verdict. */
+  /**
+   * Facts whose words were edited (at this read, or at an earlier one and still unsettled) and that nothing else
+   * supports: they need the model's verdict. Their lost links come first.
+   */
   atRisk: SceneFact[]
   /** Facts whose words were deleted and that nothing else supports: they go (Adam's are asked about). */
   gone: SceneFact[]
@@ -66,7 +71,7 @@ export function spotIn(p: Para, r: { start: number; end: number }): Spot {
 }
 
 /** Finds a link's words in the scene: in its own paragraph first (allowing a typo fix), then anywhere. */
-function relocate(link: SourceLink, paras: Para[]): Spot | null {
+export function relocate(link: Pick<SourceLink, 'paragraphId' | 'quote'>, paras: Para[]): Spot | null {
   const own = link.paragraphId ? paras.find((p) => p.pid === link.paragraphId) : undefined
   if (own) {
     const r = findQuote(own.text, link.quote) ?? findNearQuote(own.text, link.quote)
@@ -87,6 +92,16 @@ function relocate(link: SourceLink, paras: Para[]): Spot | null {
 function wasEdited(link: SourceLink, paras: Para[], changed: Para[]): boolean {
   if (link.paragraphId && paras.some((p) => p.pid === link.paragraphId)) return true
   const best = closestSentence(changed.map((p) => p.text).join('\n'), link.quote)
+  return !!best && best.score >= 0.5
+}
+
+/**
+ * For a link already marked changed at an earlier read: true while its words still look edited rather than deleted
+ * (its paragraph is still there, or some sentence in the scene is much like them).
+ */
+function stillEdited(link: SourceLink, paras: Para[]): boolean {
+  if (link.paragraphId) return paras.some((p) => p.pid === link.paragraphId)
+  const best = closestSentence(paras.map((p) => p.text).join('\n'), link.quote)
   return !!best && best.score >= 0.5
 }
 
@@ -111,7 +126,7 @@ function supportedElsewhere(db: DB, f: SceneFact, lost: Set<ID>): boolean {
     f.kind === 'change'
       ? linksForFact(db, 'change', f.change.id)
       : f.kind === 'field'
-        ? linksForEntry(db, f.entry.id).filter((l) => l.factKind === 'field' && l.field === f.field)
+        ? linksForEntry(db, f.entry.id).filter((l) => isFieldLink(l, f.field))
         : f.kind === 'voice'
           ? []
           : linksForEntry(db, f.entry.id).filter((l) => l.factKind === 'entry')
@@ -128,8 +143,14 @@ export function planRead(db: DB, scene: KeeperScene): ReadPlan {
   const facts = sceneFacts(db, scene.sceneId)
   const moves: LinkMove[] = []
   const lost = new Set<ID>()
-  const lostFacts = new Map<string, { fact: SceneFact; edited: boolean }>()
+  const lostFacts = new Map<string, { fact: SceneFact; edited: boolean; links: SourceLink[] }>()
   const touchedEntries = new Set<ID>()
+  const lose = (f: SceneFact, l: SourceLink, edited: boolean): void => {
+    lost.add(l.id)
+    touchedEntries.add(f.kind === 'change' ? f.change.entryId : f.entry.id)
+    const prev = lostFacts.get(f.key)
+    lostFacts.set(f.key, { fact: f, edited: edited || !!prev?.edited, links: [...(prev?.links ?? []), l] })
+  }
 
   for (const f of facts) {
     for (const l of f.links) {
@@ -142,23 +163,29 @@ export function planRead(db: DB, scene: KeeperScene): ReadPlan {
         if (l.state !== 'ok' || !sameSpot(l, to)) moves.push({ link: l, to, state: 'ok' })
         continue
       }
-      if (l.state !== 'ok') continue
+      if (l.state === 'gone') continue
+      if (l.state === 'changed') {
+        // Edited at an earlier read and not settled since (World Memory Overhaul A1, 2026-10-08): its words may have
+        // been deleted meanwhile (then it is gone, and the fact goes as below); otherwise the fact is asked about again.
+        const edited = stillEdited(l, paras)
+        if (!edited) moves.push({ link: l, to: null, state: 'gone' })
+        if (factSaysSomething(f) || !edited) lose(f, l, edited)
+        continue
+      }
       // The words were there at the last read and aren't now.
       const edited = wasEdited(l, paras, diff.changed)
       moves.push({ link: l, to: null, state: edited ? 'changed' : 'gone' })
-      lost.add(l.id)
-      touchedEntries.add(f.kind === 'change' ? f.change.entryId : f.entry.id)
-      const prev = lostFacts.get(f.key)
-      lostFacts.set(f.key, { fact: f, edited: edited || !!prev?.edited })
+      lose(f, l, edited)
     }
   }
 
   const atRisk: SceneFact[] = []
   const gone: SceneFact[] = []
-  for (const { fact, edited } of lostFacts.values()) {
+  for (const { fact, edited, links } of lostFacts.values()) {
     if (fact.kind === 'entry') continue // checked as a whole after the run (last mention gone)
     if (fact.kind !== 'voice' && supportedElsewhere(db, fact, lost)) continue
-    if (edited && fact.kind !== 'voice') atRisk.push(fact)
+    // The words it lost come first, so its request line and its verdict are about them.
+    if (edited && fact.kind !== 'voice') atRisk.push({ ...fact, links: [...links, ...fact.links.filter((l) => !links.includes(l))] })
     else gone.push(fact)
   }
   // A fact whose words were edited is read with its paragraph, even when the edit looked like a typo fix.

@@ -1149,9 +1149,12 @@ export interface SourceLink {
   id: ID
   /** What the fact is: an entry (it was found here), one field of an entry, a change, a summary, or a voice sample line. */
   factKind: 'entry' | 'field' | 'change' | 'summary' | 'voice'
-  /** The entry, change or summary id (summaries: `${level}:${targetId}`). */
+  /**
+   * The entry, change or summary id (summaries: `${level}:${targetId}`). An entry's own one-line summary (2026-10-08,
+   * World Memory Overhaul A2) is a 'summary' link with the entry's id and field 'summary'.
+   */
   factId: ID
-  /** For 'field' and 'voice' links: the field key. */
+  /** For 'field' and 'voice' links: the field key ('summary' for an entry's summary link). */
   field: string | null
   sceneId: ID
   /** The scene's text version the words were read from. */
@@ -1165,6 +1168,13 @@ export interface SourceLink {
   quote: string
   /** 'ok' while the words are there; 'changed' when they were edited; 'gone' when they were deleted. */
   state: 'ok' | 'changed' | 'gone'
+  /** When the words were edited (state 'changed'); null otherwise. */
+  changedAt?: string | null
+  /**
+   * Reads since the words were edited that left the fact unconfirmed (no verdict, or words that couldn't be placed).
+   * A text fact still unconfirmed after one more read goes (keeper/apply.ts).
+   */
+  checks?: number
 }
 
 /** One version of a fact in the memory history. Every change, automatic or by hand, writes one. */

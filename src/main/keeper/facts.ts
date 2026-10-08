@@ -1,5 +1,5 @@
 // The facts read from one scene, through their source links: changes pinned to it, entries found
-// in it, details (fields) of entries read from it and voice sample lines. How each is described to
+// in it, details (fields) of entries read from it (an entry's summary among them since 2026-10-08) and voice sample lines. How each is described to
 // the memory model and in the "What changed" list, and its fingerprint (what a suppression and a
 // duplicate check compare). No Electron imports.
 
@@ -46,9 +46,14 @@ export function sceneFacts(db: DB, sceneId: ID): SceneFact[] {
   const links = linksInScene(db, sceneId)
   const groups = new Map<string, SourceLink[]>()
   for (const l of links) {
-    if (l.factKind === 'summary') continue
+    // An entry's summary (World Memory Overhaul A2) is one of its fields; other summary links (scenes, chapters) aren't facts here.
+    if (l.factKind === 'summary' && l.field !== 'summary') continue
     const key =
-      l.factKind === 'voice' ? `voice:${l.id}` : l.factKind === 'field' ? `field:${l.factId}:${l.field ?? ''}` : `${l.factKind}:${l.factId}`
+      l.factKind === 'voice'
+        ? `voice:${l.id}`
+        : l.factKind === 'field' || l.factKind === 'summary'
+          ? `field:${l.factId}:${l.field ?? ''}`
+          : `${l.factKind}:${l.factId}`
     groups.set(key, [...(groups.get(key) ?? []), l])
   }
   const entryIds = new Set<ID>()
@@ -78,12 +83,22 @@ export function sceneFacts(db: DB, sceneId: ID): SceneFact[] {
     const entry = entries.get(l.factId)
     if (!entry) continue
     if (l.factKind === 'entry') out.push({ kind: 'entry', key, entry, origin: entry.origin, links: ls })
-    else if (l.factKind === 'field' && l.field)
+    else if ((l.factKind === 'field' || l.factKind === 'summary') && l.field)
       out.push({ kind: 'field', key, entry, field: l.field, origin: fieldOrigin(entry, l.field), links: ls })
     else if (l.factKind === 'voice')
       out.push({ kind: 'voice', key, entry, line: l.quote, origin: fieldOrigin(entry, 'sampleLines'), links: ls })
   }
   return out
+}
+
+/** True when the fact still says something: an emptied field, or a sample line no longer kept, has nothing left to lose. */
+export function factSaysSomething(f: SceneFact): boolean {
+  if (f.kind === 'field') return fieldValue(f.entry, f.field).trim() !== ''
+  if (f.kind === 'voice')
+    return (f.entry.fields?.sampleLines ?? '')
+      .split('\n')
+      .some((l) => plain(l) === plain(f.line))
+  return true
 }
 
 // ---------- In plain words ----------

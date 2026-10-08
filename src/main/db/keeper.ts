@@ -461,7 +461,7 @@ export function suppressFact(db: DB, factKind: 'change' | 'field', factId: ID, f
   if (!field) return
   const fp = fingerprint({ type: 'field', entryId: factId, field })
   for (const l of linksForEntry(db, factId))
-    if (l.factKind === 'field' && l.field === field) addSuppression(db, fp, l.sceneId, plain(l.quote))
+    if ((l.factKind === 'field' || l.factKind === 'summary') && l.field === field) addSuppression(db, fp, l.sceneId, plain(l.quote))
 }
 
 export function suppressionsInScene(db: DB, sceneId: ID): { fingerprint: string; words: string }[] {

@@ -96,7 +96,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const db = world.db()
   const scene = repo.getScene(db, input.sceneId)
   const { story } = repo.sceneLocation(db, input.sceneId)
-  const memory = sceneMemory(db, input.sceneId)
+  const memory = sceneMemory(db, input.sceneId, { forWriter: true })
   // The other tools don't wait for where things stand: only what is already kept at exactly that point (step 4).
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined

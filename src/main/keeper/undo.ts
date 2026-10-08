@@ -270,6 +270,8 @@ export function undoItem(db: DB, id: ID): Outcome {
       if (!liveChange(db, u.changeId) && db.prepare('SELECT 1 FROM changes WHERE id = ?').get(u.changeId)) {
         mem.restoreChange(db, u.changeId, { origin: earlierOrigin(db, 'change', u.changeId) })
       }
+      // Removed as unconfirmed: brought back, it no longer rests on those edited words (it is Adam's to keep).
+      deleteLinks(db, u.linkIds ?? [])
       break
     }
     case 'field-set':

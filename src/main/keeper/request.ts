@@ -228,6 +228,8 @@ function describeFact(f: SceneFact, ids: Ids): string {
       return `change ${e}: ${changeWords(c, () => '').toLowerCase()}${fields ? ` (${fields})` : ''}`
     }
     case 'field':
+      // An entry's one-line summary (World Memory Overhaul A2): a "summary" item revises it.
+      if (f.field === 'summary') return `summary ${e}: ${clip(fieldValue(f.entry, f.field), 30)}`
       return `detail ${e} ${f.field}: ${clip(fieldValue(f.entry, f.field), 30)}`
     case 'voice':
       return `voice ${e}: ${q(f.line)}`

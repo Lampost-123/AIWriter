@@ -109,7 +109,7 @@ export function restoreScenes(db: DB): ScenesOutcome {
  */
 export function fieldsClearedByHand(db: DB, before: Entry, after: Entry): void {
   for (const l of hist.linksForEntry(db, before.id)) {
-    if ((l.factKind !== 'field' && l.factKind !== 'voice') || !l.field) continue
+    if ((l.factKind !== 'field' && l.factKind !== 'voice' && l.factKind !== 'summary') || !l.field) continue
     if (!fieldValue(before, l.field).trim() || fieldValue(after, l.field).trim()) continue
     if (fieldOrigin(before, l.field) === 'adam') continue
     const fp =
