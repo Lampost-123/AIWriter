@@ -10,7 +10,11 @@ const rooms = (win: Page) => win.getByRole('navigation', { name: 'Rooms' })
 const room = (win: Page, name: string) => rooms(win).getByRole('button', { name: new RegExp(`^${name}`) })
 const flyout = (win: Page) => win.getByRole('complementary', { name: 'Story contents' })
 const drawer = (win: Page) => win.locator('aside.desk-drawer')
-const tools = (win: Page) => win.getByRole('toolbar', { name: 'Scene tools' })
+const dock = (win: Page) => win.getByRole('toolbar', { name: 'AI dock' })
+const dockMenu = async (win: Page) => {
+  await dock(win).getByRole('button', { name: 'More ways to write' }).click()
+  return win.getByRole('menu')
+}
 const arrangement = (win: Page) => win.evaluate<string | null>('document.documentElement.dataset.arrangement ?? null')
 
 async function sampleWorld(
@@ -32,7 +36,7 @@ async function size(app: ElectronApplication, win: Page, w: number, h: number): 
 
 /** How far the window's content spills past its right edge (0 when nothing does). */
 const overflow = (win: Page) =>
-  win.evaluate<number>(`Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, ...[...document.querySelectorAll('[data-desk-topbar], .desk-room-head, [data-desk-tools]')].map((e) => e.scrollWidth - e.clientWidth + innerWidth)) - innerWidth`)
+  win.evaluate<number>(`Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, ...[...document.querySelectorAll('[data-desk-topbar], .desk-room-head, [data-desk-dock]')].map((e) => e.scrollWidth - e.clientWidth + innerWidth)) - innerWidth`)
 
 test('the Layout choice: only in the New look where the desk can be chosen; a pick shows at once and is kept', async ({ launch }) => {
   // A build where the desk isn't ready yet: no Layout choice (the panels, as today).
@@ -110,11 +114,10 @@ test('the top bar: rooms light the page’s room from the palette; the island sa
     // Back to the page; a draft writing below: the island says Writing… with its words, then Saved again.
     await room(win, 'Write').click()
     await expect(room(win, 'Write')).toHaveAttribute('aria-current', 'page')
-    await tools(win).getByRole('button', { name: 'Generate', exact: true }).click()
-    await win.getByRole('button', { name: /^Add below/ }).click()
+    await dock(win).getByRole('button', { name: /^Add below/ }).click()
     await expect(island).toHaveAttribute('data-desk-island', 'writing')
     await expect(island).toHaveAttribute('aria-label', /^Writing… \d+ words?$/)
-    await tools(win).getByRole('button', { name: 'Stop' }).click()
+    await dock(win).getByRole('button', { name: 'Stop' }).click()
     await expect(island).toHaveAttribute('data-desk-island', 'saved')
 
     // Ctrl+, opens Settings (the room switch then lights no room).
@@ -270,7 +273,9 @@ test('the page: its head, a drop cap that types like any letter, and every short
   await expect(head).toContainText('Low Tide')
   await win.locator('.scene-prose').click()
   await win.keyboard.press('Control+Enter')
-  await expect(tools(win).getByRole('button', { name: /Scene status: Done/ })).toBeVisible()
+  await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+  await expect((await dockMenu(win)).getByRole('menuitem', { name: /Reopen the scene/ })).toBeVisible()
+  await win.keyboard.press('Escape')
   // F11: focus mode; the spine steps away, the top bar dims; F11 again leaves.
   await win.keyboard.press('F11')
   await expect.poll(() => win.evaluate<boolean>("'focus' in document.documentElement.dataset")).toBe(true)
@@ -309,7 +314,148 @@ test('the scene drawer: Ideas for this scene opens it on the card; a name Ctrl+c
   await expect.poll(async () => (await invoke(win, 'getSettings')).layout.inspectorOpen).toBe(false)
 
   // Ask the world opens in the drawer too.
-  await tools(win).getByRole('button', { name: 'Ask the world' }).click()
+  await (await dockMenu(win)).getByRole('menuitemcheckbox', { name: 'Ask the world' }).click()
   await expect(drawer(win)).toBeVisible()
   await expect(drawer(win).getByRole('textbox').first()).toBeFocused()
+})
+
+// ---------- Phase 3: the AI dock ----------
+
+/** The open story's first scene and chapter. */
+async function firstScene(win: Page): Promise<{ sceneId: string; chapterId: string }> {
+  const [story] = await invoke(win, 'listStories')
+  const { scenes, chapters } = await invoke(win, 'getOutline', story.id)
+  return { sceneId: scenes[0].id, chapterId: chapters[0].id }
+}
+
+test('the dock’s Continue writes on from the end of the scene as a change; Tab accepts it; the steer box’s words go with it', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10 })
+  try {
+    const { win } = await sampleWorld(launch, { env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await useFakeModel(win, fake)
+    const paras = win.locator('.scene-prose > p')
+    const before = await paras.count()
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
+    // The caret at the start of the scene: Continue still carries on from its end.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('Control+Home')
+    const steer = dock(win).getByRole('textbox', { name: 'Steer the next bit (optional)' })
+    await steer.fill('The ferry horn sounds twice')
+    await steer.press('Enter')
+    // The change waits at the end, and the dock offers Accept and Reject (its idle face, with the steer box, steps away).
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'review')
+    await expect(dock(win).getByRole('button', { name: /^Accept/ })).toBeVisible()
+    await expect(dock(win)).toContainText(/Continue · \d+ words/)
+    await expect(paras.last().locator('.aw-sugg-new')).toHaveCount(1)
+    // The steer box's words went to the AI as the direction (the record keeps them; edit records aren't listed per scene).
+    const sent = JSON.stringify(fake.lastRequest()?.body.messages ?? [])
+    expect(sent).toContain('The ferry horn sounds twice')
+    await win.keyboard.press('Tab')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
+    // The steer box emptied once the AI started with its words (they are for one Continue only).
+    await expect(steer).toHaveValue('')
+    await expect.poll(() => paras.count()).toBeGreaterThan(before)
+    await expect(paras.last()).toHaveText(/for the first time that evening she sat/)
+    // Ctrl+Shift+Enter does the same; Esc in the page rejects it.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('Control+Shift+Enter')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'review')
+    await win.keyboard.press('Escape')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
+    await expect(win.locator('.scene-prose .aw-sugg-new')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the dock’s Add below drafts below a scene break with no question, and one Ctrl+Z takes it away; Esc stops a draft', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 60 })
+  try {
+    const { win } = await sampleWorld(launch, { env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await useFakeModel(win, fake)
+    const prose = win.locator('.scene-prose')
+    const text = await prose.innerText()
+    await dock(win).getByRole('button', { name: /^Add below/ }).click()
+    await expect(prose.locator('hr')).toHaveCount(1)
+    await expect(win.getByRole('heading', { name: 'This scene already has text' })).toHaveCount(0)
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle', { timeout: 20000 })
+    await win.keyboard.press('Control+z')
+    await expect(prose.locator('hr')).toHaveCount(0)
+    expect(await prose.innerText()).toBe(text)
+
+    // Esc stops a draft being written; the words so far stay.
+    await useFakeModel(win, fake, 'fake/slow')
+    await dock(win).getByRole('button', { name: /^Add below/ }).click()
+    await expect(dock(win)).toContainText(/Writing… \d+ words?/)
+    await win.keyboard.press('Escape')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
+    await expect(prose.locator('hr')).toHaveCount(1)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the dock: Ctrl+G opens Generate’s panels over it; the menu has the toolbar’s tools; an empty scene offers Draft the scene', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  // No writer model in this world: Ctrl+G says how to choose one, once, over the dock.
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('Control+G')
+  const heading = win.getByRole('heading', { name: 'Choose a writer model first' })
+  await expect(heading).toHaveCount(1)
+  expect((await heading.boundingBox())!.y).toBeLessThan((await dock(win).boundingBox())!.y)
+  await win.keyboard.press('Escape')
+  await expect(heading).toHaveCount(0)
+
+  // The menu: every way to write, and the scene's tools.
+  const menu = await dockMenu(win)
+  for (const name of ['Rewrite the scene', 'Fresh take', 'Draft three', 'Beat by beat', 'Draft options…', 'Reopen the scene', 'Scene history'])
+    await expect(menu.getByRole('menuitem', { name })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: /Status: Done/ })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Format' })).toBeVisible()
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Ask the world' })).toBeVisible()
+  // The scene panel opens the drawer.
+  await menu.getByRole('menuitemcheckbox', { name: /Scene panel/ }).click()
+  await expect(drawer(win)).toBeVisible()
+  await drawer(win).getByRole('button', { name: 'Close the scene panel' }).click()
+  await expect(drawer(win)).toBeHidden()
+
+  // An empty scene: Continue becomes Draft the scene.
+  const { chapterId } = await firstScene(win)
+  await invoke(win, 'createScene', chapterId, { title: 'Blank Page' })
+  await win.reload()
+  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Blank Page/ }).click()
+  await expect(win.locator('[data-page-title]')).toContainText('Blank Page')
+  await expect(dock(win).getByRole('button', { name: /^Draft the scene/ })).toBeVisible()
+  await expect(dock(win).getByRole('button', { name: /^Continue/ })).toHaveCount(0)
+})
+
+test('the shortcuts the panels’ toolbar carries each work once on the desk: Ctrl+Enter, Ctrl+G, Esc', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 10, slowDelayMs: 60 })
+  try {
+    const { win } = await sampleWorld(launch, { env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
+    await useFakeModel(win, fake, 'fake/slow')
+    const toasts = win.locator('div.fixed[aria-live="polite"]')
+    // Ctrl+Enter on a drafted scene: marked done once (heard twice, it would also say it is already done).
+    await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
+    await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('Control+Enter')
+    await expect(win.locator('[data-desk-spine] .spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Done/)
+    await win.waitForTimeout(400)
+    await expect(toasts).not.toContainText('already marked done')
+    // Ctrl+G: one choice, over the dock; Enter picks Add below; Esc stops it.
+    await win.locator('.scene-prose').click()
+    await win.keyboard.press('Control+G')
+    await expect(win.getByRole('heading', { name: 'This scene already has text' })).toHaveCount(1)
+    await win.keyboard.press('Enter')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'busy')
+    await expect(dock(win)).toContainText(/Writing… \d+ words?/)
+    await win.keyboard.press('Escape')
+    await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
+  } finally {
+    await fake.close()
+  }
 })

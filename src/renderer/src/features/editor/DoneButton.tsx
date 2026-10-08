@@ -14,6 +14,36 @@ import { useDelayed } from '@/features/generate/parts'
 import { markSceneDone, reopenScene } from './markDone'
 import { onMarkDoneRequest, requestMarkDone } from './doneShortcut'
 
+/**
+ * Ctrl+Enter marks the scene done, from the page (the editor passes it on as a request) or anywhere else in the writing
+ * view; a scene already done says so. Used by Mark done in the scene's toolbar (Classic and the panels) and, with no
+ * button, by the desk's page (features/desk/keys/DeskSceneKeys.tsx). `run` keeps one mark at a time.
+ */
+export function useMarkDoneKeys(sceneId: ID, done: boolean, run: (fn: () => Promise<unknown>) => Promise<void> = (fn) => fn().then(() => undefined)): void {
+  const doneRef = useRef(done)
+  doneRef.current = done
+  const runRef = useRef(run)
+  runRef.current = run
+  useEffect(() => {
+    const off = onMarkDoneRequest(() => {
+      if (doneRef.current) toast('This scene is already marked done.')
+      else void runRef.current(() => markSceneDone(sceneId))
+    })
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key !== 'Enter') return
+      // A box that gives Ctrl+Enter its own meaning (the draft direction: Generate) has handled it already.
+      if (e.defaultPrevented || e.repeat || layerOpen() || useApp.getState().view.kind !== 'write') return
+      e.preventDefault()
+      requestMarkDone()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      off()
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [sceneId])
+}
+
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'
   const isNew = useNewLook()
@@ -29,8 +59,6 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
   const [pending, setPending] = useState(false)
   // It takes a moment at most; the spinner only shows if it takes longer than that.
   const slow = useDelayed(pending, 250)
-  const doneRef = useRef(done)
-  doneRef.current = done
   const pendingRef = useRef(false)
 
   const run = useRef(async (fn: () => Promise<unknown>): Promise<void> => {
@@ -46,24 +74,7 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
   }).current
 
   // Ctrl+Enter, from the page (the editor passes it on) or anywhere else in the writing view.
-  useEffect(() => {
-    const off = onMarkDoneRequest(() => {
-      if (doneRef.current) toast('This scene is already marked done.')
-      else void run(() => markSceneDone(sceneId))
-    })
-    const onKey = (e: KeyboardEvent): void => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key !== 'Enter') return
-      // A box that gives Ctrl+Enter its own meaning (the draft direction: Generate) has handled it already.
-      if (e.defaultPrevented || e.repeat || layerOpen() || useApp.getState().view.kind !== 'write') return
-      e.preventDefault()
-      requestMarkDone()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      off()
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [sceneId, run])
+  useMarkDoneKeys(sceneId, done, run)
 
   const shortcut = `${modKey()}+Enter`
   return (

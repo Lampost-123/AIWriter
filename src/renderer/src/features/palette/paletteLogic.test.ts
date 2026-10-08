@@ -119,6 +119,10 @@ describe('the actions', () => {
     // A scene marked done can be reopened instead.
     expect(ids(writing)).not.toContain('reopen-scene')
     expect(ids({ ...writing, sceneDone: true })).toContain('reopen-scene')
+    // The desk's Continue (from the end of the scene, Ctrl+Shift+Enter) only on the desk, and not while drafting.
+    expect(ids(writing)).not.toContain('continue-end')
+    expect(ids({ ...writing, desk: true })).toContain('continue-end')
+    expect(ids({ ...writing, desk: true, drafting: true })).not.toContain('continue-end')
     // Deleting only the scene on screen; marking done goes back to it from another page.
     expect(ids(writing)).toContain('delete-scene')
     expect(ids({ ...writing, view: 'codex' })).not.toContain('delete-scene')

@@ -262,6 +262,11 @@ export async function runAction(id: ActionId): Promise<void> {
         backToWriting()
         continueFromCursor()
         return
+      case 'continue-end':
+        // The desk's AI dock hears it, so the steer box's words go with it.
+        backToWriting()
+        pressShortcut('continue')
+        return
       case 'ask-world':
         openAsk()
         return

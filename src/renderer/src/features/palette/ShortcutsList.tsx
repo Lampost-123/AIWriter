@@ -11,6 +11,7 @@ import { watchMoreBelow } from '@/lib/moreBelow'
 import { isShortcut, isTyping, SHORTCUT_GROUPS, SHORTCUTS, shortcutKeys, shortcutText, type Shortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { HoldToTalkLine } from '@/features/dictation/HoldToTalkLine'
+import { useDesk } from '@/features/look/look'
 import { giveFocusBack, openShortcuts, PALETTE_LAYER, usePalette } from './paletteStore'
 
 function Keys({ s }: { s: Shortcut }): React.JSX.Element {
@@ -44,6 +45,8 @@ function useOpenShortcut(): void {
 
 export function ShortcutsList(): React.JSX.Element {
   const open = usePalette((s) => s.shortcuts)
+  // The desk's own shortcuts (Continue) are listed only on the desk.
+  const desk = useDesk()
   useOpenShortcut()
 
   return (
@@ -87,7 +90,7 @@ export function ShortcutsList(): React.JSX.Element {
               <section key={group} aria-label={group} className="mt-4">
                 <h3 className="mb-1 text-[11.5px] font-semibold uppercase tracking-wide text-faint">{group}</h3>
                 <ul>
-                  {SHORTCUTS.filter((s) => s.group === group).map((s) => (
+                  {SHORTCUTS.filter((s) => s.group === group && (!s.desk || desk)).map((s) => (
                     <li key={s.id} className="flex min-h-8 items-center gap-4 border-b border-line py-1 last:border-b-0">
                       <span className="flex-1 text-[13.5px] text-fg">
                         {s.name}

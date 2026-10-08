@@ -880,26 +880,40 @@
   background-color: transparent;
 }
 
-/* The page's tools at its foot: a raised paper bar, like the dock it will become. */
-[data-arrangement='desk'] .desk-tools {
+/* ---------- The AI dock, floating at the foot of the sheet (phase 3) ---------- */
+[data-arrangement='desk'] .desk-dock {
   background: var(--raise);
   box-shadow:
     var(--sh-pop),
-    0 0 0 1px var(--desk-line),
-    inset 0 1px 0 rgb(255 255 255 / 0.5);
+    0 0 0 1px color-mix(in oklab, var(--lamp) 26%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.6);
   transition:
     opacity var(--dur-quick) var(--desk-ease),
     translate var(--dur-quick) var(--desk-ease),
     visibility 0s;
   animation: desk-dock-in 420ms var(--spring-pop) 300ms backwards;
 }
-[data-arrangement='desk'][data-theme='dark'] .desk-tools {
+[data-arrangement='desk'][data-theme='dark'] .desk-dock {
   box-shadow:
     var(--sh-pop),
-    0 0 0 1px var(--desk-line),
+    0 0 0 1px color-mix(in oklab, var(--lamp) 30%, transparent),
     inset 0 1px 0 rgb(255 240 220 / 0.06);
 }
-[data-arrangement='desk'] .desk-tools.is-away {
+/* A soft amber glow on the desk below it: the lamp the AI writes by. */
+[data-arrangement='desk'] .desk-dock::after {
+  content: '';
+  position: absolute;
+  left: 70px;
+  right: 70px;
+  bottom: -16px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--lamp-glow) 75%, transparent), transparent);
+  filter: blur(6px);
+  z-index: -1;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-dock.is-away {
   opacity: 0;
   translate: 0 10px;
   visibility: hidden;
@@ -907,6 +921,292 @@
     opacity var(--dur-exit) var(--desk-ease),
     translate var(--dur-exit) var(--desk-ease),
     visibility 0s linear var(--dur-exit);
+}
+/* Its three faces (idle, busy, review) lie on top of each other and crossfade; from the keyboard they swap at once. */
+[data-arrangement='desk'] .desk-dock-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 18px;
+  opacity: 0;
+  filter: blur(3px);
+  transition:
+    opacity var(--dur-exit) var(--desk-ease),
+    filter var(--dur-exit) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock[data-desk-dock='idle'] [data-layer='idle'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='busy'] [data-layer='busy'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='review'] [data-layer='review'],
+[data-arrangement='desk'] .desk-dock[data-desk-dock='beats'] [data-layer='idle'] {
+  opacity: 1;
+  filter: none;
+  transition:
+    opacity var(--dur-quick) var(--desk-ease) 40ms,
+    filter var(--dur-quick) var(--desk-ease) 40ms;
+}
+[data-arrangement='desk'] .desk-dock[data-instant] .desk-dock-layer {
+  transition: none;
+}
+[data-arrangement='desk'] .desk-dock-layer[inert] {
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-dock-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--lamp-2);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--lamp-2) 22%, transparent);
+}
+[data-arrangement='desk'] .desk-dock-dot.is-live {
+  animation: desk-dot-breathe 1.6s ease-in-out infinite;
+}
+@keyframes desk-dot-breathe {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--lamp-2) 12%, transparent);
+  }
+}
+[data-arrangement='desk'] .desk-steer {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 40px;
+  color: var(--fg);
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-steer::placeholder {
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-steer:hover,
+[data-arrangement='desk'] .desk-steer:focus {
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-steer:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* Add below, Reject: paper buttons. */
+[data-arrangement='desk'] .desk-dock-btn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  background: var(--raise);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-btn:hover {
+  background: var(--surface-2);
+}
+/* Continue, Accept: the AI's amber. */
+[data-arrangement='desk'] .desk-dock-ai {
+  position: relative;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 86%, white), var(--ai));
+  color: var(--ai-fg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    0 6px 18px -6px var(--lamp-glow),
+    0 1px 0 rgb(120 60 0 / 0.18);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] [data-layer='review'] .desk-dock-ai {
+  padding-right: 14px;
+}
+[data-arrangement='desk'] .desk-dock-ai:hover {
+  filter: brightness(1.07);
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop, .desk-dock-more):active {
+  scale: 0.97;
+  transition-duration: var(--dur-press);
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop, .desk-dock-more):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-arrangement='desk'] :is(.desk-dock-btn, .desk-dock-ai, .desk-dock-stop):disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+[data-arrangement='desk'] .desk-kcap {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--ai-fg) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai-fg) 28%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 20px;
+}
+[data-arrangement='desk'] .desk-dock-key {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.72;
+}
+[data-arrangement='desk'] .desk-dock-more {
+  color: var(--muted);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-more:hover,
+[data-arrangement='desk'] .desk-dock-more[data-state='open'] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+@container dock (max-width: 520px) {
+  [data-arrangement='desk'] .desk-kcap {
+    display: none;
+  }
+}
+/* Busy and review: what the AI is doing, in words; the writer model; Stop. */
+[data-arrangement='desk'] .desk-dock-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding-left: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-arrangement='desk'] .desk-dock-line.is-link {
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-left: -4px;
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .desk-dock-line.is-link:hover {
+  background: var(--surface-2);
+}
+[data-arrangement='desk'] .desk-dock-below {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--ai);
+  font-weight: 600;
+}
+[data-arrangement='desk'] [data-layer='review'] .desk-dock-line {
+  flex: 1 1 auto;
+}
+[data-arrangement='desk'] .desk-dock-model {
+  margin-left: auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+[data-arrangement='desk'] .desk-dock-stop {
+  height: 40px;
+  padding: 0 14px 0 12px;
+  border-radius: 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fg);
+  white-space: nowrap;
+  outline: none;
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-base) var(--desk-ease);
+}
+[data-arrangement='desk'] .desk-dock-stop:hover {
+  background: var(--surface-3);
+}
+/* The AI's progress along the dock's foot: how far a draft of known length has got, or a slow shimmer while it writes. */
+[data-arrangement='desk'] :is(.desk-dock-track, .desk-dock-prog) {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) ease-out;
+}
+[data-arrangement='desk'] .desk-dock-track {
+  background: color-mix(in oklab, var(--lamp-2) 22%, transparent);
+}
+[data-arrangement='desk'] .desk-dock-prog {
+  background: var(--lamp-2);
+  box-shadow: 0 0 6px var(--lamp-glow);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition:
+    opacity var(--dur-base) ease-out,
+    transform 180ms linear;
+}
+[data-arrangement='desk'] .desk-dock-prog.is-shimmer {
+  transform: none;
+  background: linear-gradient(90deg, transparent, var(--lamp-2) 45%, var(--lamp-2) 55%, transparent) 0 0 / 40% 100% no-repeat;
+  box-shadow: none;
+  animation: desk-dock-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes desk-dock-shimmer {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+[data-arrangement='desk'] .desk-dock[data-desk-dock='busy'] :is(.desk-dock-track, .desk-dock-prog) {
+  opacity: 1;
+}
+/* The dock's menu: a paper card, its AI rows' icons in amber. */
+[data-arrangement='desk'] .desk-menu {
+  background: var(--raise);
+  box-shadow:
+    var(--sh-pop),
+    0 0 0 1px var(--desk-line);
 }
 @keyframes desk-dock-in {
   from {

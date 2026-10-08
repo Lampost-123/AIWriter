@@ -11,6 +11,7 @@ import type { ID } from '@shared/types'
 import { toast, useToasts } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { deskOn } from '@/features/look/look'
 import { parseEmphasis } from '@/features/editor/streamText'
 import { TOOL_NAMES, TOOL_WORKING } from './names'
 import { picking, suggestionsOf, type Suggestion, type SuggestionsState } from './suggestions'
@@ -22,6 +23,8 @@ import './suggestions.css'
 const ROOM_BELOW = 16
 /** How close to the window's edge the buttons may sit before the page scrolls to show them. */
 const VIEW_MARGIN = 16
+/** The desk: the room the AI dock (and the fade above it) takes at the foot of the page. */
+const DESK_DOCK_ROOM = 150
 /** Room kept above the start of the change when the page scrolls to show it. */
 const START_MARGIN = 24
 
@@ -90,7 +93,8 @@ export function SuggestionLayer({
     if (!follow.current || !s) return
     // The buttons in view, and the start of the change too when it all fits.
     const view = scroller.clientHeight
-    const bottom = top + panel.offsetHeight + VIEW_MARGIN
+    // The desk: the AI dock floats over the foot of the page, so the buttons stay clear above it.
+    const bottom = top + panel.offsetHeight + (deskOn() ? DESK_DOCK_ROOM : VIEW_MARGIN)
     let start = top
     try {
       start = editor.view.coordsAtPos(s.from).top - box.top + scroller.scrollTop - START_MARGIN

@@ -64,6 +64,7 @@ export type FixedActionId =
   | 'beat-by-beat'
   | 'history'
   | 'continue'
+  | 'continue-end'
   | 'ask-world'
   | 'outline-helper'
   | 'scene-ideas'
@@ -138,6 +139,8 @@ export interface ActionContext {
   spellCheck?: boolean
   /** Sound effects are on (with read aloud): the scene panel has its Sounds tab. */
   soundEffects?: boolean
+  /** The desk is on screen (the New look's desk layout): its AI dock's actions show. */
+  desk?: boolean
 }
 
 export interface ActionDef {
@@ -281,6 +284,14 @@ export const ACTIONS: ActionDef[] = [
     keywords: 'ai write on more carry',
     away: toWriting,
     when: (c) => hasScene(c) && !c.drafting
+  },
+  {
+    id: 'continue-end',
+    label: 'Continue at the end of the scene',
+    keywords: 'ai write on more carry dock next',
+    shortcut: 'continue',
+    away: toWriting,
+    when: (c) => hasScene(c) && !c.drafting && !!c.desk
   },
   { id: 'ask-world', label: 'Ask the world', keywords: 'chat brainstorm question ai ideas memory', away: toWriting },
   { id: 'outline-helper', label: 'Outline helper', keywords: 'ai plan premise acts chapters scenes suggest', away: true, when: hasStory },

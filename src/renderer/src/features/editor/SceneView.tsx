@@ -25,7 +25,8 @@ import { PageTitle } from './PageTitle'
 import { useDesk, useNewLook } from '@/features/look/look'
 import { useDeskFrame } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
-import { DeskPageTools } from '@/features/desk/page/DeskPageTools'
+import { Dock } from '@/features/desk/dock/Dock'
+import { DeskSceneKeys } from '@/features/desk/keys/DeskSceneKeys'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
 import { SuggestionLayer } from '@/features/edits/SuggestionLayer'
 import { BeatBar } from '@/features/beats/BeatBar'
@@ -343,8 +344,8 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           </div>
         ) : null}
       </div>
-      {draftBelow && !error ? (
-        // Over the page, so nothing moves: where the new draft is being written.
+      {draftBelow && !error && !desk ? (
+        // Over the page, so nothing moves: where the new draft is being written. (On the desk the AI dock says so.)
         <button
           type="button"
           onClick={() => ctrlRef.current?.revealDraft()}
@@ -362,12 +363,20 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           <div className="desk-page-fade mx-auto h-full" style={{ maxWidth: frame.sheetW }} />
         </div>
       ) : null}
-      {/* The desk: the scene's tools float at the foot of the sheet (where the panels have them above the page). */}
+      {/* The desk: the AI dock floats at the foot of the sheet, where the AI is asked to write (the panels have Generate in
+          the scene's toolbar above the page). The keys the panels' toolbar carries are heard by DeskSceneKeys. */}
       {desk && shown && !error ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
-          <div className="flex w-full justify-center" style={{ maxWidth: Math.min(780, frame.sheetW - 24) }}>
-            <DeskPageTools sceneId={shown.id} fallbackStatus={shown.status} />
+          <div className="flex w-full flex-col items-center gap-3" style={{ maxWidth: Math.min(640, frame.sheetW - 48) }}>
+            <Dock
+              editor={editor}
+              sceneId={shown.id}
+              fallbackStatus={shown.status}
+              draftBelow={draftBelow}
+              onRevealDraft={() => ctrlRef.current?.revealDraft()}
+            />
           </div>
+          <DeskSceneKeys sceneId={shown.id} fallbackStatus={shown.status} />
         </div>
       ) : null}
       {/* Writing by hand: find and replace in the scene (Ctrl+F), over the top of the page. */}
