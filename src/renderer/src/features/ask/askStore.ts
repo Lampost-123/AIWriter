@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { AskTurn, ChatSummary, ProposalStatus, SavedNote } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
 import { api, ApiError, onEvent } from '@/lib/api'
+import { editorBridge } from '@/lib/editorBridge'
 import { registerDiscarder } from '@/lib/flush'
 
 /** A turn as the panel shows it. */
@@ -157,6 +158,20 @@ const storyOfKey = (key: string | null): ID | null => {
   return story || null
 }
 
+/**
+ * The story a chat was asked in, from its id (`<story id>:…`, or `world:…` with no story open: null); undefined
+ * when that can't be told (no chat id yet).
+ */
+export function storyOfChat(chatId: string | null | undefined): ID | null | undefined {
+  const i = chatId ? chatId.indexOf(':') : -1
+  if (!chatId || i <= 0) return undefined
+  const story = chatId.slice(0, i)
+  return story === 'world' ? null : story
+}
+
+/** The chat a turn on show belongs to; undefined when it isn't on show (or has no chat yet). */
+export const chatOfTurn = (generationId: ID): ID | undefined => get().turns.find((t) => t.generationId === generationId)?.chatId || undefined
+
 // ---------- Which chat is on show ----------
 
 /** Shows a story's chats (its most recent one open), unless they already show. */
@@ -267,6 +282,10 @@ export async function ask(question: string, place: AskPlace): Promise<boolean> {
   set({ turns: [...s.turns.filter((t) => !neverSent(t)), pending], running: { taskId, stopping: false, retrying: null } })
   starting.set(taskId, false)
   try {
+    // The open scene's unsaved typing is saved first, so the chat reads the scene as the page shows it (the
+    // question already shows meanwhile). A save that fails doesn't stop the question.
+    const page = editorBridge()
+    if (page) await page.flush().catch(() => undefined)
     const turn = await api.askWorld({ taskId, chatId, question: text, storyId: place.storyId, sceneId: place.sceneId })
     // Stop asked for before the answer had started (or it no longer shows here): it stops now. The
     // record keeps what arrived, and the chat shows it, stopped, when opened again.
