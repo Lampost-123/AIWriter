@@ -472,7 +472,7 @@ test('the gallery orders by first appearance too, and the dossier says where it 
   expect((await invoke(win, 'getSettings')).lastSceneId).toBe(lead.first!.sceneId)
 })
 
-test('the story’s spine in every room: Plan, World and Check beside it, each room’s sheet clear of it and centred', async ({ launch }) => {
+test('the story’s spine in every room: Plan, World, Check and the story’s home beside it, each clear of it and centred', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch)
   const spine = win.locator('[data-desk-spine]')
   const sheet = win.locator('.desk-room-sheet')
@@ -491,8 +491,36 @@ test('the story’s spine in every room: Plan, World and Check beside it, each r
       expect(p.x, `${name} at ${w}`).toBeGreaterThanOrEqual(s.x + s.width + 16)
       expect(Math.abs(p.x - (s.x + s.width) - (w - (p.x + p.width))), `${name} at ${w}: centred`).toBeLessThanOrEqual(24)
       expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
+      if (name === 'Plan') {
+        // The story board lies on the desk (its sheet steps aside), never under the spine.
+        const b = (await win.locator('[data-desk-board]').boundingBox())!
+        const first = (await win.locator('[data-board-card]').first().boundingBox())!
+        expect(b.x, `the board at ${w}`).toBeGreaterThanOrEqual(s.x + s.width + 16)
+        expect(first.x, `the board's first card at ${w}`).toBeGreaterThanOrEqual(s.x + s.width + 16)
+      }
     }
+    // The story's home, in no room, beside it too.
+    await win.getByRole('button', { name: 'Story home' }).click()
+    const col = win.locator('[data-desk-home] .home-col')
+    await expect(col).toBeVisible()
+    await win.waitForTimeout(400)
+    await expect(spine).toHaveAttribute('data-shape', 'full')
+    const s = (await spine.locator('.spine-capsule').boundingBox())!
+    const c = (await col.boundingBox())!
+    expect(c.x, `the home at ${w}`).toBeGreaterThanOrEqual(s.x + s.width + 16)
+    expect(Math.abs(c.x - (s.x + s.width) - (w - (c.x + c.width))), `the home at ${w}: centred`).toBeLessThanOrEqual(32)
   }
+  // A window too narrow for the full spine: the board beside the slim one.
+  await size(app, win, 1100, 800)
+  await room(win, 'Plan').click()
+  await expect(spine).toHaveAttribute('data-shape', 'slim')
+  await win.waitForTimeout(400)
+  {
+    const s = (await spine.locator('.spine-slim').boundingBox())!
+    const first = (await win.locator('[data-board-card]').first().boundingBox())!
+    expect(first.x, 'the board beside the slim spine').toBeGreaterThanOrEqual(s.x + s.width + 16)
+  }
+  await size(app, win, 1920, 1080)
   // Collapsed, it is the slim spine in every room, and the choice is kept.
   await room(win, 'Plan').click()
   await spine.getByRole('button', { name: 'Collapse to the spine' }).click()

@@ -14,7 +14,7 @@ export function openRoom(room: Area): void {
 
 /**
  * Where the story's spine shows on the desk: in every room (Write, Plan, World and Check), full unless Adam collapsed it,
- * so the story is always a click away (Adam, phase 4). The room's frame then keeps clear of it, its sheet centred in the
- * room the spine leaves (RoomFrame). Settings, in no room, has none.
+ * so the story is always a click away (Adam, phase 4), and on the story's home too. The room's frame then keeps clear of
+ * it, its sheet centred in the room the spine leaves (RoomFrame; the home does the same). Settings, in no room, has none.
  */
-export const spineShowsIn = (view: View): boolean => view.kind === 'write' || areaOf(view) !== null
+export const spineShowsIn = (view: View): boolean => view.kind === 'write' || view.kind === 'storyHome' || areaOf(view) !== null

@@ -27,6 +27,7 @@ import { Portrait } from '@/features/views/Portrait'
 import { editedText } from '@/features/start/startLogic'
 import { numberWords } from '@shared/numberWords'
 import { useArrival } from '@/layout/desk/arrival'
+import { GUTTER, useDeskFrame, useSheetGlide } from '@/layout/desk/deskFit'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { CoverPicker } from '@/features/world/art/MotifPicker'
 import { BookCover } from './BookCover'
@@ -85,6 +86,10 @@ export function StoryHome(): React.JSX.Element {
   const order = useStoryLabels((s) => s.order)
   useStoryLabelsLoader()
   const arriving = useArrival('home')
+  // Beside the story's spine, as every room is (layout/desk/rooms.ts): the home keeps clear of it, centred in the room it
+  // leaves, and glides across with it as it opens out or collapses.
+  const frame = useDeskFrame()
+  const glide = useSheetGlide(frame)
 
   const board = useLoad<ThreadsBoard>(() => (storyId ? api.getThreadsBoard(storyId) : null), [storyId, outlineRev, memoryRev])
   const codex = useLoad<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev, world?.id])
@@ -107,7 +112,12 @@ export function StoryHome(): React.JSX.Element {
   }
 
   return (
-    <div data-desk-home data-arrive={arriving || undefined} className="desk-home absolute inset-0 overflow-y-auto overflow-x-hidden">
+    <div
+      data-desk-home
+      data-arrive={arriving || undefined}
+      className="desk-home absolute inset-0 overflow-y-auto overflow-x-hidden"
+      style={{ paddingLeft: frame.leftMin - GUTTER, transition: glide }}
+    >
       <div className="home-col" aria-label={`Story home: ${title}`} role="region">
         <section className="home-hero" aria-label="The book">
           <div className="home-book-col">
