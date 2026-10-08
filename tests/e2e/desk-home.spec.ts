@@ -140,6 +140,26 @@ test('the story home fits the window without spilling, and the panels never show
     await expect(home(win)).toBeVisible()
     const spill = await home(win).evaluate((e) => e.scrollWidth - e.clientWidth)
     expect(spill, `at ${w}x${h}`).toBeLessThanOrEqual(0)
+    // The cast: every one shown has their name under them, readable, and no face covers another (once only two of the
+    // four drawn circles were named, the others hidden under them).
+    const people = await home(win).locator('.home-pt').evaluateAll((els) =>
+      els.map((el) => {
+        const face = el.querySelector('.home-pt-face')!.getBoundingClientRect()
+        const name = el.querySelector('.home-pt-name') as HTMLElement
+        return { face: { x: face.x, y: face.y, w: face.width, h: face.height }, name: name.textContent ?? '', shown: name.getBoundingClientRect().width > 8, cut: name.scrollWidth > name.clientWidth, title: el.getAttribute('title') ?? '' }
+      })
+    )
+    expect(people.map((p) => p.name), `at ${w}x${h}`).toEqual(['Wren', 'Iska', 'Edric', 'Ansel'])
+    for (const p of people) {
+      expect(p.shown, `${p.name}'s name at ${w}x${h}`).toBe(true)
+      if (p.cut) expect(p.title, `${p.name} cut short shows whole on hover`).toMatch(new RegExp(`^${p.name}`))
+    }
+    for (let i = 0; i < people.length; i++)
+      for (let j = i + 1; j < people.length; j++) {
+        const [a, b] = [people[i].face, people[j].face]
+        const apart = a.x + a.w <= b.x + 0.5 || b.x + b.w <= a.x + 0.5 || a.y + a.h <= b.y + 0.5 || b.y + b.h <= a.y + 0.5
+        expect(apart, `${people[i].name} and ${people[j].name} apart at ${w}x${h}`).toBe(true)
+      }
   }
   // The panels: the home is the desk's own; the page shows instead.
   await invoke(win, 'updateSettings', { arrangement: 'panels' })

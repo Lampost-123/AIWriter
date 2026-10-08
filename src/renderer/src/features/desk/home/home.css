@@ -778,10 +778,16 @@
   flex: 0 0 auto;
   scroll-snap-align: start;
 }
+/* A chapter's card gives a little width before the shelf scrolls, so two or three chapters and Add chapter fit a
+   1280 to 1440 window without a scroll bar and a cut-off tile; a long book still scrolls. */
+[data-arrangement='desk'] .home-shelf-item:has(> .home-chap) {
+  flex: 0 1 var(--chap-w, 440px);
+  min-width: 330px;
+}
 [data-arrangement='desk'] .home-chap {
   position: relative;
   display: block;
-  width: 440px;
+  width: 100%;
   height: 104px;
   border-radius: 6px 6px 3px 3px;
   background: var(--card);
@@ -824,7 +830,7 @@
 [data-arrangement='desk'] .home-chap.is-current {
   box-shadow:
     0 0 0 1px var(--desk-line),
-    0 0 0 4px color-mix(in oklab, var(--lamp-2) 22%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--accent) 24%, transparent),
     0 8px 16px -10px rgb(var(--shade-rgb) / 0.32);
 }
 [data-arrangement='desk'] .home-chap > span {
@@ -1144,49 +1150,64 @@
   transform: scale(0.985);
 }
 [data-arrangement='desk'] .home-pts {
-  position: relative;
-  display: block;
-  height: 86px;
+  display: grid;
+  /* Side by side in one row, never over one another: a column for each, its name under it. In a narrow column they all
+     get smaller together rather than overlap or wrap. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 62px);
+  justify-content: start;
+  gap: 6px;
 }
 [data-arrangement='desk'] .home-pt {
-  position: absolute;
-  top: 0;
-  width: 60px;
-  height: 86px;
-  transition: transform var(--dur-base, 220ms) var(--motion-glide);
-}
-[data-arrangement='desk'] .home-cast:hover .home-pt:nth-child(2) {
-  transform: translateX(6px);
-}
-[data-arrangement='desk'] .home-cast:hover .home-pt:nth-child(3) {
-  transform: translateX(12px);
-}
-[data-arrangement='desk'] .home-cast:hover .home-pt:nth-child(4) {
-  transform: translateX(18px);
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 [data-arrangement='desk'] .home-pt-face {
-  display: block;
-  width: 60px;
-  height: 60px;
+  display: grid;
+  place-items: center;
+  width: min(52px, 100%);
+  aspect-ratio: 1;
   border-radius: 50%;
   box-shadow:
     0 0 0 3px var(--raise),
     0 6px 14px -6px rgb(var(--shade-rgb) / 0.35);
+  transition: translate var(--dur-quick, 150ms) var(--motion-glide);
+}
+[data-arrangement='desk'] .home-cast:hover .home-pt-face {
+  translate: 0 -2px;
 }
 [data-arrangement='desk'] .home-pt-face > span {
-  font-size: 24px !important;
+  width: 100% !important;
+  height: 100% !important;
+  font-size: 21px !important;
+}
+[data-arrangement='desk'] .home-pt-more {
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 600 15px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 [data-arrangement='desk'] .home-pt-name {
-  position: absolute;
-  left: -8px;
-  right: -8px;
-  top: 68px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
   font-family: var(--font-heading);
   font-size: 13.5px;
   line-height: 16px;
   color: var(--fg);
   white-space: nowrap;
+}
+[data-arrangement='desk'] .home-pt.is-more .home-pt-name {
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arrangement='desk'] .home-pt-face {
+    transition: none;
+  }
 }
 [data-arrangement='desk'] .home-cast-count {
   margin-top: 10px;
@@ -1407,8 +1428,8 @@
   [data-arrangement='desk'] .home-book .book-cover {
     --book-w: 170px;
   }
-  [data-arrangement='desk'] .home-chap {
-    width: 380px;
+  [data-arrangement='desk'] .home-shelf {
+    --chap-w: 380px;
   }
 }
 
