@@ -178,3 +178,32 @@ test('words Adam types himself get who says each line and how, without Listen', 
     await fake.close()
   }
 })
+
+test('a thought in italics is its thinker’s, and "Show speakers and tone" says it is a thought', async ({ launch }) => {
+  test.setTimeout(120_000)
+  const fake = await startFake()
+  const speech = await startSpeech()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await invoke(win, 'createEntry', 'character', { name: 'Mara', summary: 'Runs the harbour ferry.' })
+    await invoke(win, 'createEntry', 'character', { name: 'Tobin', summary: 'A ferryman.' })
+    await invoke(win, 'updateSettings', { speech: { serverUrl: speech.url, readAloud: true, markSpeakers: true } })
+    await useFakeModel(win, fake)
+
+    await prose(win).click()
+    await win.keyboard.type('"You came," Tobin said.')
+    await win.keyboard.press('Enter')
+    await win.keyboard.press('Control+i')
+    await win.keyboard.type('Not again,')
+    await win.keyboard.press('Control+i')
+    await win.keyboard.type(' Mara thought.')
+    await speakersButton(win).click()
+    await expect.poll(async () => (await labels(win)).filter((l) => l.includes(' · ')).length, { timeout: 30_000 }).toBe(2)
+    // The thought is Mara's, read in her voice; the label says what it is (the fake director notes it "small and inward").
+    expect((await labels(win))[1]).toBe('Mara · thought · small and inward')
+  } finally {
+    await speech.close()
+    await fake.close()
+  }
+})

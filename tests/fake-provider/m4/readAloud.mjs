@@ -102,7 +102,8 @@ function numberedLines(text) {
   return [...text.matchAll(/\[(\d+)\](.)/gs)].map((m) => ({
     n: Number(m[1]),
     quote: m[2] === '"' || m[2] === '“',
-    someone: /^["“][^"”]*["”],?\s+someone\b/.test(text.slice(m.index + m[0].length - 1))
+    // The director numbers the narration after a quote too (“Fine,” [6]someone muttered): the numbers aren't words.
+    someone: /^["“][^"”]*["”],?\s+someone\b/.test(text.slice(m.index + m[0].length - 1).replace(/\[\d+\]/g, ''))
   }))
 }
 
