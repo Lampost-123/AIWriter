@@ -13,6 +13,9 @@ import { undoLastDelete } from '@/lib/undoDelete'
 import { DraftsSection, EarlierVersionsButton, NewDraftButton } from '@/features/history/DraftsSection'
 import { formatCost, fullDate, relativeTime, shortModelName } from './format'
 import { Skeleton, useDelayed, useNow } from './parts'
+import { PagesArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import '@/features/history/drafts.css'
 
 export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const [items, setItems] = useState<GenerationSummary[] | null>(null)
@@ -23,6 +26,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const pageHasWords = useApp((s) => s.sceneWords > 0)
   const activeId = useApp((s) => (s.activeGeneration?.sceneId === sceneId ? s.activeGeneration.id : null))
   const now = useNow()
+  const desk = useDesk()
   const ticket = useRef(0)
   const [drafts, setDraftsState] = useState<SceneDrafts | null>(null)
   const draftTicket = useRef(0)
@@ -139,6 +143,25 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
 
   // Only the draft in the page, and nothing from the AI yet.
   if (!items.length && drafts.available && drafts.drafts.length <= 1) {
+    // The desk: the stack of pages, and the same words and ways on.
+    if (desk) {
+      return tab(
+        <div className="drafts-empty" role="status">
+          <PagesArt className="drafts-empty-art" />
+          <h3 className="drafts-empty-title">No drafts yet</h3>
+          <p className="drafts-empty-text">
+            {pageHasWords
+              ? 'New draft keeps the text you have now as Draft 1 and starts a copy, to try the scene another way.'
+              : 'Drafts start once the scene has words: New draft then keeps the text as Draft 1 and starts a copy, to try the scene another way.'}{' '}
+            Each AI draft is listed here too, with what it cost and a link to see exactly what the AI was given.
+          </p>
+          <div className="drafts-empty-acts">
+            {pageHasWords ? <NewDraftButton sceneId={sceneId} onChange={setDrafts} variant="secondary" /> : null}
+            <EarlierVersionsButton sceneId={sceneId} />
+          </div>
+        </div>
+      )
+    }
     return tab(
       <EmptyState
         icon={<History size={18} />}
@@ -159,7 +182,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   }
 
   return tab(
-    <div className="flex flex-col gap-4 p-2 animate-fade-in">
+    <div className="drafts-tab flex flex-col gap-4 p-2 animate-fade-in">
       <DraftsSection
         sceneId={sceneId}
         drafts={drafts}
@@ -169,7 +192,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         onDeleted={keepKeyboard}
       />
       <section aria-label="Drafts the AI wrote">
-        <h3 className="flex h-8 items-center pl-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Written by the AI</h3>
+        <h3 className="drafts-head flex h-8 items-center pl-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Written by the AI</h3>
         {items.length ? (
           <AiDrafts
             items={items}
@@ -209,7 +232,7 @@ function AiDrafts({
   onOpen: (id: ID) => void
 }): React.JSX.Element {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="ai-drafts flex flex-col gap-1">
       {items.map((g) => {
         const streaming = g.status === 'streaming' && g.id === activeId
         const model = writerId === g.modelId && writerLabel ? shortModelName(writerLabel) : shortModelName(g.modelId)
@@ -224,7 +247,8 @@ function AiDrafts({
                   ? 'See exactly what the AI was given for this draft, and the text it replaced'
                   : 'See exactly what the AI was given for this draft'
               }
-              className="group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
+              data-streaming={streaming || undefined}
+              className="ai-draft group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:bg-surface-2"
             >
               <div className="flex w-full items-center gap-2">
                 <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={g.modelId}>

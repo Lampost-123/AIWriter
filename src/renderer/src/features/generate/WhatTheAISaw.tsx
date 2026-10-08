@@ -16,6 +16,9 @@ import { variantsBackTo } from '@/features/variants/back'
 import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
+import { BriefingArt } from '@/components/art/RoomArt'
+import { useDesk } from '@/features/look/look'
+import './aiSaw.css'
 
 type Entry = GenerationRecord['entries'][number]
 
@@ -112,8 +115,8 @@ export function WhatTheAISaw({ generationId }: { generationId: ID }): React.JSX.
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-[880px] px-8 pb-16 pt-6">
+    <div className="aisaw h-full overflow-auto">
+      <div className="aisaw-page mx-auto max-w-[880px] px-8 pb-16 pt-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={back} className="-ml-2.5 mb-3">
           {from
             ? from.label
@@ -198,6 +201,7 @@ function DraftRecord({
         ? otherRecordWords(`this polish of a draft${sceneTitle ? ` of “${sceneTitle}”` : ''}`)
         : editRecordWords(rec, sceneTitle)
 
+  const desk = useDesk()
   const toggle = (id: string): void =>
     setOpen((s) => {
       const n = new Set(s)
@@ -208,17 +212,23 @@ function DraftRecord({
 
   return (
     <div className="animate-fade-in">
-      <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
-      <p className="mt-1 text-[13px] text-muted">
-        {answer ? (
-          <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
-        ) : (
-          <>
-            {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
-            {fullDate(rec.createdAt)}.
-          </>
-        )}
-      </p>
+      <div className="aisaw-head">
+        {desk ? <BriefingArt className="aisaw-art" /> : null}
+        <div className="aisaw-head-words">
+          {desk ? <p className="desk-caps">{answer ? 'An answer in Ask the world' : 'A record of the AI at work'}</p> : null}
+          <h1 className="aisaw-title text-[22px] font-semibold tracking-[-0.01em] text-fg">What the AI saw</h1>
+          <p className="aisaw-intro mt-1 text-[13px] text-muted">
+            {answer ? (
+              <>The exact briefing for this answer in Ask the world, asked {fullDate(rec.createdAt)}.</>
+            ) : (
+              <>
+                {edit?.intro ?? `The exact briefing for this draft${sceneTitle ? ` of “${sceneTitle}”` : ''}${partWords(rec.params)}`}, written{' '}
+                {fullDate(rec.createdAt)}.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
 
       <div className="mt-4 flex flex-col gap-2">
         {rec.status === 'streaming' ? (
@@ -266,159 +276,165 @@ function DraftRecord({
 
       <ReplacedText rec={rec} sceneGone={sceneGone} />
 
-      <Card className="mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
-        {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
-        <Meta
-          label="Model"
-          value={modelLabel || rec.modelId}
-          title={rec.modelId}
-          note={rec.params.thinking ? `Thinking: ${THINKING_LABELS[rec.params.thinking]}` : undefined}
-        />
-        <Meta label="Provider" value={rec.providerName} />
-        <Meta
-          label="Creativity"
-          value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
-          title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
-        />
-        <Meta
-          label="Tokens sent"
-          value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
-          note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
-        />
-        <Meta
-          label="Tokens written"
-          value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
-          note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
-        />
-        <Meta
-          label="Cost"
-          value={
-            rec.cost != null
-              ? `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`
-              : rec.status === 'error' && !rec.response
-                ? 'Nothing charged'
-                : 'Not known'
-          }
-          title={rec.costEstimated ? 'Estimated: the provider did not report the cost' : undefined}
-        />
-      </Card>
-
-      <BudgetBar
-        used={rec.budget.used}
-        available={rec.budget.available}
-        contextLength={rec.budget.contextLength}
-        reserved={rec.budget.reserved}
-        providerCounted={rec.promptTokens != null}
-      />
-
-      {rec.direction ? (
-        <section className="mt-6">
-          <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
-          <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
-        </section>
-      ) : null}
-
-      <section className="mt-7">
-        <SectionTitle
-          actions={
-            <div className="flex items-center gap-4">
-              <label className="flex cursor-default items-center gap-2 text-[12px] text-muted">
-                <S.Root
-                  checked={showMessages}
-                  onCheckedChange={setShowMessages}
-                  className="relative h-[18px] w-8 shrink-0 rounded-full bg-surface-3 transition-colors duration-150 data-[state=checked]:bg-accent"
-                >
-                  <S.Thumb className="block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-page shadow-sm transition-transform duration-150 data-[state=checked]:translate-x-[16px]" />
-                </S.Root>
-                Show the exact messages sent
-              </label>
-              {!showMessages ? (
-                <button type="button" className="text-[12px] font-medium text-accent hover:underline" onClick={() => setOpen(allOpen ? new Set() : new Set(rec.blocks.map((b) => b.id)))}>
-                  {allOpen ? 'Collapse all' : 'Expand all'}
-                </button>
-              ) : null}
-            </div>
-          }
-        >
-          The briefing, in order
-        </SectionTitle>
-        {!showMessages ? (
-          <>
-            <p className="mb-3 text-[12.5px] text-muted">
-              {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, in the order the AI read them
-              {droppedCount ? `; ${droppedCount} left out because the model couldn't read that much` : ''}. Click a part to read it.
-            </p>
-            <div className="flex flex-col gap-2">
-              {rec.blocks.map((b) => (
-                <BlockRow
-                  key={b.id}
-                  block={b}
-                  number={sentNumber.get(b.id) ?? null}
-                  open={open.has(b.id)}
-                  onToggle={() => toggle(b.id)}
-                  entries={entries}
-                  generationId={rec.id}
-                  since={edit?.since}
-                />
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {rec.messages.map((m, i) => (
-              <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
-                <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                  <span>
-                    {answer
-                      ? CHAT_ROLES[m.role]
-                      : m.role === 'system'
-                        ? 'Instructions message'
-                        : m.role === 'user'
-                          ? 'Briefing message'
-                          : 'Reply'}
-                  </span>
-                  <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
-                </div>
-                <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
-                  {m.content}
-                </pre>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
-      {rec.params.steps?.length ? (
-        <section className="mt-8" aria-label="Steps it took">
-          <SectionTitle>Steps it took</SectionTitle>
-          <ol className="flex flex-col gap-2">
-            {rec.params.steps.map((s, i) => (
-              <li key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
-                <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
-                  <span className="tabular-nums text-faint">{i + 1}.</span>
-                  <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                  <span className="font-mono text-[11px] text-faint">{s.tool}</span>
-                </div>
-                <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-2.5 font-mono text-[11.5px] leading-[1.55] text-fg">
-                  {s.result}
-                </pre>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
-
-      <section className="mt-8">
-        <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>
-        {rec.response ? (
-          <Card className="px-6 py-5">
-            <div className="max-w-[68ch] select-text whitespace-pre-wrap font-serif text-[15px] leading-[1.75] text-fg">{rec.response}</div>
+      <div className="aisaw-cols contents">
+        <div className="aisaw-side contents">
+          <Card className="aisaw-meta mt-4 grid grid-cols-3 gap-x-6 gap-y-4 px-5 py-4">
+            {/* How much it was asked to think goes with the model, so the grid keeps its two even rows. */}
+            <Meta
+              label="Model"
+              value={modelLabel || rec.modelId}
+              title={rec.modelId}
+              note={rec.params.thinking ? `Thinking: ${THINKING_LABELS[rec.params.thinking]}` : undefined}
+            />
+            <Meta label="Provider" value={rec.providerName} />
+            <Meta
+              label="Creativity"
+              value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
+              title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
+            />
+            <Meta
+              label="Tokens sent"
+              value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
+              note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
+            />
+            <Meta
+              label="Tokens written"
+              value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
+              note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
+            />
+            <Meta
+              label="Cost"
+              value={
+                rec.cost != null
+                  ? `${rec.costEstimated ? 'about ' : ''}${formatCost(rec.cost)}`
+                  : rec.status === 'error' && !rec.response
+                    ? 'Nothing charged'
+                    : 'Not known'
+              }
+              title={rec.costEstimated ? 'Estimated: the provider did not report the cost' : undefined}
+            />
           </Card>
-        ) : (
-          <p className="text-[13px] text-muted">{rec.status === 'streaming' ? 'Waiting for the first words…' : 'No text came back.'}</p>
-        )}
-      </section>
+
+          <BudgetBar
+            used={rec.budget.used}
+            available={rec.budget.available}
+            contextLength={rec.budget.contextLength}
+            reserved={rec.budget.reserved}
+            providerCounted={rec.promptTokens != null}
+          />
+
+          {rec.direction ? (
+            <section className="aisaw-direction mt-6">
+              <SectionTitle>{edit?.direction ?? (answer ? 'Your question' : 'Your direction for this draft')}</SectionTitle>
+              <blockquote className="select-text border-l-2 border-ai/60 pl-3 text-[14px] leading-relaxed text-fg">{rec.direction}</blockquote>
+            </section>
+          ) : null}
+
+        </div>
+        <div className="aisaw-main contents">
+          <section className="aisaw-briefing mt-7">
+            <SectionTitle
+              actions={
+                <div className="flex items-center gap-4">
+                  <label className="flex cursor-default items-center gap-2 text-[12px] text-muted">
+                    <S.Root
+                      checked={showMessages}
+                      onCheckedChange={setShowMessages}
+                      className="relative h-[18px] w-8 shrink-0 rounded-full bg-surface-3 transition-colors duration-150 data-[state=checked]:bg-accent"
+                    >
+                      <S.Thumb className="block h-3.5 w-3.5 translate-x-0.5 rounded-full bg-page shadow-sm transition-transform duration-150 data-[state=checked]:translate-x-[16px]" />
+                    </S.Root>
+                    Show the exact messages sent
+                  </label>
+                  {!showMessages ? (
+                    <button type="button" className="text-[12px] font-medium text-accent hover:underline" onClick={() => setOpen(allOpen ? new Set() : new Set(rec.blocks.map((b) => b.id)))}>
+                      {allOpen ? 'Collapse all' : 'Expand all'}
+                    </button>
+                  ) : null}
+                </div>
+              }
+            >
+              The briefing, in order
+            </SectionTitle>
+            {!showMessages ? (
+              <>
+                <p className="mb-3 text-[12.5px] text-muted">
+                  {sentBlocks.length} {sentBlocks.length === 1 ? 'part' : 'parts'} sent, in the order the AI read them
+                  {droppedCount ? `; ${droppedCount} left out because the model couldn't read that much` : ''}. Click a part to read it.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {rec.blocks.map((b) => (
+                    <BlockRow
+                      key={b.id}
+                      block={b}
+                      number={sentNumber.get(b.id) ?? null}
+                      open={open.has(b.id)}
+                      onToggle={() => toggle(b.id)}
+                      entries={entries}
+                      generationId={rec.id}
+                      since={edit?.since}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {rec.messages.map((m, i) => (
+                  <div key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+                    <div className="flex items-center justify-between border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
+                      <span>
+                        {answer
+                          ? CHAT_ROLES[m.role]
+                          : m.role === 'system'
+                            ? 'Instructions message'
+                            : m.role === 'user'
+                              ? 'Briefing message'
+                              : 'Reply'}
+                      </span>
+                      <span className="tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
+                    </div>
+                    <pre className="max-h-[560px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-3 font-mono text-[12px] leading-[1.6] text-fg">
+                      {m.content}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
+          {rec.params.steps?.length ? (
+            <section className="mt-8" aria-label="Steps it took">
+              <SectionTitle>Steps it took</SectionTitle>
+              <ol className="flex flex-col gap-2">
+                {rec.params.steps.map((s, i) => (
+                  <li key={i} className="overflow-hidden rounded-xl border border-line bg-surface">
+                    <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] font-medium text-muted">
+                      <span className="tabular-nums text-faint">{i + 1}.</span>
+                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                      <span className="font-mono text-[11px] text-faint">{s.tool}</span>
+                    </div>
+                    <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-4 py-2.5 font-mono text-[11.5px] leading-[1.55] text-fg">
+                      {s.result}
+                    </pre>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
+
+          <section className="aisaw-back mt-8">
+            <SectionTitle actions={<span className="text-[12px] tabular-nums text-faint">{responseWords.toLocaleString()} words</span>}>What came back</SectionTitle>
+            {rec.response ? (
+              <Card className="px-6 py-5">
+                <div className="max-w-[68ch] select-text whitespace-pre-wrap font-serif text-[15px] leading-[1.75] text-fg">{rec.response}</div>
+              </Card>
+            ) : (
+              <p className="text-[13px] text-muted">{rec.status === 'streaming' ? 'Waiting for the first words…' : 'No text came back.'}</p>
+            )}
+          </section>
+        </div>
+      </div>
     </div>
   )
 }
@@ -514,7 +530,7 @@ function BudgetBar({
   const pct = Math.min(100, Math.round(share * 100))
   const tight = share > 0.9
   return (
-    <Card className="mt-3 px-5 py-4">
+    <Card className="aisaw-budget mt-3 px-5 py-4">
       <div className="flex items-baseline justify-between gap-4 text-[13px]">
         <span className="font-medium text-fg">Briefing size (AI Write's estimate)</span>
         <span className="tabular-nums text-muted">
@@ -578,7 +594,7 @@ function BlockRow({
   const navigate = useApp((s) => s.navigate)
   const linked = block.entryIds.map((id) => entries.get(id)).filter((e): e is Entry => !!e)
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-line bg-surface transition-colors duration-150', block.dropped && 'bg-surface-2/60')}>
+    <div className={cn('aisaw-block overflow-hidden rounded-xl border border-line bg-surface transition-colors duration-150', block.dropped && 'bg-surface-2/60')} data-dropped={block.dropped || undefined}>
       <button
         type="button"
         onClick={onToggle}
