@@ -151,26 +151,28 @@ test('drawings: the cast and the places show drawings picked from their words; t
   await win.getByRole('button', { name: 'Story home' }).click()
   // The cover: the story's drawing (a lantern, from "keeper" and "light").
   await expect(home(win).locator('[data-book-cover] [data-motif="lantern"]')).toBeVisible()
-  // The cast, with no portraits: Edric a lantern, Iska a letter.
+  // The cast, with no portraits, each a different drawing: Wren the lantern (her words call for it most), Edric his boat, Iska a letter.
   const cast = home(win).getByRole('button', { name: /^Cast:/ })
   await expect(cast.locator('[data-motif]')).toHaveCount(4)
   await expect(cast.locator('[data-motif="letter"]')).toHaveCount(1)
+  await expect(cast.locator('[data-motif="lantern"]')).toHaveCount(1)
+  await expect(cast.locator('[data-motif="boat"]')).toHaveCount(1)
 
   // On the story board, a scene's place shows its drawing on its tile.
   await rooms(win).getByRole('button', { name: /^Plan/ }).click()
   await expect(win.locator('[data-board-card]', { hasText: 'Low Tide' }).locator('[data-motif="stairs"]')).toBeVisible()
 
-  // Edric's page: his drawing, picked from his words, and Change.
+  // Edric's dossier: his drawing, picked from his words (the lantern being Wren's, his next), and Change.
   await rooms(win).getByRole('button', { name: /^World/ }).click()
   await win.locator('[data-desk-room]').getByText(/^Keeper of the Gullhaven Light for forty years/).first().click()
   const picker = win.locator('[data-motif-picker]')
-  await expect(picker).toContainText('Drawing: lantern')
+  await expect(picker).toContainText('Drawing: small boat')
   await expect(picker).toContainText('Picked from its words')
   await picker.getByRole('button', { name: 'Change' }).click()
   const grid = win.getByRole('radiogroup', { name: 'Drawings for Edric Halloway' })
   // The ones his words suit come first.
   await expect(grid.getByRole('radio').first()).toHaveAccessibleName('A lantern')
-  await expect(grid.getByRole('radio', { name: 'A lantern' })).toHaveAttribute('aria-checked', 'true')
+  await expect(grid.getByRole('radio', { name: 'A small boat' })).toHaveAttribute('aria-checked', 'true')
   await grid.getByRole('radio', { name: 'A bell' }).click()
   await expect(picker).toContainText('Drawing: bell')
   await expect(picker).toContainText('You chose it')

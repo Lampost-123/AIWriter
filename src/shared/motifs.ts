@@ -139,11 +139,11 @@ const best = (scores: Map<string, number>): string | null => {
   return top
 }
 
-/** The drawing for an entry: the one its words call for most, else one of its kind's own, chosen by its name. */
-export function pickMotif(entry: MotifSource): string {
+/** An entry's drawings' scores: its name counts most, then its one-liner, its telling fields and its description. */
+function entryScores(entry: MotifSource): Map<string, number> {
   const fields = entry.fields ?? {}
   const telling = TELLING.map((k) => fields[k] ?? '').filter(Boolean).join('. ')
-  const scores = motifScores(
+  return motifScores(
     [
       { text: entry.name, weight: 3 },
       { text: entry.summary ?? '', weight: 2 },
@@ -152,10 +152,60 @@ export function pickMotif(entry: MotifSource): string {
     ],
     entry.kind
   )
-  const top = best(scores)
-  if (top) return top
+}
+
+/** The kind's own drawings, starting from the one the entry's name picks. */
+function ownDrawings(entry: MotifSource): string[] {
   const own = FALLBACK[entry.kind] ?? FALLBACK.item
-  return own[steady(entry.name.trim().toLowerCase()) % own.length]
+  const at = steady(entry.name.trim().toLowerCase()) % own.length
+  return [...own.slice(at), ...own.slice(0, at)]
+}
+
+/** The drawing for an entry: the one its words call for most, else one of its kind's own, chosen by its name. */
+export function pickMotif(entry: MotifSource): string {
+  return best(entryScores(entry)) ?? ownDrawings(entry)[0]
+}
+
+/** A drawing good enough to stand in for an entry's best: its words call for it at least half as much. */
+const GOOD_SHARE = 0.5
+
+/**
+ * The drawings for a set of entries shown together (a cast, a row of cards, a world): each its best, unless another
+ * entry already shows that one and another good one fits (one its words call for at least half as much, or for an entry
+ * no words call for, another of its kind's own); then it takes the first such one still free. The entries whose words
+ * call for their drawing most choose first (Edric, the keeper of the light, keeps the lantern), then those no words call
+ * for; ties go in the order given. Adam's own choices (`chosen`, by entry id) are kept as they are and count as taken.
+ */
+export function pickMotifs(entries: (MotifSource & { id: string })[], chosen: Readonly<Record<string, string>> = {}): Map<string, string> {
+  const out = new Map<string, string>()
+  const used = new Set<string>()
+  for (const e of entries) {
+    const mine = chosen[e.id]
+    if (!mine) continue
+    out.set(e.id, mine)
+    used.add(mine)
+  }
+  const wants = entries
+    .filter((e) => !out.has(e.id))
+    .map((e, i) => {
+      const scores = entryScores(e)
+      const top = best(scores)
+      const topScore = top ? scores.get(top)! : 0
+      // Best first (ties in the library's order, as `best` breaks them).
+      const good = top
+        ? MOTIFS.filter((m) => (scores.get(m.id) ?? 0) >= topScore * GOOD_SHARE)
+            .sort((x, y) => scores.get(y.id)! - scores.get(x.id)!)
+            .map((m) => m.id)
+        : ownDrawings(e)
+      return { id: e.id, good, topScore, i }
+    })
+    .sort((x, y) => y.topScore - x.topScore || x.i - y.i)
+  for (const w of wants) {
+    const pick = w.good.find((id) => !used.has(id)) ?? w.good[0]
+    out.set(w.id, pick)
+    used.add(pick)
+  }
+  return out
 }
 
 /** The drawing for a story's cover: from its title (most) and its premise; a lantern when nothing calls for one. */

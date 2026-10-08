@@ -11,7 +11,7 @@ import { Check, RotateCcw } from '@/components/ui/icons'
 import { Motif } from '@/components/art/Motif'
 import { cn } from '@/lib/cn'
 import { KIND_INK } from '@/features/world/kindIcons'
-import { chooseEntryMotif, chooseStoryCover, motifOf, useArtChoices } from './artStore'
+import { chooseEntryMotif, chooseStoryCover, motifOf, useArtChoices, useEntryMotifs } from './artStore'
 import './picker.css'
 
 /** The library in the order the picker shows it: the drawings the words call for, then the kind's own, then the rest. */
@@ -88,7 +88,8 @@ export interface PickerEntry extends MotifSource {
 export function MotifPicker({ entry, compact = false, className }: { entry: PickerEntry; compact?: boolean; className?: string }): React.JSX.Element {
   const choices = useArtChoices()
   const [open, setOpen] = useState(false)
-  const current = motifOf(choices, entry)
+  // The drawing it shows on its card and portrait (handed out so a row of cards doesn't repeat one: artStore).
+  const current = useEntryMotifs().get(entry.id) ?? motifOf(choices, entry)
   const chosen = choices.entries[entry.id]
   const order = useMemo(() => pickerOrder(entry, entry.kind), [entry])
   const tint = KIND_INK[entry.kind].tile
