@@ -187,9 +187,11 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
 
   const h = useMemo<RowHandlers>(() => {
     const select = (id: ID): void => {
-      const { storyId, sceneId: open, view, navigate, selectScene } = useApp.getState()
+      const { storyId, sceneId: open, view, navigate, selectScene, chapterCardId, openChapterCard } = useApp.getState()
       if (id !== open) selectScene(id, storyId ?? undefined)
       else if (view.kind !== 'write') navigate({ kind: 'write' })
+      // The open scene clicked while a chapter's card shows beside it: its own panel shows again.
+      if (id === open && chapterCardId) openChapterCard(null)
     }
     return {
       open: (id) => {

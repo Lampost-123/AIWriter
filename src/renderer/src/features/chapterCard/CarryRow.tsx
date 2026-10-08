@@ -28,7 +28,8 @@ export function CarryRow({
   const hintId = useId()
   return (
     <div className="flex flex-col gap-1" data-carry={label}>
-      <div className="flex min-h-5 items-center justify-between gap-2">
+      {/* As tall as the label alone, so a card with no tags is laid out as it always was. */}
+      <div className="flex items-center justify-between gap-2">
         <label htmlFor={id} className="text-[12px] font-medium text-muted">
           {label}
           {follows ? <span className="sr-only"> (from the chapter card)</span> : null}
@@ -37,7 +38,7 @@ export function CarryRow({
           <span
             aria-hidden
             title="This follows the chapter card. Change it here to give this scene its own."
-            className="shrink-0 animate-fade-in rounded-full bg-accent-soft px-1.5 py-px text-[11px] font-medium leading-4 text-accent"
+            className="-my-0.5 shrink-0 animate-fade-in rounded-full bg-accent-soft px-1.5 py-px text-[11px] font-medium leading-4 text-accent"
           >
             From chapter
           </span>
@@ -47,7 +48,7 @@ export function CarryRow({
             onClick={onUse}
             aria-label={`Use the chapter's ${label.toLowerCase()}`}
             title="Follow the chapter card for this again"
-            className="shrink-0 rounded text-[11.5px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="-my-0.5 shrink-0 rounded text-[11.5px] font-medium leading-4 text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
           >
             Use chapter’s
           </button>

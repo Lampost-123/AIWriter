@@ -77,6 +77,11 @@ async function undo(b: Batch): Promise<void> {
   notifyChapterCard()
 }
 
+/** The chapter card closed (its last change written): the next change, even to the same card, starts a new toast. */
+export function endChapterCardBatch(chapterId: ID): void {
+  if (batch?.chapterId === chapterId) batch = null
+}
+
 /** Opened from the keyboard (the chapter's menu): the card takes the keyboard once it shows. */
 let focusNext = false
 export const requestChapterCardFocus = (): void => {
@@ -87,10 +92,4 @@ export function takeChapterCardFocus(): boolean {
   const out = focusNext
   focusNext = false
   return out
-}
-export const chapterCardFocusWanted = (): boolean => focusNext
-
-/** A new batch starts with the next change (a chapter card closed, or another chapter's opened). */
-export function endChapterCardBatch(): void {
-  batch = null
 }

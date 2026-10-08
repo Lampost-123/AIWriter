@@ -47,7 +47,9 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
     },
     { what: 'the chapter card' }
   )
-  const { schedule, cancel } = autosave
+  const { schedule, cancel, flush } = autosave
+  // Closed: once its last change is written (into the same toast), the next change starts a toast of its own.
+  useEffect(() => () => void flush().then(() => endChapterCardBatch(chapterId)), [chapterId, flush])
 
   useEffect(() => {
     let live = true
@@ -66,7 +68,7 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
     }
   }, [chapterId, attempt])
 
-  // An Undo of a change shows here at once; a new chapter card starts its own "Updated" toast.
+  // An Undo of a change shows here at once. (Its last change, written as the card closes, joins the same toast.)
   useEffect(
     () =>
       registerChapterCardForm(chapterId, (back) => {
@@ -77,7 +79,6 @@ function ChapterCardForm({ chapterId, onClose, closeLabel }: { chapterId: ID; on
       }),
     [chapterId, cancel]
   )
-  useEffect(() => () => endChapterCardBatch(), [chapterId])
 
   useEffect(() => {
     let live = true
