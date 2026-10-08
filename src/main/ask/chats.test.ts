@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
 import { memoryWorld } from '../../../tests/unit/helpers'
+import type { SavedNote } from '@shared/contracts/ask'
 import * as gens from '../db/generations'
+import { setSavedNote } from '../db/ask'
 import { chatInStory, chatTitle, chatTurns, listChats, newChatId } from './chats'
 
 type DB = ReturnType<typeof memoryWorld>
@@ -80,6 +82,31 @@ describe('chats', () => {
       ['Second?', 'Two so f', 'stopped']
     ])
     expect(turns[0]).toMatchObject({ chatId: chat, cost: 0.002, costEstimated: false, cutOff: false })
+  })
+
+  it('keep the note saved from an answer with its turn, so it shows "Saved" after a restart', () => {
+    const db = memoryWorld()
+    const chat = newChatId('s1')
+    const id = record(db, { chatId: chat, question: 'Who is Tobin?', answer: 'The ferryman.', at: 1 })
+    const draft = record(db, { chatId: null, question: 'A draft', job: 'draft', at: 2 })
+    expect(chatTurns(db, chat)[0].saved).toBeUndefined()
+    const note: SavedNote = {
+      entryId: 'e1',
+      kind: 'character',
+      name: 'Tobin',
+      created: false,
+      onlyIn: null,
+      asOf: null,
+      undo: { kind: 'added', entryId: 'e1', text: 'The ferryman.', before: '', origin: null, byHand: false }
+    }
+    setSavedNote(db, id, note)
+    setSavedNote(db, draft, note)
+    expect(chatTurns(db, chat)[0].saved).toEqual(note)
+    expect(chatTurns(db, chat)[0].answer).toBe('The ferryman.')
+    // A record that isn't a chat turn is left alone.
+    expect(gens.getGeneration(db, draft).params.savedNote).toBeUndefined()
+    setSavedNote(db, id, null)
+    expect(chatTurns(db, chat)[0].saved).toBeUndefined()
   })
 
   it('are named by a long first question cut at a word', () => {

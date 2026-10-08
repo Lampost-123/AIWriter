@@ -1,7 +1,8 @@
 // Ask the world's conversation, kept while the app runs (the panel can close and open again, and the
 // answer keeps arriving meanwhile). Each story has its own chats; the one on show is the story's most
 // recent when the panel first shows that story. Answers stream in as task events, matched by the task
-// id this side makes. Saved notes are remembered for this session, so an answer shows "Saved".
+// id this side makes. Saved notes are remembered, so an answer shows "Saved": this session's here, and
+// each turn's record keeps its own (read back when a chat is opened after a restart).
 import { create } from 'zustand'
 import type { AskTurn, ChatSummary, ProposalStatus, SavedNote } from '@shared/contracts/ask'
 import type { ID } from '@shared/types'
@@ -174,6 +175,12 @@ export const chatOfTurn = (generationId: ID): ID | undefined => get().turns.find
 
 // ---------- Which chat is on show ----------
 
+/** The notes saved this session, with those the turns' records keep (saved before a restart). */
+const withSaved = (turns: AskTurn[]): Record<ID, SavedNote> => {
+  const kept = Object.fromEntries(turns.filter((t) => t.saved).map((t) => [t.generationId, t.saved as SavedNote]))
+  return { ...kept, ...get().saved }
+}
+
 /** Shows a story's chats (its most recent one open), unless they already show. */
 export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, again = false): Promise<void> {
   const key = keyOf(place)
@@ -188,7 +195,7 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
     const last = chats[0]
     const turns = last ? await api.getChat(last.chatId) : []
     if (get().storyKey !== key) return
-    set({ chats, chatId: last?.chatId ?? null, turns, loading: false })
+    set({ chats, chatId: last?.chatId ?? null, turns, loading: false, saved: withSaved(turns) })
   } catch (e) {
     if (get().storyKey === key) set({ loading: false, loadError: errorOf(e).message })
   }
@@ -221,7 +228,7 @@ export async function openChat(chatId: ID): Promise<void> {
   try {
     const turns = await api.getChat(chatId)
     if (get().storyKey !== key) return
-    set({ chatId, turns, running: null, loadError: null })
+    set({ chatId, turns, running: null, loadError: null, saved: withSaved(turns) })
   } catch (e) {
     set({ loadError: errorOf(e).message })
   }

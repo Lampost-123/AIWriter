@@ -130,6 +130,28 @@ describe('the editor chat tool loop', () => {
     expect(done.text).toBe('Proposed one change.')
   })
 
+  it('nudges once by default, and up to maxNudges times when asked (chat routing), counting each attempt', async () => {
+    const answers = (): ReturnType<typeof scripted> =>
+      scripted([
+        [text('Here is a darker version: ...'), finish('stop')],
+        [text('Here is another darker version: ...'), finish('stop')],
+        [text('Still only words.'), finish('stop')]
+      ])
+    const once = answers()
+    const seen: number[] = []
+    await runTask(request(once.fetchImpl, { nudge: (_a, attempt) => (seen.push(attempt), NUDGE) }, { maxSteps: 6 }))
+    expect(once.sent).toHaveLength(2)
+    expect(seen).toEqual([1])
+    const twice = answers()
+    const tries: number[] = []
+    const done = await runTask(request(twice.fetchImpl, { nudge: (_a, attempt) => (tries.push(attempt), NUDGE), maxNudges: 2 }, { maxSteps: 6 }))
+    expect(twice.sent).toHaveLength(3)
+    expect(tries).toEqual([1, 2])
+    expect(lastMessage(twice.sent[2])).toEqual({ role: 'user', content: NUDGE })
+    // Each answer a nudge sent back is taken out of the reply.
+    expect(done.text).toBe('Still only words.')
+  })
+
   it('never nudges with tools on the last step: the last request goes without them, with the last words (E15)', async () => {
     const { fetchImpl, sent } = scripted([
       [call(0, 'a1', 'read_scene'), finish('tool_calls')],

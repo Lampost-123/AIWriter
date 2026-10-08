@@ -651,7 +651,9 @@ function SaveControl({
         entryId: target?.id ?? null,
         question: turn.question,
         storyId: place.storyId,
-        sceneId: place.sceneId
+        sceneId: place.sceneId,
+        // Kept with the answer's record, so it shows "Saved" after a restart too.
+        generationId: turn.generationId
       })
       markSaved(turn.generationId, note)
       toast(savedMessage(note), {
@@ -747,7 +749,7 @@ function SaveControl({
 /** The toast's Undo: the note comes out again. */
 async function undo(generationId: ID, note: SavedNote): Promise<void> {
   try {
-    await api.undoAskNote(note.undo)
+    await api.undoAskNote(note.undo, generationId)
     if (useAsk.getState().saved[generationId] === note) markSaved(generationId, null)
   } catch (e) {
     toast(`Couldn’t undo that. ${(e as Error).message}`, { tone: 'danger' })

@@ -64,6 +64,7 @@ import {
   type BlockDraft,
   type PreparedContext
 } from '../ai/context'
+import type { AskIntent } from '@shared/askIntent'
 import { askInstructions, askMessages, conversationText, type PastTurn } from './prompts'
 
 type DB = Database.Database
@@ -104,6 +105,8 @@ export interface AskContextInput {
    * (toolRoomFor in ai/context.ts), so the briefing is fitted into less.
    */
   withTools?: boolean
+  /** The intent routing gave the question (chat overhaul, AIWRITE_EXP_CHAT_ROUTE): stated in the contract's reminder. */
+  intent?: AskIntent | null
 }
 
 /** The point the question is asked from, and the memory there. */
@@ -615,6 +618,8 @@ export interface PreparedAsk {
   label: string
   storyId: ID | null
   sceneId: ID | null
+  /** The routed intent, when routing gave one. */
+  intent?: AskIntent | null
 }
 
 /** Everything the briefing could send, before it is fitted to the model. */
@@ -733,7 +738,8 @@ export function prepareAsk(db: DB, input: AskContextInput): PreparedAsk {
     versions,
     label: point.story ? point.label : 'The world as it was set up',
     storyId: point.story?.id ?? null,
-    sceneId: point.sceneId
+    sceneId: point.sceneId,
+    ...(input.intent ? { intent: input.intent } : {})
   }
 }
 
@@ -756,7 +762,7 @@ export function finishAsk(p: PreparedAsk, rawCounts: number[]): AskBriefing {
     return version ? [{ entryId: id, version }] : []
   })
   return {
-    messages: askMessages(system, turns, p.question),
+    messages: askMessages(system, turns, p.question, p.intent),
     blocks: preview.blocks,
     entries,
     budget: preview.budget,
