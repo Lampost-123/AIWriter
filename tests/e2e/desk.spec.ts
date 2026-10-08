@@ -27,7 +27,9 @@ async function sampleWorld(
 
 async function size(app: ElectronApplication, win: Page, w: number, h: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
-  await expect.poll(() => win.evaluate('innerWidth')).toBe(w)
+  // Within a pixel: on CI's 1440×900 virtual screen (Linux, xvfb) a window as wide as the screen comes out 1439 wide, as
+  // in handTyping.spec. The spill check measures against the window's real width, so it is just as strict there.
+  await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - w)).toBeLessThanOrEqual(1)
 }
 
 /** How far the window's content spills past its right edge (0 when nothing does). */
