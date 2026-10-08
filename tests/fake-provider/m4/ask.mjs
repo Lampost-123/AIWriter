@@ -236,7 +236,10 @@ function scriptedCalls(system, messages, tools) {
     return called('propose_draft') ? null : [draftCall(tools, typed.replace(/\s+/g, ' ').slice(0, 200))]
   }
   if (offered(tools, 'ask_user') && /\b(make it better|shorten it|change his name|thing we talked about|which one)\b/.test(typed)) {
-    return called('ask_user') ? null : [askUserCall(tools)]
+    if (called('ask_user')) return null
+    // Reads the scene first, as the app asks (ACTFIRST sends back an edit's question asked before any words are read).
+    if (offered(tools, 'read_scene') && !called('read_scene')) return [{ name: 'read_scene', arguments: {} }]
+    return [askUserCall(tools)]
   }
   // ("Push … harder" is the rewrite across paragraphs below, through propose_changes when that is the tool offered.)
   if (offered(tools, 'propose_changes') && !/\bpush\b/.test(typed) && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
