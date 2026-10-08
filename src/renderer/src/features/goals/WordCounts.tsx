@@ -143,7 +143,29 @@ function GoalShare(): React.JSX.Element | null {
   const today = useGoals((s) => s.today)
   if (!daily) return null
   const share = Math.min(999, Math.round((Math.max(0, dayOf(days, today).typed) / daily) * 100))
-  return <span className="-ml-1 text-faint">· {share}%</span>
+  return (
+    <span className="-ml-1 text-faint">
+      · <Steady text={`${share}%`} room="100%" />
+    </span>
+  )
+}
+
+/** The room four digits take ("8,888" in Adam's own way of writing numbers): a scene's count rarely needs more. */
+const COUNT_ROOM = (8888).toLocaleString()
+
+/**
+ * A number that keeps the room of a longer one, right-aligned in it, so nothing beside it moves as it counts up (the
+ * figures are all one width: tabular-nums). The room is an unseen copy, left out for screen readers.
+ */
+function Steady({ text, room }: { text: string; room: string }): React.JSX.Element {
+  return (
+    <span className="inline-grid justify-items-end tabular-nums">
+      <span aria-hidden className="invisible col-start-1 row-start-1">
+        {room}
+      </span>
+      <span className="col-start-1 row-start-1">{text}</span>
+    </span>
+  )
 }
 
 const openers = new Set<() => void>()
@@ -181,7 +203,10 @@ export function WordCountButton(): React.JSX.Element {
         className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg look-new:flex look-new:h-8 look-new:items-center look-new:gap-2 look-new:rounded-full look-new:px-2 look-new:text-[12.5px] look-new:text-muted look-new:hover:bg-surface-2"
       >
         {isNew ? <GoalRing /> : null}
-        {words.toLocaleString()} words
+        {/* Counting up (a draft coming in, typing) moves nothing in the bar: the count keeps the room of four digits. */}
+        <span>
+          <Steady text={words.toLocaleString()} room={COUNT_ROOM} /> words
+        </span>
         {isNew ? <GoalShare /> : null}
       </P.Trigger>
       <PopoverPanel

@@ -22,7 +22,9 @@ export function SampleWorldChip(): React.JSX.Element | null {
       className="flex h-7 shrink-0 items-center gap-2 rounded-full bg-k-place-soft pl-2.5 pr-1 text-[12px] font-medium text-k-place"
     >
       <BookOpen size={13} aria-hidden />
-      <span className="whitespace-nowrap max-[1360px]:hidden">Sample world</span>
+      {/* The world's name beside the trail says "Sample world" already: below 1600 wide the chip leaves the words to it,
+          so the trail's names show whole. */}
+      <span className="whitespace-nowrap max-[1599px]:hidden">Sample world</span>
       <button
         type="button"
         disabled={busy}

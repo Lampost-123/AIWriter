@@ -91,7 +91,9 @@ export function KeeperStatus(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px]" role="status" aria-live="polite">
+    // The New look: wide enough for the longest note ("Memory isn't updating") whole from a 1280-wide window; in a
+    // smaller one a note may be cut short (the whole of it on hover).
+    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px] look-new:min-[1280px]:w-[168px]" role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger
