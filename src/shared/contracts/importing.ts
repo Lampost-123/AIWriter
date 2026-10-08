@@ -139,6 +139,8 @@ export interface CatchUpState {
 export interface ImportingApi {
   /** Asks for a Word, Markdown or text file and reads it. Null when Adam cancels. Plain-words errors for files it can't read. */
   chooseManuscript(): Promise<Manuscript | null>
+  /** Reads a file Adam dropped on the import page (its path on this computer), as chooseManuscript reads a picked one. */
+  readDroppedManuscript(path: string): Promise<Manuscript>
   /** Imports the plan into the open world as a new story, all or nothing. */
   importManuscript(plan: ImportPlan): Promise<ImportResult>
   /** The catch-up going on and which stories have unread scenes. */

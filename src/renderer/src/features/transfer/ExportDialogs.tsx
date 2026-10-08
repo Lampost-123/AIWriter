@@ -25,6 +25,8 @@ import {
   type ScopeKind
 } from './transferLogic'
 import { announceExported, withProgress } from './worldFiles'
+import { useNewLook } from '@/features/look/look'
+import { FormatCards } from './FormatCards'
 
 const FORMAT_KEY = 'aiwrite.export.format'
 const BIBLE_FORMAT_KEY = 'aiwrite.export.bibleFormat'
@@ -39,7 +41,19 @@ export function ExportDialogs(): React.JSX.Element {
 }
 
 /** What is happening under the dialog's choices: the export's progress, or why it couldn't be done. Its line is always there, so nothing moves. */
-function Status({ busy, step, error }: { busy: boolean; step: string | null; error: string | null }): React.JSX.Element {
+function Status({ busy, step, error, fraction = null }: { busy: boolean; step: string | null; error: string | null; fraction?: number | null }): React.JSX.Element {
+  const isNew = useNewLook()
+  // The New look: the export under way as ink filling a line, its step in words above it.
+  if (isNew && busy && !error && step) {
+    return (
+      <div className="mt-4 flex min-h-5 flex-col gap-1.5 text-[12.5px]" aria-live="polite">
+        <span className="text-muted">{step}</span>
+        <span aria-hidden className="ex-progress" data-known={fraction != null || undefined}>
+          <i style={fraction != null ? { transform: `scaleX(${Math.max(0.02, Math.min(1, fraction))})` } : undefined} />
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="mt-4 flex min-h-5 items-center gap-2 text-[12.5px]" aria-live="polite">
       {error ? (
@@ -63,7 +77,9 @@ function ExportStoryDialog(): React.JSX.Element {
   const [format, setFormat] = useState<ManuscriptFormat>(() => remembered(FORMAT_KEY, MANUSCRIPT_FORMATS.map((f) => f.value), 'docx'))
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
+  const [fraction, setFraction] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const isNew = useNewLook()
 
   // A fresh start each time it opens: the whole story, the open scene's chapter ready under "One chapter".
   useEffect(() => {
@@ -100,7 +116,10 @@ function ExportStoryDialog(): React.JSX.Element {
     try {
       await flushAll()
       const done = await withProgress((jobId) => api.exportStory({ jobId, storyId: asked.storyId, scope, format }), {
-        onProgress: (p) => setStep(progressText(p.step, p.fraction))
+        onProgress: (p) => {
+          setStep(progressText(p.step, p.fraction))
+          setFraction(p.fraction)
+        }
       })
       if (done) {
         announceExported(done)
@@ -121,7 +140,7 @@ function ExportStoryDialog(): React.JSX.Element {
       onOpenChange={(o) => !o && close()}
       title="Export story"
       description={outline ? `“${title}”` : ' '}
-      width={540}
+      width={isNew ? 600 : 540}
       footer={
         <>
           <Button onClick={close}>Cancel</Button>
@@ -164,7 +183,11 @@ function ExportStoryDialog(): React.JSX.Element {
         {kind === 'selection' && outline ? <ScenePicker outline={outline} picked={picked} onChange={setPicked} /> : null}
         <div className="flex flex-col gap-1.5">
           <span className="text-[12px] font-medium text-muted">Format</span>
-          <Segmented<ManuscriptFormat> label="Format" value={format} onChange={setFormat} options={MANUSCRIPT_FORMATS} />
+          {isNew ? (
+            <FormatCards<ManuscriptFormat> label="Format" value={format} onChange={setFormat} options={MANUSCRIPT_FORMATS} />
+          ) : (
+            <Segmented<ManuscriptFormat> label="Format" value={format} onChange={setFormat} options={MANUSCRIPT_FORMATS} />
+          )}
           <p className="text-[12px] text-faint">{MANUSCRIPT_FORMATS.find((f) => f.value === format)?.hint}</p>
         </div>
         <div className="flex flex-col items-start gap-1">
@@ -182,7 +205,7 @@ function ExportStoryDialog(): React.JSX.Element {
           ) : null}
         </div>
       </div>
-      <Status busy={busy} step={step} error={error} />
+      <Status busy={busy} step={step} error={error} fraction={fraction} />
     </Dialog>
   )
 }
@@ -258,7 +281,9 @@ function ExportBibleDialog(): React.JSX.Element {
   const [format, setFormat] = useState<BibleFormat>(() => remembered(BIBLE_FORMAT_KEY, BIBLE_FORMATS.map((f) => f.value), 'pdf'))
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
+  const [fraction, setFraction] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const isNew = useNewLook()
 
   useEffect(() => {
     if (!request) return
@@ -279,7 +304,10 @@ function ExportBibleDialog(): React.JSX.Element {
     try {
       await flushAll()
       const done = await withProgress((jobId) => api.exportBible({ jobId, storyId, format }), {
-        onProgress: (p) => setStep(progressText(p.step, p.fraction))
+        onProgress: (p) => {
+          setStep(progressText(p.step, p.fraction))
+          setFraction(p.fraction)
+        }
       })
       if (done) {
         announceExported(done)
@@ -322,11 +350,15 @@ function ExportBibleDialog(): React.JSX.Element {
         </Field>
         <div className="flex flex-col gap-1.5">
           <span className="text-[12px] font-medium text-muted">Format</span>
-          <Segmented<BibleFormat> label="Format" value={format} onChange={setFormat} options={BIBLE_FORMATS} className="self-start" />
+          {isNew ? (
+            <FormatCards<BibleFormat> label="Format" value={format} onChange={setFormat} options={BIBLE_FORMATS} />
+          ) : (
+            <Segmented<BibleFormat> label="Format" value={format} onChange={setFormat} options={BIBLE_FORMATS} className="self-start" />
+          )}
           <p className="text-[12px] text-faint">{BIBLE_FORMATS.find((f) => f.value === format)?.hint}</p>
         </div>
       </div>
-      <Status busy={busy} step={step} error={error} />
+      <Status busy={busy} step={step} error={error} fraction={fraction} />
     </Dialog>
   )
 }

@@ -154,12 +154,12 @@ export function offerMemory(storyId: ID): void {
   app().navigate({ kind: 'import' })
 }
 
-/** Asks for the file and reads it. Cancelling leaves the page as it was. */
-export async function chooseFile(): Promise<void> {
+/** Asks for the file and reads it (or reads one dropped on the page, by its path). Cancelling leaves the page as it was. */
+export async function chooseFile(dropped?: string): Promise<void> {
   if (get().reading) return
   set({ reading: true, problem: null })
   try {
-    const m = await api.chooseManuscript()
+    const m = dropped ? await api.readDroppedManuscript(dropped) : await api.chooseManuscript()
     if (!m) {
       set({ reading: false })
       return
