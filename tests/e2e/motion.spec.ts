@@ -378,3 +378,59 @@ test('the New look: the selection pill glides its size too, with no overshoot, a
   await expect(tab(2)).toHaveAttribute('aria-selected', 'true')
   await expect.poll(() => win.evaluate<number>('window.jumps')).toBe(1)
 })
+
+test('the New look: a toast leaves the way it came, and the others glide into place', async ({ launch }) => {
+  const win = await sampleWorld(launch)
+  // Notes each toast that plays its way out, and each glide of the stack.
+  await win.evaluate(`(() => {
+    window.toastLog = { leaving: [], glides: [] }
+    const animate = Element.prototype.animate
+    Element.prototype.animate = function (frames, opts) {
+      if (this.matches('[data-toast]')) window.toastLog.glides.push({ id: this.dataset.toast, ms: opts.duration, easing: opts.easing, from: frames[0].transform })
+      return animate.call(this, frames, opts)
+    }
+    new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === 'attributes' && r.target.hasAttribute('data-leaving')) {
+          window.toastLog.leaving.push({ id: r.target.dataset.toast, at: performance.now(), gone: null, el: r.target, inert: r.target.inert,
+            anims: r.target.getAnimations().map((a) => ({ name: a.animationName ?? '', ms: Number(a.effect.getTiming().duration) })) })
+        }
+        for (const n of r.removedNodes) for (const x of window.toastLog.leaving) if (x.el === n && x.gone === null) x.gone = performance.now()
+      }
+    }).observe(document.querySelector('[data-toaster]'), { subtree: true, childList: true, attributes: true, attributeFilter: ['data-leaving'] })
+  })()`)
+  const log = () =>
+    win.evaluate<{ leaving: { id: string; inert: boolean; anims: Running[]; stayed: number | null }[]; glides: { id: string; ms: number; easing: string; from: string }[] }>(
+      `({ leaving: window.toastLog.leaving.map((x) => ({ id: x.id, inert: x.inert, anims: x.anims, stayed: x.gone === null ? null : Math.round(x.gone - x.at) })), glides: window.toastLog.glides })`
+    )
+
+  // Two toasts: a plain one, then an Undo below it (the first glides up out of its way).
+  await win.locator('body').click({ position: { x: 600, y: 5 } })
+  await win.keyboard.press('Control+Enter')
+  const plain = win.locator('[data-toast]').filter({ hasText: 'This scene is already marked done.' })
+  await expect(plain).toBeVisible()
+  await list(win).getByRole('treeitem', { name: /A Letter for the Keeper/ }).click({ button: 'right' })
+  await win.getByRole('menuitem', { name: /Delete scene/ }).click()
+  const undo = win.locator('[data-toast]').filter({ hasText: 'deleted' })
+  await expect(undo).toBeVisible()
+  const plainId = await plain.getAttribute('data-toast')
+  await expect.poll(async () => (await log()).glides.some((g) => g.id === plainId)).toBe(true)
+  expect((await log()).glides.find((g) => g.id === plainId)).toMatchObject({ ms: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', from: expect.stringMatching(/^translateY\(\d/) })
+
+  // Dismissed with its X: the Undo sinks and fades where it is (lifeless meanwhile), then the one above glides down.
+  const undoId = await undo.getAttribute('data-toast')
+  const glidesBefore = (await log()).glides.length
+  await undo.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(win.locator(`[data-toast="${undoId}"]`)).toHaveCount(0)
+  const [left] = (await log()).leaving
+  expect(left).toMatchObject({ id: undoId, inert: true, anims: [{ name: 'toast-out', ms: 140 }] })
+  expect(left.stayed).toBeGreaterThanOrEqual(100)
+  await expect.poll(async () => (await log()).glides.slice(glidesBefore).some((g) => g.id === plainId)).toBe(true)
+  expect((await log()).glides.slice(glidesBefore).find((g) => g.id === plainId)!.from).toMatch(/^translateY\(-\d/)
+
+  // With less motion, a dismissed toast just goes.
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await plain.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(plain).toHaveCount(0)
+  expect((await log()).leaving.length).toBe(1)
+})

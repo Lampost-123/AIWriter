@@ -674,6 +674,17 @@
     transform: none;
   }
 }
+/* The New look's toasts leave the way they came, quicker (components/ui/Toast.tsx keeps each for it, lifeless). */
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+}
+[data-look='new'] [data-toast][data-leaving] {
+  animation: toast-out var(--dur-exit) var(--motion-glide) both;
+  pointer-events: none;
+}
 /* The New look's one-time note springs up from the corner. */
 @keyframes look-note-in {
   from {

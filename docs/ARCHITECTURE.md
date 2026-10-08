@@ -1671,6 +1671,10 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   - *The selection pill* (`GlidePill`) glides its position and size together (220 ms, `ease-glide`, no overshoot),
     placed by layout offsets so a row in motion can't mislead it; it jumps when the keyboard moved the selection or
     the new row is more than 240 px away.
+  - *Toasts*: one that goes stays a moment where it was, lifeless, and drops back the way it came (`toast-out`,
+    140 ms); the others glide into their new places (FLIP with WAAPI, 220 ms, carrying on from where an unfinished
+    glide has got to), and the stack lifts over a bar with a transform. All in `Toaster` (`components/ui/Toast.tsx`):
+    the store and its queue rules are untouched. Classic and less motion: as before.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
