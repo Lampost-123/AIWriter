@@ -60,6 +60,8 @@ function makeWorld(name = 'Northern Reaches', withHistory = true): { folder: str
   repo.saveSceneText(db, sceneId, null, TEXT)
   repo.setMeta(db, 'read_aloud', JSON.stringify({ voices: { x: 'deep' } }))
   saveBeatMarks(db, sceneId, BEAT_MARKS(sceneId))
+  // A chapter card (meta, `chapter_card:<chapter id>`): it travels with the world.
+  repo.saveChapterCard(db, repo.getOutline(db, story.id).chapters[0].id, { ...repo.getChapterCard(db, 'none'), when: 'Day 4, dawn', mood: 'Hushed' })
   db.close()
   if (withHistory) {
     const h = openHistory(folder, Date.now())
@@ -92,6 +94,18 @@ const sceneText = (folder: string, sceneId: string): string => {
   const d = new Database(join(folder, 'world.db'), { readonly: true })
   try {
     return repo.getScene(d, sceneId).text
+  } finally {
+    d.close()
+  }
+}
+
+/** The card of the scene's chapter (its When and mood), and the When the scene follows from it. */
+const chapterCardIn = (folder: string, sceneId: string): { when: string; mood: string; sceneWhen: string } => {
+  const d = new Database(join(folder, 'world.db'), { readonly: true })
+  try {
+    const scene = repo.getScene(d, sceneId)
+    const card = repo.getChapterCard(d, scene.chapterId)
+    return { when: card.when, mood: card.mood, sceneWhen: scene.card.when }
   } finally {
     d.close()
   }
@@ -134,6 +148,8 @@ describe('the .aiwrite file', () => {
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
     // The scene's beat markers come with it (its id is the same in the imported world).
     expect(beatMarksIn(made.folder, w.sceneId)).toEqual(BEAT_MARKS(w.sceneId))
+    // The chapter card comes with it, and so does what its scene follows (the same ids in the imported world).
+    expect(chapterCardIn(made.folder, w.sceneId)).toEqual({ when: 'Day 4, dawn', mood: 'Hushed', sceneWhen: 'Day 4, dawn' })
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
     expect(readFileSync(join(made.folder, 'images', 'maps', 'reach.png'))).toEqual(Buffer.from([1, 2, 3, 4]))
     expect(readdirSync(join(made.folder, 'backups'))).toEqual([])

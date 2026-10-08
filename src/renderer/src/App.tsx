@@ -9,6 +9,7 @@ import { ResizablePane, useFloatingPane } from '@/layout/ResizablePane'
 import { binderFloats, chosenWidthFor, dragMax, fitPanels, pageMinFor } from '@/layout/fitPanels'
 import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
+import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
 import { StartScreen } from '@/features/start/StartScreen'
 import { Binder } from '@/features/binder/Binder'
 import { SceneView } from '@/features/editor/SceneView'
@@ -219,8 +220,9 @@ function Workspace(): React.JSX.Element {
   const wasWriting = useRef(writing)
   if (writing && !wasWriting.current) returns.current++
   wasWriting.current = writing
-  // Ask the world (milestone 4) shows in this panel too, even with no scene open.
-  const scenePanel = writing && (!!sceneId || askOpen)
+  // Ask the world (milestone 4) shows in this panel too, even with no scene open; so does a chapter's card.
+  const chapterCardId = useApp((s) => s.chapterCardId)
+  const scenePanel = writing && (!!sceneId || askOpen || !!chapterCardId)
   // In a small window the open panels give up some width, so the page keeps room to write in.
   // Adam's chosen widths are kept and come back when the window is wider.
   const shown = useWindowWidth()
@@ -323,7 +325,7 @@ function Workspace(): React.JSX.Element {
           <div className={overPage ? cn('absolute inset-y-0 right-0 z-30 flex', focusPanel && 'shadow-pop') : 'contents'} inert={focus && !focusPanel}>
             <ResizablePane
               side="right"
-              label={sceneId ? 'Scene panel' : 'Ask the world'}
+              label={sceneId ? 'Scene panel' : askOpen || !chapterCardId ? 'Ask the world' : 'Chapter card'}
               width={focus ? Math.min(layout.inspectorWidth, SCENE_PANEL.max) : layout.inspectorOpen ? fit.right : layout.inspectorWidth}
               open={focus ? focusPanel : layout.inspectorOpen}
               min={sceneMin}
@@ -333,7 +335,13 @@ function Workspace(): React.JSX.Element {
                 void update({ layout: { inspectorWidth: chosenWidthFor(w, win.width, 'right', right, left, SCENE_PANEL.max, pageMin) } })
               }
             >
-              {sceneId ? <Inspector sceneId={sceneId} /> : <AskPanel sceneId={null} onClose={closeAsk} />}
+              {sceneId ? (
+                <Inspector sceneId={sceneId} />
+              ) : chapterCardId && !askOpen ? (
+                <ChapterCardPanel chapterId={chapterCardId} closeLabel={null} onClose={() => useApp.getState().openChapterCard(null)} />
+              ) : (
+                <AskPanel sceneId={null} onClose={closeAsk} />
+              )}
             </ResizablePane>
           </div>
         ) : null}

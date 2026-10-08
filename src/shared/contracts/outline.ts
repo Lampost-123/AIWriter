@@ -13,7 +13,8 @@
 //
 // The AI's replies are plain text in a fixed form (see src/main/outline/prompts.ts), read by the interface
 // as they arrive (features/outline/parse.ts); what Adam keeps comes back here as KeepItems.
-import type { Act, Chapter, ID, SceneCard } from '../types'
+import type { Act, Chapter, ChapterCard, ID, SceneCard } from '../types'
+import type { ChapterCardNames } from './chapterCards'
 
 /**
  * Where a chapter goes: into an act, or among the chapters with no act (`actId` null). Just after
@@ -82,11 +83,18 @@ export interface KeepItem {
   beats?: string[]
   /**
    * When a scene happens, in the story's count of days ("Day 3, dusk"); it goes on the scene card's When.
-   * Left out or empty: the day of the nearest scene before it that has a When ("Later that day" when that
+   * The same as its chapter card's When, or left out while the chapter card has one: the scene follows the chapter's.
+   * Left out or empty otherwise: the day of the nearest scene before it that has a When ("Later that day" when that
    * When names no day of its own), else "Day 1" (src/main/outline/structure.ts fallbackWhen). A When
    * already on a reused first scene's card is never replaced.
    */
   when?: string
+  /**
+   * Chapter cards (2026-10-08). A chapter's card as the AI gave it, by name (its point of view, characters, location,
+   * When and mood): it fills the chapter card's empty parts, and the chapter's scenes follow it. A scene's own: the
+   * parts where it differs from its chapter (its When is `when`), which it keeps as its own.
+   */
+  card?: ChapterCardNames
 }
 
 export interface KeptItem {
@@ -97,6 +105,8 @@ export interface KeptItem {
   reused?: boolean
   /** A reused scene whose card had a When already (kept as it was): its Undo leaves that When on the card. */
   whenKept?: boolean
+  /** A reused chapter whose card the keep filled: its Undo puts the card back as it was, unless it has changed since. */
+  card?: { before: ChapterCard; after: ChapterCard }
 }
 
 // ----- Interview me, on a scene or a chapter -----

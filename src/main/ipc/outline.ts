@@ -12,7 +12,7 @@ import { getSettings } from '../settings'
 import { emit } from '../events'
 import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
-import { actDeleteNotes, createChapterAt, keepOutline } from '../outline/structure'
+import { actDeleteNotes, createChapterAt, keepOutline, unkeepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
 import { isBlankPlan, storyPlan } from '../outline/context'
 import { askPlanQuestion, fillSceneCard, startChapterPlan } from '../outline/interview'
@@ -62,7 +62,7 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
   startOutline: (input) => startOutlineJob(jobDeps(), input),
   keepOutline: (storyId, items) => write(() => keepOutline(world.db(), storyId, items ?? [])),
   unkeepOutline: (kept) => {
-    const out = write(() => acts.takeBackKept(world.db(), kept ?? []))
+    const out = write(() => unkeepOutline(world.db(), kept ?? []))
     if (out.sceneIds.length) scenesDeleted(world.db())
     return { sceneIds: out.sceneIds }
   },

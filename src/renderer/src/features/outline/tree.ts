@@ -3,8 +3,9 @@
 // changes he made to its words. From these it works out what one click on Keep adds, and where, and
 // what Discard takes away. No React, so it is unit-tested.
 import type { KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
+import type { ChapterCardNames } from '@shared/contracts/chapterCards'
 import type { ID } from '@shared/types'
-import type { ParsedOutline, SuggestedChapter } from './parse'
+import type { ParsedOutline, SuggestedCard, SuggestedChapter } from './parse'
 
 export type NodeKind = 'act' | 'chapter' | 'scene'
 
@@ -18,9 +19,24 @@ export interface TreeNode {
   beats: string[]
   /** When a scene happens ("Day 3, dusk"); '' for acts and chapters, and for a scene the reply gave none. */
   when: string
+  /** A chapter's card as the reply gave it, or where a scene differs from its chapter's (chapter cards); none for an act. */
+  card?: SuggestedCard
   /** Fully arrived (see parse.ts). */
   complete: boolean
   children: TreeNode[]
+}
+
+/** A suggested card's parts with something in them, as keepOutline takes them; undefined for none. */
+export function cardNames(card: SuggestedCard | undefined, withWhen: boolean): ChapterCardNames | undefined {
+  if (!card) return undefined
+  const out: ChapterCardNames = {}
+  if (card.pov.trim()) out.pov = card.pov.trim()
+  const characters = card.characters.map((c) => c.trim()).filter(Boolean)
+  if (characters.length) out.characters = characters
+  if (card.location.trim()) out.location = card.location.trim()
+  if (withWhen && card.when.trim()) out.when = card.when.trim()
+  if (card.mood.trim()) out.mood = card.mood.trim()
+  return Object.keys(out).length ? out : undefined
 }
 
 /** Adam's own words for a suggestion, in place of the AI's. */
@@ -51,6 +67,7 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
   text: c.goal,
   beats: [],
   when: '',
+  card: c.card,
   complete: c.complete,
   children: c.scenes.map((s) => ({
     key: s.key,
@@ -59,6 +76,7 @@ const chapterNode = (c: SuggestedChapter): TreeNode => ({
     text: s.summary,
     beats: s.beats,
     when: s.when,
+    card: s.card,
     complete: s.complete,
     children: []
   }))
@@ -178,6 +196,9 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
       const when = (edits[node.key]?.when ?? node.when).trim()
       if (when) item.when = when
     }
+    // Chapter cards: a chapter's card, and where a scene differs from its chapter's (its When is `when` above).
+    const card = node.kind === 'act' ? undefined : cardNames(node.card, node.kind === 'chapter')
+    if (card) item.card = card
     const p = ref(parent)
     if (p) item.parent = p
     const a = ref(after)

@@ -44,8 +44,9 @@ import {
 } from './brief'
 import { castLines, ideasFacts, openThreads, storyFacts, storyPlan } from './context'
 import { briefingBudget, type JobDeps } from './jobs'
-import { MARKER } from './prompts'
+import { CHAPTER_CARD_FORM, CHAPTER_CARD_RULES, MARKER } from './prompts'
 import { cleanBeats } from './structure'
+import { matchEntry } from './names'
 
 type DB = Database.Database
 
@@ -303,23 +304,8 @@ export function readPlanQuestion(reply: string): { topic: string; question: stri
   return null
 }
 
-const norm = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[’']s\b/g, '')
-    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-/** The entry a name means: its name or an alias exactly, else the only one whose name starts with it ("Mara" for "Mara Venn"). */
-export function matchEntry<T extends { id: ID; name: string; aliases: string[] }>(name: string, entries: T[]): T | null {
-  const n = norm(name)
-  if (!n) return null
-  const exact = entries.filter((e) => [e.name, ...e.aliases].some((a) => norm(a) === n))
-  if (exact.length) return exact[0]
-  const starts = entries.filter((e) => [e.name, ...e.aliases].some((a) => norm(a).startsWith(`${n} `) || n.startsWith(`${norm(a)} `)))
-  return starts.length === 1 ? starts[0] : null
-}
+// Matching names to entries lives in names.ts (chapter cards use it too); kept here for the interview's callers.
+export { matchEntry }
 
 type Named = { id: ID; name: string; aliases: string[] }
 
@@ -491,6 +477,7 @@ You help a novelist plan one chapter. From their answers to a short interview, t
 Answer in exactly this form and nothing else: no introduction, no chapter heading, no notes at the end, no bold or other formatting.
 
 Goal: <one sentence: what this chapter achieves>
+${CHAPTER_CARD_FORM}
 
 ### Scene: <the scene's title>
 When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
@@ -504,6 +491,7 @@ Rules:
 - Suggest 2 to 6 scenes, as many as the chapter needs. They come after the scenes the chapter already has, carry on from them and never repeat them.
 - Each scene has 3 to 6 beats, in order, each a short line.
 - Each scene has a When, carrying on from the scenes before ("Day 2, evening"). If the story's scenes give their time another way (a date or a year), use that way instead.
+${CHAPTER_CARD_RULES}
 - Titles are a few words, with no numbers.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the chapter needs it.
 - The chapter leads on to the chapter after it, if there is one.`
