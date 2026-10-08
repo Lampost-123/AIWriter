@@ -196,6 +196,7 @@ export interface AgentPlace {
   storyId: ID | null
   sceneId: ID | null
   prefs: WritingPrefs
+  intent?: import('@shared/askIntent').AskIntent
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
