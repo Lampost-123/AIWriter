@@ -9,6 +9,7 @@ import {
   chapterShelf,
   checkLine,
   coverHue,
+  homeScale,
   hueOfId,
   lastLines,
   memoryLine,
@@ -215,5 +216,20 @@ describe('the cover', () => {
     expect(hueOfId('story-1')).not.toBe(hueOfId('story-2'))
     expect(hueOfId('story-1')).toBeGreaterThanOrEqual(0)
     expect(hueOfId('story-1')).toBeLessThan(360)
+  })
+})
+
+describe('homeScale: the home grows with a big screen', () => {
+  it('stays its own size up to about 1920×1080 beside the spine, and in a small window', () => {
+    expect(homeScale(1580, 1028)).toBe(1)
+    expect(homeScale(1200, 800)).toBe(1)
+    expect(homeScale(0, 0)).toBe(1)
+  })
+  it('grows on Adam’s 2560×1440, and as far as the height allows on a wide screen, never past its most', () => {
+    expect(homeScale(2200, 1388)).toBeCloseTo(1.31, 2)
+    expect(homeScale(3100, 1388)).toBe(1.31)
+    expect(homeScale(4000, 2100)).toBe(1.32)
+    // A tall narrow room: the width decides.
+    expect(homeScale(1700, 2000)).toBe(1.06)
   })
 })

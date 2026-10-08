@@ -3,7 +3,8 @@
 // colours; the pill only sits behind them. Placed by transform alone, so it never moves anything else, gliding
 // (position and size together) on the look's ease-out with no overshoot; a move from the keyboard, or across a long
 // list, jumps instead, and less motion makes it instant. Put it first inside the list it belongs to (its parent, which
-// must be positioned): it scrolls with the rows there.
+// must be positioned): it scrolls with the rows there. When it has come to rest on another row (from the pointer) it is
+// marked data-landed for a moment, so a list can play a small landing (the desk's spine marker glints: desk.css).
 import { useLayoutEffect, useRef } from 'react'
 import { cn } from '@/lib/cn'
 import { keyboardDriven } from '@/features/look/motion'
@@ -46,6 +47,22 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
     let lastX = 0
     let lastY = 0
     let lastRow: HTMLElement | null = null
+    // Gliding to another row: marked data-landed once it is there.
+    let landing = false
+    const land = (): void => {
+      landing = false
+      p.removeAttribute('data-landed')
+      void p.offsetWidth
+      p.setAttribute('data-landed', '')
+    }
+    const onEnd = (e: TransitionEvent): void => {
+      if (e.target === p && e.propertyName === 'transform' && landing) land()
+    }
+    const onAnimEnd = (e: AnimationEvent): void => {
+      if (e.target === p || p.contains(e.target as Node)) p.removeAttribute('data-landed')
+    }
+    p.addEventListener('transitionend', onEnd)
+    p.addEventListener('animationend', onAnimEnd)
     const place = (): void => {
       frame = 0
       const row = [...box.querySelectorAll<HTMLElement>(SELECTED)].find((el) => el.offsetParent !== null && !el.closest('[data-no-pill]'))
@@ -64,7 +81,13 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
       // The first time (or after it was hidden) it appears in place; going to another row from the keyboard, or to one
       // far away, jumps too. The same row moving (a chapter folding above it, the list resizing) always glides with it.
       const far = row !== lastRow && (Math.abs(at.y - lastY) > LONGEST_GLIDE || Math.abs(at.x - lastX) > LONGEST_GLIDE)
-      const jump = !shown || far || (row !== lastRow && keyboardDriven())
+      const byKey = keyboardDriven()
+      const jump = !shown || far || (row !== lastRow && byKey)
+      // Another row from the pointer: it lands (at once when it jumps there, else once the glide ends).
+      if (shown && row !== lastRow && !byKey) {
+        if (jump) requestAnimationFrame(land)
+        else landing = true
+      }
       if (jump) p.style.transition = 'none'
       p.style.width = `${r.width}px`
       p.style.height = `${r.height}px`
@@ -88,6 +111,8 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
     const ro = new ResizeObserver(later)
     ro.observe(box)
     return () => {
+      p.removeEventListener('transitionend', onEnd)
+      p.removeEventListener('animationend', onAnimEnd)
       mo.disconnect()
       ro.disconnect()
       if (frame) cancelAnimationFrame(frame)
@@ -99,7 +124,7 @@ export function GlidePill({ className }: { className?: string }): React.JSX.Elem
       ref={pill}
       aria-hidden
       className={cn(
-        'pointer-events-none absolute left-0 top-0 rounded-[9px] bg-raise opacity-0 shadow-e2',
+        'glide-pill pointer-events-none absolute left-0 top-0 rounded-[9px] bg-raise opacity-0 shadow-e2',
         // (Width and height glide too: the pill is an empty box on its own, so only it is laid out again.)
         'transition-[transform,width,height,opacity] duration-(--dur-base) ease-glide',
         className
