@@ -59,8 +59,13 @@ describe('where a thread was last touched', () => {
 })
 
 describe('the ledger', () => {
+  /** Gives the first `n` scenes words (the rest stay planned). */
+  const write = (w: ReturnType<typeof world>, n: number) =>
+    w.scenes.slice(0, n).forEach((id, i) => repo.saveSceneText(w.db, id, null, `The tide came in over the flats, scene ${i + 1}.`))
+
   it('gives each thread the scene that last touched it and, while open, how long it has been quiet', () => {
     const w = world(10)
+    write(w, 10)
     w.open(w.ledger.id, 6, 'a page of it turned up')
     const board = threadsBoardOf(w.db, w.storyId)
     const bell = board.threads.find((t) => t.id === w.bell.id)!
@@ -69,6 +74,14 @@ describe('the ledger', () => {
     expect(bell.quietScenes).toBe(9)
     expect(ledger.lastTouched?.sceneId).toBe(w.scenes[6])
     expect(ledger.quietScenes).toBe(3)
+  })
+
+  it('counts only scenes with words: planned scenes still to write are not quiet ones', () => {
+    const w = world(10)
+    write(w, 6) // scenes 7 to 10 are planned, with no words yet
+    const board = threadsBoardOf(w.db, w.storyId)
+    expect(board.threads.find((t) => t.id === w.bell.id)!.quietScenes).toBe(5)
+    expect(board.threads.find((t) => t.id === w.ledger.id)!.quietScenes).toBe(4)
   })
 
   it('has no quiet count for a resolved thread', () => {

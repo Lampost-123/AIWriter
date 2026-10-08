@@ -17,16 +17,23 @@ export interface ThreadTouch {
   /** The scene that last touched it; null for a story's start. */
   sceneId: ID | null
   storyId: ID
-  /** Scenes on the line after that one. */
+  /** Scenes on the line after that one (only those with words, when the caller says which have). */
   quiet: number
 }
 
 /**
  * Where each of these threads was last touched on the line, and how many scenes it has been quiet since (counted to
- * the line's end). `linkScenes`: the scenes holding words each thread's facts rest on. A thread never touched on the
- * line is left out.
+ * the line's end). `linkScenes`: the scenes holding words each thread's facts rest on. `written`: the scenes with words;
+ * given, only those count as quiet ones (a story's line runs on through scenes only planned so far). A thread never
+ * touched on the line is left out.
  */
-export function threadTouches(line: Line, changes: ChangeIndex, threadIds: ID[], linkScenes: Map<ID, Set<ID>> = new Map()): Map<ID, ThreadTouch> {
+export function threadTouches(
+  line: Line,
+  changes: ChangeIndex,
+  threadIds: ID[],
+  linkScenes: Map<ID, Set<ID>> = new Map(),
+  written?: Set<ID>
+): Map<ID, ThreadTouch> {
   const ids = new Set(threadIds)
   const last = new Map<ID, { step: number; sceneId: ID | null; storyId: ID }>()
   for (const c of changes.baseline) if (ids.has(c.entryId)) last.set(c.entryId, { step: -1, sceneId: null, storyId: '' })
@@ -35,7 +42,7 @@ export function threadTouches(line: Line, changes: ChangeIndex, threadIds: ID[],
     if (step.type === 'start-changes') {
       for (const c of changes.byStory.get(step.storyId) ?? []) if (ids.has(c.entryId)) last.set(c.entryId, { step: i, sceneId: null, storyId: step.storyId })
     } else if (step.type === 'scene') {
-      sceneSteps.push(i)
+      if (!written || written.has(step.sceneId)) sceneSteps.push(i)
       const at = { step: i, sceneId: step.sceneId, storyId: step.storyId }
       for (const c of changes.byScene.get(step.sceneId) ?? []) if (ids.has(c.entryId)) last.set(c.entryId, at)
       for (const id of ids) if (linkScenes.get(id)?.has(step.sceneId)) last.set(id, at)

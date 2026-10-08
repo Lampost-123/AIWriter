@@ -37,6 +37,8 @@ export interface BoardInput {
    * touched" (B4). Left out (a test): only thread changes touch.
    */
   linkScenes?: (threadIds: ID[]) => Map<ID, Set<ID>>
+  /** The scenes with words: only those count toward how long a thread has been quiet. Left out (a test): every scene. */
+  written?: Set<ID>
 }
 
 const COLUMN_ORDER: Record<BoardThread['column'], number> = { open: 0, resolved: 1, planned: 2 }
@@ -94,7 +96,7 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
 
   // The ledger (B4): where each thread was last touched on the line, and how long it has been quiet since.
   const threadIds = state.threads.map((t) => t.entryId)
-  const touches = threadTouches(line, changes, threadIds, input.linkScenes && threadIds.length ? input.linkScenes(threadIds) : new Map())
+  const touches = threadTouches(line, changes, threadIds, input.linkScenes && threadIds.length ? input.linkScenes(threadIds) : new Map(), input.written)
   const touchedAt = (id: ID): BoardPlace | null => {
     const t = touches.get(id)
     if (!t || !t.storyId) return null

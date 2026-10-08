@@ -49,6 +49,12 @@ function fieldsOf(json: string): CardFields {
   }
 }
 
+/** The live scenes with words in them (not only planned). */
+export function writtenScenes(db: DB): Set<ID> {
+  const rows = db.prepare('SELECT id FROM scenes WHERE deleted_at IS NULL AND word_count > 0').all() as Row[]
+  return new Set(rows.map((r) => r.id as string))
+}
+
 /** Every live scene's card, by scene id: one query however many scenes. */
 export function sceneCards(db: DB): Map<ID, CardInfo> {
   const rows = db.prepare('SELECT id, title, card_json FROM scenes WHERE deleted_at IS NULL').all() as Row[]
