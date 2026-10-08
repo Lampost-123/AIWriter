@@ -534,3 +534,46 @@ test('the story’s spine in every room: Plan, World, Check and the story’s ho
   await expect(win.locator('[data-desk-room="settings"]')).toBeVisible()
   await expect(spine).toHaveCount(0)
 })
+
+test('the cards and the dossier show each entry’s drawing, none twice side by side; the dossier’s picker sits under the name', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  await room(win, 'World').click()
+  await expect(gallery(win)).toBeVisible()
+  const named = (name: string) => cards(win).filter({ has: win.locator('.g-name, .g-title', { hasText: name }) }).first()
+  // No portraits in the sample world: each card has its drawing (Wren the lantern, Edric his boat, the steps their stairs).
+  await expect(named('Wren Halloway').locator('[data-motif="lantern"]')).toHaveCount(1)
+  await expect(named('Edric Halloway').locator('[data-motif="boat"]')).toHaveCount(1)
+  await expect(named('The Drowned Steps').locator('[data-motif="stairs"]')).toHaveCount(1)
+  await expect(named('The Harbour Board').locator('[data-motif]')).toHaveCount(1)
+  const shown = await cards(win).locator('[data-motif]').evaluateAll((els) => els.map((e) => e.getAttribute('data-motif')))
+  expect(new Set(shown).size).toBe(shown.length)
+
+  // Edric's dossier: the same drawing on its portrait, and the picker right under his name, beside the portrait.
+  await named('Edric Halloway').click()
+  const d = win.locator('[data-dossier]')
+  await expect(d).toBeVisible()
+  await expect(d.locator('.dz-portrait [data-motif="boat"]')).toHaveCount(1)
+  const picker = d.locator('[data-motif-picker]')
+  await expect(picker).toContainText('Drawing: small boat')
+  await win.waitForTimeout(600)
+  const nameBox = (await d.locator('.dz-name-h').boundingBox())!
+  const pick = (await picker.boundingBox())!
+  const portrait = (await d.locator('.dz-portrait').boundingBox())!
+  expect(pick.y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height - 1)
+  expect(pick.y - (nameBox.y + nameBox.height)).toBeLessThanOrEqual(40)
+  expect(pick.x).toBeGreaterThanOrEqual(portrait.x + portrait.width)
+  // Choosing another: the card and the portrait follow; his own portrait would still win.
+  await picker.getByRole('button', { name: 'Change' }).click()
+  await win.getByRole('radiogroup', { name: 'Drawings for Edric Halloway' }).getByRole('radio', { name: 'A bell' }).click()
+  await expect(d.locator('.dz-portrait [data-motif="bell"]')).toHaveCount(1)
+  await d.getByRole('button', { name: 'Back to the world' }).click()
+  await expect(d).toHaveCount(0)
+  await expect(named('Edric Halloway').locator('[data-motif="bell"]')).toHaveCount(1)
+  // The panels' entry page has no picker.
+  await invoke(win, 'updateSettings', { arrangement: 'panels' })
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toBeVisible()
+  await expect(win.locator('[data-motif-picker]')).toHaveCount(0)
+})
