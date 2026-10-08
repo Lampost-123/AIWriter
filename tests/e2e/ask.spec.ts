@@ -208,7 +208,7 @@ test('Ask the world’s answers in blocks: quick actions, option cards and what 
     await expect(cards.first()).toContainText('Cut it back')
     await expect(panel(win).locator('[data-ask-status]')).toHaveText('Answer ready: 3 options')
 
-    // Kept (★), for this session.
+    // Kept (★), with the answer (still kept after a reload, below).
     await cards.first().getByRole('button', { name: /^Keep / }).click()
     await expect(cards.first()).toHaveAttribute('data-state', 'kept')
     // Use as beat: on the open scene's card, with Undo.
@@ -253,6 +253,16 @@ test('Ask the world’s answers in blocks: quick actions, option cards and what 
     await expect(win.locator('.scene-prose')).toBeVisible()
     if (!(await panel(win).count())) await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
     await expect(panel(win).locator('[data-density="compact"]')).toHaveCount(1)
+
+    // What was made of the option cards is kept with the answer (chat Phase 4): the earlier chat, read back from its
+    // records after the reload, shows its first card kept still; the others, put back, show as they were.
+    await panel(win).getByRole('button', { name: 'Earlier chats' }).click()
+    await win.getByRole('menuitem', { name: /Brainstorm ideas for the harbour/ }).click()
+    const keptCards = turns(win).first().locator('[data-option-card]')
+    await expect(keptCards).toHaveCount(3)
+    await expect(keptCards.first()).toHaveAttribute('data-state', 'kept')
+    await expect(keptCards.nth(1)).toHaveAttribute('data-state', 'idle')
+    await expect(keptCards.nth(2)).toHaveAttribute('data-state', 'idle')
   } finally {
     await fake.close()
   }

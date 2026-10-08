@@ -95,6 +95,42 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
   }
 })
 
+test('What the AI saw shows each request of an answer that used tools: request 2 brings what read_scene read (E18)', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch(READS)
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
+
+    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await ask(win, 'Please fix the first sentence')
+    await expect(changes(win).locator('[data-proposal]').first()).toContainText('THE TIDE CAME IN OVER THE FLATS.')
+    await expect(panel(win).locator('[data-turn-status]').first()).toHaveAttribute('data-turn-status', 'complete')
+
+    await panel(win).getByRole('button', { name: 'More about this answer' }).first().click()
+    await win.getByRole('menuitem', { name: 'What the AI saw' }).click()
+    await expect(win.getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
+    const requests = win.getByRole('region', { name: 'Each request' })
+    await expect(requests.locator('[data-request="1"]')).toContainText('Request 1 · briefing + question')
+    const second = requests.locator('[data-request="2"]')
+    await expect(second).toBeVisible()
+    await expect(second).toContainText('Request 2 · after read_scene')
+    // Opened, it shows only what it added: the call, and the scene it read.
+    await second.getByRole('button').first().click()
+    await expect(second).toContainText('Asked for tools')
+    await expect(second).toContainText('Looked up')
+    await expect(second).toContainText('The gulls went quiet.')
+    await expect(second).not.toContainText('Instructions and briefing')
+  } finally {
+    await fake.close()
+  }
+})
+
 test('each tool call shows as it happens (running, then ✓), opens to what it was asked; folded once answered, or always open as chosen', async ({
   launch
 }) => {
