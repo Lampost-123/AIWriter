@@ -651,6 +651,25 @@
   }
 }
 
+/*
+  While a dialog holds the window (Radix locks scrolling behind it: body[data-scroll-locked]), what is behind it shows
+  no scrollbar: it can't scroll then, and Chromium keeps the hover that showed one as the dialog opened (the start
+  screen's, say). The dialog itself, and any menu or list opened from it, keep theirs.
+*/
+body[data-scroll-locked]
+  :not(
+    :is([role='dialog'], [role='alertdialog'], [data-radix-popper-content-wrapper]),
+    :is([role='dialog'], [role='alertdialog'], [data-radix-popper-content-wrapper]) *
+  )::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+/* A list whose end is easily missed (the command palette's results, the keyboard shortcuts) shows its scrollbar
+   whenever it has more than fits, not only on hover. */
+.scrollbar-shown::-webkit-scrollbar-thumb {
+  background-color: var(--line-strong);
+}
+
 /* Since scrollbars only show on hover, a list with more below what shows fades at its bottom edge
    (lib/moreBelow.ts sets data-more-below while there is more). */
 .fade-more-below[data-more-below] {
