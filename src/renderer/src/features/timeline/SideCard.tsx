@@ -53,7 +53,13 @@ export function SideCard({
 
   const person = (e: TimelineEntry, role?: string): React.JSX.Element => (
     <li key={e.id}>
-      <button type="button" className="tl-sc-person" style={{ '--ink': inks.get(e.id) ?? 'var(--k-char)' } as CSSProperties} onClick={() => onOpenEntry(e)} title={`Open ${e.name}’s page`}>
+      <button
+        type="button"
+        className="tl-sc-person"
+        style={{ '--ink': inks.get(e.id) ?? 'var(--k-char)' } as CSSProperties}
+        onClick={() => onOpenEntry(e)}
+        title={`Open ${e.name}’s page`}
+      >
         <Portrait entry={e} size={30} motif={motifs.get(e.id)} />
         <span className="min-w-0">
           <span className="tl-sc-pname">{e.name}</span>
@@ -82,7 +88,9 @@ export function SideCard({
         </p>
         {told ? (
           <p className={cn('tl-sc-told', `is-${told}`)}>
-            {told === 'flashback' ? `A flashback: told after ${toldNear}, but it happens earlier.` : `Told early: it comes before ${toldNear} in the story, but happens later.`}
+            {told === 'flashback'
+              ? `A flashback: told after ${toldNear}, but it happens earlier.`
+              : `Told early: it comes before ${toldNear} in the story, but happens later.`}
           </p>
         ) : null}
         {scene ? (

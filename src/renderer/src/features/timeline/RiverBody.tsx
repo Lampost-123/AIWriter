@@ -319,7 +319,10 @@ export function RiverBody({
     const base = rowLabel(p, timeline.clashes)
     const extra =
       p.kind === 'scene'
-        ? [`${STATUS_WORDS[p.status]}, ${wordsLabel(p.words).toLowerCase()}`, t === 'flashback' ? `A flashback, told after ${near}` : t === 'early' ? `Told early, before ${near}` : '']
+        ? [
+            `${STATUS_WORDS[p.status]}, ${wordsLabel(p.words).toLowerCase()}`,
+            t === 'flashback' ? `A flashback, told after ${near}` : t === 'early' ? `Told early, before ${near}` : ''
+          ]
         : []
     return {
       point: p,
@@ -370,11 +373,25 @@ export function RiverBody({
             ))}
           </div>
           {/* The warp: a faint line down from each card through the lanes, and the hovered scene's column. */}
-          <svg className="tl-warp" style={{ left: labelW + L, top: headH, width: Math.max(1, R - L), height: canvasH - headH }} viewBox={`${L} 0 ${Math.max(1, R - L)} ${canvasH - headH}`} aria-hidden>
+          <svg
+            className="tl-warp"
+            style={{ left: labelW + L, top: headH, width: Math.max(1, R - L), height: canvasH - headH }}
+            viewBox={`${L} 0 ${Math.max(1, R - L)} ${canvasH - headH}`}
+            aria-hidden
+          >
             {shown.map((n) => (
-              <line key={n} className={cn(points[items[n].i].kind === 'event' && 'is-event')} x1={cx(n)} x2={cx(n)} y1={0} y2={canvasH - headH} />
+              <line
+                key={n}
+                className={cn(points[items[n].i].kind === 'event' && 'is-event')}
+                x1={cx(n)}
+                x2={cx(n)}
+                y1={0}
+                y2={canvasH - headH}
+              />
             ))}
-            {hotN !== null && items[hotN] ? <rect className="tl-hotcol" x={cx(hotN) - 22} y={0} width={44} height={canvasH - headH} rx={22} /> : null}
+            {hotN !== null && items[hotN] ? (
+              <rect className="tl-hotcol" x={cx(hotN) - 22} y={0} width={44} height={canvasH - headH} rx={22} />
+            ) : null}
           </svg>
 
           {/* The head: bands' names, the cards, the axis. It stays at the top as the lanes scroll. */}
@@ -386,7 +403,11 @@ export function RiverBody({
             <div className="tl-head-river" style={{ left: labelW, width: layout.width }}>
               <div className="tl-bandnames" aria-hidden>
                 {layout.bands.map((b) => (
-                  <span key={b.key} className={cn('tl-bandname', zoom === 'chapter' && 'is-chapter', b.alt && 'is-alt')} style={{ left: b.x0, width: b.x1 - b.x0 }}>
+                  <span
+                    key={b.key}
+                    className={cn('tl-bandname', zoom === 'chapter' && 'is-chapter', b.alt && 'is-alt')}
+                    style={{ left: b.x0, width: b.x1 - b.x0 }}
+                  >
                     <span className="tl-bandname-in">
                       {b.eyebrow ? <span className="tl-bandname-k">{b.eyebrow}</span> : null}
                       <span className="tl-bandname-t">{b.label || (zoom === 'day' ? 'A day' : '')}</span>
@@ -430,7 +451,13 @@ export function RiverBody({
                     const a = cx(m)
                     const b = cx(n)
                     const mid = (a + b) / 2
-                    return <path key={`arc${n}`} className={cn('tl-arc', `is-${told[i]}`)} d={`M${a} 18 C ${a} 48, ${mid} 52, ${mid} 52 S ${b} 48, ${b} 18`} />
+                    return (
+                      <path
+                        key={`arc${n}`}
+                        className={cn('tl-arc', `is-${told[i]}`)}
+                        d={`M${a} 18 C ${a} 48, ${mid} 52, ${mid} 52 S ${b} 48, ${b} 18`}
+                      />
+                    )
                   })}
                 </svg>
                 {layout.gaps
@@ -448,7 +475,9 @@ export function RiverBody({
           <div role="list" aria-label="Lanes" className="tl-lanes">
             {lanes.length ? null : (
               <p className="tl-nolanes" style={{ top: headH + 24, left: 24 }}>
-                {mode === 'threads' && !paths.length ? 'No plot threads are set up or paid off in these scenes yet.' : 'No lanes shown. Pick some with Lanes, above.'}
+                {mode === 'threads' && !paths.length
+                  ? 'No plot threads are set up or paid off in these scenes yet.'
+                  : 'No lanes shown. Pick some with Lanes, above.'}
               </p>
             )}
             {lanes.slice(laneFrom, laneTo).map((lane, j) => {
@@ -461,7 +490,15 @@ export function RiverBody({
                   className={cn('tl-lane-row', k % 2 === 1 && 'is-alt')}
                   style={{ top: headH + k * laneH, height: laneH, width: canvasW, '--ink': inks.get(lane.id) } as CSSProperties}
                 >
-                  <LaneHead lane={lane} ink={inks.get(lane.id)!} height={laneH} motif={motifs.get(lane.id)} stats={laneStats(k)} mode={mode} onOpen={openLane} />
+                  <LaneHead
+                    lane={lane}
+                    ink={inks.get(lane.id)!}
+                    height={laneH}
+                    motif={motifs.get(lane.id)}
+                    stats={laneStats(k)}
+                    mode={mode}
+                    onOpen={openLane}
+                  />
                   <div className="tl-strip-box" style={{ left: labelW, width: layout.width, height: laneH }}>
                     <LaneStrip
                       laneId={lane.id}

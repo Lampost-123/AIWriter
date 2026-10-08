@@ -198,7 +198,14 @@ function bandsOf(t: Timeline, items: RiverItem[], zoom: Zoom, gap: number): Rive
   const close = (): void => {
     const b = open.band
     if (!b) return
-    bands.push({ key: b.key, label: b.label, eyebrow: b.eyebrow, x0: b.from.x - gap / 2, x1: b.to.x + b.to.w + gap / 2, alt: bands.length % 2 === 1 })
+    bands.push({
+      key: b.key,
+      label: b.label,
+      eyebrow: b.eyebrow,
+      x0: b.from.x - gap / 2,
+      x1: b.to.x + b.to.w + gap / 2,
+      alt: bands.length % 2 === 1
+    })
     open.band = null
   }
   for (const it of items) {
@@ -391,7 +398,12 @@ export function skyOf(key: TimelinePoint['key']): 'dawn' | 'day' | 'dusk' | 'nig
 export const wordsLabel = (n: number): string => (n ? `${n.toLocaleString('en-GB')} ${n === 1 ? 'word' : 'words'}` : 'No words yet')
 
 /** A scene's status in words. */
-export const STATUS_WORDS: Record<TimelinePoint['status'], string> = { planned: 'Planned', drafted: 'Drafted', revised: 'Revised', done: 'Done' }
+export const STATUS_WORDS: Record<TimelinePoint['status'], string> = {
+  planned: 'Planned',
+  drafted: 'Drafted',
+  revised: 'Revised',
+  done: 'Done'
+}
 
 /** Lanes in the order each first comes along the river (by day or by chapter); ones never on it keep their place at the end. */
 export function byFirstAppearance<T extends { id: ID }>(t: Timeline, lanes: T[], mode: LaneMode, zoom: Zoom): T[] {

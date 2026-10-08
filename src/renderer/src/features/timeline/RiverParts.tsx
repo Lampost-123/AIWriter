@@ -144,7 +144,11 @@ export const RiverCard = memo(function RiverCard({
         ) : null}
         <span className="tl-c-foot">
           {data.pov ? (
-            <span className="tl-c-pov" style={{ '--ink': data.povInk ?? 'var(--k-char)' } as CSSProperties} title={`Told through ${data.pov.name}`}>
+            <span
+              className="tl-c-pov"
+              style={{ '--ink': data.povInk ?? 'var(--k-char)' } as CSSProperties}
+              title={`Told through ${data.pov.name}`}
+            >
               <Portrait entry={data.pov} size={24} motif={data.povMotif} />
               <span className="truncate">{data.pov.name}</span>
             </span>
@@ -156,7 +160,10 @@ export const RiverCard = memo(function RiverCard({
           </span>
         </span>
         {data.told ? (
-          <span className="tl-c-told" title={data.told === 'flashback' ? `A flashback: told after ${data.toldNear}` : `Told early, before ${data.toldNear}`}>
+          <span
+            className="tl-c-told"
+            title={data.told === 'flashback' ? `A flashback: told after ${data.toldNear}` : `Told early, before ${data.toldNear}`}
+          >
             {data.told === 'flashback' ? 'Flashback' : 'Told early'}
           </span>
         ) : null}
@@ -268,8 +275,18 @@ export const LaneStrip = memo(function LaneStrip({
       <line className="tl-guide" x1={left} x2={right} y1={y} y2={y} />
       {path ? (
         <>
-          <line className={cn('tl-span', arriving && 'tl-draw')} pathLength={1} style={arriving ? delay(lineDelay) : undefined} x1={cx(path.first)} x2={cx(path.last)} y1={y} y2={y} />
-          {path.openEnd ? <line className="tl-tail" x1={cx(path.last)} x2={items[items.length - 1].x + items[items.length - 1].w + 24} y1={y} y2={y} /> : null}
+          <line
+            className={cn('tl-span', arriving && 'tl-draw')}
+            pathLength={1}
+            style={arriving ? delay(lineDelay) : undefined}
+            x1={cx(path.first)}
+            x2={cx(path.last)}
+            y1={y}
+            y2={y}
+          />
+          {path.openEnd ? (
+            <line className="tl-tail" x1={cx(path.last)} x2={items[items.length - 1].x + items[items.length - 1].w + 24} y1={y} y2={y} />
+          ) : null}
           {path.runs.map(([a, b]) => {
             if (b < from - 1 || a > to) return null
             const pad = mode === 'characters' ? Math.min(34, items[a].w * 0.16) : 0

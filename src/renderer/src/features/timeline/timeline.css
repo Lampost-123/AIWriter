@@ -300,7 +300,11 @@
   right: 0;
   bottom: 44px;
   height: 46px;
-  background: repeating-linear-gradient(180deg, transparent 0 18px, var(--rule-blue, color-mix(in oklab, var(--accent) 12%, transparent)) 18px 19px);
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0 18px,
+    var(--rule-blue, color-mix(in oklab, var(--accent) 12%, transparent)) 18px 19px
+  );
   pointer-events: none;
   opacity: 0.7;
 }

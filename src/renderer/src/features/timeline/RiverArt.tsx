@@ -45,7 +45,10 @@ export function RiverArt({ className }: { className?: string }): React.JSX.Eleme
           <circle cx="300" cy="64" r="15" className="tl-art-sunbody" />
         </g>
         {/* The river, its water moving. */}
-        <path d="M-20 214 C 110 190, 190 238, 300 212 S 500 186, 620 210 L 620 250 C 500 228, 420 262, 300 250 S 100 232, -20 252 Z" fill="url(#tl-art-water)" />
+        <path
+          d="M-20 214 C 110 190, 190 238, 300 212 S 500 186, 620 210 L 620 250 C 500 228, 420 262, 300 250 S 100 232, -20 252 Z"
+          fill="url(#tl-art-water)"
+        />
         <path className="tl-art-ripple" d="M-20 226 C 110 204, 190 250, 300 226 S 500 200, 620 222" />
         <path className="tl-art-ripple is-2" d="M-20 240 C 110 220, 190 262, 300 240 S 500 214, 620 236" />
         {/* The time line along the bank, drawing itself. */}

@@ -74,7 +74,10 @@ export function TimelineRiver(): React.JSX.Element {
   const dated = !!data?.points.some((p) => p.dated)
   // Which lanes: Adam's pick, or the busiest dozen; in the order each first comes along the river, so the lanes step down
   // from the top left as the story goes on.
-  const lanes = useMemo(() => (data ? byFirstAppearance(data, shownLanes(data, mode, chosen, RIVER_LANES), mode, zoom) : []), [data, mode, chosen, zoom])
+  const lanes = useMemo(
+    () => (data ? byFirstAppearance(data, shownLanes(data, mode, chosen, RIVER_LANES), mode, zoom) : []),
+    [data, mode, chosen, zoom]
+  )
   const inks = useMemo(() => new Map(lanes.map((l, k) => [l.id, `var(--tl-ink-${k % 8})`])), [lanes])
   const hereOn = !!data && !!here && data.points.some((p) => p.id === here)
   const onChoose = useCallback((ids: ID[] | null) => choose(worldKey(mode), ids), [choose, mode])
@@ -112,7 +115,12 @@ export function TimelineRiver(): React.JSX.Element {
                   { value: 'chapter', label: 'By chapter' }
                 ]}
               />
-              <Button icon={<Target size={15} />} disabled={!hereOn} onClick={() => setJump((n) => n + 1)} title={hereOn ? 'Show the scene you’re writing' : 'The scene you’re writing isn’t on this timeline'}>
+              <Button
+                icon={<Target size={15} />}
+                disabled={!hereOn}
+                onClick={() => setJump((n) => n + 1)}
+                title={hereOn ? 'Show the scene you’re writing' : 'The scene you’re writing isn’t on this timeline'}
+              >
                 Jump to now
               </Button>
             </>
@@ -167,8 +175,9 @@ function NoDates({ timeline }: { timeline: Timeline }): React.JSX.Element {
       <RiverArt className="tl-empty-art" />
       <h2 className="tl-empty-h">No dates yet</h2>
       <p className="tl-empty-p">
-        Give a scene a date in the When box on its scene card, in your own words: “Day 12, Year 3, at dusk” or “12 March 1204”. Scenes and events
-        with a date flow along here in the order they happen in your world, spaced by the time between them, with a lane for each character.
+        Give a scene a date in the When box on its scene card, in your own words: “Day 12, Year 3, at dusk” or “12 March 1204”. Scenes and
+        events with a date flow along here in the order they happen in your world, spaced by the time between them, with a lane for each
+        character.
       </p>
       <Button variant="primary" icon={<CalendarRange size={15} />} onClick={go}>
         Go to the scene card

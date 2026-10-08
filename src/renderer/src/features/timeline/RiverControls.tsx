@@ -85,13 +85,27 @@ export function LanePicker({
           {choices.length > 8 ? (
             <div className="relative mt-2">
               <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" aria-hidden />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${noun}`} aria-label={`Search ${noun}`} className="pl-8" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Search ${noun}`}
+                aria-label={`Search ${noun}`}
+                className="pl-8"
+              />
             </div>
           ) : null}
         </div>
         <div role="group" aria-label="Lanes" className="tl-pop-list">
           {listed.map(({ entry, count }) => (
-            <Row key={entry.id} entry={entry} on={on.has(entry.id)} count={count} motif={motifs.get(entry.id)} ink={inks.get(entry.id)} onToggle={(v) => toggle(entry.id, v)} />
+            <Row
+              key={entry.id}
+              entry={entry}
+              on={on.has(entry.id)}
+              count={count}
+              motif={motifs.get(entry.id)}
+              ink={inks.get(entry.id)}
+              onToggle={(v) => toggle(entry.id, v)}
+            />
           ))}
           {!listed.length ? <p className="px-2 py-3 text-center text-[12.5px] text-muted">No {noun} match.</p> : null}
         </div>
@@ -124,8 +138,11 @@ export function FilterPicker({
   onChange: (ids: Set<ID>) => void
 }): React.JSX.Element {
   const groups = useMemo(() => {
-    const used = (kind: 'character' | 'thread') => laneChoices(timeline, kind === 'character' ? 'characters' : 'threads').map((c) => c.entry)
-    const places = timeline.entries.filter((e) => e.kind === 'place' && timeline.points.some((p) => p.locationId === e.id)).sort((a, b) => a.name.localeCompare(b.name))
+    const used = (kind: 'character' | 'thread') =>
+      laneChoices(timeline, kind === 'character' ? 'characters' : 'threads').map((c) => c.entry)
+    const places = timeline.entries
+      .filter((e) => e.kind === 'place' && timeline.points.some((p) => p.locationId === e.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
     return [
       { label: 'Characters', list: used('character') },
       { label: 'Plot threads', list: used('thread') },
