@@ -276,6 +276,14 @@ const WITH_WORDS = new Set('obsessed infatuated besotted friendly angry furious 
 // Words that already say which one ("the leader", "her sister", "Tobin's rival"), so no "a" goes before them.
 const DETERMINERS = new Set('a an the his her their its my our your one some no this that'.split(' '))
 
+// The two halves of a relationship both have ("father and daughter", "master and apprentice"): said "with" the other.
+const PAIR_WORDS = new Set(
+  (
+    'father mother son daughter brother sister husband wife uncle aunt niece nephew cousin cousins grandfather grandmother ' +
+    'grandson granddaughter parent child master apprentice teacher pupil student mistress servant lord vassal'
+  ).split(' ')
+)
+
 // Words that start extra detail after a relationship: "companions on the drove road", "rivals at court", "friends since
 // childhood".
 const DETAIL_WORDS = new Set('on at in from since during across along through near among after before until'.split(' '))
@@ -314,18 +322,22 @@ export function relationPhrase(type: string, other: string, opts: { article?: bo
   const raw = type.trim().replace(/\s+/g, ' ')
   const aside = raw.match(/\s*\(([^)]*)\)\s*/)
   let core = lowerFirst((aside ? raw.replace(aside[0], ' ') : raw).trim())
-  // Extra detail after the relationship itself ("travelling companions on the drove road") goes in brackets after the
-  // other one's name, like an aside: "travelling companions with Ash (on the drove road)".
+  // Extra detail after the relationship itself goes in brackets after the other one's name, like an aside: after a
+  // semicolon, comma or dash ("acquaintance; he has stayed at her inn"), or a place or time ("travelling companions on
+  // the drove road" is "travelling companions with Ash (on the drove road)").
+  const said = core.match(/^([^;,:—–]+?)\s*[;,:—–]\s*(.+)$/)
+  if (said) core = said[1]
   const extra = trailingDetail(core)
   if (extra) core = extra.head
-  const asides = [extra?.detail, aside?.[1].trim()].filter((s): s is string => !!s)
-  const tail = asides.length ? ` (${asides.join(', ')})` : ''
+  const asides = [extra?.detail, said?.[2].trim(), aside?.[1].trim()].filter((s): s is string => !!s)
+  const tail = asides.length ? ` (${asides.join('; ')})` : ''
   if (!core) return `linked to ${other}${tail}`
   const words = core.toLocaleLowerCase().split(' ')
   const first = words[0]
   const last = words[words.length - 1]
   let link: string
   if (PREPOSITIONS.has(last)) link = ''
+  else if (words.length === 3 && words[1] === 'and' && PAIR_WORDS.has(first) && PAIR_WORDS.has(last)) link = 'with'
   else if (first === 'married') link = 'to'
   else if (first === 'owes' && words.length > 1) link = 'to'
   else if (VERBS.has(first)) link = ''

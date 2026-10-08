@@ -333,7 +333,12 @@ describe('relationPhrase', () => {
     expect(a('friends since childhood')).toBe('friends with Ash Penrose (since childhood)')
     expect(a('enemy since the fire')).toBe('an enemy of Ash Penrose (since the fire)')
     expect(a('estranged since the war')).toBe('estranged from Ash Penrose (since the war)')
-    expect(a('companions on the road (uneasy)')).toBe('companions with Ash Penrose (on the road, uneasy)')
+    expect(a('companions on the road (uneasy)')).toBe('companions with Ash Penrose (on the road; uneasy)')
+    // The trial's others: detail after a semicolon, and the two halves of a family tie.
+    expect(a('acquaintance; he has stayed at her inn before')).toBe('an acquaintance of Ash Penrose (he has stayed at her inn before)')
+    expect(a('father and daughter', 'Pell Venn')).toBe('father and daughter with Pell Venn')
+    expect(a('mentor and friend')).toBe('a mentor and friend of Ash Penrose')
+    expect(a('old friend, from the war')).toBe('an old friend of Ash Penrose (from the war)')
     // Words that belong together keep their own link.
     expect(a('involved in')).toBe('involved in Ash Penrose')
     expect(a('in love')).toBe('in love with Ash Penrose')
