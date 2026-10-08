@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AskIntent } from '@shared/askIntent'
 import { PROPOSE_NOW, proposeNow } from '@shared/askChanges'
-import { editorNudge, MAX_EDIT_NUDGES, offersChoice, routeIntent, temperatureFor } from './route'
+import { asksForNewProse, editorNudge, MAX_EDIT_NUDGES, offersChoice, READ_FIRST, routeIntent, temperatureFor } from './route'
 
 const OPTIONS = 'Three ways it could go:\n1. Wren bolts for the ferry.\n2. Wren hides in the chandlery.\n3. Wren gives himself up.'
 const QUESTION = 'I can tighten the opening or the ending. Which one do you mean?'
@@ -186,4 +186,37 @@ describe('editorNudge', () => {
     expect(editorNudge({ ...edit, attempt: 2 })).toMatch(/gives no proposal again/)
     expect(editorNudge({ ...base, contract: true, question: 'Tighten this', answer: 'Tighter.' })).toBe(proposeNow('edit'))
   })
+  it('ACTFIRST (read given): an edit’s one question before reading is sent back to read first; after reading it stands', () => {
+    const edit = { ...base, route: true, contract: true, intent: 'edit' as const, question: 'Fix the tenses in Wren’s paragraph.' }
+    const paste = 'I can’t see the paragraph’s exact wording from here. Could you paste it?'
+    expect(editorNudge({ ...edit, answer: paste, read: false })).toBe(READ_FIRST)
+    expect(READ_FIRST.startsWith('[AI Write, not the writer] Your answer gives')).toBe(true)
+    expect(editorNudge({ ...edit, answer: paste, read: true })).toBe(null)
+    expect(editorNudge({ ...edit, answer: paste })).toBe(null)
+    expect(editorNudge({ ...edit, answer: 'Cut the gulls.', read: false })).toBe(proposeNow('edit', 1))
+    expect(editorNudge({ ...edit, intent: 'unsure', answer: paste, read: false })).toBe(null)
+    expect(editorNudge({ ...edit, answer: paste, read: false, asked: true })).toBe(null)
+  })
+})
+
+describe('asksForNewProse', () => {
+  it.each([
+    'write the next bit, Wren goes back to the boathouse that night',
+    'Write the next bit: Mara goes down to the quay. A couple of paragraphs.',
+    'continue from here',
+    'Continue the scene from where it stops',
+    'keep going',
+    'draft the scene from the card',
+    'write the rest of this scene',
+    'Could you write the next few paragraphs?'
+  ])('new prose: %s', (q) => expect(asksForNewProse(q)).toBe(true))
+  it.each([
+    'Draft the opening of the next scene',
+    'write the next scene',
+    'Tighten this paragraph',
+    'Rewrite the opening three paragraphs',
+    'continue to cut the adverbs',
+    "Don't change anything, just tell me how to continue",
+    'Fix the tenses in the last paragraph'
+  ])('not new prose: %s', (q) => expect(asksForNewProse(q)).toBe(false))
 })

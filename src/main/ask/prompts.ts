@@ -87,8 +87,40 @@ Three ways to open on the quay.
 - **Start mid-row**: two traders already shouting.
 ::`
 
+// ---------- ACTFIRST (the Phase 2 fix): an edit reads, then proposes; it asks only when reading leaves it unclear ----------
+// The Phase 2 DeepSeek run asked "which passage?" before reading (R01, R17), asked for words to be pasted (R05) and put
+// a clarifying question in ::next instead of asking it (A04): the edit reminder had come to invite the question.
+
+/** The contract's ask rule as Phase 2 had it, and with ACTFIRST: only after reading. */
+const ASK_RULE = "- Ask one short question only when you can't tell which passage is meant, or when two readings would give opposite changes"
+const ASK_RULE_AFTER_READING = "- Ask one short question only when, after reading the words, you still can't tell which passage is meant, or when two readings would give opposite changes"
+
+/** With ACTFIRST, after the contract's ask rule: what "which passage?" means when a scene is open. */
+export const READ_BEFORE_ASKING =
+  '- Read before you ask: the open scene is the one meant unless the writer names another, and "do it", "yes" or "both" after your own suggestion means what you suggested. Never ask the writer to paste or point out words: read them yourself with read_scene.'
+
+/** The answer format's ::options and ::next lines as Phase 2 had them, and with ACTFIRST. */
+const OPTIONS_LINE = '  ::options (ideas: 3 to 5 lines'
+const OPTIONS_LINE_IDEAS_ONLY = '  ::options (only when the writer asked for ideas, never for an edit: 3 to 5 lines'
+const NEXT_LINE = '  ::next (at most 3 short follow-up requests, only when really useful)'
+const NEXT_LINE_NOT_A_QUESTION =
+  '  ::next (at most 3 short follow-up requests the writer might send next, only when really useful; never a question you need answered: ask that)'
+
+/** The answer format's rules in effect: FORMAT_RULES, with ACTFIRST's ::options and ::next lines when it is on. */
+export function formatRules(): string {
+  return chatExp('ACTFIRST') ? FORMAT_RULES.replace(OPTIONS_LINE, OPTIONS_LINE_IDEAS_ONLY).replace(NEXT_LINE, NEXT_LINE_NOT_A_QUESTION) : FORMAT_RULES
+}
+
 /** An intro with the answer format in place of the plain-text rule (and of the contract's length rule), switch on. */
-const withFormat = (intro: string): string => (chatExp('FORMAT') ? intro.replace(`${LENGTH_RULE}\n`, '').replace(PLAIN_RULE, FORMAT_RULES) : intro)
+const withFormat = (intro: string): string => (chatExp('FORMAT') ? intro.replace(`${LENGTH_RULE}\n`, '').replace(PLAIN_RULE, formatRules()) : intro)
+
+/** The contract intro with ACTFIRST's ask rule: only after reading, and read before asking which passage. */
+const withActFirst = (intro: string): string => {
+  if (!chatExp('ACTFIRST') || !intro.includes(ASK_RULE)) return intro
+  const asked = intro.replace(ASK_RULE, ASK_RULE_AFTER_READING)
+  const end = asked.indexOf('\n', asked.indexOf(ASK_RULE_AFTER_READING))
+  return `${asked.slice(0, end)}\n${READ_BEFORE_ASKING}${asked.slice(end)}`
+}
 
 /** One line per intent for the reminder at the end of the system message (when routing tells the intent). */
 const INTENT_LINE: Record<AskIntent, string> = {
@@ -106,19 +138,31 @@ const FORMAT_INTENT_LINE: Record<AskIntent, string> = {
 }
 
 /**
+ * ACTFIRST's edit and unsure lines: an edit reads, then proposes, and is never told it may ask which passage (that
+ * line made DeepSeek ask before reading); an unclear request asks its question as a question, never in ::next.
+ */
+export const ACT_FIRST_LINE: Pick<Record<AskIntent, string>, 'edit' | 'unsure'> = {
+  edit: "This request is an edit: read the words if you need them, then propose your best single version now with the propose_ tools. Don't offer options, ask permission or ask which passage: ask only if, after reading, two readings would give clearly different changes.",
+  unsure:
+    "This request may be unclear: if you can't tell what is meant, or two readings would give opposite changes, ask one short question (with ask_user when you have it, never in ::next); otherwise act."
+}
+
+/**
  * The contract's three-line reminder, at the very end of the system message (just before the conversation), so the
  * rules sit next to the question however long the briefing is. With the routed intent stated, when there is one. With
  * the answer format on, its second line and the ideas and question lines name the blocks.
  */
 export function contractReminder(intent?: AskIntent | null): string {
   const format = chatExp('FORMAT')
+  const actFirst = chatExp('ACTFIRST')
+  const lines = { ...(format ? FORMAT_INTENT_LINE : INTENT_LINE), ...(actFirst ? ACT_FIRST_LINE : {}) }
   return [
     'Reminder:',
     '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
     format
-      ? '- The first line answers; ideas go in ::options, facts in ::facts, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.'
+      ? `- The first line answers; ${actFirst ? 'ideas (only ideas) go in ::options' : 'ideas go in ::options'}, facts in ::facts, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.`
       : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
-    `- ${intent ? (format ? FORMAT_INTENT_LINE : INTENT_LINE)[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
+    `- ${intent ? lines[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
   ].join('\n')
 }
 
@@ -128,7 +172,7 @@ export function contractReminder(intent?: AskIntent | null): string {
  */
 export function askInstructions(style: StyleGuide, short = false): string {
   const shown = short ? { ...style, samplePassage: '' } : style
-  return instructionsText(shown, { intro: withFormat(chatExp('CONTRACT') ? CONTRACT_INTRO : INTRO), trimSample: true, proseRules: false })
+  return instructionsText(shown, { intro: withFormat(chatExp('CONTRACT') ? withActFirst(CONTRACT_INTRO) : INTRO), trimSample: true, proseRules: false })
 }
 
 /** One earlier question and the answer that came back. */

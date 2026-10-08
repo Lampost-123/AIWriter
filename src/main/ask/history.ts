@@ -126,10 +126,26 @@ export function compactBlocks(answer: string): string {
   return answerText(blocks)
 }
 
-/** An earlier answer as the model sees it again (switch on): trimmed, with what its proposals changed. */
-export function pastAnswer(answer: string, proposals: Proposal[]): string {
+/** The longest clarifying answer kept whole in the history with ACTFIRST (what it offered is what "do it" means). */
+export const ASKED_KEEP_CHARS = 320
+
+/**
+ * A clarifying answer as the history keeps it with ACTFIRST: whole when short, since cutting "I'd cut the narration
+ * before Hesper's line. Want me to?" to "(Asked) Want me to?" left "do it" meaning nothing (the Phase 2 run's R17, R15);
+ * a long one cut to its question(s). Never the "(Asked)" tag, which the model copied into its own answers.
+ */
+export function keptQuestion(answer: string): string {
+  const a = answer.trim()
+  return a.length <= ASKED_KEEP_CHARS ? a : shortQuestion(a).replace(/^\(Asked\) /, '')
+}
+
+/**
+ * An earlier answer as the model sees it again (switch on): trimmed, with what its proposals changed. `keepAsked`
+ * (ACTFIRST): a clarifying answer keeps what it offered (keptQuestion), not only its question.
+ */
+export function pastAnswer(answer: string, proposals: Proposal[], keepAsked = false): string {
   let a = withoutPreambles(answer)
-  if (!proposals.length && onlyAsks(a)) a = shortQuestion(a)
+  if (!proposals.length && onlyAsks(a)) a = keepAsked ? keptQuestion(a) : shortQuestion(a)
   if (!proposals.length) return a
   return `${a}${a ? '\n\n' : ''}[Proposed with the tools:\n${proposals.map(proposalLine).join('\n')}]`
 }
