@@ -230,6 +230,15 @@ test('the ideas drawer: ideas for what comes next become a card; Use this fills 
     expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
     await win.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)
+
+    // Add a scene stays a plain planned card: no ask of the AI, no AI tag, and no drawer.
+    const before = await win.locator('[data-board-card]').count()
+    await board(win).getByRole('button', { name: 'Add a scene' }).first().click()
+    await expect(win.locator('[data-board-card]')).toHaveCount(before + 1)
+    await expect(drawer).toHaveCount(0)
+    await expect(board(win).locator('.board-canvas .board-pin.is-ai')).toHaveCount(0)
+    await win.waitForTimeout(500)
+    expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
   } finally {
     await fake.close()
   }
