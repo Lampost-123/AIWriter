@@ -26,18 +26,28 @@ export function HoverCard({
   at,
   onOpen,
   onEnter,
-  onLeave
+  onLeave,
+  hint,
+  id,
+  instant
 }: {
   entry: NamedEntry
   at: { left: number; top: number }
   onOpen: () => void
   onEnter: () => void
   onLeave: () => void
+  /** The line at its foot (default: Ctrl+click to open, as in the page). */
+  hint?: string
+  /** For the name it describes (aria-describedby), where one shows it from the keyboard (Ask's names). */
+  id?: string
+  /** Shown at once, without fading in (opened from the keyboard). */
+  instant?: boolean
 }): React.JSX.Element {
   const lines = cardLines(entry.state, 3)
   const name = displayName(entry)
   return createPortal(
     <div
+      id={id}
       role="tooltip"
       aria-label={name}
       data-hover-card=""
@@ -50,7 +60,7 @@ export function HoverCard({
       }}
       onClick={onOpen}
       style={{ left: at.left, top: at.top, width: CARD_WIDTH, height: CARD_HEIGHT }}
-      className="fixed z-50 flex select-none flex-col rounded-xl border border-line bg-surface px-3.5 pb-2.5 pt-3 text-left shadow-pop animate-fade-in transition-colors duration-150 hover:border-line-strong"
+      className={`fixed z-50 flex select-none flex-col rounded-xl border border-line bg-surface px-3.5 pb-2.5 pt-3 text-left shadow-pop transition-colors duration-150 hover:border-line-strong ${instant ? '' : 'animate-fade-in'}`}
     >
       <div className="flex h-10 shrink-0 items-center gap-2.5">
         <Portrait entry={entry} size={40} />
@@ -74,7 +84,7 @@ export function HoverCard({
           <p className="text-[12.5px] leading-[19px] text-faint">{noStateWords(entry)}</p>
         )}
       </div>
-      <p className="shrink-0 text-[11.5px] leading-4 text-faint">{modKey()}+click to open</p>
+      <p className="shrink-0 text-[11.5px] leading-4 text-faint">{hint ?? `${modKey()}+click to open`}</p>
     </div>,
     document.body
   )

@@ -3,31 +3,54 @@
 // the scene panel's tabs while askOpen (layout/Inspector.tsx), or on its own when no scene is open
 // (App.tsx). Answers are from the open story's point of view, as of the open scene; the chat changes
 // nothing in the manuscript or the memory unless Adam saves a note. Owned by the Ask the world part.
+//
+// The chat overhaul's Phase 2 look: an answer is read into blocks (shared/answerBlocks.ts) and drawn as a steps row,
+// a lead that answers (with a verdict for a fact check), option cards, fact rows, plain paragraphs and a folded "why",
+// then the changes it proposes under a bar, the entries it used as chips, up to three follow-up questions and, on
+// hover or focus, its actions. Comfortable or Compact from the ⋯ menu in the head. Built to work at about 320 px, so
+// the same parts can sit in the desk layout's Scene drawer later.
 import * as M from '@radix-ui/react-dropdown-menu'
-import { BookmarkPlus, Check, ChevronDown, History, MessagesSquare, PenLine, Send, Square, SquarePen, X } from '@/components/ui/icons'
+import {
+  BookOpenText,
+  Check,
+  History,
+  Lightbulb,
+  MessagesSquare,
+  MoreHorizontal,
+  PenLine,
+  Scissors,
+  SearchCheck,
+  Send,
+  Square,
+  SquarePen,
+  TextQuote,
+  Type,
+  X,
+  type IconType
+} from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import type { SavedNote } from '@shared/contracts/ask'
-import type { EntryKind, ID } from '@shared/types'
-import { Button, IconButton, Notice, toast } from '@/components/ui'
+import type { NamedEntry } from '@shared/contracts/manuscript'
+import { parseAnswer } from '@shared/answerBlocks'
+import type { ID } from '@shared/types'
+import { Button, IconButton, Notice } from '@/components/ui'
 import { useFitHeight } from '@/components/ui/useFitHeight'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
-import { settingsAction, WritingStatus } from '@/features/builder/parts'
+import { settingsAction } from '@/features/builder/parts'
 import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
 import { useSceneNames } from '@/features/editor/names/sceneNames'
 import { PeekPanel } from '@/features/peek/PeekPanel'
-import { kindWord } from '@/features/peek/entryView'
 import {
   ask,
-  markSaved,
   neverSent,
   newChat,
   openChat,
   quoteIn,
   refreshChats,
+  removeQuote,
   sendBox,
   setDraft,
   setQuote,
@@ -37,11 +60,18 @@ import {
   type AskPlace,
   type ShownTurn
 } from './askStore'
-import { answerLines, answerParagraphs, citedTargets, nameIndex, plainAnswer, type AnswerPart, type LinkTarget } from './citations'
-import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, savedMessage, speaksOfChanges } from './askWords'
+import { citedTargets, nameIndex, type LinkTarget } from './citations'
+import { EXAMPLES, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
 import { withoutChoice } from './askChoice'
+import { ActionBar } from './ActionBar'
+import { AnswerBlocks } from './AnswerBlocks'
+import { asksForIdeas, followUpsOf, QUICK_ACTIONS, readyWords, starterCards, type StarterCard } from './answerView'
+import { setDensity, useAskPrefs, type Density } from './askPrefs'
 import { Choice } from './Choice'
+import { SceneEntries, SourcesRow } from './CiteChip'
+import { instantMotion } from './inputMode'
 import { Proposals } from './Proposals'
+import { StepsTimeline } from './StepsTimeline'
 
 /** The last request for the box to take the keyboard that was carried out. */
 let focusHandled = 0
@@ -105,6 +135,17 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
     onClose()
   }
 
+  // The open scene's entries as of the scene (for the cards over cited names), and who is in it (the empty state).
+  const sceneData = names.data?.sceneId === sceneId ? names.data : null
+  const entries = useMemo(() => new Map<ID, NamedEntry>((sceneData?.entries ?? []).map((e) => [e.id, e])), [sceneData])
+  const cast = useMemo(() => {
+    if (!sceneData) return []
+    const ids = [sceneData.cast.povId, ...sceneData.cast.presentIds].filter((x): x is ID => !!x)
+    const people = [...new Set(ids)].map((id) => entries.get(id)).filter((e): e is NamedEntry => !!e && e.kind === 'character' && !!e.name.trim())
+    return people.map((e) => e.name.trim())
+  }, [sceneData, entries])
+  const density = useAskPrefs((s) => s.density)
+
   return (
     <section
       ref={rootRef}
@@ -127,18 +168,21 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
           <PeekPanel sceneId={sceneId} entryId={peekId} backLabel="Ask the world" onBack={() => useApp.getState().peekEntry(null)} />
         </div>
       ) : null}
-      <div className={cn('flex min-h-0 flex-1 flex-col', peeking && 'invisible')} inert={peeking}>
-        <Header storyTitle={storyTitle} onClose={close} />
-        <Conversation place={place} onPick={(q) => fillBox(boxRef.current, q)} />
+      <div className={cn('flex min-h-0 flex-1 flex-col', peeking && 'invisible')} inert={peeking} data-density={density}>
+        <Header storyTitle={storyTitle} onClose={close} density={density} />
+        <SceneEntries.Provider value={entries}>
+          <Conversation place={place} onPick={(q) => fillBox(boxRef.current, q)} density={density} cast={cast} />
+        </SceneEntries.Provider>
         <AskBox
           boxRef={boxRef}
           place={place}
           asOf={asOfText({
-            sceneLabel: names.data?.sceneId === sceneId ? (names.data?.label ?? null) : null,
+            sceneLabel: sceneData?.label ?? null,
             storyTitle,
             hasScene: !!sceneId
           })}
           asOfTitle={asOfHint({ hasScene: !!sceneId, storyTitle })}
+          onFill={(q) => fillBox(boxRef.current, q)}
         />
       </div>
     </section>
@@ -169,7 +213,7 @@ function useToastsBeside(ref: RefObject<HTMLElement | null>, shown: boolean): vo
 
 const menuItem = 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13.5px] outline-none data-[highlighted]:bg-surface-2'
 
-function Header({ storyTitle, onClose }: { storyTitle: string | null; onClose: () => void }): React.JSX.Element {
+function Header({ storyTitle, onClose, density }: { storyTitle: string | null; onClose: () => void; density: Density }): React.JSX.Element {
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line pl-4 pr-2">
       <MessagesSquare size={15} className="mr-1 shrink-0 text-muted" aria-hidden />
@@ -178,10 +222,54 @@ function Header({ storyTitle, onClose }: { storyTitle: string | null; onClose: (
       <IconButton label="New chat" size="sm" onClick={newChat}>
         <SquarePen size={14} />
       </IconButton>
+      <PanelMenu density={density} />
       <IconButton label="Close Ask the world" size="sm" onClick={onClose}>
         <X size={14} />
       </IconButton>
     </div>
+  )
+}
+
+/** The panel's ⋯ menu: how dense the conversation is (remembered on this computer). */
+function PanelMenu({ density }: { density: Density }): React.JSX.Element {
+  return (
+    <M.Root>
+      <M.Trigger asChild>
+        <IconButton label="Ask panel options" size="sm">
+          <MoreHorizontal size={14} />
+        </IconButton>
+      </M.Trigger>
+      <M.Portal>
+        <M.Content
+          align="end"
+          sideOffset={4}
+          collisionPadding={8}
+          className="z-50 w-[220px] max-w-[calc(100vw-16px)] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
+        >
+          <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Density</M.Label>
+          <M.RadioGroup value={density} onValueChange={(v) => setDensity(v === 'compact' ? 'compact' : 'comfortable')}>
+            {(
+              [
+                ['comfortable', 'Comfortable', 'Roomy, the lead in the story’s type'],
+                ['compact', 'Compact', 'Tighter, one line for each idea’s why']
+              ] as const
+            ).map(([value, label, hint]) => (
+              <M.RadioItem key={value} value={value} className={cn(menuItem, 'items-start')}>
+                <span className="mt-0.5 w-4 shrink-0">
+                  <M.ItemIndicator>
+                    <Check size={14} className="text-accent" />
+                  </M.ItemIndicator>
+                </span>
+                <span className="min-w-0">
+                  <span className="block">{label}</span>
+                  <span className="block text-[12px] text-faint">{hint}</span>
+                </span>
+              </M.RadioItem>
+            ))}
+          </M.RadioGroup>
+        </M.Content>
+      </M.Portal>
+    </M.Root>
   )
 }
 
@@ -260,7 +348,45 @@ function useLinkIndex(): Map<string, LinkTarget> {
   return index
 }
 
-function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: string) => void }): React.JSX.Element {
+/**
+ * The one line a screen reader hears about answers (the conversation itself is a log with live updates off):
+ * "Answering…" when one starts, then "Answer ready: 3 options, 2 changes", "Stopped" or "Failed".
+ */
+function useAnnouncement(last: ShownTurn | undefined): string {
+  const [said, setSaid] = useState('')
+  const seen = useRef<{ key: string; status: string } | null>(null)
+  const key = last ? (last.taskId ?? last.generationId) : ''
+  const status = last?.status ?? ''
+  useEffect(() => {
+    if (!last) return
+    const before = seen.current
+    seen.current = { key, status }
+    if (status === 'streaming') {
+      if (before?.key !== key || before.status !== 'streaming') setSaid('Answering…')
+      return
+    }
+    // Only an answer seen being written is announced (not an old chat opened).
+    if (before?.key === key && before.status === 'streaming') {
+      const answer = withoutChoice(last.answer, last.choice)
+      setSaid(readyWords(status, parseAnswer(answer, { ideas: asksForIdeas(last.question) }), last.proposals))
+    }
+    // The rest of the turn is read when it is announced; only its key and status say when.
+  }, [key, status])
+  return said
+}
+
+function Conversation({
+  place,
+  onPick,
+  density,
+  cast
+}: {
+  place: AskPlace
+  onPick: (question: string) => void
+  density: Density
+  /** The open scene's people, point of view first, for the empty state's questions. */
+  cast: string[]
+}): React.JSX.Element {
   const turns = useAsk((s) => s.turns)
   const chatId = useAsk((s) => s.chatId)
   const loading = useAsk((s) => s.loading)
@@ -285,6 +411,7 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
   // was asked stays, answered or not: it is in the chat's record.
   const shown = turns.filter((t, i) => !(neverSent(t) && i < turns.length - 1))
   const lastAsked = turns[turns.length - 1]
+  const announcement = useAnnouncement(lastAsked)
 
   useLayoutEffect(() => {
     stick.current = true
@@ -310,7 +437,10 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
       }}
       className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3"
     >
-      <div ref={content}>
+      <p role="status" className="sr-only" data-ask-status>
+        {announcement}
+      </p>
+      <div ref={content} role="log" aria-live="off" aria-label="Ask the world conversation">
         {loadError ? (
           <div className="mb-3">
             <AskProblem
@@ -320,20 +450,24 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
           </div>
         ) : null}
         {loading ? null : shown.length === 0 ? (
-          <Starters onPick={onPick} />
+          <EmptyState onPick={onPick} cast={cast} />
         ) : (
-          <ol aria-label="Conversation" className="flex flex-col gap-5">
+          <ol aria-label="Conversation" className={cn('flex flex-col', density === 'compact' ? 'gap-3' : 'gap-5')}>
             {shown.map((t, i) => (
               <TurnView
                 key={t.taskId ?? t.generationId}
                 turn={t}
                 index={index}
                 place={place}
+                density={density}
                 running={running?.taskId === t.taskId && !!t.taskId ? running : null}
+                busy={!!running || loading}
                 canRetry={t === lastAsked && !running}
                 // A question with options is answered by the question after it; it can be picked from while it is the last.
                 answeredBy={shown[i + 1]?.question}
                 canPick={t === lastAsked && !running && !loading && t.status !== 'streaming'}
+                isLast={t === lastAsked}
+                onPick={onPick}
               />
             ))}
           </ol>
@@ -343,36 +477,42 @@ function Conversation({ place, onPick }: { place: AskPlace; onPick: (question: s
   )
 }
 
-/** With nothing asked yet: what Ask does, and the spec's examples, which fill the box. */
-function Starters({ onPick }: { onPick: (question: string) => void }): React.JSX.Element {
+const STARTER_ICONS: Record<StarterCard['kind'], IconType> = { brainstorm: Lightbulb, check: SearchCheck, tighten: Scissors, spelling: Type }
+
+/**
+ * With nothing asked yet: one line on what Ask does, and a card for each kind of question, naming the open scene's
+ * people where it has them. A card fills the box, to change or ask as it is.
+ */
+function EmptyState({ onPick, cast }: { onPick: (question: string) => void; cast: string[] }): React.JSX.Element {
+  const cards = starterCards(cast, EXAMPLES)
   return (
-    <div className="animate-fade-in px-1 pt-1">
-      <p className="text-[13px] leading-relaxed text-muted">
-        Ask anything about your world: what someone would do, names that fit, what you’ve already said. Answers come from the memory and
-        name what they used. Nothing changes unless you save it.
-      </p>
+    <div className="px-1 pt-1" data-empty>
+      <p className="text-[13px] leading-relaxed text-muted">Ask about your world, brainstorm, or ask for an edit. Nothing changes until you say so.</p>
       <p className="mb-2 mt-4 text-[11.5px] font-semibold uppercase tracking-wide text-faint">Try asking</p>
-      <div className="flex flex-col items-start gap-1.5">
-        {EXAMPLES.map((q) => (
-          <button
-            key={q}
-            type="button"
-            onClick={() => onPick(q)}
-            className="max-w-full rounded-lg border border-line px-3 py-1.5 text-left text-[12.5px] leading-snug text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
-          >
-            {q}
-          </button>
-        ))}
+      <div className="flex flex-col gap-1.5">
+        {cards.map((c) => {
+          const Icon = STARTER_ICONS[c.kind]
+          return (
+            <button
+              key={c.kind}
+              type="button"
+              onClick={() => onPick(c.question)}
+              data-starter={c.kind}
+              className="flex w-full min-w-0 items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-left transition-[background-color,border-color] duration-150 hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus look-new:bg-raise look-new:shadow-e1"
+            >
+              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+                <Icon size={13} aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[11.5px] font-semibold uppercase tracking-wide text-faint">{c.label}</span>
+                <span className="block break-words text-[13px] leading-snug text-fg">{c.question}</span>
+              </span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )
-}
-
-/** Shows a page an answer cites: beside the page (in this panel) with a scene open, else on its own page. */
-function openEntry(id: ID, kind: EntryKind): void {
-  const a = useApp.getState()
-  if (a.sceneId && a.view.kind === 'write') a.peekEntry(id)
-  else a.navigate({ kind: 'entries', entryKind: kind, entryId: id })
 }
 
 function TurnView({
@@ -382,7 +522,11 @@ function TurnView({
   running,
   canRetry,
   answeredBy,
-  canPick
+  canPick,
+  density,
+  busy,
+  isLast,
+  onPick
 }: {
   turn: ShownTurn
   index: Map<string, LinkTarget>
@@ -395,73 +539,85 @@ function TurnView({
   answeredBy: string | undefined
   /** A question with options under this answer can be picked from now. */
   canPick: boolean
+  density: Density
+  /** An answer is being written (here or in another turn), or the chat is loading: the cards' buttons wait. */
+  busy: boolean
+  /** The chat's last question: Retry shows under it. */
+  isLast: boolean
+  /** Fills the box with a question (a follow-up chip). */
+  onPick: (question: string) => void
 }): React.JSX.Element {
   const answerRef = useRef<HTMLDivElement>(null)
   const streaming = turn.status === 'streaming'
+  // Blocks that arrive while the answer is written fade in; an old chat's show at once (and so does all of it when
+  // Adam works from the keyboard).
+  const [fades] = useState(() => streaming && !instantMotion())
   // With the chat's question shown as buttons, its numbered options (also at the end of the text) don't show twice.
   const answer = useMemo(() => withoutChoice(turn.answer, turn.choice), [turn.answer, turn.choice])
   const hasAnswer = !!answer.trim()
-  const paragraphs = useMemo(() => answerParagraphs(answer, index), [answer, index])
+  const blocks = useMemo(() => parseAnswer(answer, { streaming, ideas: asksForIdeas(turn.question) }), [answer, streaming, turn.question])
+  const sources = useMemo(() => citedTargets(answer, index), [answer, index])
+  const followUps = streaming ? [] : followUpsOf(blocks)
   const recorded = !turn.problem && !turn.generationId.startsWith('pending:')
   // What went wrong shows while this is the last question asked (with Try again); after that, quietly.
   const notice = !!turn.problem || (turn.status === 'error' && canRetry)
   const unanswered = recorded && turn.status === 'error' && !hasAnswer && !notice
+  // How the answer ended (always shown) and what it cost (in the ⋯ menu).
   const note = answerNote(turn)
+  const cost = !streaming && turn.cost != null ? (note.pop() ?? null) : null
+  const endNote = note[0] ?? (unanswered ? NO_ANSWER : null)
   const retry = (): void => void ask(turn.question, place, turn.sentWith)
+  const live = streaming
+    ? running?.stopping
+      ? 'Stopping…'
+      : running?.retrying
+        ? 'Retrying…'
+        : turn.steps?.length
+          ? `${turn.steps[turn.steps.length - 1]}…`
+          : 'Answering…'
+    : null
+  const ms = turn.startedAt && turn.endedAt ? turn.endedAt - turn.startedAt : null
+  const compact = density === 'compact'
 
   return (
-    <li className="flex flex-col">
+    <li className="group/turn flex flex-col" data-turn-status={turn.status}>
       <div className="flex justify-end">
-        <p className="max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-2 text-[13px] leading-relaxed text-fg">
+        <p
+          className={cn(
+            'max-w-[88%] select-text whitespace-pre-wrap break-words rounded-lg bg-accent-soft text-[13px] leading-relaxed text-fg',
+            compact ? 'px-2.5 py-1.5' : 'px-3 py-2'
+          )}
+        >
           {turn.question}
         </p>
       </div>
 
+      {/* What the chat looked at on the way: one row from the start, so nothing under it moves. */}
+      <div className={compact ? 'mt-1.5' : 'mt-2.5'}>
+        <StepsTimeline steps={turn.steps ?? []} live={live} ms={ms} />
+      </div>
+
       {hasAnswer ? (
-        <div
-          ref={answerRef}
-          data-answer
-          className="mt-2.5 select-text rounded-lg border border-line bg-page px-3 py-2.5 font-serif text-[14.5px] leading-[1.65] text-fg"
-        >
-          {paragraphs.map((p, i) => (
-            <AnswerParagraph key={i} parts={p} className={i > 0 ? 'mt-2.5' : undefined} />
-          ))}
+        <div ref={answerRef} data-answer className="select-text">
+          <AnswerBlocks
+            blocks={blocks}
+            index={index}
+            density={density}
+            live={fades && streaming}
+            turn={{ generationId: turn.generationId, question: turn.question, place, canAct: !streaming && !busy, firstCited: sources[0] ?? null }}
+          />
         </div>
       ) : null}
 
-      {/* The editor chat: what it looked at on the way (quietly), and the changes it proposes. */}
-      {turn.steps?.length && !streaming ? (
-        <p className="mt-1.5 px-1 text-[12px] leading-relaxed text-faint" data-steps>
-          {turn.steps.length === 1 ? turn.steps[0] : `${turn.steps.length} steps: ${turn.steps.join(' · ')}`}
-        </p>
-      ) : null}
       {turn.choice ? (
         <Choice generationId={turn.generationId} choice={turn.choice} place={place} answeredBy={answeredBy} canPick={canPick} />
       ) : null}
+      {/* The changes it proposes, inside the turn, under their bar. */}
       {turn.proposals?.length ? <Proposals generationId={turn.generationId} proposals={turn.proposals} streaming={streaming} /> : null}
       {!streaming && turn.status === 'complete' && !turn.proposals?.length && !turn.choice && speaksOfChanges(answer) ? (
-        <p className="mt-1.5 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
+        <div className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
           {NO_CHANGES_CAME}
-        </p>
-      ) : null}
-
-      {streaming ? (
-        <div className="mt-1.5 flex h-7 items-center px-1">
-          <WritingStatus
-            text={
-              running?.stopping
-                ? 'Stopping…'
-                : running?.retrying
-                  ? 'Retrying…'
-                  : turn.steps?.length
-                    ? `${turn.steps[turn.steps.length - 1]}…`
-                    : 'Answering…'
-            }
-            title={running?.retrying ?? undefined}
-          />
         </div>
-      ) : hasAnswer ? (
-        <SaveControl turn={answer === turn.answer ? turn : { ...turn, answer }} answerRef={answerRef} index={index} place={place} />
       ) : null}
 
       {notice ? (
@@ -474,43 +630,42 @@ function TurnView({
         </div>
       ) : null}
 
-      {recorded ? (
-        // "What the AI saw" first, so it stays put when how the answer ended and its cost come after it.
-        <div
-          className={cn(
-            'flex min-h-5 flex-wrap items-center gap-x-1.5 px-1 text-[12px] leading-5 text-faint',
-            // Under a notice, or right under the question when nothing came back.
-            (notice || (!hasAnswer && !streaming)) && 'mt-1'
-          )}
-        >
-          {unanswered ? <LinePart dot>{NO_ANSWER}</LinePart> : null}
-          <LinePart dot={note.length > 0}>
-            <button
-              type="button"
-              onClick={() => useApp.getState().navigate({ kind: 'generation', generationId: turn.generationId })}
-              className="rounded-sm hover:text-fg hover:underline"
-            >
-              What the AI saw
-            </button>
-          </LinePart>
-          {note.map((n, i) => (
-            <LinePart key={n} dot={i < note.length - 1} className="tabular-nums">
-              {n}
-            </LinePart>
-          ))}
-        </div>
+      {/* Once the answer has ended: the entries it used, up to three follow-ups, and its actions. */}
+      {!streaming && sources.length ? <SourcesRow targets={sources} className={compact ? 'mt-2' : 'mt-3'} /> : null}
+      {followUps.length ? <FollowUps questions={followUps} onPick={onPick} className={compact ? 'mt-2' : 'mt-2.5'} /> : null}
+      {!streaming && (hasAnswer || recorded) ? (
+        <ActionBar
+          turn={answer === turn.answer ? turn : { ...turn, answer }}
+          answerRef={answerRef}
+          index={index}
+          place={place}
+          hasAnswer={hasAnswer}
+          recorded={recorded}
+          endNote={endNote}
+          cost={cost}
+          onRetry={isLast && !busy && !notice ? retry : undefined}
+        />
       ) : null}
     </li>
   )
 }
 
-/** One part of the quiet line under an answer, with the dot that parts it from the next (so a line that wraps never starts with one). */
-function LinePart({ dot, className, children }: { dot: boolean; className?: string; children: React.ReactNode }): React.JSX.Element {
+/** Up to three questions the answer suggests asking next; one fills the box, to change or ask as it is. */
+function FollowUps({ questions, onPick, className }: { questions: string[]; onPick: (question: string) => void; className?: string }): React.JSX.Element {
   return (
-    <span className={cn('flex items-center gap-x-1.5 whitespace-nowrap', className)}>
-      {children}
-      {dot ? <span aria-hidden>·</span> : null}
-    </span>
+    <div data-follow-ups role="group" aria-label="Ask next" className={cn('flex flex-wrap gap-1.5 px-1', className)}>
+      {questions.map((q) => (
+        <button
+          key={q}
+          type="button"
+          onClick={() => onPick(q)}
+          title="Put this question in the box"
+          className="max-w-full animate-fade-in truncate rounded-full border border-line px-2.5 py-1 text-left text-[12.5px] leading-snug text-muted transition-[background-color,border-color,color] duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+        >
+          {q}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -543,250 +698,66 @@ function AskProblem({ message, code, onRetry }: { message: string; code?: string
   )
 }
 
-/**
- * A paragraph of an answer, a line at a time. A list item's words hang beside its mark ("-", "2."), so a
- * list still reads as one when its items wrap in a narrow panel.
- */
-function AnswerParagraph({ parts, className }: { parts: AnswerPart[]; className?: string }): React.JSX.Element {
-  const lines = answerLines(parts)
-  // The numbers of a numbered list share one width, so the items' words line up.
-  const digits = Math.max(1, ...lines.map((l) => l.mark?.match(/\d+/)?.[0].length ?? 0))
-  return (
-    <div className={cn('whitespace-pre-wrap break-words', className)}>
-      {lines.map((line, i) => {
-        if (!line.mark) return <div key={i}>{answerWords(line.parts)}</div>
-        const hang = /\d/.test(line.mark) ? `${0.6 * digits + 0.75}em` : '1em'
-        return (
-          <div key={i} style={{ paddingLeft: `calc(${hang} + ${1.2 * line.depth}em)`, textIndent: `-${hang}` }}>
-            <span className="inline-block" style={{ width: hang, textIndent: 0 }}>
-              {line.mark}
-            </span>
-            {answerWords(line.parts)}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-/** A line's words: cited names as links, and italics in italics. */
-function answerWords(parts: AnswerPart[]): React.ReactNode[] {
-  return parts.map((part, i) => {
-    const words = part.target ? (
-      <Cite key={i} target={part.target}>
-        {part.text}
-      </Cite>
-    ) : (
-      part.text
-    )
-    return part.em ? <em key={i}>{words}</em> : words
-  })
-}
-
-/** A name the answer cites: a quiet dotted underline, like names on the page; clicking shows that page. */
-function Cite({ target, children }: { target: LinkTarget; children: React.ReactNode }): React.JSX.Element {
-  const open = (name: HTMLElement): void => {
-    // The chat hides while the entry shows, so the keyboard moves to the entry (its Back button, where Esc
-    // works too) rather than being lost.
-    name.blur()
-    openEntry(target.id, target.kind)
-  }
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      data-entry-id={target.id}
-      title={`Show ${target.name}`}
-      onClick={(e) => open(e.currentTarget)}
-      onKeyDown={(e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return
-        e.preventDefault()
-        open(e.currentTarget)
-      }}
-      className="cursor-pointer rounded-sm underline decoration-faint/70 decoration-dotted decoration-[1.5px] underline-offset-[0.24em] hover:text-accent hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
-    >
-      {children}
-    </span>
-  )
-}
-
-// ---------- Saving to the memory ----------
-
-/** The words selected inside `el`, or ''. */
-function selectedIn(el: HTMLElement | null): string {
-  const sel = document.getSelection()
-  if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return ''
-  const r = sel.getRangeAt(0)
-  if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return ''
-  return sel.toString().trim()
-}
-
-/** The words selected inside an element, kept up to date. */
-function useSelectionIn(ref: RefObject<HTMLElement | null>): string {
-  const [text, setText] = useState('')
-  useEffect(() => {
-    const update = (): void => setText(selectedIn(ref.current))
-    document.addEventListener('selectionchange', update)
-    return () => document.removeEventListener('selectionchange', update)
-  }, [ref])
-  return text
-}
-
-/**
- * "Save to Mara Venn": the answer (or the words selected in it) goes into the memory as Adam's own note,
- * on the first page it cites; the arrow beside it offers the others, or a new page in Lore. With
- * nothing cited it becomes a new page in Lore.
- */
-function SaveControl({
-  turn,
-  answerRef,
-  index,
-  place
-}: {
-  turn: ShownTurn
-  answerRef: RefObject<HTMLDivElement | null>
-  index: Map<string, LinkTarget>
-  place: AskPlace
-}): React.JSX.Element {
-  const cited = useMemo(() => citedTargets(turn.answer, index), [turn.answer, index])
-  const selection = useSelectionIn(answerRef)
-  const saved = useAsk((s) => s.saved[turn.generationId])
-  const [busy, setBusy] = useState(false)
-  // The words selected when the pointer went down on a button (a click can clear the selection first).
-  const held = useRef('')
-  const hold = (): void => {
-    held.current = selectedIn(answerRef.current)
-  }
-  const first = cited[0] ?? null
-
-  const save = async (target: LinkTarget | null): Promise<void> => {
-    const words = held.current || selectedIn(answerRef.current) || plainAnswer(turn.answer)
-    held.current = ''
-    if (busy) return
-    setBusy(true)
-    try {
-      const note = await api.saveAskNote({
-        text: words,
-        entryId: target?.id ?? null,
-        question: turn.question,
-        storyId: place.storyId,
-        sceneId: place.sceneId,
-        // Kept with the answer's record, so it shows "Saved" after a restart too.
-        generationId: turn.generationId
-      })
-      markSaved(turn.generationId, note)
-      toast(savedMessage(note), {
-        tone: 'success',
-        action: { label: 'Undo', run: () => void undo(turn.generationId, note) },
-        secondary: { label: 'Open', run: () => openEntry(note.entryId, note.kind) }
-      })
-    } catch (e) {
-      toast(`Couldn’t save that. ${(e as Error).message}`, { tone: 'danger' })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const label = selection
-    ? first
-      ? `Save selection to ${first.name}`
-      : 'Save selection to Lore'
-    : first
-      ? `Save to ${first.name}`
-      : 'Save to Lore'
-  const hint = `${selection ? 'Adds the words you selected' : 'Adds this answer'} to ${first ? `the memory for ${first.name}` : 'a new page in Lore'}, as your own note. Nothing else changes.`
-
-  return (
-    <div className="mt-1.5 flex h-7 min-w-0 items-center">
-      {saved && !selection ? (
-        <span className="flex min-w-0 items-center gap-1.5 px-1.5 text-[12.5px] text-faint">
-          <Check size={12} className="shrink-0 text-success" aria-hidden />
-          <span className="truncate">Saved to {saved.created ? 'Lore' : saved.name}</span>
-        </span>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          title={hint}
-          onPointerDown={hold}
-          // Keeps the selection while the button is pressed.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void save(first)}
-          className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-        >
-          <BookmarkPlus size={13} className="shrink-0" aria-hidden />
-          <span className="truncate">{label}</span>
-        </button>
-      )}
-      {cited.length ? (
-        <M.Root
-          onOpenChange={(open) => {
-            // Closed without choosing: the words held for it are let go.
-            if (!open) queueMicrotask(() => (held.current = ''))
-          }}
-        >
-          <M.Trigger
-            disabled={busy}
-            aria-label="Save somewhere else"
-            title="Save somewhere else"
-            onPointerDown={hold}
-            onKeyDown={hold}
-            className="inline-flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg data-[state=open]:bg-surface-2 data-[state=open]:text-fg"
-          >
-            <ChevronDown size={13} />
-          </M.Trigger>
-          <M.Portal>
-            <M.Content
-              align="start"
-              sideOffset={4}
-              collisionPadding={8}
-              // The selection stays where it was: the keyboard goes back to the answer's buttons.
-              onCloseAutoFocus={(e) => e.preventDefault()}
-              className="z-50 w-[260px] max-w-[calc(100vw-16px)] rounded-lg border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in"
-            >
-              <M.Label className="px-2 pb-1 pt-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-faint">
-                {held.current || selection ? 'Save the selection to' : 'Save to'}
-              </M.Label>
-              {cited.map((t) => (
-                <M.Item key={t.id} onSelect={() => void save(t)} className={menuItem}>
-                  <span className="min-w-0 flex-1 truncate">{t.name}</span>
-                  <span className="shrink-0 text-[12px] text-faint">{kindWord(t.kind)}</span>
-                </M.Item>
-              ))}
-              <M.Separator className="my-1 h-px bg-line" />
-              <M.Item onSelect={() => void save(null)} className={menuItem}>
-                A new page in Lore
-              </M.Item>
-            </M.Content>
-          </M.Portal>
-        </M.Root>
-      ) : null}
-    </div>
-  )
-}
-
-/** The toast's Undo: the note comes out again. */
-async function undo(generationId: ID, note: SavedNote): Promise<void> {
-  try {
-    await api.undoAskNote(note.undo, generationId)
-    if (useAsk.getState().saved[generationId] === note) markSaved(generationId, null)
-  } catch (e) {
-    toast(`Couldn’t undo that. ${(e as Error).message}`, { tone: 'danger' })
-  }
-}
-
 // ---------- The box ----------
+
+const chip =
+  'inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[12px] leading-none transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus'
+
+/**
+ * The row over the box, always the same height so the box never jumps: quick actions while the box is empty (each
+ * fills it with the start of a question), the quoted words while a question quotes them (× takes them out), and a
+ * reminder of the keys while Adam types.
+ */
+function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) => void }): React.JSX.Element {
+  const quote = quoteIn(draft, useAsk((s) => s.quote))
+  return (
+    <div className="flex h-8 min-w-0 items-center gap-1 overflow-hidden px-2 pt-1.5" data-context-row>
+      {quote ? (
+        <span className={cn(chip, 'min-w-0 max-w-full border-accent/40 bg-accent-soft pr-0.5 text-fg')} data-quote-chip title={quote.text}>
+          <TextQuote size={12} aria-hidden className="shrink-0 text-accent" />
+          <span className="min-w-0 truncate">{quote.mode === 'edit' ? 'Editing' : 'About'} “{quote.text}”</span>
+          <button
+            type="button"
+            onClick={removeQuote}
+            aria-label="Take the quoted words out of the question"
+            title="Take the quoted words out"
+            className="flex size-5 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-focus"
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : !draft.trim() ? (
+        QUICK_ACTIONS.map((q) => (
+          <button
+            key={q.label}
+            type="button"
+            onClick={() => onFill(q.fill)}
+            title={`Start a question: “${q.fill.trim()}…”`}
+            className={cn(chip, 'border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
+          >
+            {q.label}
+          </button>
+        ))
+      ) : (
+        <span className="truncate px-1 text-[11.5px] text-faint">Enter to ask · Shift+Enter for a new line</span>
+      )}
+    </div>
+  )
+}
 
 function AskBox({
   boxRef,
   place,
   asOf,
-  asOfTitle
+  asOfTitle,
+  onFill
 }: {
   boxRef: RefObject<HTMLTextAreaElement | null>
   place: AskPlace
   asOf: string
   asOfTitle: string
+  /** Puts words in the box (a quick action), with the keyboard at their end. */
+  onFill: (text: string) => void
 }): React.JSX.Element {
   const draft = useAsk((s) => s.draft)
   const running = useAsk((s) => !!s.running)
@@ -807,6 +778,7 @@ function AskBox({
       }}
     >
       <div className="rounded-lg border border-line bg-page transition-[border-color,box-shadow] duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 hover:border-line-strong focus-within:hover:border-accent">
+        <ContextRow draft={draft} onFill={onFill} />
         <textarea
           ref={boxRef}
           data-ask-box
@@ -847,8 +819,12 @@ function AskBox({
               </button>
             </span>
           ) : (
-            <span className="min-w-0 flex-1 truncate px-1 text-[11.5px] text-faint" title={asOfTitle}>
-              {asOf}
+            // The scene the answers are from, as a chip: its tooltip says what that means.
+            <span className="flex min-w-0 flex-1 px-0.5">
+              <span className={cn(chip, 'min-w-0 cursor-default border-line text-faint')} title={asOfTitle} data-as-of>
+                <BookOpenText size={11} aria-hidden className="shrink-0" />
+                <span className="min-w-0 truncate">{asOf}</span>
+              </span>
             </span>
           )}
           {running ? (

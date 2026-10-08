@@ -1,18 +1,22 @@
-// The editor chat's proposed changes under its answer: each as a small card saying what would change (words struck
-// through and their replacement, a card's or an entry's new values, a new scene, a new title) and why, with Apply and
-// Not this; Apply all when several are waiting. Nothing changes until Adam applies (applyProposal.ts), and each
-// applied change can be undone.
-import { useState } from 'react'
+// The editor chat's proposed changes inside its answer (restyled in the chat overhaul's Phase 2): a bar saying how many
+// are ready, with Apply all and Review in page, then a card each saying what would change and why. An edit to a scene's
+// words shows as a word-level change (only what changes, with a few words either side and "…" for the rest; the whole
+// change a click away); a card's or an entry's new values, a new scene or a new title as before. A card is waiting,
+// being applied, applied (✓ with its own Undo), set aside (Not this), or stale (its words are no longer in the scene).
+// Nothing changes until Adam applies (applyProposal.ts), and each applied change can be undone.
+import { useId, useState } from 'react'
+import { create } from 'zustand'
 import type { Proposal } from '@shared/contracts/ask'
 import { KIND_LABELS } from '@shared/fields'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
-import { Check } from '@/components/ui/icons'
+import { AlertTriangle, Check, FilePlus2 as FilePlus, ListChecks, NotebookText, PenLine, Sparkles, Type, Undo2 as Undo, type IconType } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { applyChanges, declineChange, showScene } from './applyProposal'
 import { findEditAt, findPassageAt } from './askEdits'
+import { compactDiff, diffSize, folds, wordDiff, type DiffPart } from './wordDiff'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
 
@@ -63,31 +67,75 @@ const Line = ({ label, value }: { label: string; value: string }): React.JSX.Ele
   </p>
 )
 
+/** A change's kept, cut and added words; a gap is "…" for words that stay as they are. */
+function DiffWords({ parts }: { parts: DiffPart[] }): React.JSX.Element {
+  return (
+    <>
+      {parts.map((d, i) => {
+        if (d.kind === 'gap')
+          return (
+            <span key={i} className="mx-0.5 rounded-sm bg-surface-2 px-1 font-sans text-[11.5px] text-faint" title={`${d.words} words unchanged`}>
+              …
+            </span>
+          )
+        if (d.kind === 'same') return <span key={i}>{d.text}</span>
+        // A cut straight before an addition gets a space between them.
+        const spaced = d.kind === 'del' && parts[i + 1]?.kind === 'ins'
+        return d.kind === 'del' ? (
+          <span key={i}>
+            <del className="rounded-sm bg-danger-soft text-danger decoration-danger/60">{d.text}</del>
+            {spaced ? ' ' : null}
+          </span>
+        ) : (
+          <ins key={i} className="rounded-sm bg-success-soft text-success no-underline">
+            {d.text}
+          </ins>
+        )
+      })}
+    </>
+  )
+}
+
+/** A change to a scene's words, folded to what changes; "Show all" opens the whole change. */
+function Diff({ before, after }: { before: string; after: string }): React.JSX.Element {
+  const [whole, setWhole] = useState(false)
+  const id = useId()
+  const parts = wordDiff(before, after)
+  const foldable = folds(parts)
+  const { cut, added } = diffSize(parts)
+  return (
+    <div>
+      <div id={id} className={cn('whitespace-pre-wrap break-words font-serif text-[13.5px] leading-[1.6] text-fg', whole && 'max-h-72 overflow-auto')}>
+        <DiffWords parts={whole ? parts : compactDiff(parts)} />
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[11.5px] text-faint">
+        <span className="tabular-nums">
+          {cut ? `−${cut}` : ''}
+          {cut && added ? ' ' : ''}
+          {added ? `+${added}` : ''} {cut + added === 1 ? 'word' : 'words'}
+        </span>
+        {foldable ? (
+          <button
+            type="button"
+            aria-expanded={whole}
+            aria-controls={id}
+            onClick={() => setWhole((w) => !w)}
+            className="rounded-sm font-medium text-muted underline-offset-2 hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-focus"
+          >
+            {whole ? 'Show less' : 'Show all'}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function Body({ p }: { p: Proposal }): React.JSX.Element {
   switch (p.kind) {
     case 'text':
-      return (
-        <p className="break-words font-serif text-[13.5px] leading-[1.6]">
-          <del className="rounded-sm bg-danger-soft text-danger decoration-danger/60">{p.find}</del>
-          {p.replace ? (
-            <>
-              {' '}
-              <ins className="rounded-sm bg-success-soft text-success no-underline">{p.replace}</ins>
-            </>
-          ) : null}
-        </p>
-      )
+      return <Diff before={p.find} after={p.replace} />
     case 'passage':
-      return (
-        <div className="flex flex-col gap-1.5 font-serif text-[13.5px] leading-[1.6]">
-          <p className="max-h-40 overflow-auto whitespace-pre-wrap break-words">
-            <del className="rounded-sm bg-danger-soft text-danger decoration-danger/60">{p.original}</del>
-          </p>
-          <p className="max-h-60 overflow-auto whitespace-pre-wrap break-words">
-            <ins className="rounded-sm bg-success-soft text-success no-underline">{p.replace}</ins>
-          </p>
-        </div>
-      )
+      return <Diff before={p.original} after={p.replace} />
     case 'card':
       return (
         <div className="flex flex-col gap-0.5">
@@ -173,83 +221,162 @@ function showInPage(p: Extract<Proposal, { kind: 'text' | 'passage' }>): void {
   look()
 }
 
-function ProposalCard({ generationId, p, busy, onApply }: { generationId: ID; p: Proposal; busy: boolean; onApply: () => void }): React.JSX.Element {
+/** What this session knows of a change beyond its status: it is being applied, its own Undo, or why it couldn't go in. */
+interface Local {
+  applying?: boolean
+  undo?: () => Promise<void>
+  stale?: string
+}
+
+const useLocal = create<Record<string, Local>>(() => ({}))
+const localKey = (generationId: ID, id: string): string => `${generationId}:${id}`
+const setLocal = (key: string, patch: Local): void => useLocal.setState((s) => ({ [key]: { ...s[key], ...patch } }))
+
+/** Applies changes, each card showing it is being applied, then its own Undo (or why it couldn't go in). */
+async function apply(generationId: ID, list: Proposal[]): Promise<void> {
+  for (const p of list) setLocal(localKey(generationId, p.id), { applying: true, stale: undefined })
+  try {
+    const { undoOf, failedOf } = await applyChanges(generationId, list)
+    for (const p of list) setLocal(localKey(generationId, p.id), { applying: false, undo: undoOf[p.id], stale: failedOf[p.id] })
+  } catch {
+    for (const p of list) setLocal(localKey(generationId, p.id), { applying: false })
+  }
+}
+
+const KIND_ICON: Record<Proposal['kind'], IconType> = {
+  text: PenLine,
+  passage: PenLine,
+  card: ListChecks,
+  entry: NotebookText,
+  newEntry: FilePlus,
+  newScene: FilePlus,
+  newChapter: FilePlus,
+  rename: Type,
+  draft: Sparkles
+}
+
+const isWords = (p: Proposal): p is Extract<Proposal, { kind: 'text' | 'passage' }> => p.kind === 'text' || p.kind === 'passage'
+
+function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal; locked: boolean }): React.JSX.Element {
+  const key = localKey(generationId, p.id)
+  const local = useLocal((s) => s[key]) ?? {}
+  const Icon = KIND_ICON[p.kind]
+  const stale = p.status === 'pending' && !local.applying && !!local.stale
+  const state = local.applying ? 'applying' : stale ? 'stale' : p.status
   return (
     <li
       data-proposal={p.id}
       data-status={p.status}
+      data-state={state}
       className={cn(
-        'rounded-lg border px-3 py-2.5 transition-opacity duration-150',
-        p.status === 'applied' ? 'border-success/30 bg-success-soft/40' : 'border-line bg-surface',
+        'rounded-lg border px-3 pb-2 pt-2.5 transition-[opacity,border-color,background-color] duration-150',
+        p.status === 'applied'
+          ? 'border-success/30 bg-success-soft/30'
+          : stale
+            ? 'border-danger/30 bg-surface look-new:bg-raise'
+            : 'border-line bg-surface look-new:bg-raise look-new:shadow-e1',
         p.status === 'declined' && 'opacity-60'
       )}
     >
-      <div className="mb-1.5 flex items-center gap-2">
+      <div className="mb-1.5 flex h-5 items-center gap-1.5">
+        <Icon size={13} aria-hidden className="shrink-0 text-faint" />
         <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold uppercase tracking-wide text-faint">{headOf(p)}</span>
         {p.status === 'applied' ? (
           <span className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-success">
             {/* A draft is started, not applied: its words are written (and kept or undone) in the scene. */}
-            <Check size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
+            <Check size={13} strokeWidth={2.5} aria-hidden /> {p.kind === 'draft' ? 'Started' : 'Applied'}
           </span>
         ) : p.status === 'declined' ? (
           <span className="shrink-0 text-[12px] text-faint">Set aside</span>
+        ) : stale ? (
+          <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-danger">
+            <AlertTriangle size={12} aria-hidden /> Not found
+          </span>
         ) : null}
       </div>
-      <Body p={p} />
-      {p.why ? <p className="mt-1.5 break-words text-[12px] italic leading-relaxed text-muted">{p.why}</p> : null}
-      {p.kind === 'draft' && p.status === 'applied' ? (
-        <div className="mt-2 flex animate-fade-in flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId)}>
-            Show {p.sceneLabel}
-          </Button>
-        </div>
-      ) : null}
-      {p.status !== 'applied' ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="primary" disabled={busy} onClick={onApply}>
-            {p.status === 'declined' ? 'Apply anyway' : 'Apply'}
-          </Button>
-          {p.status === 'pending' ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void declineChange(generationId, p)}>
-              Not this
+      <div className={cn(p.status === 'applied' && 'opacity-80')}>
+        <Body p={p} />
+      </div>
+      {p.why ? <div className="mt-1.5 break-words text-[12px] italic leading-relaxed text-muted">{p.why}</div> : null}
+      {stale ? <div className="mt-1.5 break-words text-[12px] leading-relaxed text-danger">{local.stale}</div> : null}
+      <div className="mt-2 flex min-h-7 flex-wrap items-center gap-1.5">
+        {p.status === 'applied' ? (
+          p.kind === 'draft' ? (
+            <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId)}>
+              Show {p.sceneLabel}
             </Button>
-          ) : null}
-          {p.kind === 'text' || p.kind === 'passage' ? (
-            <Button size="sm" variant="ghost" onClick={() => showInPage(p)}>
-              Show in page
+          ) : local.undo ? (
+            <Button size="sm" variant="ghost" icon={<Undo size={13} />} onClick={() => void local.undo?.().then(() => setLocal(key, { undo: undefined }))} aria-label={`Undo this change: ${headOf(p)}`}>
+              Undo
             </Button>
-          ) : null}
-        </div>
-      ) : null}
+          ) : null
+        ) : (
+          <>
+            <Button size="sm" variant="primary" disabled={locked} loading={local.applying} onClick={() => void apply(generationId, [p])}>
+              {p.status === 'declined' ? 'Apply anyway' : stale ? 'Try again' : 'Apply'}
+            </Button>
+            {p.status === 'pending' ? (
+              <Button size="sm" variant="ghost" disabled={locked || local.applying} onClick={() => void declineChange(generationId, p)}>
+                Not this
+              </Button>
+            ) : null}
+            {isWords(p) ? (
+              <Button size="sm" variant="ghost" onClick={() => showInPage(p)}>
+                Show in page
+              </Button>
+            ) : null}
+          </>
+        )}
+      </div>
     </li>
   )
 }
 
-/** The proposed changes under an answer. */
-export function Proposals({ generationId, proposals, streaming }: { generationId: ID; proposals: Proposal[]; streaming: boolean }): React.JSX.Element | null {
-  const [busy, setBusy] = useState(false)
-  if (!proposals.length) return null
+/** "3 changes ready · Apply all · Review in page": stays at the top of the panel while the turn's cards scroll under it. */
+function ChangesBar({ generationId, proposals, locked }: { generationId: ID; proposals: Proposal[]; locked: boolean }): React.JSX.Element {
+  const local = useLocal()
+  const pending = proposals.filter((p) => p.status === 'pending')
   // A draft is started on its own (it writes into its scene for a while), never with Apply all.
-  const waiting = proposals.filter((p) => p.status === 'pending' && p.kind !== 'draft')
-  const run = (list: Proposal[]): void => {
-    setBusy(true)
-    void applyChanges(generationId, list).finally(() => setBusy(false))
-  }
+  const waiting = pending.filter((p) => p.kind !== 'draft')
+  const inPage = pending.filter(isWords)
+  const applied = proposals.filter((p) => p.status === 'applied').length
+  const busy = proposals.some((p) => local[localKey(generationId, p.id)]?.applying)
+  const words = pending.length
+    ? `${pending.length} ${pending.length === 1 ? 'change' : 'changes'} ready`
+    : applied
+      ? `${applied === proposals.length && applied > 1 ? 'All' : applied} applied`
+      : proposals.length === 1
+        ? 'Set aside'
+        : 'All set aside'
   return (
-    <section aria-label="Proposed changes" className="mt-2.5 flex flex-col gap-2">
-      <div className="flex items-center gap-2 px-1">
-        <span className="flex-1 text-[12px] font-medium text-muted">
-          {proposals.length === 1 ? 'A proposed change' : `${proposals.length} proposed changes`} · nothing changes until you apply
-        </span>
-        {waiting.length > 1 && !streaming ? (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(waiting)}>
-            Apply all ({waiting.length})
-          </Button>
-        ) : null}
-      </div>
+    <div data-changes-bar className="sticky top-0 z-[1] -mx-1 flex min-h-9 flex-wrap items-center gap-x-1 gap-y-1 bg-surface/95 px-2 py-1 backdrop-blur-sm">
+      <span className="mr-auto text-[12.5px] font-medium text-fg">
+        {words}
+        {pending.length ? <span className="font-normal text-faint"> · nothing changes until you apply</span> : null}
+      </span>
+      {waiting.length > 1 ? (
+        <Button size="sm" variant="secondary" disabled={locked || busy} onClick={() => void apply(generationId, waiting)}>
+          Apply all
+        </Button>
+      ) : null}
+      {inPage.length ? (
+        <Button size="sm" variant="ghost" onClick={() => showInPage(inPage[0])} title="Opens the scene with the words this change would change selected">
+          Review in page
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+/** The proposed changes in an answer. */
+export function Proposals({ generationId, proposals, streaming }: { generationId: ID; proposals: Proposal[]; streaming: boolean }): React.JSX.Element | null {
+  if (!proposals.length) return null
+  return (
+    <section aria-label="Proposed changes" className="mt-3 flex flex-col gap-2">
+      <ChangesBar generationId={generationId} proposals={proposals} locked={streaming} />
       <ul className="flex flex-col gap-2">
         {proposals.map((p) => (
-          <ProposalCard key={p.id} generationId={generationId} p={p} busy={busy || streaming} onApply={() => run([p])} />
+          <ChangeCard key={p.id} generationId={generationId} p={p} locked={streaming} />
         ))}
       </ul>
     </section>

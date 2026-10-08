@@ -163,6 +163,7 @@ const ICONS = {
   Spool: [L.Spool, 'Yarn'],
   Square: [L.Square, 'Stop'],
   SquarePen: [L.SquarePen, 'NotePencil'],
+  Star: [L.Star, 'Star'],
   StickyNote: [L.StickyNote, 'Note'],
   Sun: [L.Sun, 'Sun'],
   Swords: [L.Swords, 'Sword'],
@@ -373,6 +374,7 @@ export const Sparkles = BY_NAME.Sparkles
 export const Spool = BY_NAME.Spool
 export const Square = BY_NAME.Square
 export const SquarePen = BY_NAME.SquarePen
+export const Star = BY_NAME.Star
 export const StickyNote = BY_NAME.StickyNote
 export const Sun = BY_NAME.Sun
 export const Swords = BY_NAME.Swords

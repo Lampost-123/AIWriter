@@ -208,6 +208,20 @@ describe('Undo of words', () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(main.statuses.filter((s) => s === 'a:pending')).toHaveLength(1)
   })
+
+  it('gives each change its own Undo (a change card’s); the toast then undoes only the rest', async () => {
+    const p = openPage('sc1', page('The tide came in.', 'The gulls went quiet.'))
+    useAsk.setState({ turns: [{ generationId: 'g1', chatId: 's1:c1' } as never] })
+    const { undoOf, failedOf } = await applyChanges('g1', [edit('a', 'went quiet', 'fell silent'), edit('b', 'nowhere at all', 'x')])
+    expect(Object.keys(undoOf)).toEqual(['a'])
+    expect(failedOf.b).toBeTruthy()
+    await undoOf.a()
+    expect(textsOf(p.doc())).toEqual(['The tide came in.', 'The gulls went quiet.'])
+    main.toasts.at(-1)!.action!.run()
+    await undoOf.a()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(main.statuses.filter((s) => s === 'a:pending')).toHaveLength(1)
+  })
 })
 
 describe('an anchored edit (the same words twice)', () => {

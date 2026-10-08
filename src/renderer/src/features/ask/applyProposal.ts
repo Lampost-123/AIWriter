@@ -280,31 +280,50 @@ export async function applyAndKeep(
   generationId: ID,
   list: Proposal[],
   place: ApplyPlace = { storyId: storyForChanges(generationId) }
-): Promise<{ done: number; undos: (() => Promise<Undone>)[]; failed: string[]; started: { sceneId: ID; label: string }[] }> {
+): Promise<{
+  done: number
+  undos: (() => Promise<Undone>)[]
+  failed: string[]
+  started: { sceneId: ID; label: string }[]
+  /** Each applied change's Undo, by its id (a change card's own Undo). */
+  undoOf: Record<string, () => Promise<Undone>>
+  /** Why each change that couldn't be applied wasn't, by its id. */
+  failedOf: Record<string, string>
+}> {
   const undos: (() => Promise<Undone>)[] = []
   const failed: string[] = []
   const started: { sceneId: ID; label: string }[] = []
+  const undoOf: Record<string, () => Promise<Undone>> = {}
+  const failedOf: Record<string, string> = {}
   for (const p of list) {
     if (p.kind === 'draft') {
       const s = await startProposedDraft(p, place.storyId)
       if (s.ok) {
         started.push({ sceneId: p.sceneId, label: p.sceneLabel })
         await setProposalStatus(generationId, p.id, 'applied')
-      } else if (s.why) failed.push(s.why)
+      } else if (s.why) {
+        failed.push(s.why)
+        failedOf[p.id] = s.why
+      }
       continue
     }
     const r = await applyProposal(p, place)
     if (r.ok) {
-      undos.push(async () => {
+      const undo = async (): Promise<Undone> => {
         const u = await r.undo()
         // Waiting again only when the change really is undone.
         if (u.ok) await setProposalStatus(generationId, p.id, 'pending')
         return u
-      })
+      }
+      undos.push(undo)
+      undoOf[p.id] = undo
       await setProposalStatus(generationId, p.id, 'applied')
-    } else failed.push(r.why)
+    } else {
+      failed.push(r.why)
+      failedOf[p.id] = r.why
+    }
   }
-  return { done: undos.length, undos, failed, started }
+  return { done: undos.length, undos, failed, started, undoOf, failedOf }
 }
 
 /** Undoes changes, the latest first, and says plainly what couldn't be (with the scene's History to hand). */
@@ -331,25 +350,41 @@ export function showScene(sceneId: ID): void {
   if (app.view.kind !== 'write' || app.sceneId !== sceneId) app.selectScene(sceneId)
 }
 
-/** Applies the changes picked (one, or every one still waiting with Apply all), says how it went, and offers Undo. */
-export async function applyChanges(generationId: ID, list: Proposal[]): Promise<void> {
-  const { done, undos, failed, started } = await applyAndKeep(generationId, list)
+/**
+ * Applies the changes picked (one, or every one still waiting with Apply all), says how it went, and offers Undo. Comes
+ * back with each applied change's own Undo (a change card's), by id, and why each that failed did: the toast's Undo
+ * then undoes only those not undone from their cards already.
+ */
+export async function applyChanges(
+  generationId: ID,
+  list: Proposal[]
+): Promise<{ undoOf: Record<string, () => Promise<void>>; failedOf: Record<string, string> }> {
+  const { done, failed, started, undoOf, failedOf } = await applyAndKeep(generationId, list)
   if (failed.length) toast(failed.length === 1 ? failed[0] : `${failed.length} changes couldn’t be applied. ${failed[0]}`, { tone: 'danger' })
   // A draft says where it is being written; its words are kept or undone in the scene, as any draft's are.
   for (const s of started) toast(`The draft has started in ${s.label}.`, { action: { label: 'Show', run: () => showScene(s.sceneId) } })
-  if (!done) return
-  let used = false
+  // Each change is undone once, from its card or from the toast, whichever comes first.
+  const left = new Map(Object.entries(undoOf))
+  const once: Record<string, () => Promise<void>> = {}
+  for (const [id, u] of left) {
+    once[id] = async () => {
+      if (!left.delete(id)) return
+      await undoChanges([u])
+    }
+  }
+  if (!done) return { undoOf: once, failedOf }
   toast(done === 1 ? 'Change applied.' : `${done} changes applied.`, {
     tone: 'success',
     action: {
       label: 'Undo',
       run: () => {
-        if (used) return
-        used = true
-        void undoChanges(undos)
+        const all = [...left.values()]
+        left.clear()
+        if (all.length) void undoChanges(all)
       }
     }
   })
+  return { undoOf: once, failedOf }
 }
 
 /** Not this: the change is set aside (it can still be applied later). */

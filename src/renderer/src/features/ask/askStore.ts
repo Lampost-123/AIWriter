@@ -19,6 +19,9 @@ export interface ShownTurn extends AskTurn {
   problem?: { message: string; code?: string }
   /** How it was asked this session ("Edit this", the words quoted), so Try again asks the same way. */
   sentWith?: AskHow
+  /** When it was asked and when its answer ended (ms), this session: the steps row says how long it took. */
+  startedAt?: number
+  endedAt?: number
 }
 
 /** How a question is asked, beside its words: "Edit this" (mode 'edit'), and the selection it quotes. */
@@ -148,7 +151,8 @@ function listen(): void {
         status: p.status,
         error: p.error,
         cost: p.cost,
-        cutOff: p.cutOff
+        cutOff: p.cutOff,
+        ...(t.startedAt && !t.endedAt ? { endedAt: Date.now() } : {})
       }),
       p.generationId
     )
@@ -310,6 +314,7 @@ export async function ask(question: string, place: AskPlace, how: AskHow = {}): 
     costEstimated: false,
     cutOff: false,
     createdAt: new Date().toISOString(),
+    startedAt: Date.now(),
     ...(sentWith.mode || sentWith.selection ? { sentWith } : {})
   }
   // A question that never reached the AI gives way to the new one (asked again, or another).
@@ -360,6 +365,14 @@ export const setQuote = (quote: BoxQuote | null): void => set({ quote })
 /** The quote in the box, while the question still quotes it ("About this passage: “…”"); null once it doesn't. */
 export const quoteIn = (question: string, quote: BoxQuote | null): BoxQuote | null =>
   quote && question.includes(`“${quote.text}”`) ? quote : null
+
+/** The quote's × in the box: its "About this passage" line comes out of the box, and the quote goes. */
+export function removeQuote(): void {
+  const s = get()
+  if (!s.quote) return
+  const draft = s.draft.replace(`About this passage: “${s.quote.text}”`, '').replace(/^\s+/, '')
+  set({ draft, quote: null })
+}
 
 /** How a question typed in the box is asked: with the selection it quotes, and "Edit this" when that is how it began. */
 export function howFor(question: string, quote: BoxQuote | null): AskHow {
