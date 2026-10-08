@@ -6,7 +6,7 @@
 // The summary is kept in the world, so the page reopens with it, and building again adds only what is
 // missing. Owned by the World builder part.
 
-import { AlertTriangle, ArrowRight, Check, Globe2, Link2, Palette, Sparkles, Square, Undo2 } from '@/components/ui/icons'
+import { AlertTriangle, ArrowRight, CalendarRange, Check, Feather, Globe2, Link2, Palette, SearchCheck, Sparkles, Square, Undo2 } from '@/components/ui/icons'
 import { useEffect, useId, useRef } from 'react'
 import type { WorldBuildDone, WorldBuildItem } from '@shared/contracts/worldBuilder'
 import type { EntryKind, ID } from '@shared/types'
@@ -19,6 +19,11 @@ import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { KIND_ICONS } from '@/features/world/kindIcons'
+import { useDesk } from '@/features/look/look'
+import { LampStatus, WaitingCards } from '@/features/planning/LampThinking'
+import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
+import { worldSteps } from '@/features/planning/planLogic'
+import { DeskSections } from './DeskWorldCards'
 import {
   WORLD_START,
   allUndone,
@@ -98,6 +103,182 @@ function Page(): React.JSX.Element {
   const settings = estimateProblem ? settingsAction(estimateProblem.message, estimateProblem.code) : undefined
   const last = s.last
   const canUndo = !running && !!last?.runId && last.made.some((m) => !m.undone)
+  const desk = useDesk()
+  const rightRef = useRef<HTMLDivElement>(null)
+  // The desk: how a build went comes into view in the right column (or the page, when the columns stack).
+  const seenDesk = useRef({ running, problem: s.problem })
+  useEffect(() => {
+    const before = seenDesk.current
+    seenDesk.current = { running, problem: s.problem }
+    if (!desk) return
+    if ((before.running && !running) || (s.problem && s.problem !== before.problem)) {
+      const el = rightRef.current?.querySelector<HTMLElement>('[data-outcome]') ?? pageRef.current?.querySelector<HTMLElement>('[data-outcome]')
+      let still = false
+      try {
+        still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      } catch {
+        // Smooth, then.
+      }
+      el?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' })
+    }
+  }, [running, s.problem, desk])
+
+  if (desk) {
+    const words = s.summary.trim() ? s.summary.trim().split(/\s+/).length : 0
+    const whenValue = s.storyId && stories.some((st) => st.id === s.storyId) ? s.storyId : WORLD_START
+    const whenLabel = whenOptions(stories).find((o) => o.value === whenValue)?.label ?? ''
+    const made = s.running?.made ?? last?.made ?? []
+    return (
+      <PlanPage
+        ref={pageRef}
+        rightRef={rightRef}
+        art="world"
+        kicker="World builder"
+        kickerIcon={Globe2}
+        title="Build the world from a summary"
+        line="Type, paste or dictate a summary, from a paragraph to several pages. AI Write lays out every character, place, rule and thread in it and saves them to your world; your own words are kept exactly as you wrote them."
+        steps={{
+          steps: worldSteps({
+            words,
+            when: whenLabel.replace(/^From the start of /, 'From ') || 'From the start',
+            running,
+            made: made.filter((m) => !m.undone).length,
+            undone: !!last && allUndone(last.made),
+            ended: !running && !!last
+          }),
+          icons: { summary: Feather, when: CalendarRange, build: Sparkles, review: SearchCheck }
+        }}
+        left={
+          <>
+            <div className="plan-group">
+              <div className="plan-field-l">
+                <label htmlFor="world-summary">Your summary</label>
+                <div className="flex h-7 items-center gap-1">
+                  <InterviewButton disabled={running} />
+                  <MicButton disabled={running} onText={(t) => box.current && insertIntoBox(box.current, t, setWorldSummary)} />
+                </div>
+              </div>
+              <AutoTextarea
+                ref={box}
+                id="world-summary"
+                autoFocus={!s.summary && !running}
+                value={s.summary}
+                readOnly={running}
+                minRows={8}
+                maxRows={20}
+                placeholder="The Grey Coast is a cold land of fog and reefs. Mara Venn captains a smuggling ship out of Saltmarsh and owes the Salt Guild a fortune. Magic always costs blood…"
+                className={cn('plan-paper font-serif text-[15px]', running && 'opacity-80')}
+                onChange={(e) => setWorldSummary(e.target.value)}
+                onKeyDown={(e) => {
+                  if (isShortcut(e, 'buildWorld')) {
+                    e.preventDefault()
+                    if (!running) void buildWorld()
+                  }
+                }}
+              />
+              <WorldInterview running={running} />
+            </div>
+
+            <div className="plan-group">
+              <label htmlFor={whenId} className="plan-field-l">
+                When is this true?
+              </label>
+              <Select id={whenId} value={whenValue} options={whenOptions(stories)} onChange={(v) => setWorldBuildStory(v && v !== WORLD_START ? v : null)} />
+              <p className="plan-hint">Anything your summary says happens later becomes an event or a plot thread.</p>
+            </div>
+
+            {running ? (
+              <div className="plan-working">
+                <LampStatus
+                  text={s.cancelling ? 'Cancelling…' : (s.running?.retrying ?? s.running?.step ?? 'Reading your summary')}
+                  title={s.running?.retrying ?? undefined}
+                />
+                <Button
+                  icon={<Square size={11} fill="currentColor" />}
+                  loading={s.cancelling}
+                  onClick={() => void cancelWorldBuild()}
+                  title="Cancel. Everything made so far is kept."
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <button type="button" className="plan-ai-btn" onClick={() => void buildWorld()} title="Press these in your summary to build">
+                  <Sparkles size={17} aria-hidden />
+                  <span>{last?.status === 'error' && s.problem ? 'Try again' : 'Build the world'}</span>
+                  <span className="plan-keys" aria-hidden>
+                    {shortcutKeys('buildWorld').map((k) => (
+                      <span key={k}>{k}</span>
+                    ))}
+                  </span>
+                </button>
+                {canUndo ? (
+                  <Button size="lg" icon={<Undo2 size={15} />} onClick={() => void undoWholeBuild()} title="Takes out everything this build made">
+                    Undo the whole build
+                  </Button>
+                ) : null}
+              </div>
+            )}
+
+            {/* What building would cost, or why it can't be built yet. */}
+            {!running && estimateProblem ? (
+              <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted animate-fade-in">
+                {estimateProblem.message}
+                {settings ? (
+                  <button type="button" onClick={settings.run} className="font-medium text-accent hover:underline">
+                    {settings.label}
+                  </button>
+                ) : null}
+              </p>
+            ) : !running && s.summary.trim() && estimateWords(estimate) ? (
+              <div className="plan-receipt animate-fade-in">
+                <span className="plan-receipt-k">Before you build</span>
+                <p className="plan-receipt-s">{estimateWords(estimate)} Everything is saved as it is made; one Undo takes the whole build back out.</p>
+              </div>
+            ) : null}
+
+            {s.problem ? (
+              <div data-outcome>
+                <ProblemNotice message={s.problem.message} code={s.problem.code} />
+              </div>
+            ) : null}
+          </>
+        }
+        right={
+          s.running ? (
+            <section aria-label="Made so far" aria-busy>
+              <div className="plan-tray">
+                <h2 className="plan-tray-t">Made so far</h2>
+                <span className="plan-count is-ai">
+                  <b>{s.running.made.length}</b> saved
+                </span>
+                <span className="text-[12.5px] text-muted">
+                  {s.running.made.length ? 'Each is saved as soon as it is made. Cancel keeps everything here.' : 'Each thing lies here as soon as it is saved.'}
+                </span>
+              </div>
+              {s.running.made.length ? <DeskSections sections={madeSections(s.running.made)} /> : <WaitingCards count={4} />}
+            </section>
+          ) : last ? (
+            <DeskResults last={last} />
+          ) : (
+            <ResultsEmpty
+              title="What your summary makes will lie here"
+              example={
+                <>
+                  From <em>“Maud Fenner mends nets in Skerry Hythe and keeps the Brass Glass. The bell always rings before a wreck.”</em> it makes a
+                  character, a place, an item and a rule never to be broken, each with its own page, and links them up.
+                </>
+              }
+            >
+              Characters as portraits, places as landscapes, groups, items, lore, events, plot threads and words, each saved to your world as it is
+              made, with Open on every one and one Undo for the whole build.
+            </ResultsEmpty>
+          )
+        }
+      />
+    )
+  }
 
   return (
     <div ref={pageRef} className="h-full overflow-y-auto [scrollbar-gutter:stable]">
@@ -330,6 +511,94 @@ function Results({ last }: { last: WorldBuildDone }): React.JSX.Element | null {
   )
 }
 
+/** The desk: how the last build ended and everything it made, as cards by kind (DeskWorldCards.tsx). */
+function DeskResults({ last }: { last: WorldBuildDone }): React.JSX.Element | null {
+  const undone = allUndone(last.made)
+  const told = doneWords(last)
+  const words = [told, undone ? '' : costWords(last.cost)].filter(Boolean).join(' ')
+  const navigate = useApp((s) => s.navigate)
+  const nothing = !last.made.length && !last.found.length && !last.conflicts.length && !last.missed.length && !last.skipped.length
+  if (!told && nothing) return null
+  return (
+    <section aria-label="Made from your summary">
+      <div className="plan-tray">
+        <h2 className="plan-tray-t">Made from your summary</h2>
+        {!undone && last.made.length ? (
+          <span className="plan-count is-kept">
+            <Check size={12} aria-hidden />
+            <b>{last.made.filter((m) => !m.undone).length}</b> in your world
+          </span>
+        ) : null}
+        {words ? (
+          <p role="status" data-outcome className="w-full text-[12.5px] leading-[18px] text-muted">
+            {words}
+          </p>
+        ) : null}
+      </div>
+
+      {last.conflicts.length && !undone ? (
+        <div className="mt-4">
+          <Notice>
+            <p className="font-medium">Where your summary disagrees with your world</p>
+            <p className="text-muted">Nothing on these pages was changed. Each is listed as a consistency issue to look at.</p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {last.conflicts.map((c) => (
+                <li key={`${c.entryId}:${c.field}`} className="flex items-start gap-2">
+                  <AlertTriangle size={13} className="mt-[3.5px] shrink-0 text-muted" aria-hidden />
+                  <span className="min-w-0 flex-1">{c.message}</span>
+                  <Button size="sm" variant="ghost" className="-my-0.5" onClick={() => openEntry(c.entryId, c.kind)} aria-label={`Open ${c.name}`}>
+                    Open
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </Notice>
+        </div>
+      ) : null}
+
+      {undone ? null : <DeskSections sections={madeSections(last.made)} />}
+
+      {!undone && last.found.length ? (
+        <div className="plan-made">
+          <h3 className="plan-made-h">
+            Already in your world <span>{last.found.length}</span>
+          </h3>
+          <p className="text-[12.5px] text-muted">Your summary names these too. They were left as they are.</p>
+          <ul className="plan-made-found">
+            {last.found.map((f) => (
+              <li key={f.entryId}>
+                <button
+                  type="button"
+                  onClick={() => navigate({ kind: 'entries', entryKind: f.kind, entryId: f.entryId })}
+                  title={`Open ${f.name}`}
+                  className="inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 text-[12.5px] text-fg transition-colors duration-150 hover:border-line-strong hover:bg-surface-2"
+                >
+                  <KindIcon kind={f.kind} />
+                  <span className="truncate">{f.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {!undone && last.skipped.length ? (
+        <p className="mt-5 text-[12.5px] leading-relaxed text-muted">
+          Left out, because you undid or deleted {last.skipped.length === 1 ? 'it' : 'them'} after an earlier build: {listWords(last.skipped)}.
+        </p>
+      ) : null}
+      {!undone && last.missed.length ? (
+        <div className="mt-4">
+          <Notice>
+            AI Write couldn’t lay out {listWords(last.missed)}. Build again to try {last.missed.length === 1 ? 'it' : 'them'} once more; everything else is
+            left as it is.
+          </Notice>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function Heading({ title, count }: { title: string; count?: number }): React.JSX.Element {
   return (
     <h2 className="flex h-6 items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
@@ -366,7 +635,7 @@ function Section({ section }: { section: MadeSection }): React.JSX.Element {
 }
 
 /** Opens what a line made: its entry's page (a relationship's, the character it is recorded on), or the Style guide for themes and tone. */
-function openItem(item: WorldBuildItem): void {
+export function openItem(item: WorldBuildItem): void {
   if (item.what === 'themes' || item.what === 'tone') useApp.getState().navigate({ kind: 'style' })
   else if (item.entryId) openEntry(item.entryId, item.kind ?? 'character')
 }
@@ -376,7 +645,7 @@ function openEntry(entryId: ID, kind: EntryKind): void {
 }
 
 /** The Open button's name, unique on the page: a relationship's says which, themes and tone say where they open. */
-function openLabel(item: WorldBuildItem): string {
+export function openLabel(item: WorldBuildItem): string {
   if (item.what === 'relationship') return `Open ${item.name} (${item.detail})`
   if (item.what === 'themes' || item.what === 'tone') return `Open the world's ${item.what} in the Style guide`
   return `Open ${item.name}`
