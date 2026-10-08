@@ -77,6 +77,7 @@ export function RiverBody({
   here,
   motifs,
   jump,
+  clash,
   actions
 }: {
   timeline: Timeline
@@ -88,6 +89,8 @@ export function RiverBody({
   motifs: Map<ID, string>
   /** Goes up by one each time "Jump to now" is pressed. */
   jump: number
+  /** A clash picked in the clash list: its index and a count that goes up each time one is picked. */
+  clash: { c: number; rev: number } | null
   actions: RiverActions
 }): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
@@ -289,6 +292,26 @@ export function RiverBody({
     return () => clearTimeout(t)
   }, [jump, hereN, reveal])
 
+  // ----- A clash picked: its first scene into view, and all its scenes lit for a moment -----
+  const [clashLit, setClashLit] = useState<ID[]>([])
+  const lastClash = useRef(clash?.rev ?? 0)
+  useEffect(() => {
+    if (!clash || clash.rev === lastClash.current) return
+    lastClash.current = clash.rev
+    const ids = timeline.clashes[clash.c]?.sceneIds ?? []
+    const n = items.findIndex((it) => ids.includes(points[it.i].id))
+    if (n < 0) return
+    reveal(n, 'centre', true)
+    setActive(n)
+    pendingFocus.current = n
+    setClashLit(ids)
+    const t = setTimeout(() => setClashLit([]), 1800)
+    return () => clearTimeout(t)
+  }, [clash, timeline, items, points, reveal])
+  const clashCss = clashLit.length
+    ? `${clashLit.map((id) => `.tl [data-river-card="${id}"]`).join(',')}{animation:tl-clash 1.6s var(--tl-ease) both;}`
+    : ''
+
   // ----- Hover: a scene lights its people's lanes; a lane lights its path and its scenes -----
   const [hot, setHot] = useState<{ kind: 'scene'; n: number } | { kind: 'lane'; id: ID } | null>(null)
   const onOver = (e: React.PointerEvent): void => {
@@ -389,7 +412,7 @@ export function RiverBody({
       data-paused={hidden || undefined}
       style={{ '--label-w': `${labelW}px`, '--card-h': `${cardH}px`, '--head-h': `${headH}px` } as CSSProperties}
     >
-      {hotCss ? <style>{hotCss}</style> : null}
+      {hotCss || clashCss ? <style>{hotCss + clashCss}</style> : null}
       <div ref={scroller} className="tl-scroller" onScroll={onScroll} onPointerOver={onOver} onPointerLeave={() => setHot(null)}>
         <div className="tl-canvas" style={{ width: canvasW, height: canvasH }}>
           {/* The day or chapter bands, the whole height of the river. */}

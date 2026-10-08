@@ -44,10 +44,12 @@ export function gapRoom(minutes: number | null, unit: number): number {
   return Math.round(Math.min(5, Math.log2(1 + minutes / 180)) * unit)
 }
 
-/** A gap in plain words, for gaps of a day or more: "1 day later", "3 weeks later", "2 years later". '' for less. */
-export function gapWords(minutes: number | null): string {
+/**
+ * A gap in plain words, for gaps of a day or more: "1 day later", "3 weeks later", "2 years later". '' for less. `days` is
+ * how many calendar days apart (Day 1 at night to Day 3 in the morning is two days later, though under two days' time).
+ */
+export function gapWords(minutes: number | null, days = minutes === null ? 0 : Math.round(minutes / DAY)): string {
   if (minutes === null || minutes < DAY) return ''
-  const days = Math.round(minutes / DAY)
   const say = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'} later`
   if (days < 14) return say(days, 'day')
   if (days < 60) return say(Math.round(days / 7), 'week')
@@ -178,7 +180,7 @@ function place(
         timeRoom += g
         // A new calendar (a book that counts its days afresh): a clear break.
         if (prevTime && time && prevTime.cal !== time.cal) room += s.unit * 3
-        const words = gapWords(mins)
+        const words = gapWords(mins, prevTime && time ? Math.floor(time.t / DAY) - Math.floor(prevTime.t / DAY) : undefined)
         if (words) gaps.push({ x: prev.x + prev.w + room / 2, label: words })
       } else if (p.chapterId && prevChapter && p.chapterId !== prevChapter) room += s.unit * 2
       x = prev.x + prev.w + room

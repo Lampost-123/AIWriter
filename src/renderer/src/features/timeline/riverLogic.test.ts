@@ -90,6 +90,8 @@ describe('time on the river', () => {
     expect(gapWords(600)).toBe('')
     expect(gapWords(1440)).toBe('1 day later')
     expect(gapWords(3 * 1440)).toBe('3 days later')
+    // Counted in calendar days: Day 1 at night to Day 3 in the morning.
+    expect(gapWords(2100, 2)).toBe('2 days later')
     expect(gapWords(21 * 1440)).toBe('3 weeks later')
     expect(gapWords(150 * 1440)).toBe('5 months later')
     expect(gapWords(3 * 365.25 * 1440)).toBe('3 years later')

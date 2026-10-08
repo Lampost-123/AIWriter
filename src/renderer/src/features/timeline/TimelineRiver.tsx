@@ -18,7 +18,7 @@ import { shownLanes, type LaneMode } from './timelineLogic'
 import { byFirstAppearance, toldOrder, type Zoom } from './riverLogic'
 import { RiverArt } from './RiverArt'
 import { RiverBody, type RiverActions } from './RiverBody'
-import { FilterPicker, LanePicker } from './RiverControls'
+import { ClashList, FilterPicker, LanePicker } from './RiverControls'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewLoading } from './viewParts'
 
 /** Lanes shown before Adam picks his own: the busiest dozen (the river has room for them). */
@@ -71,6 +71,7 @@ export function TimelineRiver(): React.JSX.Element {
   const motifs = useEntryMotifs()
   const [filter, setFilter] = useState<Set<ID>>(() => new Set())
   const [jump, setJump] = useState(0)
+  const [clash, setClash] = useState<{ c: number; rev: number } | null>(null)
   const dated = !!data?.points.some((p) => p.dated)
   // Which lanes: Adam's pick, or the busiest dozen; in the order each first comes along the river, so the lanes step down
   // from the top left as the story goes on.
@@ -103,6 +104,7 @@ export function TimelineRiver(): React.JSX.Element {
                   { value: 'threads', label: 'Plot threads' }
                 ]}
               />
+              <ClashList timeline={data} onShow={(c) => setClash((was) => ({ c, rev: (was?.rev ?? 0) + 1 }))} />
               <LanePicker timeline={data} mode={mode} shown={lanes.map((l) => l.id)} motifs={motifs} inks={inks} onChoose={onChoose} />
               <FilterPicker timeline={data} picked={filter} motifs={motifs} onChange={setFilter} />
               <Segmented<Zoom>
@@ -139,6 +141,7 @@ export function TimelineRiver(): React.JSX.Element {
             here={here}
             motifs={motifs}
             jump={jump}
+            clash={clash}
             actions={actions}
           />
         ) : (

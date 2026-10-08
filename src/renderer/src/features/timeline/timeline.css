@@ -1101,6 +1101,34 @@
   border-top: 1px solid var(--line);
 }
 
+/* The clash list. */
+[data-look='new'] .tl-clash-btn {
+  color: var(--danger);
+}
+[data-look='new'] .tl-clash {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 9px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg);
+  transition: background-color var(--dur-quick) ease-out;
+}
+[data-look='new'] .tl-clash svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--danger);
+}
+[data-look='new'] .tl-clash:hover,
+[data-look='new'] .tl-clash:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
 /* ---------- Empty: the living picture ---------- */
 [data-look='new'] .tl-empty {
   display: flex;
@@ -1311,6 +1339,15 @@
       var(--tl-sh),
       0 0 0 2px color-mix(in oklab, var(--tl-here) 60%, transparent),
       0 0 0 16px transparent;
+  }
+}
+@keyframes tl-clash {
+  0%,
+  60% {
+    box-shadow:
+      var(--tl-sh-up),
+      0 0 0 2px var(--danger),
+      0 0 0 7px color-mix(in oklab, var(--danger) 22%, transparent);
   }
 }
 @keyframes tl-sun {

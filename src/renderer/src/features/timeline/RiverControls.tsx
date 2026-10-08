@@ -1,10 +1,10 @@
 // The New look's timeline controls (UI overhaul): the lane picker (which characters or plot threads get a lane, each with
 // its drawing and full name) and the filter (scenes with any picked character, plot thread or place stay lit).
 import * as P from '@radix-ui/react-popover'
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { ID } from '@shared/types'
 import type { Timeline, TimelineEntry } from '@shared/contracts/worldViews'
-import { Check, Rows3, Search, SlidersHorizontal } from '@/components/ui/icons'
+import { Check, CircleAlert, Rows3, Search, SlidersHorizontal } from '@/components/ui/icons'
 import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { PopoverPanel } from '@/features/generate/parts'
@@ -182,6 +182,57 @@ export function FilterPicker({
             Clear the filter
           </Button>
         </div>
+      </PopoverPanel>
+    </P.Root>
+  )
+}
+
+/** The clashes found (a character in two places on the same day), in plain words; each one shows its scenes. */
+export function ClashList({ timeline, onShow }: { timeline: Timeline; onShow: (c: number) => void }): React.JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  // A clash picked: the keyboard goes to its scene in the river, not back to this button.
+  const picked = useRef(false)
+  const n = timeline.clashes.length
+  if (!n) return null
+  return (
+    <P.Root open={open} onOpenChange={setOpen}>
+      <P.Trigger asChild>
+        <Button icon={<CircleAlert size={15} />} className="tl-clash-btn">
+          {n} {n === 1 ? 'clash' : 'clashes'}
+        </Button>
+      </P.Trigger>
+      <PopoverPanel
+        align="end"
+        className="tl-pop w-[380px] p-0"
+        onCloseAutoFocus={(e) => {
+          if (picked.current) e.preventDefault()
+          picked.current = false
+        }}
+      >
+        <div className="tl-pop-head">
+          <p className="tl-pop-title">
+            {n} {n === 1 ? 'clash' : 'clashes'} on the timeline
+          </p>
+          <p className="tl-pop-sub">A character in two places on the same day. Pick one to see its scenes.</p>
+        </div>
+        <ul className="tl-pop-list" aria-label="Clashes">
+          {timeline.clashes.map((c, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                className="tl-clash"
+                onClick={() => {
+                  picked.current = true
+                  setOpen(false)
+                  onShow(i)
+                }}
+              >
+                <CircleAlert size={14} aria-hidden />
+                <span>{c.text}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </PopoverPanel>
     </P.Root>
   )

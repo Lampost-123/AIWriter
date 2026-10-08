@@ -226,6 +226,26 @@ test('a flashback is marked, and a lane opens its dossier, which goes back to th
   await expect(river(win).getByRole('heading', { level: 1, name: 'Timeline' })).toBeVisible()
 })
 
+test('a clash in plain words: picking it brings its scenes into view', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1920, 1080)
+  // What the Letter Said moves to Day 3: Wren is then at the Gullhaven Light and the Drowned Steps on the same day.
+  const [story] = await invoke(win, 'listStories')
+  const outline = await invoke(win, 'getOutline', story.id)
+  const what = outline.scenes.find((s) => s.title === 'What the Letter Said')!
+  const scene = await invoke(win, 'getScene', what.id)
+  await invoke(win, 'updateSceneCard', what.id, { ...emptySceneCard(), ...scene.card, when: 'Day 3, morning' })
+  await openTimeline(win)
+  // Wren and Iska are both in the two places on Day 3.
+  await river(win).getByRole('button', { name: '2 clashes' }).click()
+  const list = win.getByRole('list', { name: 'Clashes' })
+  await expect(list.getByRole('button')).toHaveText([/^Wren Halloway is in .* on Day 3\.$/, /^Iska Vey is in .* on Day 3\.$/])
+  await list.getByRole('button').first().click()
+  await expect(card(win, 'What the Letter Said')).toBeFocused()
+  await expect(card(win, 'What the Letter Said').locator('.tl-c-clash')).toHaveCount(1)
+  await expect(card(win, 'Low Tide').locator('.tl-c-clash')).toHaveCount(1)
+})
+
 test('with less motion the lanes are there at once; Jump to now brings the open scene into view', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch)
   await win.emulateMedia({ reducedMotion: 'reduce' })

@@ -213,7 +213,7 @@ export const LaneHead = memo(function LaneHead({
       </span>
       <span className="tl-lh-text">
         <span className="tl-lh-name">{lane.name}</span>
-        {height >= 64 ? <span className="tl-lh-stats">{stats}</span> : null}
+        {height >= 76 ? <span className="tl-lh-stats">{stats}</span> : null}
       </span>
     </button>
   )
