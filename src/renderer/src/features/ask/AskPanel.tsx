@@ -766,16 +766,12 @@ const chip =
  */
 function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) => void }): React.JSX.Element {
   const quote = quoteIn(draft, useAsk((s) => s.quote))
+  const compact = useAskPrefs((s) => s.density) === 'compact'
   return (
-    // A narrow panel scrolls the chips sideways (no scroll bar) rather than cutting one off.
-    <div
-      className={cn(
-        'flex h-8 min-w-0 items-center gap-1 overflow-x-auto px-2 pt-1.5 [scrollbar-width:none]',
-        // The quick actions fade at the right edge, so one that runs past it reads as more to scroll to.
-        !quote && !draft.trim() && '[mask-image:linear-gradient(to_right,black_88%,transparent)]'
-      )}
-      data-context-row
-    >
+    // The quick actions always fit on the row, never scrolling sideways (chat Phase 4): their full words where there is
+    // room (Comfortable only), short words in a narrow panel or Compact, and icons alone in the narrowest (each named
+    // in full for a screen reader, its tooltip saying the question it starts).
+    <div className="@container/ctx flex h-8 min-w-0 items-center gap-1 overflow-hidden px-2 pt-1.5" data-context-row>
       {quote ? (
         <span className={cn(chip, 'min-w-0 max-w-full border-accent/40 bg-accent-soft pr-0.5 text-fg')} data-quote-chip title={quote.text}>
           <TextQuote size={12} aria-hidden className="shrink-0 text-accent" />
@@ -798,11 +794,20 @@ function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) =
               key={q.label}
               type="button"
               onClick={() => onFill(q.fill)}
-              title={`Start a question: “${q.fill.trim()}…”`}
+              aria-label={q.label}
+              title={`${q.label}: start a question, “${q.fill.trim()}…”`}
+              data-quick={q.kind}
               className={cn(chip, 'group/quick shrink-0 border-line text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
             >
               <Icon size={11} aria-hidden className={cn('shrink-0', STARTER_TEXT[q.kind])} />
-              {q.label}
+              {compact ? null : (
+                <span aria-hidden className="hidden @[27rem]/ctx:inline">
+                  {q.label}
+                </span>
+              )}
+              <span aria-hidden className={cn('hidden @[19rem]/ctx:inline', !compact && '@[27rem]/ctx:hidden')}>
+                {q.short}
+              </span>
             </button>
           )
         })

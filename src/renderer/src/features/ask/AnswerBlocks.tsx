@@ -149,7 +149,7 @@ function OptionCard({
           type="button"
           aria-pressed={!!state.kept}
           aria-label={state.kept ? `Stop keeping “${name}”` : `Keep “${name}”`}
-          title={state.kept ? 'Kept for this session' : 'Keep this idea (for this session)'}
+          title={state.kept ? 'Kept with this answer' : 'Keep this idea (kept with this answer)'}
           onClick={() => setOption(key, { kept: !state.kept })}
           className={cn(
             '-mr-1 -mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-faint transition-[opacity,color,background-color] duration-150 hover:bg-surface-2 hover:text-accent focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-focus',

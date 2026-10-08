@@ -16,6 +16,7 @@ import { variantsBackTo } from '@/features/variants/back'
 import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
 import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
+import { laterMessageLabel, messageText, requestNote, requestsOf, requestTitle, toolOfResult } from './requestSteps'
 
 type Entry = GenerationRecord['entries'][number]
 
@@ -388,6 +389,9 @@ function DraftRecord({
         )}
       </section>
 
+      {/* The editor chat: each request of an answer that used tools (chat Phase 4); an older record has none. */}
+      {answer ? <RequestsSection rec={rec} /> : null}
+
       {/* The editor chat: each thing it looked up, or each change it proposed, on the way to its answer. */}
       {rec.params.steps?.length ? (
         <section className="mt-8" aria-label="Steps it took">
@@ -420,6 +424,79 @@ function DraftRecord({
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * Each request of an editor chat answer that used tools, in order (chat Phase 4, E18): request 1 is the briefing and
+ * the question (the messages above); each later one shows only what it added (the tool calls, what they brought back,
+ * a note AI Write sent). Each opens and closes; none show for a record from before, or an answer of one request.
+ */
+function RequestsSection({ rec }: { rec: GenerationRecord }): React.JSX.Element | null {
+  const requests = requestsOf(rec.params)
+  const [open, setOpen] = useState<Set<number>>(() => new Set())
+  if (!requests.length) return null
+  const toggle = (n: number): void =>
+    setOpen((s) => {
+      const next = new Set(s)
+      if (next.has(n)) next.delete(n)
+      else next.add(n)
+      return next
+    })
+  return (
+    <section className="mt-8" aria-label="Each request" data-requests>
+      <SectionTitle>Each request, in order</SectionTitle>
+      <p className="mb-3 text-[12.5px] text-muted">
+        The answer took {requests.length} requests. Each was sent everything before it again; here each shows only what it added.
+      </p>
+      <ol className="flex flex-col gap-2">
+        {requests.map((r) => {
+          const shown = open.has(r.n)
+          const messages = r.n === 1 ? rec.messages : r.added
+          return (
+            <li key={r.n} className="overflow-hidden rounded-xl border border-line bg-surface" data-request={r.n}>
+              <button
+                type="button"
+                onClick={() => toggle(r.n)}
+                aria-expanded={shown}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-150 hover:bg-surface-2"
+              >
+                <ChevronRight size={15} className={cn('shrink-0 text-faint transition-transform duration-150', shown && 'rotate-90')} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium text-fg">{requestTitle(r)}</span>
+                  <span className="block truncate text-[12px] text-faint">{requestNote(r)}</span>
+                </span>
+                <span className="shrink-0 text-[12px] tabular-nums text-faint">
+                  {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+                </span>
+              </button>
+              {shown ? (
+                <div className="flex flex-col gap-2 border-t border-line px-4 pb-4 pt-3">
+                  {r.n === 1 ? <p className="text-[12.5px] text-muted">The briefing and the question, as shown above.</p> : null}
+                  {messages.map((m, i) => {
+                    const tool = toolOfResult(m, r.added)
+                    return (
+                      <div key={i} className="overflow-hidden rounded-lg border border-line">
+                        <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-1.5 text-[12px] font-medium text-muted">
+                          <span className="min-w-0 truncate">
+                            {r.n === 1 ? CHAT_ROLES[m.role] : laterMessageLabel(m, CHAT_ROLES)}
+                            {tool ? <span className="ml-1.5 font-mono text-[11px] text-faint">{tool}</span> : null}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-faint">{formatNumber(countWords(m.content))} words</span>
+                        </div>
+                        <pre className="max-h-[360px] select-text overflow-auto whitespace-pre-wrap break-words bg-page px-3 py-2 font-mono text-[11.5px] leading-[1.55] text-fg">
+                          {messageText(m) || '(no words)'}
+                        </pre>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }
 

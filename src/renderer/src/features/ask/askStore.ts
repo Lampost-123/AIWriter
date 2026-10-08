@@ -10,6 +10,7 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { registerDiscarder } from '@/lib/flush'
 import { pickQuestion } from './askChoice'
+import { rememberOptions } from './askPrefs'
 import { endedCalls, withCall } from './toolView'
 
 /** A turn as the panel shows it. */
@@ -129,11 +130,8 @@ function listen(): void {
     const r = get().running
     if (r?.taskId === p.taskId) set({ running: { ...r, retrying: p.reason } })
   })
-  // The editor chat: what it looks up on the way, and the changes it proposes, as they happen.
-  onEvent('ask:step', (p) => {
-    updateTask(p.taskId, (t) => ({ ...t, steps: [...(t.steps ?? []), p.label] }), p.generationId || undefined)
-  })
-  // Each tool call as it starts (running) and ends (chat Phase 2b's tool rows).
+  // The editor chat: each tool call as it starts (running) and ends (chat Phase 2b's tool rows), and the changes it
+  // proposes, as they happen.
   onEvent('ask:tool', (p) => {
     updateTask(p.taskId, (t) => ({ ...t, tools: withCall(t.tools, p.call) }), p.generationId || undefined)
   })
@@ -229,6 +227,7 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
     const last = chats[0]
     const turns = last ? await api.getChat(last.chatId) : []
     if (get().storyKey !== key) return
+    rememberOptions(turns)
     set({ chats, chatId: last?.chatId ?? null, turns, loading: false, saved: withSaved(turns) })
   } catch (e) {
     if (get().storyKey === key) set({ loading: false, loadError: errorOf(e).message })
@@ -262,6 +261,7 @@ export async function openChat(chatId: ID): Promise<void> {
   try {
     const turns = await api.getChat(chatId)
     if (get().storyKey !== key) return
+    rememberOptions(turns)
     set({ chatId, turns, running: null, loadError: null, saved: withSaved(turns) })
   } catch (e) {
     set({ loadError: errorOf(e).message })

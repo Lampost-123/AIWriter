@@ -10,9 +10,9 @@
 import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
 import type { TaskDone } from '@shared/contracts/tasks'
-import type { AgentStep, ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID, ToolCall, ToolSpec } from '@shared/types'
+import type { AgentRequest, AgentStep, ChatMessage, ContextBlock, GenerationJob, GenerationRecord, ID, ToolCall, ToolSpec } from '@shared/types'
 import * as gens from '../db/generations'
-import { proposalsOf } from '../db/ask'
+import { optionMarksOf, proposalsOf } from '../db/ask'
 import { reachedWords } from '@shared/contracts/usage'
 import { estimateTokens } from '../keeper/text'
 import { memoryReplyLimits, sentAs } from '../keeper/model'
@@ -259,6 +259,25 @@ export function repeatKey(calls: ToolCall[], answered: { results: ChatMessage[];
   return calls.map((c, i) => `${c.name}\u0001${answered.results[i]?.content ?? ''}`).join('\u0002')
 }
 
+/** The longest a message (a tool's result, say) is kept in a request's record (AgentRequest); the rest is said to be left out. */
+export const REQUEST_TEXT_CAP = 6000
+
+const capped = (text: string, cap: number): string =>
+  text.length <= cap ? text : `${text.slice(0, cap)}\n[… ${(text.length - cap).toLocaleString('en-GB')} more characters not kept in this record]`
+
+/**
+ * A message as a request's record keeps it (E18): its words and calls cut to REQUEST_TEXT_CAP characters, never its
+ * thinking or where its cache ends.
+ */
+export function keptMessage(m: ChatMessage): ChatMessage {
+  return {
+    role: m.role,
+    content: capped(m.content, REQUEST_TEXT_CAP),
+    ...(m.toolCalls?.length ? { toolCalls: m.toolCalls.map((c) => ({ ...c, arguments: capped(c.arguments, REQUEST_TEXT_CAP) })) } : {}),
+    ...(m.toolCallId ? { toolCallId: m.toolCallId } : {})
+  }
+}
+
 /** The tokens the tools' own description takes in a request, roughly. */
 export const toolsTokens = (tools: ToolSpec[]): number => (tools.length ? estimateTokens(JSON.stringify(tools)) : 0)
 
@@ -393,8 +412,23 @@ async function stream(
     canForce = false
     if (o.params.toolChoice && !o.params.toolChoice.dropped) o.params.toolChoice = { ...o.params.toolChoice, dropped: true }
   }
-  let outcome = await once(req.messages, firstTools, firstTools ? forceFor(1) : null, 1)
+  const firstForce = firstTools ? forceFor(1) : null
+  let outcome = await once(req.messages, firstTools, firstForce, 1)
   forcedTurnedDown(outcome)
+  // Each request of the answer, for "What the AI saw" (E18): what it added to the one before, and how it was asked.
+  const requests: AgentRequest[] = []
+  const noteRequest = (n: number, added: ChatMessage[], tools: boolean, force: string | null, more: Partial<AgentRequest>): void => {
+    requests.push({
+      n,
+      added: added.map(keptMessage),
+      ...more,
+      tools,
+      ...(force ? { toolChoice: force } : {}),
+      ...(outcome.promptTokens != null ? { promptTokens: outcome.promptTokens } : {}),
+      ...(outcome.completionTokens != null ? { completionTokens: outcome.completionTokens } : {})
+    })
+  }
+  if (agent) noteRequest(1, [], !!firstTools, firstForce, {})
   if (agent) {
     let messages = req.messages
     const total = { prompt: outcome.promptTokens, cached: outcome.cachedTokens, completion: outcome.completionTokens, cost: outcome.cost }
@@ -418,6 +452,8 @@ async function stream(
     let heldBy: number | null = null
     for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
       if (r.controller.signal.aborted) break
+      // How many messages the request before was sent: what the next adds comes after them (fitToRoom keeps the count).
+      const sentBefore = messages.length
       const calls = outcome.toolCalls ?? []
       let nudge: string | null = null
       // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
@@ -498,8 +534,13 @@ async function stream(
       }
       stepFrom = r.text.length
       const tools = last ? undefined : agent.tools
-      outcome = await once(messages, tools, tools ? forceFor(step + 1) : null, step + 1)
+      const force = tools ? forceFor(step + 1) : null
+      outcome = await once(messages, tools, force, step + 1)
       forcedTurnedDown(outcome)
+      noteRequest(step + 1, messages.slice(sentBefore), !!tools, force, {
+        ...(nudge ? {} : { after: calls.map((c) => c.name) }),
+        ...(fitted.removed ? { removed: fitted.removed } : {})
+      })
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)
       total.completion = add(total.completion, outcome.completionTokens)
@@ -527,6 +568,7 @@ async function stream(
       }
     }
     if (steps.length) o.params.steps = steps
+    o.params.requests = requests
     Object.assign(o.params, agent.extraParams?.() ?? {})
   }
   if (progressTimer) clearTimeout(progressTimer)
@@ -553,6 +595,9 @@ async function stream(
       // those stay as stored, never put back to waiting by the list the answer ended with.
       const stored = req.agent ? proposalsOf(db, r.generationId) : []
       if (kept && stored.length) kept = { ...kept, proposals: stored }
+      // So are what Adam made of its option cards meanwhile (chat Phase 4).
+      const marks = req.agent ? optionMarksOf(db, r.generationId) : {}
+      if (kept && Object.keys(marks).length) kept = { ...kept, options: marks }
       gens.finishGeneration(db, r.generationId, {
         status,
         error,

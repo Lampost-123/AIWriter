@@ -93,11 +93,11 @@ export const asksForIdeas = (question: string): boolean =>
   /\b(brainstorm|ideas?|options?|suggest(?:ions?)?|names?|titles?|ways|what could|alternatives?)\b/i.test(question)
 
 /** The chips over an empty box: each fills it with the start of a question. */
-export const QUICK_ACTIONS: { kind: StarterCard['kind']; label: string; fill: string }[] = [
-  { kind: 'brainstorm', label: 'Brainstorm', fill: 'Brainstorm ideas for ' },
-  { kind: 'check', label: 'Is this established?', fill: 'Have I already established ' },
-  { kind: 'tighten', label: 'Tighten', fill: 'Tighten the opening paragraph, keeping my voice' },
-  { kind: 'spelling', label: 'Fix spelling', fill: 'Fix the spelling and grammar in this scene' }
+export const QUICK_ACTIONS: { kind: StarterCard['kind']; label: string; short: string; fill: string }[] = [
+  { kind: 'brainstorm', label: 'Brainstorm', short: 'Ideas', fill: 'Brainstorm ideas for ' },
+  { kind: 'check', label: 'Is this established?', short: 'Check', fill: 'Have I already established ' },
+  { kind: 'tighten', label: 'Tighten', short: 'Tighten', fill: 'Tighten the opening paragraph, keeping my voice' },
+  { kind: 'spelling', label: 'Fix spelling', short: 'Spelling', fill: 'Fix the spelling and grammar in this scene' }
 ]
 
 /** One of the empty state's cards: what it does, and the question it puts in the box. */

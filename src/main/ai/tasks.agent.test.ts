@@ -7,7 +7,7 @@ import { reachedWords } from '@shared/contracts/usage'
 import { migrate } from '../db/migrations'
 import * as repo from '../db/repo'
 import * as gens from '../db/generations'
-import { saveProposals } from '../db/ask'
+import { saveProposals, setOptionMark } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
 import { fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
@@ -257,6 +257,45 @@ describe('the editor chat tool loop', () => {
     expect(params.temperature).toBe(0.7)
   })
 
+  it('keeps every request of the answer compactly for What the AI saw: what each added, never the briefing again (E18)', async () => {
+    const think = (t: string): Chunk => ({ choices: [{ delta: { reasoning_content: t }, finish_reason: null }] })
+    const long = 'The lamp swings. '.repeat(500)
+    const { fetchImpl } = scripted([
+      [think('Read it first.'), call(0, 'a1', 'read_scene', '{"n":2}'), finish('tool_calls'), usage(0.001)],
+      [text("I've fixed the line."), finish('stop')],
+      [text('Odile, yes.'), finish('stop'), usage(0.001)]
+    ])
+    const req = request(fetchImpl, {
+      run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: long })), steps: [] }),
+      nudge: (a) => (/fixed/.test(a) ? NUDGE : null)
+    }, { maxSteps: 3 })
+    const done = await runTask(req)
+    const rec = gens.getGeneration(req.db, done.generationId)
+    const asked = rec.params.requests ?? []
+    expect(asked.map((r) => r.n)).toEqual([1, 2, 3])
+    // Request 1 is the record's messages: nothing added, offered the tools, with the provider's counts.
+    expect(asked[0]).toEqual({ n: 1, added: [], tools: true, promptTokens: 50, completionTokens: 10 })
+    expect(rec.messages).toHaveLength(2)
+    // Request 2 brings read_scene's result: the call (without its thinking) and the result, cut short with a note.
+    expect(asked[1].after).toEqual(['read_scene'])
+    expect(asked[1].tools).toBe(true)
+    expect(asked[1].added.map((m) => m.role)).toEqual(['assistant', 'tool'])
+    expect(asked[1].added[0]).toEqual({ role: 'assistant', content: '', toolCalls: [{ id: 'a1', name: 'read_scene', arguments: '{"n":2}' }] })
+    expect(asked[1].added[1].toolCallId).toBe('a1')
+    expect(asked[1].added[1].content.length).toBeLessThan(long.length)
+    expect(asked[1].added[1].content).toMatch(/\[… [\d,]+ more characters not kept in this record\]$/)
+    // Request 3 follows a nudge (the answer sent back and the note), the last one, without tools and with no calls before it.
+    expect(asked[2].after).toBeUndefined()
+    expect(asked[2].tools).toBe(false)
+    expect(asked[2].added).toEqual([
+      { role: 'assistant', content: "I've fixed the line." },
+      { role: 'user', content: LAST }
+    ])
+    // Neither the briefing nor the thinking is kept again.
+    expect(JSON.stringify(asked)).not.toContain('Brass Lantern')
+    expect(JSON.stringify(asked)).not.toContain('Read it first')
+  })
+
   it('keeps proposals as stored (what the writer made of each meanwhile), not as the answer last listed them', async () => {
     const { fetchImpl } = scripted([
       [call(0, 'a1', 'propose_changes', '{}'), finish('tool_calls')],
@@ -276,6 +315,24 @@ describe('the editor chat tool loop', () => {
     generationId = (req.db.prepare("SELECT id FROM generations WHERE job = 'chat'").get() as { id: string }).id
     const done = await started
     expect(gens.getGeneration(req.db, done.generationId).params.proposals).toEqual([{ ...proposal, status: 'applied' }])
+  })
+
+  it('keeps option card marks made while the answer was still being written (chat Phase 4)', async () => {
+    const { fetchImpl } = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text('Three ideas.'), finish('stop')]
+    ])
+    let generationId = ''
+    const req = request(fetchImpl, {
+      run: async (calls) => {
+        setOptionMark(req.db, generationId, 2, { kept: true })
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'ok' })), steps: [] }
+      }
+    })
+    const started = runTask(req)
+    generationId = (req.db.prepare("SELECT id FROM generations WHERE job = 'chat'").get() as { id: string }).id
+    const done = await started
+    expect(gens.getGeneration(req.db, done.generationId).params.options).toEqual({ '2': { kept: true } })
   })
 
   it('sends the thinking back with the tool calls it came with, and never shows it (E13)', async () => {

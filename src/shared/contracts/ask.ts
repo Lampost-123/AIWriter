@@ -45,11 +45,22 @@ export interface AskApi {
   undoAskNote(undo: NoteUndo, generationId?: ID): Promise<void>
   /** The editor chat: records what Adam made of a proposed change (it is applied by the window, through the usual calls). */
   setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void>
+  /**
+   * Keeps what Adam made of an option card in an answer (kept ★, used as a beat, set aside) with the answer's record, by
+   * the card's number (from 1), so it shows again after a restart; null forgets it.
+   */
+  setOptionMark(generationId: ID, card: number, mark: OptionMark | null): Promise<void>
+}
+
+/** What Adam made of one option card in an answer (chat Phase 2's cards; kept with the record since Phase 4). */
+export interface OptionMark {
+  kept?: boolean
+  /** Used as beat N of the open scene's card (1 = the first). */
+  usedAsBeat?: number
+  aside?: boolean
 }
 
 export interface AskEvents {
-  /** The editor chat looked something up or noted a change: a short line for the answer being written ("Reading Ch 2, Sc 1"). */
-  'ask:step': { taskId: ID; generationId: ID; label: string }
   /**
    * The editor chat called a tool (chat Phase 2b): 'start' as soon as the model starts asking for it (the call
    * running), 'end' once its answer is back (done, failed or not proposed), with the whole call. Matched by `call.id`.
@@ -337,6 +348,8 @@ export interface AskTurn {
   choice?: AskChoice
   /** The note saved from this answer, kept with its record (so it still shows "Saved" after a restart). */
   saved?: SavedNote
+  /** What Adam made of the answer's option cards, by card number (from 1); kept with its record. */
+  options?: Record<string, OptionMark>
 }
 
 /** A chat in the list of earlier chats. */

@@ -41,7 +41,7 @@ import { aboutTheWords, pageText } from '../ask/page'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
 import { EditorAgent, MAX_STEPS } from '../ask/agent'
-import { proposalsOf, saveProposals, setSavedNote } from '../db/ask'
+import { proposalsOf, saveProposals, setOptionMark, setSavedNote } from '../db/ask'
 
 /** Questions in a chat are asked again and again with the same briefing: only what changed is counted again. */
 const countCached = cachedCounter(countTokens)
@@ -161,7 +161,8 @@ export const askHandlers: Handlers<keyof AskApi> = {
         ...(wordsOnPage ? { wordsOnPage: true } : {}),
         ...(unclear ? { unclear: true } : {})
       },
-      (label) => emit('ask:step', { taskId: input.taskId, generationId, label }),
+      // Each step's label: no longer sent to the window (the tool rows, 'ask:tool' below, show each call; Phase 4).
+      () => undefined,
       (proposals) => {
         if (generationId && db.open) saveProposals(db, generationId, proposals)
         emit('ask:proposals', { taskId: input.taskId, generationId, proposals })
@@ -259,6 +260,11 @@ export const askHandlers: Handlers<keyof AskApi> = {
       generationId,
       all.map((p) => (p.id === proposalId ? { ...p, status } : p))
     )
+  },
+  setOptionMark: (generationId, card, mark) => {
+    const n = Number(card)
+    if (!Number.isInteger(n) || n < 1) throw new UserError('Something went wrong. Try again.')
+    setOptionMark(world.db(), generationId, n, mark && typeof mark === 'object' ? mark : null)
   },
   undoAskNote: (undo, generationId) => {
     memoryWrite(

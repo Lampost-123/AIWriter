@@ -680,6 +680,31 @@ export interface AgentStep {
   result: string
 }
 
+/**
+ * One request of an editor chat answer, kept for "What the AI saw" (chat Phase 4, E18). Request 1's messages are the
+ * record's own `messages` (the briefing and the question), so they aren't kept again; each later request keeps only
+ * what was added since the one before: the assistant's tool calls, the tools' results, and a note AI Write sent back
+ * (a nudge, or the last words). Thinking is never kept, and a long message is cut to REQUEST_TEXT_CAP characters with
+ * a note saying so.
+ */
+export interface AgentRequest {
+  /** Its place among the answer's requests, from 1. */
+  n: number
+  /** The messages added since the request before (none for request 1). */
+  added: ChatMessage[]
+  /** The tools whose results it brings (the calls of the request before), in order; none for request 1 or after a nudge. */
+  after?: string[]
+  /** It was offered the tools (false: asked for words, as the last request is). */
+  tools: boolean
+  /** The tool it was made to call (tool_choice), when it was. */
+  toolChoice?: string
+  /** How many earlier tool results were taken out before it, to keep within the model's context. */
+  removed?: number
+  /** As the provider counted them, when it said. */
+  promptTokens?: number
+  completionTokens?: number
+}
+
 /** A tool the model asked to use (the editor chat): its call id, the tool's name and the arguments as sent (JSON text). */
 export interface ToolCall {
   id: string
@@ -816,6 +841,16 @@ export interface GenerationRecord extends GenerationSummary {
     chatId?: ID
     /** The editor chat: each tool the model used on the way to its answer, in order (for "What the AI saw"). */
     steps?: AgentStep[]
+    /**
+     * The editor chat: each request of the answer, compactly (chat Phase 4: what each request added; request 1 is
+     * `messages`). Older records don't have it, and show the first request alone.
+     */
+    requests?: AgentRequest[]
+    /**
+     * The editor chat: what Adam made of each option card in the answer (kept ★, used as a beat, set aside), by the
+     * card's number (from 1), so it shows again after a restart.
+     */
+    options?: Record<string, import('./contracts/ask').OptionMark>
     /** The editor chat: the changes the answer proposes, and what Adam made of each. */
     proposals?: import('./contracts/ask').Proposal[]
     /** The editor chat ended its answer with a question with options (ask_user, lab switch ASKUSER). */

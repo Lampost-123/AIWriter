@@ -4,7 +4,7 @@ import type { ID } from '@shared/types'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import type { SavedNote } from '@shared/contracts/ask'
 import * as gens from '../db/generations'
-import { setSavedNote } from '../db/ask'
+import { optionMarksOf, setOptionMark, setSavedNote } from '../db/ask'
 import { chatInStory, chatTitle, chatTurns, listChats, newChatId } from './chats'
 
 type DB = ReturnType<typeof memoryWorld>
@@ -107,6 +107,25 @@ describe('chats', () => {
     expect(gens.getGeneration(db, draft).params.savedNote).toBeUndefined()
     setSavedNote(db, id, null)
     expect(chatTurns(db, chat)[0].saved).toBeUndefined()
+  })
+
+  it('keep what Adam made of each option card with its turn, so it shows after a restart (chat Phase 4)', () => {
+    const db = memoryWorld()
+    const chat = newChatId('s1')
+    const id = record(db, { chatId: chat, question: 'Ideas for the ferry?', answer: 'Three ideas.', at: 1 })
+    const draft = record(db, { chatId: null, question: 'A draft', job: 'draft', at: 2 })
+    expect(chatTurns(db, chat)[0].options).toBeUndefined()
+    setOptionMark(db, id, 1, { kept: true })
+    setOptionMark(db, id, 2, { usedAsBeat: 3 })
+    setOptionMark(db, id, 3, { aside: true, kept: false })
+    setOptionMark(db, draft, 1, { kept: true })
+    expect(chatTurns(db, chat)[0].options).toEqual({ '1': { kept: true }, '2': { usedAsBeat: 3 }, '3': { aside: true } })
+    expect(optionMarksOf(db, id)['2']).toEqual({ usedAsBeat: 3 })
+    // A mark with nothing left in it (Undo, ★ again) is forgotten; a record that isn't a chat turn is left alone.
+    setOptionMark(db, id, 2, { usedAsBeat: undefined })
+    setOptionMark(db, id, 1, null)
+    expect(chatTurns(db, chat)[0].options).toEqual({ '3': { aside: true } })
+    expect(gens.getGeneration(db, draft).params.options).toBeUndefined()
   })
 
   it('are named by a long first question cut at a word', () => {
