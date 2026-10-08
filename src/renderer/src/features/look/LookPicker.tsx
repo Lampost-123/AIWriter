@@ -114,8 +114,10 @@ function PictureChoices<T extends string>({
               disabled={disabled && !on}
               onClick={() => !disabled && onChoose(c.id)}
               className={cn(
-                'group flex flex-col overflow-hidden rounded-card bg-page text-left transition-[box-shadow,transform,translate,scale] duration-(--dur-quick) ease-glide',
-                'shadow-e1 enabled:hover:-translate-y-0.5 enabled:hover:shadow-e2 enabled:active:scale-[0.98] disabled:opacity-60',
+                // In both looks: it lifts on hover and presses in quickly (90ms), coming back softly (150ms). (translate-* and
+                // scale-* are the CSS translate and scale properties, so they are listed.) A disabled choice stays still.
+                'group flex flex-col overflow-hidden rounded-card bg-page text-left transition-[box-shadow,transform,translate,scale] duration-(--dur-quick) ease-press',
+                'shadow-e1 enabled:hover:-translate-y-0.5 enabled:hover:shadow-e2 enabled:active:duration-(--dur-press) enabled:active:scale-[0.98] disabled:opacity-60',
                 on ? 'ring-2 ring-accent' : 'ring-1 ring-line'
               )}
             >

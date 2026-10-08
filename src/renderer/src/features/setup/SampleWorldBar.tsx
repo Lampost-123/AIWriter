@@ -31,7 +31,7 @@ export function SampleWorldChip(): React.JSX.Element | null {
           setBusy(true)
           void startOwnWorld(() => usePalette.setState({ newWorld: true })).finally(() => setBusy(false))
         }}
-        className="h-[22px] whitespace-nowrap rounded-full bg-page px-2.5 text-fg shadow-e1 transition-transform duration-(--dur-press) active:scale-[0.96] disabled:opacity-60"
+        className="h-[22px] whitespace-nowrap rounded-full bg-page px-2.5 text-fg shadow-e1 transition-transform duration-150 ease-press active:duration-(--dur-press) active:scale-[0.96] disabled:opacity-60"
       >
         Start my own
       </button>
