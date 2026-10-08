@@ -201,7 +201,11 @@ describe('the desk: text contrast', () => {
       'accent-fg': ['accent', 'accent-hover'],
       // The warm-ink buttons, and the words on the story's spine (its numerals, all down its gradient).
       'primary-fg': ['primary', 'primary-hover'],
-      'spine-ink': ['spine', 'spine-top', 'spine-bottom']
+      'spine-ink': ['spine', 'spine-top', 'spine-bottom'],
+      // The full spine's words (the whole story on the leather): its titles, word counts and quieter lines.
+      'spine-fg': ['spine', 'spine-top', 'spine-bottom'],
+      'spine-muted': ['spine', 'spine-top', 'spine-bottom'],
+      'spine-faint': ['spine', 'spine-top', 'spine-bottom']
     }
     for (const [text, bgs] of Object.entries(pairs)) {
       for (const bg of bgs) {

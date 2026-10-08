@@ -1,8 +1,9 @@
 // The New look's desk layout (UI overhaul, phase 2: the frame), walked through on the sample world: the Layout choice in
 // Settings, the top bar (rooms, the command bar, the status island), every page in its room's frame, the story's spine
-// and its flyout (the binder, with its keys), the page as a sheet (its head, the drop cap, typing at the scene's start),
-// the shortcuts the page's tools carry, and the scene drawer (the scene panel over the page's edge).
-import type { ElectronApplication, Page } from '@playwright/test'
+// (full with the whole story, or slim with its rings and their flyout) and a single click on each of its controls, the
+// page as a sheet (its head, the drop cap, typing at the scene's start), the shortcuts the page's tools carry, and the
+// scene drawer (the scene panel over the page's edge) with every way into it.
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { expect, invoke, test, useFakeModel, type LaunchOptions } from './helpers'
 
 const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' }
@@ -191,51 +192,113 @@ async function openView(win: Page, kind: string): Promise<void> {
   }
 }
 
-test('the spine: a ring opens its scene, the spine opens the flyout; the binder’s keys work there; Esc closes it; pinned, it stays after a restart', async ({ launch }) => {
+const story = (win: Page) => win.getByRole('complementary', { name: 'Chapters and scenes' })
+const spine = (win: Page) => win.locator('[data-desk-spine]')
+
+/** One real press of the mouse at the middle of `target`, as a hand would click it (no forcing, no retries). */
+async function press(win: Page, target: Locator): Promise<void> {
+  const b = await target.boundingBox()
+  if (!b) throw new Error('nothing to click')
+  await win.mouse.click(b.x + b.width / 2, b.y + b.height / 2)
+}
+/** What a single click did shows straight away. */
+const AT_ONCE = { timeout: 1000 }
+
+test('the spine: full by default with every chapter and scene beside the page; collapsed, the rings name and open their scenes; the shape is kept', async ({ launch }) => {
   const { win, dataDir, app } = await sampleWorld(launch)
-  const spine = win.locator('[data-desk-spine]')
-  // A ring for each scene, the open one lit.
-  await expect(spine.locator('.spine-ring')).toHaveCount(4)
-  await expect(spine.locator('.spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /Lighting the Lamp/)
-  // A ring opens its scene straight away.
-  await spine.getByRole('button', { name: /^Low Tide/ }).click()
-  await expect(win.locator('[data-page-title]')).toContainText('Low Tide')
+  // Full (no one chose yet): the binder's rows on the spine's leather, chapters with their words, scenes with theirs.
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await expect(story(win)).toBeVisible()
+  await expect(story(win)).toContainText('4 scenes')
+  await expect(story(win).getByRole('treeitem', { name: /The Night Ferry/ })).toContainText('571')
+  await expect(story(win).getByRole('treeitem', { name: /Low Tide/ })).toContainText('288')
+  await expect(story(win).getByRole('treeitem', { name: /Lighting the Lamp/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(story(win).getByRole('button', { name: 'New scene' })).toBeVisible()
+  // The sheet lies in the room beside it, never under it.
+  const panel = (await story(win).boundingBox())!
+  const sheet = (await win.locator('.desk-sheet').boundingBox())!
+  expect(sheet.x).toBeGreaterThan(panel.x + panel.width + 8)
+  // A row opens its scene at the first click.
+  await press(win, story(win).getByRole('treeitem', { name: /Low Tide/ }))
+  await expect(win.locator('[data-page-title] h1')).toHaveText('Low Tide', AT_ONCE)
+  await expect(story(win)).toBeVisible()
+
+  // Collapsed: the slim spine, with a ring for each scene; the sheet moves back to the middle of the window.
+  await press(win, story(win).getByRole('button', { name: 'Collapse to the spine' }))
+  await expect(spine(win)).toHaveAttribute('data-shape', 'slim', AT_ONCE)
+  await expect(story(win)).toBeHidden()
+  await expect(spine(win).locator('.spine-ring')).toHaveCount(4)
+  await expect.poll(async () => (await invoke(win, 'getSettings')).layout.deskStory).toBe('slim')
+  await expect
+    .poll(async () => {
+      const s = (await win.locator('.desk-sheet').boundingBox())!
+      return Math.abs(s.x + s.width / 2 - (await win.evaluate<number>('innerWidth')) / 2)
+    })
+    .toBeLessThan(12)
+  // A ring names its scene while the pointer rests on it, and opens it at the first click.
+  const ring = spine(win).getByRole('button', { name: /^What the Letter Said/ })
+  const r = (await ring.boundingBox())!
+  await win.mouse.move(r.x + r.width / 2, r.y + r.height / 2, { steps: 3 })
+  await expect(win.getByRole('tooltip')).toContainText('What the Letter Said')
+  await expect(win.getByRole('tooltip')).toContainText('Chapter Two · The Drowned Steps')
+  await expect(win.getByRole('tooltip')).toContainText('Done · 246 words')
+  await win.mouse.down()
+  await win.mouse.up()
+  await expect(win.locator('[data-page-title] h1')).toHaveText('What the Letter Said', AT_ONCE)
+  await expect(spine(win).locator('.spine-ring[aria-current="page"]')).toHaveAttribute('aria-label', /What the Letter Said/)
+  // A click a little off a ring still opens its scene (the spine's width at its height is the ring's).
+  const low = (await spine(win).getByRole('button', { name: /^Low Tide/ }).boundingBox())!
+  await win.mouse.click(low.x + 6, low.y + low.height / 2)
+  await expect(win.locator('[data-page-title] h1')).toHaveText('Low Tide', AT_ONCE)
   await expect(flyout(win)).toBeHidden()
 
-  // The spine opens the flyout: the story's chapters and scenes, the open one selected and holding the keyboard.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await expect(flyout(win)).toBeVisible()
+  // The spine itself opens the flyout: the open scene's row selected and holding the keyboard; its keys work.
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
   await expect(flyout(win)).toContainText('4 scenes')
   const lowTide = flyout(win).getByRole('treeitem', { name: /Low Tide/ })
   await expect(lowTide).toHaveAttribute('aria-selected', 'true')
   await expect(lowTide).toBeFocused()
-  // The binder's keys: up a row, Enter opens it (and the flyout, done with, closes).
   await win.keyboard.press('ArrowUp')
   await win.keyboard.press('Enter')
   await expect(win.locator('[data-page-title]')).toContainText('What the Letter Said')
   await expect(flyout(win)).toBeHidden()
-  // Esc closes it, and a click on the page.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await expect(flyout(win)).toBeVisible()
+  // Esc closes it (the keyboard back on the spine), and so does a click on the page.
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
   await win.keyboard.press('Escape')
   await expect(flyout(win)).toBeHidden()
-  await expect(spine.getByRole('button', { name: 'Story contents' })).toBeFocused()
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await win.locator('.scene-prose').click()
+  await expect(spine(win).getByRole('button', { name: 'Story contents' })).toBeFocused()
+  await press(win, spine(win).getByRole('button', { name: 'Story contents' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
+  // A row in the flyout opens its scene at the first click.
+  await press(win, flyout(win).getByRole('treeitem', { name: /A Letter for the Keeper/ }))
+  await expect(win.locator('[data-page-title] h1')).toHaveText('A Letter for the Keeper', AT_ONCE)
   await expect(flyout(win)).toBeHidden()
 
-  // Pinned open, it stays beside the page, through opening another scene and a restart.
-  await spine.getByRole('button', { name: 'Story contents' }).click()
-  await flyout(win).getByRole('button', { name: /^Pin open/ }).click()
-  await expect(flyout(win)).toHaveAttribute('data-pinned', 'true')
-  await flyout(win).getByRole('treeitem', { name: /Fog on the Quay|Low Tide/ }).first().click()
-  await expect(flyout(win)).toBeVisible()
-  await expect.poll(async () => (await invoke(win, 'getSettings')).layout.binderOpen).toBe(true)
+  // Kept: the next launch opens on the slim spine; its chevron opens it out again, and that is kept too.
   await app.close()
   const again = await launch({ dataDir, env: DESK })
   await expect(again.win.locator('.scene-prose')).toBeVisible()
-  await expect(flyout(again.win)).toBeVisible()
-  await expect(flyout(again.win)).toHaveAttribute('data-pinned', 'true')
+  await expect(spine(again.win)).toHaveAttribute('data-shape', 'slim')
+  await press(again.win, spine(again.win).getByRole('button', { name: 'Show every chapter and scene' }))
+  await expect(spine(again.win)).toHaveAttribute('data-shape', 'full', AT_ONCE)
+  await expect(story(again.win)).toBeVisible()
+  await expect.poll(async () => (await invoke(again.win, 'getSettings')).layout.deskStory).toBe('full')
+})
+
+test('the spine in a narrower window: slim, its chevron opens the story over the page, and the full spine comes back with the room', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1100, 760)
+  // No room for the full spine beside the page: slim, though Adam never collapsed it.
+  await expect(spine(win)).toHaveAttribute('data-shape', 'slim')
+  await press(win, spine(win).getByRole('button', { name: 'Show every chapter and scene' }))
+  await expect(flyout(win)).toBeVisible(AT_ONCE)
+  await expect(flyout(win).getByRole('button', { name: /No room beside the page/ })).toBeDisabled()
+  await win.keyboard.press('Escape')
+  await size(app, win, 1440, 900)
+  await expect(spine(win)).toHaveAttribute('data-shape', 'full')
+  await expect(story(win)).toBeVisible()
 })
 
 test('the page: its head, a drop cap that types like any letter, and every shortcut the page’s tools carry', async ({ launch }) => {
@@ -268,7 +331,7 @@ test('the page: its head, a drop cap that types like any letter, and every short
   await expect(win.getByRole('textbox', { name: /^Find/ }).first()).toBeFocused()
   await win.keyboard.press('Escape')
   // Ctrl+Enter marks a scene done (Low Tide is drafted).
-  await win.locator('[data-desk-spine]').getByRole('button', { name: /^Low Tide/ }).click()
+  await win.getByRole('complementary', { name: 'Chapters and scenes' }).getByRole('treeitem', { name: /Low Tide/ }).click()
   await expect(head).toContainText('Low Tide')
   await win.locator('.scene-prose').click()
   await win.keyboard.press('Control+Enter')

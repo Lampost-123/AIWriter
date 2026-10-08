@@ -23,7 +23,7 @@ import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import { PageTitle } from './PageTitle'
 import { useDesk, useNewLook } from '@/features/look/look'
-import { useDeskFrame } from '@/layout/desk/deskFit'
+import { sheetSides, useDeskFrame } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { DeskPageTools } from '@/features/desk/page/DeskPageTools'
 import { Endmark, Ribbon } from '@/features/desk/page/Ornaments'
@@ -266,14 +266,13 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
     }
   }
 
-  // The desk: the sheet sits in the middle of the window (clear of the spine, and of the story's flyout when it is
-  // pinned open), and narrows when the window is too small for it. The paddings are the room either side of it.
-  const sheetW = `${frame.sheetW}px`
-  const sideL = `max(${frame.leftMin}px, calc((100% - ${sheetW}) / 2))`
-  const sideR = `max(16px, min(calc((100% - ${sheetW}) / 2), calc(100% - ${sheetW} - ${frame.leftMin}px)))`
-  const deskSides = desk ? { paddingLeft: sideL, paddingRight: sideR } : undefined
+  // The desk: the sheet sits in the middle of its room (beside the full spine, or the window clear of the slim one), and
+  // narrows when the window is too small for it. The paddings are the room either side of it; they glide as the spine
+  // opens out or collapses (desk.css), so the sheet moves across without its words re-wrapping.
+  const sides = sheetSides(frame)
+  const deskSides = desk ? { paddingLeft: sides.left, paddingRight: sides.right } : undefined
   // What lies over the sheet (its fade, its tools) also keeps the scrollbar's room, as the page does (desk.css).
-  const overSheet = desk ? { paddingLeft: sideL, paddingRight: `calc(${sideR} + 10px)` } : undefined
+  const overSheet = desk ? { paddingLeft: sides.left, paddingRight: sides.right + 10 } : undefined
 
   return (
     // The New look: the page is a sheet of paper lying on the window's frame (scene-sheet, styles.css). On the desk it is
@@ -358,13 +357,13 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
       {shown && !error ? <BeatBar sceneId={shown.id} /> : null}
       {/* The desk: the page fades out at the foot of the window, under its tools, so the words never run into them. */}
       {desk ? (
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
+        <div aria-hidden className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-0 z-[15] h-[132px]" style={overSheet}>
           <div className="desk-page-fade mx-auto h-full" style={{ maxWidth: frame.sheetW }} />
         </div>
       ) : null}
       {/* The desk: the scene's tools float at the foot of the sheet (where the panels have them above the page). */}
       {desk && shown && !error ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
+        <div className="desk-over-sheet pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center" style={overSheet}>
           <div className="flex w-full justify-center" style={{ maxWidth: Math.min(780, frame.sheetW - 24) }}>
             <DeskPageTools sceneId={shown.id} fallbackStatus={shown.status} />
           </div>
