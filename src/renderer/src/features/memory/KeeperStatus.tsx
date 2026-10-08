@@ -1,7 +1,8 @@
 // The memory, quietly, in the top bar: "Reading the scene…" while it reads, a short-lived "Memory
 // updated" note after it changed something (it opens What changed), nothing when idle, and a quiet
-// note when it can't run at all, with the reason and what to do. It sits in a slot of fixed width
-// that is always there, so nothing in the bar moves when it comes and goes. Nothing in it nags.
+// note when it can't run at all, with the reason and what to do. It sits in a slot that is always
+// there and grows into the bar's free middle to fit its words, so nothing in the bar moves when it
+// comes and goes. Nothing in it nags.
 import * as P from '@radix-ui/react-popover'
 import { Check, CircleAlert } from '@/components/ui/icons'
 import { useEffect, useRef, useState } from 'react'
@@ -93,7 +94,9 @@ export function KeeperStatus(): React.JSX.Element {
   }
 
   return (
-    <div className="flex w-[176px] shrink-0 justify-end look-new:w-[128px]" role="status" aria-live="polite">
+    // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
+    // middle of the bar gives way, so nothing to its right moves.
+    <div className="flex min-w-[176px] max-w-[220px] shrink-0 justify-end look-new:min-w-[128px]" role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger
