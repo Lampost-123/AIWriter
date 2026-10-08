@@ -88,7 +88,7 @@ export function restoreScenes(db: DB): ScenesOutcome {
   for (const runId of kdb.removalRuns(db, back)) {
     for (const l of kdb.logForRun(db, runId).reverse()) {
       if (l.undone || overAdam(db, l.undo as Undo | null)) continue
-      out.entryIds.push(...undoItem(db, l.id).entryIds)
+      out.entryIds.push(...undoItem(db, l.id, { keepLinks: true }).entryIds)
     }
     kdb.setRunStatus(db, runId, 'restored')
   }
