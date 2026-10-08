@@ -144,3 +144,76 @@
 [data-typewriter='on'] {
   padding-bottom: 62vh;
 }
+
+/* ---------- The lamp (the New look; features/editor/arrival.ts) ----------
+   A draft's words fade in as they arrive (opacity only: they never move), its paragraphs are in a warm ink while it
+   writes, a thin amber line in the margin stands beside the paragraph being written (as tall as the paragraph, so it
+   grows with it), and once the draft ends its words settle into the page's ink. Continue's words fade in the same way
+   (features/edits/suggestions.ts) and settle once accepted. Nothing in Classic; with less motion nothing fades or
+   settles (arrival.ts adds none of it, and the less-motion rule in styles.css ends any animation at once). */
+[data-look='new'] .scene-prose .aw-arrive {
+  animation: aw-arrive 160ms linear both;
+}
+
+@keyframes aw-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+[data-look='new'] .scene-prose .aw-drafting {
+  color: color-mix(in oklab, var(--ai) 45%, var(--fg));
+}
+
+[data-look='new'] .scene-prose .aw-settle {
+  animation: aw-settle 1000ms var(--ease-glide, ease-out);
+}
+
+@keyframes aw-settle {
+  from {
+    color: color-mix(in oklab, var(--ai) 45%, var(--fg));
+  }
+}
+
+/* Continue's words, just accepted: their amber highlight settles away into the page. */
+[data-look='new'] .scene-prose .aw-settle-words {
+  animation: aw-settle-words 1000ms var(--ease-glide, ease-out);
+  border-radius: 3px;
+}
+
+@keyframes aw-settle-words {
+  from {
+    background-color: var(--ai-soft);
+  }
+}
+
+[data-look='new'] .scene-prose p.aw-writing {
+  position: relative;
+}
+
+/* The lamp line: in the page's side margin (the Panels column keeps 24 px or more each side of the words). */
+[data-look='new'] .scene-prose p.aw-writing::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ai);
+  box-shadow: 0 0 10px 1px color-mix(in oklab, var(--ai) 45%, transparent);
+  pointer-events: none;
+  animation: aw-arrive 280ms ease-out both;
+}
+
+/* On the desk the sheet's margin is wider: the line stands further out in it, as the mockup has it. */
+[data-arrangement='desk'] .desk-sheet .scene-prose p.aw-writing::before {
+  left: -28px;
+}
+
+/* A window under 800 px wide gives the sheet a 24 px margin (layout/desk/deskFit.ts, sheetPadding): the line keeps inside it. */
+@media (max-width: 799px) {
+  [data-arrangement='desk'] .desk-sheet .scene-prose p.aw-writing::before {
+    left: -16px;
+  }
+}

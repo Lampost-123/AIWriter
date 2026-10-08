@@ -3,6 +3,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { streamPlugin } from './streamDoc'
 import { StreamCaret } from './streamCaret'
+import { Arrival } from './arrival'
 import { Extension } from '@tiptap/core'
 import { requestMarkDone } from './doneShortcut'
 import { ParagraphIds } from './paragraphIds'
@@ -57,7 +58,8 @@ const MarkDoneShortcut = Extension.create({
  * and synonyms (features/spelling/editorSpelling.ts) and the daily word count (features/goals/wordTally.ts); sound effects mark
  * the words each sound plays on while the Sounds view shows (features/sounds/soundMarks.ts); check and repair shows the
  * slips it mended as new AI words landed, in amber (features/repair/marks.ts). The New look shows an amber caret where a
- * streaming draft's words arrive (streamCaret.ts).
+ * streaming draft's words arrive (streamCaret.ts), and the words fading in, the lamp line beside the paragraph being
+ * written and the draft settling into ink once it ends (arrival.ts).
  */
 export function sceneExtensions(): AnyExtension[] {
   return [
@@ -78,6 +80,8 @@ export function sceneExtensions(): AnyExtension[] {
     StreamTracking,
     // The New look: an amber caret where a streaming draft's words arrive.
     StreamCaret,
+    // The New look: a draft's words fade in, the lamp line, and the settle into ink.
+    Arrival,
     MarkDoneShortcut,
     ParagraphIds,
     NameUnderlines,

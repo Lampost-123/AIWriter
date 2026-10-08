@@ -15,7 +15,8 @@
 //    the last takes the id of the one it ends in, and the ones between reuse the old ones' ids. New
 //    paragraphs ahead of a paragraph (Continue from its start) go in whole, and it keeps its own id.
 //  - The new words show inline, each new paragraph after the first below a gap like a paragraph's, so
-//    the last line of them is the paragraph's last line too (no empty line opens below the change).
+//    the last line of them is the paragraph's last line too (no empty line opens below the change). In the New
+//    look the words that have just arrived fade in, carrying on across the widget being drawn again (arrivalSpans.ts).
 //  - Reject changes nothing in the text. Ctrl+Z while a suggestion waits (and nothing was typed since it
 //    showed) rejects it, and Ctrl+Y then brings it back, so undo and redo cover AI changes as they do
 //    typing.
@@ -30,7 +31,9 @@ import { closeHistory, redoDepth, undoDepth } from '@tiptap/pm/history'
 import type { EditTool, ID } from '@shared/types'
 import { streamKey } from '@/features/editor/streamDoc'
 import { parseEmphasis } from '@/features/editor/streamText'
+import { reducedMotion } from '@/features/look/motion'
 import { BREAK, joinSpaces, newParagraphs } from './text'
+import { ArrivalSpans, runsOf, type ArrivalSpan } from './arrivalSpans'
 
 export type SuggestionStatus =
   /** Being set up (the briefing is being put together): nothing is struck through yet. */
@@ -395,6 +398,12 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
     return el
   }
   let last: HTMLElement | null = null
+  // The New look: the words that have just arrived fade in, each fade carrying on from where it had got to when the
+  // words were drawn again (arrivalSpans.ts).
+  const parsed = paras.map((p) => (p === BREAK ? [] : parseEmphasis(p)))
+  const shown = parsed.reduce((n, pieces) => n + pieces.reduce((m, piece) => m + piece.text.length, 0), 0)
+  const spans = wordsFade() ? arrivals.note(s.id, shown, performance.now(), writing) : []
+  let offset = 0
   paras.forEach((p, i) => {
     if (p === BREAK) {
       add('aw-sugg-break').textContent = '*  *  *'
@@ -405,8 +414,9 @@ function renderNew(s: Suggestion, paras: string[], firstInline: boolean): HTMLEl
     const newLine = !(i === 0 && firstInline)
     if (newLine && !(i === 0 && own) && paras[i - 1] !== BREAK) add('aw-sugg-gap')
     const words = add('aw-sugg-words')
-    for (const piece of parseEmphasis(p)) {
-      let node: Node = withBreaks(piece.text)
+    for (const piece of parsed[i]) {
+      let node: Node = spans.length ? withFades(piece.text, offset, spans) : withBreaks(piece.text)
+      offset += piece.text.length
       if (piece.italic) {
         const em = document.createElement('em')
         em.appendChild(node)
@@ -443,6 +453,29 @@ function withBreaks(text: string): DocumentFragment {
     if (i) out.appendChild(document.createElement('br'))
     if (line) out.appendChild(document.createTextNode(line))
   })
+  return out
+}
+
+/** How far the change being written has got, so its newest words fade in (one change at a time). */
+const arrivals = new ArrivalSpans()
+
+/** New words fade in only in the New look, and not with less motion. */
+const wordsFade = (): boolean => document.documentElement.dataset.look === 'new' && !reducedMotion()
+
+/** Words (starting `offset` characters into the new words) with the stretches still fading in their own spans. */
+function withFades(text: string, offset: number, spans: ArrivalSpan[]): DocumentFragment {
+  const out = document.createDocumentFragment()
+  for (const run of runsOf(text, offset, spans)) {
+    if (run.delay === null) {
+      out.appendChild(withBreaks(run.text))
+      continue
+    }
+    const span = document.createElement('span')
+    span.className = 'aw-arrive'
+    span.style.animationDelay = `${Math.round(run.delay)}ms`
+    span.appendChild(withBreaks(run.text))
+    out.appendChild(span)
+  }
   return out
 }
 
