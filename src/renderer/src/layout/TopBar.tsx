@@ -307,9 +307,9 @@ function SearchBox(): React.JSX.Element {
         // The New look: a soft pill.
         'look-new:h-8 look-new:w-[150px] look-new:rounded-full look-new:border-transparent look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:hover:border-transparent look-new:min-[1100px]:w-[190px]',
         // The New look: when the bar is short of room, this gives up its spare width before the trail's names are cut,
-        // down to the width that still shows its word and keys (below that only while an update is offered).
+        // down to the width that still shows its word (below that only while an update is offered).
         // (Far more readily than any name: even a fraction of a pixel taken from one would cut it short with "…".)
-        'look-new:shrink-[1e15] look-new:min-w-[132px] look-new:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:min-w-[36px]',
+        'look-new:shrink-[1e15] look-new:min-w-[104px] look-new:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:min-w-[36px]',
         'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         'min-[1100px]:w-[220px]'
       )}
