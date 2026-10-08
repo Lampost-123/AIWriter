@@ -23,16 +23,36 @@ export const previousStep = (step: SetupStep): SetupStep | null => SETUP_STEPS[S
 
 // ---------- The writer model it recommends ----------
 
+/** Special editions left out of a suggestion ("-preview", "-mini" and the like), except DeepSeek Flash. */
+const SPECIAL = /-(preview|mini|nano|lite|flash|exp|beta|instruct|vision|audio)\b/i
+
+/** DeepSeek models that aren't for writing prose: reasoners, coders and the like. */
+const DEEPSEEK_NOT_PROSE = /reason|-r\d\b|prover|coder|ocr|distill|math/i
+
+/** DeepSeek's own API, as the DeepSeek preset in Settings › Models connects it. */
+const DEEPSEEK_API = /^https?:\/\/api\.deepseek\.com(\/|$)/i
+
+/** A DeepSeek model: any model on DeepSeek's own API, or one named for DeepSeek elsewhere ("deepseek/…" on OpenRouter). */
+const isDeepSeek = (id: string, baseUrl?: string): boolean => (!!baseUrl && DEEPSEEK_API.test(baseUrl)) || /^deepseek[/-]/i.test(id)
+
+/** A maker's models by name, special editions left out. */
+const named =
+  (match: RegExp) =>
+  (id: string): boolean =>
+    match.test(id) && !SPECIAL.test(id)
+
 /**
- * Makers whose models write good prose, best first, each with why in plain words. Shown as a suggestion with a
- * "Use this" button: never chosen for Adam without his say.
+ * Kinds of model that write good prose, best first, each with why in plain words. DeepSeek comes first, Flash above
+ * all (as tests/traps/models.ts pickFlash finds it): good prose for very little, which long stories need. Shown as a
+ * suggestion with a "Use this" button: never chosen for Adam without his say.
  */
-const WRITER_PICKS: { match: RegExp; why: string }[] = [
-  { match: /^anthropic\/claude-[\w.-]*sonnet[\w.-]*$/i, why: 'Natural, careful prose that follows a scene card closely, at a fair price.' },
-  { match: /^anthropic\/claude-[\w.-]*opus[\w.-]*$/i, why: 'Rich, careful prose. It costs more per word than most.' },
-  { match: /^google\/gemini-[\d.]+-pro[\w.-]*$/i, why: 'Good prose and reads a great deal at once, at a fair price.' },
-  { match: /^openai\/gpt-[\d.]+[\w.-]*$/i, why: 'Good, dependable prose at a fair price.' },
-  { match: /^deepseek\/deepseek-[\w.-]+$/i, why: 'Good prose for very little.' }
+const WRITER_PICKS: { match: (id: string, deepseek: boolean) => boolean; why: string }[] = [
+  { match: (id, deepseek) => deepseek && /flash/i.test(id), why: 'Good prose, quickly, for very little: the best value for long stories.' },
+  { match: (id, deepseek) => deepseek && !DEEPSEEK_NOT_PROSE.test(id) && !SPECIAL.test(id), why: 'Good prose for very little.' },
+  { match: named(/^anthropic\/claude-[\w.-]*sonnet[\w.-]*$/i), why: 'Natural, careful prose that follows a scene card closely, at a fair price.' },
+  { match: named(/^anthropic\/claude-[\w.-]*opus[\w.-]*$/i), why: 'Rich, careful prose. It costs more per word than most.' },
+  { match: named(/^google\/gemini-[\d.]+-pro[\w.-]*$/i), why: 'Good prose and reads a great deal at once, at a fair price.' },
+  { match: named(/^openai\/gpt-[\d.]+[\w.-]*$/i), why: 'Good, dependable prose at a fair price.' }
 ]
 
 /** The numbers in a model's id, to put newer versions first ("claude-sonnet-4.5" before "claude-3.7-sonnet"). */
@@ -49,13 +69,13 @@ function newer(a: string, b: string): number {
 }
 
 /**
- * The writer model to suggest from a provider's list: the newest of the first maker on WRITER_PICKS that the
- * list has, leaving out special editions (":free", ":thinking", "-preview", "-mini" and the like). Null when none fits.
+ * The writer model to suggest from a provider's list (baseUrl is that provider's address): the newest of the first
+ * kind on WRITER_PICKS that the list has, never a variant (":free", ":thinking"). Null when none fits.
  */
-export function recommendWriter(models: ModelInfo[]): { model: ModelInfo; why: string } | null {
-  const plain = models.filter((m) => !/[:]|-(preview|mini|nano|lite|flash|exp|beta|instruct|vision|audio)\b/i.test(m.id))
+export function recommendWriter(models: ModelInfo[], baseUrl?: string): { model: ModelInfo; why: string } | null {
+  const plain = models.filter((m) => !m.id.includes(':'))
   for (const pick of WRITER_PICKS) {
-    const found = plain.filter((m) => pick.match.test(m.id)).sort((a, b) => newer(a.id, b.id))
+    const found = plain.filter((m) => pick.match(m.id, isDeepSeek(m.id, baseUrl))).sort((a, b) => newer(a.id, b.id))
     if (found.length) return { model: found[0], why: pick.why }
   }
   return null

@@ -1,6 +1,6 @@
-<!-- version: 0.6.32 -->
-What's new in 0.6.32:
+<!-- version: 0.6.33 -->
+What's new in 0.6.33:
 
-- Settings now says plainly what stays on this computer. The voices and dictation run here. Your AI model helps tell who says each line, and with extras like tone and sound effects.
+- When you first set up AI Write, it now suggests DeepSeek Flash as your writer model: good prose for very little, which long stories need. It's only a suggestion until you choose it.
 
-Also new since 0.6.30: the search model behind "Find by meaning" downloads by itself in the background. And the AI keeps far better track of a scene as you carry it on, mends small slips in amber with Undo, and plans each draft first.
+Also new since 0.6.30: Settings says plainly what stays on this computer, and the search model behind "Find by meaning" downloads by itself. And the AI keeps far better track of a scene as you carry it on, mends small slips in amber with Undo, and plans each draft first.
