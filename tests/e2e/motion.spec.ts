@@ -3,7 +3,7 @@
 // motion makes every change instant. Timings are read from the animations the window really runs.
 // (Code run in the window is written as text: the tests' own types have no DOM.)
 import type { Page } from '@playwright/test'
-import { createWorldFromWelcome, expect, invoke, test, useFakeModel } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
 
 const rail = (win: Page) => win.getByRole('navigation', { name: 'Areas' })
 const area = (win: Page, name: string) => rail(win).getByRole('button', { name, exact: true })
@@ -453,4 +453,37 @@ test('the New look: a press goes in quickly and comes back softly', async ({ lau
   await win.mouse.up()
   await expect(button).toHaveCSS('transition-duration', '0.15s')
   await expect(button).toHaveCSS('scale', 'none')
+})
+
+test('Classic: presses go in quickly and come back softly too', async ({ launch }) => {
+  // App tests start in Classic.
+  const { win } = await launch()
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(win, 'openSampleWorld')
+  await win.reload()
+  await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
+  expect(await win.evaluate<string | undefined>('document.documentElement.dataset.look')).not.toBe('new')
+
+  /** Holds the pointer down on `button` (in over 90 ms), then lets go somewhere else, so nothing is chosen (back over `back`). */
+  const press = async (button: ReturnType<Page['getByRole']>, scale: string, back: string): Promise<void> => {
+    await expect(button).toHaveCSS('transition-duration', back)
+    await expect(button).toHaveCSS('transition-timing-function', 'cubic-bezier(0.2, 0.8, 0.2, 1)')
+    const box = (await button.boundingBox())!
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await win.mouse.down()
+    await expect(button).toHaveCSS('transition-duration', '0.09s')
+    await expect(button).toHaveCSS('scale', scale)
+    await win.mouse.move(5, 500)
+    await win.mouse.up()
+    await expect(button).toHaveCSS('transition-duration', back)
+    await expect(button).toHaveCSS('scale', 'none')
+  }
+
+  // Settings › Appearance › Style (the same cards in both looks): they list scale and translate, so the press and the
+  // hover lift ease rather than snap.
+  await openSettings(win, 'Appearance')
+  const card = win.getByRole('radio', { name: 'New look' })
+  await expect(card).toHaveCSS('transition-property', 'box-shadow, transform, translate, scale')
+  await press(card, '0.98', '0.15s')
+  await expect.poll(async () => (await invoke(win, 'getSettings')).look).not.toBe('new')
 })

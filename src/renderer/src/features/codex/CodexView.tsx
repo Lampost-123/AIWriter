@@ -399,7 +399,7 @@ function Toolbar({
                 aria-pressed={on}
                 onClick={() => setFilters({ kind: k as typeof filters.kind })}
                 className={cn(
-                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform] duration-(--dur-quick) active:scale-[0.96]',
+                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform,scale] duration-(--dur-quick) ease-glide active:duration-(--dur-press) active:scale-[0.96]',
                   Icon && 'pl-2.5',
                   on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
                 )}

@@ -67,7 +67,7 @@ src/renderer/src/
   500–900 ms only for rare moments (a scene done, the start screen). Exits are quicker than entries (140 ms) and
   leave the way they came; nothing eases in. Text never moves: new AI words may fade in, never slide. Less motion
   (Windows' Animation effects off) makes every change instant, View Transitions too. Classic keeps the 150–200 ms it
-  always had. See "The two looks", Motion.
+  always had, except presses, which go in and come back as in the New look. See "The two looks", Motion.
 - **No jank.** No layout shift while loading (reserve space, render nothing rather than a
   flash), no modals or "are you sure?" for routine actions (make them undoable and show a
   toast), saving is automatic and silent, every AI action streams and can be stopped.
@@ -1646,7 +1646,8 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`, `--dur-exit`; `ease-glide`, `ease-spring`,
   `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
   with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
-- **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps exactly the motion it had, with no exits).
+- **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps the motion it had, with no exits, but its
+  presses are the New look's, below).
   `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`): what
   he does from the keyboard happens at once. The generic enters (`animate-fade-in`,
   `animate-pop-in`, `animate-slide-up`) take the look's timing from one zero-weight rule in `styles.css`.
@@ -1679,7 +1680,9 @@ start in Classic with no note (`AIWRITE_LOOK=classic` in `tests/e2e/helpers.ts`)
   - *Presses* go in at `--dur-press` (90 ms, `active:duration-(--dur-press)`) and come back at the element's own
     speed (150 ms; Mark done 220 ms), on `ease-glide`; buttons 0.97, icon buttons 0.95. Tailwind 4's `scale-*` and
     `translate-*` are the CSS `scale` and `translate` properties, not `transform`: a transition list must name them
-    (`transition-[transform,scale]`), or the press or hover lift snaps.
+    (`transition-[transform,scale]`), or the press or hover lift snaps. Classic's presses (the read-aloud Play
+    button, the Style cards in Settings) do the same: in at `--dur-press` (90 ms in both looks) on `ease-press` (the
+    glide curve in both looks), back at 150 ms.
 - **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
   Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
