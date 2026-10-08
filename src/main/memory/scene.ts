@@ -18,13 +18,14 @@
 //   otherwise "from <the story of its first point>, not in this story so far".
 
 import type Database from 'better-sqlite3'
-import type { Change, ChangeView, Entry, EntryState, ID } from '@shared/types'
+import type { Change, ChangeView, Entry, EntryState, ID, ThreadState } from '@shared/types'
 import type { ExistsAt, Line, MemoryData, SceneMemory, StoryNode, StorySoFar, SummaryIndex, WorldShape } from './types'
 import { summaryKey } from './types'
 import { buildLine, compareOrder, knowsSentence, labeler, previousSceneStep, storyOrder, storyOfScene } from './line'
 import { indexChanges, stateAt, type ChangeIndex, type MemoryStateAll } from './state'
 import * as mem from '../db/memory'
-import { factHealth, linksForFacts } from '../db/history'
+import { entryLinkScenes, factHealth, linksForFacts } from '../db/history'
+import { threadTouches } from './threadQuiet'
 import { DUE_SUMMARY_SCENES, summaryDue } from '../keeper/sceneChange'
 import { fieldValue, guessFields } from '../keeper/facts'
 import { lastWords } from '../keeper/text'
@@ -154,9 +155,36 @@ export function sceneMemory(db: DB, sceneId: ID, opts: { forWriter?: boolean; dr
     elsewhere: elsewhere(shape, line, data, state),
     relationships: state.relationships,
     facts: state.facts,
-    threads: state.threads,
+    threads: withQuiet(db, shape, line, changes, state.threads),
     storySoFar: opts.forWriter ? markUpdating(db, sf, previous?.sceneId ?? null, loaded.entries, recentScenes(line)) : sf,
     bringAbout: changes.byScene.get(sceneId) ?? []
+  }
+}
+
+/**
+ * Each thread with how long it has been quiet on this scene's line (World Memory Overhaul B4): the scenes since a thread
+ * change or words its facts rest on last touched it. Never stops the scene's memory: on a failure the threads go as they
+ * are.
+ */
+function withQuiet(db: DB, shape: WorldShape, line: Line, changes: ChangeIndex, threads: ThreadState[]): ThreadState[] {
+  if (!threads.length) return threads
+  try {
+    const ids = threads.map((t) => t.entryId)
+    const touches = threadTouches(line, changes, ids, entryLinkScenes(db, ids))
+    const label = labeler(shape)
+    return threads.map((t) => {
+      const at = touches.get(t.entryId)
+      if (!at) return t
+      return {
+        ...t,
+        quiet: at.quiet,
+        ...(at.storyId ? { lastStoryId: at.storyId } : {}),
+        lastWhere: at.storyId ? label({ storyId: at.storyId, sceneId: at.sceneId }) : ''
+      }
+    })
+  } catch (e) {
+    console.warn('Could not work out how long the plot threads have been quiet', e)
+    return threads
   }
 }
 

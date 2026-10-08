@@ -211,6 +211,28 @@ export function linksForEntry(db: DB, entryId: ID): SourceLink[] {
   ).map(toLink)
 }
 
+/**
+ * The scenes holding words that these entries (or their fields and summaries) rest on, by entry: links whose words are
+ * still there. For the open threads ledger (World Memory Overhaul B4): a clue or a mention touches a thread.
+ */
+export function entryLinkScenes(db: DB, entryIds: ID[]): Map<ID, Set<ID>> {
+  const out = new Map<ID, Set<ID>>()
+  if (!entryIds.length) return out
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT fact_id, scene_id FROM source_links
+       WHERE state = 'ok' AND fact_kind IN ('entry', 'field', 'summary') AND fact_id IN (SELECT value FROM json_each(?))`
+    )
+    .all(JSON.stringify([...new Set(entryIds)])) as Row[]
+  for (const r of rows) {
+    const id = r.fact_id as string
+    const set = out.get(id)
+    if (set) set.add(r.scene_id as string)
+    else out.set(id, new Set([r.scene_id as string]))
+  }
+  return out
+}
+
 /** True when the link is to the words of an entry's field `field` (its summary included). */
 export const isFieldLink = (l: SourceLink, field: string): boolean =>
   (l.factKind === 'field' || l.factKind === 'summary') && l.field === field

@@ -13,6 +13,7 @@ import { indexChanges, type MemoryStateAll } from '../memory/state'
 import { labeler } from '../memory/line'
 import type { CardInfo } from '../db/worldViews'
 import { chaptersAfter, walkOf } from './walk'
+import { threadTouches } from '../memory/threadQuiet'
 
 /** A thread open for this many chapters or more is highlighted on the board, so it isn't forgotten. */
 export const LONG_OPEN_CHAPTERS = 10
@@ -31,6 +32,11 @@ export interface BoardInput {
    * test): no words, no Undo.
    */
   payoff?: (changeIds: ID[]) => Map<ID, { quote: string; undoId: ID | null }>
+  /**
+   * The scenes holding words each thread's facts rest on (a clue, its promise, a mention), for the ledger's "last
+   * touched" (B4). Left out (a test): only thread changes touch.
+   */
+  linkScenes?: (threadIds: ID[]) => Map<ID, Set<ID>>
 }
 
 const COLUMN_ORDER: Record<BoardThread['column'], number> = { open: 0, resolved: 1, planned: 2 }
@@ -86,6 +92,15 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
     return { label: words, storyId: at?.storyId ?? null, sceneId: at?.sceneId ?? null, planned: false }
   }
 
+  // The ledger (B4): where each thread was last touched on the line, and how long it has been quiet since.
+  const threadIds = state.threads.map((t) => t.entryId)
+  const touches = threadTouches(line, changes, threadIds, input.linkScenes && threadIds.length ? input.linkScenes(threadIds) : new Map())
+  const touchedAt = (id: ID): BoardPlace | null => {
+    const t = touches.get(id)
+    if (!t || !t.storyId) return null
+    return { label: label({ storyId: t.storyId, sceneId: t.sceneId }), storyId: t.storyId, sceneId: t.sceneId, planned: false }
+  }
+
   const resolving = state.threads.filter((t) => t.status === 'resolved').flatMap((t) => resolvedBy.get(t.entryId) ?? [])
   const payoffs = input.payoff && resolving.length ? input.payoff(resolving.map((c) => c.id)) : new Map<ID, { quote: string; undoId: ID | null }>()
   const entryRows = new Map(data.entries.map((e) => [e.id, e]))
@@ -114,6 +129,8 @@ export function buildBoard(input: BoardInput): ThreadsBoard {
       longOpen: openChapters !== null && openChapters >= LONG_OPEN_CHAPTERS,
       aiMade: !!row && row.origin !== 'adam' && !row.byHand,
       resolved: column === 'resolved' ? { quote: p?.quote ?? '', byAi, undoId: byAi ? (p?.undoId ?? null) : null } : null,
+      lastTouched: touchedAt(t.entryId),
+      quietScenes: column === 'open' ? (touches.get(t.entryId)?.quiet ?? null) : null,
       order: setUpStep ?? Infinity
     })
   }

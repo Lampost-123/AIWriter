@@ -1166,6 +1166,14 @@ export interface ThreadState {
   paidOff: string
   /** Not opened or resolved on the line yet (2026-10-08): planned on scene cards, or nowhere. Left out otherwise. */
   planned?: true
+  /**
+   * The open threads ledger (World Memory Overhaul B4): how many scenes on the line it has been quiet since something
+   * last touched it, the story that touch was in, and where in plain words. Left out when nothing on the line touched it
+   * (and by anything older than the scene memory).
+   */
+  quiet?: number
+  lastStoryId?: ID
+  lastWhere?: string
 }
 
 // ---------- Summaries, pins, answers ----------

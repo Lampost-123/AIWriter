@@ -10,6 +10,7 @@
 
 import type { EntryState, ID, SceneCard, ThreadState } from '@shared/types'
 import { lastClue } from '../keeper/threads'
+import { QUIET_SCENES } from '../memory/threadQuiet'
 
 /** The most open threads Generate, Add below and the planner are given. */
 export const OPEN_THREADS_MOST = 6
@@ -27,7 +28,12 @@ export interface OpenThread {
   name: string
   promise: string
   clue: string
+  /** Scenes it has been quiet, when overdue in this part of the story (B4: QUIET_SCENES or more, last touched in this story). */
+  overdue?: number
 }
+
+/** The most overdue threads the gentle reminder names (one line). */
+export const REMINDER_MOST = 2
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
@@ -45,7 +51,7 @@ function cardWords(card: SceneCard | null): Set<string> {
  * first, at most `most`.
  */
 export function openThreadsAt(
-  memory: { entries: EntryState[]; threads: ThreadState[] },
+  memory: { entries: EntryState[]; threads: ThreadState[]; storyId?: ID },
   card: SceneCard | null,
   most = OPEN_THREADS_MOST
 ): OpenThread[] {
@@ -60,15 +66,44 @@ export function openThreadsAt(
       const own = words(`${e.name} ${e.fields?.promise ?? ''}`)
       const shared = own.filter((w) => near.has(w)).length
       const last = Math.max(-1, ...(e.happened ?? []).map((h) => h.at ?? -1))
-      return [{ e, named: shared >= 2 || (shared >= 1 && own.length <= 2) ? 1 : 0, last, order }]
+      // Overdue in this part of the story (B4): quiet for a while, and last touched in the story being written.
+      const overdue = t.quiet != null && t.quiet >= QUIET_SCENES && (!memory.storyId || t.lastStoryId === memory.storyId) ? t.quiet : 0
+      return [{ e, named: shared >= 2 || (shared >= 1 && own.length <= 2) ? 1 : 0, last, order, overdue }]
     })
     .sort((a, b) => b.named - a.named || b.last - a.last || (a.e.updatedAt < b.e.updatedAt ? 1 : a.e.updatedAt > b.e.updatedAt ? -1 : 0) || a.order - b.order)
-  return ranked.slice(0, Math.max(0, most)).map(({ e }) => ({
-    id: e.id,
-    name: clean(e.name),
-    promise: clean(e.fields?.promise ?? '') || clean(e.summary),
-    clue: clean(lastClue(e))
-  }))
+  // The most overdue (at most REMINDER_MOST) always make the list, in place of the last ones, keeping its order.
+  const n = Math.max(0, most)
+  const due = new Set(
+    [...ranked]
+      .filter((r) => r.overdue)
+      .sort((a, b) => b.overdue - a.overdue)
+      .slice(0, Math.min(REMINDER_MOST, n))
+  )
+  const rest = ranked.filter((r) => !due.has(r)).slice(0, n - due.size)
+  const kept = new Set([...rest, ...due])
+  return ranked
+    .filter((r) => kept.has(r))
+    .map(({ e, overdue }) => ({
+      id: e.id,
+      name: clean(e.name),
+      promise: clean(e.fields?.promise ?? '') || clean(e.summary),
+      clue: clean(lastClue(e)),
+      ...(overdue ? { overdue } : {})
+    }))
+}
+
+/**
+ * The gentle reminder (B4), one line: the threads overdue here, most quiet first, at most REMINDER_MOST. '' for none.
+ * "Quiet for a while: The drowned bell (8 scenes). If it fits here, a passing mention keeps it alive; never force it."
+ */
+export function quietReminder(threads: OpenThread[]): string {
+  const due = threads
+    .filter((t) => t.overdue)
+    .sort((a, b) => (b.overdue ?? 0) - (a.overdue ?? 0))
+    .slice(0, REMINDER_MOST)
+  if (!due.length) return ''
+  const names = due.map((t) => `${t.name} (${t.overdue} scenes)`).join('; ')
+  return `Quiet for a while: ${names}. If ${due.length === 1 ? 'it fits' : 'one fits'} here, a passing mention keeps it alive; never force it.`
 }
 
 /** One thread in one line: "The drowned bell — Who rang it? — last clue: wet footprints by the tower". */
@@ -81,5 +116,6 @@ export function openThreadLine(t: OpenThread, short = false): string {
 /** The block's text: the lead, then a line a thread. '' for none. */
 export function openThreadsText(threads: OpenThread[], short = false): string {
   if (!threads.length) return ''
-  return [OPEN_THREADS_LEAD, ...threads.map((t) => openThreadLine(t, short))].join('\n')
+  const reminder = quietReminder(threads)
+  return [OPEN_THREADS_LEAD, ...threads.map((t) => openThreadLine(t, short)), ...(reminder ? [reminder] : [])].join('\n')
 }

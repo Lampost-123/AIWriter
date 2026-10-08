@@ -146,6 +146,16 @@ The memory model ends a fact with an "end" item (a "So far" note or a K id, with
 suppression, and `settleEnds` makes the end follow its words (moved words carry it; gone words make the fact true
 again, with Undo).
 
+**Part B round 2, the rest** (2026-10-08, no further migration):
+- *B4, the open threads ledger.* `memory/threadQuiet.ts` `threadTouches`: the step on a story's line that last touched
+  each plot thread (a thread change, or a scene holding words its facts rest on: `db/history.ts` `entryLinkScenes`) and
+  how many scenes it has been quiet since. The board gives each thread `lastTouched` and, while open, `quietScenes`
+  (to the story's end); the Plot threads board has a Board / Ledger switch (`ThreadsBoard.tsx` `Ledger`, rows sortable by
+  quiet-for or name, `boardLogic.ts` `ledgerRows`). The scene memory gives each thread `quiet`, `lastStoryId` and
+  `lastWhere` (`memory/scene.ts` `withQuiet`); the writer's open threads block (`ai/openThreads.ts`) always keeps the
+  most overdue (quiet for `QUIET_SCENES`, 6, or more, and last touched in the story being written; at most 2) and ends
+  with one line, "Quiet for a while: … If it fits here, a passing mention keeps it alive; never force it."
+
 ### How memory over time works
 
 - An entry row is its **baseline**. Every later fact is a row in `changes`, pinned to an anchor:

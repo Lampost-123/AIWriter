@@ -193,7 +193,20 @@ export interface BoardThread {
    * it, and the "What changed" line Undo takes back (only for the memory's own resolve, while it can be undone).
    */
   resolved?: { quote: string; byAi: boolean; undoId: ID | null } | null
+  /**
+   * The open threads ledger (World Memory Overhaul B4): the scene on the story's line that last touched it (a thread
+   * change, a clue or words its facts rest on), null when nothing did; and, while open, how many scenes it has been
+   * quiet since, to the story's end (null when not open or never touched). Left out by older boards.
+   */
+  lastTouched?: BoardPlace | null
+  quietScenes?: number | null
 }
+
+/**
+ * Quiet for this many scenes or more: the ledger marks an open thread as quiet, and (when it was last touched in the
+ * story being written) the writer gets a gentle reminder of it (World Memory Overhaul B4).
+ */
+export const QUIET_SCENES = 6
 
 export interface ThreadsBoard {
   storyId: ID
