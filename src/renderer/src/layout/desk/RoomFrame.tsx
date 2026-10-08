@@ -9,6 +9,7 @@ import { GlidePill } from '@/components/ui/GlidePill'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { KIND_INK } from '@/features/world/kindIcons'
+import { useCodex } from '@/features/codex/codexStore'
 import { AREAS, areaOf, type Area } from '@/layout/areas'
 import { chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
 import { useLinkContext } from '@/layout/AreaList'
@@ -139,9 +140,15 @@ function useWhere(room: Area | null): string {
 
 export function RoomFrame({ view, children }: { view: View; children: ReactNode }): React.JSX.Element {
   const room = areaOf(view)
-  const c = useLinkContext()
+  const links = useLinkContext()
   // (The World room's gallery has the world's name as its own heading, so the small capitals don't say it twice.)
   const gallery = view.kind === 'codex' || view.kind === 'entries'
+  // Under an entry's dossier, the room's links stay on the gallery's tab (the dossier is over that page, not another).
+  const tab = useCodex((s) => s.filters.kind)
+  const c: LinkContext =
+    view.kind === 'entries' && view.entryId
+      ? { ...links, view: tab ? { kind: 'entries', entryKind: tab, entryId: null } : { kind: 'codex' } }
+      : links
   const where = useWhere(room)
   const name = room ? (AREAS.find((a) => a.id === room)?.label ?? '') : 'Settings'
   // The first time a room shows this session, its sheet rises into place (layout/desk/arrival.ts).

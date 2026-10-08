@@ -325,3 +325,109 @@ test('the dossier does what the entry page does: as of a scene, "Appears in" ope
     win.evaluate(() => (globalThis as unknown as { getSelection(): { toString(): string } | null }).getSelection()?.toString() ?? '')
   await expect.poll(chosen).toBe(quote)
 })
+
+/** Keeps each View Transition the window starts: what it was for (the root's mark) and the animations it ran. */
+const watchTransitions = (win: Page): Promise<void> =>
+  win.evaluate(`(() => {
+    window.vts = []
+    const start = document.startViewTransition.bind(document)
+    document.startViewTransition = (update) => {
+      const seen = { mark: document.documentElement.dataset.vt ?? '', parts: [] }
+      window.vts.push(seen)
+      const vt = start(update)
+      vt.ready.then(() => {
+        seen.parts = document.getAnimations()
+          .filter((a) => a.effect && a.effect.pseudoElement)
+          .map((a) => ({ part: a.effect.pseudoElement, ms: Number(a.effect.getTiming().duration), delay: Number(a.effect.getTiming().delay) }))
+      }, () => undefined)
+      return vt
+    }
+  })()`)
+type Seen = { mark: string; parts: { part: string; ms: number; delay: number }[] }
+const transitions = (win: Page): Promise<Seen[]> => win.evaluate<Seen[]>('window.vts')
+
+test('the flip: a click turns the card into its dossier (a View Transition) and Back turns it back; Enter and Esc at once; less motion crossfades', async ({
+  launch
+}) => {
+  const { win } = await sampleWorld(launch)
+  await room(win, 'World').click()
+  await expect(cards(win)).toHaveCount(11)
+  await win.waitForTimeout(700)
+  await watchTransitions(win)
+
+  // A click: the card turns away and grows towards the dossier, which turns in after it.
+  const wren = card(win, 'Wren Halloway')
+  await wren.click()
+  await expect(dossier(win)).toBeVisible()
+  await expect.poll(async () => (await transitions(win)).length).toBe(1)
+  await expect.poll(async () => (await transitions(win))[0].parts.length).toBeGreaterThan(0)
+  const open = (await transitions(win))[0]
+  expect(open.mark).toBe('page flip')
+  expect(open.parts).toEqual(
+    expect.arrayContaining([
+      { part: '::view-transition-old(vt-card)', ms: 260, delay: 0 },
+      { part: '::view-transition-new(vt-dossier)', ms: 260, delay: 260 }
+    ])
+  )
+  // Once it has landed: no marks left, the keyboard on the dossier's heading.
+  await expect.poll(() => win.evaluate<string | null>('document.documentElement.dataset.vt ?? null')).toBeNull()
+  expect(await win.evaluate<string>(`document.documentElement.style.getPropertyValue('--flip-dx')`)).toBe('')
+  await expect(dossier(win).getByRole('heading', { level: 2 })).toBeFocused()
+
+  // Back (the pointer): the dossier turns away and the card turns back in; the keyboard on the card.
+  await dossier(win).getByRole('button', { name: 'Back to the world' }).click()
+  await expect(dossier(win)).toHaveCount(0)
+  await expect.poll(async () => (await transitions(win)).length).toBe(2)
+  await expect.poll(async () => (await transitions(win))[1].parts.length).toBeGreaterThan(0)
+  const back = (await transitions(win))[1]
+  expect(back.mark).toBe('page flip-back')
+  expect(back.parts).toEqual(
+    expect.arrayContaining([
+      { part: '::view-transition-old(vt-dossier)', ms: 210, delay: 0 },
+      { part: '::view-transition-new(vt-card)', ms: 210, delay: 210 }
+    ])
+  )
+  await expect(wren).toBeFocused()
+  await expect.poll(() => win.evaluate<string | null>('document.documentElement.dataset.vt ?? null')).toBeNull()
+
+  // Enter on a card opens it at once, and Esc goes back at once with the keyboard on the card: no transitions.
+  await wren.press('Enter')
+  await expect(dossier(win)).toBeVisible()
+  await win.keyboard.press('Escape')
+  await expect(dossier(win)).toHaveCount(0)
+  await expect(wren).toBeFocused()
+  expect(await transitions(win)).toHaveLength(2)
+
+  // Less motion: a short crossfade of the page, nothing turns.
+  await win.emulateMedia({ reducedMotion: 'reduce' })
+  await card(win, 'Iska Vey').click()
+  await expect(dossier(win)).toBeVisible()
+  await expect.poll(async () => (await transitions(win)).length).toBe(3)
+  await expect.poll(async () => (await transitions(win))[2].parts.length).toBeGreaterThan(0)
+  const fade = (await transitions(win))[2]
+  expect(fade.mark).toBe('page flip-fade')
+  const vtParts = fade.parts.filter((p) => p.part.startsWith('::view-transition'))
+  expect(vtParts.every((p) => /\((page|toasts)\)$/.test(p.part))).toBe(true)
+  expect(fade.parts).toEqual(expect.arrayContaining([{ part: '::view-transition-new(page)', ms: 150, delay: 0 }]))
+  await win.emulateMedia({ reducedMotion: 'no-preference' })
+})
+
+test('Classic and the panels have no flip: the codex opens an entry’s page as before', async ({ launch }) => {
+  const a = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels', AIWRITE_KEEPER_QUIET_MS: '600000' } })
+  await expect(a.win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await invoke(a.win, 'openSampleWorld')
+  await a.win.reload()
+  await expect(a.win.locator('.scene-prose')).toBeVisible()
+  const win = a.win
+  await win.getByRole('navigation', { name: 'Areas' }).getByRole('button', { name: 'World', exact: true }).click()
+  await expect(win.locator('main').getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(win.locator('[data-world-gallery]')).toHaveCount(0)
+  await win.waitForTimeout(500)
+  await watchTransitions(win)
+  await win.locator('main').getByRole('button', { name: 'Wren Halloway', exact: true }).click()
+  await expect(win.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Wren Halloway')
+  await expect(win.locator('[data-dossier]')).toHaveCount(0)
+  // The panels' ordinary page crossfade, never a flip.
+  await expect.poll(async () => (await transitions(win)).length).toBe(1)
+  expect((await transitions(win))[0].mark).toBe('page')
+})

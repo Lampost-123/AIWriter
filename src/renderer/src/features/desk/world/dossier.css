@@ -762,3 +762,108 @@
   font: 400 12.5px/17px var(--font-sans);
   color: var(--muted);
 }
+
+/*
+  The flip (D4.3; features/look/viewTransition.ts flipTransition). Two names, not one shared pair, so the card's picture
+  is never stretched to the dossier's shape: the card (vt-card) turns away on its axis while growing towards the dossier
+  (260ms, --flip-a), then the dossier (vt-dossier) turns in from the other side (260ms after it, --flip-d); the room dims
+  as the page crossfades under them. Back: the dossier turns away (210ms), then the card turns in (210ms). With less
+  motion, only a 150ms crossfade of the page (flip-fade).
+*/
+:root[data-vt~='flip'] [data-dossier],
+:root[data-vt~='flip-back'] [data-dossier] {
+  view-transition-name: vt-dossier;
+}
+::view-transition-group(vt-card),
+::view-transition-group(vt-dossier) {
+  animation: none;
+}
+::view-transition-old(vt-card),
+::view-transition-new(vt-card),
+::view-transition-old(vt-dossier),
+::view-transition-new(vt-dossier) {
+  backface-visibility: hidden;
+}
+:root[data-vt~='flip']::view-transition-old(page) {
+  animation: dz-vt-out 300ms linear both;
+}
+:root[data-vt~='flip']::view-transition-new(page) {
+  animation: dz-vt-in 300ms linear both;
+}
+:root[data-vt~='flip-back']::view-transition-old(page) {
+  animation: dz-vt-out 260ms linear both;
+}
+:root[data-vt~='flip-back']::view-transition-new(page) {
+  animation: dz-vt-in 260ms linear both;
+}
+:root[data-vt~='flip']::view-transition-old(vt-card) {
+  animation: dz-card-out 260ms var(--flip-a) both;
+}
+:root[data-vt~='flip']::view-transition-new(vt-dossier) {
+  animation: dz-dossier-in 260ms var(--flip-d) 260ms both;
+}
+:root[data-vt~='flip-back']::view-transition-old(vt-dossier) {
+  animation: dz-dossier-out 210ms var(--flip-a) both;
+}
+:root[data-vt~='flip-back']::view-transition-new(vt-card) {
+  animation: dz-card-back 210ms var(--flip-d) 210ms both;
+}
+@keyframes dz-card-out {
+  from {
+    transform: perspective(1200px);
+  }
+  to {
+    transform: perspective(1200px) translate(var(--flip-dx, 0px), var(--flip-dy, 0px)) rotateY(90deg) scale(var(--flip-s, 1.4));
+  }
+}
+@keyframes dz-card-back {
+  from {
+    transform: perspective(1200px) translate(var(--flip-dx, 0px), var(--flip-dy, 0px)) rotateY(90deg) scale(var(--flip-s, 1.4));
+  }
+  to {
+    transform: perspective(1200px);
+  }
+}
+@keyframes dz-dossier-in {
+  0% {
+    opacity: 0;
+    transform: perspective(1200px) rotateY(-90deg) scale(var(--flip-sx, 0.36), var(--flip-sy, 0.6));
+  }
+  6% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1200px);
+  }
+}
+@keyframes dz-dossier-out {
+  0% {
+    opacity: 1;
+    transform: perspective(1200px);
+  }
+  94% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1200px) rotateY(-90deg) scale(var(--flip-sx, 0.36), var(--flip-sy, 0.6));
+  }
+}
+@keyframes dz-vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dz-vt-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Less motion: the page crossfades in 150ms, nothing turns (the rule stilling every View Transition gives way here). */
+:root[data-vt~='flip-fade']::view-transition-old(page) {
+  animation: dz-vt-out 150ms ease-out both !important;
+}
+:root[data-vt~='flip-fade']::view-transition-new(page) {
+  animation: dz-vt-in 150ms ease-out both !important;
+}

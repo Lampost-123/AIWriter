@@ -4,7 +4,7 @@ import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
 import { useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
-import { pageTransition } from '@/features/look/viewTransition'
+import { pageTransition, type Flip } from '@/features/look/viewTransition'
 import { areaOf } from '@/layout/areas'
 import { api } from './api'
 
@@ -125,7 +125,11 @@ interface AppState {
   refreshStories(): Promise<void>
   selectStory(id: ID | null): void
   selectScene(id: ID | null, storyId?: ID): void
-  navigate(view: View): void
+  /**
+   * Shows another page (a crossfade in the New look). `flip`: the desk's World room, a card flipping into its dossier or
+   * back (features/look/viewTransition.ts).
+   */
+  navigate(view: View, opts?: { flip?: Flip }): void
   setSaveState(s: SaveState): void
   setSceneWords(n: number): void
   bumpOutline(): void
@@ -335,9 +339,20 @@ export const useApp = create<AppState>((set, get) => ({
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
   },
 
-  navigate(view) {
+  navigate(view, opts) {
     const before = get().view
     const turn = ++navTurn
+    // The desk's World room: a card flips into its dossier, or the dossier back into its card.
+    if (opts?.flip && !get().home) {
+      pageTransition(
+        () => {
+          if (turn !== navTurn || get().view !== before) return false
+          set({ view, ...leaveHomePatch() })
+        },
+        { flip: opts.flip }
+      )
+      return
+    }
     // The New look: a new page crossfades in (features/look/viewTransition.ts). The writing page coming back, the same
     // page, the start screen, and anything done from the keyboard never animate.
     if (view.kind === 'write' || pageKey(view) === pageKey(before) || get().home) {
