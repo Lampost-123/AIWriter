@@ -60,7 +60,7 @@ export function ThreadsBoard(): React.JSX.Element {
                 </Button>
               }
             >
-              A plot thread is a question or promise your story opens and later pays off, like “Who burned the mill?”. Make one, then mark
+              A plot thread is a question or promise your story opens and later pays off, like “Who burned the mill?” Make one, then mark
               the scenes that set it up and pay it off on their scene cards. As you write, the memory notes when it opens and when it is
               resolved.
             </EmptyState>

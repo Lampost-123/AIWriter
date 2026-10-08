@@ -62,10 +62,7 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
           ))}
         </ul>
       ) : (
-        <EmptyState icon={<CircleCheck size={20} />} title="Nothing to look at" className="py-8">
-          Every draft is checked against the memory, where things stand and the story so far. Marking the scene done checks its facts,
-          who knows what, its timeline and continuity; Check this scene looks at voices, style and tone too.
-        </EmptyState>
+        <NothingFound />
       )}
       {ignored.length ? (
         <div className="mt-auto border-t border-line px-4 py-2.5">
@@ -127,6 +124,24 @@ function OnThisPage(): React.JSX.Element | null {
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * No issues from the checks. While the page has words underlined (listed above it), it says the checks found nothing
+ * and points at those, rather than that there is nothing to look at.
+ */
+function NothingFound(): React.JSX.Element {
+  const counts = useLiveFlagCounts()
+  const underlined = LIVE_ORDER.reduce((n, k) => n + counts[k], 0)
+  return (
+    <EmptyState icon={<CircleCheck size={20} />} title={underlined ? 'No issues from the checks' : 'Nothing to look at'} className="py-8">
+      {underlined
+        ? `The checks found nothing to fix, but ${underlined === 1 ? 'one thing is' : `${underlined.toLocaleString()} things are`} underlined in the page (listed above) for a look. `
+        : null}
+      Every draft is checked against the memory, where things stand and the story so far. Marking the scene done checks its facts,
+      who knows what, its timeline and continuity; Check this scene looks at voices, style and tone too.
+    </EmptyState>
   )
 }
 

@@ -306,6 +306,10 @@ function SearchBox(): React.JSX.Element {
         '@container ml-1 flex h-7 w-[180px] min-w-[36px] shrink items-center gap-2 rounded-md border border-line bg-page px-2.5 text-[12.5px] text-faint',
         // The New look: a soft pill.
         'look-new:h-8 look-new:w-[150px] look-new:rounded-full look-new:border-transparent look-new:bg-surface look-new:shadow-[inset_0_0_0_1px_var(--line)] look-new:hover:border-transparent look-new:min-[1100px]:w-[190px]',
+        // The New look: when the bar is short of room, this gives up its spare width before the trail's names are cut,
+        // down to the width that still shows its word (below that only while an update is offered).
+        // (Far more readily than any name: even a fraction of a pixel taken from one would cut it short with "…".)
+        'look-new:shrink-[1e15] look-new:min-w-[104px] look-new:group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:min-w-[36px]',
         'transition-colors duration-150 hover:border-line-strong hover:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
         'min-[1100px]:w-[220px]'
       )}
@@ -389,7 +393,9 @@ export function TopBar(): React.JSX.Element {
         data-update-slot
         className={cn(
           'flex min-w-0 flex-1 justify-center px-3',
-          'has-[>[role=status]:not([aria-hidden=true])]:min-w-[250px] lg:has-[>[role=status]:not([aria-hidden=true])]:min-w-[345px]'
+          'has-[>[role=status]:not([aria-hidden=true])]:min-w-[250px] lg:has-[>[role=status]:not([aria-hidden=true])]:min-w-[345px]',
+          // The New look: with no offer it keeps no room of its own, so the trail can use it.
+          'look-new:px-0 look-new:has-[>[role=status]:not([aria-hidden=true])]:px-3'
         )}
       >
         <UpdateBanner />

@@ -67,7 +67,7 @@ export function ShortcutsList(): React.JSX.Element {
           className="fixed left-1/2 top-[12vh] z-50 flex max-h-[76vh] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop focus:outline-none data-[state=open]:animate-pop-in"
         >
           {/* It scrolls inside its frame, so its bottom edge can fade while more of the list is below. */}
-          <div data-shortcuts ref={watchMoreBelow} tabIndex={-1} className="fade-more-below min-h-0 overflow-y-auto p-5 focus:outline-none">
+          <div data-shortcuts ref={watchMoreBelow} tabIndex={-1} className="fade-more-below scrollbar-shown min-h-0 overflow-y-auto p-5 focus:outline-none">
             <div className="mb-1 flex items-start justify-between gap-4">
               <div>
                 <D.Title className="text-[15px] font-semibold text-fg">Keyboard shortcuts</D.Title>

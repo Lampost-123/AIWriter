@@ -78,6 +78,8 @@ interface AppState {
   saveState: SaveState
   /** Word count of the open scene, shown in the top bar. */
   sceneWords: number
+  /** The scene sceneWords was counted in (null when not known): the binder shows it for that scene while it changes. */
+  sceneWordsOf: ID | null
   /** Bumped whenever chapters or scenes change, so the binder reloads. */
   outlineRev: number
   /** Bumped whenever world bible entries change, so lists and pickers reload. */
@@ -129,7 +131,8 @@ interface AppState {
   selectScene(id: ID | null, storyId?: ID): void
   navigate(view: View): void
   setSaveState(s: SaveState): void
-  setSceneWords(n: number): void
+  /** The open scene's word count, and which scene it was counted in. */
+  setSceneWords(n: number, of?: ID | null): void
   bumpOutline(): void
   bumpEntries(): void
   setActiveGeneration(g: { id: ID; sceneId: ID } | null): void
@@ -181,6 +184,7 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
     view: { kind: 'write' },
     outlineRev: 0,
     sceneWords: 0,
+    sceneWordsOf: null,
     saveState: 'idle',
     peekEntryId: null,
     chapterCardId: null
@@ -196,6 +200,7 @@ const NO_WORLD: Partial<AppState> = {
   view: { kind: 'write' },
   outlineRev: 0,
   sceneWords: 0,
+  sceneWordsOf: null,
   saveState: 'idle',
   activeGeneration: null,
   memoryStatus: null,
@@ -243,6 +248,7 @@ export const useApp = create<AppState>((set, get) => ({
   view: { kind: 'write' },
   saveState: 'idle',
   sceneWords: 0,
+  sceneWordsOf: null,
   outlineRev: 0,
   entriesRev: 0,
   activeGeneration: null,
@@ -334,7 +340,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setSaveState: (saveState) => set({ saveState }),
-  setSceneWords: (sceneWords) => set({ sceneWords }),
+  setSceneWords: (sceneWords, of = null) => set({ sceneWords, sceneWordsOf: of }),
   bumpOutline: () => set({ outlineRev: get().outlineRev + 1 }),
   bumpEntries: () => set({ entriesRev: get().entriesRev + 1 }),
   setActiveGeneration: (activeGeneration) => set({ activeGeneration }),

@@ -486,11 +486,12 @@ const Group = memo(function Group({
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
         {cards.map((c) => (
           // Cards out of view skip layout and paint, so a codex of hundreds of entries opens quickly.
-          // (The New look: a margin of room inside each, so a card lifted on hover keeps its shadow.)
+          // (The New look: a margin of room inside each, and the item's clip let out beyond it far enough for the
+          // whole of a lifted card's shadow, which would otherwise end in a hard square edge under the rounded card.)
           <li
             key={c.id}
             data-codex-item={c.id}
-            className="[contain-intrinsic-size:auto_104px] [content-visibility:auto] look-new:-m-1.5 look-new:p-1.5 look-new:[contain-intrinsic-size:auto_116px]"
+            className="[contain-intrinsic-size:auto_104px] [content-visibility:auto] look-new:-m-1.5 look-new:p-1.5 look-new:[contain-intrinsic-size:auto_116px] look-new:[overflow-clip-margin:36px]"
           >
             <Card card={c} onOpen={onOpen} />
           </li>

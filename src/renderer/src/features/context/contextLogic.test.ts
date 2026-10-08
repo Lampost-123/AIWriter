@@ -5,6 +5,7 @@ import {
   blockStateNote,
   briefingEntries,
   budgetView,
+  closingTokens,
   entryDetail,
   hiddenScope,
   keepTouched,
@@ -27,6 +28,16 @@ const block = (id: string, priority: number, extra: Partial<ContextBlock> = {}):
   entryIds: [],
   dropped: false,
   ...extra
+})
+
+describe('the parts of the briefing add up to its size', () => {
+  it('lists the closing instruction (and what each message takes) as what is left over', () => {
+    const budget = { used: 2613, available: 27666, contextLength: 32000, reserved: 1134 }
+    const blocks = [block('a', 1, { tokens: 999 }), block('b', 2, { tokens: 1475 }), block('c', 3, { tokens: 400, dropped: true })]
+    // The parts left out take no room; the rest add up with the closing row to the size shown.
+    expect(closingTokens({ blocks, budget })).toBe(139)
+    expect(closingTokens({ blocks: [block('a', 1, { tokens: 3000 })], budget })).toBe(0)
+  })
 })
 
 const entry = (entryId: string, extra: Partial<ContextEntry> = {}): ContextEntry => ({

@@ -598,7 +598,8 @@ export function CommandPalette(): React.JSX.Element {
             id="palette-list"
             role="listbox"
             aria-label="Results"
-            className="h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5"
+            // Its scrollbar shows whenever there are more results than fit, so a row cut at the foot reads as "more below".
+            className="scrollbar-shown h-[min(440px,58vh)] overflow-y-auto overscroll-contain p-1.5"
           >
             {ready
               ? sections(rows).map((s, i) =>

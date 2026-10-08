@@ -30,10 +30,16 @@ import { WorldCard } from './WorldCard'
 import { listenForRecipes, useRecipes } from '@/features/recipes/recipeStore'
 import { recipeName } from '@/features/recipes/recipeLogic'
 
+/** Whether a key or the pointer has been pressed since the window opened. */
+let pressed = false
+for (const kind of ['keydown', 'pointerdown'] as const) window.addEventListener(kind, () => (pressed = true), { capture: true, once: true })
+
 /**
  * Puts the keyboard on an element of the start screen unless something on it has it already, now and once more on
  * the next frame: a menu that opened the start screen (the world menu, the palette) may still hold the keyboard as
- * it closes. Returns the clean-up.
+ * it closes. Returns the clean-up. At launch, before anything has been pressed, it shows no focus ring (the browser
+ * would draw one, as nothing says the pointer is in use); the first key shows it as usual. Later the browser decides,
+ * as everywhere: a ring when the start screen was opened from the keyboard, none from a click.
  */
 function takeKeyboard(el: () => HTMLElement | null): () => void {
   const take = (): void => {
@@ -41,7 +47,8 @@ function takeKeyboard(el: () => HTMLElement | null): () => void {
     const screen = target?.closest('.start-screen')
     const active = document.activeElement
     if (!target || (active && active !== screen && screen?.contains(active))) return
-    target.focus({ preventScroll: true })
+    // (focusVisible isn't in TypeScript's own list yet; Chromium has it.)
+    target.focus({ preventScroll: true, ...(pressed ? {} : { focusVisible: false }) } as FocusOptions)
   }
   take()
   const frame = requestAnimationFrame(take)

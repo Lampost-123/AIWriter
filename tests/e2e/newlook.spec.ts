@@ -36,6 +36,9 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   const trail = win.getByRole('navigation', { name: 'Where you are' })
   await expect(trail.getByRole('button')).toHaveText(['The Keeper’s Light', 'The Night Ferry', 'Lighting the Lamp'])
   await expect(trail.getByRole('button', { name: 'Lighting the Lamp' })).toHaveAttribute('aria-current', 'page')
+  // A name cut short in a small window shows whole on hover.
+  await expect(trail.getByRole('button', { name: 'The Keeper’s Light' })).toHaveAttribute('title', /^The Keeper’s Light: /)
+  await expect(trail.getByRole('button', { name: 'Lighting the Lamp' })).toHaveAttribute('title', 'Lighting the Lamp')
 
   // The sample world is a chip in the top bar, with the way to start Adam's own.
   const chip = win.getByRole('region', { name: 'Sample world' })
@@ -47,6 +50,10 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await expect(area(win, 'World')).toHaveAttribute('aria-current', 'page')
   await expect(list(win)).toHaveAttribute('data-area-list', 'world')
   await expect(list(win).getByRole('button', { name: /^Everything/ })).toHaveAttribute('aria-current', 'page')
+  // Everything counts what the codex shows (its 9 cards: plot threads are on their own board, not here).
+  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' }).locator('xpath=..')).toContainText('9')
+  await expect(list(win).getByRole('button', { name: /^Everything/ })).toContainText('9')
+  await expect(main(win).locator('[data-codex-card]')).toHaveCount(9)
   // Codex cards: a card of paper with its kind's ink along the top, and the letter in that ink.
   const wren = main(win).locator('[data-codex-card]').filter({ hasText: 'Wren Halloway' }).first()
   await expect(wren.locator('span.bg-k-char')).toHaveCount(1)
@@ -68,6 +75,10 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await area(win, 'Check').click()
   await expect(list(win)).toHaveAttribute('data-area-list', 'check')
   await expect(list(win).getByRole('button', { name: 'Consistency' })).toHaveAttribute('aria-current', 'page')
+  // With nothing found, one message and one way to check (the page's own button).
+  await expect(main(win).getByRole('heading', { name: 'No issues found' })).toBeVisible()
+  await expect(main(win).getByText('No open issues')).toHaveCount(0)
+  await expect(main(win).getByRole('button', { name: 'Check this story', exact: true })).toHaveCount(1)
 
   // A screen opened from the palette lights its own area: the style guide is in Write.
   await win.keyboard.press('Control+K')
@@ -109,20 +120,25 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     await useFakeModel(win, fake, 'fake/slow')
     const header = win.locator('main header')
 
-    // At a typical window size, Mark done says so on one line (it once wrapped onto two), and the header fits.
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 1000))
+    // At every window size, both side panels open, Mark done says so on one line (it once wrapped onto two), and the
+    // header fits.
     const markDone = header.getByRole('button', { name: /^Mark scene done/ })
-    await expect(markDone).toHaveText('Mark done')
-    await expect
-      .poll(() =>
-        markDone.locator('span').evaluate((s) => {
-          // (Run in the window: the tests' own types have no DOM.)
-          const style = (globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string } }).getComputedStyle
-          return s.getBoundingClientRect().height / parseFloat(style(s).lineHeight)
-        })
-      )
-      .toBeCloseTo(1, 1)
-    expect(await header.evaluate((h) => h.scrollWidth - h.clientWidth)).toBe(0)
+    for (const [w, h] of [[1600, 1000], [1440, 900], [1280, 800], [1024, 700], [960, 640]] as const) {
+      await app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
+      await expect.poll(() => win.evaluate('innerWidth')).toBe(w)
+      await expect(markDone).toHaveText('Mark done')
+      await expect
+        .poll(() =>
+          markDone.locator('span').evaluate((s) => {
+            // (Run in the window: the tests' own types have no DOM.)
+            const style = (globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string } }).getComputedStyle
+            return s.getBoundingClientRect().height / parseFloat(style(s).lineHeight)
+          })
+        )
+        .toBeCloseTo(1, 1)
+      expect(await header.evaluate((h) => h.scrollWidth - h.clientWidth)).toBe(0)
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 1000))
 
     // The page is a sheet of paper on the frame, with the scene's title at its head.
     const sheet = win.locator('.scene-sheet')
@@ -147,11 +163,22 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     await win.getByRole('button', { name: /^Add below/ }).click()
     await expect(header.locator('.gen-running')).toBeVisible()
     await expect(header.getByRole('status')).toContainText(/\d+ words/)
+    // The list's count for the scene keeps in step with the top bar's while the draft comes in (not only once saved).
+    const count = (s: string, re: RegExp): number => Number(s.match(re)?.[1].replace(/,/g, '') ?? -1)
+    const topWords = async (): Promise<number> => count(await win.getByTitle('Word counts and today’s writing').innerText(), /(\d[\d,]*)\s*words/)
+    const rowWords = async (): Promise<number> =>
+      count(await list(win).getByRole('treeitem', { name: /The Harbour Wall/ }).innerText(), /(\d[\d,]*)\s*$/)
+    await expect.poll(async () => (await topWords()) > 30 && (await rowWords()) === (await topWords()), { timeout: 20_000 }).toBe(true)
+    await expect(header.locator('.gen-running')).toBeVisible()
     await header.getByRole('button', { name: 'Stop' }).click()
     await expect(header.locator('.gen-running')).toHaveCount(0)
 
-    // Done: the tick draws itself, and the scene's ring fills green in the list.
+    // Done: the tick draws itself, and the scene's ring fills green in the list. Nothing beside the status moves.
+    const formatAt = async (): Promise<number> => (await header.getByRole('button', { name: /^Format/ }).boundingBox())?.x ?? -1
+    const before = await formatAt()
     await header.getByRole('button', { name: /^Mark scene done/ }).click()
+    await expect(header.getByRole('button', { name: /^Done\. Reopen/ })).toBeVisible()
+    expect(await formatAt()).toBe(before)
     // (Hovered, the button offers Reopen instead.)
     await win.mouse.move(5, 500)
     await expect(header.locator('svg.drawn-tick-draw')).toBeVisible()

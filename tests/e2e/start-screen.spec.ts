@@ -76,6 +76,10 @@ test('at launch the start screen shows Continue first; Enter goes straight back 
   await expect(continueCard(win)).toContainText('The Ford')
   await expect(continueCard(win)).toContainText('Book 1 › The Northern Reaches')
   await expect(continueCard(win)).toBeFocused()
+  // The keyboard is there, but no focus ring shows at launch: nothing has been done with the keyboard yet.
+  const ringShows = (): Promise<boolean> =>
+    continueCard(win).evaluate((e) => (e as unknown as { matches(s: string): boolean }).matches(':focus-visible'))
+  expect(await ringShows()).toBe(false)
   // The worlds, the open one first, each with what it holds.
   await expect(worldList(win).locator(':scope > li')).toHaveCount(2)
   await expect(worldList(win).locator(':scope > li').first()).toContainText('The Northern Reaches')

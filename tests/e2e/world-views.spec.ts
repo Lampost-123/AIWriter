@@ -292,6 +292,8 @@ test('the plot threads board: open, resolved and planned, a thread left open hig
   await open(win, 'Plot threads board')
   await expect(main(win).getByRole('heading', { level: 1, name: 'Plot threads board', exact: true })).toBeVisible()
   await expect(main(win).getByRole('heading', { name: 'No plot threads yet' })).toBeVisible()
+  // The example's own question mark ends its sentence (no full stop after it).
+  await expect(main(win).getByText(/like “Who burned the mill\?” Make one,/)).toBeVisible()
   await main(win).getByRole('button', { name: 'Create a plot thread' }).click()
   await expect(binder(win).getByRole('button', { name: /^Plot threads\s*\d/ })).toHaveAttribute('aria-current', 'page')
 

@@ -180,9 +180,12 @@ const AFTER_WORDS: Record<CheckReport['after'], string> = {
   request: 'Checked'
 }
 
-/** The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues". */
+/**
+ * The report's line while it is closed: "Checked after the latest draft · 6 checks · 2 issues". With none it says
+ * "no issues" (what the checks found), never that all is well: the page may still have words underlined.
+ */
 export function reportHeadline(r: Pick<CheckReport, 'after' | 'items' | 'found'>): string {
   const checks = r.items.length === 1 ? '1 check' : `${r.items.length} checks`
-  const how = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'all good'
+  const how = r.found ? (r.found === 1 ? '1 issue' : `${r.found} issues`) : 'no issues'
   return `${AFTER_WORDS[r.after]} · ${checks} · ${how}`
 }

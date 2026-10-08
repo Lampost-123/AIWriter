@@ -143,7 +143,25 @@ function GoalShare(): React.JSX.Element | null {
   const today = useGoals((s) => s.today)
   if (!daily) return null
   const share = Math.min(999, Math.round((Math.max(0, dayOf(days, today).typed) / daily) * 100))
-  return <span className="-ml-1 text-faint">· {share}%</span>
+  return (
+    <span className="-ml-1 text-faint">
+      · <Steady text={`${share}%`} room="min-w-[calc(3ch+0.85em)]" />
+    </span>
+  )
+}
+
+/**
+ * The room four digits and a thousands mark take ("8,888"): a scene's count rarely needs more. The New look only:
+ * Classic's bar is laid out to the pixel for the smallest window and stays as it was.
+ */
+const COUNT_ROOM = 'look-new:min-w-[calc(4ch+0.35em)]'
+
+/**
+ * A number that keeps the room of a longer one, right-aligned in it, so nothing beside it moves as it counts up (the
+ * figures are all one width: tabular-nums, each a `ch`).
+ */
+function Steady({ text, room }: { text: string; room: string }): React.JSX.Element {
+  return <span className={cn('inline-block text-right tabular-nums', room)}>{text}</span>
 }
 
 const openers = new Set<() => void>()
@@ -181,7 +199,10 @@ export function WordCountButton(): React.JSX.Element {
         className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg look-new:flex look-new:h-8 look-new:items-center look-new:gap-2 look-new:rounded-full look-new:px-2 look-new:text-[12.5px] look-new:text-muted look-new:hover:bg-surface-2"
       >
         {isNew ? <GoalRing /> : null}
-        {words.toLocaleString()} words
+        {/* Counting up (a draft coming in, typing) moves nothing in the bar: the count keeps the room of four digits. */}
+        <span>
+          <Steady text={words.toLocaleString()} room={COUNT_ROOM} /> words
+        </span>
         {isNew ? <GoalShare /> : null}
       </P.Trigger>
       <PopoverPanel

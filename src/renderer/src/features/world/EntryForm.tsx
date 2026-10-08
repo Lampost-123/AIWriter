@@ -35,7 +35,7 @@ import { allAdams, fieldOrigin, fieldText, linksFor, notesSource, sourceNote } f
 import { beforeOf, dismissProfile, editedKeys, profileOf, reachButton, reachNote, reachStory, rebase, type Profile } from './reachLogic'
 import { useSceneLabels, type ScenePlace } from './useSceneLabels'
 import { SaveNote } from './parts/SaveNote'
-import { Section } from './parts/Section'
+import { Section, sectionMeta } from './parts/Section'
 import { Switch } from './parts/Switch'
 import { CommaListInput } from './parts/TextInputs'
 import { useAutosave } from './parts/useAutosave'
@@ -803,7 +803,7 @@ const GroupSection = memo(function GroupSection({
   const keys = group.fields.map((f) => f.key)
   const filled = filledCount(fields, keys)
   return (
-    <Section title={group.label} meta={filled ? `${filled} of ${keys.length}` : null} open={open} onToggle={() => onToggle(group.id)}>
+    <Section title={group.label} meta={sectionMeta(filled, 'filled', 'filled', keys.length)} open={open} onToggle={() => onToggle(group.id)}>
       <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 @lg:grid-cols-2">
         {group.fields.map((f) => (
           <FieldInput key={f.key} def={f} value={fields[f.key] ?? ''} onField={onField} note={notes.get(f.key) ?? null} places={places} />
