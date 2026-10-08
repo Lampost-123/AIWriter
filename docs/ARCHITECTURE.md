@@ -1747,7 +1747,8 @@ A read-only audit of 122 real writer calls on DeepSeek Flash (an invented test s
 "write a complete, polished scene… End on the scene's final beat" (it invented action to reach its length, 6 of the 7
 remaining trap breaks; closed scenes off with sleep or silence; wrote card beats again), Continue given none of the
 memory, a briefing padded with false or stale lines, sample lines and stock tics repeated word for word, and only 40% of
-Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six fixes (0.6.32):
+Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six fixes (shipped in 0.6.35, with the
+lab's winners in the next section):
 
 - **Add below's own instructions** (`ai/prompts.ts` `writerInstructions(pov, true)`, `addBelowFinal`): carry the scene on
   from where it stands; the length is a ceiling, not a target; stop once what is asked has happened, mid-motion, without
@@ -1783,11 +1784,9 @@ Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six
   refused on a small model, and adds at most a few thousand tokens. The "what happens next" field is a small optional
   box in the AI tools menu, above "Continue after these words" (`features/edits/AiTools.tsx`); the palette's Continue
   has none.
-- **Phrases not to say again** (`ai/repetition.ts` `repeatedPhrases`, no model call): up to 8, from the scene so far
-  (Add below, a beat) or the words before the cursor (Continue): sample lines on the page, stock tics (`STOCK_TICS`: "the
-  rain went on", "neither of them said"…), and runs of 4 to 6 words said twice in the last 2,500 words, each listed once;
-  in the closing instruction. No presence_penalty is sent (a TODO in `ai/client.ts`: only once a provider is known to
-  honour it).
+- **Phrases not to say again**: the round listed up to 8 in the closing instruction (sample lines on the page, stock
+  tics, `ai/repetition.ts` `STOCK_TICS`, and runs said twice). Replaced before it shipped by "stock phrases said
+  afresh" (next section): naming a phrase can prime it. No presence_penalty is sent (DeepSeek's docs say it does nothing).
 - **The canon timeline** (`ai/timeline.ts`; Adam: "a clear outline of what has happened so far in the story and when and
   involving who"): in place of the prose summaries (8.8k tokens in Add below, none in Continue), "Canon: what has
   already happened… never contradict it, and never write it again as if it were new", oldest first, on this scene's own
@@ -1798,6 +1797,50 @@ Add below's prompt reused by the provider's cache (Continue 25%). Adam chose six
   full, 1,500 short, 800 smaller (Continue's), then only the most recent parts, the oldest detail going first. Its words
   depend only on scenes before this one, so it reads the same at every step. Ask the world, the checks and the
   interview keep the prose summaries (`storySoFarText`).
+
+## The writer lab's winners, as defaults (0.6.35, 2026-10-08)
+
+Each was tried first as a switch in a local lab (never pushed), on the trap harness's inn chain (K1: 12 steps of Add
+below and Continue after a whole invented story) with DeepSeek Flash, Thinking off. Samples were small (2 to 5 chains a
+variant), so nearly every 95% interval overlaps; these went in because they cost little, fixed real faults seen in the
+prompts, and none did worse. Not taken: prefix completion, repeating key facts at the end, beat options, a thinking
+planner, a scene contract, quote-both-sides checks, logprobs, stop-string cuts, "coming later" and the loop guard.
+
+- **Temperature 1.0 for the writer** (`shared/defaults.ts` `writerTemperature`): Generate, Add below, beats and Continue
+  write Balanced (the default preset) at 1.0, not 0.85. 1.0 kept canon and the judge's marks, with fewer stock phrases
+  and echoes of earlier steps; 1.3 and 1.5 fell apart. Steady, Adventurous and the edit tools keep their own; the
+  planner, check and memory keep 0.2. Thinking off, as ever, is `reasoning_effort: "none"`, which DeepSeek honours.
+- **Continue plays out what is under way** (`edits/prompts.ts` `continueTask`, `CARRY_ON_LAST`): with no "what happens
+  next", whatever is under way in the last paragraphs plays out before the card's next beat, nothing new is brought in,
+  and the ask ends "Carry on from the last paragraph…" (a knock at the door had been left for talk of the road ahead).
+  Continue asks for 180 to 280 words (was 120 to 250; it wrote past 250 about half the time anyway), with reply room for
+  twice the top in tokens (756).
+- **A door locked with someone outside** (`ai/lockRule.ts`): when the stage has a door locked, barred or bolted from
+  inside and someone out ("out in the yard", or gone out through it), Where things stand (Continue's, and Add below's
+  block 3b) gets one line: "Ash Penrose is outside; the yard door is locked from inside and Wren Hollis has the key. If
+  Ash comes back in, someone unlocks it on the page first." Round E's real slips were nearly all this: the Continue
+  straight after the lock walked Ash in through it. With the line (round F, 4 chains each): door kept 71% → 100%, no slip
+  in 4 of 4 chains (2 of 4 without).
+- **Prompt bugs found in the lab's real prompts** (`ai/briefingFixes.ts`, read side only; the memory as kept is
+  untouched): how someone is placed (posture, touching, sees) is left out once they moved after it was said
+  (`clearStalePlacing`, in `stageInScene`); a profile's usual clothing or way of moving that the stage or a later note
+  undoes is left out, and its "this day", "tomorrow" made past (`freshLooks`, `pastProfile`); people the scene's own
+  words don't name get one line under "Not in this scene", and places not linked to the scene are left out (`offScene`,
+  `linkedPlaces`; pinned entries and those the plan asked for stay whole); the plan tests only what a change makes new
+  for a told secret (`plan/plan.ts` `newWordsOf`: the key into her pocket was dropped for "the survey case"); the check
+  never lists someone as not knowing a fact about themselves (`namesPerson` in `repair/prompts.ts` and
+  `checks/context.ts`). Still open, in the memory code: the stage keeps every field a reading leaves out
+  (`shared/continuity.ts` `mergeState`), and "finds Cinder has cast a shoe" reads as a getting (`memory/items.ts`).
+- **Stock phrases said afresh** (`ai/prompts.ts`, `repair/slop.ts`): the writer prompt names no stock phrase (the list in
+  "Write like a person" and the clichés by example are gone; the rule says to show feeling through what someone does or
+  says; Adam's own "Words and phrases to avoid" stay). After the check, stock phrases in the AI's words (`STOCK_TICS`, the
+  trap runs' others, the app's AI phrases but "not X but Y", sample lines copied whole) are rewritten by one memory-model
+  call, one instruction per kind of tic, and come back as more amber fixes with Undo. Not when "Steer clear of common AI
+  phrases" is off. Round E: passages with a stock phrase 21% → 4%, the one difference outside the noise.
+- **A second opinion before repair** (`repair/second.ts`, after Adam's Holodeck critic): a slip whose line wasn't given,
+  whose quote isn't in the new words, or that the model took back in its own last sentence is dropped with no call;
+  the rest go to one call on the memory model at its 0.2 (reason first, then real or not), and those ruled not real are
+  neither mended nor asked. It may never excuse clothes or position as "could have happened off the page".
 
 ## Milestone 1 scope
 
