@@ -42,22 +42,10 @@ async function size(app: ElectronApplication, win: Page, w: number, h: number): 
 const overflow = (win: Page) =>
   win.evaluate<number>(`Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, ...[...document.querySelectorAll('[data-desk-topbar], .desk-room-head, [data-desk-dock]')].map((e) => e.scrollWidth - e.clientWidth + innerWidth)) - innerWidth`)
 
-test('the Layout choice: only in the New look where the desk can be chosen; a pick shows at once and is kept', async ({ launch }) => {
-  // A build where the desk isn't ready yet: no Layout choice (the panels, as today).
-  {
-    const { win } = await launch({ env: { AIWRITE_LOOK: 'new' } })
-    await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
-    await invoke(win, 'openSampleWorld')
-    await win.reload()
-    await expect(win.locator('.scene-prose')).toBeVisible()
-    expect(await arrangement(win)).toBe('panels')
-    await win.keyboard.press('Control+,')
-    await win.getByRole('navigation').getByRole('button', { name: 'Appearance' }).click()
-    await expect(win.getByRole('radiogroup', { name: 'Style' })).toBeVisible()
-    await expect(win.getByRole('radiogroup', { name: 'Layout' })).toHaveCount(0)
-  }
-  // A try-out build: the panels to start with (app tests), the desk a click away.
-  const { win, dataDir, app } = await sampleWorld(launch, { env: { AIWRITE_ARRANGEMENT: 'panels', AIWRITE_DESK_READY: '1' } })
+test('the Layout choice: in the New look, Desk or Panels; a pick shows at once and is kept', async ({ launch }) => {
+  // (The desk is ready for everyone: DESK_READY. App tests start on the panels unless they ask for the desk.)
+  // The panels to start with (app tests), the desk a click away.
+  const { win, dataDir, app } = await sampleWorld(launch, { env: { AIWRITE_ARRANGEMENT: 'panels' } })
   expect(await arrangement(win)).toBe('panels')
   await win.keyboard.press('Control+,')
   await win.getByRole('navigation').getByRole('button', { name: 'Appearance' }).click()
@@ -78,7 +66,7 @@ test('the Layout choice: only in the New look where the desk can be chosen; a pi
   await expect(rooms(win)).toBeVisible()
   await app.close()
   // Kept: the next launch opens on the desk.
-  const again = await launch({ dataDir, env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels', AIWRITE_DESK_READY: '1' } })
+  const again = await launch({ dataDir, env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels' } })
   await expect(again.win.locator('.scene-prose')).toBeVisible()
   expect(await arrangement(again.win)).toBe('desk')
   await expect(rooms(again.win)).toBeVisible()
