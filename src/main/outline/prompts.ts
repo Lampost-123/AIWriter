@@ -31,7 +31,7 @@ export function cleanSize(size: Partial<OutlineSize> | null | undefined): Outlin
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
-const SCENE_FORM = `### Scene: <the scene's title>
+export const SCENE_FORM = `### Scene: <the scene's title>
 When: <the day it happens on, in the story's count of days, and the time of day: "Day 1, morning", "Day 3, dusk">
 Summary: <one sentence: what happens in it>
 Sets up: <the plot threads this scene opens, by name, separated by semicolons; leave this line out when it opens none>
@@ -40,11 +40,24 @@ Pays off: <the plot threads this scene resolves, by name, separated by semicolon
 - <the next beat>
 - <the next beat>`
 
+/** A chapter card's lines (chapter cards, 2026-10-08): what most of the chapter's scenes share. Kept in step with features/outline/parse.ts. */
+export const CHAPTER_CARD_FORM = `Point of view: <the character whose eyes most of the chapter is seen through>
+Characters: <the characters in most of its scenes, by name, separated by commas>
+Location: <where most of it happens, by the place's name>
+When: <when it starts, as a scene's When: "Day 1, morning">
+Mood: <its mood or tone, in a few words>`
+
 const CHAPTER_FORM = `## Chapter: <the chapter's title>
-Goal: <one sentence: what this chapter achieves>`
+Goal: <one sentence: what this chapter achieves>
+${CHAPTER_CARD_FORM}`
+
+/** The rules for the chapter card lines and a scene's own, for every plan that gives chapters (the outline helper, recipes, a chapter's plan). */
+export const CHAPTER_CARD_RULES = `- Each chapter's Point of view, Characters, Location, When and Mood are what most of its scenes share. Leave out a line the chapter has nothing for.
+- A scene that differs from its chapter adds only the lines that differ, after its When: "Point of view:", "Characters:", "Location:" or "Mood:" (another place, a different point of view). A scene that shares them with its chapter adds none.`
 
 const SHARED_RULES = `- Each scene has 3 to 6 beats, in order, each a short line.
 - Each scene has a When: "Day" and the day's number, counting the day the story opens as Day 1, then a comma and the time of day ("Day 1, morning", "Day 2, evening", "Day 5, dusk"). Days carry on from the story's scenes before and never go back. Scenes on the same day keep the same day number. If the story's scenes already give their time another way (a date or a year), use that way instead.
+${CHAPTER_CARD_RULES}
 - Titles are a few words, with no numbers.
 - Continue from what the story already has. Never repeat or retell it.
 - Use the characters, places and plot threads given, by their names. Bring in someone or something new only when the story needs it.

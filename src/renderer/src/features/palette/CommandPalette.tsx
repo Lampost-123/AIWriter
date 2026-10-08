@@ -301,6 +301,9 @@ function useActionContext(): ActionContext {
   const drafting = useApp((s) => s.activeGeneration !== null)
   const theme = useApp((s) => s.settings?.theme ?? 'system')
   const sceneDone = useOutlineStore((s) => !!sceneId && s.outline?.scenes.find((x) => x.id === sceneId)?.status === 'done')
+  const chapterCardId = useApp((s) => s.chapterCardId)
+  const sceneChapterId = useOutlineStore((s) => (sceneId ? (s.outline?.scenes.find((x) => x.id === sceneId)?.chapterId ?? null) : null))
+  const chapterId = chapterCardId ?? sceneChapterId
   const readAloud = useApp((s) => !!s.settings?.speech.readAloud)
   const reading = useReading((s) => s.reading)
   const speakers = useApp((s) => !!s.settings?.speech.showSpeakers)
@@ -310,8 +313,8 @@ function useActionContext(): ActionContext {
   const soundEffects = useApp((s) => !!s.settings?.speech.readAloud && !!s.settings?.speech.soundEffects)
   const showBeats = useApp((s) => !!s.settings?.editor?.showBeats)
   return useMemo(
-    () => ({ view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats }),
-    [view, storyId, sceneId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats]
+    () => ({ view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats }),
+    [view, storyId, sceneId, chapterId, sceneDone, drafting, theme, readAloud, reading, speakers, unreadStory, focus, spellCheck, soundEffects, showBeats]
   )
 }
 

@@ -102,6 +102,10 @@ interface AppState {
   newStoryOpen: boolean
   /** Ask the world (milestone 4) shows in the right-hand panel beside the page, in place of the scene panel's tabs. */
   askOpen: boolean
+  /** The chapter whose card shows in the right-hand panel (clicked in the binder), in place of the scene panel's tabs. */
+  chapterCardId: ID | null
+  /** Bumped whenever a chapter card changes what scene cards say (its change, its Undo), so open cards reload. */
+  chapterCardsRev: number
   /**
    * The start screen is showing (features/start/). It shows over the workspace, which stays as it was underneath (a
    * draft keeps writing). Opening a world or a page leaves it; with no world open it always shows (but for Settings
@@ -139,6 +143,9 @@ interface AppState {
   setNewStoryOpen(open: boolean): void
   /** Opens Ask the world beside the page (opening the panel), or closes it. */
   setAskOpen(open: boolean): void
+  /** Shows a chapter's card in the right-hand panel (opening the panel, on the writing page); null closes it. */
+  openChapterCard(id: ID | null): void
+  bumpChapterCards(): void
   /** Shows the start screen over the workspace (the Home button, the world menu, the palette). */
   goHome(): void
   /** Closes the start screen, back to the workspace as it was. */
@@ -166,7 +173,18 @@ async function loadWorldState(world: World, settings: Settings): Promise<Partial
     sceneId = find(settings.lastSceneId) ?? find(place?.sceneId) ?? find(lastSceneOf(story.id)) ?? scenes[0]?.id ?? null
   }
   // The new world's scene shows its own count once loaded; never the old scene's meanwhile.
-  return { world, stories, storyId: story?.id ?? null, sceneId, view: { kind: 'write' }, outlineRev: 0, sceneWords: 0, saveState: 'idle', peekEntryId: null }
+  return {
+    world,
+    stories,
+    storyId: story?.id ?? null,
+    sceneId,
+    view: { kind: 'write' },
+    outlineRev: 0,
+    sceneWords: 0,
+    saveState: 'idle',
+    peekEntryId: null,
+    chapterCardId: null
+  }
 }
 
 /** Nothing of a world left on screen: the start screen shows instead. */
@@ -183,7 +201,8 @@ const NO_WORLD: Partial<AppState> = {
   memoryStatus: null,
   peekEntryId: null,
   newStoryOpen: false,
-  askOpen: false
+  askOpen: false,
+  chapterCardId: null
 }
 
 /** The settings patch remembering where Adam is in this world. */
@@ -236,6 +255,8 @@ export const useApp = create<AppState>((set, get) => ({
   peekEntryId: null,
   newStoryOpen: false,
   askOpen: false,
+  chapterCardId: null,
+  chapterCardsRev: 0,
   home: false,
 
   async init(opts) {
@@ -296,12 +317,13 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   selectStory(id) {
-    set({ storyId: id, sceneId: null, view: { kind: 'write' }, ...leaveHomePatch() })
+    set({ storyId: id, sceneId: null, view: { kind: 'write' }, chapterCardId: null, ...leaveHomePatch() })
     void api.updateSettings({ lastStoryId: id, ...placeIn(get().world, id, null) })
   },
 
   selectScene(id, storyId) {
-    const patch: Partial<AppState> = { sceneId: id, view: { kind: 'write' }, ...leaveHomePatch() }
+    // Opening a scene shows its own panel again, in place of a chapter's card.
+    const patch: Partial<AppState> = { sceneId: id, view: { kind: 'write' }, chapterCardId: null, ...leaveHomePatch() }
     if (storyId) patch.storyId = storyId
     set(patch)
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
@@ -322,16 +344,25 @@ export const useApp = create<AppState>((set, get) => ({
   bumpMemory: () => set({ memoryRev: get().memoryRev + 1 }),
   bumpBriefing: () => set({ briefingRev: get().briefingRev + 1 }),
   peekEntry(id) {
-    set({ peekEntryId: id })
+    set({ peekEntryId: id, ...(id ? { chapterCardId: null } : {}) })
     const layout = get().settings?.layout
     if (id && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
   },
   setNewStoryOpen: (newStoryOpen) => set({ newStoryOpen }),
   setAskOpen(askOpen) {
-    set({ askOpen, ...(askOpen ? { peekEntryId: null } : {}) })
+    set({ askOpen, ...(askOpen ? { peekEntryId: null, chapterCardId: null } : {}) })
     const layout = get().settings?.layout
     if (askOpen && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
   },
+  openChapterCard(chapterCardId) {
+    set({
+      chapterCardId,
+      ...(chapterCardId ? { peekEntryId: null, askOpen: false, view: { kind: 'write' as const }, ...leaveHomePatch() } : {})
+    })
+    const layout = get().settings?.layout
+    if (chapterCardId && layout && !layout.inspectorOpen) void get().updateSettings({ layout: { inspectorOpen: true } })
+  },
+  bumpChapterCards: () => set({ chapterCardsRev: get().chapterCardsRev + 1 }),
   goHome: () => set({ home: true }),
   leaveHome: () => set({ home: false }),
   closeWorld() {

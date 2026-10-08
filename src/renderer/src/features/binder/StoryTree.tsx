@@ -22,6 +22,7 @@ import {
   FilePlus2,
   FolderInput,
   FolderPlus,
+  Layers,
   ListTree,
   MessageCircleQuestion,
   PenLine,
@@ -36,6 +37,7 @@ import { Button } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
+import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
 import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
 import { checkChapter, checkScene, useIssueCounts } from '@/features/consistency/checkStore'
 import * as actions from './actions'
@@ -107,6 +109,9 @@ const MENU_LABELS: Record<RowKind, string> = { scene: 'Scene actions', chapter: 
 export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element {
   const sceneId = useApp((s) => s.sceneId)
   const writing = useApp((s) => s.view.kind === 'write')
+  const chapterCardId = useApp((s) => s.chapterCardId)
+  /** The chapter's menu opened its card: the card takes the keyboard, not the row. */
+  const cardFocus = useRef(false)
   const { collapsed, toggle } = useCollapsed()
   // Milestone 5: the scenes' issue badges follow the story, and issues:changed.
   useIssueCounts(outline.story.id)
@@ -182,9 +187,11 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
 
   const h = useMemo<RowHandlers>(() => {
     const select = (id: ID): void => {
-      const { storyId, sceneId: open, view, navigate, selectScene } = useApp.getState()
+      const { storyId, sceneId: open, view, navigate, selectScene, chapterCardId, openChapterCard } = useApp.getState()
       if (id !== open) selectScene(id, storyId ?? undefined)
       else if (view.kind !== 'write') navigate({ kind: 'write' })
+      // The open scene clicked while a chapter's card shows beside it: its own panel shows again.
+      if (id === open && chapterCardId) openChapterCard(null)
     }
     return {
       open: (id) => {
@@ -192,6 +199,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         select(id)
         requestEditorFocus(id)
       },
+      openChapter: (id) => useApp.getState().openChapterCard(id),
       toggle: (id) => toggle(id),
       startRename: (kind, id) => setRenaming({ kind, id }),
       stopRename: () => {
@@ -519,6 +527,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         tabbable={tabbableId === chapterId}
         menuOpen={menu?.kind === 'chapter' && menu.id === chapterId}
         lifted={drag?.kind === 'chapter' && drag.id === chapterId}
+        cardOpen={writing && chapterCardId === chapterId}
         h={h}
       >
         <SortableContext items={stableItems(chapterId, shown.map(sceneDndId))} strategy={verticalListSortingStrategy}>
@@ -626,6 +635,10 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         label={menu ? MENU_LABELS[menu.kind] : 'Actions'}
         onClose={() => setMenu(null)}
         onCloseFocus={() => {
+          if (cardFocus.current) {
+            cardFocus.current = false
+            return
+          }
           if (menu && !renamingRef.current && !purposeRef.current) focusRow(menu.id)
         }}
       >
@@ -653,6 +666,16 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
           </>
         ) : menu?.kind === 'chapter' ? (
           <>
+            <RowMenuItem
+              icon={<Layers size={14} />}
+              onSelect={() => {
+                cardFocus.current = true
+                requestChapterCardFocus()
+                useApp.getState().openChapterCard(menu.id)
+              }}
+            >
+              Chapter card
+            </RowMenuItem>
             <RowMenuItem icon={<PenLine size={14} />} hint="F2" onSelect={() => setRenaming({ kind: 'chapter', id: menu.id })}>
               Rename
             </RowMenuItem>

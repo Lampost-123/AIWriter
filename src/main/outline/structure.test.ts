@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type Database from 'better-sqlite3'
 import type { KeepItem } from '@shared/contracts/outline'
 import type { ID } from '@shared/types'
+import { emptySceneCard } from '@shared/defaults'
+import { emptyChapterCard } from '@shared/chapterCard'
 import * as repo from '../db/repo'
 import * as acts from '../db/acts'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { pureWorld } from '../../../tests/unit/testWorld'
 import { parseWhen, placeWhens } from '../worldViews/when'
-import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline, takeBackThreads } from './structure'
+import { actDeleteNotes, cleanBeats, createChapterAt, fallbackWhen, keepOutline, sceneWhen, takeBackThreads, unkeepOutline } from './structure'
 
 const book = (db: Database.Database): ID => repo.listStories(db)[0].id
 
@@ -263,6 +265,95 @@ describe('when each kept scene happens', () => {
   })
 })
 
+describe('chapter cards the outline fills (2026-10-08)', () => {
+  /** A world with a lighthouse keeper, her brother, the tower and the quay, its story already started. */
+  function keepersWorld(fresh = false): { db: Database.Database; wren: ID; odo: ID; tower: ID; quay: ID } {
+    const db = fresh ? memoryWorld() : writtenWorld()
+    const wren = repo.createEntry(db, 'character', { name: 'Wren Calloway' }).id
+    const odo = repo.createEntry(db, 'character', { name: 'Odo Calloway' }).id
+    const tower = repo.createEntry(db, 'place', { name: 'The Lamp Tower' }).id
+    const quay = repo.createEntry(db, 'place', { name: 'Gull Quay' }).id
+    return { db, wren, odo, tower, quay }
+  }
+  const lampCard = { pov: 'Wren', characters: ['Wren Calloway', 'Odo'], location: 'the Lamp Tower', when: 'Day 4, dawn', mood: 'Hushed' }
+
+  it('gives each chapter its card, and its scenes follow it, keeping their own only where they differ', () => {
+    const { db, wren, odo, tower, quay } = keepersWorld()
+    const kept = keepOutline(db, book(db), [
+      chapter('c0', 'The Lamp', { card: { ...lampCard, characters: ['Odo', 'Nobody We Know'] } }),
+      scene('s0', 'Wick', 'c0', { when: 'day 4, dawn.' }),
+      scene('s1', 'Oil', 'c0', { after: { key: 's0' }, when: 'Day 4, noon' }),
+      scene('s2', 'Quay', 'c0', { after: { key: 's1' }, when: 'Day 4, dusk', card: { location: 'Gull Quay', pov: 'Wren' } }),
+      scene('s3', 'Night', 'c0', { after: { key: 's2' } })
+    ])
+    const ch = repo.getChapterCard(db, kept[0].id)
+    // A name it doesn't know is left out; the point of view is among those present.
+    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([wren, [wren, odo], tower, 'Day 4, dawn', 'Hushed'])
+    const [wick, oil, atQuay, night] = kept.slice(1).map((k) => repo.getScene(db, k.id).card)
+    // The same When as the chapter's: it follows it.
+    expect([wick.when, wick.inherits?.when, wick.locationId, wick.inherits?.location]).toEqual(['Day 4, dawn', true, tower, true])
+    // A later time of day is its own.
+    expect([oil.when, oil.inherits?.when]).toEqual(['Day 4, noon', false])
+    // Somewhere else is its own; the same point of view as the chapter's still follows it.
+    expect([atQuay.locationId, atQuay.inherits?.location, atQuay.povId, atQuay.inherits?.pov]).toEqual([quay, false, wren, true])
+    // No When given and the chapter has one: it follows the chapter's, rather than a made-up day.
+    expect([night.when, night.inherits?.when]).toEqual(['Day 4, dawn', true])
+    // Changing the chapter card reaches the scenes that follow it.
+    repo.saveChapterCard(db, kept[0].id, { ...ch, when: 'Day 5, dawn' })
+    expect(kept.slice(1).map((k) => repo.getScene(db, k.id).card.when)).toEqual(['Day 5, dawn', 'Day 4, noon', 'Day 4, dusk', 'Day 5, dawn'])
+  })
+
+  it('fills only a chapter card’s empty parts, and dates scenes as before when the chapter has no When', () => {
+    const { db } = keepersWorld()
+    const kept = keepOutline(db, book(db), [chapter('c0', 'Fog', { card: { mood: 'Thick' } }), scene('s0', 'Horn', 'c0')])
+    expect(repo.getChapterCard(db, kept[0].id).mood).toBe('Thick')
+    const card = repo.getScene(db, kept[1].id).card
+    expect([card.when, card.inherits?.when, card.mood, card.inherits?.mood]).toEqual(['Day 1', false, 'Thick', true])
+  })
+
+  it('in a new story, fills the reused "Chapter 1"’s card, and its Undo puts the empty card back', () => {
+    const { db, wren } = keepersWorld(true)
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    const kept = keepOutline(db, id, [chapter('c0', 'The Lamp', { card: lampCard }), scene('s0', 'Wick', 'c0', { when: 'Day 4, dawn' })])
+    expect(kept[0]).toMatchObject({ reused: true })
+    expect(kept[0].card?.before.povId).toBeNull()
+    expect(repo.getScene(db, first.id).card).toMatchObject({ povId: wren, when: 'Day 4, dawn' })
+    const out = unkeepOutline(db, kept)
+    expect(out.sceneIds).not.toContain(first.id)
+    expect(repo.getChapterCard(db, first.chapterId).povId).toBeNull()
+    const back = repo.getScene(db, first.id).card
+    expect([back.povId, back.when, back.goal, back.inherits?.when]).toEqual([null, '', '', true])
+    expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]'])
+  })
+
+  it('leaves a chapter card Adam changed since its keep as he left it, on Undo', () => {
+    const { db } = keepersWorld(true)
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    const kept = keepOutline(db, id, [chapter('c0', 'The Lamp', { card: lampCard })])
+    repo.saveChapterCard(db, first.chapterId, { ...repo.getChapterCard(db, first.chapterId), mood: 'Adam’s mood' })
+    unkeepOutline(db, kept)
+    expect(repo.getChapterCard(db, first.chapterId).mood).toBe('Adam’s mood')
+  })
+
+  it('forgets the card of a chapter its Undo removes for good', () => {
+    const { db } = keepersWorld()
+    const kept = keepOutline(db, book(db), [chapter('c0', 'The Lamp', { card: lampCard })])
+    expect(repo.getMeta(db, `chapter_card:${kept[0].id}`)).not.toBeNull()
+    unkeepOutline(db, kept)
+    expect(repo.getMeta(db, `chapter_card:${kept[0].id}`)).toBeNull()
+  })
+
+  it('works out a kept scene’s When against its chapter card', () => {
+    const blank = emptySceneCard()
+    const chapterCard = { ...emptyChapterCard(), when: 'Day 2, Morning' }
+    expect(sceneWhen(blank, chapterCard, 'day 2, morning', () => 'Day 1')).toMatchObject({ when: 'Day 2, Morning', inherits: { when: true } })
+    expect(sceneWhen(blank, chapterCard, 'Day 2, evening', () => 'Day 1')).toMatchObject({ when: 'Day 2, evening', inherits: { when: false } })
+    expect(sceneWhen(blank, { ...chapterCard, when: '' }, '', () => 'Day 7')).toMatchObject({ when: 'Day 7', inherits: { when: false } })
+  })
+})
+
 describe('a new chapter in an act', () => {
   it('goes where it is asked, titled as given or "Chapter N"', () => {
     const db = memoryWorld()
@@ -335,5 +426,95 @@ describe('plot threads planned in an outline (2026-10-08)', () => {
     acts.takeBackKept(db, first)
     takeBackThreads(db, first)
     expect(repo.getEntries(db, [id])).toHaveLength(1)
+  })
+})
+
+describe('chapter cards and plot threads kept together (0.6.36)', () => {
+  /** A fresh story (its "Chapter 1" and "Scene 1" untouched) in a world with a ferrywoman, her uncle, a mill and a weir. */
+  function millWorld(): { db: Database.Database; ines: ID; abel: ID; mill: ID; weir: ID; mine: ID } {
+    const db = memoryWorld()
+    const ines = repo.createEntry(db, 'character', { name: 'Ines Varrow' }).id
+    const abel = repo.createEntry(db, 'character', { name: 'Abel Varrow' }).id
+    const mill = repo.createEntry(db, 'place', { name: 'The Old Mill' }).id
+    const weir = repo.createEntry(db, 'place', { name: 'Low Weir' }).id
+    const mine = repo.createEntry(db, 'thread', { name: 'The missing ledger' }).id
+    return { db, ines, abel, mill, weir, mine }
+  }
+  const raw = (db: Database.Database, id: ID): Record<string, unknown> =>
+    JSON.parse(String((db.prepare('SELECT card_json FROM scenes WHERE id = ?').get(id) as { card_json: string }).card_json))
+  const threadNames = (db: Database.Database): string[] =>
+    repo
+      .listEntries(db)
+      .filter((e) => e.kind === 'thread')
+      .map((t) => t.name)
+      .sort()
+
+  it('fills the chapter card and puts Sets up / Pays off on the scene cards, and its Undo takes back both', () => {
+    const { db, ines, abel, mill, weir, mine } = millWorld()
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    const kept = keepOutline(db, id, [
+      chapter('c0', 'Flood Night', {
+        card: { pov: 'Ines', characters: ['Ines Varrow', 'Abel'], location: 'The Old Mill', when: 'Day 2, dusk', mood: 'Rising' }
+      }),
+      scene('s0', 'Sluice', 'c0', { when: 'Day 2, dusk', setsUp: ['Who opened the sluice', 'the missing ledger'] }),
+      scene('s1', 'Weir', 'c0', {
+        after: { key: 's0' },
+        when: 'Day 2, night',
+        card: { location: 'Low Weir' },
+        paysOff: ['Who opened the sluice']
+      })
+    ])
+    expect(kept[0]).toMatchObject({ reused: true })
+    expect(kept[1]).toMatchObject({ reused: true, id: first.id })
+    const sluiceThread = repo.listEntries(db).find((e) => e.kind === 'thread' && e.name === 'Who opened the sluice')!
+    expect(sluiceThread.origin).toBe('ai')
+    expect(kept[1].threadIds).toEqual([sluiceThread.id])
+
+    // The chapter card is filled, and the reused first scene follows it while carrying the AI's thread links.
+    const ch = repo.getChapterCard(db, first.chapterId)
+    expect([ch.povId, ch.presentIds, ch.locationId, ch.when, ch.mood]).toEqual([ines, [ines, abel], mill, 'Day 2, dusk', 'Rising'])
+    const sluice = repo.getScene(db, first.id).card
+    expect([sluice.povId, sluice.locationId, sluice.when, sluice.inherits?.location, sluice.inherits?.when]).toEqual([ines, mill, 'Day 2, dusk', true, true])
+    expect(sluice.setsUpIds).toEqual([sluiceThread.id, mine])
+    expect(sluice.threadLinks).toEqual({ [`setsUp:${sluiceThread.id}`]: 'ai', [`setsUp:${mine}`]: 'ai' })
+    // The new scene has its own place and time, follows the chapter's point of view, and pays the thread off.
+    const atWeir = repo.getScene(db, kept[2].id).card
+    expect([atWeir.locationId, atWeir.inherits?.location, atWeir.povId, atWeir.inherits?.pov]).toEqual([weir, false, ines, true])
+    expect([atWeir.when, atWeir.inherits?.when]).toEqual(['Day 2, night', false])
+    expect(atWeir.paysOffIds).toEqual([sluiceThread.id])
+    expect(atWeir.threadLinks).toEqual({ [`paysOff:${sluiceThread.id}`]: 'ai' })
+    // card_json carries both: the chapter card's marks and the AI's thread links.
+    expect(raw(db, first.id)).toMatchObject({ inherits: { location: true, when: true }, threadLinks: { [`setsUp:${mine}`]: 'ai' } })
+
+    // Undo: the chapter card goes back empty, the first scene loses the keep's goal, When and AI links, and the thread
+    // the keep made goes to Recently deleted (Adam's own stays).
+    const out = unkeepOutline(db, kept)
+    expect(out.sceneIds).toContain(kept[2].id)
+    expect(repo.getChapterCard(db, first.chapterId).povId).toBeNull()
+    const back = repo.getScene(db, first.id).card
+    expect([back.povId, back.when, back.goal, back.setsUpIds, back.paysOffIds, back.threadLinks]).toEqual([null, '', '', [], [], undefined])
+    expect(threadNames(db)).toEqual(['The missing ledger'])
+    expect(repo.listDeleted(db).some((d) => d.id === sluiceThread.id)).toBe(true)
+    expect(tree(db)).toEqual(['-: Chapter 1 [Scene 1]'])
+  })
+
+  it('keeps Adam’s own thread link and his own When on a reused scene through a keep and its Undo', () => {
+    const { db, mine } = millWorld()
+    const id = book(db)
+    const [first] = repo.getOutline(db, id).scenes
+    repo.updateSceneCard(db, first.id, { ...repo.getScene(db, first.id).card, when: 'Day 9, noon', setsUpIds: [mine] })
+    const kept = keepOutline(db, id, [
+      chapter('c0', 'Flood Night', { card: { when: 'Day 2, dusk', mood: 'Rising' } }),
+      scene('s0', 'Sluice', 'c0', { when: 'Day 2, dusk', setsUp: ['Who opened the sluice'] })
+    ])
+    const card = repo.getScene(db, first.id).card
+    expect(card.when).toBe('Day 9, noon')
+    expect(card.mood).toBe('Rising')
+    expect(card.setsUpIds).toEqual([mine, kept[1].threadIds![0]])
+    unkeepOutline(db, kept)
+    const back = repo.getScene(db, first.id).card
+    expect([back.when, back.setsUpIds, back.threadLinks]).toEqual(['Day 9, noon', [mine], undefined])
+    expect(threadNames(db)).toEqual(['The missing ledger'])
   })
 })

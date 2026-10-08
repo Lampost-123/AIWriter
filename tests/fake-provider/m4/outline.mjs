@@ -19,8 +19,10 @@
 //          ("... and “Who burned the mill?” comes back to haunt her.").
 //          "[[fake: messy]]" in the briefing wraps the same plan in a chatty reply: an introduction,
 //          numbered and bold headings ("**Act 1: The Arrival**"), "**When:**" labels, "*" bullets and a
-//          closing note.
-// ideas    Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
+//          closing note. "[[fake: chapter card]]" in the briefing (a premise saying it) gives each chapter a card
+//          ("Point of view:", "Characters:", "Location:", "When:" its first scene's, "Mood:") from the briefing's
+//          characters and places, and each chapter's third scene its own "Location:" (the second place).
+// ideas   Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
 //          wrong messenger", each with one sentence on what happens and four beats.
 // interview  "Interview me" on a scene or chapter: the next question as JSON, from a fixed list for each
 //          ({"topic": "Who's there", "question": "Who walks in first?"}, then "The ending", then "The mood";
@@ -29,7 +31,8 @@
 // fill     A scene card from the interview: the goal is the first answer, the outcome the last, with fixed
 //          conflict, mood and four beats, the first character listed as point of view and present, and the
 //          first place listed as the location (every part, even filled ones: the window keeps Adam's).
-// plan     A chapter's plan: "Goal:" naming the first answer, then three "### Scene:" cards.
+// plan     A chapter's plan: "Goal:" naming the first answer, then three "### Scene:" cards. With "[[fake: chapter
+//          card]]" in the briefing, a chapter card after the goal (its When "Day 2, morning", as the first scene's).
 
 const MARKER = '[AIWRITE-OUTLINE v1]'
 
@@ -180,14 +183,53 @@ function plan(size, thread, briefing) {
   return out
 }
 
+/** A chapter card's lines (chapter cards), or a scene's own where it differs from its chapter. */
+function cardLines(card) {
+  if (!card) return ''
+  const lines = []
+  if (card.pov) lines.push(`Point of view: ${card.pov}`)
+  if (card.characters?.length) lines.push(`Characters: ${card.characters.join(', ')}`)
+  if (card.location) lines.push(`Location: ${card.location}`)
+  if (card.when) lines.push(`When: ${card.when}`)
+  if (card.mood) lines.push(`Mood: ${card.mood}`)
+  return lines.length ? `${lines.join('\n')}\n` : ''
+}
+
 function tidy(items) {
   return items
     .map((it) => {
       if (it.kind === 'act') return `# Act: ${it.title}\nPurpose: ${it.purpose}\n`
-      if (it.kind === 'chapter') return `## Chapter: ${it.title}\nGoal: ${it.goal}\n`
-      return `### Scene: ${it.title}\nWhen: ${it.when}\nSummary: ${it.summary}\n${it.beats.map((b) => `- ${b}`).join('\n')}\n`
+      if (it.kind === 'chapter') return `## Chapter: ${it.title}\nGoal: ${it.goal}\n${cardLines(it.card)}`
+      return `### Scene: ${it.title}\nWhen: ${it.when}\n${cardLines(it.card)}Summary: ${it.summary}\n${it.beats.map((b) => `- ${b}`).join('\n')}\n`
     })
     .join('\n')
+}
+
+/**
+ * "[[fake: chapter card]]" in the briefing: each chapter gets a card from the briefing's characters and places (the
+ * first character's point of view, the first two characters, the first place, its first scene's When and a mood),
+ * and each chapter's third scene is somewhere else (the second place), as its own.
+ */
+function withCards(items, user) {
+  if (!user.includes('[[fake: chapter card]]')) return items
+  const people = allOfKind(user, 'character')
+  const places = allOfKind(user, 'place')
+  let chapter = null
+  let s = 0
+  return items.map((it) => {
+    if (it.kind === 'chapter') {
+      s = 0
+      chapter = {
+        ...it,
+        card: { pov: people[0], characters: people.slice(0, 2), location: places[0], when: '', mood: 'Wet and watchful' }
+      }
+      return chapter
+    }
+    if (it.kind !== 'scene') return it
+    s++
+    if (chapter && s === 1) chapter.card.when = it.when
+    return s === 3 && places[1] ? { ...it, card: { location: places[1] } } : it
+  })
 }
 
 function messy(items) {
@@ -253,6 +295,12 @@ function firstOfKind(text, kind) {
   return m ? m[1] : null
 }
 
+/** Every name listed under "## Characters and places" with this kind, in order. */
+function allOfKind(text, kind) {
+  const block = text.match(/## Characters and places\n([\s\S]*?)(?:\n## |$)/)
+  return [...(block?.[1] ?? '').matchAll(new RegExp(`^- (.+?) \\(${kind}\\)`, 'gm'))].map((m) => m[1])
+}
+
 function interviewReply(kind, user) {
   const list = kind === 'chapter' ? CHAPTER_QUESTIONS : SCENE_QUESTIONS
   const asked = interviewOf(user).length
@@ -280,8 +328,15 @@ function fillReply(user) {
 function chapterPlanReply(user) {
   const first = interviewOf(user).find((a) => a.answer)?.answer
   const goal = first ? `${first.replace(/[.!?]+$/, '')}.` : 'Mara finds out who sent the letter.'
+  // "[[fake: chapter card]]" in an answer: the plan gives the chapter a card too (see withCards).
+  const people = allOfKind(user, 'character')
+  const places = allOfKind(user, 'place')
+  const card = user.includes('[[fake: chapter card]]')
+    ? cardLines({ pov: people[0], characters: people.slice(0, 2), location: places[0], when: 'Day 2, morning', mood: 'Uneasy' }).trimEnd()
+    : ''
   return [
     `Goal: ${goal}`,
+    ...(card ? [card] : []),
     '',
     '### Scene: A letter at dawn',
     'When: Day 2, morning',
@@ -318,7 +373,7 @@ export function outlineReply(system, messages, _model) {
   if (job === 'fill') return fillReply(user)
   if (job === 'plan') return chapterPlanReply(user)
   if (job === 'outline') {
-    const items = plan(sizeOf(user), firstThread(user), user)
+    const items = withCards(plan(sizeOf(user), firstThread(user), user), user)
     return user.includes('[[fake: messy]]') ? messy(items) : tidy(items)
   }
   return null

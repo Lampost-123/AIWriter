@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3'
-import type { Act, DeletedItem, ID } from '@shared/types'
+import type { Act, DeletedItem, ID, SceneCard } from '@shared/types'
 import type { ChapterPlace, KeptItem } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
+import { CHAPTER_CARD_PREFIX, follows, withMark } from '@shared/chapterCard'
 import { newId, now, UserError } from '../util'
 
 // All SQL for acts (milestone 4: acts in the binder and the outline helper). An act gathers chapters
@@ -427,7 +428,11 @@ export function sceneReferenced(db: DB, id: ID): boolean {
  * a scene with words, a draft or a change in it, or a chapter or act changed or holding something made
  * since, goes to Recently deleted instead (with what is in it), so nothing Adam did is lost.
  */
-export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id' | 'reused' | 'whenKept'>[]): { storyIds: ID[]; sceneIds: ID[] } {
+export function takeBackKept(
+  db: DB,
+  kept: Pick<KeptItem, 'kind' | 'id' | 'reused' | 'whenKept'>[],
+  opts: { restoreCards?: () => void } = {}
+): { storyIds: ID[]; sceneIds: ID[] } {
   const t = now()
   const of = (kind: KeptItem['kind']): ID[] => kept.filter((k) => k.kind === kind && !k.reused).map((k) => k.id)
   const changed = changedSince
@@ -436,31 +441,41 @@ export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id' | 'reuse
   return db.transaction(() => {
     // The story's first chapter and scene, which the kept ones took the place of, stay: put back as they
     // were ("Chapter 1", "Scene 1", empty) while untouched since, else just out of the act going.
-    for (const k of kept.filter((k) => k.reused && k.kind === 'scene')) {
+    const resets = kept.filter((k) => {
+      if (!k.reused || k.kind !== 'scene') return false
       const r = db
         .prepare(
-          'SELECT s.word_count, s.text, s.card_json, s.deleted_at, s.created_at, s.updated_at, c.story_id FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?'
+          'SELECT s.word_count, s.text, s.deleted_at, s.created_at, s.updated_at, c.story_id FROM scenes s JOIN chapters c ON c.id = s.chapter_id WHERE s.id = ?'
         )
         .get(k.id) as Row | undefined
-      if (!r || r.deleted_at || sceneUsed(db, k.id, r)) continue
-      // Only what the keep put on its card goes: the goal and beats, and the When unless it was there before.
-      let card = emptySceneCard()
+      return !!r && !r.deleted_at && !sceneUsed(db, k.id, r)
+    })
+    // Chapter cards the keep filled go back as they were (and so do the parts of the scenes that follow them), once it
+    // is known which scenes are still untouched: that writes their cards.
+    opts.restoreCards?.()
+    for (const k of resets) {
+      const r = db.prepare('SELECT card_json FROM scenes WHERE id = ?').get(k.id) as Row | undefined
+      // Only what the keep put on its card goes: the goal and beats, and the When unless it was there before (or is
+      // the chapter card's, which the scene follows).
+      let card: SceneCard = emptySceneCard()
       try {
-        card = { ...card, ...(JSON.parse(String(r.card_json ?? '{}')) as Partial<typeof card>) }
+        card = { ...card, ...(JSON.parse(String(r?.card_json ?? '{}')) as Partial<SceneCard>) }
       } catch {
         // Put back empty.
       }
       // The plot threads it put on the card (marked as the AI's) go too; Adam's stay.
       const ai = (list: 'setsUp' | 'paysOff', id: string): boolean => card.threadLinks?.[`${list}:${id}`] === 'ai'
-      const back = {
+      const keepWhen = (k.whenKept || follows(card, 'when')) && typeof card.when === 'string'
+      const cleared: SceneCard = {
         ...card,
         goal: '',
         beats: [],
-        when: k.whenKept && typeof card.when === 'string' ? card.when : '',
+        when: keepWhen ? card.when : '',
         setsUpIds: (card.setsUpIds ?? []).filter((id) => !ai('setsUp', id)),
         paysOffIds: (card.paysOffIds ?? []).filter((id) => !ai('paysOff', id)),
         threadLinks: undefined
       }
+      const back = keepWhen || card.inherits?.when !== false ? cleared : withMark(cleared, 'when', undefined)
       db.prepare("UPDATE scenes SET title = 'Scene 1', card_json = ? WHERE id = ?").run(JSON.stringify(back), k.id)
       markMade(db, 'scene', k.id)
     }
@@ -493,7 +508,11 @@ export function takeBackKept(db: DB, kept: Pick<KeptItem, 'kind' | 'id' | 'reuse
         gone.push(...left)
         db.prepare('UPDATE scenes SET deleted_at = ? WHERE chapter_id = ? AND deleted_at IS NULL').run(t, id)
         db.prepare('UPDATE chapters SET deleted_at = ? WHERE id = ?').run(t, id)
-      } else db.prepare('DELETE FROM chapters WHERE id = ?').run(id)
+      } else {
+        db.prepare('DELETE FROM chapters WHERE id = ?').run(id)
+        // Its chapter card goes with it (one in Recently deleted keeps its card, for a restore).
+        db.prepare('DELETE FROM meta WHERE key = ?').run(`${CHAPTER_CARD_PREFIX}${id}`)
+      }
     }
     for (const id of of('act')) {
       const r = db.prepare('SELECT story_id, deleted_at, created_at, updated_at FROM acts WHERE id = ?').get(id) as Row | undefined

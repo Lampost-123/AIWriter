@@ -19,6 +19,7 @@ import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { neighbourAfterRemoval, readingOrder } from '@/features/binder/outlineModel'
 import { useOutlineStore } from '@/features/binder/outlineStore'
+import { notifyChapterCard } from '@/features/chapterCard/chapterCardEvents'
 import { parseOutline } from './parse'
 import {
   countKinds,
@@ -437,6 +438,8 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     patchRun(key, run.taskId, (r) => ({ decisions: withKept(r.decisions, kept) }))
     settledOnNew(key, run.taskId)
     useApp.getState().bumpOutline()
+    // Chapter cards it filled may have changed what an open scene card follows.
+    if (items.some((i) => i.card)) notifyChapterCard()
     const message =
       keys === 'all'
         ? `Added ${describeCounts(countKinds(kept.map((k) => k.kind)))} to the ${chapterId ? 'chapter' : 'story'}.`
@@ -489,6 +492,7 @@ async function undoKeep(b: KeepBatch): Promise<void> {
     // Suggestions replaced since, and offered back: they show these as open again too.
     if (replaced?.run.taskId === b.taskId) replaced.run = { ...replaced.run, decisions: withoutKept(replaced.run.decisions, b.kept) }
     useApp.getState().bumpOutline()
+    if (b.kept.some((k) => k.card)) notifyChapterCard()
   })
 }
 

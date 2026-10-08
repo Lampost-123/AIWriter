@@ -8,6 +8,21 @@
 // reply cut off anywhere (a stream still arriving, or stopped): the last thing read is simply not complete yet.
 // No React, so it is unit-tested.
 
+/**
+ * A chapter card as the AI gave it, by name (chapter cards, 2026-10-08): "Point of view:", "Characters:",
+ * "Location:", "When:" and "Mood:" lines under a chapter. Under a scene, the parts where it differs from its
+ * chapter (its When is the scene's own `when`). '' and [] for lines the reply left out.
+ */
+export interface SuggestedCard {
+  pov: string
+  characters: string[]
+  location: string
+  when: string
+  mood: string
+}
+
+export const emptySuggestedCard = (): SuggestedCard => ({ pov: '', characters: [], location: '', when: '', mood: '' })
+
 export interface SuggestedScene {
   /** Stable while the reply grows: "a0c1s2" (act, chapter, scene), or "c1s2" in a reply with no acts. */
   key: string
@@ -20,6 +35,8 @@ export interface SuggestedScene {
   /** The plot threads it sets up and pays off, by name ("Sets up:", "Pays off:"; 2026-10-08). Left out: none. */
   setsUp?: string[]
   paysOff?: string[]
+  /** Where the scene differs from its chapter's card (its `when` stays empty: the scene's When is `when` above). */
+  card: SuggestedCard
   /** Fully arrived: something after it has started, or the reply has ended. */
   complete: boolean
 }
@@ -28,6 +45,8 @@ export interface SuggestedChapter {
   key: string
   title: string
   goal: string
+  /** The chapter card the reply gives it. */
+  card: SuggestedCard
   scenes: SuggestedScene[]
   complete: boolean
 }
@@ -163,7 +182,8 @@ function splitTitle(s: string): { title: string; text: string } {
   return m ? { title: plain(m[1]), text: plain(m[2]) } : { title: s, text: '' }
 }
 
-const LABEL = /^(purpose|goal|aim|summary|what happens|beats|logline|title|when|sets up|pays off)\s*(?:[:：—–-]\s*(.*))?$/i
+const LABEL =
+  /^(purpose|goal|aim|summary|what happens|beats|logline|title|when|sets up|pays off|point of view|pov|viewpoint|characters present|characters|cast|location|setting|mood or tone|mood|tone)\s*(?:[:：—–-]\s*(.*))?$/i
 
 /** "The drowned bell; Who keeps the key" (or with commas, or "none"): the plot thread names on a Sets up / Pays off line. */
 export function threadNames(text: string): string[] {
@@ -180,10 +200,47 @@ export function threadNames(text: string): string[] {
   ]
 }
 
+/** The chapter card's labels, as the card part each fills ("Characters present" and "Cast" are the characters). */
+const CARD_LABELS: Record<string, keyof Omit<SuggestedCard, 'when'>> = {
+  'point of view': 'pov',
+  pov: 'pov',
+  viewpoint: 'pov',
+  characters: 'characters',
+  'characters present': 'characters',
+  cast: 'characters',
+  location: 'location',
+  setting: 'location',
+  mood: 'mood',
+  tone: 'mood',
+  'mood or tone': 'mood'
+}
+
 /** "Purpose: …", "**Goal:** …", "Summary — …", "Title: …", "**Beats**", "When: …": the label (lower case) and what follows. */
 function labelled(line: string): { label: string; text: string } | null {
   const m = plain(line.trim().replace(/^#{1,6}\s*/, '')).match(LABEL)
-  return m ? { label: m[1].toLowerCase(), text: (m[2] ?? '').trim() } : null
+  if (!m) return null
+  const label = m[1].toLowerCase()
+  const text = (m[2] ?? '').trim()
+  // A chapter card part needs something after it ("Mood: quiet"): a line just saying "Characters" is not one.
+  if (CARD_LABELS[label] && !text) return null
+  return { label, text }
+}
+
+/** "Mara, Tobin and Old Bren": the names, one each. */
+const namesIn = (s: string): string[] =>
+  plain(s)
+    .split(/\s*(?:,|;|\band\b|&)\s*/i)
+    .map((n) => n.replace(/[.\s]+$/, '').trim())
+    .filter((n) => n && n.toLowerCase() !== 'none')
+
+/** Puts a card line into the card, unless the card has that part already. */
+function cardLine(card: SuggestedCard, label: string, text: string): void {
+  const part = CARD_LABELS[label]
+  const value = plain(text).replace(/[.\s]+$/, '')
+  if (!part || !value || /^(none|n\/a|-)$/i.test(value)) return
+  if (part === 'characters') {
+    if (!card.characters.length) card.characters = namesIn(text)
+  } else if (!card[part]) card[part] = value
 }
 
 /** A short line wholly in bold ("**The Drowned Bell**"), not a sentence: a title, straight after a heading with none. */
@@ -261,7 +318,7 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
         closeChapter()
         const list: SuggestedChapter[] = act ? (act as SuggestedAct).chapters : out.chapters
         const prefix = act ? (act as SuggestedAct).key : ''
-        chapter = { key: `${prefix}c${list.length}`, title, goal: said, scenes: [], complete: false }
+        chapter = { key: `${prefix}c${list.length}`, title, goal: said, card: emptySuggestedCard(), scenes: [], complete: false }
         list.push(chapter)
         node = chapter
       } else {
@@ -270,11 +327,11 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
           // A scene before any chapter: it starts one, so it has somewhere to go.
           const list: SuggestedChapter[] = act ? (act as SuggestedAct).chapters : out.chapters
           const prefix = act ? (act as SuggestedAct).key : ''
-          chapter = { key: `${prefix}c${list.length}`, title: '', goal: '', scenes: [], complete: false }
+          chapter = { key: `${prefix}c${list.length}`, title: '', goal: '', card: emptySuggestedCard(), scenes: [], complete: false }
           list.push(chapter)
         }
         const c = chapter as SuggestedChapter
-        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: said, beats: [], when: '', complete: false }
+        scene = { key: `${c.key}s${c.scenes.length}`, title, summary: said, beats: [], when: '', card: emptySuggestedCard(), complete: false }
         c.scenes.push(scene)
         node = scene
       }
@@ -283,9 +340,12 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
       continue
     }
 
-    // A When may come as a list item too ("- When: Day 2, dusk"); any other labelled list item is a beat.
+    // A When or a chapter card part may come as a list item too ("- When: Day 2, dusk"); any other labelled list
+    // item is a beat.
     const listed = bullet ? labelled(bullet[1]) : null
-    const field = labelled(line) ?? (listed && ['when', 'sets up', 'pays off'].includes(listed.label) ? listed : null)
+    const field =
+      labelled(line) ??
+      (listed && (['when', 'sets up', 'pays off'].includes(listed.label) || CARD_LABELS[listed.label]) ? listed : null)
     const given = field?.label === 'title' ? plain(field.text) : untitled && first && !field && !bullet ? boldTitle(line) : ''
     first = false
     if (given && untitled) {
@@ -299,8 +359,15 @@ export function parseOutline(text: string, done: boolean): ParsedOutline {
     const c = chapter as SuggestedChapter | null
     const a = act as SuggestedAct | null
     if (field?.label === 'when') {
-      // A scene's When ("Day 3, dusk"); an act or chapter has none.
-      if (s && !s.when) s.when = plain(field.text)
+      // A scene's When ("Day 3, dusk"), or the chapter card's (before the chapter's first scene); an act has none.
+      if (s) {
+        if (!s.when) s.when = plain(field.text)
+      } else if (c && !c.card.when) c.card.when = plain(field.text).replace(/[.\s]+$/, '')
+      inBeats = false
+    } else if (field && CARD_LABELS[field.label]) {
+      // A chapter card part: the chapter's, or (under a scene) where the scene differs from it.
+      if (s) cardLine(s.card, field.label, field.text)
+      else if (c) cardLine(c.card, field.label, field.text)
       inBeats = false
     } else if (field?.label === 'sets up' || field?.label === 'pays off') {
       // The plot threads a scene sets up or pays off; an act or chapter has none.
