@@ -194,9 +194,10 @@ const modelName = (m: DictationModel): string => (m === 'parakeet' ? 'Parakeet' 
  */
 function dictationFact(s: SpeechStatus, picked: 'none' | DictationModel): { value: string; ready: boolean } {
   if (picked === 'none') {
-    // A speech server AI Write didn't start may have its own model ready.
+    // A speech server AI Write didn't start may have its own model ready: said as the server's, so it doesn't read as
+    // the picker's (which says None).
     if (s.server === 'connected' && s.dictationReady)
-      return { value: s.loaded.dictation ? `${modelName(s.loaded.dictation)}, loaded` : 'Ready', ready: true }
+      return { value: s.loaded.dictation ? `${modelName(s.loaded.dictation)}, the server’s own` : 'The server’s own, ready', ready: true }
     return { value: 'Not picked', ready: false }
   }
   const name = modelName(picked)
@@ -341,10 +342,13 @@ function StartWithApp({ status }: { status: SpeechStatus }): React.JSX.Element {
 }
 
 function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
-  const installed = status.installed.voices
   const pending = isPending(status, 'voices')
   // A download that stopped has its own Try again.
   const stopped = status.download?.kind === 'voices' && status.download.state !== 'done'
+  // A speech server AI Write didn't start (another address, in More) may have voices of its own ready: then there is
+  // nothing to download for it, so the download isn't offered beside a status that says they're ready.
+  const serversOwn = !status.installed.voices && !status.managed && status.server === 'connected' && status.voicesReady && !pending && !stopped
+  const installed = status.installed.voices || serversOwn
   // What this computer has, said before the download starts (during one, the disk fills as it goes).
   const checks = installed || pending || stopped ? [] : voicesChecks(status)
   const fallsShort = checks.some((c) => !c.ok)
@@ -355,7 +359,11 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
         Breeze TTS 2 gives the narrator and each character a voice of their own, made from a description, with sighs and laughs performed.
         Its licence is for personal, non-commercial use.
       </p>
-      {installed ? null : <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{VOICES_NEEDS}</p>}
+      {serversOwn ? (
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">The speech server in use has voices of its own ready, so there is nothing to download for it.</p>
+      ) : installed ? null : (
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{VOICES_NEEDS}</p>
+      )}
       {checks.length ? (
         <ul className="mt-2 space-y-1" aria-label="This computer">
           {checks.map((c) => (
