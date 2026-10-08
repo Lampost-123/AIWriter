@@ -26,6 +26,7 @@ import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
 import { C_CHAPTERS, C_CHAPTER_SUMMARIES, C_EARLIER, C_EMPTY, C_ENTRIES, C_OPEN, STORY_C, type BigScene } from './bigWorld'
 import { firstQuestion, type Scenario } from './scenarios'
+import { seedStory } from './scenarios-p3story'
 
 export type Backend = 'fake' | 'bridge' | 'openrouter' | 'deepseek'
 
@@ -296,7 +297,7 @@ export interface EvalApp {
   close(): Promise<void>
 }
 
-export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean } = { network: true }): Promise<EvalApp> {
+export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big?: boolean; story?: boolean } = { network: true }): Promise<EvalApp> {
   paidGuard(cfg)
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-chat-eval-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -436,6 +437,14 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
       scenes.set(s.key, sceneId)
     }
     for (const e of ENTRIES) if (e.firstAt) makeEntry(e.key, scenes.get(e.firstAt)!)
+    // The story-tools set's plot threads and issue (scenarios-p3story.ts), only when one of those scenarios runs.
+    if (opts.story)
+      seedStory(db, storyA.id, scenes, {
+        createEntry: (d, kind, input) => repo.createEntry(d, kind, input),
+        insertChange: (d, c) => memory.insertChange(d, c),
+        getCard: (d, id) => repo.getScene(d, id).card as unknown as Record<string, unknown> & { setsUpIds: string[] },
+        updateCard: (d, id, card) => repo.updateSceneCard(d, id, card as never)
+      })
 
     // Story C, the big briefing (only when a scenario asks in it): hundreds of entries of its own, ninety summarised
     // scenes before the open one, a long open scene, and an empty last scene with a card. A story of its own, so

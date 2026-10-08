@@ -10,7 +10,8 @@
 //        deepseek    a real model on DeepSeek's own API (default deepseek-flash); the same locks, with DEEPSEEK_API_KEY
 //   --scenarios core|real|all|subset|E01,R05   which scenarios (default core: the 40 of Phase 0; real: the 24 of
 //                                  real.ts (long chats, a big briefing, vague asks, follow-ups, "write the next bit");
-//                                  all: both; subset: 12 of the core; or ids, comma-separated; sets and ids mix)
+//                                  p3: the 6 story-tools scenarios of scenarios-p3story.ts; all: every set;
+//                                  subset: 12 of the core; or ids, comma-separated; sets and ids mix)
 //   --out <folder>                 report folder (default ..\AIWriter-chat-results\<date>-<backend>); never written over
 //   --bridge-dir <folder>          the bridge's folder (default ..\AIWriter-chat-results\bridge)
 //   --model <id>                   OpenRouter model (default: DeepSeek Flash from OpenRouter's list)

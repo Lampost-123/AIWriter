@@ -11,8 +11,9 @@
 
 import { askAboutQuote, SCENES, vigilParagraphs } from './world'
 import { REAL } from './real'
+import { P3 } from './scenarios-p3story'
 
-export type Group = 'edit' | 'selection' | 'large' | 'question' | 'ambiguous' | 'followup' | 'r-history' | 'r-vague' | 'r-followup' | 'r-continue' | 'r-change-q'
+export type Group = 'edit' | 'selection' | 'large' | 'question' | 'ambiguous' | 'followup' | 'r-history' | 'r-vague' | 'r-followup' | 'r-continue' | 'r-change-q' | 'story'
 
 /** What should happen at a turn. */
 export type Outcome =
@@ -29,7 +30,7 @@ export type Outcome =
   /** Either is fine (a judgement call); counted for cost and leaks only. */
   | { do: 'any' }
 
-export type ProposalKind = 'text' | 'passage' | 'card' | 'entry' | 'newEntry' | 'newScene' | 'newChapter' | 'rename'
+export type ProposalKind = 'text' | 'passage' | 'card' | 'entry' | 'newEntry' | 'newScene' | 'newChapter' | 'rename' | 'issueFix' | 'chapterCard' | 'thread'
 
 /** An earlier turn of the chat, seeded as the app stores one (a 'chat' generation record) before the first question. */
 export interface HistoryTurn {
@@ -44,6 +45,8 @@ export interface Scenario {
   group: Group
   /** Asked in story C (bigWorld.ts): a briefing of 30-60k tokens. Its scene keys are bigWorld's. */
   big?: boolean
+  /** 'story': needs the story set's plot threads and issue in the world (scenarios-p3story.ts seedStory). */
+  seed?: 'story'
   /** Earlier turns of the chat (oldest first), seeded before the first question. */
   history?: HistoryTurn[]
   /** The rule it tests, in plain words. */
@@ -160,13 +163,13 @@ export const CORE: Scenario[] = [
   }
 ]
 
-/** Every scenario: the core 40, then the real set. */
-export const SCENARIOS: Scenario[] = [...CORE, ...REAL]
+/** Every scenario: the core 40, then the real set, then the story-tools set (p3). */
+export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3]
 
-/** The scenarios a --scenarios value names: core (also the default), real, all, subset, or ids. */
+/** The scenarios a --scenarios value names: core (also the default), real, p3, all, subset, or ids. */
 export function pickScenarios(only: string[] | null): Scenario[] {
   if (!only?.length) return CORE
-  const sets: Record<string, Scenario[]> = { CORE, REAL, ALL: SCENARIOS, SUBSET: CORE.filter((s) => SUBSET.includes(s.id)) }
+  const sets: Record<string, Scenario[]> = { CORE, REAL, P3, ALL: SCENARIOS, SUBSET: CORE.filter((s) => SUBSET.includes(s.id)) }
   const out = new Map<string, Scenario>()
   for (const o of only) for (const s of sets[o] ?? SCENARIOS.filter((x) => x.id === o)) out.set(s.id, s)
   return [...out.values()]
