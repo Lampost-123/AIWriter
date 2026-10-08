@@ -25,6 +25,7 @@ import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { Portrait } from '@/features/views/Portrait'
 import { editedText } from '@/features/start/startLogic'
+import { numberWords } from '@shared/numberWords'
 import { useArrival } from '@/layout/desk/arrival'
 import { useEntryMotifs } from '@/features/world/art/artStore'
 import { CoverPicker } from '@/features/world/art/MotifPicker'
@@ -408,7 +409,7 @@ function Shelf({ shelf, storyId }: { shelf: ShelfChapter[]; storyId: ID | null }
               <Plus size={14} />
             </span>
             <span className="home-add-t">Add chapter</span>
-            <span className="home-add-s">Chapter {shelf.length + 1}</span>
+            <span className="home-add-s">Chapter {numberWords(shelf.length + 1)}</span>
           </button>
         </div>
       </div>

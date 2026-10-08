@@ -359,7 +359,9 @@
     translate: -12px 0;
   }
 }
-[data-arrangement='desk'] .desk-room {
+/* The room switch's buttons only: the room's own frame (layout/desk/RoomFrame.tsx) is .desk-room too, and took their
+   muted ink, their hover tint and their press (the whole room shrank while anything in it was held down). */
+[data-arrangement='desk'] .desk-rooms > .desk-room {
   font-weight: 500;
   color: var(--muted);
   transition:
@@ -367,18 +369,18 @@
     background-color var(--dur-quick) ease-out,
     scale var(--dur-press) var(--desk-ease);
 }
-[data-arrangement='desk'] .desk-room:not(.is-on):hover {
+[data-arrangement='desk'] .desk-rooms > .desk-room:not(.is-on):hover {
   color: var(--fg);
   background: color-mix(in oklab, var(--page) 40%, transparent);
 }
-[data-arrangement='desk'] .desk-room:active {
+[data-arrangement='desk'] .desk-rooms > .desk-room:active {
   scale: 0.97;
 }
-[data-arrangement='desk'] .desk-room.is-on {
+[data-arrangement='desk'] .desk-rooms > .desk-room.is-on {
   color: var(--fg);
   font-weight: 600;
 }
-[data-arrangement='desk'] .desk-room.is-on svg {
+[data-arrangement='desk'] .desk-rooms > .desk-room.is-on svg {
   color: var(--accent);
 }
 

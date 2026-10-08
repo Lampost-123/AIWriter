@@ -363,6 +363,10 @@
     transform 220ms var(--motion-glide),
     box-shadow 240ms var(--motion-glide);
 }
+/* In the dark the paper's sheen would read as a grey wash: none. */
+[data-arrangement='desk'][data-theme='dark'] .board-card {
+  background-image: none;
+}
 [data-arrangement='desk'] .board-card:hover,
 [data-arrangement='desk'] .board-card.is-lifted,
 [data-arrangement='desk'] .board-card:focus-within {
@@ -530,6 +534,10 @@
 }
 [data-arrangement='desk'] .board-str {
   transition: opacity 180ms ease-out;
+}
+/* While a card is dragged the cards are on the move: the strings step back until it lands. */
+[data-arrangement='desk'] .board-wrap.is-dragging .board-str {
+  opacity: 0.18;
 }
 [data-arrangement='desk'] .board-str.is-dim {
   opacity: 0.22;
