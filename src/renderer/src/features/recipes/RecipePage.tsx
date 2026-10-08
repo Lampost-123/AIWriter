@@ -11,6 +11,8 @@ import { api } from '@/lib/api'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { useDesk } from '@/features/look/look'
+import { PlanPage } from '@/features/planning/PlanShell'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { PART_GROUPS, PART_WORDS, dateWords, lengthWords, recipeName } from './recipeLogic'
@@ -60,6 +62,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
   const saved = useRef<RecipeParts>(recipe.parts)
   const nameId = useId()
   const ready = recipe.status === 'ready'
+  const desk = useDesk()
 
   const autosave = useAutosave<RecipeParts>(
     async (next) => {
@@ -97,6 +100,100 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
     }
   }
 
+  const actions = (
+    <>
+      <Button
+        variant="primary"
+        size={desk ? 'lg' : 'md'}
+        icon={<BookPlus size={15} />}
+        disabled={!hasWorld}
+        title={hasWorld ? 'The New story dialog, with this recipe picked' : 'Open a world first: the new story goes into it.'}
+        onClick={() => startStoryFrom(recipe.id)}
+      >
+        Start a new story from it
+      </Button>
+      <Button icon={<Copy size={14} />} onClick={() => void duplicate(recipe.id)}>
+        Make a copy
+      </Button>
+      {recipe.hasSource && !recipe.byHand ? (
+        <Button
+          icon={<RefreshCw size={14} />}
+          title="The AI reads the story again and writes the recipe afresh. The parts you changed stay as they are."
+          onClick={() => void readAgain(recipe.id)}
+        >
+          Read the story again
+        </Button>
+      ) : null}
+      {recipe.hasSource ? (
+        <Button
+          variant="ghost"
+          icon={<FileX2 size={14} />}
+          title="Removes the story’s text kept with this recipe. The recipe stays; it just can’t be read again."
+          onClick={() => void forgetSource(recipe.id)}
+        >
+          Forget the story’s text
+        </Button>
+      ) : null}
+      <Button variant="ghost" icon={<Trash2 size={14} />} onClick={() => void deleteRecipe(recipe)}>
+        Delete
+      </Button>
+    </>
+  )
+
+  if (desk) {
+    return (
+      <PlanPage
+        art="recipes"
+        kicker="Story recipe"
+        kickerIcon={CookingPot}
+        back={<BackButton to="library" />}
+        title={name.trim() || recipeName({ name: '', status: recipe.status })}
+        line={`${lengthWords(recipe)} · ${dateWords(recipe.createdAt)}. ${INTRO} Change any part: it is saved as you type.`}
+        left={
+          <>
+            <div className="plan-group">
+              <div className="plan-field-l">
+                <label htmlFor={nameId}>The recipe’s name</label>
+                <SaveNote status={autosave.status} error={autosave.error} />
+              </div>
+              <Input
+                id={nameId}
+                value={name}
+                placeholder={recipeName({ name: '', status: recipe.status })}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => void commitName()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                  if (e.key === 'Escape') setName(recipe.name)
+                }}
+                className="h-11 font-serif text-[18px] font-semibold"
+              />
+            </div>
+            <MakingCard recipe={recipe} />
+            {ready ? <div className="plan-recipe-actions">{actions}</div> : null}
+            {ready && !hasWorld ? <p className="plan-hint">Open a world to start a new story from this recipe.</p> : null}
+          </>
+        }
+        right={
+          ready ? (
+            <div className="plan-parts">
+              {PART_GROUPS.map((g) => (
+                <section key={g.title} aria-label={g.title} className="plan-partgroup plan-deal">
+                  <h2 className="plan-partgroup-t">{g.title}</h2>
+                  <div className="mt-3 flex flex-col gap-4">
+                    {g.parts.map((k) => (
+                      <Part key={k} part={k} value={parts[k]} mine={edited.includes(k) && recipe.hasSource} onChange={(v) => change(k, v)} onBlur={() => void autosave.flush()} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : null
+        }
+      />
+    )
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[760px] px-8 pb-48 pt-10">
@@ -130,42 +227,7 @@ function Loaded({ recipe }: { recipe: Recipe }): React.JSX.Element {
 
         {ready ? (
           <>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                icon={<BookPlus size={15} />}
-                disabled={!hasWorld}
-                title={hasWorld ? 'The New story dialog, with this recipe picked' : 'Open a world first: the new story goes into it.'}
-                onClick={() => startStoryFrom(recipe.id)}
-              >
-                Start a new story from it
-              </Button>
-              <Button icon={<Copy size={14} />} onClick={() => void duplicate(recipe.id)}>
-                Make a copy
-              </Button>
-              {recipe.hasSource && !recipe.byHand ? (
-                <Button
-                  icon={<RefreshCw size={14} />}
-                  title="The AI reads the story again and writes the recipe afresh. The parts you changed stay as they are."
-                  onClick={() => void readAgain(recipe.id)}
-                >
-                  Read the story again
-                </Button>
-              ) : null}
-              {recipe.hasSource ? (
-                <Button
-                  variant="ghost"
-                  icon={<FileX2 size={14} />}
-                  title="Removes the story’s text kept with this recipe. The recipe stays; it just can’t be read again."
-                  onClick={() => void forgetSource(recipe.id)}
-                >
-                  Forget the story’s text
-                </Button>
-              ) : null}
-              <Button variant="ghost" icon={<Trash2 size={14} />} onClick={() => void deleteRecipe(recipe)}>
-                Delete
-              </Button>
-            </div>
+            <div className="mt-5 flex flex-wrap gap-2">{actions}</div>
             {!hasWorld ? <p className="mt-2 text-[12px] text-faint">Open a world to start a new story from this recipe.</p> : null}
             {PART_GROUPS.map((g) => (
               <section key={g.title} aria-label={g.title} className="mt-8">

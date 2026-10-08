@@ -13,6 +13,8 @@ import { useApp } from '@/lib/store'
 import { ProblemNotice } from '@/features/builder/parts'
 import { Segmented } from '@/features/generate/parts'
 import { buildOutline, mergeBack, outlineCounts, wordsText, type OutlineChapter } from '@/features/importing/split'
+import { useDesk } from '@/features/look/look'
+import { DeskLibrary, DeskMake } from './DeskRecipes'
 import { RecipePage } from './RecipePage'
 import { dateWords, estimateWords, lengthWords, recipeName } from './recipeLogic'
 import { BackButton, INTRO, Kicker, MakingCard } from './parts'
@@ -38,6 +40,9 @@ import {
 
 export function RecipesView({ page, recipeId }: { page?: 'list' | 'make' | 'recipe'; recipeId?: string | null }): React.JSX.Element {
   useEffect(() => listenForRecipes(), [])
+  const desk = useDesk()
+  // The desk: the library and the recipe maker as pages of their own (DeskRecipes.tsx); a recipe's own page decides itself.
+  if (desk && page !== 'recipe') return page === 'make' ? <DeskMake /> : <DeskLibrary />
   return (
     <div className="flex h-full flex-col bg-bg">
       {page === 'make' ? <MakePage /> : page === 'recipe' && recipeId ? <RecipePage key={recipeId} recipeId={recipeId} /> : <LibraryPage />}
@@ -154,7 +159,7 @@ function MakePage(): React.JSX.Element {
   )
 }
 
-function ChooseFile(): React.JSX.Element {
+export function ChooseFile(): React.JSX.Element {
   const reading = useRecipes((s) => s.reading)
   return (
     <Card className="mt-4 flex flex-col items-center px-6 py-10 text-center">
@@ -172,7 +177,7 @@ function ChooseFile(): React.JSX.Element {
   )
 }
 
-function PasteBox(): React.JSX.Element {
+export function PasteBox(): React.JSX.Element {
   const pasted = useRecipes((s) => s.pasted)
   const reading = useRecipes((s) => s.reading)
   const id = useId()
@@ -200,7 +205,8 @@ function PasteBox(): React.JSX.Element {
   )
 }
 
-function Preview({ manuscript }: { manuscript: Manuscript }): React.JSX.Element {
+/** The story read in: its name and what it holds (`part` 'meta'), its chapters ('list'), or both (the panels). */
+export function Preview({ manuscript, part = 'all' }: { manuscript: Manuscript; part?: 'all' | 'meta' | 'list' }): React.JSX.Element {
   const proposed = useRecipes((s) => s.proposed)
   const edits = useRecipes((s) => s.edits)
   const name = useRecipes((s) => s.name)
@@ -208,6 +214,48 @@ function Preview({ manuscript }: { manuscript: Manuscript }): React.JSX.Element 
   const changed = Object.keys(edits.roles).length > 0
   const nameId = useId()
   const merge = (at: number): void => setRecipeEdits(mergeBack(useRecipes.getState().edits, manuscript.blocks, proposed, at))
+  if (part === 'list') {
+    return (
+      <ol className="plan-chapters" aria-label="Chapters">
+        {outline.chapters.map((c, i) => (
+          <ChapterRow key={c.key} chapter={c} first={i === 0} canMerge={i > 0 && c.at >= 0} onMerge={() => merge(c.at)} n={i} />
+        ))}
+      </ol>
+    )
+  }
+  if (part === 'meta') {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="plan-group">
+          <label htmlFor={nameId} className="plan-field-l">
+            The recipe’s name
+          </label>
+          <Input id={nameId} value={name} placeholder="Leave it empty and the AI suggests one" onChange={(e) => setRecipeName(e.target.value)} />
+          <p className="plan-hint">Never the story’s own title: a recipe keeps none of its words.</p>
+        </div>
+        <div className="plan-receipt">
+          <span className="plan-receipt-k">The story</span>
+          <p className="plan-receipt-t flex min-w-0 items-center gap-1.5">
+            <FileText size={14} className="shrink-0 text-faint" />
+            <span className="truncate">{manuscript.fileName}</span>
+          </p>
+          <p className="plan-receipt-s tabular-nums">
+            {wordsText(outline.words)} · {outlineCounts(outline)}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {changed ? (
+              <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={resetRecipeSplit}>
+                Undo my changes
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" icon={<FileUp size={13} />} onClick={clearStory}>
+              Choose another story
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="mt-6">
       <div className="flex max-w-[460px] flex-col gap-1">
@@ -249,8 +297,41 @@ function Preview({ manuscript }: { manuscript: Manuscript }): React.JSX.Element 
   )
 }
 
-function ChapterRow({ chapter: c, canMerge, onMerge }: { chapter: OutlineChapter; first: boolean; canMerge: boolean; onMerge: () => void }): React.JSX.Element {
+function ChapterRow({
+  chapter: c,
+  canMerge,
+  onMerge,
+  n
+}: {
+  chapter: OutlineChapter
+  first: boolean
+  canMerge: boolean
+  onMerge: () => void
+  /** On the desk: its place, and it is an index card. */
+  n?: number
+}): React.JSX.Element {
   const opening = c.scenes[0]?.opening ?? ''
+  if (n !== undefined) {
+    return (
+      <li aria-label={`Chapter: ${c.title}`} className="plan-icard plan-chapcard is-kept">
+        <div className="plan-ic-kind">
+          <span>Chapter {n + 1}</span>
+          <span className="plan-ic-when tabular-nums">
+            · {wordsText(c.words)} · {c.scenes.length === 1 ? '1 scene' : `${c.scenes.length} scenes`}
+          </span>
+        </div>
+        <p className="plan-ic-title truncate">{c.title}</p>
+        <p className="plan-chapcard-open font-serif" title={opening}>
+          {opening || <span className="font-sans italic text-faint">No words</span>}
+        </p>
+        {canMerge ? (
+          <button type="button" className="plan-txt plan-chapcard-merge" aria-label="Merge with the chapter before" title="Merge with the chapter before" onClick={onMerge}>
+            <Merge size={14} aria-hidden /> Merge
+          </button>
+        ) : null}
+      </li>
+    )
+  }
   return (
     <li
       aria-label={`Chapter: ${c.title}`}
@@ -279,7 +360,7 @@ function ChapterRow({ chapter: c, canMerge, onMerge }: { chapter: OutlineChapter
 }
 
 /** The foot of the page: what it costs, and Make the recipe. Toasts rise above it. */
-function MakeBar(): React.JSX.Element {
+export function MakeBar(): React.JSX.Element {
   const manuscript = useRecipes((s) => s.manuscript)
   const proposed = useRecipes((s) => s.proposed)
   const edits = useRecipes((s) => s.edits)
@@ -306,7 +387,7 @@ function MakeBar(): React.JSX.Element {
     }
   }, [manuscript, proposed, edits, models])
   return (
-    <div ref={bar} className="shrink-0 border-t border-line bg-surface">
+    <div ref={bar} className="plan-makebar shrink-0 border-t border-line bg-surface">
       <div className="mx-auto w-full max-w-[780px] px-8 py-3">
         {estimate?.problem ? (
           <div className="mb-2">
