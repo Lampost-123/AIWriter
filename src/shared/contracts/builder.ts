@@ -19,6 +19,8 @@ export interface BuilderStart {
   sceneId?: ID | null
   /** 'quick' opens Quick start; 'guided' the first step. */
   mode?: 'quick' | 'guided'
+  /** The step to open at (an entry's dossier opens its builder at the part Adam asked the AI about). */
+  step?: string
 }
 
 /**

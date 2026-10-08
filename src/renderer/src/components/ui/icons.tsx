@@ -27,6 +27,7 @@ const ICONS = {
   ArrowRight: [L.ArrowRight, 'ArrowRight'],
   ArrowUpRight: [L.ArrowUpRight, 'ArrowUpRight'],
   AudioLines: [L.AudioLines, 'Waveform'],
+  BadgeCheck: [L.BadgeCheck, 'SealCheck'],
   BetweenHorizontalStart: [L.BetweenHorizontalStart, 'RowsPlusTop'],
   Bold: [L.Bold, 'TextB'],
   BookA: [L.BookA, 'BookBookmark'],
@@ -64,6 +65,7 @@ const ICONS = {
   Download: [L.Download, 'DownloadSimple'],
   Drama: [L.Drama, 'MaskHappy'],
   Droplet: [L.Droplet, 'Drop'],
+  Ear: [L.Ear, 'Ear'],
   ExternalLink: [L.ExternalLink, 'ArrowSquareOut'],
   Eye: [L.Eye, 'Eye'],
   EyeOff: [L.EyeOff, 'EyeSlash'],
@@ -79,6 +81,7 @@ const ICONS = {
   Flame: [L.Flame, 'Fire'],
   Focus: [L.Focus, 'FrameCorners'],
   FoldVertical: [L.FoldVertical, 'ArrowsInLineVertical'],
+  Footprints: [L.Footprints, 'Footprints'],
   Folder: [L.Folder, 'Folder'],
   FolderInput: [L.FolderInput, 'FolderSimple'],
   FolderOpen: [L.FolderOpen, 'FolderOpen'],
@@ -89,11 +92,13 @@ const ICONS = {
   Globe2: [L.Globe2, 'GlobeHemisphereWest'],
   GripVertical: [L.GripVertical, 'DotsSixVertical'],
   Hand: [L.Hand, 'Hand'],
+  Handshake: [L.Handshake, 'Handshake'],
   HardDrive: [L.HardDrive, 'HardDrive'],
   HardDriveDownload: [L.HardDriveDownload, 'HardDrives'],
   Headphones: [L.Headphones, 'Headphones'],
   Heart: [L.Heart, 'Heart'],
   History: [L.History, 'ClockCounterClockwise'],
+  IdCard: [L.IdCard, 'IdentificationCard'],
   Hourglass: [L.Hourglass, 'Hourglass'],
   House: [L.House, 'House'],
   ImagePlus: [L.ImagePlus, 'Image'],
@@ -125,6 +130,7 @@ const ICONS = {
   Mic: [L.Mic, 'Microphone'],
   Minus: [L.Minus, 'Minus'],
   Monitor: [L.Monitor, 'Monitor'],
+  Mountain: [L.Mountain, 'Mountains'],
   Moon: [L.Moon, 'Moon'],
   MoreHorizontal: [L.MoreHorizontal, 'DotsThree'],
   Network: [L.Network, 'Graph'],
@@ -237,6 +243,7 @@ export const ArrowLeft = BY_NAME.ArrowLeft
 export const ArrowRight = BY_NAME.ArrowRight
 export const ArrowUpRight = BY_NAME.ArrowUpRight
 export const AudioLines = BY_NAME.AudioLines
+export const BadgeCheck = BY_NAME.BadgeCheck
 export const BetweenHorizontalStart = BY_NAME.BetweenHorizontalStart
 export const Bold = BY_NAME.Bold
 export const BookA = BY_NAME.BookA
@@ -274,6 +281,7 @@ export const DoorOpen = BY_NAME.DoorOpen
 export const Download = BY_NAME.Download
 export const Drama = BY_NAME.Drama
 export const Droplet = BY_NAME.Droplet
+export const Ear = BY_NAME.Ear
 export const ExternalLink = BY_NAME.ExternalLink
 export const Eye = BY_NAME.Eye
 export const EyeOff = BY_NAME.EyeOff
@@ -289,6 +297,7 @@ export const Flag = BY_NAME.Flag
 export const Flame = BY_NAME.Flame
 export const Focus = BY_NAME.Focus
 export const FoldVertical = BY_NAME.FoldVertical
+export const Footprints = BY_NAME.Footprints
 export const Folder = BY_NAME.Folder
 export const FolderInput = BY_NAME.FolderInput
 export const FolderOpen = BY_NAME.FolderOpen
@@ -299,11 +308,13 @@ export const Ghost = BY_NAME.Ghost
 export const Globe2 = BY_NAME.Globe2
 export const GripVertical = BY_NAME.GripVertical
 export const Hand = BY_NAME.Hand
+export const Handshake = BY_NAME.Handshake
 export const HardDrive = BY_NAME.HardDrive
 export const HardDriveDownload = BY_NAME.HardDriveDownload
 export const Headphones = BY_NAME.Headphones
 export const Heart = BY_NAME.Heart
 export const History = BY_NAME.History
+export const IdCard = BY_NAME.IdCard
 export const Hourglass = BY_NAME.Hourglass
 export const House = BY_NAME.House
 export const ImagePlus = BY_NAME.ImagePlus
@@ -335,6 +346,7 @@ export const MessagesSquare = BY_NAME.MessagesSquare
 export const Mic = BY_NAME.Mic
 export const Minus = BY_NAME.Minus
 export const Monitor = BY_NAME.Monitor
+export const Mountain = BY_NAME.Mountain
 export const Moon = BY_NAME.Moon
 export const MoreHorizontal = BY_NAME.MoreHorizontal
 export const Network = BY_NAME.Network
